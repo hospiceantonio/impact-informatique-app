@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5">
+<title>Impact Informatique — Matériel &amp; consommables</title>
+<meta name="description" content="Le catalogue d'IMPACT INFORMATIQUE : ordinateurs, imprimantes, encres et toners, accessoires, stockage et réseau. Nous sommes imbattables en prix.">
+<meta name="theme-color" content="#0E63C4">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Impact">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Sprite d'icônes : réutilisé partout via <use href="#i-xxx"> -->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <g id="i-accueil"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></g>
+    <g id="i-categories"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></g>
+    <g id="i-recherche"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></g>
+    <g id="i-infos"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/></g>
+    <g id="i-retour"><path d="M15 5 8 12l7 7"/></g>
+    <g id="i-fermer"><path d="M6 6l12 12M18 6 6 18"/></g>
+    <g id="i-chevron"><path d="m9 5 7 7-7 7"/></g>
+    <g id="i-whatsapp"><path d="M3.5 20.5 5 16.4a7.9 7.9 0 1 1 3.1 3z"/><path d="M9 9.2c.2 2.3 2.4 4.6 4.8 5 .8.1 1.6-.6 1.7-1.3l-1.9-1-.9.9c-1-.5-1.8-1.3-2.3-2.3l.9-.9-1-1.9c-.8.1-1.4.8-1.3 1.5z" stroke-width="1.2"/></g>
+    <g id="i-tel"><path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2C11.5 22.5 1.5 12.5 1.5 5.7a2 2 0 0 1 2-2.2z"/></g>
+    <g id="i-etoile"><path d="m12 3 2.7 5.7 6.3.8-4.6 4.3 1.2 6.2L12 17l-5.6 3 1.2-6.2L3 9.5l6.3-.8z"/></g>
+    <g id="i-promo"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.6"/></g>
+    <g id="i-image"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4 17 5-5 4.5 4.5L17 13l3 3"/></g>
+    <g id="i-carte"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></g>
+    <g id="i-horloge"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/></g>
+    <g id="i-facebook"><path d="M14 8.5V7a1.5 1.5 0 0 1 1.5-1.5H17V2.8h-2.6A3.9 3.9 0 0 0 10.5 6.7v1.8H8v3h2.5V21h3.5v-9.5h2.6l.4-3z"/></g>
+    <g id="i-installer"><path d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/><path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/></g>
+    <g id="i-partager"><circle cx="6" cy="12" r="2.6"/><circle cx="17.5" cy="5.5" r="2.6"/><circle cx="17.5" cy="18.5" r="2.6"/><path d="m8.4 10.8 6.8-4M8.4 13.2l6.8 4"/></g>
+    <g id="i-actualiser"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 3v4.5h-4.5"/></g>
+    <g id="i-alerte"><path d="M12 3.5 22 20H2z"/><path d="M12 10v4.5M12 17.2h.01"/></g>
+    <g id="i-check"><path d="m4.5 12.5 5 5 10-11"/></g>
+    <g id="i-boite"><path d="m3 7.5 9-4.5 9 4.5v9l-9 4.5-9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></g>
+    <g id="i-portable"><path d="M4.5 5.5h15a1 1 0 0 1 1 1V16h-17V6.5a1 1 0 0 1 1-1z"/><path d="M2 19h20l-1.5-3h-17z"/></g>
+    <g id="i-bureau"><rect x="3" y="4" width="12" height="9" rx="1.5"/><path d="M9 13v3M6 16h6"/><rect x="17.5" y="4" width="4" height="12" rx="1"/><path d="M19 7h1"/></g>
+    <g id="i-imprimante"><path d="M6.5 8V3.5h11V8"/><rect x="3.5" y="8" width="17" height="8.5" rx="1.5"/><path d="M6.5 13.5h11V21h-11z" fill="none"/><path d="M17 10.7h.01"/></g>
+    <g id="i-goutte"><path d="M12 3s6.5 7 6.5 11.5a6.5 6.5 0 1 1-13 0C5.5 10 12 3 12 3z"/></g>
+    <g id="i-souris"><rect x="7" y="3" width="10" height="18" rx="5"/><path d="M12 6.5v3.5"/></g>
+    <g id="i-casque"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6.5" rx="1.6"/><rect x="17" y="14" width="4" height="6.5" rx="1.6"/></g>
+    <g id="i-sacoche"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 12.5h18"/></g>
+    <g id="i-usb"><rect x="8.5" y="2.5" width="7" height="5.5"/><path d="M10.5 5h.8M13 5h.8"/><rect x="7" y="8" width="10" height="13.5" rx="2.5"/></g>
+    <g id="i-disque"><rect x="4" y="4" width="16" height="16" rx="2.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></g>
+    <g id="i-wifi"><path d="M2.5 8.8a14.5 14.5 0 0 1 19 0M5.6 12.5a10 10 0 0 1 12.8 0M8.8 16.1a5.4 5.4 0 0 1 6.4 0"/><path d="M12 19.6h.01" stroke-width="2.6"/></g>
+    <g id="i-cable"><path d="M8 3v4M16 3v4"/><rect x="6" y="7" width="12" height="6" rx="1.5"/><path d="M12 13v3a3 3 0 0 1-3 3H6"/></g>
+    <g id="i-energie"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5z"/></g>
+    <g id="i-telephone"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></g>
+    <g id="i-ecran"><rect x="2.5" y="4" width="19" height="13" rx="1.8"/><path d="M9 21h6M12 17v4"/></g>
+  </defs>
+</svg>
+
+<header class="topbar" id="topbar"></header>
+
+<main id="vue" class="vue" tabindex="-1"></main>
+
+<nav class="tabbar" id="tabbar" aria-label="Navigation principale">
+  <a href="#/" data-tab="/"><svg class="ic" viewBox="0 0 24 24"><use href="#i-accueil"/></svg><span>Accueil</span></a>
+  <a href="#/categories" data-tab="/categories"><svg class="ic" viewBox="0 0 24 24"><use href="#i-categories"/></svg><span>Catégories</span></a>
+  <a href="#/recherche" data-tab="/recherche"><svg class="ic" viewBox="0 0 24 24"><use href="#i-recherche"/></svg><span>Recherche</span></a>
+  <a href="#/infos" data-tab="/infos"><svg class="ic" viewBox="0 0 24 24"><use href="#i-infos"/></svg><span>Infos</span></a>
+</nav>
+
+<div id="visionneuse" class="visionneuse" hidden>
+  <button type="button" class="visionneuse-fermer btn-ic" data-action="fermer-visionneuse" aria-label="Fermer">
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-fermer"/></svg>
+  </button>
+  <img id="visionneuse-img" alt="Photo du produit en grand">
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/catalogue.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/vues/accueil.js"></script>
+<script src="js/vues/categories.js"></script>
+<script src="js/vues/produit.js"></script>
+<script src="js/vues/recherche.js"></script>
+<script src="js/vues/infos.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

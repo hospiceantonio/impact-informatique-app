@@ -1,0 +1,67 @@
+# Construit les deux APK Android (client + admin) à chaque
+# modification des applications, puis les range dans apk/.
+name: Construire les APK Android
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "client/**"
+      - "admin/**"
+      - "android/**"
+      - ".github/workflows/apk.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  construire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Copier les applications web dans les assets
+        run: node android/preparer-assets.js
+
+      - name: Construire les deux APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleClientRelease assembleAdminRelease
+
+      - name: Rassembler les APK
+        run: |
+          mkdir -p apk
+          cp android/app/build/outputs/apk/client/release/app-client-release.apk \
+             apk/impact-informatique-client.apk
+          cp android/app/build/outputs/apk/admin/release/app-admin-release.apk \
+             apk/impact-admin.apk
+          ls -lh apk/
+
+      - name: Garder les APK en artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-impact-informatique
+          path: apk/*.apk
+
+      - name: Committer les APK sur la branche
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f apk
+          if git diff --cached --quiet; then
+            echo "APK inchangés"
+          else
+            git commit -m "APK Android construits automatiquement [skip ci]"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

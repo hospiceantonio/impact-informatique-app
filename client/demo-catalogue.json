@@ -1,0 +1,171 @@
+{
+  "application": "impact-catalogue",
+  "version": 1,
+  "publieLe": "2026-08-07T12:00:00.000Z",
+  "boutique": {
+    "nom": "IMPACT INFORMATIQUE",
+    "slogan": "Nous sommes imbattables en prix",
+    "description": "Vente de matériels et consommables informatiques : ordinateurs, imprimantes, encres et toners, accessoires, stockage et réseau.",
+    "tel": "",
+    "whatsapp": "",
+    "indicatif": "229",
+    "devise": "FCFA",
+    "adresse": "",
+    "horaires": "",
+    "facebook": ""
+  },
+  "categories": [
+    {
+      "id": "cat_ordinateurs",
+      "nom": "Ordinateurs",
+      "ordre": 1,
+      "sousCategories": [
+        { "id": "sc_portables", "nom": "Ordinateurs portables", "ordre": 1 },
+        { "id": "sc_bureau", "nom": "Ordinateurs de bureau", "ordre": 2 },
+        { "id": "sc_toutenun", "nom": "Tout-en-un", "ordre": 3 }
+      ]
+    },
+    {
+      "id": "cat_imprimantes",
+      "nom": "Imprimantes & scanners",
+      "ordre": 2,
+      "sousCategories": [
+        { "id": "sc_jetencre", "nom": "Jet d'encre", "ordre": 1 },
+        { "id": "sc_laser", "nom": "Laser", "ordre": 2 },
+        { "id": "sc_multifonctions", "nom": "Multifonctions", "ordre": 3 }
+      ]
+    },
+    {
+      "id": "cat_consommables",
+      "nom": "Consommables",
+      "ordre": 3,
+      "sousCategories": [
+        { "id": "sc_encres", "nom": "Encres & cartouches", "ordre": 1 },
+        { "id": "sc_toners", "nom": "Toners", "ordre": 2 },
+        { "id": "sc_papier", "nom": "Papier & rames", "ordre": 3 }
+      ]
+    },
+    {
+      "id": "cat_accessoires",
+      "nom": "Accessoires",
+      "ordre": 4,
+      "sousCategories": [
+        { "id": "sc_claviers_souris", "nom": "Claviers & souris", "ordre": 1 },
+        { "id": "sc_sacoches", "nom": "Sacoches & sacs à dos", "ordre": 2 },
+        { "id": "sc_casques", "nom": "Casques & audio", "ordre": 3 }
+      ]
+    },
+    {
+      "id": "cat_stockage",
+      "nom": "Stockage",
+      "ordre": 5,
+      "sousCategories": [
+        { "id": "sc_cles_usb", "nom": "Clés USB", "ordre": 1 },
+        { "id": "sc_disques", "nom": "Disques durs & SSD", "ordre": 2 },
+        { "id": "sc_cartes", "nom": "Cartes mémoire", "ordre": 3 }
+      ]
+    },
+    {
+      "id": "cat_reseau",
+      "nom": "Réseau & énergie",
+      "ordre": 6,
+      "sousCategories": [
+        { "id": "sc_wifi", "nom": "Routeurs & wifi", "ordre": 1 },
+        { "id": "sc_cables", "nom": "Câbles & adaptateurs", "ordre": 2 },
+        { "id": "sc_onduleurs", "nom": "Onduleurs", "ordre": 3 }
+      ]
+    }
+  ],
+  "produits": [
+    {
+      "id": "prod_hp15",
+      "nom": "Ordinateur portable HP 15",
+      "description": "Écran 15,6\" HD, processeur Intel Core i5, 8 Go de RAM, SSD 512 Go, Windows 11.\nIdéal pour le bureau, les études et la navigation.\nGarantie boutique, livraison possible à Cotonou.",
+      "prix": 385000,
+      "ancienPrix": null,
+      "categorieId": "cat_ordinateurs",
+      "sousCategorieId": "sc_portables",
+      "disponible": true,
+      "enAvant": true,
+      "ordreAvant": 1,
+      "images": [],
+      "creeLe": 1785600000000,
+      "modifieLe": 1785600000000
+    },
+    {
+      "id": "prod_epson_l3250",
+      "nom": "Imprimante Epson EcoTank L3250",
+      "description": "Multifonction 3 en 1 (impression, copie, scan) à réservoirs d'encre rechargeables.\nWifi intégré, impression depuis le téléphone.\nJusqu'à 4 500 pages noir avec un seul flacon.",
+      "prix": 145000,
+      "ancienPrix": 165000,
+      "categorieId": "cat_imprimantes",
+      "sousCategorieId": "sc_multifonctions",
+      "disponible": true,
+      "enAvant": true,
+      "ordreAvant": 2,
+      "images": [],
+      "creeLe": 1785610000000,
+      "modifieLe": 1785610000000
+    },
+    {
+      "id": "prod_apc650",
+      "nom": "Onduleur APC Back-UPS 650 VA",
+      "description": "Protège votre ordinateur des coupures et variations de courant.\nAutonomie suffisante pour enregistrer votre travail et éteindre proprement.\nPrises multiples, protection téléphone/ADSL.",
+      "prix": 42000,
+      "ancienPrix": null,
+      "categorieId": "cat_reseau",
+      "sousCategorieId": "sc_onduleurs",
+      "disponible": true,
+      "enAvant": true,
+      "ordreAvant": 3,
+      "images": [],
+      "creeLe": 1785620000000,
+      "modifieLe": 1785620000000
+    },
+    {
+      "id": "prod_usb_kingston64",
+      "nom": "Clé USB Kingston 64 Go",
+      "description": "Clé USB 3.2 rapide et fiable pour vos documents, photos et vidéos.\nCompatible ordinateur, TV et autoradio.",
+      "prix": 6500,
+      "ancienPrix": null,
+      "categorieId": "cat_stockage",
+      "sousCategorieId": "sc_cles_usb",
+      "disponible": true,
+      "enAvant": true,
+      "ordreAvant": 4,
+      "images": [],
+      "creeLe": 1785630000000,
+      "modifieLe": 1785630000000
+    },
+    {
+      "id": "prod_toner_85a",
+      "nom": "Toner HP 85A (CE285A)",
+      "description": "Cartouche de toner noir d'origine pour HP LaserJet P1102, M1132, M1212…\nEnviron 1 600 pages.",
+      "prix": 28000,
+      "ancienPrix": 32000,
+      "categorieId": "cat_consommables",
+      "sousCategorieId": "sc_toners",
+      "disponible": true,
+      "enAvant": true,
+      "ordreAvant": 5,
+      "images": [],
+      "creeLe": 1785640000000,
+      "modifieLe": 1785640000000
+    },
+    {
+      "id": "prod_logitech_m185",
+      "nom": "Souris sans fil Logitech M185",
+      "description": "Souris sans fil compacte avec récepteur USB nano.\nJusqu'à 12 mois d'autonomie avec une pile AA.",
+      "prix": 8500,
+      "ancienPrix": null,
+      "categorieId": "cat_accessoires",
+      "sousCategorieId": "sc_claviers_souris",
+      "disponible": true,
+      "enAvant": false,
+      "ordreAvant": 0,
+      "images": [],
+      "creeLe": 1785650000000,
+      "modifieLe": 1785650000000
+    }
+  ]
+}

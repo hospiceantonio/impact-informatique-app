@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Impact Informatique</string>
+    <color name="fond_demarrage">#0B4FA0</color>
+    <color name="ic_launcher_fond">#1176D8</color>
+</resources>

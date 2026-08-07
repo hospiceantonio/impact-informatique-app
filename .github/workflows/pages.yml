@@ -1,0 +1,51 @@
+# Déploie les versions web des applications sur GitHub Pages :
+#  - application client -> https://<compte>.github.io/impact-informatique-app/client/
+#  - application admin  -> https://<compte>.github.io/impact-informatique-app/admin/
+# L'étape configure-pages active Pages automatiquement au premier passage ;
+# en cas d'échec, choisir une fois Settings -> Pages -> Source : "GitHub Actions".
+name: Déployer sur GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Configurer Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Assembler le site
+        run: |
+          mkdir -p _site
+          rsync -a --exclude '.git' --exclude '.github' --exclude '_site' \
+            --exclude 'serve.ps1' --exclude 'tools' \
+            --exclude 'android' --exclude 'apk' ./ _site/
+
+      - name: Téléverser l'artefact Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Déployer
+        id: deploiement
+        uses: actions/deploy-pages@v4

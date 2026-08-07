@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Impact" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/fond_demarrage</item>
+        <item name="android:statusBarColor">@color/fond_demarrage</item>
+        <item name="android:navigationBarColor">@color/fond_demarrage</item>
+    </style>
+</resources>

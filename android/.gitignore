@@ -1,0 +1,9 @@
+# Sorties de build et fichiers générés
+.gradle/
+build/
+app/build/
+local.properties
+
+# Assets web copiés par preparer-assets.js
+app/src/client/assets/
+app/src/admin/assets/
