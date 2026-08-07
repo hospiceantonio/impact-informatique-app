@@ -23,7 +23,7 @@ create table if not exists public.boutique (
   slogan      text not null default 'Nous sommes imbattables en prix',
   description text not null default '',
   tel         text not null default '',
-  whatsapp    text not null default '',
+  whatsapp    text not null default '69842516',
   indicatif   text not null default '229',
   devise      text not null default 'FCFA',
   adresse     text not null default '',
@@ -70,6 +70,11 @@ create index if not exists produits_en_avant on public.produits(en_avant) where 
 
 -- ---------- Ligne boutique par défaut ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;
+
+-- Numéro WhatsApp de la boutique (rempli seulement s'il est vide :
+-- la valeur saisie ensuite dans l'app admin est toujours prioritaire).
+update public.boutique set whatsapp = '69842516', maj_le = now()
+where id = 1 and whatsapp = '';
 
 -- ---------- Sécurité : lecture publique, écriture connectée ----------
 alter table public.boutique        enable row level security;

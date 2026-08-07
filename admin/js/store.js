@@ -20,7 +20,7 @@ const Store = (() => {
     slogan: "Nous sommes imbattables en prix",
     description: "",
     tel: "",
-    whatsapp: "",
+    whatsapp: "69842516",
     indicatif: "229",
     devise: "FCFA",
     adresse: "",

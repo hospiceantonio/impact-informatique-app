@@ -181,7 +181,7 @@ const Catalogue = (() => {
       slogan: b.slogan || "Nous sommes imbattables en prix",
       description: b.description || "",
       tel: b.tel || "",
-      whatsapp: b.whatsapp || b.tel || "",
+      whatsapp: b.whatsapp || b.tel || "69842516",
       indicatif: b.indicatif || "229",
       devise: b.devise || "FCFA",
       adresse: b.adresse || "",
