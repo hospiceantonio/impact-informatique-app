@@ -11,10 +11,10 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
-import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -29,22 +29,31 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.webkit.WebViewAssetLoader;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 /**
  * Coquille Android des applications IMPACT INFORMATIQUE :
  * la WebView charge les fichiers embarqués (assets/www) et
  * délègue au téléphone les liens externes (WhatsApp, appels…),
  * la prise de photos et l'enregistrement des sauvegardes.
+ *
+ * Les fichiers sont servis directement depuis les assets par
+ * shouldInterceptRequest : une adresse appassets.androidx.dev
+ * ne part JAMAIS sur le réseau (ce domaine ne répond pas).
  */
 public class MainActivity extends Activity {
 
     private static final String ORIGINE = "https://appassets.androidx.dev";
+    private static final String PAGE_ACCUEIL = ORIGINE + "/assets/www/index.html";
     private static final int CODE_CHOIX_FICHIER = 41;
 
     private WebView vueWeb;
@@ -81,14 +90,26 @@ public class MainActivity extends Activity {
 
         vueWeb.addJavascriptInterface(new PontAndroid(), "AndroidPont");
 
-        final WebViewAssetLoader chargeur = new WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-                .build();
-
         vueWeb.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView vue, WebResourceRequest requete) {
-                return chargeur.shouldInterceptRequest(requete.getUrl());
+                Uri url = requete.getUrl();
+                if (url == null || !"https".equals(url.getScheme())
+                        || !"appassets.androidx.dev".equals(url.getAuthority())) {
+                    return null; // vraie requête réseau (base Supabase, photos…)
+                }
+                String chemin = url.getPath() == null ? "" : url.getPath();
+                /* Accepte les deux formes d'adresse : /assets/www/… et /www/… */
+                if (chemin.startsWith("/assets/")) chemin = chemin.substring("/assets/".length());
+                else if (chemin.startsWith("/")) chemin = chemin.substring(1);
+                WebResourceResponse reponse = reponseDepuisAssets(chemin);
+                if (reponse != null) return reponse;
+                /* Introuvable : réponse 404 claire, jamais le réseau. */
+                byte[] corps = ("<!doctype html><meta charset=\"utf-8\"><title>Introuvable</title>" +
+                        "<p>Fichier absent de l'application : " + chemin + "</p>")
+                        .getBytes(StandardCharsets.UTF_8);
+                return new WebResourceResponse("text/html", "utf-8", 404, "Not Found",
+                        new HashMap<String, String>(), new ByteArrayInputStream(corps));
             }
 
             @Override
@@ -103,6 +124,24 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
+
+            @Override
+            public void onReceivedError(WebView vue, WebResourceRequest requete, WebResourceError erreur) {
+                if (!requete.isForMainFrame()) return;
+                /* Page de diagnostic : version visible + bouton réessayer. */
+                String page = "<!doctype html><html lang=\"fr\"><meta charset=\"utf-8\">" +
+                        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+                        "<body style=\"margin:0;font-family:sans-serif;background:#0B4FA0;color:#fff;" +
+                        "min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center\">" +
+                        "<div style=\"padding:24px\"><h2 style=\"margin:0 0 10px\">Ouverture impossible</h2>" +
+                        "<p style=\"opacity:.85;font-size:14px;word-break:break-all\">" +
+                        erreur.getDescription() + "<br>" + requete.getUrl() + "</p>" +
+                        "<p style=\"font-size:13px;opacity:.7\">Application version " + versionApplication() + "</p>" +
+                        "<p><a href=\"" + PAGE_ACCUEIL + "\" style=\"display:inline-block;margin-top:8px;" +
+                        "padding:12px 22px;background:#E62329;color:#fff;border-radius:10px;" +
+                        "text-decoration:none;font-weight:bold\">Réessayer</a></p></div>";
+                vue.loadDataWithBaseURL(ORIGINE + "/assets/www/erreur.html", page, "text/html", "utf-8", null);
+            }
         });
 
         vueWeb.setWebChromeClient(new WebChromeClient() {
@@ -116,7 +155,41 @@ public class MainActivity extends Activity {
             }
         });
 
-        vueWeb.loadUrl(ORIGINE + "/assets/www/index.html");
+        vueWeb.loadUrl(PAGE_ACCUEIL);
+    }
+
+    /* ---------- Fichiers embarqués ---------- */
+
+    private WebResourceResponse reponseDepuisAssets(String chemin) {
+        if (chemin.isEmpty() || chemin.endsWith("/")) chemin = chemin + "index.html";
+        try {
+            InputStream flux = getAssets().open(chemin);
+            return new WebResourceResponse(typeMime(chemin), "utf-8", flux);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static String typeMime(String chemin) {
+        String c = chemin.toLowerCase();
+        if (c.endsWith(".html")) return "text/html";
+        if (c.endsWith(".js")) return "application/javascript";
+        if (c.endsWith(".css")) return "text/css";
+        if (c.endsWith(".json")) return "application/json";
+        if (c.endsWith(".webmanifest")) return "application/manifest+json";
+        if (c.endsWith(".svg")) return "image/svg+xml";
+        if (c.endsWith(".png")) return "image/png";
+        if (c.endsWith(".jpg") || c.endsWith(".jpeg")) return "image/jpeg";
+        if (c.endsWith(".ico")) return "image/x-icon";
+        return "application/octet-stream";
+    }
+
+    private String versionApplication() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     /* ---------- Choix / prise de photo ---------- */
