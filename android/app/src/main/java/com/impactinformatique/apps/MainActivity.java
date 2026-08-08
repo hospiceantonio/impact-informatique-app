@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
         vueWeb.addJavascriptInterface(new PontAndroid(), "AndroidPont");
 
         final WebViewAssetLoader chargeur = new WebViewAssetLoader.Builder()
-                .addPathHandler("/www/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
         vueWeb.setWebViewClient(new WebViewClient() {
@@ -116,7 +116,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        vueWeb.loadUrl(ORIGINE + "/www/index.html");
+        vueWeb.loadUrl(ORIGINE + "/assets/www/index.html");
     }
 
     /* ---------- Choix / prise de photo ---------- */

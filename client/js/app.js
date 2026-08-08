@@ -119,7 +119,7 @@ const App = { evenementInstallation: null };
     window.addEventListener("hashchange", naviguer);
     naviguer();
 
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !location.hostname.endsWith("appassets.androidx.dev")) {
       navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne au premier chargement */ });
     }
   }
