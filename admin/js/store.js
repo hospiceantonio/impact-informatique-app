@@ -42,6 +42,7 @@ const Store = (() => {
     return {
       id: l.id,
       nom: l.nom,
+      reference: l.reference || "",
       description: l.description || "",
       prix: Number(l.prix) || 0,
       ancienPrix: l.ancien_prix === null || l.ancien_prix === undefined ? null : Number(l.ancien_prix),
@@ -61,6 +62,7 @@ const Store = (() => {
     return {
       id: p.id,
       nom: p.nom,
+      reference: p.reference,
       description: p.description,
       prix: p.prix,
       ancien_prix: p.ancienPrix,
@@ -232,9 +234,20 @@ const Store = (() => {
     const t = Utils.sansAccent(terme).trim();
     if (!t) return produits;
     return produits.filter((p) => {
-      const texte = Utils.sansAccent(p.nom + " " + (p.description || ""));
+      const texte = Utils.sansAccent(p.nom + " " + (p.reference || "") + " " + (p.description || ""));
       return t.split(/\s+/).every((mot) => texte.includes(mot));
     });
+  }
+
+  /** Prochaine référence libre au format IMP-0001, IMP-0002… */
+  async function prochaineReference() {
+    const produits = await listerProduits();
+    let max = 0;
+    for (const p of produits) {
+      const m = /^IMP-(\d+)$/i.exec((p.reference || "").trim());
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return "IMP-" + String(max + 1).padStart(4, "0");
   }
 
   /**
@@ -247,6 +260,15 @@ const Store = (() => {
 
     const nom = (donnees.nom || "").trim();
     if (!nom) throw new Error("Le nom du produit est obligatoire.");
+
+    let reference = (donnees.reference || "").trim();
+    if (!reference) reference = await prochaineReference();
+    const tous = await listerProduits();
+    const doublon = tous.find((x) => x.reference &&
+      x.reference.toLowerCase() === reference.toLowerCase() && x.id !== (existant && existant.id));
+    if (doublon) {
+      throw new Error("La référence « " + reference + " » est déjà utilisée par « " + doublon.nom + " ».");
+    }
 
     const prix = Math.round(Utils.lireNombre(donnees.prix));
     if (prix <= 0) throw new Error("Indiquez le prix de vente.");
@@ -298,6 +320,7 @@ const Store = (() => {
     const produit = {
       id: existant ? existant.id : Utils.uid("prod"),
       nom,
+      reference,
       description: (donnees.description || "").trim(),
       prix,
       ancienPrix,
@@ -491,6 +514,7 @@ const Store = (() => {
       await Supabase.requete("POST", "produits?on_conflict=id", {
         id: p.id,
         nom: p.nom,
+        reference: p.reference || "",
         description: p.description || "",
         prix: Number(p.prix) || 0,
         ancien_prix: p.ancienPrix || null,
@@ -528,7 +552,7 @@ const Store = (() => {
     MAX_EN_AVANT, MAX_PHOTOS,
     init, lireReglages, majReglages,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
-    listerProduits, lireProduit, produitsDeCategorie, chercherProduits,
+    listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, basculerDisponible,
     statistiques, exporter, importer,

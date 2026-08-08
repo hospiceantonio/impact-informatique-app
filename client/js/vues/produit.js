@@ -60,13 +60,19 @@ const VueProduit = (() => {
 
     UI.entete({ titre: p.nom, retour: true, sous: cat ? cat.nom : "" });
 
-    const lienProduit = location.href.split("#")[0] + "#/produit/" + p.id;
+    /* Message WhatsApp : référence, prix et description complète du produit. */
+    const description = (p.description || "").split(/\n+/)
+      .map((l) => l.trim()).filter(Boolean).map((l) => "  - " + l).join("\n");
+    const fiche =
+      "• Produit : " + p.nom +
+      (p.reference ? "\n• Référence : " + p.reference : "") +
+      "\n• Prix affiché : " + Utils.fmtMontant(p.prix, boutique.devise) +
+      (description ? "\n• Description :\n" + description : "");
     const messageWa = p.disponible
-      ? "Bonjour " + boutique.nom + " 👋\nJe suis intéressé(e) par :\n• " + p.nom +
-        "\n• Prix affiché : " + Utils.fmtMontant(p.prix, boutique.devise) +
-        "\nEst-il disponible ?\n" + lienProduit
-      : "Bonjour " + boutique.nom + " 👋\nLe produit « " + p.nom +
-        " » est en rupture : quand sera-t-il de nouveau disponible ?\n" + lienProduit;
+      ? "Bonjour " + boutique.nom + " 👋\nJe suis intéressé(e) par ce produit :\n" + fiche +
+        "\n\nEst-il disponible ?"
+      : "Bonjour " + boutique.nom + " 👋\nCe produit est affiché en rupture :\n" + fiche +
+        "\n\nQuand sera-t-il de nouveau disponible ?";
 
     let html = "";
 
@@ -82,6 +88,7 @@ const VueProduit = (() => {
           (p.enAvant ? '<span class="badge badge-avant">' + UI.icone("etoile", "ic-sm") + "Sélection</span>" : "") +
         "</div>" +
         '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
+        (p.reference ? '<div class="fiche-reference">Réf. ' + Utils.echapper(p.reference) + "</div>" : "") +
         UI.prixHtml(p, { grand: true }) +
         (cat
           ? '<div class="fiche-chemin">' +

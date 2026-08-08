@@ -113,6 +113,7 @@ const Catalogue = (() => {
         produits: (produits || []).map((p) => ({
           id: p.id,
           nom: p.nom,
+          reference: p.reference || "",
           description: p.description || "",
           prix: Number(p.prix) || 0,
           ancienPrix: p.ancien_prix === null || p.ancien_prix === undefined ? null : Number(p.ancien_prix),
@@ -266,7 +267,7 @@ const Catalogue = (() => {
         const cat = categorie(p.categorieId);
         const sc = sousCategorie(p.categorieId, p.sousCategorieId);
         const texte = Utils.sansAccent(
-          p.nom + " " + (p.description || "") + " " +
+          p.nom + " " + (p.reference || "") + " " + (p.description || "") + " " +
           (cat ? cat.nom : "") + " " + (sc ? sc.nom : ""));
         return mots.every((mot) => texte.includes(mot));
       })

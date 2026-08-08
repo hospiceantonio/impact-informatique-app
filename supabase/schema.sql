@@ -53,6 +53,7 @@ create index if not exists sous_categories_categorie
 create table if not exists public.produits (
   id                text primary key,
   nom               text not null,
+  reference         text not null default '',
   description       text not null default '',
   prix              bigint not null check (prix >= 0),
   ancien_prix       bigint,
@@ -65,6 +66,9 @@ create table if not exists public.produits (
   cree_le           timestamptz not null default now(),
   modifie_le        timestamptz not null default now()
 );
+-- Ajout de la colonne sur les bases déjà créées (sans risque).
+alter table public.produits add column if not exists reference text not null default '';
+
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
 
@@ -150,6 +154,14 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_cables',         'cat_reseau',       'Câbles & adaptateurs',    2),
   ('sc_onduleurs',      'cat_reseau',       'Onduleurs',               3)
 on conflict (id) do nothing;
+
+-- Références des produits d'exemple déjà en base (seulement si vides).
+update public.produits set reference = 'IMP-0001' where id = 'prod_hp15' and reference = '';
+update public.produits set reference = 'IMP-0002' where id = 'prod_epson_l3250' and reference = '';
+update public.produits set reference = 'IMP-0003' where id = 'prod_apc650' and reference = '';
+update public.produits set reference = 'IMP-0004' where id = 'prod_usb_kingston64' and reference = '';
+update public.produits set reference = 'IMP-0005' where id = 'prod_toner_85a' and reference = '';
+update public.produits set reference = 'IMP-0006' where id = 'prod_logitech_m185' and reference = '';
 
 -- ---------- Produits d'exemple (supprimables depuis l'app admin) ----------
 insert into public.produits

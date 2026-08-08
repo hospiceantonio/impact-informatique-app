@@ -43,9 +43,11 @@ const VueProduits = (() => {
     const zone = UI.$("#produits-liste");
     const nomSousCategorie = (p) => {
       const c = categories.find((x) => x.id === p.categorieId);
-      if (!c) return "Sans catégorie";
-      const sc = (c.sousCategories || []).find((x) => x.id === p.sousCategorieId);
-      return sc ? c.nom + " · " + sc.nom : c.nom;
+      const cat = !c ? "Sans catégorie"
+        : ((c.sousCategories || []).find((x) => x.id === p.sousCategorieId) || {}).nom
+          ? c.nom + " · " + (c.sousCategories || []).find((x) => x.id === p.sousCategorieId).nom
+          : c.nom;
+      return (p.reference ? p.reference + " · " : "") + cat;
     };
 
     const rendre = () => {
@@ -151,6 +153,7 @@ const VueProduits = (() => {
 
   async function formulaire(vue, id) {
     const existant = id ? await Store.lireProduit(id) : null;
+    const referenceProposee = existant ? existant.reference : await Store.prochaineReference();
     if (id && !existant) {
       UI.entete({ titre: "Produit", retour: true });
       vue.innerHTML = UI.vide("alerte", "Produit introuvable", "");
@@ -183,6 +186,8 @@ const VueProduits = (() => {
       '<div class="carte">' +
         UI.champTexte({ id: "p-nom", label: "Nom du produit", valeur: existant ? existant.nom : "",
           obligatoire: true, placeholder: "Ex. Ordinateur portable HP 15" }) +
+        UI.champTexte({ id: "p-reference", label: "Référence", valeur: referenceProposee,
+          aide: "Attribuée automatiquement, modifiable (elle apparaît sur la fiche et dans les commandes WhatsApp)." }) +
         UI.champZone({ id: "p-description", label: "Description", valeur: existant ? existant.description : "",
           lignes: 5, placeholder: "Caractéristiques, état, garantie…\nUne idée par ligne." }) +
       "</div>" +
@@ -240,6 +245,7 @@ const VueProduits = (() => {
         const produit = await Store.sauverProduit({
           id: existant ? existant.id : null,
           nom: UI.$("#p-nom").value,
+          reference: UI.$("#p-reference").value,
           description: UI.$("#p-description").value,
           prix: UI.$("#p-prix").value,
           ancienPrix: UI.$("#p-ancien").value.trim(),
@@ -323,6 +329,7 @@ const VueProduits = (() => {
           (remise !== null ? '<s class="prix-ancien">' + Utils.echapper(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>" : "") +
         "</div>" +
         '<div class="aide" style="margin-top:6px">' +
+          (p.reference ? "Réf : " + Utils.echapper(p.reference) + " · " : "") +
           Utils.echapper(categorie ? categorie.nom + (sousCategorie ? " · " + sousCategorie.nom : "") : "Sans catégorie") +
           " — modifié le " + Utils.echapper(Utils.fmtDate(p.modifieLe)) +
         "</div>" +
