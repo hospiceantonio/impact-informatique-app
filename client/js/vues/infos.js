@@ -100,6 +100,8 @@ const VueInfos = (() => {
           "Catalogue mis à jour le " + Utils.echapper(maj ? Utils.fmtDateHeure(new Date(maj).getTime()) : "—") + ".<br>" +
           "Les prix sont donnés à titre indicatif et confirmés à la commande." +
         "</p>" +
+        '<div class="credit-dev">Application développée par <strong>CREATIS INTER</strong><br>' +
+          'Tél : <a href="' + Utils.echapper(Utils.lienTel("0196202098", "229")) + '">01 96 20 20 98</a></div>' +
       "</div>";
 
     vue.innerHTML = html;
