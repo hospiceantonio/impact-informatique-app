@@ -127,6 +127,10 @@ impact-informatique-app/
 - Vidéo de présentation : une par produit (40 Mo maximum), envoyée telle
   quelle dans le même bucket et lue directement dans la fiche produit
   côté client. Les vidéos ne sont pas mises en cache hors connexion.
+- Téléchargement des photos (app client) : bouton sur la fiche produit et
+  dans la visionneuse. Sur Android, les fichiers vont dans le dossier
+  Téléchargements via le pont natif ; sur le web, par le téléchargement
+  du navigateur. Nom de fichier : `<référence>-<produit>-<n>.jpg`.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet

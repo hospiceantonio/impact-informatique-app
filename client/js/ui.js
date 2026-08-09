@@ -85,11 +85,18 @@ const UI = (() => {
 
   /* ---------- Visionneuse ---------- */
 
-  function ouvrirVisionneuse(src) {
+  let photoAffichee = null;  // { src, nom } pour le bouton d'enregistrement
+
+  function ouvrirVisionneuse(src, nomFichier) {
     $("#visionneuse-img").src = src;
     $("#visionneuse").hidden = false;
     document.body.style.overflow = "hidden";
+    photoAffichee = { src, nom: nomFichier || "photo.jpg" };
+    const bouton = $("#visionneuse-telecharger");
+    if (bouton) bouton.hidden = !nomFichier;
   }
+
+  const photoVisionneuse = () => photoAffichee;
 
   function fermerVisionneuse() {
     $("#visionneuse").hidden = true;
@@ -234,7 +241,7 @@ const UI = (() => {
 
   return {
     $, $$, entete, icone, marque, logo, toast,
-    ouvrirVisionneuse, fermerVisionneuse,
+    ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide,

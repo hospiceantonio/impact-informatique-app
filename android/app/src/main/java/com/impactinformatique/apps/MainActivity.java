@@ -378,6 +378,16 @@ public class MainActivity extends Activity {
     private class PontAndroid {
         @JavascriptInterface
         public void enregistrerFichier(String nom, String base64, String type) {
+            enregistrer(nom, base64, type, true);
+        }
+
+        /** Même chose sans message : la page annonce elle-même le résultat. */
+        @JavascriptInterface
+        public void enregistrerFichierDiscret(String nom, String base64, String type) {
+            enregistrer(nom, base64, type, false);
+        }
+
+        private void enregistrer(String nom, String base64, String type, boolean annoncer) {
             try {
                 byte[] octets = Base64.decode(base64, Base64.DEFAULT);
                 if (Build.VERSION.SDK_INT >= 29) {
@@ -391,14 +401,14 @@ public class MainActivity extends Activity {
                     try (OutputStream sortie = getContentResolver().openOutputStream(uri)) {
                         sortie.write(octets);
                     }
-                    annoncer("Fichier enregistré dans Téléchargements : " + nom);
+                    if (annoncer) annoncer("Fichier enregistré dans Téléchargements : " + nom);
                 } else {
                     File dossier = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
                     File fichier = new File(dossier, nom);
                     try (FileOutputStream sortie = new FileOutputStream(fichier)) {
                         sortie.write(octets);
                     }
-                    annoncer("Fichier enregistré : " + fichier.getAbsolutePath());
+                    if (annoncer) annoncer("Fichier enregistré : " + fichier.getAbsolutePath());
                 }
             } catch (Exception e) {
                 annoncer("Enregistrement impossible : " + e.getMessage());

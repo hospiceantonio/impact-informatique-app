@@ -4,6 +4,12 @@
    ========================================================= */
 const VueProduit = (() => {
 
+  /** "IMP-0002-imprimante-epson-l3250-1.jpg" */
+  function nomPhoto(p, rang) {
+    const debut = p.reference ? Utils.versNomFichier(p.reference) + "-" : "";
+    return debut + Utils.versNomFichier(p.nom) + "-" + rang + ".jpg";
+  }
+
   function carrousel(p) {
     const images = p.images.map(Catalogue.urlImage);
     if (!images.length) {
@@ -11,13 +17,15 @@ const VueProduit = (() => {
     }
     if (images.length === 1) {
       return '<div class="fiche-img"><img src="' + Utils.echapper(images[0]) +
-        '" alt="' + Utils.echapper(p.nom) + '" data-visionneuse="' + Utils.echapper(images[0]) + '"></div>';
+        '" alt="' + Utils.echapper(p.nom) + '" data-rang="1" data-visionneuse="' +
+        Utils.echapper(images[0]) + '"></div>';
     }
     return (
       '<div class="fiche-carrousel" id="fiche-carrousel">' +
         images.map((src, i) =>
           '<div class="fiche-img"><img src="' + Utils.echapper(src) + '" alt="' +
-            Utils.echapper(p.nom) + " — photo " + (i + 1) + '" data-visionneuse="' + Utils.echapper(src) + '"' +
+            Utils.echapper(p.nom) + " — photo " + (i + 1) + '" data-rang="' + (i + 1) +
+            '" data-visionneuse="' + Utils.echapper(src) + '"' +
             (i > 0 ? ' loading="lazy"' : "") + "></div>"
         ).join("") +
       "</div>" +
@@ -136,6 +144,19 @@ const VueProduit = (() => {
         "</div>";
     }
 
+    if (p.images.length) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">Photos du produit</div>' +
+          '<p class="aide" style="margin:0 0 12px">Gardez-les sur votre téléphone ou partagez-les : ' +
+            "elles s'enregistrent dans vos Téléchargements.</p>" +
+          '<button type="button" class="btn btn-clair" id="p-telecharger-photos">' +
+            UI.icone("telecharger") +
+            (p.images.length > 1 ? "Enregistrer les " + p.images.length + " photos" : "Enregistrer la photo") +
+          "</button>" +
+        "</div>";
+    }
+
     if (similaires.length) {
       html += UI.titreSection("Dans le même rayon");
       html += UI.rangeeProduits(similaires);
@@ -145,7 +166,36 @@ const VueProduit = (() => {
     activerCarrousel();
 
     for (const img of UI.$$("[data-visionneuse]", vue)) {
-      img.addEventListener("click", () => UI.ouvrirVisionneuse(img.dataset.visionneuse));
+      img.addEventListener("click", () =>
+        UI.ouvrirVisionneuse(img.dataset.visionneuse, nomPhoto(p, Number(img.dataset.rang) || 1)));
+    }
+
+    const btnPhotos = UI.$("#p-telecharger-photos");
+    if (btnPhotos) {
+      btnPhotos.onclick = async () => {
+        const images = p.images.map(Catalogue.urlImage);
+        btnPhotos.disabled = true;
+        const libelle = btnPhotos.innerHTML;
+        let reussies = 0;
+        for (let i = 0; i < images.length; i++) {
+          btnPhotos.innerHTML = UI.icone("telecharger") +
+            (images.length > 1 ? "Enregistrement… (" + (i + 1) + "/" + images.length + ")" : "Enregistrement…");
+          try {
+            await Utils.telechargerImage(images[i], nomPhoto(p, i + 1));
+            reussies++;
+          } catch (err) {
+            UI.toast(err.message || "Téléchargement impossible", "err");
+            break;
+          }
+        }
+        btnPhotos.innerHTML = libelle;
+        btnPhotos.disabled = false;
+        if (reussies) {
+          UI.toast(reussies > 1
+            ? reussies + " photos enregistrées dans Téléchargements"
+            : "Photo enregistrée dans Téléchargements", "ok");
+        }
+      };
     }
   }
 

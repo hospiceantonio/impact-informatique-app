@@ -80,6 +80,18 @@ const App = { evenementInstallation: null };
     if (ev.key === "Escape") UI.fermerVisionneuse();
   });
 
+  document.addEventListener("click", async (ev) => {
+    if (!ev.target.closest("#visionneuse-telecharger")) return;
+    const photo = UI.photoVisionneuse();
+    if (!photo) return;
+    try {
+      await Utils.telechargerImage(photo.src, photo.nom);
+      UI.toast("Photo enregistrée dans Téléchargements", "ok");
+    } catch (err) {
+      UI.toast(err.message || "Téléchargement impossible", "err");
+    }
+  });
+
   window.addEventListener("beforeinstallprompt", (ev) => {
     ev.preventDefault();
     App.evenementInstallation = ev;

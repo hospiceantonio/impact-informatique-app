@@ -92,6 +92,59 @@ const Utils = (() => {
     };
   }
 
+  /* ---------- Téléchargement des photos ---------- */
+
+  /** "Ordinateur portable HP 15" -> "ordinateur-portable-hp-15". */
+  function versNomFichier(texte) {
+    return sansAccent(texte)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "photo";
+  }
+
+  /**
+   * Enregistre un contenu sur le téléphone : via l'application Android
+   * quand elle est présente (dossier Téléchargements), sinon par le
+   * téléchargement classique du navigateur.
+   */
+  function enregistrerBlob(nomFichier, blob) {
+    const pont = window.AndroidPont;
+    if (pont && pont.enregistrerFichierDiscret) {
+      return new Promise((resolve, reject) => {
+        const lecteur = new FileReader();
+        lecteur.onload = () => {
+          const base64 = String(lecteur.result).split(",")[1] || "";
+          pont.enregistrerFichierDiscret(nomFichier, base64, blob.type || "image/jpeg");
+          resolve();
+        };
+        lecteur.onerror = () => reject(new Error("Photo illisible"));
+        lecteur.readAsDataURL(blob);
+      });
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomFichier;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return Promise.resolve();
+  }
+
+  /** Télécharge une photo du catalogue et l'enregistre sur le téléphone. */
+  async function telechargerImage(url, nomFichier) {
+    let reponse;
+    try {
+      reponse = await fetch(url, { cache: "force-cache" });
+    } catch (_) {
+      throw new Error("Téléchargement impossible : vérifiez votre connexion.");
+    }
+    if (!reponse.ok) throw new Error("Photo indisponible (" + reponse.status + ").");
+    const blob = await reponse.blob();
+    await enregistrerBlob(nomFichier, blob);
+  }
+
   /** Texte multi-lignes -> paragraphes HTML sûrs. */
   function paragraphes(texte) {
     const morceaux = String(texte || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
@@ -105,5 +158,6 @@ const Utils = (() => {
     fmtDateHeure,
     normaliserTel, lienWhatsApp, lienTel,
     sansAccent, tempo, paragraphes,
+    versNomFichier, enregistrerBlob, telechargerImage,
   };
 })();
