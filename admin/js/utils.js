@@ -146,7 +146,21 @@ const Utils = (() => {
    * en JPEG d'environ 100 Ko, stockable et publiable sans alourdir.
    */
   async function compresserImage(fichier, coteMax = 1100, qualite = 0.72) {
-    const source = await chargerImage(fichier);
+    let source;
+    try {
+      source = await chargerImage(fichier);
+    } catch (err) {
+      /* HEIC/HEIF : format des iPhone et Android récents, que les
+         navigateurs ne décodent pas. L'application Android le convertit
+         d'elle-même ; sur le web il faut une photo JPEG ou PNG. */
+      const nom = (fichier && fichier.name ? fichier.name : "").toLowerCase();
+      const type = (fichier && fichier.type ? fichier.type : "").toLowerCase();
+      if (/\.hei[cf]$/.test(nom) || type.includes("heic") || type.includes("heif")) {
+        throw new Error("Photo au format HEIC : utilisez l'application Android, " +
+          "ou enregistrez-la en JPEG avant de l'ajouter.");
+      }
+      throw new Error("Photo illisible (format non pris en charge).");
+    }
     const l = source.width, h = source.height;
     const ratio = Math.min(1, coteMax / Math.max(l, h));
     const cl = Math.max(1, Math.round(l * ratio));

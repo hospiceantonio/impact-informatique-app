@@ -4,7 +4,10 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -25,6 +28,7 @@ import android.widget.Toast;
 
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.exifinterface.media.ExifInterface;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -195,14 +199,37 @@ public class MainActivity extends Activity {
     /* ---------- Choix / prise de photo ---------- */
 
     private void ouvrirChoixPhoto(WebChromeClient.FileChooserParams parametres) {
+        /* La page indique ce qu'elle attend : image/* ou video/*. */
+        String attendu = "image/*";
+        if (parametres != null && parametres.getAcceptTypes() != null) {
+            for (String t : parametres.getAcceptTypes()) {
+                if (t != null && t.startsWith("video")) { attendu = "video/*"; break; }
+            }
+        }
+        final boolean video = attendu.startsWith("video");
+
         Intent galerie = new Intent(Intent.ACTION_GET_CONTENT);
         galerie.addCategory(Intent.CATEGORY_OPENABLE);
-        galerie.setType("image/*");
+        galerie.setType(attendu);
         boolean plusieurs = parametres != null
                 && parametres.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE;
         if (plusieurs) galerie.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
 
-        Intent choix = Intent.createChooser(galerie, "Photo du produit");
+        Intent choix = Intent.createChooser(galerie,
+                video ? "Vidéo du produit" : "Photo du produit");
+
+        if (video) {
+            /* Filmer directement, sans passer par la galerie. */
+            photoEnCours = null;
+            Intent camera = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
+            choix.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{camera});
+            try {
+                startActivityForResult(choix, CODE_CHOIX_FICHIER);
+            } catch (ActivityNotFoundException e) {
+                repondreAuChoix(null);
+            }
+            return;
+        }
 
         try {
             File dossier = new File(getCacheDir(), "photos");
@@ -224,8 +251,7 @@ public class MainActivity extends Activity {
         try {
             startActivityForResult(choix, CODE_CHOIX_FICHIER);
         } catch (ActivityNotFoundException e) {
-            if (rappelChoixFichier != null) rappelChoixFichier.onReceiveValue(null);
-            rappelChoixFichier = null;
+            repondreAuChoix(null);
         }
     }
 
@@ -248,8 +274,95 @@ public class MainActivity extends Activity {
                 resultats = new Uri[]{photoEnCours}; // photo prise avec l'appareil
             }
         }
-        rappelChoixFichier.onReceiveValue(resultats);
+        repondreAuChoix(resultats);
+    }
+
+    /**
+     * Rend la main à la page. Les photos sont d'abord reconverties en JPEG
+     * par Android : les téléphones récents enregistrent en HEIC/HEIF, un
+     * format que la WebView ne sait pas décoder. Les vidéos passent telles
+     * quelles.
+     */
+    private void repondreAuChoix(final Uri[] sources) {
+        final ValueCallback<Uri[]> rappel = rappelChoixFichier;
         rappelChoixFichier = null;
+        if (rappel == null) return;
+        if (sources == null || sources.length == 0) {
+            rappel.onReceiveValue(null);
+            return;
+        }
+        new Thread(() -> {
+            final Uri[] sorties = new Uri[sources.length];
+            for (int i = 0; i < sources.length; i++) {
+                Uri convertie = convertirImageEnJpeg(sources[i]);
+                sorties[i] = convertie != null ? convertie : sources[i];
+            }
+            runOnUiThread(() -> rappel.onReceiveValue(sorties));
+        }).start();
+    }
+
+    /** Renvoie un JPEG lisible par la WebView, ou null si rien à convertir. */
+    private Uri convertirImageEnJpeg(Uri source) {
+        String type = getContentResolver().getType(source);
+        if (type != null && type.startsWith("video/")) return null; // vidéo : telle quelle
+
+        try {
+            /* Taille de lecture réduite : une photo de 12 Mpx tient en mémoire. */
+            BitmapFactory.Options mesure = new BitmapFactory.Options();
+            mesure.inJustDecodeBounds = true;
+            try (InputStream flux = getContentResolver().openInputStream(source)) {
+                BitmapFactory.decodeStream(flux, null, mesure);
+            }
+            int cote = Math.max(mesure.outWidth, mesure.outHeight);
+            if (cote <= 0) return null; // format inconnu d'Android aussi
+
+            BitmapFactory.Options lecture = new BitmapFactory.Options();
+            lecture.inSampleSize = Math.max(1, Integer.highestOneBit(cote / 2200));
+            Bitmap image;
+            try (InputStream flux = getContentResolver().openInputStream(source)) {
+                image = BitmapFactory.decodeStream(flux, null, lecture);
+            }
+            if (image == null) return null;
+
+            image = redresser(image, source);
+
+            File dossier = new File(getCacheDir(), "photos");
+            //noinspection ResultOfMethodCallIgnored
+            dossier.mkdirs();
+            File fichier = new File(dossier, "photo-" + System.currentTimeMillis() + "-"
+                    + Math.abs(source.hashCode()) + ".jpg");
+            try (FileOutputStream sortie = new FileOutputStream(fichier)) {
+                image.compress(Bitmap.CompressFormat.JPEG, 90, sortie);
+            }
+            image.recycle();
+            return FileProvider.getUriForFile(this, getPackageName() + ".fichiers", fichier);
+        } catch (Throwable e) {
+            return null; // on laissera passer le fichier d'origine
+        }
+    }
+
+    /** Applique l'orientation EXIF (photo prise en portrait, appareil tourné…). */
+    private Bitmap redresser(Bitmap image, Uri source) {
+        try (InputStream flux = getContentResolver().openInputStream(source)) {
+            if (flux == null) return image;
+            int orientation = new ExifInterface(flux).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            Matrix matrice = new Matrix();
+            switch (orientation) {
+                case ExifInterface.ORIENTATION_ROTATE_90: matrice.postRotate(90); break;
+                case ExifInterface.ORIENTATION_ROTATE_180: matrice.postRotate(180); break;
+                case ExifInterface.ORIENTATION_ROTATE_270: matrice.postRotate(270); break;
+                case ExifInterface.ORIENTATION_FLIP_HORIZONTAL: matrice.postScale(-1, 1); break;
+                case ExifInterface.ORIENTATION_FLIP_VERTICAL: matrice.postScale(1, -1); break;
+                default: return image;
+            }
+            Bitmap redressee = Bitmap.createBitmap(image, 0, 0,
+                    image.getWidth(), image.getHeight(), matrice, true);
+            if (redressee != image) image.recycle();
+            return redressee;
+        } catch (Throwable e) {
+            return image;
+        }
     }
 
     /* ---------- Retour ---------- */

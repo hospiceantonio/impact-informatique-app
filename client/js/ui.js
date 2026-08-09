@@ -150,6 +150,11 @@ const UI = (() => {
     return html;
   }
 
+  /** Pastille « vidéo » posée sur la photo d'une carte. */
+  function pastilleVideo(p) {
+    return p && p.video ? '<span class="pastille-video">' + icone("video", "ic-sm") + "</span>" : "";
+  }
+
   /** Image principale d'un produit, ou pastille logo si aucune photo. */
   function imageProduit(p, classe) {
     const src = Catalogue.imagePrincipale(p);
@@ -170,6 +175,7 @@ const UI = (() => {
         '<span class="p-carte-img">' +
           imageProduit(p, "p-carte-photo") +
           '<span class="p-carte-badges">' + badgesProduit(p) + "</span>" +
+          pastilleVideo(p) +
         "</span>" +
         '<span class="p-carte-corps">' +
           '<span class="p-carte-nom">' + e(p.nom) + "</span>" +
@@ -192,6 +198,7 @@ const UI = (() => {
         '<span class="p-mini-img">' +
           imageProduit(p, "p-mini-photo") +
           '<span class="p-carte-badges">' + badgesProduit(p) + "</span>" +
+          pastilleVideo(p) +
         "</span>" +
         '<span class="p-mini-nom">' + e(p.nom) + "</span>" +
         prixHtml(p) +
@@ -228,7 +235,7 @@ const UI = (() => {
   return {
     $, $$, entete, icone, marque, logo, toast,
     ouvrirVisionneuse, fermerVisionneuse,
-    iconeCategorie, prixHtml, badgesProduit, imageProduit,
+    iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide,
   };

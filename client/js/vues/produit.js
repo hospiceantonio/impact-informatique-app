@@ -99,6 +99,16 @@ const VueProduit = (() => {
           : "") +
       "</div>";
 
+    if (p.video) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation</div>" +
+          '<video class="fiche-video" src="' + Utils.echapper(p.video) + '" controls preload="metadata" ' +
+            'playsinline' + (Catalogue.imagePrincipale(p)
+              ? ' poster="' + Utils.echapper(Catalogue.imagePrincipale(p)) + '"' : "") + "></video>" +
+        "</div>";
+    }
+
     if (p.description) {
       html +=
         '<div class="carte">' +

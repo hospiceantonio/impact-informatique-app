@@ -123,6 +123,7 @@ const Catalogue = (() => {
           enAvant: !!p.en_avant,
           ordreAvant: p.ordre_avant || 0,
           images: (Array.isArray(p.images) ? p.images : []).map(urlImagePublique),
+          video: p.video ? urlImagePublique(p.video) : "",
           creeLe: Date.parse(p.cree_le || "") || 0,
           modifieLe: Date.parse(p.modifie_le || "") || 0,
         })),
@@ -219,6 +220,7 @@ const Catalogue = (() => {
       ...p,
       disponible: p.disponible !== false,
       images: Array.isArray(p.images) ? p.images : [],
+      video: p.video || "",
     }));
   }
 

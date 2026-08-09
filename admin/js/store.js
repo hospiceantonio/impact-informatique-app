@@ -14,6 +14,7 @@ const Store = (() => {
 
   const MAX_EN_AVANT = 5;   // le slider client affiche 5 produits
   const MAX_PHOTOS = 4;
+  const MAX_VIDEO_MO = 40;  // au-delà, l'envoi devient trop long au téléphone
 
   const BOUTIQUE_DEFAUT = {
     nomBoutique: "IMPACT INFORMATIQUE",
@@ -52,6 +53,8 @@ const Store = (() => {
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
       images,
+      video: l.video || "",
+      videoUrl: l.video ? Supabase.urlImage(l.video) : "",
       vignette: images.length ? Supabase.urlImage(images[0]) : null,
       creeLe: versMs(l.cree_le),
       modifieLe: versMs(l.modifie_le),
@@ -72,6 +75,7 @@ const Store = (() => {
       en_avant: p.enAvant,
       ordre_avant: p.ordreAvant,
       images: p.images,
+      video: p.video || "",
       modifie_le: new Date().toISOString(),
     };
   }
@@ -254,6 +258,7 @@ const Store = (() => {
    * Crée ou met à jour un produit.
    * `photosFinales` : liste ordonnée [{ id, chemin?, dataUrl? }] —
    * `chemin` pour une photo déjà en ligne, `dataUrl` pour une nouvelle.
+   * `donnees.video` : { chemin } (inchangée), { fichier } (nouvelle) ou null.
    */
   async function sauverProduit(donnees, photosFinales) {
     const existant = donnees.id ? await lireProduit(donnees.id) : null;
@@ -312,8 +317,25 @@ const Store = (() => {
         chemins.push(chemin);
       }
     }
+    /* Vidéo de présentation : une seule par produit. */
+    let cheminVideo = "";
+    const video = donnees.video;
+    if (video && video.chemin) {
+      cheminVideo = video.chemin;
+    } else if (video && video.fichier) {
+      const octets = video.fichier.size || 0;
+      if (octets > MAX_VIDEO_MO * 1024 * 1024) {
+        throw new Error("Vidéo trop lourde (" + Utils.tailleLisible(octets) + "). " +
+          "Filmez une présentation plus courte : " + MAX_VIDEO_MO + " Mo au maximum.");
+      }
+      const extension = (video.fichier.name || "").match(/\.([a-z0-9]{2,4})$/i);
+      cheminVideo = Utils.uid("vid") + (extension ? "." + extension[1].toLowerCase() : ".mp4");
+      await Supabase.televerserVideo(cheminVideo, video.fichier);
+    }
+
     if (existant) {
       const retirees = (existant.images || []).filter((chemin) => !chemins.includes(chemin));
+      if (existant.video && existant.video !== cheminVideo) retirees.push(existant.video);
       await Supabase.supprimerImages(retirees);
     }
 
@@ -330,6 +352,7 @@ const Store = (() => {
       enAvant,
       ordreAvant,
       images: chemins,
+      video: cheminVideo,
     };
 
     const ligne = ligneDepuisProduit(produit);
@@ -345,7 +368,11 @@ const Store = (() => {
 
   async function supprimerProduit(id) {
     const produit = await lireProduit(id);
-    if (produit) await Supabase.supprimerImages(produit.images || []);
+    if (produit) {
+      const fichiers = (produit.images || []).slice();
+      if (produit.video) fichiers.push(produit.video);
+      await Supabase.supprimerImages(fichiers);
+    }
     await Supabase.requete("DELETE", "produits?id=eq." + encodeURIComponent(id));
   }
 
@@ -428,6 +455,7 @@ const Store = (() => {
       promotions: produits.filter((p) => Utils.remisePourcent(p.ancienPrix, p.prix) !== null).length,
       ruptures: produits.filter((p) => p.disponible === false).length,
       photos: produits.reduce((n, p) => n + (p.images || []).length, 0),
+      videos: produits.filter((p) => p.video).length,
     };
   }
 
@@ -549,7 +577,7 @@ const Store = (() => {
   }
 
   return {
-    MAX_EN_AVANT, MAX_PHOTOS,
+    MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO,
     init, lireReglages, majReglages,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,

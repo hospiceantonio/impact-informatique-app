@@ -213,7 +213,8 @@ const Supabase = (() => {
     return new Blob([octets], { type });
   }
 
-  async function televerserImage(chemin, dataUrl) {
+  /** Envoie un fichier (photo ou vidéo) dans le stockage de la boutique. */
+  async function televerserFichier(chemin, contenu, type, nomLisible) {
     const c = configuration();
     if (!c) throw new Error("L'application n'est pas encore reliée à la base (voir réglages).");
     const s = await assurerSession();
@@ -222,6 +223,7 @@ const Supabase = (() => {
       err.deconnecte = true;
       throw err;
     }
+    const quoi = nomLisible || "fichier";
     let reponse;
     try {
       reponse = await fetch(c.url + "/storage/v1/object/" + BUCKET + "/" + chemin, {
@@ -229,22 +231,31 @@ const Supabase = (() => {
         headers: {
           "apikey": c.cle,
           "Authorization": "Bearer " + s.access_token,
-          "Content-Type": "image/jpeg",
+          "Content-Type": type || "application/octet-stream",
           "x-upsert": "true",
         },
-        body: blobDepuisDataUrl(dataUrl),
+        body: contenu,
       });
     } catch (_) {
-      throw new Error("Envoi de la photo impossible. Vérifiez votre connexion internet.");
+      throw new Error("Envoi de la " + quoi + " impossible. Vérifiez votre connexion internet.");
     }
     if (!reponse.ok) {
       const d = await reponse.json().catch(() => ({}));
-      throw new Error(d.message || "Envoi de la photo refusé (" + reponse.status + ").");
+      if (reponse.status === 413) {
+        throw new Error("La " + quoi + " est trop lourde pour la base. Choisissez un fichier plus court.");
+      }
+      throw new Error(d.message || "Envoi de la " + quoi + " refusé (" + reponse.status + ").");
     }
     return chemin;
   }
 
-  /** Suppression silencieuse : une photo orpheline ne bloque jamais. */
+  const televerserImage = (chemin, dataUrl) =>
+    televerserFichier(chemin, blobDepuisDataUrl(dataUrl), "image/jpeg", "photo");
+
+  const televerserVideo = (chemin, fichier) =>
+    televerserFichier(chemin, fichier, fichier.type || "video/mp4", "vidéo");
+
+  /** Suppression silencieuse : un fichier orphelin ne bloque jamais. */
   async function supprimerImages(chemins) {
     if (!chemins || !chemins.length) return;
     const c = configuration();
@@ -273,6 +284,6 @@ const Supabase = (() => {
   return {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur,
-    requete, urlImage, televerserImage, supprimerImages, testerConnexion,
+    requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

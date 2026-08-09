@@ -63,11 +63,13 @@ create table if not exists public.produits (
   en_avant          boolean not null default false,  -- 5 max (contrôlé par l'app admin)
   ordre_avant       int not null default 0,          -- ordre dans le slider client
   images            text[] not null default '{}',    -- chemins dans le bucket « produits »
+  video             text not null default '',        -- vidéo de présentation (facultative)
   cree_le           timestamptz not null default now(),
   modifie_le        timestamptz not null default now()
 );
 -- Ajout de la colonne sur les bases déjà créées (sans risque).
 alter table public.produits add column if not exists reference text not null default '';
+alter table public.produits add column if not exists video text not null default '';
 
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;

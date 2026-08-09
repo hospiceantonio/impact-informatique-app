@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v6";
+const VERSION = "impact-client-v7";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -52,7 +52,8 @@ self.addEventListener("fetch", (ev) => {
 
   /* Photos du stockage Supabase : cache d'abord, réseau en secours. */
   if (url.origin !== location.origin) {
-    if (url.pathname.includes("/storage/v1/object/public/")) {
+    if (url.pathname.includes("/storage/v1/object/public/")
+        && !/\.(mp4|mov|webm|3gp|mkv|avi)$/i.test(url.pathname)) {
       ev.respondWith(
         caches.match(requete).then((enCache) =>
           enCache ||

@@ -81,6 +81,8 @@ const VueProduits = (() => {
 
   /** Photos en cours d'édition : [{ id, apercu, chemin? (en ligne), dataUrl? (nouvelle) }] */
   let photosTravail = [];
+  /** Vidéo en cours d'édition : { chemin, url } | { fichier, url, taille } | null */
+  let videoTravail = null;
 
   function htmlPhotos() {
     let html = photosTravail.map((photo, i) =>
@@ -139,6 +141,68 @@ const VueProduits = (() => {
     rafraichir();
   }
 
+  function htmlVideo() {
+    if (videoTravail) {
+      return (
+        '<div class="video-boite">' +
+          '<video src="' + Utils.echapper(videoTravail.url) + '" controls preload="metadata" playsinline></video>' +
+          '<div class="video-pied">' +
+            "<span>" + (videoTravail.taille
+              ? "Nouvelle vidéo · " + Utils.echapper(Utils.tailleLisible(videoTravail.taille))
+              : "Vidéo en ligne") + "</span>" +
+            '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-video-retirer aria-label="Retirer la vidéo">' +
+              UI.icone("poubelle", "ic-sm") + "</button>" +
+          "</div>" +
+        "</div>"
+      );
+    }
+    return (
+      '<label class="video-ajout">' +
+        UI.icone("video") +
+        "<span>Ajouter une vidéo</span>" +
+        '<small>Facultatif · ' + Store.MAX_VIDEO_MO + ' Mo maximum</small>' +
+        '<input type="file" accept="video/*" hidden id="video-fichier">' +
+      "</label>"
+    );
+  }
+
+  function brancherVideo(base) {
+    const zone = UI.$("#video-zone", base);
+
+    const rafraichir = () => {
+      zone.innerHTML = htmlVideo();
+      brancher();
+    };
+
+    const brancher = () => {
+      const champ = UI.$("#video-fichier", zone);
+      if (champ) {
+        champ.addEventListener("change", () => {
+          const fichier = champ.files && champ.files[0];
+          if (!fichier) return;
+          if (fichier.size > Store.MAX_VIDEO_MO * 1024 * 1024) {
+            UI.toast("Vidéo trop lourde (" + Utils.tailleLisible(fichier.size) + ") : " +
+              Store.MAX_VIDEO_MO + " Mo au maximum.", "err");
+            return;
+          }
+          if (videoTravail && videoTravail.url && videoTravail.taille) URL.revokeObjectURL(videoTravail.url);
+          videoTravail = { fichier, url: URL.createObjectURL(fichier), taille: fichier.size };
+          rafraichir();
+        });
+      }
+      const retirer = UI.$("[data-video-retirer]", zone);
+      if (retirer) {
+        retirer.onclick = () => {
+          if (videoTravail && videoTravail.taille && videoTravail.url) URL.revokeObjectURL(videoTravail.url);
+          videoTravail = null;
+          rafraichir();
+        };
+      }
+    };
+
+    rafraichir();
+  }
+
   function optionsSousCategories(categories, categorieId, valeur) {
     const c = categories.find((x) => x.id === categorieId);
     const sousCategories = (c && c.sousCategories) || [];
@@ -171,8 +235,10 @@ const VueProduits = (() => {
     }
 
     photosTravail = [];
+    videoTravail = null;
     if (existant) {
       photosTravail = await Store.photosDeProduit(existant.id);
+      if (existant.video) videoTravail = { chemin: existant.video, url: existant.videoUrl };
     }
 
     const categorieInitiale = existant ? existant.categorieId : (categories[0] && categories[0].id);
@@ -181,6 +247,11 @@ const VueProduits = (() => {
       '<div class="carte">' +
         '<div class="carte-titre">Photos <span class="aide-inline">(' + Store.MAX_PHOTOS + ' max, la première s\'affiche en vitrine)</span></div>' +
         '<div class="photos-zone" id="photos-zone"></div>' +
+      "</div>" +
+
+      '<div class="carte">' +
+        '<div class="carte-titre">Vidéo de présentation <span class="aide-inline">(facultative)</span></div>' +
+        '<div id="video-zone"></div>' +
       "</div>" +
 
       '<div class="carte">' +
@@ -235,6 +306,7 @@ const VueProduits = (() => {
       "</div>";
 
     brancherPhotos(vue);
+    brancherVideo(vue);
 
     UI.$("#p-categorie").addEventListener("change", (ev) => {
       UI.$("#p-souscategorie").innerHTML = optionsSousCategories(categories, ev.target.value, "");
@@ -253,6 +325,7 @@ const VueProduits = (() => {
           sousCategorieId: UI.$("#p-souscategorie").value,
           disponible: UI.$("#p-disponible").checked,
           enAvant: UI.$("#p-avant").checked,
+          video: videoTravail,
         }, photosTravail);
         UI.toast(existant ? "Produit modifié" : "Produit ajouté", "ok");
         location.hash = "#/produit/" + produit.id;
@@ -334,6 +407,13 @@ const VueProduits = (() => {
           " — modifié le " + Utils.echapper(Utils.fmtDate(p.modifieLe)) +
         "</div>" +
       "</div>";
+
+    if (p.videoUrl) {
+      html += '<div class="carte"><div class="carte-titre">' + UI.icone("video", "ic-sm") +
+        " Vidéo de présentation</div>" +
+        '<video class="video-lecture" src="' + Utils.echapper(p.videoUrl) +
+        '" controls preload="metadata" playsinline></video></div>';
+    }
 
     if (p.description) {
       html += '<div class="carte"><div class="carte-titre">Description</div>' +

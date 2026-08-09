@@ -122,7 +122,11 @@ impact-informatique-app/
 
 - Photos : compressées sur le téléphone (~100 Ko) puis envoyées dans le
   bucket public `produits` ; l'app client les met en cache après le
-  premier affichage.
+  premier affichage. Les photos HEIC/HEIF (iPhone et Android récents)
+  sont converties en JPEG par l'application Android elle-même.
+- Vidéo de présentation : une par produit (40 Mo maximum), envoyée telle
+  quelle dans le même bucket et lue directement dans la fiche produit
+  côté client. Les vidéos ne sont pas mises en cache hors connexion.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet
