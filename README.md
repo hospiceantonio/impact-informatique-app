@@ -137,6 +137,11 @@ impact-informatique-app/
   les 45 s en secours, et bouton d'actualisation sur l'accueil. Le temps
   réel exige que les tables soient dans la publication `supabase_realtime`
   — la section « Temps réel » de `schema.sql` s'en charge.
+- Cadres d'images de dimensions fixes (carrés) quelle que soit la forme
+  de la photo : le cadre commande la taille, la photo est posée dessus en
+  `position:absolute` (sans quoi une photo verticale étire sa carte).
+  Grille et rangées : photo cadrée (`cover`) ; fiche produit : photo
+  entière visible (`contain`).
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet
