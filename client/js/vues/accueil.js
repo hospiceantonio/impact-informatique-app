@@ -98,6 +98,8 @@ const VueAccueil = (() => {
 
   async function afficher(vue) {
     UI.entete({ accueil: true, actions:
+      '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
+        UI.icone("actualiser") + "</button>" +
       '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
 
     const enAvant = Catalogue.misEnAvant();
@@ -157,6 +159,18 @@ const VueAccueil = (() => {
 
     vue.innerHTML = html;
     demarrerSlider();
+
+    const btnActualiser = UI.$("#accueil-actualiser");
+    if (btnActualiser) {
+      btnActualiser.onclick = async () => {
+        btnActualiser.disabled = true;
+        btnActualiser.classList.add("tourne");
+        const change = await Live.verifier();
+        btnActualiser.disabled = false;
+        btnActualiser.classList.remove("tourne");
+        if (!change) UI.toast("Catalogue déjà à jour", "ok");
+      };
+    }
   }
 
   return { afficher, arreterSlider };

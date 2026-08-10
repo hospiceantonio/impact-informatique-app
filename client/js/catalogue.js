@@ -170,6 +170,28 @@ const Catalogue = (() => {
     return !!donnees;
   }
 
+  /**
+   * Recharge le catalogue depuis la base sans rien casser à l'écran.
+   * Émet "catalogue:maj" uniquement si quelque chose a changé.
+   * Renvoie true dans ce cas.
+   */
+  async function rafraichir() {
+    const c = configuration();
+    if (!c) return false;
+    let frais;
+    try {
+      frais = await telechargerDepuisBase(c);
+    } catch (_) {
+      return false; // hors connexion : on garde l'affichage actuel
+    }
+    const change = JSON.stringify(frais) !== JSON.stringify(donnees);
+    donnees = frais;
+    source = "reseau";
+    ecrireCache(frais);
+    if (change) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    return change;
+  }
+
   const pret = () => !!donnees;
   const depuisCache = () => source === "cache";
   const modeDemo = () => source === "demo";
@@ -299,8 +321,8 @@ const Catalogue = (() => {
   const imagePrincipale = (p) => (p && p.images && p.images.length ? urlImage(p.images[0]) : "");
 
   return {
-    charger, pret, depuisCache, modeDemo,
-    estConfigure, majConfiguration,
+    charger, rafraichir, pret, depuisCache, modeDemo,
+    estConfigure, majConfiguration, configuration,
     boutique, versionPubliee,
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,

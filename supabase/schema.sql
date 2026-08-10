@@ -108,6 +108,25 @@ drop policy if exists "ecriture connectee" on public.produits;
 create policy "lecture publique"   on public.produits        for select using (true);
 create policy "ecriture connectee" on public.produits        for all to authenticated using (true) with check (true);
 
+-- ---------- Temps réel ----------
+-- Permet à l'application client d'être prévenue dès qu'un produit change,
+-- sans avoir à être fermée et rouverte. Sans risque à ré-exécuter.
+do $$
+declare
+  t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['boutique', 'categories', 'sous_categories', 'produits'] loop
+      if not exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+      ) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
 -- ---------- Stockage des photos ----------
 insert into storage.buckets (id, name, public)
 values ('produits', 'produits', true)

@@ -460,6 +460,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   animation:tourner .9s linear infinite;
 }
 @keyframes tourner{to{transform:rotate(360deg)}}
+.btn-ic.tourne .ic{animation:tourner .8s linear infinite}
 
 /* ---------- Toasts ---------- */
 .toasts{

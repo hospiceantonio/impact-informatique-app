@@ -29,8 +29,9 @@ const App = { evenementInstallation: null };
     return { chemin: chemin || "/", params };
   }
 
-  async function naviguer() {
+  async function naviguer(options) {
     const { chemin, params } = lireHash();
+    const conserverPosition = !!(options && options.conserverPosition);
     const vue = document.getElementById("vue");
     UI.fermerVisionneuse();
     VueAccueil.arreterSlider();
@@ -55,8 +56,10 @@ const App = { evenementInstallation: null };
         Utils.echapper(err && err.message ? err.message : "Erreur inattendue.") + "</p>" +
         '<button type="button" class="btn btn-clair" onclick="location.reload()">Recharger l\'application</button></div>';
     }
-    vue.scrollTop = 0;
-    window.scrollTo(0, 0);
+    if (!conserverPosition) {
+      vue.scrollTop = 0;
+      window.scrollTo(0, 0);
+    }
   }
 
   /* ---------- Interactions globales ---------- */
@@ -97,10 +100,13 @@ const App = { evenementInstallation: null };
     App.evenementInstallation = ev;
   });
 
-  /* Quand une version plus récente du catalogue arrive du réseau. */
-  document.addEventListener("catalogue:maj", () => {
-    naviguer();
-    UI.toast("Catalogue mis à jour !", "ok");
+  /* Quand une version plus récente du catalogue arrive du réseau :
+     on redessine l'écran sans faire perdre sa place au client. */
+  document.addEventListener("catalogue:maj", async () => {
+    const hauteur = window.scrollY || document.documentElement.scrollTop || 0;
+    await naviguer({ conserverPosition: true });
+    if (hauteur) window.scrollTo(0, hauteur);
+    UI.toast("Catalogue mis à jour", "ok");
   });
 
   /* ---------- Démarrage ---------- */
@@ -128,8 +134,11 @@ const App = { evenementInstallation: null };
       return;
     }
 
-    window.addEventListener("hashchange", naviguer);
+    window.addEventListener("hashchange", () => naviguer());
     naviguer();
+
+    /* Le catalogue se met à jour tout seul (temps réel + vérifications). */
+    Live.demarrer();
 
     if ("serviceWorker" in navigator && !location.hostname.endsWith("appassets.androidx.dev")) {
       navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne au premier chargement */ });

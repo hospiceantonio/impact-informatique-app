@@ -131,6 +131,12 @@ impact-informatique-app/
   dans la visionneuse. Sur Android, les fichiers vont dans le dossier
   Téléchargements via le pont natif ; sur le web, par le téléchargement
   du navigateur. Nom de fichier : `<référence>-<produit>-<n>.jpg`.
+- Mise à jour automatique du catalogue client (`client/js/live.js`), sans
+  fermer l'application : temps réel par WebSocket Supabase (~1 s),
+  rafraîchissement au retour au premier plan, vérification de fond toutes
+  les 45 s en secours, et bouton d'actualisation sur l'accueil. Le temps
+  réel exige que les tables soient dans la publication `supabase_realtime`
+  — la section « Temps réel » de `schema.sql` s'en charge.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet
