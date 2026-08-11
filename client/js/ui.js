@@ -233,7 +233,9 @@ const UI = (() => {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
-    if (!p.disponible) html += '<span class="badge badge-rupture">Rupture</span>';
+    html += p.stock > 0
+      ? '<span class="badge badge-dispo">Disponible</span>'
+      : '<span class="badge badge-commande">Sur commande</span>';
     return html;
   }
 

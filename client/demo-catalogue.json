@@ -163,7 +163,8 @@
       "creeLe": 1785600000000,
       "modifieLe": 1785600000000,
       "enAvant": true,
-      "ordreAvant": 1
+      "ordreAvant": 1,
+      "stock": 4
     },
     {
       "id": "prod_epson_l3250",
@@ -179,7 +180,8 @@
       "creeLe": 1785610000000,
       "modifieLe": 1785610000000,
       "enAvant": true,
-      "ordreAvant": 2
+      "ordreAvant": 2,
+      "stock": 2
     },
     {
       "id": "prod_apc650",
@@ -195,7 +197,8 @@
       "creeLe": 1785620000000,
       "modifieLe": 1785620000000,
       "enAvant": true,
-      "ordreAvant": 3
+      "ordreAvant": 3,
+      "stock": 7
     },
     {
       "id": "prod_usb_kingston64",
@@ -211,7 +214,8 @@
       "creeLe": 1785630000000,
       "modifieLe": 1785630000000,
       "enAvant": false,
-      "ordreAvant": 0
+      "ordreAvant": 0,
+      "stock": 25
     },
     {
       "id": "prod_toner_85a",
@@ -222,12 +226,13 @@
       "ancienPrix": 32000,
       "categorieId": "cat_consommables",
       "sousCategorieId": "sc_toners",
-      "disponible": true,
+      "disponible": false,
       "images": [],
       "creeLe": 1785640000000,
       "modifieLe": 1785640000000,
       "enAvant": false,
-      "ordreAvant": 0
+      "ordreAvant": 0,
+      "stock": 0
     },
     {
       "id": "prod_logitech_m185",
@@ -243,7 +248,8 @@
       "creeLe": 1785650000000,
       "modifieLe": 1785650000000,
       "enAvant": false,
-      "ordreAvant": 0
+      "ordreAvant": 0,
+      "stock": 12
     }
   ],
   "slides": []

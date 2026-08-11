@@ -76,6 +76,46 @@ const VueProduits = (() => {
   }
 
   /* =====================================================
+     Stock : la saisie rapide, sans passer par le formulaire
+     ===================================================== */
+
+  function feuilleStock(p, auTermine) {
+    const corps = UI.ouvrirFeuille("Stock — " + p.nom,
+      '<p class="aide" style="margin:0 0 14px">Combien de pièces reste-t-il en boutique ? ' +
+        "À zéro, vos clients voient « Sur commande ».</p>" +
+      '<div class="stock-saisie">' +
+        '<button type="button" class="btn-ic btn-ic-clair" id="stock-moins" aria-label="Un de moins">' +
+          UI.icone("bas") + "</button>" +
+        '<input id="stock-valeur" type="tel" inputmode="numeric" value="' + p.stock + '" aria-label="Stock">' +
+        '<button type="button" class="btn-ic btn-ic-clair" id="stock-plus" aria-label="Un de plus">' +
+          UI.icone("haut") + "</button>" +
+      "</div>" +
+      '<div class="btn-rangee" style="margin-top:18px">' +
+        '<button type="button" class="btn" id="stock-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
+        '<button type="button" class="btn btn-clair btn-danger-clair" id="stock-zero">' +
+          UI.icone("alerte") + "Stock épuisé</button>" +
+      "</div>");
+
+    const champ = UI.$("#stock-valeur", corps);
+    const lire = () => Math.max(0, Math.round(Number(String(champ.value).replace(/\D/g, "")) || 0));
+    UI.$("#stock-moins", corps).onclick = () => { champ.value = Math.max(0, lire() - 1); };
+    UI.$("#stock-plus", corps).onclick = () => { champ.value = lire() + 1; };
+
+    const enregistrer = async (valeur) => {
+      try {
+        await Store.majStock(p.id, valeur);
+        UI.fermerFeuille();
+        UI.toast(valeur > 0 ? "Stock : " + valeur + " en boutique" : "Produit passé en « Sur commande »", "ok");
+        auTermine();
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+    UI.$("#stock-enregistrer", corps).onclick = () => enregistrer(lire());
+    UI.$("#stock-zero", corps).onclick = () => enregistrer(0);
+  }
+
+  /* =====================================================
      Formulaire (création / modification)
      ===================================================== */
 
@@ -289,9 +329,10 @@ const VueProduits = (() => {
       "</div>" +
 
       '<div class="carte">' +
-        UI.interrupteur({ id: "p-disponible", label: "Disponible en stock",
-          actif: existant ? existant.disponible !== false : true,
-          aide: "Désactivé : le produit reste visible avec la mention « Rupture »." }) +
+        UI.champTexte({ id: "p-stock", label: "Stock", type: "tel",
+          valeur: existant ? existant.stock : "",
+          placeholder: "0",
+          aide: "Nombre de pièces en boutique. À zéro, vos clients voient « Sur commande »." }) +
         (Supabase.estAdmin()
           ? UI.interrupteur({ id: "p-avant", label: "Mettre en avant",
               actif: existant ? !!existant.enAvant : false,
@@ -327,7 +368,7 @@ const VueProduits = (() => {
           ancienPrix: UI.$("#p-ancien").value.trim(),
           categorieId: UI.$("#p-categorie").value,
           sousCategorieId: UI.$("#p-souscategorie").value,
-          disponible: UI.$("#p-disponible").checked,
+          stock: UI.$("#p-stock").value,
           /* Sans l'interrupteur à l'écran (modérateur), la mise en avant ne bouge pas. */
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),
           video: videoTravail,
@@ -398,9 +439,7 @@ const VueProduits = (() => {
 
     html +=
       '<div class="carte">' +
-        '<div class="fiche-badges">' + UI.badgesProduit(p) +
-          (p.disponible !== false ? '<span class="badge badge-ok">' + UI.icone("check", "ic-sm") + "En stock</span>" : "") +
-        "</div>" +
+        '<div class="fiche-badges">' + UI.badgesProduit(p) + "</div>" +
         '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
         '<div class="prix prix-grand">' +
           '<span class="prix-actuel">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) + "</span>" +
@@ -438,8 +477,8 @@ const VueProduits = (() => {
               UI.icone(p.enAvant ? "fermer" : "etoile") +
               (p.enAvant ? "Retirer du slider" : "Mettre en avant (slider)") + "</button>"
             : "") +
-          '<button type="button" class="btn btn-clair" id="p-basculer-stock">' +
-            UI.icone("boite") + (p.disponible !== false ? "Marquer en rupture" : "Remettre en stock") + "</button>" +
+          '<button type="button" class="btn btn-clair" id="p-modifier-stock">' +
+            UI.icone("boite") + "Modifier le stock</button>" +
           '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(p.id) + '/modifier">' +
             UI.icone("crayon") + "Modifier le produit</a>" +
         "</div>" +
@@ -464,15 +503,7 @@ const VueProduits = (() => {
       };
     }
 
-    UI.$("#p-basculer-stock").onclick = async () => {
-      try {
-        await Store.basculerDisponible(p.id);
-        UI.toast(p.disponible !== false ? "Produit marqué en rupture" : "Produit remis en stock", "ok");
-        detail(vue, p.id);
-      } catch (err) {
-        UI.toast(err.message, "err");
-      }
-    };
+    UI.$("#p-modifier-stock").onclick = () => feuilleStock(p, () => detail(vue, p.id));
   }
 
   return { liste, formulaire, detail };

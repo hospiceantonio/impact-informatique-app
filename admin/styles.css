@@ -212,7 +212,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .ligne-sous{font-size:11.5px;color:var(--encre-tres-douce);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ligne-fin{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
 .ligne-montant{font-size:13px;font-weight:800;color:var(--rouge)}
+.ligne-stock{font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
+.ligne-stock-vide{color:var(--rouge-fonce)}
 .ligne-badges{display:flex;gap:4px}
+
+/* Saisie rapide du stock : − [ 12 ] + */
+.stock-saisie{display:flex;align-items:center;justify-content:center;gap:14px}
+.stock-saisie .btn-ic{width:46px;height:46px}
+.stock-saisie input{
+  width:110px;text-align:center;
+  font-size:26px;font-weight:800;color:var(--encre);
+  border:1.5px solid var(--trait);border-radius:var(--r-sm);
+  padding:10px 8px;background:var(--blanc);
+}
+.stock-saisie input:focus{outline:none;border-color:var(--bleu);}
 
 /* ---------- Historique ---------- */
 .histo-jour{
@@ -343,7 +356,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .badge .ic-sm{width:13px;height:13px}
 .badge-promo{background:var(--rouge);color:#fff}
-.badge-rupture{background:#3A4657;color:#fff}
+.badge-rupture{background:var(--rouge);color:#fff}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
 
 .prix{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}

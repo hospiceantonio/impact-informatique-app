@@ -3,7 +3,7 @@
 
    Catégorie : { id, nom, ordre, sousCategories: [{ id, nom, ordre }] }
    Produit   : { id, nom, description, prix, ancienPrix,
-                 categorieId, sousCategorieId, disponible,
+                 categorieId, sousCategorieId, stock, disponible,
                  enAvant, ordreAvant, images: [chemins],
                  vignette (URL), creeLe, modifieLe }
 
@@ -48,8 +48,21 @@ const Store = (() => {
     return isNaN(t) ? Date.now() : t;
   };
 
+  /**
+   * Le stock d'un produit. Sur une base d'avant la gestion de stock, la
+   * colonne n'existe pas : l'ancien « disponible » vaut alors 1 ou 0.
+   */
+  function stockDepuisLigne(l) {
+    if (l.stock === null || l.stock === undefined) return l.disponible === false ? 0 : 1;
+    return Math.max(0, Math.round(Number(l.stock) || 0));
+  }
+
+  /** Nombre saisi au clavier : « 12 », « 12 » ou vide. */
+  const lireStock = (valeur) => Math.max(0, Math.round(Utils.lireNombre(valeur) || 0));
+
   function produitDepuisLigne(l) {
     const images = Array.isArray(l.images) ? l.images : [];
+    const stock = stockDepuisLigne(l);
     return {
       id: l.id,
       nom: l.nom,
@@ -59,7 +72,8 @@ const Store = (() => {
       ancienPrix: l.ancien_prix === null || l.ancien_prix === undefined ? null : Number(l.ancien_prix),
       categorieId: l.categorie_id,
       sousCategorieId: l.sous_categorie_id || "",
-      disponible: l.disponible !== false,
+      stock,
+      disponible: stock > 0,
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
       images,
@@ -81,7 +95,8 @@ const Store = (() => {
       ancien_prix: p.ancienPrix,
       categorie_id: p.categorieId,
       sous_categorie_id: p.sousCategorieId || null,
-      disponible: p.disponible,
+      stock: p.stock,
+      disponible: p.stock > 0,
       en_avant: p.enAvant,
       ordre_avant: p.ordreAvant,
       images: p.images,
@@ -489,6 +504,7 @@ const Store = (() => {
       await Supabase.supprimerImages(retirees);
     }
 
+    const stock = lireStock(donnees.stock);
     const produit = {
       id: existant ? existant.id : Utils.uid("prod"),
       nom,
@@ -498,7 +514,8 @@ const Store = (() => {
       ancienPrix,
       categorieId: donnees.categorieId,
       sousCategorieId,
-      disponible: donnees.disponible !== false,
+      stock,
+      disponible: stock > 0,
       enAvant,
       ordreAvant,
       images: chemins,
@@ -546,17 +563,26 @@ const Store = (() => {
     }));
   }
 
-  async function basculerDisponible(id) {
+  /** Met à jour le stock d'un produit, sans repasser par le formulaire. */
+  async function majStock(id, valeur) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
+    const stock = lireStock(valeur);
+    if (stock === produit.stock) return produit;
     await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(id), {
-      disponible: !produit.disponible,
+      stock,
+      disponible: stock > 0,
       modifie_le: new Date().toISOString(),
     });
-    journaliser("produit", produit.disponible ? "rupture" : "retour_stock",
-      (produit.disponible ? "Marqué en rupture : " : "Remis en stock : ") + produit.nom,
+    /* Le passage à zéro et le retour en stock méritent leur propre trace. */
+    const action = stock === 0 ? "rupture" : (produit.stock === 0 ? "retour_stock" : "stock");
+    journaliser("produit", action,
+      (stock === 0
+        ? "Stock épuisé : "
+        : (produit.stock === 0 ? "Réapprovisionné (" + stock + ") : " : "Stock : " +
+            produit.stock + " → " + stock + " — ")) + produit.nom,
       produit.reference || produit.nom);
-    return produit;
+    return { ...produit, stock, disponible: stock > 0 };
   }
 
   /* ---------- Produits mis en avant ----------
@@ -711,7 +737,7 @@ const Store = (() => {
       slides: (await listerSlides().catch(() => [])).length,
       enAvant: produits.filter((p) => p.enAvant).length,
       promotions: produits.filter((p) => Utils.remisePourcent(p.ancienPrix, p.prix) !== null).length,
-      ruptures: produits.filter((p) => p.disponible === false).length,
+      ruptures: produits.filter((p) => p.stock === 0).length,
       photos: produits.reduce((n, p) => n + (p.images || []).length, 0),
       videos: produits.filter((p) => p.video).length,
     };
@@ -806,7 +832,8 @@ const Store = (() => {
         ancien_prix: p.ancienPrix || null,
         categorie_id: p.categorieId,
         sous_categorie_id: p.sousCategorieId || null,
-        disponible: p.disponible !== false,
+        stock: p.stock === undefined ? (p.disponible === false ? 0 : 1) : p.stock,
+        disponible: p.stock === undefined ? p.disponible !== false : p.stock > 0,
         en_avant: !!p.enAvant,
         ordre_avant: p.ordreAvant || 0,
         images: chemins,
@@ -843,7 +870,7 @@ const Store = (() => {
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
-    listerEnAvant, basculerEnAvant, deplacerEnAvant, basculerDisponible,
+    listerEnAvant, basculerEnAvant, deplacerEnAvant, majStock,
     statistiques, exporter, importer,
   };
 })();

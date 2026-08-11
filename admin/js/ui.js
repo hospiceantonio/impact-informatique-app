@@ -233,7 +233,7 @@ const UI = (() => {
     let html = "";
     if (p.enAvant) html += '<span class="badge badge-avant">' + icone("etoile", "ic-sm") + "En avant</span>";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
-    if (p.disponible === false) html += '<span class="badge badge-rupture">Rupture</span>';
+    if (p.stock === 0) html += '<span class="badge badge-rupture">Sur commande</span>';
     return html;
   }
 
@@ -248,6 +248,8 @@ const UI = (() => {
         "</span>" +
         '<span class="ligne-fin">' +
           '<span class="ligne-montant">' + e(Utils.fmtMontant(p.prix, devise)) + "</span>" +
+          '<span class="ligne-stock' + (p.stock === 0 ? " ligne-stock-vide" : "") + '">' +
+            (p.stock === 0 ? "Stock 0" : "Stock " + p.stock) + "</span>" +
           '<span class="ligne-badges">' + badgesProduit(p) + "</span>" +
         "</span>" +
       "</button>"

@@ -71,6 +71,17 @@ const Catalogue = (() => {
 
   /* ---------- Lecture de la base Supabase ---------- */
 
+  /**
+   * Le stock d'un produit. Une base d'avant la gestion de stock, ou une
+   * copie hors connexion plus ancienne, n'a que l'ancien oui/non : il
+   * vaut alors 1 ou 0.
+   */
+  function stockDeLigne(p) {
+    const brut = p.stock;
+    if (brut === null || brut === undefined) return p.disponible === false ? 0 : 1;
+    return Math.max(0, Math.round(Number(brut) || 0));
+  }
+
   async function lireTable(c, chemin, signal) {
     const reponse = await fetch(c.url + "/rest/v1/" + chemin, {
       headers: { "apikey": c.cle },
@@ -124,7 +135,8 @@ const Catalogue = (() => {
           ancienPrix: p.ancien_prix === null || p.ancien_prix === undefined ? null : Number(p.ancien_prix),
           categorieId: p.categorie_id,
           sousCategorieId: p.sous_categorie_id || "",
-          disponible: p.disponible !== false,
+          stock: stockDeLigne(p),
+          disponible: stockDeLigne(p) > 0,
           enAvant: !!p.en_avant,
           ordreAvant: p.ordre_avant || 0,
           images: (Array.isArray(p.images) ? p.images : []).map(urlImagePublique),
@@ -292,7 +304,8 @@ const Catalogue = (() => {
   function produits() {
     return ((donnees && donnees.produits) || []).map((p) => ({
       ...p,
-      disponible: p.disponible !== false,
+      stock: stockDeLigne(p),
+      disponible: stockDeLigne(p) > 0,
       images: Array.isArray(p.images) ? p.images : [],
       video: p.video || "",
     }));

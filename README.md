@@ -142,6 +142,19 @@ impact-informatique-app/
   les 45 s en secours, et bouton d'actualisation sur l'accueil. Le temps
   réel exige que les tables soient dans la publication `supabase_realtime`
   — la section « Temps réel » de `schema.sql` s'en charge.
+- Gestion de stock : chaque produit porte un nombre de pièces
+  (`produits.stock`). Dans l'admin, il se saisit dans le formulaire et se
+  corrige d'un geste depuis la fiche (− / + / « Stock épuisé »), et la
+  liste des produits affiche le stock restant de chacun. Côté client, le
+  nombre exact n'est jamais montré : au-dessus de zéro le produit est
+  **Disponible** (vert), à zéro il passe **Sur commande** (rouge
+  clignotant, animation coupée si le téléphone demande moins
+  d'animations) et le message WhatsApp devient une demande de délai. La
+  colonne `disponible` existe toujours et suit le stock (`stock > 0`) :
+  une application client d'une version antérieure continue de voir juste.
+  Un catalogue en cache sans `stock` est relu comme 1 ou 0 selon
+  l'ancien `disponible`, pour qu'une mise à jour n'affiche jamais tout le
+  catalogue en « Sur commande ».
 - Plein écran (les deux applications Android) : ni barre d'état ni barre
   de navigation, l'écran entier est à l'application
   (`WindowInsetsControllerCompat.hide`, comportement
