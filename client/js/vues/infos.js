@@ -137,7 +137,8 @@ const VueInfos = (() => {
           "Les prix sont donnés à titre indicatif et confirmés à la commande." +
         "</p>" +
         '<div class="credit-dev">Application développée par <strong>CREATIS INTER</strong><br>' +
-          'Tél : <a href="' + Utils.echapper(Utils.lienTel("0196202098", "229")) + '">01 96 20 20 98</a></div>' +
+          'Tél : <a href="' + Utils.echapper(Utils.lienTel("0196202098", "229")) + '">01 96 20 20 98</a><br>' +
+          '<a href="https://www.creatisinter.com" target="_blank" rel="noopener">www.creatisinter.com</a></div>' +
       "</div>";
 
     vue.innerHTML = html;
