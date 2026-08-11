@@ -119,8 +119,63 @@ const Store = (() => {
       err.nonConfigure = true;
       throw err;
     }
+    await Supabase.chargerProfil();   // le rôle du compte : ce qu'il a le droit de faire
     const lignes = await Supabase.requete("GET", "boutique?select=*&id=eq.1");
     if (lignes && lignes.length) reglages = boutiqueDepuisLigne(lignes[0]);
+  }
+
+  /* ---------- Comptes de l'équipe (réservé à l'administrateur) ---------- */
+
+  const ROLES = {
+    administrateur: { nom: "Administrateur", aide: "Toute l'application : produits, catégories, réglages, comptes." },
+    moderateur: { nom: "Modérateur", aide: "Produits et catégories uniquement." },
+  };
+
+  function compteDepuisLigne(l) {
+    return {
+      id: l.id,
+      email: l.email || "",
+      role: l.role === "administrateur" ? "administrateur" : "moderateur",
+      actif: l.actif !== false,
+      creeLe: versMs(l.cree_le),
+    };
+  }
+
+  async function listerComptes() {
+    const lignes = await Supabase.requete("GET",
+      "profils?select=*&order=role.asc,email.asc", undefined, { avecSession: true });
+    return (lignes || []).map(compteDepuisLigne);
+  }
+
+  /**
+   * Crée le compte dans Supabase, puis lui donne son rôle. La fiche existe
+   * déjà — la base la pose à la création du compte — il ne reste qu'à
+   * l'activer et à inscrire le rôle voulu.
+   */
+  async function creerCompte(email, motDePasse, role) {
+    const adresse = String(email || "").trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
+    if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
+    if (!ROLES[role]) throw new Error("Choisissez le rôle du compte.");
+
+    const cree = await Supabase.creerCompte(adresse, motDePasse);
+    const fiche = { id: cree.id, email: adresse, role, actif: true };
+    await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
+    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse, adresse);
+    return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
+  }
+
+  async function majCompte(id, maj) {
+    const lignes = await Supabase.requete("PATCH", "profils?id=eq." + encodeURIComponent(id), maj);
+    const c = compteDepuisLigne((lignes || [])[0] || { id, ...maj });
+    if (maj.role) {
+      journaliser("compte", "modification",
+        c.email + " devient " + ROLES[c.role].nom.toLowerCase(), c.email);
+    } else if (maj.actif !== undefined) {
+      journaliser("compte", maj.actif ? "activation" : "desactivation",
+        (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email);
+    }
+    return c;
   }
 
   /* ---------- Journal des actions ----------
@@ -138,10 +193,12 @@ const Store = (() => {
       .catch(() => { /* le journal ne doit jamais gêner le travail */ });
   }
 
-  /** Les dernières actions, de la plus récente à la plus ancienne. */
+  /** Les dernières actions, de la plus récente à la plus ancienne.
+      Le journal n'est pas public : la lecture porte le jeton du compte. */
   async function lireJournal(limite = 100, decalage = 0) {
     const lignes = await Supabase.requete("GET",
-      "journal?select=*&order=fait_le.desc&limit=" + limite + "&offset=" + decalage);
+      "journal?select=*&order=fait_le.desc&limit=" + limite + "&offset=" + decalage,
+      undefined, { avecSession: true });
     return (lignes || []).map((l) => ({
       id: l.id,
       date: versMs(l.fait_le),
@@ -688,9 +745,10 @@ const Store = (() => {
   }
 
   return {
-    MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
+    MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE, ROLES,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     journaliser, lireJournal,
+    listerComptes, creerCompte, majCompte,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,

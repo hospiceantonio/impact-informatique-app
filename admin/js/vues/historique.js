@@ -27,6 +27,8 @@ const VueHistorique = (() => {
     ordre: { icone: "haut", teinte: "bleu" },
     connexion: { icone: "cle", teinte: "gris" },
     deconnexion: { icone: "cle", teinte: "gris" },
+    activation: { icone: "personne", teinte: "vert" },
+    desactivation: { icone: "personne", teinte: "rouge" },
   };
 
   let famille = "";

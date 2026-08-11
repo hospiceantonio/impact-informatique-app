@@ -11,9 +11,24 @@
     { motif: /^\/produit\/([^/]+)\/modifier$/, vue: (v, m) => VueProduits.formulaire(v, m[1]) },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduits.detail(v, m[1]) },
     { motif: /^\/categories$/, vue: (v) => VueCategories.afficher(v), onglet: "/categories" },
-    { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v) },
-    { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages" },
+    { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
+    { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },
+    { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },
+    { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages", admin: true },
   ];
+
+  /* ---------- Ce que le compte a le droit de voir ----------
+     Le modérateur s'occupe des produits et des catégories ; les
+     réglages, les comptes et l'historique restent à l'administrateur.
+     Le tri se fait aussi dans la base (règles RLS) : masquer un écran
+     n'est ici qu'une politesse, pas la serrure. */
+
+  function adapterAuRole() {
+    const admin = Supabase.estAdmin();
+    for (const el of document.querySelectorAll("[data-acces]")) {
+      el.style.display = (el.dataset.acces === "administrateur") === admin ? "" : "none";
+    }
+  }
 
 
   /* ---------- Mémoire de la position de lecture ----------
@@ -83,6 +98,11 @@
       location.hash = "#/";
       return;
     }
+    if (route.admin && !Supabase.estAdmin()) {
+      UI.toast("Cet écran est réservé à l'administrateur.", "err");
+      location.hash = "#/";
+      return;
+    }
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
@@ -145,6 +165,10 @@
         VueConnexion.configuration(vue);
         return;
       }
+      if (err && err.deconnecte) {   // session périmée : on redemande le mot de passe
+        VueConnexion.connexion(vue, ouvrirApplication);
+        return;
+      }
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Base injoignable</div>' +
         '<p style="margin:0 0 12px;font-size:13.5px;color:var(--encre-douce)">' +
@@ -152,8 +176,30 @@
         '<button type="button" class="btn" onclick="location.reload()">Réessayer</button></div>';
       return;
     }
+    adapterAuRole();
+    if (!Supabase.compteActif()) {
+      compteEnAttente(vue);
+      return;
+    }
     window.addEventListener("hashchange", naviguer);
     naviguer();
+  }
+
+  /** Compte créé mais pas encore activé par l'administrateur. */
+  function compteEnAttente(vue) {
+    document.getElementById("tabbar").style.display = "none";
+    UI.entete({ titre: "Compte en attente" });
+    vue.innerHTML =
+      '<div class="carte"><div class="carte-titre">Ce compte n\'est pas encore activé</div>' +
+      '<p class="aide" style="margin:0 0 14px">Votre compte <strong>' +
+        Utils.echapper(Supabase.utilisateur() || "") + "</strong> existe, mais l'administrateur " +
+        "de la boutique doit encore lui donner ses droits. Demandez-lui de l'activer " +
+        "dans Comptes.</p>" +
+      '<button type="button" class="btn btn-clair" id="attente-deconnexion">Se déconnecter</button></div>';
+    UI.$("#attente-deconnexion").onclick = async () => {
+      await Supabase.deconnexion();
+      location.reload();
+    };
   }
 
   function demarrer() {

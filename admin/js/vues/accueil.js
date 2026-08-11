@@ -5,9 +5,13 @@
 const VueAccueil = (() => {
 
   async function afficher(vue) {
-    UI.entete({ accueil: true, actions:
-      '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
-      '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>" });
+    const admin = Supabase.estAdmin();
+
+    UI.entete({ accueil: true, actions: admin
+      ? '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
+        '<a class="btn-ic" href="#/comptes" aria-label="Comptes">' + UI.icone("equipe") + "</a>" +
+        '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>"
+      : '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
     const [stats, enAvant, produits] = await Promise.all([
       Store.statistiques(),
@@ -43,11 +47,14 @@ const VueAccueil = (() => {
         "</div>" +
       "</div>";
 
-    /* ---- Produits mis en avant ---- */
+    /* ---- Produits mis en avant ----
+       Le slider est la vitrine de la boutique : le modérateur la voit,
+       l'administrateur seul la compose. */
     html += '<div class="carte">' +
       '<div class="carte-titre">' + UI.icone("etoile", "ic-sm") + " Mis en avant — slider client (" +
         enAvant.length + "/" + Store.MAX_EN_AVANT + ")</div>" +
-      '<p class="aide" style="margin:-4px 0 12px">Ces produits défilent en grand en haut de l\'application client, dans cet ordre.</p>';
+      '<p class="aide" style="margin:-4px 0 12px">Ces produits défilent en grand en haut de l\'application client, dans cet ordre.' +
+        (admin ? "" : "<br>Leur choix revient à l'administrateur.") + "</p>";
 
     if (enAvant.length) {
       html += enAvant.map((p, i) =>
@@ -56,24 +63,29 @@ const VueAccueil = (() => {
           UI.vignetteProduit(p) +
           '<button type="button" class="avant-nom" data-nav="#/produit/' + Utils.echapper(p.id) + '">' +
             Utils.echapper(p.nom) + "</button>" +
-          '<span class="avant-actions">' +
-            '<button type="button" class="btn-ic btn-ic-clair" data-avant-monter="' + Utils.echapper(p.id) + '"' +
-              (i === 0 ? " disabled" : "") + ' aria-label="Monter">' + UI.icone("haut", "ic-sm") + "</button>" +
-            '<button type="button" class="btn-ic btn-ic-clair" data-avant-descendre="' + Utils.echapper(p.id) + '"' +
-              (i === enAvant.length - 1 ? " disabled" : "") + ' aria-label="Descendre">' + UI.icone("bas", "ic-sm") + "</button>" +
-            '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-avant-retirer="' + Utils.echapper(p.id) + '" aria-label="Retirer du slider">' +
-              UI.icone("fermer", "ic-sm") + "</button>" +
-          "</span>" +
+          (admin
+            ? '<span class="avant-actions">' +
+                '<button type="button" class="btn-ic btn-ic-clair" data-avant-monter="' + Utils.echapper(p.id) + '"' +
+                  (i === 0 ? " disabled" : "") + ' aria-label="Monter">' + UI.icone("haut", "ic-sm") + "</button>" +
+                '<button type="button" class="btn-ic btn-ic-clair" data-avant-descendre="' + Utils.echapper(p.id) + '"' +
+                  (i === enAvant.length - 1 ? " disabled" : "") + ' aria-label="Descendre">' + UI.icone("bas", "ic-sm") + "</button>" +
+                '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-avant-retirer="' + Utils.echapper(p.id) + '" aria-label="Retirer du slider">' +
+                  UI.icone("fermer", "ic-sm") + "</button>" +
+              "</span>"
+            : "") +
         "</div>"
       ).join("");
     } else {
-      html += '<p class="aide" style="margin:0">Aucun produit mis en avant. Ouvrez un produit puis activez « Mettre en avant ».</p>';
+      html += '<p class="aide" style="margin:0">Aucun produit mis en avant.' +
+        (admin ? " Ouvrez un produit puis activez « Mettre en avant »." : "") + "</p>";
     }
     html += "</div>";
 
-    /* ---- Dernières actions ---- */
+    /* ---- Dernières actions (administrateur) ---- */
     let journal = [];
-    try { journal = await Store.lireJournal(4, 0); } catch (_) { /* table pas encore créée */ }
+    if (admin) {
+      try { journal = await Store.lireJournal(4, 0); } catch (_) { /* table pas encore créée */ }
+    }
     if (journal.length) {
       html += '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("horloge", "ic-sm") + " Dernières actions</div>" +

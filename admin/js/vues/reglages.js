@@ -152,13 +152,18 @@ const VueReglages = (() => {
           UI.icone("check") + "Enregistrer les photos</button>" +
       "</div>" +
 
-      /* ---------- Compte ---------- */
+      /* ---------- Comptes ---------- */
       '<div class="carte" id="section-compte">' +
-        '<div class="carte-titre">' + UI.icone("cle", "ic-sm") + " Compte du gérant</div>" +
+        '<div class="carte-titre">' + UI.icone("equipe", "ic-sm") + " Comptes</div>" +
         '<p class="aide" style="margin:0 0 12px">Connecté en tant que <strong>' +
-          Utils.echapper(Supabase.utilisateur() || "—") + "</strong>.<br>" +
-          "Le mot de passe se change dans le tableau de bord Supabase (Authentication → Users).</p>" +
-        '<button type="button" class="btn btn-clair" id="c-deconnexion">Se déconnecter</button>' +
+          Utils.echapper(Supabase.utilisateur() || "—") + "</strong> (administrateur).<br>" +
+          "Vous pouvez créer des comptes pour votre équipe : un modérateur s'occupe " +
+          "des produits et des catégories, sans accès aux réglages.</p>" +
+        '<div class="btn-rangee">' +
+          '<a class="btn" href="#/comptes">' + UI.icone("equipe") + "Gérer l'équipe</a>" +
+          '<a class="btn btn-clair" href="#/compte">' + UI.icone("cle") + "Mon mot de passe</a>" +
+        "</div>" +
+        '<button type="button" class="btn btn-clair" id="c-deconnexion" style="margin-top:10px">Se déconnecter</button>' +
       "</div>" +
 
       /* ---------- Connexion à la base ---------- */

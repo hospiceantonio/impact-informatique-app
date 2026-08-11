@@ -68,13 +68,27 @@ const Supabase = (() => {
 
   const utilisateur = () => (session ? session.email : null);
 
-  async function appelAuth(chemin, corps, avecSession) {
+  /** Identifiant du compte, lu dans le jeton lui-même (champ « sub »). */
+  function identifiant() {
+    if (!session || !session.access_token) return null;
+    try {
+      let charge = session.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      charge += "===".slice((charge.length + 3) % 4);
+      const brut = atob(charge);
+      const octets = Uint8Array.from(brut, (c) => c.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(octets)).sub || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function appelAuth(chemin, corps, avecSession, methode) {
     const c = configuration();
     if (!c) throw new Error("L'application n'est pas encore reliée à la base (voir réglages).");
     let reponse;
     try {
       reponse = await fetch(c.url + "/auth/v1/" + chemin, {
-        method: "POST",
+        method: methode || "POST",
         headers: {
           "apikey": c.cle,
           "Content-Type": "application/json",
@@ -113,7 +127,46 @@ const Supabase = (() => {
   async function deconnexion() {
     try { await appelAuth("logout", {}, true); } catch (_) { /* déjà expirée */ }
     garderSession(null);
+    profil = null;
   }
+
+  /* ---------- Rôle du compte connecté ----------
+     administrateur : toute l'application, et lui seul crée les comptes.
+     moderateur     : les produits et les catégories.
+     Tant que la table `profils` n'existe pas (base pas encore mise à
+     jour), on garde le fonctionnement d'avant : le compte a tous les
+     droits. Personne ne se retrouve bloqué par une migration oubliée. */
+
+  let profil = null;
+  let rolesEnBase = true;
+
+  async function chargerProfil() {
+    profil = null;
+    const id = identifiant();
+    if (!id) return null;
+    let lignes;
+    try {
+      lignes = await requete("GET", "profils?select=*&id=eq." + encodeURIComponent(id), undefined,
+        { avecSession: true });
+    } catch (err) {
+      if (/n'existent pas encore|does not exist/i.test(err.message || "")) {
+        rolesEnBase = false;   // ancienne base : on ne bride rien
+        return null;
+      }
+      throw err;
+    }
+    rolesEnBase = true;
+    const l = (lignes || [])[0];
+    if (l) profil = { id: l.id, email: l.email || "", role: l.role, actif: l.actif !== false };
+    return profil;
+  }
+
+  const compte = () => profil;
+  const rolesActifs = () => rolesEnBase;
+  const role = () => (profil ? profil.role : rolesEnBase ? null : "administrateur");
+  const estAdmin = () => role() === "administrateur";
+  /** Membre actif de l'équipe : sans fiche active, aucune écriture n'est permise. */
+  const compteActif = () => !rolesEnBase || !!(profil && profil.actif);
 
   /** Renvoie une session valide (rafraîchie si besoin), sinon null. */
   async function assurerSession() {
@@ -145,7 +198,7 @@ const Supabase = (() => {
     const o = options || {};
     const entetes = { "apikey": c.cle };
 
-    if (methode === "GET" || o.anonyme) {
+    if ((methode === "GET" && !o.avecSession) || o.anonyme) {
       /* Lecture anonyme : la clé publiable suffit (l'en-tête Authorization
          est réservé au jeton du gérant connecté). */
     } else {
@@ -274,6 +327,35 @@ const Supabase = (() => {
     } catch (_) { /* au pire, la photo reste dans le stockage */ }
   }
 
+  /* ---------- Création de comptes (administrateur) ----------
+     Le compte est créé par l'inscription publique de Supabase, avec la
+     clé publiable : la clé « service_role », elle, ne doit jamais quitter
+     le serveur. La session renvoyée pour le nouveau venu est jetée —
+     l'administrateur reste connecté sur son propre compte. */
+
+  async function creerCompte(email, motDePasse) {
+    const d = await appelAuth("signup", { email, password: motDePasse });
+    const u = d.user || d;
+    if (!u || !u.id) throw new Error("Le compte n'a pas pu être créé.");
+    /* Supabase répond poliment même si l'adresse est déjà prise : dans ce
+       cas il ne rattache aucune identité au compte renvoyé. */
+    if (Array.isArray(u.identities) && u.identities.length === 0) {
+      throw new Error("Cette adresse a déjà un compte.");
+    }
+    return {
+      id: u.id,
+      email: u.email || email,
+      /* Sans session renvoyée, Supabase attend une confirmation par email. */
+      confirmationRequise: !d.access_token && !u.email_confirmed_at,
+    };
+  }
+
+  /** Change le mot de passe du compte connecté. */
+  async function changerMotDePasse(nouveau) {
+    await appelAuth("user", { password: nouveau }, true, "PUT");
+    return true;
+  }
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -283,7 +365,9 @@ const Supabase = (() => {
 
   return {
     configuration, estConfigure, majConfiguration, configurationSaisie,
-    connexion, deconnexion, assurerSession, sessionPresente, utilisateur,
+    connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
+    chargerProfil, compte, role, estAdmin, compteActif, rolesActifs,
+    creerCompte, changerMotDePasse,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

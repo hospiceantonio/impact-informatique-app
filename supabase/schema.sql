@@ -90,8 +90,77 @@ alter table public.produits add column if not exists video text not null default
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
 
+-- ---------- Comptes de l'application admin et leurs rôles ----------
+-- Deux rôles :
+--   administrateur — tous les droits, et lui seul crée les comptes ;
+--   moderateur     — produits et catégories, rien d'autre.
+create table if not exists public.profils (
+  id      uuid primary key references auth.users(id) on delete cascade,
+  email   text not null default '',
+  role    text not null default 'moderateur'
+          check (role in ('administrateur', 'moderateur')),
+  actif   boolean not null default true,
+  cree_le timestamptz not null default now()
+);
+
+-- Rôle du compte connecté. « security definer » : la fonction lit la table
+-- sans repasser par les règles RLS — sinon les règles s'appelleraient elles-mêmes.
+create or replace function public.role_courant() returns text
+language sql stable security definer set search_path = public as $$
+  select role from public.profils where id = auth.uid() and actif;
+$$;
+
+create or replace function public.est_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false);
+$$;
+
+-- Membre actif de l'équipe (administrateur ou modérateur).
+create or replace function public.est_equipe() returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.role_courant() is not null;
+$$;
+
+-- Tout compte créé (par l'application ou dans le tableau de bord Supabase)
+-- reçoit une fiche en attente : l'administrateur l'active et lui donne son rôle.
+create or replace function public.profil_nouveau_compte() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profils (id, email, role, actif)
+  values (new.id, coalesce(new.email, ''), 'moderateur', false)
+  on conflict (id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists profil_a_la_creation on auth.users;
+create trigger profil_a_la_creation
+  after insert on auth.users
+  for each row execute function public.profil_nouveau_compte();
+
+-- Les comptes qui existaient avant les rôles deviennent administrateurs :
+-- personne ne se retrouve enfermé dehors.
+insert into public.profils (id, email, role, actif)
+select u.id, coalesce(u.email, ''), 'administrateur', true from auth.users u
+on conflict (id) do nothing;
+
+alter table public.profils enable row level security;
+
+drop policy if exists "profils lecture" on public.profils;
+drop policy if exists "profils ajout admin" on public.profils;
+drop policy if exists "profils modification admin" on public.profils;
+drop policy if exists "profils suppression admin" on public.profils;
+-- Chacun voit sa propre fiche ; l'administrateur voit toute l'équipe.
+create policy "profils lecture" on public.profils
+  for select to authenticated using (id = auth.uid() or public.est_admin());
+create policy "profils ajout admin" on public.profils
+  for insert to authenticated with check (public.est_admin());
+create policy "profils modification admin" on public.profils
+  for update to authenticated using (public.est_admin()) with check (public.est_admin());
+create policy "profils suppression admin" on public.profils
+  for delete to authenticated using (public.est_admin());
+
 -- ---------- Journal des actions de l'application admin ----------
--- Qui a fait quoi, et quand. Lisible uniquement par le gérant connecté.
+-- Qui a fait quoi, et quand. Lisible uniquement par l'administrateur.
 create table if not exists public.journal (
   id          bigint generated always as identity primary key,
   fait_le     timestamptz not null default now(),
@@ -107,11 +176,11 @@ alter table public.journal enable row level security;
 
 drop policy if exists "journal lecture connectee" on public.journal;
 drop policy if exists "journal ecriture connectee" on public.journal;
--- Le journal n'est PAS public : seul le compte du gérant y accède.
+-- Le journal n'est PAS public : l'administrateur le lit, l'équipe l'alimente.
 create policy "journal lecture connectee" on public.journal
-  for select to authenticated using (true);
+  for select to authenticated using (public.est_admin());
 create policy "journal ecriture connectee" on public.journal
-  for insert to authenticated with check (true);
+  for insert to authenticated with check (public.est_equipe());
 
 -- ---------- Ligne boutique par défaut ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;
@@ -121,7 +190,11 @@ insert into public.boutique (id) values (1) on conflict (id) do nothing;
 update public.boutique set whatsapp = '69842516', maj_le = now()
 where id = 1 and whatsapp = '';
 
--- ---------- Sécurité : lecture publique, écriture connectée ----------
+-- ---------- Sécurité : lecture publique, écriture selon le rôle ----------
+-- Le catalogue se lit par tous (application client).
+-- Écriture : produits et catégories pour toute l'équipe, le reste pour
+-- le seul administrateur. Les règles ci-dessous s'appliquent aussi aux
+-- appels directs à la base : ce n'est pas qu'un décor dans l'application.
 alter table public.boutique        enable row level security;
 alter table public.categories      enable row level security;
 alter table public.sous_categories enable row level security;
@@ -130,22 +203,48 @@ alter table public.produits        enable row level security;
 drop policy if exists "lecture publique"  on public.boutique;
 drop policy if exists "ecriture connectee" on public.boutique;
 create policy "lecture publique"   on public.boutique        for select using (true);
-create policy "ecriture connectee" on public.boutique        for all to authenticated using (true) with check (true);
+create policy "ecriture connectee" on public.boutique
+  for all to authenticated using (public.est_admin()) with check (public.est_admin());
 
 drop policy if exists "lecture publique"  on public.categories;
 drop policy if exists "ecriture connectee" on public.categories;
 create policy "lecture publique"   on public.categories      for select using (true);
-create policy "ecriture connectee" on public.categories      for all to authenticated using (true) with check (true);
+create policy "ecriture connectee" on public.categories
+  for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
 
 drop policy if exists "lecture publique"  on public.sous_categories;
 drop policy if exists "ecriture connectee" on public.sous_categories;
 create policy "lecture publique"   on public.sous_categories for select using (true);
-create policy "ecriture connectee" on public.sous_categories for all to authenticated using (true) with check (true);
+create policy "ecriture connectee" on public.sous_categories
+  for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
 
 drop policy if exists "lecture publique"  on public.produits;
 drop policy if exists "ecriture connectee" on public.produits;
 create policy "lecture publique"   on public.produits        for select using (true);
-create policy "ecriture connectee" on public.produits        for all to authenticated using (true) with check (true);
+create policy "ecriture connectee" on public.produits
+  for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
+
+-- Le slider de l'application client reste la décision de l'administrateur :
+-- le modérateur peut tout modifier d'un produit, sauf sa mise en avant.
+create or replace function public.controle_mise_en_avant() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.est_admin() then return new; end if;
+  if tg_op = 'INSERT' then
+    if new.en_avant or coalesce(new.ordre_avant, 0) <> 0 then
+      raise exception 'Seul l''administrateur choisit les produits mis en avant';
+    end if;
+  elsif new.en_avant is distinct from old.en_avant
+     or new.ordre_avant is distinct from old.ordre_avant then
+    raise exception 'Seul l''administrateur choisit les produits mis en avant';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists produits_mise_en_avant on public.produits;
+create trigger produits_mise_en_avant
+  before insert or update on public.produits
+  for each row execute function public.controle_mise_en_avant();
 
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,
@@ -177,12 +276,22 @@ drop policy if exists "photos maj connectee"      on storage.objects;
 drop policy if exists "photos suppression connectee" on storage.objects;
 create policy "photos lecture publique" on storage.objects
   for select using (bucket_id = 'produits');
+-- Photos de produits : toute l'équipe. Dossier « boutique/ » : administrateur seul.
 create policy "photos ecriture connectee" on storage.objects
-  for insert to authenticated with check (bucket_id = 'produits');
+  for insert to authenticated with check (
+    bucket_id = 'produits' and
+    (public.est_admin() or
+     (public.est_equipe() and (storage.foldername(name))[1] is distinct from 'boutique')));
 create policy "photos maj connectee" on storage.objects
-  for update to authenticated using (bucket_id = 'produits');
+  for update to authenticated using (
+    bucket_id = 'produits' and
+    (public.est_admin() or
+     (public.est_equipe() and (storage.foldername(name))[1] is distinct from 'boutique')));
 create policy "photos suppression connectee" on storage.objects
-  for delete to authenticated using (bucket_id = 'produits');
+  for delete to authenticated using (
+    bucket_id = 'produits' and
+    (public.est_admin() or
+     (public.est_equipe() and (storage.foldername(name))[1] is distinct from 'boutique')));
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
 insert into public.categories (id, nom, ordre) values

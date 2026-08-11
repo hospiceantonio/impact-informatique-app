@@ -60,7 +60,11 @@ Les mêmes applications, installables comme PWA :
    d'exemple.
 2. **Authentication → Users → Add user** : l'email et le mot de passe du
    gérant (cocher « Auto Confirm ») — les identifiants de connexion
-   d'Impact Admin.
+   d'Impact Admin. Il devient **administrateur** ; les comptes suivants
+   se créent depuis l'application (Réglages → Comptes).
+3. **Authentication → Providers → Email** : décocher « Confirm email »,
+   sans quoi chaque compte créé depuis l'application devra d'abord
+   cliquer un lien reçu par mail avant de pouvoir se connecter.
 
 La clé embarquée est la clé **publiable** : elle ne permet que la
 lecture ; toute écriture exige le compte du gérant (règles RLS).
@@ -179,6 +183,20 @@ impact-informatique-app/
   n'est annoncé deux fois. La permission est demandée au premier
   lancement (Android 13+) ; l'app admin, elle, n'en reçoit aucune
   (`notifications_actives` à `false` dans sa variante).
+- Deux rôles dans l'app admin (table `profils`) : **administrateur** —
+  toute l'application, et lui seul crée les comptes ; **modérateur** —
+  produits et catégories, sans réglages, ni comptes, ni historique, ni
+  choix des 5 mis en avant. Le rôle est lu au démarrage
+  (`Supabase.chargerProfil()`) et masque les écrans concernés, mais la
+  vraie serrure est en base : les règles RLS s'appuient sur
+  `est_admin()` / `est_equipe()`, et un déclencheur interdit au
+  modérateur de toucher `en_avant` / `ordre_avant`. Les comptes sont
+  créés par l'inscription publique de Supabase avec la clé publiable (la
+  clé `service_role` ne doit jamais quitter le serveur) ; un déclencheur
+  sur `auth.users` pose une fiche « en attente » pour tout compte créé,
+  que l'administrateur active dans **Comptes**. Un compte désactivé ne
+  peut plus rien écrire. Sur une base d'avant les rôles, le compte garde
+  tous les droits : rien ne se bloque tant que le SQL n'est pas passé.
 - Historique de l'admin (menu horloge, `#/historique`) : chaque geste du
   gérant écrit une ligne dans la table `journal` (date et heure,
   utilisateur, famille, opération, élément concerné) — produits,
