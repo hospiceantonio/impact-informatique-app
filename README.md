@@ -6,10 +6,10 @@ partagée en temps réel :
 
 - **Impact Admin** (icône rouge) : l'application du gérant. Produits avec
   photos, vidéo, prix et promotions, catégories et sous-catégories, et le
-  **slider** — les images à la une, composées une par une. Tout est
-  enregistré directement en ligne.
+  **slider** — ses propres images, puis les produits mis en avant. Tout
+  est enregistré directement en ligne.
 - **Impact Informatique** (icône bleue) : l'application des clients.
-  Slider des images de la boutique, rayons par catégorie et
+  Slider de la boutique, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit et **commande par
   WhatsApp**. Mise à jour en temps réel, consultable hors connexion.
 
@@ -205,15 +205,19 @@ impact-informatique-app/
   groupé par jour, filtres par famille, chargement par pages de 60, et
   rappel des 4 dernières actions sur l'accueil. Le journal n'est **pas**
   public : sa règle RLS le réserve au compte connecté.
-- Slider de l'application client (table `slides`) : la boutique choisit
-  elle-même les images qui défilent en haut de l'accueil — une affiche,
-  une promotion, un arrivage — dans l'ordre voulu, 8 au maximum. Chaque
-  image accepte une légende et peut renvoyer vers un produit ; sans
-  produit, elle n'est pas cliquable. Une image masquée reste dans l'admin
-  sans défiler chez les clients. Les fichiers vont dans le dossier
-  `slider/` du bucket, réservé à l'administrateur comme la table. (Avant,
-  le slider reprenait automatiquement les 5 produits « mis en avant » :
-  cette notion a disparu des deux applications.)
+- Slider de l'application client : **deux sources à la suite**, réunies
+  dans l'écran Slider de l'admin.
+  1. Les **images libres** (table `slides`) : une affiche, une promotion,
+     un arrivage — dans l'ordre voulu, 8 au maximum. Chaque image accepte
+     une légende et peut renvoyer vers un produit ; sans produit, elle
+     n'est pas cliquable. Une image masquée reste dans l'admin sans
+     défiler chez les clients. Les fichiers vont dans le dossier
+     `slider/` du bucket, réservé à l'administrateur comme la table.
+  2. Les **produits mis en avant** (`en_avant` / `ordre_avant`), 5 au
+     maximum : ils défilent après les images, avec photo, nom et prix.
+     On les ajoute depuis la fiche d'un produit (« Mettre en avant »), on
+     les ordonne dans l'écran Slider. Un déclencheur SQL réserve ce choix
+     à l'administrateur.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet
   (produits, photos, boutique).
 - Après modification des fichiers web, incrémenter `VERSION` dans

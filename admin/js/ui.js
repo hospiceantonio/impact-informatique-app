@@ -231,6 +231,7 @@ const UI = (() => {
   function badgesProduit(p) {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
+    if (p.enAvant) html += '<span class="badge badge-avant">' + icone("etoile", "ic-sm") + "En avant</span>";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
     if (p.disponible === false) html += '<span class="badge badge-rupture">Rupture</span>';
     return html;

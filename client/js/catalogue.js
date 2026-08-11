@@ -13,6 +13,7 @@ const Catalogue = (() => {
 
   const CLE_CACHE = "impact-catalogue";
   const CLE_CONFIG = "impact-config";   // configuration saisie dans l'app (page Infos)
+  const NB_EN_AVANT = 5;               // produits qui défilent après les images
 
   let donnees = null;       // catalogue courant
   let source = "aucune";    // "aucune" | "cache" | "reseau" | "demo"
@@ -124,6 +125,8 @@ const Catalogue = (() => {
           categorieId: p.categorie_id,
           sousCategorieId: p.sous_categorie_id || "",
           disponible: p.disponible !== false,
+          enAvant: !!p.en_avant,
+          ordreAvant: p.ordre_avant || 0,
           images: (Array.isArray(p.images) ? p.images : []).map(urlImagePublique),
           video: p.video ? urlImagePublique(p.video) : "",
           creeLe: Date.parse(p.cree_le || "") || 0,
@@ -327,6 +330,14 @@ const Catalogue = (() => {
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
 
+  /** Les produits mis en avant, qui défilent à la suite des images. */
+  function misEnAvant() {
+    return produits()
+      .filter((p) => p.enAvant)
+      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0))
+      .slice(0, NB_EN_AVANT);
+  }
+
   function nouveautes(n = 8) {
     return produits()
       .sort((a, b) => (b.creeLe || 0) - (a.creeLe || 0))
@@ -383,7 +394,7 @@ const Catalogue = (() => {
     boutique, versionPubliee,
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
-    slides, nouveautes, promotions, rechercher, similaires,
+    slides, misEnAvant, nouveautes, promotions, rechercher, similaires,
     urlImage, imagePrincipale,
     signature, signalerAndroid,
   };

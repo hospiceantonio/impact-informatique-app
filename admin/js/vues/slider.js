@@ -1,7 +1,10 @@
 /* =========================================================
-   Slider — les images qui défilent en haut de l'application
-   client. La boutique les choisit une par une, les range dans
-   l'ordre voulu, et peut renvoyer chacune vers un produit.
+   Slider — ce qui défile en haut de l'application client.
+
+   Deux sources, l'une après l'autre :
+     1. les images libres, choisies une par une (affiches,
+        promotions, arrivages) ;
+     2. les produits mis en avant, avec leur photo et leur prix.
    ========================================================= */
 const VueSlider = (() => {
 
@@ -34,8 +37,28 @@ const VueSlider = (() => {
     );
   }
 
+  /** Un produit mis en avant, dans la seconde partie du slider. */
+  function htmlProduit(p, i, total, decalage) {
+    return (
+      '<div class="avant-ligne">' +
+        '<span class="avant-num">' + (decalage + i + 1) + "</span>" +
+        UI.vignetteProduit(p) +
+        '<button type="button" class="avant-nom" data-nav="#/produit/' + Utils.echapper(p.id) + '">' +
+          Utils.echapper(p.nom) + "</button>" +
+        '<span class="avant-actions">' +
+          '<button type="button" class="btn-ic btn-ic-clair" data-avant-monter="' + Utils.echapper(p.id) + '"' +
+            (i === 0 ? " disabled" : "") + ' aria-label="Monter">' + UI.icone("haut", "ic-sm") + "</button>" +
+          '<button type="button" class="btn-ic btn-ic-clair" data-avant-descendre="' + Utils.echapper(p.id) + '"' +
+            (i === total - 1 ? " disabled" : "") + ' aria-label="Descendre">' + UI.icone("bas", "ic-sm") + "</button>" +
+          '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-avant-retirer="' + Utils.echapper(p.id) + '" aria-label="Retirer du slider">' +
+            UI.icone("fermer", "ic-sm") + "</button>" +
+        "</span>" +
+      "</div>"
+    );
+  }
+
   async function afficher(vue) {
-    UI.entete({ titre: "Slider", retour: true, sous: "Les images à la une chez vos clients" });
+    UI.entete({ titre: "Slider", retour: true, sous: "Ce qui défile chez vos clients" });
 
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture du slider…</div>';
 
@@ -53,18 +76,48 @@ const VueSlider = (() => {
       const p = produits.find((x) => x.id === s.produitId);
       s.nomProduit = p ? "Renvoie vers " + p.nom : "";
     }
+    const visibles = slides.filter((s) => s.actif);
+    const enAvant = produits
+      .filter((p) => p.enAvant)
+      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0));
+    const total = visibles.length + enAvant.length;
+
+    const compte = (n, mot) => n + " " + mot + (n > 1 ? "s" : "");
 
     vue.innerHTML =
-      '<p class="aide" style="margin:0 0 14px">Ces images défilent en grand en haut de l\'écran d\'accueil ' +
-        "de vos clients, dans cet ordre. " + Store.MAX_SLIDES + " au maximum.</p>" +
+      '<div class="carte carte-publier">' +
+        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " " +
+          (total ? compte(total, "écran") + " en haut de l'accueil" : "Rien ne défile pour l'instant") + "</div>" +
+        '<p class="aide" style="margin:0">' +
+          (total
+            ? compte(visibles.length, "image") + " puis " + compte(enAvant.length, "produit") +
+              " mis en avant, dans cet ordre."
+            : "Ajoutez une image, ou mettez un produit en avant depuis sa fiche.") +
+        "</p>" +
+      "</div>" +
+
+      /* ---------- 1. Les images libres ---------- */
+      '<div class="titre-section">Images (' + visibles.length +
+        (slides.length > visibles.length ? " visible" + (visibles.length > 1 ? "s" : "") +
+          " sur " + slides.length : "") + "/" + Store.MAX_SLIDES + ")</div>" +
       (slides.length < Store.MAX_SLIDES
         ? '<button type="button" class="btn" id="slide-ajouter">' + UI.icone("plus") + "Ajouter une image</button>"
-        : '<p class="aide" style="margin:0 0 14px">Le slider est complet (' + Store.MAX_SLIDES +
+        : '<p class="aide" style="margin:0">Le maximum est atteint (' + Store.MAX_SLIDES +
           " images). Retirez-en une pour en ajouter une autre.</p>") +
       (slides.length
         ? slides.map((s, i) => htmlVignette(s, i, slides.length)).join("")
-        : UI.vide("image", "Le slider est vide",
-            "Ajoutez vos affiches, promotions ou arrivages : elles défileront en haut de l'application client."));
+        : UI.vide("image", "Aucune image",
+            "Vos affiches, promotions ou arrivages défileront ici, avant les produits.")) +
+
+      /* ---------- 2. Les produits mis en avant ---------- */
+      '<div class="titre-section">Produits mis en avant (' + enAvant.length + "/" + Store.MAX_EN_AVANT + ")</div>" +
+      '<div class="carte">' +
+        '<p class="aide" style="margin:0 0 12px">Ils défilent après vos images, avec leur photo et leur prix. ' +
+          "Pour en ajouter un : ouvrez sa fiche puis « Mettre en avant ».</p>" +
+        (enAvant.length
+          ? enAvant.map((p, i) => htmlProduit(p, i, enAvant.length, visibles.length)).join("")
+          : '<p class="aide" style="margin:0">Aucun produit mis en avant.</p>') +
+      "</div>";
 
     const recharger = () => afficher(vue);
     const bouton = UI.$("#slide-ajouter", vue);
@@ -79,6 +132,19 @@ const VueSlider = (() => {
       b.onclick = () => {
         const slide = slides.find((s) => s.id === b.dataset.modifier);
         if (slide) formulaire(slide, produits, recharger);
+      };
+    }
+    for (const b of UI.$$("[data-avant-monter]", vue)) {
+      b.onclick = async () => { await Store.deplacerEnAvant(b.dataset.avantMonter, -1); recharger(); };
+    }
+    for (const b of UI.$$("[data-avant-descendre]", vue)) {
+      b.onclick = async () => { await Store.deplacerEnAvant(b.dataset.avantDescendre, +1); recharger(); };
+    }
+    for (const b of UI.$$("[data-avant-retirer]", vue)) {
+      b.onclick = async () => {
+        await Store.basculerEnAvant(b.dataset.avantRetirer);
+        UI.toast("Produit retiré du slider", "ok");
+        recharger();
       };
     }
   }

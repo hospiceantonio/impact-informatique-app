@@ -20,6 +20,8 @@ const VueHistorique = (() => {
     ajout: { icone: "plus", teinte: "vert" },
     modification: { icone: "crayon", teinte: "bleu" },
     suppression: { icone: "poubelle", teinte: "rouge" },
+    mise_en_avant: { icone: "etoile", teinte: "or" },
+    retrait_avant: { icone: "etoile", teinte: "gris" },
     rupture: { icone: "alerte", teinte: "rouge" },
     retour_stock: { icone: "check", teinte: "vert" },
     ordre_slider: { icone: "haut", teinte: "bleu" },

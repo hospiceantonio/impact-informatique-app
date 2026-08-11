@@ -1,6 +1,7 @@
 /* =========================================================
-   Accueil — slider des images choisies par la boutique,
-   catégories, promotions et nouveautés.
+   Accueil — slider (les images choisies par la boutique,
+   puis ses produits mis en avant), catégories, promotions
+   et nouveautés.
    ========================================================= */
 const VueAccueil = (() => {
 
@@ -9,10 +10,11 @@ const VueAccueil = (() => {
   let derniereInteraction = 0;
 
   /* ---------- Slider ----------
-     Les images sont composées par la boutique dans l'application
-     admin. Chacune peut renvoyer vers un produit, ou ne rien faire. */
+     Deux sources à la suite : les images composées par la boutique
+     dans l'application admin, puis ses produits mis en avant. */
 
-  function slide(s, index) {
+  /** Une image libre. Elle peut renvoyer vers un produit, ou ne rien faire. */
+  function slideImage(s, index) {
     const produit = s.produitId ? Catalogue.produit(s.produitId) : null;
     const balise = produit ? "a" : "div";
     const lien = produit ? ' href="#/produit/' + Utils.echapper(produit.id) + '"' : "";
@@ -35,15 +37,42 @@ const VueAccueil = (() => {
     );
   }
 
-  function htmlSlider(slides) {
-    if (!slides.length) return "";
+  /** Un produit mis en avant : sa photo, son nom, son prix. */
+  function slideProduit(p, index) {
+    const src = Catalogue.imagePrincipale(p);
+    const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    const devise = Catalogue.boutique().devise;
+    return (
+      '<a class="slide" href="#/produit/' + Utils.echapper(p.id) + '" aria-label="' + Utils.echapper(p.nom) + '">' +
+        (src
+          ? '<img class="slide-img" src="' + Utils.echapper(src) + '" alt="" ' + (index > 0 ? 'loading="lazy"' : "") + ">"
+          : '<span class="slide-motif">' + UI.marque(120) + "</span>") +
+        '<span class="slide-voile"></span>' +
+        (remise !== null ? '<span class="badge badge-promo slide-badge">-' + remise + " %</span>" : "") +
+        '<span class="slide-infos">' +
+          '<span class="slide-nom">' + Utils.echapper(p.nom) + "</span>" +
+          '<span class="slide-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
+            (remise !== null ? ' <s>' + Utils.echapper(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>" : "") +
+          "</span>" +
+          '<span class="slide-cta">Voir le produit ' + UI.icone("chevron", "ic-sm") + "</span>" +
+        "</span>" +
+      "</a>"
+    );
+  }
+
+  function htmlSlider(images, enAvant) {
+    const total = images.length + enAvant.length;
+    if (!total) return "";
+    const ecrans =
+      images.map((s, i) => slideImage(s, i)).concat(
+      enAvant.map((p, i) => slideProduit(p, images.length + i)));
     return (
       '<section class="slider" aria-label="À la une">' +
-        '<div class="slider-piste" id="slider-piste">' + slides.map(slide).join("") + "</div>" +
-        (slides.length > 1
+        '<div class="slider-piste" id="slider-piste">' + ecrans.join("") + "</div>" +
+        (total > 1
           ? '<div class="slider-points" id="slider-points">' +
-              slides.map((s, i) =>
-                '<button type="button" data-slide="' + i + '" aria-label="Image ' + (i + 1) + '"' +
+              ecrans.map((_, i) =>
+                '<button type="button" data-slide="' + i + '" aria-label="Écran ' + (i + 1) + '"' +
                 (i === 0 ? ' class="actif"' : "") + "></button>").join("") +
             "</div>"
           : "") +
@@ -106,6 +135,7 @@ const VueAccueil = (() => {
       '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
 
     const slides = Catalogue.slides();
+    const enAvant = Catalogue.misEnAvant();
     const categories = Catalogue.categories();
     const comptes = Catalogue.nombreParCategorie();
     const promos = Catalogue.promotions().slice(0, 8);
@@ -114,7 +144,7 @@ const VueAccueil = (() => {
 
     let html = "";
 
-    html += htmlSlider(slides);
+    html += htmlSlider(slides, enAvant);
 
     if (Catalogue.depuisCache()) {
       html +=

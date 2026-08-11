@@ -1,6 +1,6 @@
 /* =========================================================
-   Accueil — tableau de bord : publication, produits mis
-   en avant (l'ordre du slider client), derniers produits.
+   Accueil — tableau de bord : publication, aperçu du slider
+   (images puis produits mis en avant), derniers produits.
    ========================================================= */
 const VueAccueil = (() => {
 
@@ -34,7 +34,7 @@ const VueAccueil = (() => {
         "</a>" +
         (admin
           ? '<a class="stat" href="#/slider">' +
-              '<span class="stat-valeur">' + stats.slides + "<small>/" + Store.MAX_SLIDES + "</small></span>" +
+              '<span class="stat-valeur">' + (stats.slides + stats.enAvant) + "</span>" +
               '<span class="stat-label">Slider</span>' +
             "</a>"
           : '<span class="stat">' +
@@ -52,26 +52,38 @@ const VueAccueil = (() => {
         "</div>" +
       "</div>";
 
-    /* ---- Slider : les images à la une, composées par l'administrateur ---- */
+    /* ---- Slider : les images libres, puis les produits mis en avant ---- */
+    const enAvant = produits
+      .filter((p) => p.enAvant)
+      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0));
+    const images = slides.filter((s) => s.actif);
+    const ecrans = images.map((s) => ({ apercu: s.apercu, produit: false }))
+      .concat(enAvant.map((p) => ({ apercu: p.vignette, produit: true })));
+
     if (admin) {
       html += '<div class="carte">' +
-        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Slider — images à la une (" +
-          slides.length + "/" + Store.MAX_SLIDES + ")</div>" +
-        '<p class="aide" style="margin:-4px 0 12px">Ces images défilent en grand en haut de l\'application client, dans cet ordre.</p>';
+        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Slider — à la une (" +
+          ecrans.length + ")</div>" +
+        '<p class="aide" style="margin:-4px 0 12px">' +
+          images.length + " image" + (images.length > 1 ? "s" : "") +
+          " puis " + enAvant.length + " produit" + (enAvant.length > 1 ? "s" : "") +
+          " mis en avant, dans cet ordre, en haut de l'application client.</p>";
 
-      if (slides.length) {
+      if (ecrans.length) {
         html += '<div class="slider-apercu">' +
-          slides.map((s, i) =>
-            '<a class="slider-apercu-img" href="#/slider" aria-label="Image ' + (i + 1) + ' du slider">' +
-              '<img src="' + Utils.echapper(s.apercu) + '" alt="">' +
-              (s.actif ? "" : '<span class="slide-etiquette">Masquée</span>') +
+          ecrans.map((e, i) =>
+            '<a class="slider-apercu-img" href="#/slider" aria-label="Écran ' + (i + 1) + ' du slider">' +
+              (e.apercu
+                ? '<img src="' + Utils.echapper(e.apercu) + '" alt="">'
+                : '<span class="slider-apercu-vide">' + UI.icone("image", "ic-sm") + "</span>") +
+              (e.produit ? '<span class="slide-etiquette slide-etiquette-produit">Produit</span>' : "") +
             "</a>").join("") +
         "</div>";
       } else {
-        html += '<p class="aide" style="margin:0 0 12px">Le slider est vide : vos clients ne verront aucune image à la une.</p>';
+        html += '<p class="aide" style="margin:0 0 12px">Le slider est vide : vos clients ne verront rien à la une.</p>';
       }
       html += '<a class="btn btn-clair" style="margin-top:10px" href="#/slider">' +
-        UI.icone("image") + (slides.length ? "Gérer le slider" : "Composer le slider") + "</a>" +
+        UI.icone("image") + (ecrans.length ? "Gérer le slider" : "Composer le slider") + "</a>" +
       "</div>";
     }
 
