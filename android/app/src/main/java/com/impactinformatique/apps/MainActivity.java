@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private static final String PAGE_ACCUEIL = ORIGINE + "/assets/www/index.html";
     private static final int CODE_CHOIX_FICHIER = 41;
     private static final int CODE_POSITION = 42;
+    private static final int CODE_NOTIFICATIONS = 43;
 
     private WebView vueWeb;
     private ValueCallback<Uri[]> rappelChoixFichier;
@@ -182,6 +183,25 @@ public class MainActivity extends Activity {
         });
 
         vueWeb.loadUrl(PAGE_ACCUEIL);
+
+        demanderNotifications();
+        VerificateurCatalogue.programmer(this);
+    }
+
+    /* ---------- Notifications ---------- */
+
+    /**
+     * Autorisation d'afficher les nouveautés du catalogue dans la barre
+     * de notifications. Obligatoire à partir d'Android 13 ; avant, elle
+     * est acquise à l'installation.
+     */
+    private void demanderNotifications() {
+        if (!getResources().getBoolean(R.bool.notifications_actives)) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) return;
+        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                CODE_NOTIFICATIONS);
     }
 
     /* ---------- Position ---------- */
@@ -452,6 +472,16 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 annoncer("Enregistrement impossible : " + e.getMessage());
             }
+        }
+
+        /**
+         * Le catalogue affiché à l'écran est à jour : la vérification de
+         * fond ne préviendra donc pas d'une nouveauté déjà vue.
+         */
+        @JavascriptInterface
+        public void majDerniereVue(String signature) {
+            if (signature == null || signature.isEmpty()) return;
+            VerificateurCatalogue.memoriserVue(MainActivity.this, signature);
         }
 
         private void annoncer(String message) {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône de la barre de notifications : le « i » d'IMPACT dans son rond.
+     Android n'en garde que la silhouette, le « i » est donc creusé
+     (fillType evenOdd) pour rester lisible en blanc sur fond sombre. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2C6.477,2 2,6.477 2,12s4.477,10 10,10 10,-4.477 10,-10S17.523,2 12,2Z
+                          M12,4.3m-1.5,0a1.5,1.5 0,1 0,3 0a1.5,1.5 0,1 0,-3 0Z
+                          M10.6,9.1L13.4,9.1L13.4,18.2L10.6,18.2Z" />
+</vector>

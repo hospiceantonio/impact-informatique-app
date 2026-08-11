@@ -90,6 +90,29 @@ alter table public.produits add column if not exists video text not null default
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
 
+-- ---------- Journal des actions de l'application admin ----------
+-- Qui a fait quoi, et quand. Lisible uniquement par le gérant connecté.
+create table if not exists public.journal (
+  id          bigint generated always as identity primary key,
+  fait_le     timestamptz not null default now(),
+  utilisateur text not null default '',
+  famille     text not null default 'autre',  -- produit | categorie | boutique | compte
+  action      text not null default '',       -- ajout | modification | suppression | …
+  libelle     text not null default '',       -- phrase lisible par le gérant
+  cible       text not null default ''        -- nom du produit, de la catégorie…
+);
+create index if not exists journal_date on public.journal(fait_le desc);
+
+alter table public.journal enable row level security;
+
+drop policy if exists "journal lecture connectee" on public.journal;
+drop policy if exists "journal ecriture connectee" on public.journal;
+-- Le journal n'est PAS public : seul le compte du gérant y accède.
+create policy "journal lecture connectee" on public.journal
+  for select to authenticated using (true);
+create policy "journal ecriture connectee" on public.journal
+  for insert to authenticated with check (true);
+
 -- ---------- Ligne boutique par défaut ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;
 

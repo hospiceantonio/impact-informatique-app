@@ -74,6 +74,7 @@ const VueConnexion = (() => {
       bouton.textContent = "Connexion…";
       try {
         await Supabase.connexion(UI.$("#cx-email").value.trim(), UI.$("#cx-mdp").value);
+        Store.journaliser("compte", "connexion", "Connexion à l'application admin", Supabase.utilisateur());
         UI.toast("Bienvenue !", "ok");
         apresConnexion();
       } catch (err) {

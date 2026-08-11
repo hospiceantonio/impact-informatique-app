@@ -170,6 +170,22 @@ impact-informatique-app/
   affichée en aperçu dans l'admin. Côté client, carte « Suivez-nous »
   dans l'onglet Infos, avec les couleurs de chaque marque — seuls les
   réseaux remplis apparaissent.
+- Notifications du catalogue (app client Android) : une vérification de
+  fond (`VerificateurCatalogue.java`, WorkManager, toutes les 15 min et
+  même application fermée) lit le produit modifié en dernier et dépose
+  une notification quand il a changé. Le repère comparé est
+  `identifiant|modifie_le` ; l'application le remet à jour à chaque
+  affichage du catalogue (pont `AndroidPont.majDerniereVue`), donc rien
+  n'est annoncé deux fois. La permission est demandée au premier
+  lancement (Android 13+) ; l'app admin, elle, n'en reçoit aucune
+  (`notifications_actives` à `false` dans sa variante).
+- Historique de l'admin (menu horloge, `#/historique`) : chaque geste du
+  gérant écrit une ligne dans la table `journal` (date et heure,
+  utilisateur, famille, opération, élément concerné) — produits,
+  catégories, slider, stock, boutique, connexion et déconnexion. Écran
+  groupé par jour, filtres par famille, chargement par pages de 60, et
+  rappel des 4 dernières actions sur l'accueil. Le journal n'est **pas**
+  public : sa règle RLS le réserve au compte connecté.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet

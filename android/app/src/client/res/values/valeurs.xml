@@ -2,4 +2,6 @@
     <string name="app_name">Impact Informatique</string>
     <color name="fond_demarrage">#0B4FA0</color>
     <color name="ic_launcher_fond">#1176D8</color>
+    <!-- Prévenir le client des nouveautés du catalogue. -->
+    <bool name="notifications_actives">true</bool>
 </resources>

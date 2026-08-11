@@ -69,6 +69,14 @@ const Utils = (() => {
     return d.getDate() + " " + MOIS[d.getMonth()] + " " + d.getFullYear();
   }
 
+  /** Heure seule : « 14:32 » (dans l'historique, le jour est donné à part). */
+  function fmtHeure(horodatage) {
+    if (!horodatage) return "—";
+    const d = new Date(horodatage);
+    if (isNaN(d)) return "—";
+    return pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
   /* ---------- Téléphone & WhatsApp ---------- */
 
   /**
@@ -211,7 +219,7 @@ const Utils = (() => {
   return {
     pad, uid, echapper,
     fmtNombre, fmtMontant, lireNombre, remisePourcent,
-    fmtDateHeure, fmtDate,
+    fmtDateHeure, fmtDate, fmtHeure,
     normaliserTel, lienWhatsApp,
     sansAccent, tempo, telecharger, tailleLisible, tailleDataUrl,
     compresserImage, vignetteDepuisDataUrl,

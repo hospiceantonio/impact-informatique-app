@@ -11,6 +11,7 @@
     { motif: /^\/produit\/([^/]+)\/modifier$/, vue: (v, m) => VueProduits.formulaire(v, m[1]) },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduits.detail(v, m[1]) },
     { motif: /^\/categories$/, vue: (v) => VueCategories.afficher(v), onglet: "/categories" },
+    { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v) },
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages" },
   ];
 

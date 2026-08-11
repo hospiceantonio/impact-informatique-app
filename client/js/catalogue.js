@@ -130,6 +130,7 @@ const Catalogue = (() => {
           video: p.video ? urlImagePublique(p.video) : "",
           creeLe: Date.parse(p.cree_le || "") || 0,
           modifieLe: Date.parse(p.modifie_le || "") || 0,
+          modifieLeBrut: p.modifie_le || "",   // tel quel : sert de repère aux notifications
         })),
       };
     } finally {
@@ -143,6 +144,35 @@ const Catalogue = (() => {
     const d = await reponse.json();
     if (!d || d.application !== "impact-catalogue") throw new Error("Catalogue invalide");
     return d;
+  }
+
+  /* ---------- Notifications Android ---------- */
+
+  /**
+   * Repère du catalogue affiché : identifiant et date du produit
+   * modifié en dernier. La vérification de fond d'Android compare
+   * exactement la même chaîne (VerificateurCatalogue.java).
+   */
+  function signature() {
+    const liste = (donnees && donnees.produits) || [];
+    if (!liste.length) return "";
+    let recent = liste[0];
+    for (const p of liste) {
+      if ((p.modifieLe || 0) > (recent.modifieLe || 0)) recent = p;
+    }
+    if (!recent.modifieLeBrut) return "";
+    return String(recent.id) + "|" + recent.modifieLeBrut;
+  }
+
+  /** « Ceci, le client vient de le voir » : pas de notification pour rien. */
+  function signalerAndroid() {
+    const sig = signature();
+    if (!sig) return;
+    try {
+      if (typeof AndroidPont !== "undefined" && AndroidPont.majDerniereVue) {
+        AndroidPont.majDerniereVue(sig);
+      }
+    } catch (_) { /* version web ou ancienne application : rien à signaler */ }
   }
 
   /**
@@ -165,6 +195,7 @@ const Catalogue = (() => {
       donnees = frais;
       source = c ? "reseau" : "demo";
       if (c) ecrireCache(frais);
+      signalerAndroid();
       if (changement && enCache) {
         document.dispatchEvent(new CustomEvent("catalogue:maj"));
       }
@@ -192,6 +223,7 @@ const Catalogue = (() => {
     donnees = frais;
     source = "reseau";
     ecrireCache(frais);
+    signalerAndroid();
     if (change) document.dispatchEvent(new CustomEvent("catalogue:maj"));
     return change;
   }
@@ -346,5 +378,6 @@ const Catalogue = (() => {
     produits, produit, produitsDeCategorie, nombreParCategorie,
     misEnAvant, nouveautes, promotions, rechercher, similaires,
     urlImage, imagePrincipale,
+    signature, signalerAndroid,
   };
 })();

@@ -6,6 +6,7 @@ const VueAccueil = (() => {
 
   async function afficher(vue) {
     UI.entete({ accueil: true, actions:
+      '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
       '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>" });
 
     const [stats, enAvant, produits] = await Promise.all([
@@ -69,6 +70,25 @@ const VueAccueil = (() => {
       html += '<p class="aide" style="margin:0">Aucun produit mis en avant. Ouvrez un produit puis activez « Mettre en avant ».</p>';
     }
     html += "</div>";
+
+    /* ---- Dernières actions ---- */
+    let journal = [];
+    try { journal = await Store.lireJournal(4, 0); } catch (_) { /* table pas encore créée */ }
+    if (journal.length) {
+      html += '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("horloge", "ic-sm") + " Dernières actions</div>" +
+        journal.map((e) =>
+          '<div class="histo-ligne histo-compact">' +
+            '<span class="histo-corps">' +
+              '<span class="histo-libelle">' + Utils.echapper(e.libelle) + "</span>" +
+              '<span class="histo-details">' + Utils.echapper(Utils.fmtDateHeure(e.date)) +
+                (e.utilisateur ? " · " + Utils.echapper(e.utilisateur) : "") + "</span>" +
+            "</span>" +
+          "</div>").join("") +
+        '<a class="btn btn-clair" style="margin-top:10px" href="#/historique">' +
+          UI.icone("horloge") + "Voir tout l'historique</a>" +
+      "</div>";
+    }
 
     /* ---- Derniers produits ---- */
     html += '<div class="carte">' +

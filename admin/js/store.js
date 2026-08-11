@@ -123,11 +123,41 @@ const Store = (() => {
     if (lignes && lignes.length) reglages = boutiqueDepuisLigne(lignes[0]);
   }
 
+  /* ---------- Journal des actions ----------
+     Chaque geste du gérant laisse une trace lisible : qui, quoi, quand.
+     L'écriture ne bloque jamais l'action elle-même. */
+
+  function journaliser(famille, action, libelle, cible) {
+    const ligne = {
+      utilisateur: Supabase.utilisateur() || "",
+      famille, action, libelle,
+      cible: cible || "",
+      fait_le: new Date().toISOString(),
+    };
+    return Supabase.requete("POST", "journal", ligne, { sansRetour: true })
+      .catch(() => { /* le journal ne doit jamais gêner le travail */ });
+  }
+
+  /** Les dernières actions, de la plus récente à la plus ancienne. */
+  async function lireJournal(limite = 100, decalage = 0) {
+    const lignes = await Supabase.requete("GET",
+      "journal?select=*&order=fait_le.desc&limit=" + limite + "&offset=" + decalage);
+    return (lignes || []).map((l) => ({
+      id: l.id,
+      date: versMs(l.fait_le),
+      utilisateur: l.utilisateur || "",
+      famille: l.famille || "autre",
+      action: l.action || "",
+      libelle: l.libelle || "",
+      cible: l.cible || "",
+    }));
+  }
+
   /* ---------- Réglages boutique ---------- */
 
   const lireReglages = () => ({ ...reglages });
 
-  async function majReglages(maj) {
+  async function majReglages(maj, libelleJournal) {
     reglages = { ...reglages, ...maj };
     const r = reglages;
     await Supabase.requete("PATCH", "boutique?id=eq.1", {
@@ -150,6 +180,7 @@ const Store = (() => {
       photos: r.photos || [],
       maj_le: new Date().toISOString(),
     });
+    if (libelleJournal) journaliser("boutique", "modification", libelleJournal, r.nomBoutique);
     return lireReglages();
   }
 
@@ -180,7 +211,8 @@ const Store = (() => {
     }
     const retirees = (reglages.photos || []).filter((chemin) => !chemins.includes(chemin));
     await Supabase.supprimerImages(retirees);
-    return majReglages({ photos: chemins });
+    return majReglages({ photos: chemins },
+      "Photos de la boutique mises à jour (" + chemins.length + " photo" + (chemins.length > 1 ? "s" : "") + ")");
   }
 
   /* ---------- Catégories ---------- */
@@ -246,6 +278,9 @@ const Store = (() => {
       }
     }
 
+    journaliser("categorie", existante ? "modification" : "ajout",
+      (existante ? "Catégorie modifiée : " : "Nouvelle catégorie : ") + nom +
+      " (" + voulues.length + " sous-catégorie" + (voulues.length > 1 ? "s" : "") + ")", nom);
     return lireCategorie(id);
   }
 
@@ -255,7 +290,10 @@ const Store = (() => {
       throw new Error("Impossible : " + produits.length + " produit" + (produits.length > 1 ? "s" : "") +
         " se trouve" + (produits.length > 1 ? "nt" : "") + " dans cette catégorie. Déplacez-les d'abord.");
     }
+    const categorie = await lireCategorie(id);
     await Supabase.requete("DELETE", "categories?id=eq." + encodeURIComponent(id));
+    journaliser("categorie", "suppression",
+      "Catégorie supprimée : " + (categorie ? categorie.nom : id), categorie ? categorie.nom : "");
   }
 
   /** Échange l'ordre avec la catégorie voisine (direction -1 ou +1). */
@@ -267,6 +305,7 @@ const Store = (() => {
     const courant = categories[index];
     await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(courant.id), { ordre: voisin.ordre });
     await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(voisin.id), { ordre: courant.ordre });
+    journaliser("categorie", "ordre", "Ordre des catégories modifié : " + courant.nom, courant.nom);
   }
 
   /* ---------- Produits ---------- */
@@ -412,9 +451,15 @@ const Store = (() => {
     let lignes;
     if (existant) {
       lignes = await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(produit.id), ligne);
+      journaliser("produit", "modification",
+        "Produit modifié : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
+        produit.reference || produit.nom);
     } else {
       ligne.cree_le = new Date().toISOString();
       lignes = await Supabase.requete("POST", "produits", ligne);
+      journaliser("produit", "ajout",
+        "Nouveau produit : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
+        produit.reference || produit.nom);
     }
     return produitDepuisLigne(Array.isArray(lignes) ? lignes[0] : ligne);
   }
@@ -427,6 +472,10 @@ const Store = (() => {
       await Supabase.supprimerImages(fichiers);
     }
     await Supabase.requete("DELETE", "produits?id=eq." + encodeURIComponent(id));
+    if (produit) {
+      journaliser("produit", "suppression", "Produit supprimé : " + produit.nom,
+        produit.reference || produit.nom);
+    }
   }
 
   /** Photos d'un produit, prêtes pour le formulaire et la visionneuse. */
@@ -467,6 +516,9 @@ const Store = (() => {
       ordre_avant: produit.ordreAvant,
       modifie_le: new Date().toISOString(),
     });
+    journaliser("produit", produit.enAvant ? "mise_en_avant" : "retrait_avant",
+      (produit.enAvant ? "Ajouté au slider client : " : "Retiré du slider client : ") + produit.nom,
+      produit.reference || produit.nom);
     return produit;
   }
 
@@ -477,6 +529,9 @@ const Store = (() => {
       disponible: !produit.disponible,
       modifie_le: new Date().toISOString(),
     });
+    journaliser("produit", produit.disponible ? "rupture" : "retour_stock",
+      (produit.disponible ? "Marqué en rupture : " : "Remis en stock : ") + produit.nom,
+      produit.reference || produit.nom);
     return produit;
   }
 
@@ -495,6 +550,9 @@ const Store = (() => {
       await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(p.id),
         { ordre_avant: p.ordreAvant });
     }
+    journaliser("produit", "ordre_slider",
+      "Ordre du slider modifié : " + courant.nom + " en position " + courant.ordreAvant,
+      courant.reference || courant.nom);
   }
 
   /* ---------- Statistiques ---------- */
@@ -632,6 +690,7 @@ const Store = (() => {
   return {
     MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
+    journaliser, lireJournal,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,

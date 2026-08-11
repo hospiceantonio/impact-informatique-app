@@ -219,7 +219,7 @@ const VueReglages = (() => {
           devise: UI.$("#r-devise").value.trim() || "FCFA",
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
-        });
+        }, "Informations de la boutique modifiées");
         UI.toast("Boutique enregistrée — visible immédiatement chez les clients.", "ok");
       } catch (err) {
         UI.toast(err.message, "err");
@@ -269,7 +269,7 @@ const VueReglages = (() => {
       try {
         const maj = {};
         for (const [cle] of RESEAUX) maj[cle] = UI.$("#rs-" + cle).value.trim();
-        await Store.majReglages(maj);
+        await Store.majReglages(maj, "Réseaux sociaux mis à jour");
         UI.toast("Réseaux enregistrés — visibles chez les clients", "ok");
       } catch (err) {
         UI.toast(err.message, "err");
@@ -321,7 +321,7 @@ const VueReglages = (() => {
       const lng = UI.$("#loc-lng").value.trim();
       if (!lat && !lng) {
         try {
-          await Store.majReglages({ latitude: null, longitude: null });
+          await Store.majReglages({ latitude: null, longitude: null }, "Position de la boutique retirée");
           UI.toast("Position retirée", "ok");
           afficher(vue, params);
         } catch (err) { UI.toast(err.message, "err"); }
@@ -335,7 +335,8 @@ const VueReglages = (() => {
         return;
       }
       try {
-        await Store.majReglages({ latitude, longitude });
+        await Store.majReglages({ latitude, longitude },
+          "Position de la boutique enregistrée (" + latitude.toFixed(5) + ", " + longitude.toFixed(5) + ")");
         UI.toast("Position enregistrée — visible chez les clients", "ok");
         afficher(vue, params);
       } catch (err) {
@@ -362,6 +363,8 @@ const VueReglages = (() => {
 
     /* ---------- Compte ---------- */
     UI.$("#c-deconnexion").onclick = async () => {
+      await Store.journaliser("compte", "deconnexion", "Déconnexion de l'application admin",
+        Supabase.utilisateur());
       await Supabase.deconnexion();
       location.reload();
     };
