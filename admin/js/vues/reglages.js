@@ -93,12 +93,30 @@ const VueReglages = (() => {
           placeholder: "Quartier, rue, ville" }) +
         UI.champTexte({ id: "r-horaires", label: "Horaires", valeur: r.horaires,
           placeholder: "Lun–Sam : 8h–19h" }) +
-        UI.champTexte({ id: "r-facebook", label: "Page Facebook (optionnel)", valeur: r.facebook,
-          placeholder: "impactinformatique" }) +
         '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + "Enregistrer la boutique</button>" +
       "</div>" +
 
       /* ---------- Localisation ---------- */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("instagram", "ic-sm") + " Réseaux sociaux</div>" +
+        '<p class="aide" style="margin:0 0 12px">Indiquez le nom du compte (ex. <strong>impactinformatique</strong>) ' +
+          "ou collez le lien complet. Seuls les réseaux remplis apparaissent chez les clients.</p>" +
+        UI.champTexte({ id: "rs-facebook", label: "Facebook", valeur: r.facebook,
+          placeholder: "impactinformatique" }) +
+        UI.champTexte({ id: "rs-instagram", label: "Instagram", valeur: r.instagram,
+          placeholder: "@impactinformatique" }) +
+        UI.champTexte({ id: "rs-tiktok", label: "TikTok", valeur: r.tiktok,
+          placeholder: "@impactinformatique" }) +
+        UI.champTexte({ id: "rs-youtube", label: "YouTube", valeur: r.youtube,
+          placeholder: "@impactinformatique" }) +
+        UI.champTexte({ id: "rs-snapchat", label: "Snapchat", valeur: r.snapchat,
+          placeholder: "impactinformatique" }) +
+        '<div class="btn-rangee">' +
+          '<button type="button" class="btn" id="rs-enregistrer">' + UI.icone("check") + "Enregistrer les réseaux</button>" +
+        "</div>" +
+        '<div id="rs-apercu"></div>' +
+      "</div>" +
+
       '<div class="carte" id="section-localisation">' +
         '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Localisation de la boutique</div>" +
         '<p class="aide" style="margin:0 0 12px">Les clients pourront lancer l\'itinéraire vers la boutique ' +
@@ -201,7 +219,6 @@ const VueReglages = (() => {
           devise: UI.$("#r-devise").value.trim() || "FCFA",
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
-          facebook: UI.$("#r-facebook").value.trim(),
         });
         UI.toast("Boutique enregistrée — visible immédiatement chez les clients.", "ok");
       } catch (err) {
@@ -210,6 +227,55 @@ const VueReglages = (() => {
     };
 
     /* ---------- Localisation ---------- */
+    const RESEAUX = [
+      ["facebook", "Facebook"], ["instagram", "Instagram"], ["tiktok", "TikTok"],
+      ["youtube", "YouTube"], ["snapchat", "Snapchat"],
+    ];
+
+    /** Nom de compte ou lien complet -> adresse ouverte par les clients. */
+    const lienReseau = (reseau, valeur) => {
+      const v = String(valeur || "").trim();
+      if (!v) return "";
+      if (/^https?:\/\//i.test(v)) return v;
+      if (/^(www\.|[a-z0-9-]+\.[a-z]{2,}\/)/i.test(v)) return "https://" + v.replace(/^\/+/, "");
+      const bases = {
+        facebook: "https://facebook.com/", instagram: "https://instagram.com/",
+        tiktok: "https://tiktok.com/@", youtube: "https://youtube.com/@",
+        snapchat: "https://snapchat.com/add/",
+      };
+      return bases[reseau] + v.replace(/^@+/, "").replace(/^\/+/, "");
+    };
+
+    /* Aperçu en direct : le gérant voit où mènent ses saisies. */
+    const montrerApercuReseaux = () => {
+      const liens = RESEAUX
+        .map(([cle, nom]) => ({ nom, lien: lienReseau(cle, UI.$("#rs-" + cle).value) }))
+        .filter((x) => x.lien);
+      UI.$("#rs-apercu").innerHTML = liens.length
+        ? '<div class="aide" style="margin-top:12px">Adresses ouvertes par les clients :</div>' +
+          liens.map((x) =>
+            '<a class="lien-copiable" style="margin-top:8px" target="_blank" rel="noopener" href="' +
+              Utils.echapper(x.lien) + '">' + UI.icone("lien", "ic-sm") +
+              "<span>" + Utils.echapper(x.lien) + "</span></a>").join("")
+        : "";
+    };
+
+    for (const [cle] of RESEAUX) {
+      UI.$("#rs-" + cle).addEventListener("input", Utils.tempo(montrerApercuReseaux, 300));
+    }
+    montrerApercuReseaux();
+
+    UI.$("#rs-enregistrer").onclick = async () => {
+      try {
+        const maj = {};
+        for (const [cle] of RESEAUX) maj[cle] = UI.$("#rs-" + cle).value.trim();
+        await Store.majReglages(maj);
+        UI.toast("Réseaux enregistrés — visibles chez les clients", "ok");
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+
     const zoneLoc = UI.$("#loc-resultat");
     const direLoc = (texte, type) => {
       zoneLoc.innerHTML = texte

@@ -92,6 +92,30 @@ const Utils = (() => {
     };
   }
 
+  /* ---------- Réseaux sociaux ---------- */
+
+  const RESEAUX = {
+    facebook:  { nom: "Facebook",  base: "https://facebook.com/" },
+    instagram: { nom: "Instagram", base: "https://instagram.com/" },
+    tiktok:    { nom: "TikTok",    base: "https://tiktok.com/@" },
+    youtube:   { nom: "YouTube",   base: "https://youtube.com/@" },
+    snapchat:  { nom: "Snapchat",  base: "https://snapchat.com/add/" },
+  };
+
+  /**
+   * Le gérant peut saisir un lien complet ou seulement le nom du
+   * compte (avec ou sans « @ ») : on en fait une adresse valable.
+   */
+  function lienReseau(reseau, valeur) {
+    const v = String(valeur || "").trim();
+    if (!v) return "";
+    if (/^https?:\/\//i.test(v)) return v;
+    if (/^(www\.|[a-z0-9-]+\.[a-z]{2,}\/)/i.test(v)) return "https://" + v.replace(/^\/+/, "");
+    const config = RESEAUX[reseau];
+    if (!config) return "";
+    return config.base + v.replace(/^@+/, "").replace(/^\/+/, "");
+  }
+
   /* ---------- Téléchargement des photos ---------- */
 
   /** "Ordinateur portable HP 15" -> "ordinateur-portable-hp-15". */
@@ -159,5 +183,6 @@ const Utils = (() => {
     normaliserTel, lienWhatsApp, lienTel,
     sansAccent, tempo, paragraphes,
     versNomFichier, enregistrerBlob, telechargerImage,
+    RESEAUX, lienReseau,
   };
 })();

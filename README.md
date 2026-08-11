@@ -164,6 +164,12 @@ impact-informatique-app/
   l'autre du doigt, par les flèches, les points ou les touches ←/→ ;
   compteur « 2 / 3 » et bouton d'enregistrement qui suit la photo
   affichée.
+- Réseaux sociaux : Facebook, Instagram, TikTok, YouTube et Snapchat
+  (colonnes de `boutique`). Le gérant saisit un nom de compte ou un lien
+  complet ; l'adresse finale est reconstruite (`Utils.lienReseau`) et
+  affichée en aperçu dans l'admin. Côté client, carte « Suivez-nous »
+  dans l'onglet Infos, avec les couleurs de chaque marque — seuls les
+  réseaux remplis apparaissent.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet

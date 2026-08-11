@@ -76,15 +76,6 @@ const VueInfos = (() => {
           "<span><strong>Horaires</strong><br><small>" + Utils.echapper(b.horaires) + "</small></span>" +
         "</div>");
     }
-    if (b.facebook) {
-      const lien = /^https?:/.test(b.facebook) ? b.facebook : "https://facebook.com/" + b.facebook;
-      contacts.push(
-        '<a class="ligne-info" target="_blank" rel="noopener" href="' + Utils.echapper(lien) + '">' +
-          '<span class="rond-bleu">' + UI.icone("facebook") + "</span>" +
-          "<span><strong>Facebook</strong><br><small>Suivez nos arrivages</small></span>" +
-          UI.icone("chevron", "ic-sm") +
-        "</a>");
-    }
 
     html += '<div class="carte">' +
       '<div class="carte-titre">Nous contacter</div>' +
@@ -92,6 +83,26 @@ const VueInfos = (() => {
         ? contacts.join("")
         : '<p class="aide" style="margin:0">Les coordonnées de la boutique seront bientôt disponibles.</p>') +
     "</div>";
+
+    const reseaux = ["facebook", "instagram", "tiktok", "youtube", "snapchat"]
+      .map((cle) => ({ cle, lien: Utils.lienReseau(cle, b[cle]) }))
+      .filter((r) => r.lien);
+
+    if (reseaux.length) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">Suivez-nous</div>' +
+          '<p class="aide" style="margin:0 0 14px">Arrivages, promotions et nouveautés en avant-première.</p>' +
+          '<div class="reseaux">' +
+            reseaux.map((r) =>
+              '<a class="reseau reseau-' + r.cle + '" target="_blank" rel="noopener" href="' +
+                Utils.echapper(r.lien) + '">' +
+                '<span class="reseau-rond">' + UI.icone(r.cle) + "</span>" +
+                "<span>" + Utils.echapper(Utils.RESEAUX[r.cle].nom) + "</span>" +
+              "</a>").join("") +
+          "</div>" +
+        "</div>";
+    }
 
     html +=
       '<div class="carte" id="carte-installation">' +

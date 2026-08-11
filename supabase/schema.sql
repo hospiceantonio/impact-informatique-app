@@ -29,6 +29,10 @@ create table if not exists public.boutique (
   adresse     text not null default '',
   horaires    text not null default '',
   facebook    text not null default '',
+  instagram   text not null default '',
+  tiktok      text not null default '',
+  youtube     text not null default '',
+  snapchat    text not null default '',
   latitude    double precision,               -- position de la boutique
   longitude   double precision,
   photos      text[] not null default '{}',   -- photos de la boutique
@@ -36,6 +40,10 @@ create table if not exists public.boutique (
 );
 
 -- Ajout des colonnes sur une base déjà créée (sans risque).
+alter table public.boutique add column if not exists instagram text not null default '';
+alter table public.boutique add column if not exists tiktok text not null default '';
+alter table public.boutique add column if not exists youtube text not null default '';
+alter table public.boutique add column if not exists snapchat text not null default '';
 alter table public.boutique add column if not exists latitude double precision;
 alter table public.boutique add column if not exists longitude double precision;
 alter table public.boutique add column if not exists photos text[] not null default '{}';
