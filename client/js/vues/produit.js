@@ -76,11 +76,15 @@ const VueProduit = (() => {
       (p.reference ? "\n• Référence : " + p.reference : "") +
       "\n• Prix affiché : " + Utils.fmtMontant(p.prix, boutique.devise) +
       (description ? "\n• Description :\n" + description : "");
-    const messageWa = p.stock > 0
+    const etat = Catalogue.statut(p);
+    const messageWa = etat === "disponible"
       ? "Bonjour " + boutique.nom + " 👋\nJe suis intéressé(e) par ce produit :\n" + fiche +
         "\n\nEst-il toujours disponible ?"
-      : "Bonjour " + boutique.nom + " 👋\nCe produit est affiché « Sur commande » :\n" + fiche +
-        "\n\nSous combien de temps pouvez-vous me l'avoir ?";
+      : etat === "rupture"
+        ? "Bonjour " + boutique.nom + " 👋\nCe produit est affiché « En rupture » :\n" + fiche +
+          "\n\nQuand sera-t-il de nouveau disponible ?"
+        : "Bonjour " + boutique.nom + " 👋\nCe produit est affiché « Sur commande » :\n" + fiche +
+          "\n\nSous combien de temps pouvez-vous me l'avoir ?";
 
     let html = "";
 
@@ -89,9 +93,9 @@ const VueProduit = (() => {
     html +=
       '<div class="carte fiche-infos">' +
         '<div class="fiche-badges">' +
-          (p.stock > 0
-            ? '<span class="badge badge-dispo">' + UI.icone("check", "ic-sm") + "Disponible</span>"
-            : '<span class="badge badge-commande">Sur commande</span>') +
+          '<span class="badge ' + Catalogue.STATUTS[etat].classe + '">' +
+            (etat === "disponible" ? UI.icone("check", "ic-sm") : "") +
+            Catalogue.STATUTS[etat].nom + "</span>" +
           (remise !== null ? '<span class="badge badge-promo">Promotion -' + remise + " %</span>" : "") +
           (p.enAvant ? '<span class="badge badge-avant">' + UI.icone("etoile", "ic-sm") + "Sélection</span>" : "") +
         "</div>" +
@@ -128,12 +132,13 @@ const VueProduit = (() => {
     if (boutique.whatsapp || boutique.tel) {
       html +=
         '<div class="carte">' +
-          '<div class="carte-titre">' + (p.stock > 0 ? "Commander" : "Passer commande") + "</div>" +
+          '<div class="carte-titre">' + (etat === "disponible" ? "Commander" : "Passer commande") + "</div>" +
           '<div class="btn-rangee">' +
             (boutique.whatsapp
               ? '<a class="btn btn-wa" target="_blank" rel="noopener" href="' +
                   Utils.echapper(Utils.lienWhatsApp(boutique.whatsapp, messageWa, boutique.indicatif)) + '">' +
-                  UI.icone("whatsapp") + (p.stock > 0 ? "Commander sur WhatsApp" : "Demander le délai") + "</a>"
+                  UI.icone("whatsapp") +
+                  (etat === "disponible" ? "Commander sur WhatsApp" : "Demander le délai") + "</a>"
               : "") +
             (boutique.tel
               ? '<a class="btn btn-clair" href="' + Utils.echapper(Utils.lienTel(boutique.tel, boutique.indicatif)) + '">' +

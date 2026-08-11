@@ -295,22 +295,23 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .badge-avant{background:#FFF3D6;color:#9A6B00}
 .badge-promo{background:var(--rouge);color:#fff}
-.badge-rupture{background:#3A4657;color:#fff}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
 
-/* Disponibilité : le vert rassure, le rouge qui bat appelle l'œil. */
-.badge-dispo{background:var(--vert-clair);color:var(--vert)}
-.badge-commande{
+/* Les trois états d'un produit : le vert rassure, le rouge qui bat
+   appelle l'œil, le bleu informe sans alarmer. */
+.badge-disponible{background:var(--vert-clair);color:var(--vert)}
+.badge-rupture{
   background:var(--rouge);color:#fff;
   animation:clignoter 1.1s ease-in-out infinite;
 }
+.badge-commande{background:var(--bleu-50);color:var(--bleu-700)}
 @keyframes clignoter{
   0%,100%{opacity:1}
   50%{opacity:.35}
 }
 /* Un clignotement peut gêner : on le retire pour qui l'a demandé. */
 @media (prefers-reduced-motion:reduce){
-  .badge-commande{animation:none}
+  .badge-rupture{animation:none}
 }
 
 /* ---------- Cartes produit ---------- */

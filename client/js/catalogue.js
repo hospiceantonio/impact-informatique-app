@@ -136,7 +136,7 @@ const Catalogue = (() => {
           categorieId: p.categorie_id,
           sousCategorieId: p.sous_categorie_id || "",
           stock: stockDeLigne(p),
-          disponible: stockDeLigne(p) > 0,
+          surCommande: !!p.sur_commande,
           enAvant: !!p.en_avant,
           ordreAvant: p.ordre_avant || 0,
           images: (Array.isArray(p.images) ? p.images : []).map(urlImagePublique),
@@ -305,13 +305,30 @@ const Catalogue = (() => {
     return ((donnees && donnees.produits) || []).map((p) => ({
       ...p,
       stock: stockDeLigne(p),
-      disponible: stockDeLigne(p) > 0,
+      surCommande: !!p.surCommande,
       images: Array.isArray(p.images) ? p.images : [],
       video: p.video || "",
     }));
   }
 
   const produit = (id) => produits().find((p) => p.id === id) || null;
+
+  /* Les trois états d'un produit, tels que le client les voit. */
+  const STATUTS = {
+    disponible: { nom: "Disponible", classe: "badge-disponible" },
+    rupture: { nom: "En rupture", classe: "badge-rupture" },
+    commande: { nom: "Sur commande", classe: "badge-commande" },
+  };
+
+  /**
+   * « disponible » s'il reste des pièces, « rupture » s'il n'en reste
+   * plus, « commande » pour un produit que la boutique ne tient pas.
+   */
+  function statut(p) {
+    if (!p) return "rupture";
+    if (p.surCommande) return "commande";
+    return p.stock > 0 ? "disponible" : "rupture";
+  }
 
   /** Du moins cher au plus cher ; à prix égal, par ordre alphabétique. */
   function parPrixCroissant(a, b) {
@@ -408,7 +425,7 @@ const Catalogue = (() => {
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
     slides, misEnAvant, nouveautes, promotions, rechercher, similaires,
-    urlImage, imagePrincipale,
+    urlImage, imagePrincipale, statut, STATUTS,
     signature, signalerAndroid,
   };
 })();

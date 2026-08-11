@@ -3,7 +3,7 @@
 
    Catégorie : { id, nom, ordre, sousCategories: [{ id, nom, ordre }] }
    Produit   : { id, nom, description, prix, ancienPrix,
-                 categorieId, sousCategorieId, stock, disponible,
+                 categorieId, sousCategorieId, stock, surCommande,
                  enAvant, ordreAvant, images: [chemins],
                  vignette (URL), creeLe, modifieLe }
 
@@ -60,6 +60,23 @@ const Store = (() => {
   /** Nombre saisi au clavier : « 12 », « 12 » ou vide. */
   const lireStock = (valeur) => Math.max(0, Math.round(Utils.lireNombre(valeur) || 0));
 
+  /* Les trois états possibles d'un produit, et ce qu'en voit le client. */
+  const STATUTS = {
+    disponible: { nom: "Disponible", teinte: "vert" },
+    rupture: { nom: "En rupture", teinte: "rouge" },
+    commande: { nom: "Sur commande", teinte: "bleu" },
+  };
+
+  /**
+   * « disponible » quand il reste des pièces, « rupture » quand il n'en
+   * reste plus, « commande » pour un produit vendu sans stock.
+   */
+  function statut(p) {
+    if (!p) return "rupture";
+    if (p.surCommande) return "commande";
+    return p.stock > 0 ? "disponible" : "rupture";
+  }
+
   function produitDepuisLigne(l) {
     const images = Array.isArray(l.images) ? l.images : [];
     const stock = stockDepuisLigne(l);
@@ -73,7 +90,7 @@ const Store = (() => {
       categorieId: l.categorie_id,
       sousCategorieId: l.sous_categorie_id || "",
       stock,
-      disponible: stock > 0,
+      surCommande: !!l.sur_commande,
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
       images,
@@ -95,8 +112,9 @@ const Store = (() => {
       ancien_prix: p.ancienPrix,
       categorie_id: p.categorieId,
       sous_categorie_id: p.sousCategorieId || null,
-      stock: p.stock,
-      disponible: p.stock > 0,
+      stock: p.surCommande ? 0 : p.stock,
+      sur_commande: !!p.surCommande,
+      disponible: !!p.surCommande || p.stock > 0,
       en_avant: p.enAvant,
       ordre_avant: p.ordreAvant,
       images: p.images,
@@ -504,6 +522,7 @@ const Store = (() => {
       await Supabase.supprimerImages(retirees);
     }
 
+    const surCommande = !!donnees.surCommande;
     const stock = lireStock(donnees.stock);
     const produit = {
       id: existant ? existant.id : Utils.uid("prod"),
@@ -514,8 +533,8 @@ const Store = (() => {
       ancienPrix,
       categorieId: donnees.categorieId,
       sousCategorieId,
-      stock,
-      disponible: stock > 0,
+      stock: surCommande ? 0 : stock,
+      surCommande,
       enAvant,
       ordreAvant,
       images: chemins,
@@ -563,26 +582,39 @@ const Store = (() => {
     }));
   }
 
-  /** Met à jour le stock d'un produit, sans repasser par le formulaire. */
-  async function majStock(id, valeur) {
+  /**
+   * Change l'état d'un produit sans repasser par le formulaire :
+   * un nombre de pièces, ou le passage en « Sur commande ».
+   */
+  async function majDisponibilite(id, maj) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
-    const stock = lireStock(valeur);
-    if (stock === produit.stock) return produit;
+    const surCommande = maj.surCommande !== undefined ? !!maj.surCommande : produit.surCommande;
+    const stock = surCommande ? 0 : lireStock(maj.stock !== undefined ? maj.stock : produit.stock);
+    if (stock === produit.stock && surCommande === produit.surCommande) return produit;
+
     await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(id), {
       stock,
-      disponible: stock > 0,
+      sur_commande: surCommande,
+      disponible: surCommande || stock > 0,
       modifie_le: new Date().toISOString(),
     });
-    /* Le passage à zéro et le retour en stock méritent leur propre trace. */
-    const action = stock === 0 ? "rupture" : (produit.stock === 0 ? "retour_stock" : "stock");
-    journaliser("produit", action,
-      (stock === 0
-        ? "Stock épuisé : "
-        : (produit.stock === 0 ? "Réapprovisionné (" + stock + ") : " : "Stock : " +
-            produit.stock + " → " + stock + " — ")) + produit.nom,
-      produit.reference || produit.nom);
-    return { ...produit, stock, disponible: stock > 0 };
+
+    const avant = statut(produit);
+    const apres = statut({ stock, surCommande });
+    /* Un changement d'état a plus de sens dans l'historique qu'un simple chiffre. */
+    const action = apres === "rupture" ? "rupture"
+      : apres === "commande" ? "sur_commande"
+      : (avant === "disponible" ? "stock" : "retour_stock");
+    const libelle = apres === "commande"
+      ? "Passé en « Sur commande » : " + produit.nom
+      : apres === "rupture"
+        ? "En rupture : " + produit.nom
+        : (avant === "disponible"
+            ? "Stock : " + produit.stock + " → " + stock + " — " + produit.nom
+            : "Réapprovisionné (" + stock + ") : " + produit.nom);
+    journaliser("produit", action, libelle, produit.reference || produit.nom);
+    return { ...produit, stock, surCommande };
   }
 
   /* ---------- Produits mis en avant ----------
@@ -737,7 +769,7 @@ const Store = (() => {
       slides: (await listerSlides().catch(() => [])).length,
       enAvant: produits.filter((p) => p.enAvant).length,
       promotions: produits.filter((p) => Utils.remisePourcent(p.ancienPrix, p.prix) !== null).length,
-      ruptures: produits.filter((p) => p.stock === 0).length,
+      ruptures: produits.filter((p) => statut(p) === "rupture").length,
       photos: produits.reduce((n, p) => n + (p.images || []).length, 0),
       videos: produits.filter((p) => p.video).length,
     };
@@ -833,7 +865,9 @@ const Store = (() => {
         categorie_id: p.categorieId,
         sous_categorie_id: p.sousCategorieId || null,
         stock: p.stock === undefined ? (p.disponible === false ? 0 : 1) : p.stock,
-        disponible: p.stock === undefined ? p.disponible !== false : p.stock > 0,
+        sur_commande: !!p.surCommande,
+        disponible: !!p.surCommande ||
+          (p.stock === undefined ? p.disponible !== false : p.stock > 0),
         en_avant: !!p.enAvant,
         ordre_avant: p.ordreAvant || 0,
         images: chemins,
@@ -870,7 +904,7 @@ const Store = (() => {
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
-    listerEnAvant, basculerEnAvant, deplacerEnAvant, majStock,
+    listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
     statistiques, exporter, importer,
   };
 })();

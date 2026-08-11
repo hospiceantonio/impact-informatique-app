@@ -76,7 +76,8 @@ create table if not exists public.produits (
   categorie_id      text not null references public.categories(id),
   sous_categorie_id text references public.sous_categories(id),
   stock             int not null default 0 check (stock >= 0),
-  disponible        boolean not null default true,  -- tenu à jour : stock > 0
+  sur_commande      boolean not null default false, -- vendu sans stock : « Sur commande »
+  disponible        boolean not null default true,  -- tenu à jour : sur_commande ou stock > 0
   en_avant          boolean not null default false,  -- 5 max (contrôlé par l'app admin)
   ordre_avant       int not null default 0,          -- ordre dans le slider client
   images            text[] not null default '{}',    -- chemins dans le bucket « produits »
@@ -88,16 +89,21 @@ create table if not exists public.produits (
 alter table public.produits add column if not exists reference text not null default '';
 alter table public.produits add column if not exists video text not null default '';
 alter table public.produits add column if not exists stock int not null default 0;
+alter table public.produits add column if not exists sur_commande boolean not null default false;
 
 -- Passage à la gestion de stock : les produits jusque-là « en stock »
--- démarrent à 1 pour ne pas basculer d'un coup en « Sur commande ».
+-- démarrent à 1 pour ne pas basculer d'un coup en « En rupture ».
 -- Ne s'exécute qu'une fois : dès qu'un stock est saisi, on n'y touche plus.
 do $$
 begin
-  if not exists (select 1 from public.produits where stock > 0) then
+  if not exists (select 1 from public.produits where stock > 0 or sur_commande) then
     update public.produits set stock = 1 where disponible;
   end if;
 end $$;
+
+-- Le oui / non hérité suit les deux nouvelles colonnes.
+update public.produits set disponible = (sur_commande or stock > 0)
+where disponible <> (sur_commande or stock > 0);
 
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
@@ -374,23 +380,23 @@ update public.produits set reference = 'IMP-0006' where id = 'prod_logitech_m185
 -- ---------- Produits d'exemple (supprimables depuis l'app admin) ----------
 insert into public.produits
   (id, nom, description, prix, ancien_prix, categorie_id, sous_categorie_id,
-   stock, disponible, en_avant, ordre_avant) values
+   stock, sur_commande, disponible, en_avant, ordre_avant) values
   ('prod_hp15', 'Ordinateur portable HP 15',
    e'Écran 15,6" HD, processeur Intel Core i5, 8 Go de RAM, SSD 512 Go, Windows 11.\nIdéal pour le bureau, les études et la navigation.\nGarantie boutique, livraison possible à Cotonou.',
-   385000, null, 'cat_ordinateurs', 'sc_portables', 4, true, true, 1),
+   385000, null, 'cat_ordinateurs', 'sc_portables', 4, false, true, true, 1),
   ('prod_epson_l3250', 'Imprimante Epson EcoTank L3250',
    e'Multifonction 3 en 1 (impression, copie, scan) à réservoirs d''encre rechargeables.\nWifi intégré, impression depuis le téléphone.\nJusqu''à 4 500 pages noir avec un seul flacon.',
-   145000, 165000, 'cat_imprimantes', 'sc_multifonctions', 2, true, true, 2),
+   145000, 165000, 'cat_imprimantes', 'sc_multifonctions', 2, false, true, true, 2),
   ('prod_apc650', 'Onduleur APC Back-UPS 650 VA',
    e'Protège votre ordinateur des coupures et variations de courant.\nAutonomie suffisante pour enregistrer votre travail et éteindre proprement.\nPrises multiples, protection téléphone/ADSL.',
-   42000, null, 'cat_reseau', 'sc_onduleurs', 7, true, true, 3),
+   42000, null, 'cat_reseau', 'sc_onduleurs', 7, false, true, true, 3),
   ('prod_usb_kingston64', 'Clé USB Kingston 64 Go',
    e'Clé USB 3.2 rapide et fiable pour vos documents, photos et vidéos.\nCompatible ordinateur, TV et autoradio.',
-   6500, null, 'cat_stockage', 'sc_cles_usb', 25, true, true, 4),
+   6500, null, 'cat_stockage', 'sc_cles_usb', 25, false, true, true, 4),
   ('prod_toner_85a', 'Toner HP 85A (CE285A)',
    e'Cartouche de toner noir d''origine pour HP LaserJet P1102, M1132, M1212…\nEnviron 1 600 pages.',
-   28000, 32000, 'cat_consommables', 'sc_toners', 0, false, true, 5),
+   28000, 32000, 'cat_consommables', 'sc_toners', 0, false, false, true, 5),
   ('prod_logitech_m185', 'Souris sans fil Logitech M185',
    e'Souris sans fil compacte avec récepteur USB nano.\nJusqu''à 12 mois d''autonomie avec une pile AA.',
-   8500, null, 'cat_accessoires', 'sc_claviers_souris', 12, true, false, 0)
+   8500, null, 'cat_accessoires', 'sc_claviers_souris', 12, false, true, false, 0)
 on conflict (id) do nothing;

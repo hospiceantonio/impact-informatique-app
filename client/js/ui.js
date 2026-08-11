@@ -233,9 +233,9 @@ const UI = (() => {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
-    html += p.stock > 0
-      ? '<span class="badge badge-dispo">Disponible</span>'
-      : '<span class="badge badge-commande">Sur commande</span>';
+    const etat = Catalogue.statut(p);
+    html += '<span class="badge ' + Catalogue.STATUTS[etat].classe + '">' +
+      Catalogue.STATUTS[etat].nom + "</span>";
     return html;
   }
 

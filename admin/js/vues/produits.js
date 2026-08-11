@@ -80,20 +80,27 @@ const VueProduits = (() => {
      ===================================================== */
 
   function feuilleStock(p, auTermine) {
-    const corps = UI.ouvrirFeuille("Stock — " + p.nom,
+    const corps = UI.ouvrirFeuille("Disponibilité — " + p.nom,
       '<p class="aide" style="margin:0 0 14px">Combien de pièces reste-t-il en boutique ? ' +
-        "À zéro, vos clients voient « Sur commande ».</p>" +
+        "À zéro, vos clients voient « En rupture ». Un produit que vous ne tenez pas " +
+        "en boutique se met « Sur commande ».</p>" +
       '<div class="stock-saisie">' +
         '<button type="button" class="btn-ic btn-ic-clair" id="stock-moins" aria-label="Un de moins">' +
           UI.icone("bas") + "</button>" +
-        '<input id="stock-valeur" type="tel" inputmode="numeric" value="' + p.stock + '" aria-label="Stock">' +
+        '<input id="stock-valeur" type="tel" inputmode="numeric" value="' +
+          (p.surCommande ? 0 : p.stock) + '" aria-label="Stock">' +
         '<button type="button" class="btn-ic btn-ic-clair" id="stock-plus" aria-label="Un de plus">' +
           UI.icone("haut") + "</button>" +
       "</div>" +
       '<div class="btn-rangee" style="margin-top:18px">' +
-        '<button type="button" class="btn" id="stock-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
+        '<button type="button" class="btn" id="stock-enregistrer">' + UI.icone("check") +
+          "Enregistrer ce stock</button>" +
         '<button type="button" class="btn btn-clair btn-danger-clair" id="stock-zero">' +
-          UI.icone("alerte") + "Stock épuisé</button>" +
+          UI.icone("alerte") + "En rupture</button>" +
+        (p.surCommande
+          ? ""
+          : '<button type="button" class="btn btn-clair" id="stock-commande">' +
+              UI.icone("nuage") + "Passer en « Sur commande »</button>") +
       "</div>");
 
     const champ = UI.$("#stock-valeur", corps);
@@ -101,18 +108,28 @@ const VueProduits = (() => {
     UI.$("#stock-moins", corps).onclick = () => { champ.value = Math.max(0, lire() - 1); };
     UI.$("#stock-plus", corps).onclick = () => { champ.value = lire() + 1; };
 
-    const enregistrer = async (valeur) => {
+    const enregistrer = async (maj, message) => {
       try {
-        await Store.majStock(p.id, valeur);
+        await Store.majDisponibilite(p.id, maj);
         UI.fermerFeuille();
-        UI.toast(valeur > 0 ? "Stock : " + valeur + " en boutique" : "Produit passé en « Sur commande »", "ok");
+        UI.toast(message, "ok");
         auTermine();
       } catch (err) {
         UI.toast(err.message, "err");
       }
     };
-    UI.$("#stock-enregistrer", corps).onclick = () => enregistrer(lire());
-    UI.$("#stock-zero", corps).onclick = () => enregistrer(0);
+    UI.$("#stock-enregistrer", corps).onclick = () => {
+      const stock = lire();
+      enregistrer({ stock, surCommande: false },
+        stock > 0 ? "Stock : " + stock + " en boutique" : "Produit passé « En rupture »");
+    };
+    UI.$("#stock-zero", corps).onclick = () =>
+      enregistrer({ stock: 0, surCommande: false }, "Produit passé « En rupture »");
+    const versCommande = UI.$("#stock-commande", corps);
+    if (versCommande) {
+      versCommande.onclick = () =>
+        enregistrer({ surCommande: true }, "Produit passé « Sur commande »");
+    }
   }
 
   /* =====================================================
@@ -329,10 +346,15 @@ const VueProduits = (() => {
       "</div>" +
 
       '<div class="carte">' +
-        UI.champTexte({ id: "p-stock", label: "Stock", type: "tel",
-          valeur: existant ? existant.stock : "",
-          placeholder: "0",
-          aide: "Nombre de pièces en boutique. À zéro, vos clients voient « Sur commande »." }) +
+        UI.interrupteur({ id: "p-sur-commande", label: "Produit sur commande",
+          actif: existant ? !!existant.surCommande : false,
+          aide: "Vous ne le tenez pas en boutique : il est commandé à la demande. Pas de stock à saisir." }) +
+        '<div id="p-zone-stock">' +
+          UI.champTexte({ id: "p-stock", label: "Stock", type: "tel",
+            valeur: existant ? existant.stock : "",
+            placeholder: "0",
+            aide: "Nombre de pièces en boutique. À zéro, vos clients voient « En rupture »." }) +
+        "</div>" +
         (Supabase.estAdmin()
           ? UI.interrupteur({ id: "p-avant", label: "Mettre en avant",
               actif: existant ? !!existant.enAvant : false,
@@ -353,6 +375,13 @@ const VueProduits = (() => {
     brancherPhotos(vue);
     brancherVideo(vue);
 
+    /* Un produit sur commande n'a pas de stock : le champ disparaît. */
+    const surCommande = UI.$("#p-sur-commande");
+    const zoneStock = UI.$("#p-zone-stock");
+    const majZoneStock = () => { zoneStock.hidden = surCommande.checked; };
+    surCommande.addEventListener("change", majZoneStock);
+    majZoneStock();
+
     UI.$("#p-categorie").addEventListener("change", (ev) => {
       UI.$("#p-souscategorie").innerHTML = optionsSousCategories(categories, ev.target.value, "");
     });
@@ -369,6 +398,7 @@ const VueProduits = (() => {
           categorieId: UI.$("#p-categorie").value,
           sousCategorieId: UI.$("#p-souscategorie").value,
           stock: UI.$("#p-stock").value,
+          surCommande: UI.$("#p-sur-commande").checked,
           /* Sans l'interrupteur à l'écran (modérateur), la mise en avant ne bouge pas. */
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),
           video: videoTravail,
@@ -478,7 +508,7 @@ const VueProduits = (() => {
               (p.enAvant ? "Retirer du slider" : "Mettre en avant (slider)") + "</button>"
             : "") +
           '<button type="button" class="btn btn-clair" id="p-modifier-stock">' +
-            UI.icone("boite") + "Modifier le stock</button>" +
+            UI.icone("boite") + "Modifier la disponibilité</button>" +
           '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(p.id) + '/modifier">' +
             UI.icone("crayon") + "Modifier le produit</a>" +
         "</div>" +
