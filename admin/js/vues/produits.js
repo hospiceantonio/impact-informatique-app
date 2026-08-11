@@ -134,7 +134,8 @@ const VueProduits = (() => {
         };
       }
       for (const img of UI.$$("[data-agrandir]", zone)) {
-        img.onclick = () => UI.ouvrirVisionneuse(photosTravail[Number(img.dataset.agrandir)].apercu);
+        img.onclick = () => UI.ouvrirVisionneuse(
+          photosTravail.map((photo) => ({ src: photo.apercu })), Number(img.dataset.agrandir));
       }
     };
 
@@ -438,11 +439,9 @@ const VueProduits = (() => {
 
     vue.innerHTML = html;
 
+    const serie = photos.map((photo) => ({ src: photo.apercu }));
     for (const img of UI.$$("[data-photo]", vue)) {
-      img.addEventListener("click", () => {
-        const photo = photos[Number(img.dataset.photo)];
-        UI.ouvrirVisionneuse(photo.apercu);
-      });
+      img.addEventListener("click", () => UI.ouvrirVisionneuse(serie, Number(img.dataset.photo)));
     }
 
     UI.$("#p-basculer-avant").onclick = async () => {

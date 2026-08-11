@@ -159,6 +159,11 @@ impact-informatique-app/
   déposé sur chaque entrée d'historique ; une nouvelle visite du même
   écran repart bien du haut. `history.scrollRestoration` est passé en
   « manual » pour que le navigateur ne s'en mêle pas.
+- Visionneuse en galerie (les deux applications) : ouvrir une photo
+  charge **toute la série** (produit ou boutique) et on passe de l'une à
+  l'autre du doigt, par les flèches, les points ou les touches ←/→ ;
+  compteur « 2 / 3 » et bouton d'enregistrement qui suit la photo
+  affichée.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet

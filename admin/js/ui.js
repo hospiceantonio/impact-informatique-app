@@ -127,15 +127,97 @@ const UI = (() => {
 
   /* ---------- Visionneuse ---------- */
 
-  function ouvrirVisionneuse(src) {
-    $("#visionneuse-img").src = src;
+  /* ---------- Visionneuse : galerie plein écran ----------
+     On ouvre une photo, on fait défiler toutes celles de
+     l'article du bout du doigt. */
+
+  let photosVisionneuse = [];
+  let indexVisionneuse = 0;
+  let visionneuseBranchee = false;
+
+  function normaliserPhotos(photos) {
+    return (Array.isArray(photos) ? photos : [photos])
+      .map((p) => (typeof p === "string" ? { src: p, nom: "" } : { src: p.src, nom: p.nom || "" }))
+      .filter((p) => p.src);
+  }
+
+  function ouvrirVisionneuse(photos, index) {
+    const liste = normaliserPhotos(photos);
+    if (!liste.length) return;
+    photosVisionneuse = liste;
+    indexVisionneuse = Math.min(Math.max(Number(index) || 0, 0), liste.length - 1);
+
+    const piste = $("#visionneuse-piste");
+    piste.innerHTML = liste.map((p, i) =>
+      '<div class="visionneuse-vue"><img src="' + e(p.src) + '" alt="Photo ' + (i + 1) + '"></div>'
+    ).join("");
+
+    const points = $("#visionneuse-points");
+    points.innerHTML = liste.length > 1
+      ? liste.map((_, i) => '<button type="button" data-vue="' + i + '" aria-label="Photo ' + (i + 1) + '"></button>').join("")
+      : "";
+
     $("#visionneuse").hidden = false;
     document.body.style.overflow = "hidden";
+    brancherVisionneuse();
+
+    /* Se placer sur la photo choisie une fois la largeur connue. */
+    requestAnimationFrame(() => {
+      piste.scrollLeft = indexVisionneuse * piste.clientWidth;
+      majVisionneuse();
+    });
+  }
+
+  function brancherVisionneuse() {
+    if (visionneuseBranchee) return;
+    visionneuseBranchee = true;
+
+    $("#visionneuse-piste").addEventListener("scroll", Utils.tempo(majVisionneuse, 60), { passive: true });
+    $("#visionneuse-points").addEventListener("click", (ev) => {
+      const bouton = ev.target.closest("[data-vue]");
+      if (bouton) allerAPhoto(Number(bouton.dataset.vue));
+    });
+    $("#visionneuse-precedent").onclick = () => allerAPhoto(indexVisionneuse - 1);
+    $("#visionneuse-suivant").onclick = () => allerAPhoto(indexVisionneuse + 1);
+    document.addEventListener("keydown", (ev) => {
+      if ($("#visionneuse").hidden) return;
+      if (ev.key === "ArrowLeft") allerAPhoto(indexVisionneuse - 1);
+      if (ev.key === "ArrowRight") allerAPhoto(indexVisionneuse + 1);
+    });
+  }
+
+  function allerAPhoto(rang) {
+    const piste = $("#visionneuse-piste");
+    const cible = Math.min(Math.max(rang, 0), photosVisionneuse.length - 1);
+    piste.scrollTo({ left: cible * piste.clientWidth, behavior: "smooth" });
+  }
+
+  /** Met à jour points, compteur et flèches selon la photo affichée. */
+  function majVisionneuse() {
+    const piste = $("#visionneuse-piste");
+    if (!piste || !piste.clientWidth) return;
+    const total = photosVisionneuse.length;
+    indexVisionneuse = Math.min(Math.round(piste.scrollLeft / piste.clientWidth), Math.max(0, total - 1));
+
+    for (const point of $$("#visionneuse-points [data-vue]")) {
+      point.classList.toggle("actif", Number(point.dataset.vue) === indexVisionneuse);
+    }
+    const compteur = $("#visionneuse-compteur");
+    if (compteur) compteur.textContent = total > 1 ? (indexVisionneuse + 1) + " / " + total : "";
+
+    const precedent = $("#visionneuse-precedent");
+    const suivant = $("#visionneuse-suivant");
+    if (precedent) precedent.hidden = total < 2 || indexVisionneuse === 0;
+    if (suivant) suivant.hidden = total < 2 || indexVisionneuse === total - 1;
   }
 
   function fermerVisionneuse() {
-    $("#visionneuse").hidden = true;
-    $("#visionneuse-img").src = "";
+    const visionneuse = $("#visionneuse");
+    if (!visionneuse || visionneuse.hidden) return;
+    visionneuse.hidden = true;
+    $("#visionneuse-piste").innerHTML = "";
+    photosVisionneuse = [];
+    indexVisionneuse = 0;
     if ($("#feuille").hidden) document.body.style.overflow = "";
   }
 

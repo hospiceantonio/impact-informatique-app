@@ -55,7 +55,8 @@ const VueReglages = (() => {
         b.onclick = () => { photosTravail.splice(Number(b.dataset.retirer), 1); rafraichir(); };
       }
       for (const img of UI.$$("[data-agrandir]", zone)) {
-        img.onclick = () => UI.ouvrirVisionneuse(photosTravail[Number(img.dataset.agrandir)].apercu);
+        img.onclick = () => UI.ouvrirVisionneuse(
+          photosTravail.map((photo) => ({ src: photo.apercu })), Number(img.dataset.agrandir));
       }
     };
 

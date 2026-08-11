@@ -165,9 +165,12 @@ const VueProduit = (() => {
     vue.innerHTML = html;
     activerCarrousel();
 
+    /* Toute la série est ouverte d'un coup : le client fait défiler. */
+    const serie = p.images.map(Catalogue.urlImage)
+      .map((src, i) => ({ src, nom: nomPhoto(p, i + 1) }));
     for (const img of UI.$$("[data-visionneuse]", vue)) {
       img.addEventListener("click", () =>
-        UI.ouvrirVisionneuse(img.dataset.visionneuse, nomPhoto(p, Number(img.dataset.rang) || 1)));
+        UI.ouvrirVisionneuse(serie, (Number(img.dataset.rang) || 1) - 1));
     }
 
     const btnPhotos = UI.$("#p-telecharger-photos");

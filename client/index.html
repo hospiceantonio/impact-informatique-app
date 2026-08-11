@@ -79,7 +79,17 @@
   <button type="button" class="visionneuse-telecharger btn-ic" id="visionneuse-telecharger" aria-label="Enregistrer la photo">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-telecharger"/></svg>
   </button>
-  <img id="visionneuse-img" alt="Photo du produit en grand">
+  <div class="visionneuse-piste" id="visionneuse-piste"></div>
+  <button type="button" class="visionneuse-fleche visionneuse-precedent" id="visionneuse-precedent" aria-label="Photo précédente" hidden>
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-retour"/></svg>
+  </button>
+  <button type="button" class="visionneuse-fleche visionneuse-suivant" id="visionneuse-suivant" aria-label="Photo suivante" hidden>
+    <svg class="ic" viewBox="0 0 24 24"><use href="#i-chevron"/></svg>
+  </button>
+  <div class="visionneuse-pied">
+    <div class="visionneuse-points" id="visionneuse-points"></div>
+    <div class="visionneuse-compteur" id="visionneuse-compteur"></div>
+  </div>
 </div>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>

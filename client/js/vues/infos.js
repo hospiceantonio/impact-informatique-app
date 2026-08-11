@@ -131,8 +131,10 @@ const VueInfos = (() => {
 
     vue.innerHTML = html;
 
+    const serieBoutique = (b.photos || []).map((src) => ({ src }));
     for (const img of UI.$$("[data-photo-boutique]", vue)) {
-      img.addEventListener("click", () => UI.ouvrirVisionneuse(img.src));
+      img.addEventListener("click", () =>
+        UI.ouvrirVisionneuse(serieBoutique, Number(img.dataset.photoBoutique) || 0));
     }
 
     const btnConfig = UI.$("#cfg-enregistrer");
