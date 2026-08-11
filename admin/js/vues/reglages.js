@@ -4,6 +4,64 @@
    ========================================================= */
 const VueReglages = (() => {
 
+  /** Photos de la boutique en cours d'édition. */
+  let photosTravail = [];
+
+  function htmlPhotosBoutique() {
+    let html = photosTravail.map((photo, i) =>
+      '<div class="photo-boite">' +
+        '<img src="' + photo.apercu + '" alt="Photo ' + (i + 1) + '" data-agrandir="' + i + '">' +
+        '<button type="button" class="photo-retirer" data-retirer="' + i + '" aria-label="Retirer la photo">' +
+          UI.icone("fermer", "ic-sm") + "</button>" +
+      "</div>"
+    ).join("");
+    if (photosTravail.length < Store.MAX_PHOTOS_BOUTIQUE) {
+      html +=
+        '<label class="photo-ajout">' +
+          UI.icone("camera") + "<span>Ajouter</span>" +
+          '<input type="file" accept="image/*" multiple hidden id="boutique-photo-fichier">' +
+        "</label>";
+    }
+    return html;
+  }
+
+  function brancherPhotosBoutique(base) {
+    const zone = UI.$("#boutique-photos", base);
+    if (!zone) return;
+
+    const rafraichir = () => {
+      zone.innerHTML = htmlPhotosBoutique();
+      brancher();
+    };
+
+    const brancher = () => {
+      const champ = UI.$("#boutique-photo-fichier", zone);
+      if (champ) {
+        champ.addEventListener("change", async () => {
+          const fichiers = Array.from(champ.files || [])
+            .slice(0, Store.MAX_PHOTOS_BOUTIQUE - photosTravail.length);
+          for (const fichier of fichiers) {
+            try {
+              const { dataUrl } = await Utils.compresserImage(fichier, 1400, 0.78);
+              photosTravail.push({ id: Utils.uid("bou"), dataUrl, apercu: dataUrl });
+            } catch (err) {
+              UI.toast(err.message || "Photo illisible", "err");
+            }
+          }
+          rafraichir();
+        });
+      }
+      for (const b of UI.$$("[data-retirer]", zone)) {
+        b.onclick = () => { photosTravail.splice(Number(b.dataset.retirer), 1); rafraichir(); };
+      }
+      for (const img of UI.$$("[data-agrandir]", zone)) {
+        img.onclick = () => UI.ouvrirVisionneuse(photosTravail[Number(img.dataset.agrandir)].apercu);
+      }
+    };
+
+    rafraichir();
+  }
+
   async function afficher(vue, params) {
     UI.entete({ titre: "Réglages", sous: "Boutique, compte et sauvegarde" });
 
@@ -37,6 +95,42 @@ const VueReglages = (() => {
         UI.champTexte({ id: "r-facebook", label: "Page Facebook (optionnel)", valeur: r.facebook,
           placeholder: "impactinformatique" }) +
         '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + "Enregistrer la boutique</button>" +
+      "</div>" +
+
+      /* ---------- Localisation ---------- */
+      '<div class="carte" id="section-localisation">' +
+        '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Localisation de la boutique</div>" +
+        '<p class="aide" style="margin:0 0 12px">Les clients pourront lancer l\'itinéraire vers la boutique ' +
+          "depuis leur téléphone. Le plus simple : appuyez sur le bouton ci-dessous <strong>en étant sur place</strong>.</p>" +
+        '<button type="button" class="btn btn-clair" id="loc-position">' +
+          UI.icone("carte") + "Utiliser ma position actuelle</button>" +
+        '<div class="champ-duo" style="margin-top:14px">' +
+          UI.champTexte({ id: "loc-lat", label: "Latitude",
+            valeur: r.latitude === null ? "" : r.latitude, placeholder: "6.3654" }) +
+          UI.champTexte({ id: "loc-lng", label: "Longitude",
+            valeur: r.longitude === null ? "" : r.longitude, placeholder: "2.4183" }) +
+        "</div>" +
+        UI.champTexte({ id: "loc-lien", label: "…ou collez un lien Google Maps", placeholder: "https://maps.app.goo.gl/…",
+          aide: "Les coordonnées sont extraites automatiquement du lien." }) +
+        '<div id="loc-resultat"></div>' +
+        '<div class="btn-rangee" style="margin-top:12px">' +
+          '<button type="button" class="btn" id="loc-enregistrer">' + UI.icone("check") + "Enregistrer la position</button>" +
+          (r.latitude !== null && r.longitude !== null
+            ? '<a class="btn btn-clair" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' +
+                r.latitude + "," + r.longitude + '">' + UI.icone("oeil") + "Vérifier sur la carte</a>"
+            : "") +
+        "</div>" +
+      "</div>" +
+
+      /* ---------- Photos de la boutique ---------- */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Photos de la boutique " +
+          '<span class="aide-inline">(' + Store.MAX_PHOTOS_BOUTIQUE + " max)</span></div>" +
+        '<p class="aide" style="margin:0 0 12px">Devanture, rayons, atelier… Elles rassurent les clients ' +
+          "et s'affichent dans l'onglet Infos de leur application.</p>" +
+        '<div class="photos-zone" id="boutique-photos"></div>' +
+        '<button type="button" class="btn" id="boutique-photos-enregistrer" style="margin-top:14px">' +
+          UI.icone("check") + "Enregistrer les photos</button>" +
       "</div>" +
 
       /* ---------- Compte ---------- */
@@ -111,6 +205,91 @@ const VueReglages = (() => {
         UI.toast("Boutique enregistrée — visible immédiatement chez les clients.", "ok");
       } catch (err) {
         UI.toast(err.message, "err");
+      }
+    };
+
+    /* ---------- Localisation ---------- */
+    const zoneLoc = UI.$("#loc-resultat");
+    const direLoc = (texte, type) => {
+      zoneLoc.innerHTML = texte
+        ? '<div class="' + (type === "err" ? "note-attente" : "note-ok") + '" style="margin-top:12px">' +
+            UI.icone(type === "err" ? "alerte" : "check", "ic-sm") + " " + Utils.echapper(texte) + "</div>"
+        : "";
+    };
+
+    UI.$("#loc-position").onclick = () => {
+      if (!navigator.geolocation) {
+        direLoc("Ce téléphone ne permet pas de relever la position.", "err");
+        return;
+      }
+      direLoc("Relevé de la position en cours…");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          UI.$("#loc-lat").value = position.coords.latitude.toFixed(6);
+          UI.$("#loc-lng").value = position.coords.longitude.toFixed(6);
+          direLoc("Position relevée (précision : environ " +
+            Math.round(position.coords.accuracy) + " m). Enregistrez pour la publier.");
+        },
+        (err) => {
+          direLoc(err.code === 1
+            ? "Autorisation refusée : activez la localisation pour cette application."
+            : "Position introuvable : sortez à l'air libre puis réessayez.", "err");
+        },
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      );
+    };
+
+    /* Un lien Google Maps collé : on en extrait les coordonnées. */
+    UI.$("#loc-lien").addEventListener("input", (ev) => {
+      const trouve = String(ev.target.value).match(/(-?\d{1,3}\.\d{3,})[,\s/@]+(-?\d{1,3}\.\d{3,})/);
+      if (trouve) {
+        UI.$("#loc-lat").value = trouve[1];
+        UI.$("#loc-lng").value = trouve[2];
+        direLoc("Coordonnées extraites du lien. Enregistrez pour les publier.");
+      }
+    });
+
+    UI.$("#loc-enregistrer").onclick = async () => {
+      const lat = UI.$("#loc-lat").value.trim();
+      const lng = UI.$("#loc-lng").value.trim();
+      if (!lat && !lng) {
+        try {
+          await Store.majReglages({ latitude: null, longitude: null });
+          UI.toast("Position retirée", "ok");
+          afficher(vue, params);
+        } catch (err) { UI.toast(err.message, "err"); }
+        return;
+      }
+      const latitude = Number(String(lat).replace(",", "."));
+      const longitude = Number(String(lng).replace(",", "."));
+      if (!isFinite(latitude) || latitude < -90 || latitude > 90 ||
+          !isFinite(longitude) || longitude < -180 || longitude > 180) {
+        direLoc("Coordonnées invalides : la latitude va de -90 à 90, la longitude de -180 à 180.", "err");
+        return;
+      }
+      try {
+        await Store.majReglages({ latitude, longitude });
+        UI.toast("Position enregistrée — visible chez les clients", "ok");
+        afficher(vue, params);
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+
+    /* ---------- Photos de la boutique ---------- */
+    photosTravail = Store.photosBoutique();
+    brancherPhotosBoutique(vue);
+
+    UI.$("#boutique-photos-enregistrer").onclick = async () => {
+      const bouton = UI.$("#boutique-photos-enregistrer");
+      bouton.disabled = true;
+      try {
+        await Store.sauverPhotosBoutique(photosTravail);
+        UI.toast("Photos de la boutique enregistrées", "ok");
+        afficher(vue, params);
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
       }
     };
 

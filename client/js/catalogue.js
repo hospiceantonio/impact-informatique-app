@@ -101,6 +101,9 @@ const Catalogue = (() => {
           tel: b.tel || "", whatsapp: b.whatsapp || "", indicatif: b.indicatif || "",
           devise: b.devise || "", adresse: b.adresse || "", horaires: b.horaires || "",
           facebook: b.facebook || "",
+          latitude: b.latitude === null || b.latitude === undefined ? null : Number(b.latitude),
+          longitude: b.longitude === null || b.longitude === undefined ? null : Number(b.longitude),
+          photos: (Array.isArray(b.photos) ? b.photos : []).map(urlImagePublique),
         },
         categories: (categories || []).map((cat) => ({
           id: cat.id,
@@ -211,6 +214,9 @@ const Catalogue = (() => {
       adresse: b.adresse || "",
       horaires: b.horaires || "",
       facebook: b.facebook || "",
+      latitude: typeof b.latitude === "number" ? b.latitude : null,
+      longitude: typeof b.longitude === "number" ? b.longitude : null,
+      photos: Array.isArray(b.photos) ? b.photos : [],
     };
   }
 
@@ -248,10 +254,17 @@ const Catalogue = (() => {
 
   const produit = (id) => produits().find((p) => p.id === id) || null;
 
+  /** Du moins cher au plus cher ; à prix égal, par ordre alphabétique. */
+  function parPrixCroissant(a, b) {
+    const ecart = (Number(a.prix) || 0) - (Number(b.prix) || 0);
+    if (ecart) return ecart;
+    return Utils.sansAccent(a.nom).localeCompare(Utils.sansAccent(b.nom), "fr");
+  }
+
   function produitsDeCategorie(categorieId, scId) {
     return produits()
       .filter((p) => p.categorieId === categorieId && (!scId || p.sousCategorieId === scId))
-      .sort((a, b) => Utils.sansAccent(a.nom).localeCompare(Utils.sansAccent(b.nom), "fr"));
+      .sort(parPrixCroissant);
   }
 
   function nombreParCategorie() {
@@ -279,7 +292,7 @@ const Catalogue = (() => {
   function promotions() {
     return produits()
       .filter((p) => Utils.remisePourcent(p.ancienPrix, p.prix) !== null)
-      .sort((a, b) => (b.modifieLe || 0) - (a.modifieLe || 0));
+      .sort(parPrixCroissant);
   }
 
   function rechercher(terme) {
@@ -295,7 +308,7 @@ const Catalogue = (() => {
           (cat ? cat.nom : "") + " " + (sc ? sc.nom : ""));
         return mots.every((mot) => texte.includes(mot));
       })
-      .sort((a, b) => Utils.sansAccent(a.nom).localeCompare(Utils.sansAccent(b.nom), "fr"));
+      .sort(parPrixCroissant);
   }
 
   /** Produits proches : même sous-catégorie d'abord, puis même catégorie. */

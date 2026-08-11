@@ -376,6 +376,17 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .fiche-description p{margin:0 0 9px;font-size:14px;line-height:1.6;color:var(--encre-douce)}
 .fiche-description p:last-child{margin-bottom:0}
 
+.boutique-photos{
+  display:flex;gap:10px;overflow-x:auto;
+  padding:2px;margin:0 -4px;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.boutique-photos::-webkit-scrollbar{display:none}
+.boutique-photos img{
+  flex:0 0 168px;height:126px;object-fit:cover;
+  border-radius:var(--r-sm);background:var(--bleu-50);
+}
+
 /* ---------- Vidéo ---------- */
 .fiche-video{
   width:100%;max-height:320px;background:#000;

@@ -29,8 +29,16 @@ create table if not exists public.boutique (
   adresse     text not null default '',
   horaires    text not null default '',
   facebook    text not null default '',
+  latitude    double precision,               -- position de la boutique
+  longitude   double precision,
+  photos      text[] not null default '{}',   -- photos de la boutique
   maj_le      timestamptz not null default now()
 );
+
+-- Ajout des colonnes sur une base déjà créée (sans risque).
+alter table public.boutique add column if not exists latitude double precision;
+alter table public.boutique add column if not exists longitude double precision;
+alter table public.boutique add column if not exists photos text[] not null default '{}';
 
 -- ---------- Catégories et sous-catégories ----------
 create table if not exists public.categories (

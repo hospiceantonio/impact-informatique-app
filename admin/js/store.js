@@ -27,7 +27,12 @@ const Store = (() => {
     adresse: "",
     horaires: "",
     facebook: "",
+    latitude: null,
+    longitude: null,
+    photos: [],      // chemins des photos de la boutique
   };
+
+  const MAX_PHOTOS_BOUTIQUE = 6;
 
   let reglages = { ...BOUTIQUE_DEFAUT };
 
@@ -92,6 +97,9 @@ const Store = (() => {
       adresse: l.adresse || "",
       horaires: l.horaires || "",
       facebook: l.facebook || "",
+      latitude: l.latitude === null || l.latitude === undefined ? null : Number(l.latitude),
+      longitude: l.longitude === null || l.longitude === undefined ? null : Number(l.longitude),
+      photos: Array.isArray(l.photos) ? l.photos : [],
     };
   }
 
@@ -125,9 +133,42 @@ const Store = (() => {
       adresse: r.adresse,
       horaires: r.horaires,
       facebook: r.facebook,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      photos: r.photos || [],
       maj_le: new Date().toISOString(),
     });
     return lireReglages();
+  }
+
+  /** URL publiques des photos de la boutique, pour l'aperçu. */
+  function photosBoutique() {
+    return (reglages.photos || []).map((chemin) => ({
+      id: chemin.replace(/^boutique\//, "").replace(/\.jpg$/i, ""),
+      chemin,
+      apercu: Supabase.urlImage(chemin),
+    }));
+  }
+
+  /**
+   * Enregistre les photos de la boutique.
+   * `photosFinales` : [{ id, chemin? (en ligne), dataUrl? (nouvelle) }]
+   */
+  async function sauverPhotosBoutique(photosFinales) {
+    const photos = (photosFinales || []).slice(0, MAX_PHOTOS_BOUTIQUE);
+    const chemins = [];
+    for (const photo of photos) {
+      if (photo.chemin) {
+        chemins.push(photo.chemin);
+      } else if (photo.dataUrl) {
+        const chemin = "boutique/" + (photo.id || Utils.uid("bou")) + ".jpg";
+        await Supabase.televerserImage(chemin, photo.dataUrl);
+        chemins.push(chemin);
+      }
+    }
+    const retirees = (reglages.photos || []).filter((chemin) => !chemins.includes(chemin));
+    await Supabase.supprimerImages(retirees);
+    return majReglages({ photos: chemins });
   }
 
   /* ---------- Catégories ---------- */
@@ -577,8 +618,8 @@ const Store = (() => {
   }
 
   return {
-    MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO,
-    init, lireReglages, majReglages,
+    MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
+    init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,

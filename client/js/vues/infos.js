@@ -17,6 +17,18 @@ const VueInfos = (() => {
         '<span class="chip-slogan">' + Utils.echapper(b.slogan) + "</span>" +
       "</div>";
 
+    if (b.photos && b.photos.length) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">Notre boutique</div>' +
+          '<div class="boutique-photos">' +
+            b.photos.map((url, i) =>
+              '<img src="' + Utils.echapper(url) + '" alt="Photo de la boutique ' + (i + 1) +
+              '" data-photo-boutique="' + i + '"' + (i > 0 ? ' loading="lazy"' : "") + ">").join("") +
+          "</div>" +
+        "</div>";
+    }
+
     const contacts = [];
     if (b.whatsapp) {
       contacts.push(
@@ -35,10 +47,23 @@ const VueInfos = (() => {
           UI.icone("chevron", "ic-sm") +
         "</a>");
     }
+    if (b.latitude !== null && b.longitude !== null) {
+      const point = b.latitude + "," + b.longitude;
+      contacts.push(
+        '<a class="ligne-info" target="_blank" rel="noopener" ' +
+          'href="https://www.google.com/maps/dir/?api=1&destination=' + point + '">' +
+          '<span class="rond-bleu">' + UI.icone("itineraire") + "</span>" +
+          "<span><strong>Itinéraire vers la boutique</strong><br>" +
+          "<small>Ouvre le guidage sur votre téléphone</small></span>" +
+          UI.icone("chevron", "ic-sm") +
+        "</a>");
+    }
     if (b.adresse) {
       contacts.push(
-        '<a class="ligne-info" target="_blank" rel="noopener" href="https://maps.google.com/?q=' +
-          encodeURIComponent(b.adresse) + '">' +
+        '<a class="ligne-info" target="_blank" rel="noopener" href="' +
+          (b.latitude !== null && b.longitude !== null
+            ? "https://www.google.com/maps/search/?api=1&query=" + b.latitude + "," + b.longitude
+            : "https://maps.google.com/?q=" + encodeURIComponent(b.adresse)) + '">' +
           '<span class="rond-bleu">' + UI.icone("carte") + "</span>" +
           "<span><strong>Adresse</strong><br><small>" + Utils.echapper(b.adresse) + "</small></span>" +
           UI.icone("chevron", "ic-sm") +
@@ -105,6 +130,10 @@ const VueInfos = (() => {
       "</div>";
 
     vue.innerHTML = html;
+
+    for (const img of UI.$$("[data-photo-boutique]", vue)) {
+      img.addEventListener("click", () => UI.ouvrirVisionneuse(img.src));
+    }
 
     const btnConfig = UI.$("#cfg-enregistrer");
     if (btnConfig) {

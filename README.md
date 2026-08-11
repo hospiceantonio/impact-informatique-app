@@ -142,6 +142,16 @@ impact-informatique-app/
   `position:absolute` (sans quoi une photo verticale étire sa carte).
   Grille et rangées : photo cadrée (`cover`) ; fiche produit : photo
   entière visible (`contain`).
+- Tri du catalogue client : rayons, sous-catégories, promotions et
+  résultats de recherche sont classés **du prix le plus bas au plus
+  élevé** (à prix égal, par ordre alphabétique). Les nouveautés restent
+  classées par date et le slider garde l'ordre choisi par le gérant.
+- Boutique : coordonnées GPS (`latitude`/`longitude`) et photos
+  (`photos[]`, dossier `boutique/` du bucket) réglées dans l'admin —
+  relevé de la position sur place en un bouton, ou extraction depuis un
+  lien Google Maps collé. Côté client : bande de photos et lien
+  d'itinéraire dans l'onglet Infos. Le relevé de position demande la
+  permission Android de localisation (application admin uniquement).
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet

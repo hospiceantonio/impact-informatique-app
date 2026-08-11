@@ -1,7 +1,9 @@
 package com.impactinformatique.apps;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.pm.PackageManager;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -22,6 +24,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.GeolocationPermissions;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
@@ -59,10 +62,13 @@ public class MainActivity extends Activity {
     private static final String ORIGINE = "https://appassets.androidx.dev";
     private static final String PAGE_ACCUEIL = ORIGINE + "/assets/www/index.html";
     private static final int CODE_CHOIX_FICHIER = 41;
+    private static final int CODE_POSITION = 42;
 
     private WebView vueWeb;
     private ValueCallback<Uri[]> rappelChoixFichier;
     private Uri photoEnCours;
+    private String origineposition;
+    private GeolocationPermissions.Callback rappelPosition;
 
     @Override
     protected void onCreate(Bundle etat) {
@@ -91,6 +97,7 @@ public class MainActivity extends Activity {
         reglages.setAllowFileAccess(false);
         reglages.setAllowContentAccess(false);
         reglages.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        reglages.setGeolocationEnabled(true);
 
         vueWeb.addJavascriptInterface(new PontAndroid(), "AndroidPont");
 
@@ -157,9 +164,41 @@ public class MainActivity extends Activity {
                 ouvrirChoixPhoto(parametres);
                 return true;
             }
+
+            /* Relevé de la position de la boutique (réglages de l'admin). */
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origine,
+                                                           GeolocationPermissions.Callback rappel) {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED) {
+                    rappel.invoke(origine, true, false);
+                    return;
+                }
+                origineposition_memoriser(origine, rappel);
+                requestPermissions(new String[]{
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION}, CODE_POSITION);
+            }
         });
 
         vueWeb.loadUrl(PAGE_ACCUEIL);
+    }
+
+    /* ---------- Position ---------- */
+
+    private void origineposition_memoriser(String origine, GeolocationPermissions.Callback rappel) {
+        origineposition = origine;
+        rappelPosition = rappel;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] resultats) {
+        super.onRequestPermissionsResult(code, permissions, resultats);
+        if (code != CODE_POSITION || rappelPosition == null) return;
+        boolean accordee = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
+        rappelPosition.invoke(origineposition, accordee, false);
+        rappelPosition = null;
+        origineposition = null;
     }
 
     /* ---------- Fichiers embarqués ---------- */
