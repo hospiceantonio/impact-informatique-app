@@ -1,7 +1,11 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Impact" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/fond_demarrage</item>
-        <item name="android:statusBarColor">@color/fond_demarrage</item>
-        <item name="android:navigationBarColor">@color/fond_demarrage</item>
+        <!-- Les barres sont masquées (plein écran) ; ces couleurs ne servent
+             que le temps de leur retour à l'écran. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- L'application occupe aussi l'espace autour de l'encoche. -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">shortEdges</item>
     </style>
 </resources>

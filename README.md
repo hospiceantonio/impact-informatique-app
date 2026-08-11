@@ -142,6 +142,19 @@ impact-informatique-app/
   les 45 s en secours, et bouton d'actualisation sur l'accueil. Le temps
   réel exige que les tables soient dans la publication `supabase_realtime`
   — la section « Temps réel » de `schema.sql` s'en charge.
+- Plein écran (les deux applications Android) : ni barre d'état ni barre
+  de navigation, l'écran entier est à l'application
+  (`WindowInsetsControllerCompat.hide`, comportement
+  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` — un glissement depuis un bord
+  ramène les barres le temps de s'en servir, puis elles repartent). Le
+  plein écran est réappliqué dans `onWindowFocusChanged`, sinon le
+  système le rend après un appel, une notification déroulée ou le choix
+  d'une photo. Deux zones restent contournées par les marges de la
+  WebView : l'encoche de l'appareil photo (`displayCutout`) et le
+  clavier (`ime`), pour qu'un champ de formulaire ne se retrouve pas
+  caché dessous. Le thème passe en `windowLayoutInDisplayCutoutMode
+  shortEdges`. Côté web installé (PWA), les manifestes demandent
+  `display: fullscreen`.
 - Cadres d'images de dimensions fixes (carrés) quelle que soit la forme
   de la photo : le cadre commande la taille, la photo est posée dessus en
   `position:absolute` (sans quoi une photo verticale étire sa carte).

@@ -36,6 +36,7 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -83,12 +84,19 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(racine);
 
-        /* Barres système : l'application peint derrière, la WebView est décalée. */
+        /* Plein écran : ni barre d'état ni barre de navigation, l'application
+           occupe tout l'écran. Un glissement depuis un bord les ramène le
+           temps de s'en servir. */
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        passerEnPleinEcran();
+
+        /* Ce qui reste à contourner : l'encoche de l'appareil photo, et le
+           clavier quand il s'ouvre sur un formulaire. */
         ViewCompat.setOnApplyWindowInsetsListener(racine, (v, insets) -> {
-            Insets barres = insets.getInsets(WindowInsetsCompat.Type.systemBars()
-                    | WindowInsetsCompat.Type.displayCutout());
-            vueWeb.setPadding(barres.left, barres.top, barres.right, barres.bottom);
+            Insets bords = insets.getInsets(WindowInsetsCompat.Type.systemBars()
+                    | WindowInsetsCompat.Type.displayCutout()
+                    | WindowInsetsCompat.Type.ime());
+            vueWeb.setPadding(bords.left, bords.top, bords.right, bords.bottom);
             return WindowInsetsCompat.CONSUMED;
         });
 
@@ -186,6 +194,27 @@ public class MainActivity extends Activity {
 
         demanderNotifications();
         VerificateurCatalogue.programmer(this);
+    }
+
+    /* ---------- Plein écran ---------- */
+
+    private void passerEnPleinEcran() {
+        if (vueWeb == null) return;
+        WindowInsetsControllerCompat controleur =
+                WindowCompat.getInsetsController(getWindow(), vueWeb);
+        controleur.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        controleur.hide(WindowInsetsCompat.Type.systemBars());
+    }
+
+    /**
+     * Le système remet ses barres après un appel, une notification déroulée
+     * ou le choix d'une photo : on repasse en plein écran au retour.
+     */
+    @Override
+    public void onWindowFocusChanged(boolean aLeFocus) {
+        super.onWindowFocusChanged(aLeFocus);
+        if (aLeFocus) passerEnPleinEcran();
     }
 
     /* ---------- Notifications ---------- */
