@@ -93,7 +93,6 @@ const VueProduit = (() => {
             ? '<span class="badge badge-ok">' + UI.icone("check", "ic-sm") + "En stock</span>"
             : '<span class="badge badge-rupture">Rupture de stock</span>') +
           (remise !== null ? '<span class="badge badge-promo">Promotion -' + remise + " %</span>" : "") +
-          (p.enAvant ? '<span class="badge badge-avant">' + UI.icone("etoile", "ic-sm") + "Sélection</span>" : "") +
         "</div>" +
         '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
         (p.reference ? '<div class="fiche-reference">Réf. ' + Utils.echapper(p.reference) + "</div>" : "") +

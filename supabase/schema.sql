@@ -90,6 +90,21 @@ alter table public.produits add column if not exists video text not null default
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
 
+-- ---------- Slider de l'application client ----------
+-- Les images que la boutique fait défiler en haut de l'écran d'accueil.
+-- Elles sont choisies une par une : ce ne sont plus les produits mis en
+-- avant. Une image peut renvoyer vers un produit (facultatif).
+create table if not exists public.slides (
+  id         text primary key,
+  image      text not null default '',   -- chemin dans le bucket « produits »
+  titre      text not null default '',   -- légende facultative posée sur l'image
+  produit_id text references public.produits(id) on delete set null,
+  ordre      int not null default 0,
+  actif      boolean not null default true,
+  cree_le    timestamptz not null default now()
+);
+create index if not exists slides_ordre on public.slides(ordre);
+
 -- ---------- Comptes de l'application admin et leurs rôles ----------
 -- Deux rôles :
 --   administrateur — tous les droits, et lui seul crée les comptes ;
@@ -199,6 +214,14 @@ alter table public.boutique        enable row level security;
 alter table public.categories      enable row level security;
 alter table public.sous_categories enable row level security;
 alter table public.produits        enable row level security;
+alter table public.slides          enable row level security;
+
+drop policy if exists "lecture publique"  on public.slides;
+drop policy if exists "ecriture connectee" on public.slides;
+-- La vitrine de la boutique : l'administrateur la compose, tout le monde la voit.
+create policy "lecture publique"   on public.slides           for select using (true);
+create policy "ecriture connectee" on public.slides
+  for all to authenticated using (public.est_admin()) with check (public.est_admin());
 
 drop policy if exists "lecture publique"  on public.boutique;
 drop policy if exists "ecriture connectee" on public.boutique;
@@ -254,7 +277,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['boutique', 'categories', 'sous_categories', 'produits'] loop
+    foreach t in array array['boutique', 'categories', 'sous_categories', 'produits', 'slides'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
@@ -276,22 +299,26 @@ drop policy if exists "photos maj connectee"      on storage.objects;
 drop policy if exists "photos suppression connectee" on storage.objects;
 create policy "photos lecture publique" on storage.objects
   for select using (bucket_id = 'produits');
--- Photos de produits : toute l'équipe. Dossier « boutique/ » : administrateur seul.
+-- Photos de produits : toute l'équipe.
+-- Dossiers « boutique/ » et « slider/ » : administrateur seul.
 create policy "photos ecriture connectee" on storage.objects
   for insert to authenticated with check (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and (storage.foldername(name))[1] is distinct from 'boutique')));
+     (public.est_equipe() and coalesce((storage.foldername(name))[1], '')
+        not in ('boutique', 'slider'))));
 create policy "photos maj connectee" on storage.objects
   for update to authenticated using (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and (storage.foldername(name))[1] is distinct from 'boutique')));
+     (public.est_equipe() and coalesce((storage.foldername(name))[1], '')
+        not in ('boutique', 'slider'))));
 create policy "photos suppression connectee" on storage.objects
   for delete to authenticated using (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and (storage.foldername(name))[1] is distinct from 'boutique')));
+     (public.est_equipe() and coalesce((storage.foldername(name))[1], '')
+        not in ('boutique', 'slider'))));
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
 insert into public.categories (id, nom, ordre) values

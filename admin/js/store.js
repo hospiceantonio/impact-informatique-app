@@ -4,7 +4,7 @@
    Catégorie : { id, nom, ordre, sousCategories: [{ id, nom, ordre }] }
    Produit   : { id, nom, description, prix, ancienPrix,
                  categorieId, sousCategorieId, disponible,
-                 enAvant, ordreAvant, images: [chemins],
+                 images: [chemins],
                  vignette (URL), creeLe, modifieLe }
 
    Tout est enregistré directement en ligne : l'application
@@ -12,7 +12,7 @@
    ========================================================= */
 const Store = (() => {
 
-  const MAX_EN_AVANT = 5;   // le slider client affiche 5 produits
+  const MAX_SLIDES = 8;     // images du slider de l'application client
   const MAX_PHOTOS = 4;
   const MAX_VIDEO_MO = 40;  // au-delà, l'envoi devient trop long au téléphone
 
@@ -59,8 +59,6 @@ const Store = (() => {
       categorieId: l.categorie_id,
       sousCategorieId: l.sous_categorie_id || "",
       disponible: l.disponible !== false,
-      enAvant: !!l.en_avant,
-      ordreAvant: l.ordre_avant || 0,
       images,
       video: l.video || "",
       videoUrl: l.video ? Supabase.urlImage(l.video) : "",
@@ -81,8 +79,6 @@ const Store = (() => {
       categorie_id: p.categorieId,
       sous_categorie_id: p.sousCategorieId || null,
       disponible: p.disponible,
-      en_avant: p.enAvant,
-      ordre_avant: p.ordreAvant,
       images: p.images,
       video: p.video || "",
       modifie_le: new Date().toISOString(),
@@ -443,17 +439,6 @@ const Store = (() => {
     }
     if (!categorie.sousCategories.length) sousCategorieId = "";
 
-    const enAvant = !!donnees.enAvant;
-    let ordreAvant = existant ? existant.ordreAvant || 0 : 0;
-    if (enAvant && !(existant && existant.enAvant)) {
-      const autres = (await listerEnAvant()).filter((p) => p.id !== (existant && existant.id));
-      if (autres.length >= MAX_EN_AVANT) {
-        throw new Error("Déjà " + MAX_EN_AVANT + " produits mis en avant (le maximum du slider). Retirez-en un d'abord.");
-      }
-      ordreAvant = autres.reduce((m, p) => Math.max(m, p.ordreAvant || 0), 0) + 1;
-    }
-    if (!enAvant) ordreAvant = 0;
-
     /* Photos : envoyer les nouvelles, retirer celles enlevées. */
     const photos = (photosFinales || []).slice(0, MAX_PHOTOS);
     const chemins = [];
@@ -498,8 +483,6 @@ const Store = (() => {
       categorieId: donnees.categorieId,
       sousCategorieId,
       disponible: donnees.disponible !== false,
-      enAvant,
-      ordreAvant,
       images: chemins,
       video: cheminVideo,
     };
@@ -545,40 +528,6 @@ const Store = (() => {
     }));
   }
 
-  /* ---------- Mise en avant (le slider client) ---------- */
-
-  async function listerEnAvant() {
-    const produits = await listerProduits();
-    return produits
-      .filter((p) => p.enAvant)
-      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0));
-  }
-
-  async function basculerEnAvant(id) {
-    const produit = await lireProduit(id);
-    if (!produit) throw new Error("Produit introuvable.");
-    if (!produit.enAvant) {
-      const actuels = (await listerEnAvant()).filter((p) => p.id !== id);
-      if (actuels.length >= MAX_EN_AVANT) {
-        throw new Error("Déjà " + MAX_EN_AVANT + " produits mis en avant (le maximum du slider). Retirez-en un d'abord.");
-      }
-      produit.enAvant = true;
-      produit.ordreAvant = actuels.reduce((m, p) => Math.max(m, p.ordreAvant || 0), 0) + 1;
-    } else {
-      produit.enAvant = false;
-      produit.ordreAvant = 0;
-    }
-    await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(id), {
-      en_avant: produit.enAvant,
-      ordre_avant: produit.ordreAvant,
-      modifie_le: new Date().toISOString(),
-    });
-    journaliser("produit", produit.enAvant ? "mise_en_avant" : "retrait_avant",
-      (produit.enAvant ? "Ajouté au slider client : " : "Retiré du slider client : ") + produit.nom,
-      produit.reference || produit.nom);
-    return produit;
-  }
-
   async function basculerDisponible(id) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
@@ -592,24 +541,91 @@ const Store = (() => {
     return produit;
   }
 
-  /** Monte ou descend un produit dans le slider (direction -1 ou +1). */
-  async function deplacerEnAvant(id, direction) {
-    const liste = await listerEnAvant();
-    const index = liste.findIndex((p) => p.id === id);
+  /* ---------- Slider de l'application client ----------
+     Des images choisies une par une, dans l'ordre voulu. Chacune peut
+     renvoyer vers un produit — ou n'être qu'une affiche. */
+
+  function slideDepuisLigne(l) {
+    return {
+      id: l.id,
+      chemin: l.image || "",
+      apercu: l.image ? Supabase.urlImage(l.image) : "",
+      titre: l.titre || "",
+      produitId: l.produit_id || "",
+      ordre: l.ordre || 0,
+      actif: l.actif !== false,
+    };
+  }
+
+  async function listerSlides() {
+    const lignes = await Supabase.requete("GET", "slides?select=*&order=ordre.asc");
+    return (lignes || []).map(slideDepuisLigne);
+  }
+
+  const lireSlide = async (id) => (await listerSlides()).find((s) => s.id === id) || null;
+
+  /**
+   * Enregistre une image du slider. `donnees.image` est soit une image
+   * déjà en ligne ({ chemin }), soit une nouvelle ({ dataUrl }).
+   */
+  async function sauverSlide(donnees) {
+    const existant = donnees.id ? await lireSlide(donnees.id) : null;
+    const liste = await listerSlides();
+    if (!existant && liste.length >= MAX_SLIDES) {
+      throw new Error("Le slider accepte " + MAX_SLIDES + " images au maximum. Retirez-en une d'abord.");
+    }
+
+    const image = donnees.image || {};
+    let chemin = image.chemin || (existant ? existant.chemin : "");
+    if (image.dataUrl) {
+      chemin = "slider/" + Utils.uid("sli") + ".jpg";
+      await Supabase.televerserImage(chemin, image.dataUrl);
+    }
+    if (!chemin) throw new Error("Choisissez l'image à faire défiler.");
+
+    const slide = {
+      id: existant ? existant.id : Utils.uid("sli"),
+      image: chemin,
+      titre: (donnees.titre || "").trim(),
+      produit_id: donnees.produitId || null,
+      ordre: existant ? existant.ordre : liste.reduce((m, s) => Math.max(m, s.ordre || 0), 0) + 1,
+      actif: donnees.actif !== false,
+    };
+    const lignes = await Supabase.requete("POST", "slides?on_conflict=id", slide, { upsert: true });
+
+    /* L'ancienne image ne sert plus à rien : on libère la place. */
+    if (existant && existant.chemin && existant.chemin !== chemin) {
+      await Supabase.supprimerImages([existant.chemin]);
+    }
+    journaliser("slider", existant ? "modification" : "ajout",
+      existant ? "Image du slider modifiée" : "Image ajoutée au slider",
+      slide.titre);
+    return slideDepuisLigne((lignes && lignes[0]) || slide);
+  }
+
+  async function supprimerSlide(id) {
+    const slide = await lireSlide(id);
+    await Supabase.requete("DELETE", "slides?id=eq." + encodeURIComponent(id));
+    if (slide && slide.chemin) await Supabase.supprimerImages([slide.chemin]);
+    journaliser("slider", "suppression", "Image retirée du slider", slide ? slide.titre : "");
+  }
+
+  /** Monte ou descend une image dans le slider (direction -1 ou +1). */
+  async function deplacerSlide(id, direction) {
+    const liste = await listerSlides();
+    const index = liste.findIndex((s) => s.id === id);
     const voisin = liste[index + direction];
     if (index < 0 || !voisin) return;
-    liste.forEach((p, i) => { p.ordreAvant = i + 1; });
+    liste.forEach((s, i) => { s.ordre = i + 1; });
     const courant = liste[index];
-    const tmp = courant.ordreAvant;
-    courant.ordreAvant = voisin.ordreAvant;
-    voisin.ordreAvant = tmp;
-    for (const p of [courant, voisin]) {
-      await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(p.id),
-        { ordre_avant: p.ordreAvant });
+    const tmp = courant.ordre;
+    courant.ordre = voisin.ordre;
+    voisin.ordre = tmp;
+    for (const s of [courant, voisin]) {
+      await Supabase.requete("PATCH", "slides?id=eq." + encodeURIComponent(s.id), { ordre: s.ordre });
     }
-    journaliser("produit", "ordre_slider",
-      "Ordre du slider modifié : " + courant.nom + " en position " + courant.ordreAvant,
-      courant.reference || courant.nom);
+    journaliser("slider", "ordre", "Ordre du slider modifié : image en position " + courant.ordre,
+      courant.titre);
   }
 
   /* ---------- Statistiques ---------- */
@@ -619,7 +635,7 @@ const Store = (() => {
     return {
       categories: categories.length,
       produits: produits.length,
-      enAvant: produits.filter((p) => p.enAvant).length,
+      slides: (await listerSlides().catch(() => [])).length,
       promotions: produits.filter((p) => Utils.remisePourcent(p.ancienPrix, p.prix) !== null).length,
       ruptures: produits.filter((p) => p.disponible === false).length,
       photos: produits.reduce((n, p) => n + (p.images || []).length, 0),
@@ -717,8 +733,6 @@ const Store = (() => {
         categorie_id: p.categorieId,
         sous_categorie_id: p.sousCategorieId || null,
         disponible: p.disponible !== false,
-        en_avant: !!p.enAvant,
-        ordre_avant: p.ordreAvant || 0,
         images: chemins,
         modifie_le: new Date().toISOString(),
       }, { upsert: true });
@@ -745,14 +759,14 @@ const Store = (() => {
   }
 
   return {
-    MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE, ROLES,
+    MAX_SLIDES, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE, ROLES,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     journaliser, lireJournal,
     listerComptes, creerCompte, majCompte,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
-    listerEnAvant, basculerEnAvant, deplacerEnAvant, basculerDisponible,
+    listerSlides, sauverSlide, supprimerSlide, deplacerSlide, basculerDisponible,
     statistiques, exporter, importer,
   };
 })();

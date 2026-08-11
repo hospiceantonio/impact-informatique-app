@@ -13,7 +13,6 @@ const Catalogue = (() => {
 
   const CLE_CACHE = "impact-catalogue";
   const CLE_CONFIG = "impact-config";   // configuration saisie dans l'app (page Infos)
-  const NB_EN_AVANT = 5;
 
   let donnees = null;       // catalogue courant
   let source = "aucune";    // "aucune" | "cache" | "reseau" | "demo"
@@ -84,10 +83,11 @@ const Catalogue = (() => {
     const controleur = new AbortController();
     const minuterie = setTimeout(() => controleur.abort(), 15000);
     try {
-      const [boutiques, categories, produits] = await Promise.all([
+      const [boutiques, categories, produits, slides] = await Promise.all([
         lireTable(c, "boutique?select=*&id=eq.1", controleur.signal),
         lireTable(c, "categories?select=*,sous_categories(*)&order=ordre.asc", controleur.signal),
         lireTable(c, "produits?select=*&order=modifie_le.desc", controleur.signal),
+        lireTable(c, "slides?select=*&order=ordre.asc", controleur.signal),
       ]);
       const b = (boutiques && boutiques[0]) || {};
       const urlImagePublique = (chemin) =>
@@ -124,13 +124,19 @@ const Catalogue = (() => {
           categorieId: p.categorie_id,
           sousCategorieId: p.sous_categorie_id || "",
           disponible: p.disponible !== false,
-          enAvant: !!p.en_avant,
-          ordreAvant: p.ordre_avant || 0,
           images: (Array.isArray(p.images) ? p.images : []).map(urlImagePublique),
           video: p.video ? urlImagePublique(p.video) : "",
           creeLe: Date.parse(p.cree_le || "") || 0,
           modifieLe: Date.parse(p.modifie_le || "") || 0,
           modifieLeBrut: p.modifie_le || "",   // tel quel : sert de repère aux notifications
+        })),
+        slides: (slides || []).map((s) => ({
+          id: s.id,
+          image: s.image ? urlImagePublique(s.image) : "",
+          titre: s.titre || "",
+          produitId: s.produit_id || "",
+          ordre: s.ordre || 0,
+          actif: s.actif !== false,
         })),
       };
     } finally {
@@ -312,12 +318,13 @@ const Catalogue = (() => {
     return table;
   }
 
-  /** Les produits mis en avant par la boutique (5 au maximum, ordonnés). */
-  function misEnAvant() {
-    return produits()
-      .filter((p) => p.enAvant)
-      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0))
-      .slice(0, NB_EN_AVANT);
+  /* ---------- Slider ---------- */
+
+  /** Les images que la boutique fait défiler sur l'accueil, dans son ordre. */
+  function slides() {
+    return ((donnees && donnees.slides) || [])
+      .filter((s) => s.actif !== false && s.image)
+      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
 
   function nouveautes(n = 8) {
@@ -376,7 +383,7 @@ const Catalogue = (() => {
     boutique, versionPubliee,
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
-    misEnAvant, nouveautes, promotions, rechercher, similaires,
+    slides, nouveautes, promotions, rechercher, similaires,
     urlImage, imagePrincipale,
     signature, signalerAndroid,
   };

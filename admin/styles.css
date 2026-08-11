@@ -189,19 +189,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   margin-bottom:12px;
 }
 
-/* ---------- Mise en avant ---------- */
-.avant-ligne{display:flex;align-items:center;gap:10px;padding:7px 0}
-.avant-ligne + .avant-ligne{border-top:1px solid var(--trait)}
-.avant-num{
-  flex:none;width:24px;height:24px;border-radius:50%;
-  display:inline-flex;align-items:center;justify-content:center;
-  background:var(--rouge);color:#fff;font-size:12.5px;font-weight:800;
-}
-.avant-nom{
-  flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;
-  font-size:13.5px;font-weight:700;color:var(--encre);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
+/* Boutons monter / descendre / modifier, en bout de ligne. */
 .avant-actions{display:flex;gap:5px;align-items:center}
 
 /* ---------- Lignes produit ---------- */
@@ -247,6 +235,42 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .histo-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .histo-libelle{font-size:13.5px;font-weight:600;line-height:1.4}
 .histo-details{font-size:11.5px;color:var(--encre-tres-douce)}
+
+/* ---------- Slider : les images à la une ---------- */
+.slide-bloc{padding:10px}
+.slide-eteint{opacity:.6}
+.slide-apercu{
+  position:relative;border-radius:var(--r-sm);overflow:hidden;
+  aspect-ratio:16/10;background:var(--bleu-50);
+}
+.slide-apercu img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.slide-etiquette{
+  position:absolute;top:8px;left:8px;
+  background:rgba(6,16,31,.72);color:#fff;
+  font-size:11px;font-weight:700;padding:3px 8px;border-radius:7px;
+}
+.slide-pied{display:flex;align-items:center;gap:10px;padding:10px 4px 2px}
+.slide-texte{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.slide-titre{
+  font-size:13.5px;font-weight:700;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.slide-lien{
+  font-size:11.5px;color:var(--encre-tres-douce);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* Bande d'aperçu sur l'accueil */
+.slider-apercu{
+  display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.slider-apercu::-webkit-scrollbar{display:none}
+.slider-apercu-img{
+  position:relative;flex:0 0 128px;height:80px;
+  border-radius:var(--r-sm);overflow:hidden;background:var(--bleu-50);
+}
+.slider-apercu-img img{width:100%;height:100%;object-fit:cover;display:block}
+.slider-apercu-img .slide-etiquette{top:6px;left:6px;font-size:10px;padding:2px 6px}
 
 /* ---------- Comptes de l'équipe ---------- */
 .compte-ligne{display:flex;align-items:center;gap:11px;padding:11px 0}
@@ -304,7 +328,6 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .badge-promo{background:var(--rouge);color:#fff}
 .badge-rupture{background:#3A4657;color:#fff}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
-.badge-avant{background:#FFF3D6;color:#9A6B00}
 
 .prix{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .prix-actuel{font-size:14.5px;font-weight:800;color:var(--rouge)}

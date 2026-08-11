@@ -1,6 +1,6 @@
 /* =========================================================
    Produits — liste avec recherche et filtres, formulaire
-   (photos, prix, catégorie, mise en avant) et fiche.
+   (photos, vidéo, prix, catégorie) et fiche.
    ========================================================= */
 const VueProduits = (() => {
 
@@ -292,11 +292,6 @@ const VueProduits = (() => {
         UI.interrupteur({ id: "p-disponible", label: "Disponible en stock",
           actif: existant ? existant.disponible !== false : true,
           aide: "Désactivé : le produit reste visible avec la mention « Rupture »." }) +
-        (Supabase.estAdmin()
-          ? UI.interrupteur({ id: "p-avant", label: "Mettre en avant",
-              actif: existant ? !!existant.enAvant : false,
-              aide: "Le produit défile dans le slider en haut de l'application client (" + Store.MAX_EN_AVANT + " max)." })
-          : "") +
       "</div>" +
 
       '<div class="btn-rangee">' +
@@ -327,8 +322,6 @@ const VueProduits = (() => {
           categorieId: UI.$("#p-categorie").value,
           sousCategorieId: UI.$("#p-souscategorie").value,
           disponible: UI.$("#p-disponible").checked,
-          /* Sans le réglage à l'écran (modérateur), la mise en avant ne bouge pas. */
-          enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),
           video: videoTravail,
         }, photosTravail);
         UI.toast(existant ? "Produit modifié" : "Produit ajouté", "ok");
@@ -426,17 +419,10 @@ const VueProduits = (() => {
         "</div></div>";
     }
 
-    /* Le slider de l'application client se compose côté administrateur. */
-    const admin = Supabase.estAdmin();
     html +=
       '<div class="carte">' +
         '<div class="carte-titre">Actions rapides</div>' +
         '<div class="btn-rangee">' +
-          (admin
-            ? '<button type="button" class="btn' + (p.enAvant ? " btn-clair" : "") + '" id="p-basculer-avant">' +
-              UI.icone(p.enAvant ? "fermer" : "etoile") +
-              (p.enAvant ? "Retirer du slider" : "Mettre en avant (slider)") + "</button>"
-            : "") +
           '<button type="button" class="btn btn-clair" id="p-basculer-stock">' +
             UI.icone("boite") + (p.disponible !== false ? "Marquer en rupture" : "Remettre en stock") + "</button>" +
           '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(p.id) + '/modifier">' +
@@ -449,18 +435,6 @@ const VueProduits = (() => {
     const serie = photos.map((photo) => ({ src: photo.apercu }));
     for (const img of UI.$$("[data-photo]", vue)) {
       img.addEventListener("click", () => UI.ouvrirVisionneuse(serie, Number(img.dataset.photo)));
-    }
-
-    if (admin) {
-      UI.$("#p-basculer-avant").onclick = async () => {
-        try {
-          const maj = await Store.basculerEnAvant(p.id);
-          UI.toast(maj.enAvant ? "Ajouté au slider client" : "Retiré du slider", "ok");
-          detail(vue, p.id);
-        } catch (err) {
-          UI.toast(err.message, "err");
-        }
-      };
     }
 
     UI.$("#p-basculer-stock").onclick = async () => {

@@ -5,11 +5,11 @@ Deux applications Android pour la boutique **IMPACT INFORMATIQUE**
 partagée en temps réel :
 
 - **Impact Admin** (icône rouge) : l'application du gérant. Produits avec
-  photos, prix et promotions, catégories et sous-catégories, choix des
-  **5 produits mis en avant** et de leur ordre dans le slider. Tout est
+  photos, vidéo, prix et promotions, catégories et sous-catégories, et le
+  **slider** — les images à la une, composées une par une. Tout est
   enregistré directement en ligne.
 - **Impact Informatique** (icône bleue) : l'application des clients.
-  Slider des 5 produits mis en avant, rayons par catégorie et
+  Slider des images de la boutique, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit et **commande par
   WhatsApp**. Mise à jour en temps réel, consultable hors connexion.
 
@@ -18,6 +18,7 @@ Impact Admin (téléphone du gérant, connexion email + mot de passe)
     │  écrit directement dans la base
     ▼
 Supabase  →  tables boutique / categories / sous_categories / produits
+             / slides / profils / journal
              + stockage des photos (lecture publique, écriture protégée)
     │  lu en direct
     ▼
@@ -111,7 +112,7 @@ impact-informatique-app/
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
-│       ├── store.js          # Logique métier (5 en avant max, validations…)
+│       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, produits, catégories, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
@@ -186,7 +187,7 @@ impact-informatique-app/
 - Deux rôles dans l'app admin (table `profils`) : **administrateur** —
   toute l'application, et lui seul crée les comptes ; **modérateur** —
   produits et catégories, sans réglages, ni comptes, ni historique, ni
-  choix des 5 mis en avant. Le rôle est lu au démarrage
+  composition du slider. Le rôle est lu au démarrage
   (`Supabase.chargerProfil()`) et masque les écrans concernés, mais la
   vraie serrure est en base : les règles RLS s'appuient sur
   `est_admin()` / `est_equipe()`, et un déclencheur interdit au
@@ -204,8 +205,15 @@ impact-informatique-app/
   groupé par jour, filtres par famille, chargement par pages de 60, et
   rappel des 4 dernières actions sur l'accueil. Le journal n'est **pas**
   public : sa règle RLS le réserve au compte connecté.
-- La limite des **5 produits mis en avant** (le slider client) est
-  imposée par l'application admin.
+- Slider de l'application client (table `slides`) : la boutique choisit
+  elle-même les images qui défilent en haut de l'accueil — une affiche,
+  une promotion, un arrivage — dans l'ordre voulu, 8 au maximum. Chaque
+  image accepte une légende et peut renvoyer vers un produit ; sans
+  produit, elle n'est pas cliquable. Une image masquée reste dans l'admin
+  sans défiler chez les clients. Les fichiers vont dans le dossier
+  `slider/` du bucket, réservé à l'administrateur comme la table. (Avant,
+  le slider reprenait automatiquement les 5 produits « mis en avant » :
+  cette notion a disparu des deux applications.)
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet
   (produits, photos, boutique).
 - Après modification des fichiers web, incrémenter `VERSION` dans

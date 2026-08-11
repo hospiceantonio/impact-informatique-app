@@ -13,9 +13,9 @@ const VueAccueil = (() => {
         '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>"
       : '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
-    const [stats, enAvant, produits] = await Promise.all([
+    const [stats, slides, produits] = await Promise.all([
       Store.statistiques(),
-      Store.listerEnAvant(),
+      admin ? Store.listerSlides().catch(() => []) : Promise.resolve([]),
       Store.listerProduits(),
     ]);
 
@@ -32,10 +32,15 @@ const VueAccueil = (() => {
           '<span class="stat-valeur">' + stats.categories + "</span>" +
           '<span class="stat-label">Catégorie' + (stats.categories > 1 ? "s" : "") + "</span>" +
         "</a>" +
-        '<span class="stat">' +
-          '<span class="stat-valeur">' + stats.enAvant + "<small>/" + Store.MAX_EN_AVANT + "</small></span>" +
-          '<span class="stat-label">En avant</span>' +
-        "</span>" +
+        (admin
+          ? '<a class="stat" href="#/slider">' +
+              '<span class="stat-valeur">' + stats.slides + "<small>/" + Store.MAX_SLIDES + "</small></span>" +
+              '<span class="stat-label">Slider</span>' +
+            "</a>"
+          : '<span class="stat">' +
+              '<span class="stat-valeur">' + stats.promotions + "</span>" +
+              '<span class="stat-label">Promotion' + (stats.promotions > 1 ? "s" : "") + "</span>" +
+            "</span>") +
       "</div>";
 
     /* ---- Catalogue en direct ---- */
@@ -47,39 +52,28 @@ const VueAccueil = (() => {
         "</div>" +
       "</div>";
 
-    /* ---- Produits mis en avant ----
-       Le slider est la vitrine de la boutique : le modérateur la voit,
-       l'administrateur seul la compose. */
-    html += '<div class="carte">' +
-      '<div class="carte-titre">' + UI.icone("etoile", "ic-sm") + " Mis en avant — slider client (" +
-        enAvant.length + "/" + Store.MAX_EN_AVANT + ")</div>" +
-      '<p class="aide" style="margin:-4px 0 12px">Ces produits défilent en grand en haut de l\'application client, dans cet ordre.' +
-        (admin ? "" : "<br>Leur choix revient à l'administrateur.") + "</p>";
+    /* ---- Slider : les images à la une, composées par l'administrateur ---- */
+    if (admin) {
+      html += '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Slider — images à la une (" +
+          slides.length + "/" + Store.MAX_SLIDES + ")</div>" +
+        '<p class="aide" style="margin:-4px 0 12px">Ces images défilent en grand en haut de l\'application client, dans cet ordre.</p>';
 
-    if (enAvant.length) {
-      html += enAvant.map((p, i) =>
-        '<div class="avant-ligne">' +
-          '<span class="avant-num">' + (i + 1) + "</span>" +
-          UI.vignetteProduit(p) +
-          '<button type="button" class="avant-nom" data-nav="#/produit/' + Utils.echapper(p.id) + '">' +
-            Utils.echapper(p.nom) + "</button>" +
-          (admin
-            ? '<span class="avant-actions">' +
-                '<button type="button" class="btn-ic btn-ic-clair" data-avant-monter="' + Utils.echapper(p.id) + '"' +
-                  (i === 0 ? " disabled" : "") + ' aria-label="Monter">' + UI.icone("haut", "ic-sm") + "</button>" +
-                '<button type="button" class="btn-ic btn-ic-clair" data-avant-descendre="' + Utils.echapper(p.id) + '"' +
-                  (i === enAvant.length - 1 ? " disabled" : "") + ' aria-label="Descendre">' + UI.icone("bas", "ic-sm") + "</button>" +
-                '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-avant-retirer="' + Utils.echapper(p.id) + '" aria-label="Retirer du slider">' +
-                  UI.icone("fermer", "ic-sm") + "</button>" +
-              "</span>"
-            : "") +
-        "</div>"
-      ).join("");
-    } else {
-      html += '<p class="aide" style="margin:0">Aucun produit mis en avant.' +
-        (admin ? " Ouvrez un produit puis activez « Mettre en avant »." : "") + "</p>";
+      if (slides.length) {
+        html += '<div class="slider-apercu">' +
+          slides.map((s, i) =>
+            '<a class="slider-apercu-img" href="#/slider" aria-label="Image ' + (i + 1) + ' du slider">' +
+              '<img src="' + Utils.echapper(s.apercu) + '" alt="">' +
+              (s.actif ? "" : '<span class="slide-etiquette">Masquée</span>') +
+            "</a>").join("") +
+        "</div>";
+      } else {
+        html += '<p class="aide" style="margin:0 0 12px">Le slider est vide : vos clients ne verront aucune image à la une.</p>';
+      }
+      html += '<a class="btn btn-clair" style="margin-top:10px" href="#/slider">' +
+        UI.icone("image") + (slides.length ? "Gérer le slider" : "Composer le slider") + "</a>" +
+      "</div>";
     }
-    html += "</div>";
 
     /* ---- Dernières actions (administrateur) ---- */
     let journal = [];
@@ -124,22 +118,6 @@ const VueAccueil = (() => {
     html += "</div>";
 
     vue.innerHTML = html;
-
-    /* ---- Actions sur la liste "en avant" ---- */
-    const rafraichir = () => afficher(vue);
-    for (const b of UI.$$("[data-avant-monter]", vue)) {
-      b.onclick = async () => { await Store.deplacerEnAvant(b.dataset.avantMonter, -1); rafraichir(); };
-    }
-    for (const b of UI.$$("[data-avant-descendre]", vue)) {
-      b.onclick = async () => { await Store.deplacerEnAvant(b.dataset.avantDescendre, +1); rafraichir(); };
-    }
-    for (const b of UI.$$("[data-avant-retirer]", vue)) {
-      b.onclick = async () => {
-        await Store.basculerEnAvant(b.dataset.avantRetirer);
-        UI.toast("Produit retiré du slider");
-        rafraichir();
-      };
-    }
   }
 
   return { afficher };

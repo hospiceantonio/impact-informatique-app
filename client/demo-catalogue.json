@@ -159,8 +159,6 @@
       "categorieId": "cat_ordinateurs",
       "sousCategorieId": "sc_portables",
       "disponible": true,
-      "enAvant": true,
-      "ordreAvant": 1,
       "images": [],
       "creeLe": 1785600000000,
       "modifieLe": 1785600000000
@@ -175,8 +173,6 @@
       "categorieId": "cat_imprimantes",
       "sousCategorieId": "sc_multifonctions",
       "disponible": true,
-      "enAvant": true,
-      "ordreAvant": 2,
       "images": [],
       "creeLe": 1785610000000,
       "modifieLe": 1785610000000
@@ -191,8 +187,6 @@
       "categorieId": "cat_reseau",
       "sousCategorieId": "sc_onduleurs",
       "disponible": true,
-      "enAvant": true,
-      "ordreAvant": 3,
       "images": [],
       "creeLe": 1785620000000,
       "modifieLe": 1785620000000
@@ -207,8 +201,6 @@
       "categorieId": "cat_stockage",
       "sousCategorieId": "sc_cles_usb",
       "disponible": true,
-      "enAvant": true,
-      "ordreAvant": 4,
       "images": [],
       "creeLe": 1785630000000,
       "modifieLe": 1785630000000
@@ -223,8 +215,6 @@
       "categorieId": "cat_consommables",
       "sousCategorieId": "sc_toners",
       "disponible": true,
-      "enAvant": true,
-      "ordreAvant": 5,
       "images": [],
       "creeLe": 1785640000000,
       "modifieLe": 1785640000000
@@ -239,11 +229,10 @@
       "categorieId": "cat_accessoires",
       "sousCategorieId": "sc_claviers_souris",
       "disponible": true,
-      "enAvant": false,
-      "ordreAvant": 0,
       "images": [],
       "creeLe": 1785650000000,
       "modifieLe": 1785650000000
     }
-  ]
+  ],
+  "slides": []
 }
