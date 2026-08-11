@@ -14,6 +14,34 @@
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages" },
   ];
 
+
+  /* ---------- Mémoire de la position de lecture ----------
+     Après avoir ouvert un produit, le gérant revient à sa place
+     exacte dans la liste, pas en haut de l'écran. */
+
+  const positions = new Map();
+  let indexCourant = -1;
+  let compteurHistorique = 0;
+  let ecranQuitte = null;
+
+  const hauteurActuelle = () =>
+    window.scrollY || document.documentElement.scrollTop || 0;
+
+  function restaurerHauteur(hauteur) {
+    if (!hauteur) return;
+    let essais = 0;
+    const appliquer = () => {
+      window.scrollTo(0, hauteur);
+      essais++;
+      if (essais < 10 && Math.abs(hauteurActuelle() - hauteur) > 2) {
+        requestAnimationFrame(appliquer);
+      }
+    };
+    requestAnimationFrame(appliquer);
+    setTimeout(appliquer, 150);
+    setTimeout(appliquer, 500);
+  }
+
   function lireHash() {
     const brut = location.hash.replace(/^#/, "") || "/";
     const [chemin, requete] = brut.split("?");
@@ -30,6 +58,22 @@
   async function naviguer() {
     const { chemin, params } = lireHash();
     const vue = document.getElementById("vue");
+    const ecran = location.hash || "#/";
+
+    if (ecranQuitte && ecranQuitte !== ecran) {
+      positions.set(ecranQuitte, hauteurActuelle());
+    }
+
+    let retourEnArriere = false;
+    const etat = history.state;
+    if (etat && typeof etat.rang === "number") {
+      retourEnArriere = etat.rang < indexCourant;
+      indexCourant = etat.rang;
+    } else {
+      indexCourant = ++compteurHistorique;
+      try { history.replaceState({ rang: indexCourant }, ""); } catch (_) { /* sans importance */ }
+    }
+    ecranQuitte = ecran;
     UI.fermerFeuille();
     UI.fermerVisionneuse();
 
@@ -58,7 +102,9 @@
         '<button type="button" class="btn btn-clair" onclick="location.reload()">Recharger l\'application</button></div>';
     }
     vue.scrollTop = 0;
-    window.scrollTo(0, 0);
+    const memorisee = retourEnArriere ? positions.get(ecran) : 0;
+    if (memorisee) restaurerHauteur(memorisee);
+    else window.scrollTo(0, 0);
   }
 
   /* ---------- Interactions globales ---------- */
@@ -110,6 +156,7 @@
   }
 
   function demarrer() {
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     const vue = document.getElementById("vue");
 
     if (!Supabase.estConfigure()) {

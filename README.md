@@ -152,6 +152,13 @@ impact-informatique-app/
   lien Google Maps collé. Côté client : bande de photos et lien
   d'itinéraire dans l'onglet Infos. Le relevé de position demande la
   permission Android de localisation (application admin uniquement).
+- Position de lecture conservée (les deux applications) : la hauteur de
+  défilement de chaque écran est mémorisée et restaurée au retour en
+  arrière — on retrouve sa place exacte dans une longue liste après
+  avoir consulté un produit. Le retour est reconnu grâce à un rang
+  déposé sur chaque entrée d'historique ; une nouvelle visite du même
+  écran repart bien du haut. `history.scrollRestoration` est passé en
+  « manual » pour que le navigateur ne s'en mêle pas.
 - La limite des **5 produits mis en avant** (le slider client) est
   imposée par l'application admin.
 - Sauvegarde : Réglages → export/restauration d'un fichier JSON complet

@@ -16,6 +16,38 @@ const App = { evenementInstallation: null };
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
   ];
 
+
+  /* ---------- Mémoire de la position de lecture ----------
+     Le client parcourt une longue liste, ouvre un produit, revient :
+     il doit retrouver sa place exacte, pas le haut de la page. */
+
+  const positions = new Map();   // adresse d'écran -> hauteur de défilement
+  let indexCourant = -1;         // rang de l'écran affiché dans l'historique
+  let compteurHistorique = 0;
+  let ecranQuitte = null;
+
+  const hauteurActuelle = () =>
+    window.scrollY || document.documentElement.scrollTop || 0;
+
+  /**
+   * Replace l'écran à la hauteur voulue. Les photos peuvent arriver
+   * après coup : on réapplique quelques fois, puis on lâche.
+   */
+  function restaurerHauteur(hauteur) {
+    if (!hauteur) return;
+    let essais = 0;
+    const appliquer = () => {
+      window.scrollTo(0, hauteur);
+      essais++;
+      if (essais < 10 && Math.abs(hauteurActuelle() - hauteur) > 2) {
+        requestAnimationFrame(appliquer);
+      }
+    };
+    requestAnimationFrame(appliquer);
+    setTimeout(appliquer, 150);
+    setTimeout(appliquer, 500);
+  }
+
   function lireHash() {
     const brut = location.hash.replace(/^#/, "") || "/";
     const [chemin, requete] = brut.split("?");
@@ -33,6 +65,27 @@ const App = { evenementInstallation: null };
     const { chemin, params } = lireHash();
     const conserverPosition = !!(options && options.conserverPosition);
     const vue = document.getElementById("vue");
+    const ecran = location.hash || "#/";
+
+    /* Retenir où en était l'écran que l'on quitte. */
+    if (!conserverPosition && ecranQuitte && ecranQuitte !== ecran) {
+      positions.set(ecranQuitte, hauteurActuelle());
+    }
+
+    /* Chaque entrée d'historique reçoit un rang : un rang plus petit
+       que le précédent, c'est que le client est revenu en arrière. */
+    let retourEnArriere = false;
+    if (!conserverPosition) {
+      const etat = history.state;
+      if (etat && typeof etat.rang === "number") {
+        retourEnArriere = etat.rang < indexCourant;
+        indexCourant = etat.rang;
+      } else {
+        indexCourant = ++compteurHistorique;
+        try { history.replaceState({ rang: indexCourant }, ""); } catch (_) { /* sans importance */ }
+      }
+      ecranQuitte = ecran;
+    }
     UI.fermerVisionneuse();
     VueAccueil.arreterSlider();
 
@@ -58,7 +111,9 @@ const App = { evenementInstallation: null };
     }
     if (!conserverPosition) {
       vue.scrollTop = 0;
-      window.scrollTo(0, 0);
+      const memorisee = retourEnArriere ? positions.get(ecran) : 0;
+      if (memorisee) restaurerHauteur(memorisee);
+      else window.scrollTo(0, 0);
     }
   }
 
@@ -123,6 +178,8 @@ const App = { evenementInstallation: null };
   }
 
   async function demarrer() {
+    /* Le navigateur ne se mêle pas du défilement : l'application gère. */
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     UI.entete({ accueil: true });
     document.getElementById("vue").innerHTML =
       '<div class="chargement"><span class="chargement-rond"></span>Chargement du catalogue…</div>';
