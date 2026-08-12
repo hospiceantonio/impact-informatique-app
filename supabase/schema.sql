@@ -154,6 +154,12 @@ language sql stable security definer set search_path = public as $$
   select public.role_courant() is not null;
 $$;
 
+-- Les règles de sécurité, y compris celles du stockage des photos,
+-- appellent ces fonctions au nom du compte connecté.
+grant execute on function public.role_courant() to authenticated;
+grant execute on function public.est_admin() to authenticated;
+grant execute on function public.est_equipe() to authenticated;
+
 -- Tout compte créé (par l'application ou dans le tableau de bord Supabase)
 -- reçoit une fiche en attente : l'administrateur l'active et lui donne son rôle.
 create or replace function public.profil_nouveau_compte() returns trigger
@@ -376,20 +382,17 @@ create policy "photos ecriture connectee" on storage.objects
   for insert to authenticated with check (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and coalesce((storage.foldername(name))[1], '')
-        not in ('boutique', 'slider'))));
+     (public.est_equipe() and name not like 'boutique/%' and name not like 'slider/%')));
 create policy "photos maj connectee" on storage.objects
   for update to authenticated using (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and coalesce((storage.foldername(name))[1], '')
-        not in ('boutique', 'slider'))));
+     (public.est_equipe() and name not like 'boutique/%' and name not like 'slider/%')));
 create policy "photos suppression connectee" on storage.objects
   for delete to authenticated using (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and coalesce((storage.foldername(name))[1], '')
-        not in ('boutique', 'slider'))));
+     (public.est_equipe() and name not like 'boutique/%' and name not like 'slider/%')));
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
 insert into public.categories (id, nom, ordre) values

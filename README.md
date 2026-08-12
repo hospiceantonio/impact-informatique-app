@@ -126,7 +126,15 @@ impact-informatique-app/
 ## Détails techniques
 
 - Photos : compressées sur le téléphone (~100 Ko) puis envoyées dans le
-  bucket public `produits` ; l'app client les met en cache après le
+  bucket public `produits`. Le droit d'y écrire suit le rôle : toute
+  l'équipe pour les photos de produits (à la racine du bucket),
+  l'administrateur seul pour `boutique/` et `slider/`. La règle teste le
+  chemin au `like` plutôt que par `storage.foldername()` — une fonction
+  de moins entre le refus et sa cause. Un refus du stockage est traduit
+  en français dans l'application : « new row violates row-level security
+  policy » ne dit rien à qui tient une boutique. Les fonctions de rôle
+  sont explicitement exécutables par `authenticated`, les règles du
+  stockage les appelant au nom du compte connecté. l'app client les met en cache après le
   premier affichage. Les photos HEIC/HEIF (iPhone et Android récents)
   sont converties en JPEG par l'application Android elle-même.
 - Vidéo de présentation : une par produit (40 Mo maximum), envoyée telle

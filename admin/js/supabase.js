@@ -297,7 +297,15 @@ const Supabase = (() => {
       if (reponse.status === 413) {
         throw new Error("La " + quoi + " est trop lourde pour la base. Choisissez un fichier plus court.");
       }
-      throw new Error(d.message || "Envoi de la " + quoi + " refusé (" + reponse.status + ").");
+      /* Un refus des règles de sécurité ne dit rien à qui tient la boutique :
+         on nomme l'étape qui bloque et ce qu'il y a à faire. */
+      if (reponse.status === 403 || /row-level security|not authorized/i.test(d.message || "")) {
+        throw new Error("Envoi de la " + quoi + " refusé par la base. " +
+          "Votre compte n'a pas le droit d'ajouter des fichiers : " +
+          "l'administrateur doit exécuter le dernier fichier SQL dans Supabase.");
+      }
+      throw new Error("Envoi de la " + quoi + " refusé (" + reponse.status + ")" +
+        (d.message ? " — " + d.message : "") + ".");
     }
     return chemin;
   }
