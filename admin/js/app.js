@@ -72,7 +72,17 @@
     return { chemin: chemin || "/", params };
   }
 
-  async function naviguer() {
+  /* Les écrans se dessinent l'un après l'autre. Sans cette file, deux
+     navigations rapprochées — un renvoi automatique suivi d'un appui, par
+     exemple — se chevauchent, et la plus lente écrase la plus récente. */
+  let file = Promise.resolve();
+
+  function naviguer() {
+    file = file.then(dessinerEcran).catch((err) => { console.error(err); });
+    return file;
+  }
+
+  async function dessinerEcran() {
     const { chemin, params } = lireHash();
     const vue = document.getElementById("vue");
     const ecran = location.hash || "#/";

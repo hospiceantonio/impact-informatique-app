@@ -61,7 +61,16 @@ const App = { evenementInstallation: null };
     return { chemin: chemin || "/", params };
   }
 
-  async function naviguer(options) {
+  /* Les écrans se dessinent l'un après l'autre : deux navigations
+     rapprochées ne se chevauchent pas, et la dernière demandée gagne. */
+  let file = Promise.resolve();
+
+  function naviguer(options) {
+    file = file.then(() => dessinerEcran(options)).catch((err) => { console.error(err); });
+    return file;
+  }
+
+  async function dessinerEcran(options) {
     const { chemin, params } = lireHash();
     const conserverPosition = !!(options && options.conserverPosition);
     const vue = document.getElementById("vue");

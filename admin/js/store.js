@@ -212,6 +212,30 @@ const Store = (() => {
     return c;
   }
 
+  /**
+   * Supprime définitivement un compte : sa fiche et son identifiant de
+   * connexion. Passe par une fonction de la base, seule habilitée.
+   */
+  async function supprimerCompte(id) {
+    const liste = await listerComptes();
+    const compte = liste.find((c) => c.id === id);
+    await Supabase.rpc("supprimer_compte", { cible: id });
+    journaliser("compte", "suppression",
+      "Compte supprimé : " + ((compte && compte.email) || id), compte ? compte.email : "");
+  }
+
+  /** L'administrateur redonne un mot de passe à un membre de l'équipe. */
+  async function changerMotDePasseCompte(id, nouveau) {
+    if (String(nouveau || "").length < 6) {
+      throw new Error("Le mot de passe doit faire 6 caractères au moins.");
+    }
+    const liste = await listerComptes();
+    const compte = liste.find((c) => c.id === id);
+    await Supabase.rpc("changer_mot_de_passe", { cible: id, nouveau });
+    journaliser("compte", "modification",
+      "Mot de passe redéfini : " + ((compte && compte.email) || id), compte ? compte.email : "");
+  }
+
   /* ---------- Journal des actions ----------
      Chaque geste du gérant laisse une trace lisible : qui, quoi, quand.
      L'écriture ne bloque jamais l'action elle-même. */
@@ -899,7 +923,7 @@ const Store = (() => {
     MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE, ROLES,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     journaliser, lireJournal,
-    listerComptes, creerCompte, majCompte,
+    listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,

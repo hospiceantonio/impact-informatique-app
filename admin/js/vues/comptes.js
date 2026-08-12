@@ -47,11 +47,64 @@ const VueComptes = (() => {
         aide: "Désactivé, il ne peut plus rien modifier, même en se connectant." }) +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
+      "</div>" +
+
+      '<div class="carte" style="box-shadow:none;padding:16px 0 0;margin-top:20px;border-top:1px solid var(--trait)">' +
+        '<div class="carte-titre">' + UI.icone("cle", "ic-sm") + " Redonner un mot de passe</div>" +
+        '<p class="aide" style="margin:-6px 0 12px">Si cette personne a oublié le sien. ' +
+          "Ses sessions ouvertes se fermeront.</p>" +
+        UI.champTexte({ id: "cp-mdp", label: "Nouveau mot de passe", type: "password",
+          placeholder: "6 caractères minimum" }) +
+        '<button type="button" class="btn btn-clair" id="cp-mdp-changer">' +
+          UI.icone("cle") + "Enregistrer le mot de passe</button>" +
+      "</div>" +
+
+      '<div class="carte" style="box-shadow:none;padding:16px 0 0;margin-top:20px;border-top:1px solid var(--trait)">' +
+        '<div class="carte-titre">' + UI.icone("poubelle", "ic-sm") + " Supprimer ce compte</div>" +
+        '<p class="aide" style="margin:-6px 0 12px">Définitif : l\'adresse et le mot de passe ' +
+          "disparaissent. Pour retirer l'accès sans effacer, désactivez plutôt le compte.</p>" +
+        '<button type="button" class="btn btn-clair btn-danger-clair" id="cp-supprimer">' +
+          UI.icone("poubelle") + "Supprimer définitivement</button>" +
       "</div>");
 
     const selecteur = UI.$("#cp-role", corps);
     selecteur.onchange = () => {
       UI.$("#cp-role-aide", corps).textContent = Store.ROLES[selecteur.value].aide;
+    };
+
+    UI.$("#cp-mdp-changer", corps).onclick = async () => {
+      const bouton = UI.$("#cp-mdp-changer", corps);
+      const mdp = UI.$("#cp-mdp", corps).value;
+      if (mdp.length < 6) return UI.toast("Le mot de passe doit faire 6 caractères au moins.", "err");
+      bouton.disabled = true;
+      try {
+        await Store.changerMotDePasseCompte(compte.id, mdp);
+        UI.fermerFeuille();
+        UI.toast("Nouveau mot de passe pour " + compte.email, "ok");
+        apres();
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
+      }
+    };
+
+    UI.$("#cp-supprimer", corps).onclick = async () => {
+      UI.feuilleSansRappel();
+      UI.fermerFeuille();
+      const ok = await UI.confirmer({
+        titre: "Supprimer " + compte.email + " ?",
+        texte: "Ce compte disparaîtra définitivement : la personne ne pourra plus se connecter. " +
+          "Les produits qu'elle a créés restent au catalogue.",
+        bouton: "Supprimer", danger: true,
+      });
+      if (!ok) return;
+      try {
+        await Store.supprimerCompte(compte.id);
+        UI.toast("Compte supprimé", "ok");
+        apres();
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
     };
 
     UI.$("#cp-enregistrer", corps).onclick = async () => {
@@ -157,9 +210,11 @@ const VueComptes = (() => {
       "</div>" +
       '<div class="carte">' +
         '<div class="carte-titre">Bon à savoir</div>' +
-        '<p class="aide" style="margin:0">Un compte se désactive mais ne se supprime pas depuis ' +
-          "l'application : la suppression définitive se fait dans Supabase " +
-          "(Authentication → Users). Un compte désactivé ne peut plus rien modifier.</p>" +
+        '<p class="aide" style="margin:0">Touchez le crayon d\'un compte pour changer son rôle, ' +
+          "lui redonner un mot de passe, le désactiver ou le supprimer. Un compte " +
+          "<strong>désactivé</strong> garde son adresse mais ne peut plus rien modifier ; " +
+          "un compte <strong>supprimé</strong> disparaît pour de bon. " +
+          "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits.</p>" +
       "</div>";
 
     UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue));

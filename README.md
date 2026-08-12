@@ -176,6 +176,10 @@ impact-informatique-app/
   caché dessous. Le thème passe en `windowLayoutInDisplayCutoutMode
   shortEdges`. Côté web installé (PWA), les manifestes demandent
   `display: fullscreen`.
+- Les écrans se dessinent l'un après l'autre (`file` dans les deux
+  `app.js`) : deux navigations rapprochées — un renvoi automatique suivi
+  d'un appui — se chevauchaient, et la plus lente écrasait l'écran de la
+  plus récente.
 - Cadres d'images de dimensions fixes (carrés) quelle que soit la forme
   de la photo : le cadre commande la taille, la photo est posée dessus en
   `position:absolute` (sans quoi une photo verticale étire sa carte).
@@ -230,8 +234,16 @@ impact-informatique-app/
   clé `service_role` ne doit jamais quitter le serveur) ; un déclencheur
   sur `auth.users` pose une fiche « en attente » pour tout compte créé,
   que l'administrateur active dans **Comptes**. Un compte désactivé ne
-  peut plus rien écrire. Sur une base d'avant les rôles, le compte garde
-  tous les droits : rien ne se bloque tant que le SQL n'est pas passé.
+  peut plus rien écrire. Depuis ce même écran, l'administrateur peut
+  aussi **supprimer** un compte ou lui **redonner un mot de passe** —
+  jamais le sien. Ces deux gestes demandent des droits que la clé
+  publiable n'a pas : ils passent par deux fonctions `security definer`
+  de la base (`supprimer_compte`, `changer_mot_de_passe`) qui vérifient
+  elles-mêmes `est_admin()`, plutôt que d'embarquer la clé
+  `service_role` dans une application posée sur un téléphone. Changer un
+  mot de passe ferme les sessions ouvertes du compte visé. Sur une base
+  d'avant les rôles, le compte garde tous les droits : rien ne se bloque
+  tant que le SQL n'est pas passé.
 - Historique de l'admin (menu horloge, `#/historique`) : chaque geste du
   gérant écrit une ligne dans la table `journal` (date et heure,
   utilisateur, famille, opération, élément concerné) — produits,

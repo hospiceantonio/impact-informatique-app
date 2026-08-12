@@ -356,6 +356,14 @@ const Supabase = (() => {
     return true;
   }
 
+  /**
+   * Appelle une fonction SQL de la base (supprimer un compte, changer un
+   * mot de passe) : ce que la clé publiable ne permet pas de faire seule.
+   */
+  async function rpc(nom, parametres) {
+    return requete("POST", "rpc/" + nom, parametres || {}, { sansRetour: true });
+  }
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -367,7 +375,7 @@ const Supabase = (() => {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estAdmin, compteActif, rolesActifs,
-    creerCompte, changerMotDePasse,
+    creerCompte, changerMotDePasse, rpc,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

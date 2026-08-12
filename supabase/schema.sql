@@ -192,6 +192,59 @@ create policy "profils modification admin" on public.profils
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (public.est_admin());
 
+-- ---------- Gestion des comptes par l'administrateur ----------
+-- Supprimer un compte ou changer son mot de passe demande des droits que
+-- l'application n'a pas : sa clé est publiable, et la clé « service_role »
+-- ne doit jamais quitter le serveur. Ces deux fonctions font le travail à
+-- sa place, en vérifiant elles-mêmes qui appelle.
+
+-- crypt() / gen_salt() servent à chiffrer le mot de passe comme le fait
+-- Supabase lui-même.
+create extension if not exists pgcrypto with schema extensions;
+
+create or replace function public.supprimer_compte(cible uuid)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.est_admin() then
+    raise exception 'Seul un administrateur peut supprimer un compte';
+  end if;
+  if cible = auth.uid() then
+    raise exception 'On ne supprime pas son propre compte';
+  end if;
+  delete from auth.users where id = cible;   -- la fiche profils suit (cascade)
+  if not found then
+    raise exception 'Compte introuvable';
+  end if;
+end $$;
+
+create or replace function public.changer_mot_de_passe(cible uuid, nouveau text)
+returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  if not public.est_admin() then
+    raise exception 'Seul un administrateur peut changer un mot de passe';
+  end if;
+  if length(coalesce(nouveau, '')) < 6 then
+    raise exception 'Le mot de passe doit faire 6 caractères au moins';
+  end if;
+  update auth.users
+     set encrypted_password = extensions.crypt(nouveau, extensions.gen_salt('bf')),
+         updated_at = now()
+   where id = cible;
+  if not found then
+    raise exception 'Compte introuvable';
+  end if;
+  /* Les sessions ouvertes avec l'ancien mot de passe tombent. */
+  delete from auth.sessions where user_id = cible;
+end $$;
+
+-- Personne d'autre qu'un compte connecté ne peut même tenter l'appel.
+revoke all on function public.supprimer_compte(uuid) from public;
+revoke all on function public.changer_mot_de_passe(uuid, text) from public;
+grant execute on function public.supprimer_compte(uuid) to authenticated;
+grant execute on function public.changer_mot_de_passe(uuid, text) to authenticated;
+
 -- ---------- Journal des actions de l'application admin ----------
 -- Qui a fait quoi, et quand. Lisible uniquement par l'administrateur.
 create table if not exists public.journal (
