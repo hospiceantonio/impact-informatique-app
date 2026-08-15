@@ -203,6 +203,21 @@ impact-informatique-app/
   lien Google Maps collé. Côté client : bande de photos et lien
   d'itinéraire dans l'onglet Infos. Le relevé de position demande la
   permission Android de localisation (application admin uniquement).
+- Plusieurs numéros et plusieurs adresses (colonnes `jsonb`
+  `boutique.telephones` et `boutique.adresses`, 8 de chaque au
+  maximum) : en plus du numéro de commande WhatsApp et de l'adresse
+  principale, l'admin ajoute autant de lignes qu'il veut dans
+  **Réglages → Autres numéros / Autres adresses**. Un numéro porte un
+  libellé (« Atelier », « Service après-vente ») et une case
+  « aussi sur WhatsApp » qui décide du bouton chez le client : appel
+  direct ou conversation WhatsApp. Une adresse porte un libellé, son
+  texte et — facultatif — sa position, relevée d'un lien Google Maps
+  collé comme pour la boutique ; renseignée, la ligne ouvre le plan sur
+  ce point précis, sinon sur une recherche du texte. Les lignes laissées
+  vides (numéro sans chiffre, adresse sans texte) sont écartées à
+  l'enregistrement plutôt que publiées à moitié. Côté client, tout
+  arrive dans la carte « Nous contacter » de l'onglet Infos, à la suite
+  du numéro et de l'adresse principaux.
 - Position de lecture conservée (les deux applications) : la hauteur de
   défilement de chaque écran est mémorisée et restaurée au retour en
   arrière — on retrouve sa place exacte dans une longue liste après

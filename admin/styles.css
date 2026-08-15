@@ -499,6 +499,29 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .sous-ligne input:focus{border-color:var(--bleu)}
 .sous-ligne .btn-ic-clair{flex:none}
 
+/* ---------- Listes répétables (autres numéros, autres adresses) ---------- */
+.ligne-multi{
+  display:flex;gap:10px;align-items:flex-start;
+  padding:12px;margin-bottom:10px;
+  border:1.5px solid var(--trait);border-radius:var(--r-md);
+  background:var(--bleu-50);
+}
+.ligne-multi-champs{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.ligne-multi-champs input[type=text],.ligne-multi-champs input[type=tel]{
+  width:100%;min-height:44px;
+  border:1.5px solid var(--trait);border-radius:11px;background:var(--blanc);
+  padding:10px 12px;font-size:14px;outline:none;
+}
+.ligne-multi-champs input:focus{border-color:var(--bleu)}
+.ligne-multi-duo{display:flex;gap:8px}
+.ligne-multi-duo input{flex:1;min-width:0}
+.ligne-multi-coche{
+  display:flex;align-items:center;gap:9px;min-height:34px;
+  font-size:12.5px;font-weight:700;color:var(--encre-douce);cursor:pointer;
+}
+.ligne-multi-coche input{flex:none;width:20px;height:20px;accent-color:var(--vert)}
+.ligne-multi .btn-ic-clair{flex:none}
+
 /* ---------- Publication ---------- */
 .pub-resume{
   display:grid;grid-template-columns:1fr 1fr;gap:8px;

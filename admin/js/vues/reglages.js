@@ -7,6 +7,96 @@ const VueReglages = (() => {
   /** Photos de la boutique en cours d'édition. */
   let photosTravail = [];
 
+  /* =====================================================
+     Autres numéros et autres adresses
+
+     La boutique garde un numéro principal (celui des commandes
+     WhatsApp) et une adresse principale ; ces listes-ci sont ce
+     qui vient en plus, et se retrouvent dans l'onglet Infos de
+     l'application client.
+     ===================================================== */
+
+  let telsTravail = [];
+  let adressesTravail = [];
+
+  function htmlTelephones() {
+    if (!telsTravail.length) {
+      return '<p class="aide" style="margin:0">Aucun autre numéro. Le numéro principal suffit à la boutique.</p>';
+    }
+    return telsTravail.map((t, i) =>
+      '<div class="ligne-multi">' +
+        '<div class="ligne-multi-champs">' +
+          '<input type="text" data-tel-libelle="' + i + '" value="' + Utils.echapper(t.libelle || "") +
+            '" placeholder="À quoi sert ce numéro ? (Atelier, SAV…)">' +
+          '<input type="tel" data-tel-numero="' + i + '" value="' + Utils.echapper(t.numero || "") +
+            '" placeholder="01 97 00 00 00">' +
+          '<label class="ligne-multi-coche">' +
+            '<input type="checkbox" data-tel-wa="' + i + '"' + (t.whatsapp ? " checked" : "") + ">" +
+            "<span>Ce numéro est aussi sur WhatsApp</span>" +
+          "</label>" +
+        "</div>" +
+        '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-tel-retirer="' + i +
+          '" aria-label="Retirer ce numéro">' + UI.icone("fermer", "ic-sm") + "</button>" +
+      "</div>"
+    ).join("");
+  }
+
+  function htmlAdresses() {
+    if (!adressesTravail.length) {
+      return '<p class="aide" style="margin:0">Aucune autre adresse. Seule l\'adresse principale s\'affiche.</p>';
+    }
+    return adressesTravail.map((a, i) =>
+      '<div class="ligne-multi">' +
+        '<div class="ligne-multi-champs">' +
+          '<input type="text" data-adr-libelle="' + i + '" value="' + Utils.echapper(a.libelle || "") +
+            '" placeholder="Nom du lieu (Annexe Godomey, Dépôt…)">' +
+          '<input type="text" data-adr-texte="' + i + '" value="' + Utils.echapper(a.texte || "") +
+            '" placeholder="Quartier, rue, ville">' +
+          '<div class="ligne-multi-duo">' +
+            '<input type="text" data-adr-lat="' + i + '" value="' +
+              Utils.echapper(a.latitude === null || a.latitude === undefined ? "" : a.latitude) +
+              '" placeholder="Latitude (facultatif)">' +
+            '<input type="text" data-adr-lng="' + i + '" value="' +
+              Utils.echapper(a.longitude === null || a.longitude === undefined ? "" : a.longitude) +
+              '" placeholder="Longitude">' +
+          "</div>" +
+          '<input type="text" data-adr-lien="' + i + '" value="" ' +
+            'placeholder="…ou collez ici un lien Google Maps">' +
+        "</div>" +
+        '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-adr-retirer="' + i +
+          '" aria-label="Retirer cette adresse">' + UI.icone("fermer", "ic-sm") + "</button>" +
+      "</div>"
+    ).join("");
+  }
+
+  /** Recopie ce qui est tapé à l'écran dans les listes de travail. */
+  function lireTelephones(base) {
+    for (const champ of UI.$$("[data-tel-libelle]", base)) {
+      telsTravail[Number(champ.dataset.telLibelle)].libelle = champ.value;
+    }
+    for (const champ of UI.$$("[data-tel-numero]", base)) {
+      telsTravail[Number(champ.dataset.telNumero)].numero = champ.value;
+    }
+    for (const champ of UI.$$("[data-tel-wa]", base)) {
+      telsTravail[Number(champ.dataset.telWa)].whatsapp = champ.checked;
+    }
+  }
+
+  function lireAdresses(base) {
+    for (const champ of UI.$$("[data-adr-libelle]", base)) {
+      adressesTravail[Number(champ.dataset.adrLibelle)].libelle = champ.value;
+    }
+    for (const champ of UI.$$("[data-adr-texte]", base)) {
+      adressesTravail[Number(champ.dataset.adrTexte)].texte = champ.value;
+    }
+    for (const champ of UI.$$("[data-adr-lat]", base)) {
+      adressesTravail[Number(champ.dataset.adrLat)].latitude = champ.value.trim();
+    }
+    for (const champ of UI.$$("[data-adr-lng]", base)) {
+      adressesTravail[Number(champ.dataset.adrLng)].longitude = champ.value.trim();
+    }
+  }
+
   function htmlPhotosBoutique() {
     let html = photosTravail.map((photo, i) =>
       '<div class="photo-boite">' +
@@ -94,6 +184,38 @@ const VueReglages = (() => {
         UI.champTexte({ id: "r-horaires", label: "Horaires", valeur: r.horaires,
           placeholder: "Lun–Sam : 8h–19h" }) +
         '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + "Enregistrer la boutique</button>" +
+      "</div>" +
+
+      /* ---------- Autres numéros ---------- */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("tel", "ic-sm") + " Autres numéros " +
+          '<span class="aide-inline">(' + Store.MAX_TELEPHONES + " max)</span></div>" +
+        '<p class="aide" style="margin:0 0 12px">En plus du numéro principal ci-dessus : atelier, ' +
+          "service après-vente, second poste… Ils s'affichent tous dans l'onglet Infos des clients, " +
+          "avec leur libellé.</p>" +
+        '<div id="r-tels"></div>' +
+        '<div class="btn-rangee" style="margin-top:12px">' +
+          '<button type="button" class="btn btn-clair" id="r-tel-ajouter">' +
+            UI.icone("plus") + "Ajouter un numéro</button>" +
+          '<button type="button" class="btn" id="r-tels-enregistrer">' +
+            UI.icone("check") + "Enregistrer les numéros</button>" +
+        "</div>" +
+      "</div>" +
+
+      /* ---------- Autres adresses ---------- */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Autres adresses " +
+          '<span class="aide-inline">(' + Store.MAX_ADRESSES + " max)</span></div>" +
+        '<p class="aide" style="margin:0 0 12px">Une annexe, un dépôt, un second point de vente. ' +
+          "La position est facultative : renseignée, le client peut lancer l'itinéraire vers ce lieu " +
+          "d'un seul appui.</p>" +
+        '<div id="r-adresses"></div>' +
+        '<div class="btn-rangee" style="margin-top:12px">' +
+          '<button type="button" class="btn btn-clair" id="r-adresse-ajouter">' +
+            UI.icone("plus") + "Ajouter une adresse</button>" +
+          '<button type="button" class="btn" id="r-adresses-enregistrer">' +
+            UI.icone("check") + "Enregistrer les adresses</button>" +
+        "</div>" +
       "</div>" +
 
       /* ---------- Localisation ---------- */
@@ -226,6 +348,108 @@ const VueReglages = (() => {
           horaires: UI.$("#r-horaires").value.trim(),
         }, "Informations de la boutique modifiées");
         UI.toast("Boutique enregistrée — visible immédiatement chez les clients.", "ok");
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+
+    /* ---------- Autres numéros ---------- */
+    telsTravail = (r.telephones || []).map((t) => ({ ...t }));
+    const zoneTels = UI.$("#r-tels");
+
+    const rendreTels = () => {
+      zoneTels.innerHTML = htmlTelephones();
+      for (const b of UI.$$("[data-tel-retirer]", zoneTels)) {
+        b.onclick = () => {
+          lireTelephones(zoneTels);
+          telsTravail.splice(Number(b.dataset.telRetirer), 1);
+          rendreTels();
+        };
+      }
+    };
+    rendreTels();
+
+    UI.$("#r-tel-ajouter").onclick = () => {
+      lireTelephones(zoneTels);
+      if (telsTravail.length >= Store.MAX_TELEPHONES) {
+        UI.toast("Déjà " + Store.MAX_TELEPHONES + " numéros : c'est le maximum.", "err");
+        return;
+      }
+      telsTravail.push({ libelle: "", numero: "", whatsapp: false });
+      rendreTels();
+      const champs = UI.$$("[data-tel-libelle]", zoneTels);
+      if (champs.length) champs[champs.length - 1].focus();
+    };
+
+    UI.$("#r-tels-enregistrer").onclick = async () => {
+      lireTelephones(zoneTels);
+      const vides = telsTravail.filter((t) => !/\d/.test(t.numero)).length;
+      try {
+        const maj = await Store.majReglages({ telephones: telsTravail },
+          "Autres numéros de la boutique mis à jour");
+        telsTravail = (maj.telephones || []).map((t) => ({ ...t }));
+        rendreTels();
+        UI.toast(vides
+          ? "Numéros enregistrés (" + vides + " ligne" + (vides > 1 ? "s vides ont" : " vide a") + " été écartée" +
+            (vides > 1 ? "s" : "") + ")"
+          : "Numéros enregistrés — visibles chez les clients", vides ? "err" : "ok");
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+
+    /* ---------- Autres adresses ---------- */
+    adressesTravail = (r.adresses || []).map((a) => ({ ...a }));
+    const zoneAdresses = UI.$("#r-adresses");
+
+    const rendreAdresses = () => {
+      zoneAdresses.innerHTML = htmlAdresses();
+      for (const b of UI.$$("[data-adr-retirer]", zoneAdresses)) {
+        b.onclick = () => {
+          lireAdresses(zoneAdresses);
+          adressesTravail.splice(Number(b.dataset.adrRetirer), 1);
+          rendreAdresses();
+        };
+      }
+      /* Un lien Google Maps collé remplit les deux coordonnées. */
+      for (const champ of UI.$$("[data-adr-lien]", zoneAdresses)) {
+        champ.addEventListener("input", (ev) => {
+          const trouve = String(ev.target.value)
+            .match(/(-?\d{1,3}\.\d{3,})[,\s/@]+(-?\d{1,3}\.\d{3,})/);
+          if (!trouve) return;
+          const i = champ.dataset.adrLien;
+          UI.$('[data-adr-lat="' + i + '"]', zoneAdresses).value = trouve[1];
+          UI.$('[data-adr-lng="' + i + '"]', zoneAdresses).value = trouve[2];
+          UI.toast("Coordonnées extraites du lien", "ok");
+        });
+      }
+    };
+    rendreAdresses();
+
+    UI.$("#r-adresse-ajouter").onclick = () => {
+      lireAdresses(zoneAdresses);
+      if (adressesTravail.length >= Store.MAX_ADRESSES) {
+        UI.toast("Déjà " + Store.MAX_ADRESSES + " adresses : c'est le maximum.", "err");
+        return;
+      }
+      adressesTravail.push({ libelle: "", texte: "", latitude: "", longitude: "" });
+      rendreAdresses();
+      const champs = UI.$$("[data-adr-libelle]", zoneAdresses);
+      if (champs.length) champs[champs.length - 1].focus();
+    };
+
+    UI.$("#r-adresses-enregistrer").onclick = async () => {
+      lireAdresses(zoneAdresses);
+      const vides = adressesTravail.filter((a) => !String(a.texte || "").trim()).length;
+      try {
+        const maj = await Store.majReglages({ adresses: adressesTravail },
+          "Autres adresses de la boutique mises à jour");
+        adressesTravail = (maj.adresses || []).map((a) => ({ ...a }));
+        rendreAdresses();
+        UI.toast(vides
+          ? "Adresses enregistrées (" + vides + " sans texte " + (vides > 1 ? "ont" : "a") + " été écartée" +
+            (vides > 1 ? "s" : "") + ")"
+          : "Adresses enregistrées — visibles chez les clients", vides ? "err" : "ok");
       } catch (err) {
         UI.toast(err.message, "err");
       }

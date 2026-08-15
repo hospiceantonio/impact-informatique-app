@@ -91,6 +91,33 @@ const Catalogue = (() => {
     return reponse.json();
   }
 
+  /* Les autres numéros et les autres adresses de la boutique. Le gérant
+     en ajoute autant qu'il veut depuis l'application admin ; ici on ne
+     garde que les lignes réellement utilisables. */
+
+  const nombreOuNull = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+
+  function autresNumeros(liste) {
+    return (Array.isArray(liste) ? liste : [])
+      .map((t) => ({
+        libelle: String((t && t.libelle) || "").trim(),
+        numero: String((t && t.numero) || "").trim(),
+        whatsapp: !!(t && t.whatsapp),
+      }))
+      .filter((t) => /\d/.test(t.numero));
+  }
+
+  function autresAdresses(liste) {
+    return (Array.isArray(liste) ? liste : [])
+      .map((a) => ({
+        libelle: String((a && a.libelle) || "").trim(),
+        texte: String((a && a.texte) || "").trim(),
+        latitude: nombreOuNull(a && a.latitude),
+        longitude: nombreOuNull(a && a.longitude),
+      }))
+      .filter((a) => a.texte);
+  }
+
   async function telechargerDepuisBase(c) {
     const controleur = new AbortController();
     const minuterie = setTimeout(() => controleur.abort(), 15000);
@@ -117,6 +144,8 @@ const Catalogue = (() => {
           latitude: b.latitude === null || b.latitude === undefined ? null : Number(b.latitude),
           longitude: b.longitude === null || b.longitude === undefined ? null : Number(b.longitude),
           photos: (Array.isArray(b.photos) ? b.photos : []).map(urlImagePublique),
+          telephones: autresNumeros(b.telephones),
+          adresses: autresAdresses(b.adresses),
         },
         categories: (categories || []).map((cat) => ({
           id: cat.id,
@@ -275,6 +304,8 @@ const Catalogue = (() => {
       latitude: typeof b.latitude === "number" ? b.latitude : null,
       longitude: typeof b.longitude === "number" ? b.longitude : null,
       photos: Array.isArray(b.photos) ? b.photos : [],
+      telephones: autresNumeros(b.telephones),
+      adresses: autresAdresses(b.adresses),
     };
   }
 

@@ -35,9 +35,13 @@ const Store = (() => {
     latitude: null,
     longitude: null,
     photos: [],      // chemins des photos de la boutique
+    telephones: [],  // autres numéros : { libelle, numero, whatsapp }
+    adresses: [],    // autres adresses : { libelle, texte, latitude, longitude }
   };
 
   const MAX_PHOTOS_BOUTIQUE = 6;
+  const MAX_TELEPHONES = 8;    // en plus du numéro principal
+  const MAX_ADRESSES = 8;      // en plus de l'adresse principale
 
   let reglages = { ...BOUTIQUE_DEFAUT };
 
@@ -123,6 +127,42 @@ const Store = (() => {
     };
   }
 
+  /* Une coordonnée saisie à la main : « 6,3654 » vaut « 6.3654 ». */
+  function coordonnee(valeur, borne) {
+    if (valeur === "" || valeur === null || valeur === undefined) return null;
+    const n = Number(String(valeur).replace(",", "."));
+    return isFinite(n) && n >= -borne && n <= borne ? n : null;
+  }
+
+  /**
+   * Les autres numéros de la boutique. Un numéro sans chiffres ne sert à
+   * personne : il disparaît. Le libellé est ce que lit le client
+   * (« Atelier », « Service après-vente »…).
+   */
+  function telephonesDepuisListe(liste) {
+    return (Array.isArray(liste) ? liste : [])
+      .map((t) => ({
+        libelle: String((t && t.libelle) || "").trim().slice(0, 40),
+        numero: String((t && t.numero) || "").trim().slice(0, 30),
+        whatsapp: !!(t && t.whatsapp),
+      }))
+      .filter((t) => /\d/.test(t.numero))
+      .slice(0, MAX_TELEPHONES);
+  }
+
+  /** Les autres adresses, chacune avec sa position facultative. */
+  function adressesDepuisListe(liste) {
+    return (Array.isArray(liste) ? liste : [])
+      .map((a) => ({
+        libelle: String((a && a.libelle) || "").trim().slice(0, 40),
+        texte: String((a && a.texte) || "").trim().slice(0, 200),
+        latitude: coordonnee(a && a.latitude, 90),
+        longitude: coordonnee(a && a.longitude, 180),
+      }))
+      .filter((a) => a.texte)
+      .slice(0, MAX_ADRESSES);
+  }
+
   function boutiqueDepuisLigne(l) {
     return {
       nomBoutique: l.nom || BOUTIQUE_DEFAUT.nomBoutique,
@@ -142,6 +182,9 @@ const Store = (() => {
       latitude: l.latitude === null || l.latitude === undefined ? null : Number(l.latitude),
       longitude: l.longitude === null || l.longitude === undefined ? null : Number(l.longitude),
       photos: Array.isArray(l.photos) ? l.photos : [],
+      /* Colonnes absentes d'une base pas encore mise à jour : liste vide. */
+      telephones: telephonesDepuisListe(l.telephones),
+      adresses: adressesDepuisListe(l.adresses),
     };
   }
 
@@ -285,7 +328,10 @@ const Store = (() => {
   const lireReglages = () => ({ ...reglages });
 
   async function majReglages(maj, libelleJournal) {
-    reglages = { ...reglages, ...maj };
+    const propre = { ...maj };
+    if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
+    if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
+    reglages = { ...reglages, ...propre };
     const r = reglages;
     await Supabase.requete("PATCH", "boutique?id=eq.1", {
       nom: r.nomBoutique,
@@ -305,6 +351,8 @@ const Store = (() => {
       latitude: r.latitude,
       longitude: r.longitude,
       photos: r.photos || [],
+      telephones: r.telephones || [],
+      adresses: r.adresses || [],
       maj_le: new Date().toISOString(),
     });
     if (libelleJournal) journaliser("boutique", "modification", libelleJournal, r.nomBoutique);
@@ -932,7 +980,8 @@ const Store = (() => {
   }
 
   return {
-    MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE, ROLES,
+    MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
+    MAX_TELEPHONES, MAX_ADRESSES, ROLES,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     journaliser, lireJournal,
     listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,

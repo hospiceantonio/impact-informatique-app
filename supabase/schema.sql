@@ -36,6 +36,12 @@ create table if not exists public.boutique (
   latitude    double precision,               -- position de la boutique
   longitude   double precision,
   photos      text[] not null default '{}',   -- photos de la boutique
+  -- Autres numéros et autres adresses, en plus des principaux ci-dessus.
+  --   telephones : [{ "libelle": "Atelier", "numero": "0197…", "whatsapp": false }]
+  --   adresses   : [{ "libelle": "Annexe", "texte": "Godomey…",
+  --                   "latitude": 6.36, "longitude": 2.41 }]
+  telephones  jsonb not null default '[]'::jsonb,
+  adresses    jsonb not null default '[]'::jsonb,
   maj_le      timestamptz not null default now()
 );
 
@@ -47,6 +53,8 @@ alter table public.boutique add column if not exists snapchat text not null defa
 alter table public.boutique add column if not exists latitude double precision;
 alter table public.boutique add column if not exists longitude double precision;
 alter table public.boutique add column if not exists photos text[] not null default '{}';
+alter table public.boutique add column if not exists telephones jsonb not null default '[]'::jsonb;
+alter table public.boutique add column if not exists adresses jsonb not null default '[]'::jsonb;
 
 -- ---------- Catégories et sous-catégories ----------
 create table if not exists public.categories (

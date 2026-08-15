@@ -47,6 +47,25 @@ const VueInfos = (() => {
           UI.icone("chevron", "ic-sm") +
         "</a>");
     }
+    /* Les autres numéros de la boutique : atelier, service après-vente… */
+    for (const t of b.telephones || []) {
+      const nom = t.libelle || (t.whatsapp ? "Autre WhatsApp" : "Autre numéro");
+      contacts.push(t.whatsapp
+        ? '<a class="ligne-info" target="_blank" rel="noopener" href="' +
+            Utils.echapper(Utils.lienWhatsApp(t.numero, "Bonjour " + b.nom + " 👋", b.indicatif)) + '">' +
+            '<span class="rond-wa">' + UI.icone("whatsapp") + "</span>" +
+            "<span><strong>" + Utils.echapper(nom) + "</strong><br><small>" +
+              Utils.echapper(t.numero) + " · WhatsApp</small></span>" +
+            UI.icone("chevron", "ic-sm") +
+          "</a>"
+        : '<a class="ligne-info" href="' + Utils.echapper(Utils.lienTel(t.numero, b.indicatif)) + '">' +
+            '<span class="rond-bleu">' + UI.icone("tel") + "</span>" +
+            "<span><strong>" + Utils.echapper(nom) + "</strong><br><small>" +
+              Utils.echapper(t.numero) + "</small></span>" +
+            UI.icone("chevron", "ic-sm") +
+          "</a>");
+    }
+
     if (b.latitude !== null && b.longitude !== null) {
       const point = b.latitude + "," + b.longitude;
       contacts.push(
@@ -58,14 +77,32 @@ const VueInfos = (() => {
           UI.icone("chevron", "ic-sm") +
         "</a>");
     }
+    /* Une adresse ouvre le plan : sur ses coordonnées si on les a,
+       sur son texte sinon. */
+    const lienCarte = (texte, latitude, longitude) =>
+      (latitude !== null && longitude !== null
+        ? "https://www.google.com/maps/search/?api=1&query=" + latitude + "," + longitude
+        : "https://maps.google.com/?q=" + encodeURIComponent(texte));
+
     if (b.adresse) {
       contacts.push(
         '<a class="ligne-info" target="_blank" rel="noopener" href="' +
-          (b.latitude !== null && b.longitude !== null
-            ? "https://www.google.com/maps/search/?api=1&query=" + b.latitude + "," + b.longitude
-            : "https://maps.google.com/?q=" + encodeURIComponent(b.adresse)) + '">' +
+          Utils.echapper(lienCarte(b.adresse, b.latitude, b.longitude)) + '">' +
           '<span class="rond-bleu">' + UI.icone("carte") + "</span>" +
           "<span><strong>Adresse</strong><br><small>" + Utils.echapper(b.adresse) + "</small></span>" +
+          UI.icone("chevron", "ic-sm") +
+        "</a>");
+    }
+
+    /* Les autres adresses : annexe, dépôt, second point de vente… */
+    for (const a of b.adresses || []) {
+      const situee = a.latitude !== null && a.longitude !== null;
+      contacts.push(
+        '<a class="ligne-info" target="_blank" rel="noopener" href="' +
+          Utils.echapper(lienCarte(a.texte, a.latitude, a.longitude)) + '">' +
+          '<span class="rond-bleu">' + UI.icone("carte") + "</span>" +
+          "<span><strong>" + Utils.echapper(a.libelle || "Autre adresse") + "</strong><br><small>" +
+            Utils.echapper(a.texte) + (situee ? " · itinéraire disponible" : "") + "</small></span>" +
           UI.icone("chevron", "ic-sm") +
         "</a>");
     }
