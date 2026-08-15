@@ -247,6 +247,12 @@ const Supabase = (() => {
       if (reponse.status === 404 && /relation .* does not exist|Could not find the table/i.test(message)) {
         throw new Error("Les tables n'existent pas encore : exécutez supabase/schema.sql dans le projet Supabase.");
       }
+      /* Une colonne manquante veut dire une base pas encore à jour :
+         le gérant a un fichier SQL à passer, pas un bogue à signaler. */
+      if (/Could not find the '[^']*' column|column .* does not exist/i.test(message)) {
+        throw new Error("Cette nouveauté demande une mise à jour de la base : " +
+          "exécutez le dernier fichier SQL dans Supabase (SQL Editor).");
+      }
       if (reponse.status === 409 || /foreign key/i.test(message)) {
         throw new Error("Suppression impossible : cet élément est encore utilisé par des produits.");
       }
