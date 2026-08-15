@@ -171,6 +171,7 @@ const Store = (() => {
       email: l.email || "",
       role: l.role === "administrateur" ? "administrateur" : "moderateur",
       actif: l.actif !== false,
+      peutModifier: l.peut_modifier_produits !== false,
       creeLe: versMs(l.cree_le),
     };
   }
@@ -200,14 +201,25 @@ const Store = (() => {
   }
 
   async function majCompte(id, maj) {
-    const lignes = await Supabase.requete("PATCH", "profils?id=eq." + encodeURIComponent(id), maj);
-    const c = compteDepuisLigne((lignes || [])[0] || { id, ...maj });
+    /* Les noms de l'application ne sont pas ceux de la base. */
+    const ligne = { ...maj };
+    if (maj.peutModifier !== undefined) {
+      ligne.peut_modifier_produits = !!maj.peutModifier;
+      delete ligne.peutModifier;
+    }
+    const lignes = await Supabase.requete("PATCH", "profils?id=eq." + encodeURIComponent(id), ligne);
+    const c = compteDepuisLigne((lignes || [])[0] || { id, ...ligne });
     if (maj.role) {
       journaliser("compte", "modification",
         c.email + " devient " + ROLES[c.role].nom.toLowerCase(), c.email);
     } else if (maj.actif !== undefined) {
       journaliser("compte", maj.actif ? "activation" : "desactivation",
         (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email);
+    } else if (maj.peutModifier !== undefined) {
+      journaliser("compte", "modification",
+        (maj.peutModifier
+          ? "Autorisé à modifier les produits : "
+          : "Ne peut plus modifier les produits : ") + c.email, c.email);
     }
     return c;
   }

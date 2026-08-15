@@ -12,6 +12,9 @@ const VueComptes = (() => {
 
   function htmlLigne(compte, moi) {
     const admin = compte.role === "administrateur";
+    /* Un modérateur privé du droit de modification se voit d'un coup d'œil
+       dans la liste : inutile d'ouvrir sa fiche pour le savoir. */
+    const bride = !admin && !compte.peutModifier;
     return (
       '<div class="compte-ligne' + (compte.actif ? "" : " compte-inactif") + '">' +
         '<span class="compte-rond ' + (admin ? "compte-rond-admin" : "") + '">' +
@@ -20,7 +23,8 @@ const VueComptes = (() => {
           '<span class="compte-email">' + Utils.echapper(compte.email || "—") +
             (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
-            (compte.actif ? "" : " · désactivé") + "</span>" +
+            (compte.actif ? "" : " · désactivé") +
+            (bride ? " · ajout seulement" : "") + "</span>" +
         "</span>" +
         (moi ? "" :
           '<button type="button" class="btn-ic btn-ic-clair" data-compte="' +
@@ -45,6 +49,15 @@ const VueComptes = (() => {
       "</div>" +
       UI.interrupteur({ id: "cp-actif", label: "Compte actif", actif: compte.actif,
         aide: "Désactivé, il ne peut plus rien modifier, même en se connectant." }) +
+      /* Droit réservé aux modérateurs : un administrateur peut toujours tout
+         modifier, on masque donc l'interrupteur quand le rôle choisi est
+         « administrateur ». */
+      '<div id="cp-zone-modif"' + (compte.role === "administrateur" ? ' hidden' : "") + ">" +
+        UI.interrupteur({ id: "cp-modifier", label: "Peut modifier les produits",
+          actif: compte.peutModifier !== false,
+          aide: "Décoché, ce modérateur peut encore ajouter des produits, " +
+            "mais plus retoucher ni supprimer ceux du catalogue." }) +
+      "</div>" +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
       "</div>" +
@@ -70,6 +83,7 @@ const VueComptes = (() => {
     const selecteur = UI.$("#cp-role", corps);
     selecteur.onchange = () => {
       UI.$("#cp-role-aide", corps).textContent = Store.ROLES[selecteur.value].aide;
+      UI.$("#cp-zone-modif", corps).hidden = selecteur.value === "administrateur";
     };
 
     UI.$("#cp-mdp-changer", corps).onclick = async () => {
@@ -112,11 +126,17 @@ const VueComptes = (() => {
       bouton.disabled = true;
       const role = selecteur.value;
       const actif = UI.$("#cp-actif", corps).checked;
+      /* Un administrateur garde toujours le droit de modifier : si le rôle
+         passe à « administrateur », on remet le droit à vrai. */
+      const peutModifier = role === "administrateur" ? true : UI.$("#cp-modifier", corps).checked;
       try {
-        /* Deux enregistrements plutôt qu'un : le journal raconte alors
-           précisément ce qui a changé. */
+        /* Un enregistrement par changement plutôt qu'un seul : le journal
+           raconte alors précisément ce qui a changé. */
         if (role !== compte.role) await Store.majCompte(compte.id, { role });
         if (actif !== compte.actif) await Store.majCompte(compte.id, { actif });
+        if (peutModifier !== (compte.peutModifier !== false)) {
+          await Store.majCompte(compte.id, { peutModifier });
+        }
         UI.fermerFeuille();
         UI.toast("Compte mis à jour", "ok");
         apres();
@@ -211,7 +231,10 @@ const VueComptes = (() => {
       '<div class="carte">' +
         '<div class="carte-titre">Bon à savoir</div>' +
         '<p class="aide" style="margin:0">Touchez le crayon d\'un compte pour changer son rôle, ' +
-          "lui redonner un mot de passe, le désactiver ou le supprimer. Un compte " +
+          "lui retirer ou lui rendre le droit de modifier les produits, lui redonner un " +
+          "mot de passe, le désactiver ou le supprimer. Un modérateur sans ce droit " +
+          "(<strong>ajout seulement</strong>) continue d'ajouter des produits mais ne peut " +
+          "plus retoucher ni supprimer ceux du catalogue. Un compte " +
           "<strong>désactivé</strong> garde son adresse mais ne peut plus rien modifier ; " +
           "un compte <strong>supprimé</strong> disparaît pour de bon. " +
           "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits.</p>" +

@@ -157,7 +157,13 @@ const Supabase = (() => {
     }
     rolesEnBase = true;
     const l = (lignes || [])[0];
-    if (l) profil = { id: l.id, email: l.email || "", role: l.role, actif: l.actif !== false };
+    if (l) {
+      profil = {
+        id: l.id, email: l.email || "", role: l.role, actif: l.actif !== false,
+        /* Colonne absente d'une base pas encore mise à jour : on n'enlève rien. */
+        peutModifier: l.peut_modifier_produits !== false,
+      };
+    }
     return profil;
   }
 
@@ -165,6 +171,9 @@ const Supabase = (() => {
   const rolesActifs = () => rolesEnBase;
   const role = () => (profil ? profil.role : rolesEnBase ? null : "administrateur");
   const estAdmin = () => role() === "administrateur";
+  /** Retoucher un produit déjà au catalogue : l'administrateur toujours,
+      le modérateur si l'administrateur le lui a accordé. */
+  const peutModifierProduits = () => estAdmin() || !!(profil && profil.peutModifier);
   /** Membre actif de l'équipe : sans fiche active, aucune écriture n'est permise. */
   const compteActif = () => !rolesEnBase || !!(profil && profil.actif);
 
@@ -242,7 +251,15 @@ const Supabase = (() => {
         throw new Error("Suppression impossible : cet élément est encore utilisé par des produits.");
       }
       if (reponse.status === 403 || /row-level security/i.test(message)) {
-        throw new Error("Écriture refusée par la base : connectez-vous avec le compte du gérant.");
+        /* Le même refus a deux causes bien différentes : un droit retiré au
+           compte, ou une session qui n'est pas celle du gérant. On nomme
+           celle qui correspond, sinon le message envoie sur une fausse piste. */
+        if (/^produits/.test(chemin) && methode !== "POST" && !peutModifierProduits()) {
+          throw new Error("Votre compte n'a pas le droit de modifier les produits du catalogue. " +
+            "Demandez ce droit à l'administrateur.");
+        }
+        throw new Error("Écriture refusée par la base : votre compte n'a pas ce droit. " +
+          "Voyez l'administrateur de la boutique.");
       }
       throw new Error(message || "La base a répondu « " + reponse.status + " ».");
     }
@@ -382,7 +399,7 @@ const Supabase = (() => {
   return {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
-    chargerProfil, compte, role, estAdmin, compteActif, rolesActifs,
+    chargerProfil, compte, role, estAdmin, peutModifierProduits, compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };

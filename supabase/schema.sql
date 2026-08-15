@@ -133,8 +133,13 @@ create table if not exists public.profils (
   role    text not null default 'moderateur'
           check (role in ('administrateur', 'moderateur')),
   actif   boolean not null default true,
+  -- Droit accordé au cas par cas : modifier un produit déjà au catalogue.
+  -- Sans lui, le modérateur peut en ajouter de nouveaux, pas toucher aux autres.
+  peut_modifier_produits boolean not null default true,
   cree_le timestamptz not null default now()
 );
+alter table public.profils
+  add column if not exists peut_modifier_produits boolean not null default true;
 
 -- Rôle du compte connecté. « security definer » : la fonction lit la table
 -- sans repasser par les règles RLS — sinon les règles s'appelleraient elles-mêmes.
@@ -154,8 +159,17 @@ language sql stable security definer set search_path = public as $$
   select public.role_courant() is not null;
 $$;
 
+-- Peut-il retoucher un produit déjà au catalogue ? L'administrateur
+-- toujours ; le modérateur seulement si l'administrateur le lui accorde.
+create or replace function public.peut_modifier_produits() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select role = 'administrateur' or peut_modifier_produits
+                     from public.profils where id = auth.uid() and actif), false);
+$$;
+
 -- Les règles de sécurité, y compris celles du stockage des photos,
 -- appellent ces fonctions au nom du compte connecté.
+grant execute on function public.peut_modifier_produits() to authenticated;
 grant execute on function public.role_courant() to authenticated;
 grant execute on function public.est_admin() to authenticated;
 grant execute on function public.est_equipe() to authenticated;
@@ -318,11 +332,22 @@ create policy "lecture publique"   on public.sous_categories for select using (t
 create policy "ecriture connectee" on public.sous_categories
   for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
 
+-- Les produits se découpent en trois droits : ajouter, modifier, supprimer.
+-- Toute l'équipe ajoute ; retoucher ou retirer un produit déjà publié
+-- demande le droit correspondant.
 drop policy if exists "lecture publique"  on public.produits;
 drop policy if exists "ecriture connectee" on public.produits;
-create policy "lecture publique"   on public.produits        for select using (true);
-create policy "ecriture connectee" on public.produits
-  for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
+drop policy if exists "produits ajout" on public.produits;
+drop policy if exists "produits modification" on public.produits;
+drop policy if exists "produits suppression" on public.produits;
+create policy "lecture publique" on public.produits for select using (true);
+create policy "produits ajout" on public.produits
+  for insert to authenticated with check (public.est_equipe());
+create policy "produits modification" on public.produits
+  for update to authenticated
+  using (public.peut_modifier_produits()) with check (public.peut_modifier_produits());
+create policy "produits suppression" on public.produits
+  for delete to authenticated using (public.peut_modifier_produits());
 
 -- Le slider de l'application client reste la décision de l'administrateur :
 -- le modérateur peut tout modifier d'un produit, sauf sa mise en avant.

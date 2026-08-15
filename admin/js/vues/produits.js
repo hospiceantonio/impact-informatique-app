@@ -274,6 +274,17 @@ const VueProduits = (() => {
   }
 
   async function formulaire(vue, id) {
+    /* Retoucher un produit existant demande le droit de modification ;
+       en créer un neuf reste ouvert à toute l'équipe. */
+    if (id && !Supabase.peutModifierProduits()) {
+      UI.entete({ titre: "Modifier le produit", retour: true });
+      vue.innerHTML = UI.vide("cle", "Modification non autorisée",
+        "Votre compte peut ajouter des produits, mais pas retoucher ceux du catalogue. " +
+        "Demandez ce droit à l'administrateur.",
+        '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(id) + '">Revenir à la fiche</a>');
+      return;
+    }
+
     const existant = id ? await Store.lireProduit(id) : null;
     const referenceProposee = existant ? existant.reference : await Store.prochaineReference();
     if (id && !existant) {
@@ -449,10 +460,14 @@ const VueProduits = (() => {
     const sousCategorie = categorie && (categorie.sousCategories || []).find((s) => s.id === p.sousCategorieId);
     const devise = Store.lireReglages().devise;
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    /* Sans le droit de modification, la fiche reste consultable mais
+       tous les chemins qui mènent au formulaire disparaissent. */
+    const peutModifier = Supabase.peutModifierProduits();
 
-    UI.entete({ titre: p.nom, retour: true, actions:
-      '<a class="btn-ic" href="#/produit/' + Utils.echapper(p.id) + '/modifier" aria-label="Modifier">' +
-      UI.icone("crayon") + "</a>" });
+    UI.entete({ titre: p.nom, retour: true, actions: peutModifier
+      ? '<a class="btn-ic" href="#/produit/' + Utils.echapper(p.id) + '/modifier" aria-label="Modifier">' +
+        UI.icone("crayon") + "</a>"
+      : "" });
 
     let html = "";
 
@@ -498,21 +513,26 @@ const VueProduits = (() => {
 
     /* Le slider de l'application client se compose côté administrateur. */
     const admin = Supabase.estAdmin();
-    html +=
-      '<div class="carte">' +
-        '<div class="carte-titre">Actions rapides</div>' +
-        '<div class="btn-rangee">' +
-          (admin
-            ? '<button type="button" class="btn' + (p.enAvant ? " btn-clair" : "") + '" id="p-basculer-avant">' +
-              UI.icone(p.enAvant ? "fermer" : "etoile") +
-              (p.enAvant ? "Retirer du slider" : "Mettre en avant (slider)") + "</button>"
-            : "") +
-          '<button type="button" class="btn btn-clair" id="p-modifier-stock">' +
-            UI.icone("boite") + "Modifier la disponibilité</button>" +
-          '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(p.id) + '/modifier">' +
-            UI.icone("crayon") + "Modifier le produit</a>" +
-        "</div>" +
-      "</div>";
+    html += peutModifier
+      ? '<div class="carte">' +
+          '<div class="carte-titre">Actions rapides</div>' +
+          '<div class="btn-rangee">' +
+            (admin
+              ? '<button type="button" class="btn' + (p.enAvant ? " btn-clair" : "") + '" id="p-basculer-avant">' +
+                UI.icone(p.enAvant ? "fermer" : "etoile") +
+                (p.enAvant ? "Retirer du slider" : "Mettre en avant (slider)") + "</button>"
+              : "") +
+            '<button type="button" class="btn btn-clair" id="p-modifier-stock">' +
+              UI.icone("boite") + "Modifier la disponibilité</button>" +
+            '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(p.id) + '/modifier">' +
+              UI.icone("crayon") + "Modifier le produit</a>" +
+          "</div>" +
+        "</div>"
+      : '<div class="carte">' +
+          '<div class="carte-titre">' + UI.icone("cle", "ic-sm") + " Lecture seule</div>" +
+          '<p class="aide" style="margin:0">Votre compte ajoute des produits mais ne modifie pas ' +
+            "ceux du catalogue. Demandez ce droit à l'administrateur.</p>" +
+        "</div>";
 
     vue.innerHTML = html;
 
@@ -520,6 +540,8 @@ const VueProduits = (() => {
     for (const img of UI.$$("[data-photo]", vue)) {
       img.addEventListener("click", () => UI.ouvrirVisionneuse(serie, Number(img.dataset.photo)));
     }
+
+    if (!peutModifier) return;
 
     if (admin) {
       UI.$("#p-basculer-avant").onclick = async () => {

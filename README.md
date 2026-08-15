@@ -252,6 +252,20 @@ impact-informatique-app/
   mot de passe ferme les sessions ouvertes du compte visé. Sur une base
   d'avant les rôles, le compte garde tous les droits : rien ne se bloque
   tant que le SQL n'est pas passé.
+- Droit de modification, compte par compte (colonne
+  `profils.peut_modifier_produits`) : dans **Comptes**, l'administrateur
+  coche ou décoche « Peut modifier les produits » sur la fiche d'un
+  modérateur. Décoché, celui-ci continue d'**ajouter** des produits mais
+  ne peut plus en **modifier** ni en **supprimer** ; la liste des comptes
+  l'annonce par « ajout seulement ». L'administrateur, lui, garde
+  toujours le droit — son interrupteur disparaît. Côté écran, la fiche
+  produit passe en « Lecture seule » (ni crayon, ni disponibilité, ni
+  bouton de modification) et l'adresse `#/produit/…/modifier` répond
+  « Modification non autorisée ». Côté base, la serrure est faite de
+  trois règles RLS distinctes sur `produits` — `produits ajout`
+  (`est_equipe()`), `produits modification` et `produits suppression`
+  (`peut_modifier_produits()`) — de sorte qu'un refus ne dépende jamais
+  de ce que l'application veut bien afficher.
 - Historique de l'admin (menu horloge, `#/historique`) : chaque geste du
   gérant écrit une ligne dans la table `journal` (date et heure,
   utilisateur, famille, opération, élément concerné) — produits,
