@@ -186,6 +186,28 @@ const VueReglages = (() => {
         '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + "Enregistrer la boutique</button>" +
       "</div>" +
 
+      /* ---------- Marge ---------- */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Marge par défaut</div>" +
+        '<p class="aide" style="margin:0 0 12px">Vous tapez le prix grossiste d\'un produit, ' +
+          "l'application y ajoute ce taux et obtient le prix public — celui que voient vos clients. " +
+          "Chaque produit peut garder son propre taux ; celui-ci sert pour tous les autres.</p>" +
+        '<div class="champ">' +
+          '<label for="r-taux">Taux appliqué au prix grossiste</label>' +
+          '<div class="champ-montant">' +
+            '<input id="r-taux" inputmode="decimal" autocomplete="off" placeholder="20" value="' +
+              Utils.echapper(Utils.fmtTaux(r.tauxMarge)) + '">' +
+            '<span class="devise">%</span>' +
+          "</div>" +
+          '<div class="aide" id="r-taux-exemple"></div>' +
+        "</div>" +
+        '<button type="button" class="btn" id="r-taux-enregistrer">' +
+          UI.icone("check") + "Enregistrer le taux</button>" +
+        '<p class="aide" style="margin:12px 0 0">Changer ce taux ne retouche aucun prix ' +
+          "déjà enregistré : il s'appliquera aux prochains produits, et à ceux que vous " +
+          "rouvrirez sans taux propre.</p>" +
+      "</div>" +
+
       /* ---------- Autres numéros ---------- */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("tel", "ic-sm") + " Autres numéros " +
@@ -308,7 +330,9 @@ const VueReglages = (() => {
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("telecharger", "ic-sm") + " Sauvegarde</div>" +
         '<p class="aide" style="margin:0 0 12px">Les données vivent déjà en ligne, mais une copie de secours ' +
-          "(produits, photos, réglages) ne coûte rien : à garder sur WhatsApp, e-mail ou carte mémoire.</p>" +
+          "(produits, photos, réglages) ne coûte rien : à garder sur WhatsApp, e-mail ou carte mémoire.<br>" +
+          "<strong>Le fichier contient vos prix grossistes</strong> : ne le transmettez qu'à quelqu'un " +
+          "de la boutique.</p>" +
         '<div class="btn-rangee">' +
           '<button type="button" class="btn btn-clair" id="s-exporter">' + UI.icone("telecharger") + "Exporter une sauvegarde</button>" +
           '<label class="btn btn-clair" for="s-importer-fichier">' + UI.icone("televerser") + "Restaurer une sauvegarde" +
@@ -348,6 +372,36 @@ const VueReglages = (() => {
           horaires: UI.$("#r-horaires").value.trim(),
         }, "Informations de la boutique modifiées");
         UI.toast("Boutique enregistrée — visible immédiatement chez les clients.", "ok");
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+
+    /* ---------- Marge ----------
+       Un exemple chiffré vaut mieux qu'une explication : on montre en
+       direct ce que devient un achat à 100 000. */
+    const champTaux = UI.$("#r-taux");
+    const exemple = UI.$("#r-taux-exemple");
+
+    const direExemple = () => {
+      const taux = Store.lireTaux(champTaux.value);
+      if (taux === null) {
+        exemple.textContent = "Indiquez un nombre entre 0 et " + Store.TAUX_MAX + ".";
+        return;
+      }
+      const achat = 100000;
+      exemple.textContent = "Exemple : acheté à " + Utils.fmtMontant(achat, r.devise) +
+        ", vendu " + Utils.fmtMontant(Store.prixPublic(achat, taux), r.devise) + ".";
+    };
+    champTaux.addEventListener("input", Utils.tempo(direExemple, 300));
+    direExemple();
+
+    UI.$("#r-taux-enregistrer").onclick = async () => {
+      try {
+        await Store.majReglages({ tauxMarge: champTaux.value },
+          "Taux de marge de la boutique : " + Utils.fmtTaux(Store.lireTaux(champTaux.value)) + " %");
+        UI.toast("Taux enregistré", "ok");
+        afficher(vue, params);
       } catch (err) {
         UI.toast(err.message, "err");
       }

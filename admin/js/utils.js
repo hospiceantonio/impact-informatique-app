@@ -33,6 +33,12 @@ const Utils = (() => {
     return signe + fmtNombre(v) + (devise ? " " + devise : "");
   }
 
+  /** Un taux de marge : « 20 », « 20,5 » — sans décimale inutile. */
+  function fmtTaux(n) {
+    const v = Math.round((Number(n) || 0) * 100) / 100;
+    return String(v).replace(".", ",");
+  }
+
   /** Accepte "12 500", "12.500", "12,5" et renvoie un nombre. */
   function lireNombre(valeur) {
     if (typeof valeur === "number") return isFinite(valeur) ? valeur : 0;
@@ -218,7 +224,7 @@ const Utils = (() => {
 
   return {
     pad, uid, echapper,
-    fmtNombre, fmtMontant, lireNombre, remisePourcent,
+    fmtNombre, fmtMontant, fmtTaux, lireNombre, remisePourcent,
     fmtDateHeure, fmtDate, fmtHeure,
     normaliserTel, lienWhatsApp,
     sansAccent, tempo, telecharger, tailleLisible, tailleDataUrl,

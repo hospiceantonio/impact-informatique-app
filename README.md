@@ -197,6 +197,29 @@ impact-informatique-app/
   résultats de recherche sont classés **du prix le plus bas au plus
   élevé** (à prix égal, par ordre alphabétique). Les nouveautés restent
   classées par date et le slider garde l'ordre choisi par le gérant.
+- **Deux prix par produit.** Le gérant saisit un **prix grossiste** —
+  ce que la boutique paie — et un **taux de marge** ; le **prix
+  public** en découle et reste modifiable pour arrondir (le corriger à
+  la main recalcule le taux, les trois champs se répondent). Le taux
+  par défaut est celui de la boutique (`boutique.taux_marge`, 20 % au
+  départ, réglé dans **Réglages → Marge par défaut**) ; un produit peut
+  garder le sien (`produits_prive.taux_marge`). Le changer ne retouche
+  aucun prix déjà enregistré.
+  Le prix public reste `produits.prix` : **le catalogue client ne change
+  pas d'un octet**, et une application cliente d'avant continue de
+  fonctionner. Le prix grossiste, lui, ne vit **pas** dans `produits`,
+  qui est en lecture publique : il vit dans `produits_prive`, dont le
+  rôle `anon` n'a **aucun droit** (`revoke all … from anon`, plus des
+  policies `to authenticated` calquées sur celles des produits). Sans
+  cela, la clé publiable embarquée dans l'APK client suffirait à lire
+  toutes les marges de la boutique. L'admin lit les deux en une requête
+  (`produits?select=*,produits_prive(*)`, jeton du compte obligatoire) et
+  se rabat sur `select=*` seul tant que la table n'existe pas, pour ne
+  jamais bloquer le catalogue sur une base pas encore mise à jour.
+  La fiche produit affiche une carte **Marge** (achat, public, taux,
+  bénéfice à la pièce et sur le stock) qui ne quitte jamais l'admin, et
+  la sauvegarde JSON emporte les prix d'achat — l'écran de sauvegarde
+  le dit.
 - Boutique : coordonnées GPS (`latitude`/`longitude`) et photos
   (`photos[]`, dossier `boutique/` du bucket) réglées dans l'admin —
   relevé de la position sur place en un bouton, ou extraction depuis un

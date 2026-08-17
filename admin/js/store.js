@@ -37,13 +37,20 @@ const Store = (() => {
     photos: [],      // chemins des photos de la boutique
     telephones: [],  // autres numéros : { libelle, numero, whatsapp }
     adresses: [],    // autres adresses : { libelle, texte, latitude, longitude }
+    tauxMarge: 20,   // marge appliquée par défaut au prix grossiste
   };
+
+  const TAUX_MAX = 1000;   // au-delà, c'est une faute de frappe
 
   const MAX_PHOTOS_BOUTIQUE = 6;
   const MAX_TELEPHONES = 8;    // en plus du numéro principal
   const MAX_ADRESSES = 8;      // en plus de l'adresse principale
 
   let reglages = { ...BOUTIQUE_DEFAUT };
+
+  /* Faux tant que la table des prix d'achat n'existe pas : le catalogue
+     fonctionne alors comme avant, prix public seul. */
+  let prixAchatEnBase = true;
 
   /* ---------- Correspondance base <-> application ---------- */
 
@@ -64,6 +71,38 @@ const Store = (() => {
   /** Nombre saisi au clavier : « 12 », « 12 » ou vide. */
   const lireStock = (valeur) => Math.max(0, Math.round(Utils.lireNombre(valeur) || 0));
 
+  /* ---------- Marge : du prix grossiste au prix public ----------
+     La boutique achète à un prix grossiste, y ajoute une marge en
+     pourcentage, et c'est le résultat — le prix public — que voient les
+     clients. Le taux de la boutique s'applique partout, sauf sur les
+     produits qui portent le leur. */
+
+  /** Un taux saisi au clavier : « 20 », « 20,5 » ou vide (= celui de la boutique). */
+  function lireTaux(valeur) {
+    if (valeur === "" || valeur === null || valeur === undefined) return null;
+    const n = Number(String(valeur).replace(",", ".").replace(/[^\d.-]/g, ""));
+    if (!isFinite(n) || n < 0 || n > TAUX_MAX) return null;
+    return Math.round(n * 100) / 100;
+  }
+
+  /** Le taux qui s'applique vraiment à un produit. */
+  const tauxApplique = (taux) => (taux === null || taux === undefined ? reglages.tauxMarge : taux);
+
+  /** Prix public = prix grossiste + marge, arrondi au franc. */
+  function prixPublic(prixGrossiste, taux) {
+    const achat = Math.max(0, Math.round(Number(prixGrossiste) || 0));
+    if (!achat) return 0;
+    return Math.round(achat * (1 + tauxApplique(taux) / 100));
+  }
+
+  /** Le chemin inverse : quel taux mène de ce prix grossiste à ce prix public ? */
+  function tauxDepuisPrix(prixGrossiste, prix) {
+    const achat = Math.max(0, Math.round(Number(prixGrossiste) || 0));
+    const vente = Math.max(0, Math.round(Number(prix) || 0));
+    if (!achat) return null;
+    return Math.round(((vente - achat) / achat) * 10000) / 100;
+  }
+
   /* Les trois états possibles d'un produit, et ce qu'en voit le client. */
   const STATUTS = {
     disponible: { nom: "Disponible", teinte: "vert" },
@@ -81,15 +120,32 @@ const Store = (() => {
     return p.stock > 0 ? "disponible" : "rupture";
   }
 
+  /**
+   * Le prix d'achat vient d'une table à part, jamais lisible avec la clé
+   * publique. PostgREST le rend soit en objet, soit en tableau selon la
+   * requête ; absent, le produit n'a simplement pas de prix grossiste.
+   */
+  function priveDepuisLigne(l) {
+    const p = Array.isArray(l.produits_prive) ? l.produits_prive[0] : l.produits_prive;
+    if (!p) return { prixGrossiste: 0, tauxMarge: null };
+    return {
+      prixGrossiste: Math.max(0, Math.round(Number(p.prix_grossiste) || 0)),
+      tauxMarge: p.taux_marge === null || p.taux_marge === undefined ? null : Number(p.taux_marge),
+    };
+  }
+
   function produitDepuisLigne(l) {
     const images = Array.isArray(l.images) ? l.images : [];
     const stock = stockDepuisLigne(l);
+    const prive = priveDepuisLigne(l);
     return {
       id: l.id,
       nom: l.nom,
       reference: l.reference || "",
       description: l.description || "",
       prix: Number(l.prix) || 0,
+      prixGrossiste: prive.prixGrossiste,
+      tauxMarge: prive.tauxMarge,
       ancienPrix: l.ancien_prix === null || l.ancien_prix === undefined ? null : Number(l.ancien_prix),
       categorieId: l.categorie_id,
       sousCategorieId: l.sous_categorie_id || "",
@@ -185,6 +241,8 @@ const Store = (() => {
       /* Colonnes absentes d'une base pas encore mise à jour : liste vide. */
       telephones: telephonesDepuisListe(l.telephones),
       adresses: adressesDepuisListe(l.adresses),
+      tauxMarge: l.taux_marge === null || l.taux_marge === undefined
+        ? BOUTIQUE_DEFAUT.tauxMarge : Number(l.taux_marge),
     };
   }
 
@@ -331,6 +389,11 @@ const Store = (() => {
     const propre = { ...maj };
     if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
     if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
+    if (maj.tauxMarge !== undefined) {
+      const taux = lireTaux(maj.tauxMarge);
+      if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
+      propre.tauxMarge = taux;
+    }
     reglages = { ...reglages, ...propre };
     const r = reglages;
     await Supabase.requete("PATCH", "boutique?id=eq.1", {
@@ -353,6 +416,7 @@ const Store = (() => {
       photos: r.photos || [],
       telephones: r.telephones || [],
       adresses: r.adresses || [],
+      taux_marge: r.tauxMarge,
       maj_le: new Date().toISOString(),
     });
     if (libelleJournal) journaliser("boutique", "modification", libelleJournal, r.nomBoutique);
@@ -485,19 +549,38 @@ const Store = (() => {
 
   /* ---------- Produits ---------- */
 
+  /**
+   * Les produits, prix d'achat compris. La lecture porte le jeton du
+   * compte : la table des prix d'achat est fermée à la clé publique.
+   * Sur une base pas encore mise à jour, elle n'existe pas — on la
+   * laisse alors de côté plutôt que de bloquer tout le catalogue.
+   */
+  async function lignesProduits(suite) {
+    const fin = suite ? "&" + suite : "";
+    if (prixAchatEnBase) {
+      try {
+        return await Supabase.requete("GET", "produits?select=*,produits_prive(*)" + fin,
+          undefined, { avecSession: true });
+      } catch (err) {
+        if (!/produits_prive|relationship/i.test(err.message || "")) throw err;
+        prixAchatEnBase = false;
+      }
+    }
+    return Supabase.requete("GET", "produits?select=*" + fin, undefined, { avecSession: true });
+  }
+
   async function listerProduits() {
-    const lignes = await Supabase.requete("GET", "produits?select=*&order=modifie_le.desc");
+    const lignes = await lignesProduits("order=modifie_le.desc");
     return (lignes || []).map(produitDepuisLigne);
   }
 
   async function lireProduit(id) {
-    const lignes = await Supabase.requete("GET", "produits?select=*&id=eq." + encodeURIComponent(id));
+    const lignes = await lignesProduits("id=eq." + encodeURIComponent(id));
     return lignes && lignes.length ? produitDepuisLigne(lignes[0]) : null;
   }
 
   async function produitsDeCategorie(categorieId) {
-    const lignes = await Supabase.requete("GET",
-      "produits?select=*&categorie_id=eq." + encodeURIComponent(categorieId));
+    const lignes = await lignesProduits("categorie_id=eq." + encodeURIComponent(categorieId));
     return (lignes || []).map(produitDepuisLigne);
   }
 
@@ -542,8 +625,24 @@ const Store = (() => {
       throw new Error("La référence « " + reference + " » est déjà utilisée par « " + doublon.nom + " ».");
     }
 
-    const prix = Math.round(Utils.lireNombre(donnees.prix));
-    if (prix <= 0) throw new Error("Indiquez le prix de vente.");
+    /* Prix d'achat et taux : le prix public en découle, sauf s'il a été
+       arrondi à la main — c'est alors celui-là qui fait foi. */
+    const prixGrossiste = Math.max(0, Math.round(Utils.lireNombre(donnees.prixGrossiste) || 0));
+    const tauxMarge = prixGrossiste ? lireTaux(donnees.tauxMarge) : null;
+
+    const prix = donnees.prix === "" || donnees.prix === null || donnees.prix === undefined
+      ? prixPublic(prixGrossiste, tauxMarge)
+      : Math.round(Utils.lireNombre(donnees.prix));
+    if (prix <= 0) {
+      throw new Error(prixGrossiste
+        ? "Le prix public est vide : vérifiez le prix grossiste et le taux."
+        : "Indiquez le prix de vente.");
+    }
+    if (prixGrossiste && prix < prixGrossiste) {
+      throw new Error("Le prix public (" + Utils.fmtMontant(prix, reglages.devise) +
+        ") est inférieur au prix grossiste (" + Utils.fmtMontant(prixGrossiste, reglages.devise) +
+        ") : vous vendriez à perte.");
+    }
 
     let ancienPrix = donnees.ancienPrix === "" || donnees.ancienPrix === null || donnees.ancienPrix === undefined
       ? null : Math.round(Utils.lireNombre(donnees.ancienPrix));
@@ -614,6 +713,8 @@ const Store = (() => {
       reference,
       description: (donnees.description || "").trim(),
       prix,
+      prixGrossiste,
+      tauxMarge,
       ancienPrix,
       categorieId: donnees.categorieId,
       sousCategorieId,
@@ -639,7 +740,29 @@ const Store = (() => {
         "Nouveau produit : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
         produit.reference || produit.nom);
     }
-    return produitDepuisLigne(Array.isArray(lignes) ? lignes[0] : ligne);
+    await sauverPrixAchat(produit.id, prixGrossiste, tauxMarge);
+    const enregistre = produitDepuisLigne(Array.isArray(lignes) ? lignes[0] : ligne);
+    return { ...enregistre, prixGrossiste, tauxMarge };
+  }
+
+  /**
+   * Le prix d'achat vit à part : une ligne par produit, écrite en même
+   * temps que lui. Une base pas encore mise à jour n'en a pas la table —
+   * le produit s'enregistre quand même, sans son prix d'achat.
+   */
+  async function sauverPrixAchat(id, prixGrossiste, tauxMarge) {
+    if (!prixAchatEnBase) return;
+    try {
+      await Supabase.requete("POST", "produits_prive?on_conflict=produit_id", {
+        produit_id: id,
+        prix_grossiste: prixGrossiste,
+        taux_marge: tauxMarge,
+        maj_le: new Date().toISOString(),
+      }, { upsert: true });
+    } catch (err) {
+      if (!/produits_prive|relationship/i.test(err.message || "")) throw err;
+      prixAchatEnBase = false;
+    }
   }
 
   async function supprimerProduit(id) {
@@ -957,6 +1080,11 @@ const Store = (() => {
         images: chemins,
         modifie_le: new Date().toISOString(),
       }, { upsert: true });
+      /* Le prix d'achat suit le produit, s'il figurait dans la sauvegarde. */
+      if (p.prixGrossiste) {
+        await sauverPrixAchat(p.id, Math.max(0, Math.round(Number(p.prixGrossiste) || 0)),
+          lireTaux(p.tauxMarge));
+      }
     }
 
     const boutique = donnees.boutique || (donnees.reglages ? {
@@ -981,7 +1109,8 @@ const Store = (() => {
 
   return {
     MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
-    MAX_TELEPHONES, MAX_ADRESSES, ROLES,
+    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES,
+    prixPublic, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     journaliser, lireJournal,
     listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,

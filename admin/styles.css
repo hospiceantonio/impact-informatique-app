@@ -522,6 +522,24 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .ligne-multi-coche input{flex:none;width:20px;height:20px;accent-color:var(--vert)}
 .ligne-multi .btn-ic-clair{flex:none}
 
+/* ---------- Marge (prix grossiste → prix public) ---------- */
+.note-marge{
+  display:flex;align-items:center;gap:9px;
+  margin:-6px 0 16px;padding:11px 13px;
+  border-radius:var(--r-md);background:var(--vert-clair);
+  font-size:13px;color:var(--encre);line-height:1.45;
+}
+.note-marge .ic{flex:none;color:var(--vert)}
+.note-marge strong{font-weight:800}
+.note-marge-perte{background:var(--rouge-clair)}
+.note-marge-perte .ic{color:var(--rouge)}
+
+.marge-grille{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.marge-grille div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.marge-grille span{font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
+.marge-grille strong{font-size:16px;font-weight:800;color:var(--bleu-800)}
+.marge-grille .marge-perte{color:var(--rouge)}
+
 /* ---------- Publication ---------- */
 .pub-resume{
   display:grid;grid-template-columns:1fr 1fr;gap:8px;

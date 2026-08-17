@@ -42,6 +42,9 @@ create table if not exists public.boutique (
   --                   "latitude": 6.36, "longitude": 2.41 }]
   telephones  jsonb not null default '[]'::jsonb,
   adresses    jsonb not null default '[]'::jsonb,
+  -- Marge appliquée par défaut au prix grossiste pour obtenir le prix
+  -- public. Chaque produit peut avoir son propre taux.
+  taux_marge  numeric(6,2) not null default 20,
   maj_le      timestamptz not null default now()
 );
 
@@ -55,6 +58,7 @@ alter table public.boutique add column if not exists longitude double precision;
 alter table public.boutique add column if not exists photos text[] not null default '{}';
 alter table public.boutique add column if not exists telephones jsonb not null default '[]'::jsonb;
 alter table public.boutique add column if not exists adresses jsonb not null default '[]'::jsonb;
+alter table public.boutique add column if not exists taux_marge numeric(6,2) not null default 20;
 
 -- ---------- Catégories et sous-catégories ----------
 create table if not exists public.categories (
@@ -115,6 +119,19 @@ where disponible <> (sur_commande or stock > 0);
 
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
+
+-- ---------- Prix d'achat (table privée) ----------
+-- Le prix grossiste ne regarde que la boutique : il vit dans sa propre
+-- table, invisible avec la clé publique de l'application client. Le prix
+-- affiché aux clients reste « produits.prix », calculé à partir d'ici.
+--   prix public = prix_grossiste + taux %
+--   taux_marge à null : c'est le taux de la boutique qui s'applique.
+create table if not exists public.produits_prive (
+  produit_id     text primary key references public.produits(id) on delete cascade,
+  prix_grossiste bigint not null default 0 check (prix_grossiste >= 0),
+  taux_marge     numeric(6,2),
+  maj_le         timestamptz not null default now()
+);
 
 -- ---------- Slider de l'application client ----------
 -- Les images que la boutique fait défiler en haut de l'écran d'accueil.
@@ -355,6 +372,27 @@ create policy "produits modification" on public.produits
   for update to authenticated
   using (public.peut_modifier_produits()) with check (public.peut_modifier_produits());
 create policy "produits suppression" on public.produits
+  for delete to authenticated using (public.peut_modifier_produits());
+
+-- Les prix d'achat : jamais de lecture publique. La clé publiable de
+-- l'application client n'a aucun droit dessus, pas même de lecture ;
+-- seule l'équipe connectée y accède.
+alter table public.produits_prive enable row level security;
+revoke all on public.produits_prive from anon;
+grant select, insert, update, delete on public.produits_prive to authenticated;
+
+drop policy if exists "prix achat lecture"      on public.produits_prive;
+drop policy if exists "prix achat ajout"        on public.produits_prive;
+drop policy if exists "prix achat modification" on public.produits_prive;
+drop policy if exists "prix achat suppression"  on public.produits_prive;
+create policy "prix achat lecture" on public.produits_prive
+  for select to authenticated using (public.est_equipe());
+create policy "prix achat ajout" on public.produits_prive
+  for insert to authenticated with check (public.est_equipe());
+create policy "prix achat modification" on public.produits_prive
+  for update to authenticated
+  using (public.peut_modifier_produits()) with check (public.peut_modifier_produits());
+create policy "prix achat suppression" on public.produits_prive
   for delete to authenticated using (public.peut_modifier_produits());
 
 -- Le slider de l'application client reste la décision de l'administrateur :
