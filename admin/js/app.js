@@ -198,8 +198,40 @@
       compteEnAttente(vue);
       return;
     }
+    /* Un administrateur ou un modérateur sans boutique n'a de prise sur
+       rien : mieux vaut un écran qui l'explique qu'une application à
+       moitié morte — ou pire, des produits créés hors de toute boutique. */
+    if (!Supabase.estSuper() && Store.listerBoutiques().length && !Store.boutiqueCourante()) {
+      compteSansBoutique(vue);
+      return;
+    }
     window.addEventListener("hashchange", naviguer);
     naviguer();
+  }
+
+  /** Compte actif, mais rattaché à aucune boutique existante. */
+  function compteSansBoutique(vue) {
+    document.getElementById("tabbar").style.display = "none";
+    UI.entete({ titre: "Boutique à confier" });
+    vue.innerHTML =
+      '<div class="carte"><div class="carte-titre">Ce compte n\'a pas encore de boutique</div>' +
+      '<p class="aide" style="margin:0 0 14px">Votre compte <strong>' +
+        Utils.echapper(Supabase.utilisateur() || "") + "</strong> est bien actif, mais aucune " +
+        "boutique ne lui est confiée : il n'a donc rien à gérer pour l'instant.</p>" +
+      '<p class="aide" style="margin:0 0 14px">Deux cas possibles :<br>' +
+        "• un <strong>super administrateur</strong> doit lui confier une boutique " +
+        "(Comptes → crayon → Boutique confiée) ;<br>" +
+        "• si ce compte était <strong>administrateur avant les boutiques multiples</strong>, " +
+        "il doit exécuter le dernier fichier SQL dans Supabase pour le faire monter " +
+        "en super administrateur.</p>" +
+      '<div class="btn-rangee">' +
+        '<button type="button" class="btn" onclick="location.reload()">Réessayer</button>' +
+        '<button type="button" class="btn btn-clair" id="attente-deconnexion">Se déconnecter</button>' +
+      "</div></div>";
+    UI.$("#attente-deconnexion").onclick = async () => {
+      await Supabase.deconnexion();
+      location.reload();
+    };
   }
 
   /** Compte créé mais pas encore activé par l'administrateur. */
