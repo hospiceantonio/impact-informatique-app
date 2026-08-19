@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Impact Admin</string>
+    <string name="app_name">BIZZOO Admin</string>
     <color name="fond_demarrage">#122C4F</color>
     <color name="ic_launcher_fond">#C21B20</color>
     <!-- Le gérant fait lui-même les mises à jour : rien à lui annoncer. -->

@@ -1,13 +1,13 @@
-# IMPACT — Applications mobiles
+# BIZZOO — Applications mobiles
 
-Deux applications Android pour l'enseigne **IMPACT**, reliées à une base
+Deux applications Android pour l'enseigne **BIZZOO**, reliées à une base
 **Supabase** partagée en temps réel :
 
-- **Impact Admin** (icône rouge) : l'application du gérant. Boutiques,
+- **BIZZOO Admin** (icône rouge) : l'application du gérant. Boutiques,
   produits avec photos, vidéo, prix grossiste et prix public, catégories
   et sous-catégories, et le **slider** — ses propres images, puis les
   produits mis en avant. Tout est enregistré directement en ligne.
-- **Impact Informatique** (icône bleue) : l'application des clients.
+- **BIZZOO** (icône bleue) : l'application des clients.
   Slider de l'enseigne, **boutiques en icônes**, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit et **commande par
   WhatsApp**. Mise à jour en temps réel, consultable hors connexion.
@@ -19,7 +19,7 @@ d'abord le slider de l'enseigne, puis les boutiques en icônes ; il entre
 dans l'une d'elles et tout l'écran ne parle plus que d'elle.
 
 ```
-Impact Admin (téléphone du gérant, connexion email + mot de passe)
+BIZZOO Admin (téléphone du gérant, connexion email + mot de passe)
     │  écrit directement dans la base
     ▼
 Supabase  →  tables boutiques / categories / sous_categories / produits
@@ -27,7 +27,7 @@ Supabase  →  tables boutiques / categories / sous_categories / produits
              + stockage des photos (lecture publique, écriture protégée)
     │  lu en direct
     ▼
-Impact Informatique (téléphones des clients)
+BIZZOO (téléphones des clients)
 ```
 
 La connexion à la base (URL + clé publiable) est intégrée dans
@@ -39,8 +39,8 @@ applications.
 Construits automatiquement par GitHub Actions à chaque modification
 (`.github/workflows/apk.yml`) et déposés dans [`apk/`](apk/) :
 
-- `impact-informatique-client.apk` — l'application des clients ;
-- `impact-admin.apk` — l'application du gérant.
+- `bizzoo-client.apk` — l'application des clients ;
+- `bizzoo-admin.apk` — l'application du gérant.
 
 Sur le téléphone : ouvrir le fichier APK → autoriser « installer des
 applications inconnues » → installer. (Signés avec la **clé de test**

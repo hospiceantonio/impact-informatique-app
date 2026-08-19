@@ -10,21 +10,17 @@ const UI = (() => {
 
   /* ---------- Marque (reprend la charte du logo officiel) ---------- */
 
+  /** Le sac de BIZZOO : un carré arrondi bleu, l'anse et le sac en blanc. */
   function marque(taille = 40) {
     return (
       '<svg class="marque" width="' + taille + '" height="' + taille + '" viewBox="0 0 64 64" aria-hidden="true">' +
         '<defs><linearGradient id="grad-marque" x1="0" y1="0" x2="1" y2="1">' +
           '<stop offset="0" stop-color="#3D9BEE"/><stop offset="1" stop-color="#0B4FA0"/>' +
         "</linearGradient></defs>" +
-        '<circle cx="32" cy="36" r="24" fill="url(#grad-marque)"/>' +
-        '<g transform="translate(32 36) skewX(-8)">' +
-          '<rect x="-4.5" y="-8" width="9" height="26" rx="4.5" fill="#fff"/>' +
-          '<circle cx="2" cy="-17" r="5" fill="#fff"/>' +
-        "</g>" +
-        '<g fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" opacity=".95">' +
-          '<path d="M42 13a12 12 0 0 0-9-4"/>' +
-          '<path d="M47 7.5A19 19 0 0 0 33 2.5"/>' +
-        "</g>" +
+        '<rect x="2" y="2" width="60" height="60" rx="17" fill="url(#grad-marque)"/>' +
+        /* L'anse d'abord : le sac vient ensuite en cacher les deux bouts. */
+        '<path d="M24.3 32.7a7.7 7.7 0 0 1 15.4 0" fill="none" stroke="#fff" stroke-width="2.6"/>' +
+        '<rect x="15.7" y="31.4" width="32.6" height="19.2" rx="2.6" fill="#fff"/>' +
       "</svg>"
     );
   }
@@ -34,7 +30,7 @@ const UI = (() => {
       '<span class="logo">' +
         marque(44) +
         '<span class="logo-textes">' +
-          '<span class="logo-nom"><i>mpact</i></span>' +
+          '<span class="logo-nom">BIZZOO</span>' +
           '<span class="logo-sous">Espace admin</span>' +
         "</span>" +
       "</span>"

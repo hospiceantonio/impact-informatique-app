@@ -366,11 +366,14 @@ const Catalogue = (() => {
 
   function boutique() {
     /* Une boutique choisie parle en son nom ; sinon, c'est l'enseigne. */
-    const b = boutiqueChoisie() || (donnees && donnees.boutique) || {};
+    const choisie = boutiqueChoisie();
+    const b = choisie || (donnees && donnees.boutique) || {};
     return {
       id: b.id || "",
-      nom: b.nom || "IMPACT INFORMATIQUE",
-      slogan: b.slogan || "Nous sommes imbattables en prix",
+      nom: b.nom || "BIZZOO",
+      /* Sur l'accueil de l'enseigne, aucune boutique ne parle : afficher
+         le slogan de l'une d'elles tromperait sur les autres. */
+      slogan: !choisie && multiBoutiques() ? "" : (b.slogan || ""),
       description: b.description || "",
       tel: b.tel || "",
       whatsapp: b.whatsapp || b.tel || "69842516",

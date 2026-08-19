@@ -1,7 +1,7 @@
 {
-  "name": "Impact Informatique",
-  "short_name": "Impact",
-  "description": "Le catalogue d'IMPACT INFORMATIQUE : ordinateurs, imprimantes, encres et toners, accessoires. Nous sommes imbattables en prix.",
+  "name": "BIZZOO",
+  "short_name": "BIZZOO",
+  "description": "BIZZOO réunit les boutiques de votre ville : informatique, électronique et bien d'autres secteurs. Parcourez leurs catalogues et commandez par WhatsApp.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",

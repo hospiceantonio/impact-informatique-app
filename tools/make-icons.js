@@ -1,7 +1,9 @@
 /* =========================================================
    Génère les icônes PNG des deux applications PWA :
-   le « i » blanc du logo IMPACT avec ses ondes, sur fond
-   bleu (client) et bleu nuit/rouge (admin).
+   le sac de courses blanc de BIZZOO, sur fond bleu (client)
+   et rouge (admin). Un sac plutôt qu'une lettre : BIZZOO
+   réunit des boutiques de tous les secteurs, pas une seule
+   enseigne.
    Aucune dépendance : rendu par fonctions de distance
    + encodeur PNG maison.
    Usage : node tools/make-icons.js
@@ -81,30 +83,26 @@ function sdArc(px, py, cx, cy, rayon, epaisseur, angleCentre, demiOuverture) {
   return Math.max(anneau, horsSecteur * rayon);
 }
 
-/* ---------- Le motif : « i » penché + ondes ---------- */
+/* ---------- Le motif : le sac de courses de BIZZOO ----------
+   Un corps de sac aux coins arrondis, et l'anse ouverte au-dessus.
+   Le tout tient dans un carré : lisible dès 48 pixels. */
 
-const PENTE = 0.14;           // italique ~8°
-const TIGE = { cx: 0.50, cy: 0.615, halfW: 0.058, halfH: 0.165, r: 0.058 };
-const POINT = { cx: 0.535, cy: 0.335, r: 0.068 };
-const ONDES = [
-  { rayon: 0.145, epaisseur: 0.026 },
-  { rayon: 0.235, epaisseur: 0.026 },
-];
-const ONDE_ANGLE = -Math.PI / 4;      // vers le haut-droit, comme le logo
-const ONDE_OUVERTURE = 0.62;          // ~35° de part et d'autre
+const SAC = { cx: 0.50, cy: 0.640, halfW: 0.255, halfH: 0.150, r: 0.040 };
+const ANSE = {
+  rayon: 0.120,
+  epaisseur: 0.020,
+  ouverture: 1.50,
+  /* L'anse plonge dans le sac : ses deux bouts disparaissent sous le
+     bord, et seule l'arche dépasse. Posée à cheval sur le bord, elle
+     se lirait « cadenas ». */
+  enfoncement: 0.030,
+};
 
 function motif(mx, my) {
-  /* Coordonnées penchées pour l'italique. */
-  const sx = mx + (my - TIGE.cy) * PENTE;
-  const dTige = sdRoundedBox(sx, my, TIGE.cx, TIGE.cy, TIGE.halfW, TIGE.halfH, TIGE.r);
-  const sxPoint = mx + (my - POINT.cy) * PENTE;
-  const dPoint = sdCircle(sxPoint, my, POINT.cx, POINT.cy, POINT.r);
-  let d = Math.min(dTige, dPoint);
-  for (const onde of ONDES) {
-    d = Math.min(d, sdArc(mx, my, POINT.cx + (POINT.cy - POINT.cy) * PENTE, POINT.cy,
-      onde.rayon, onde.epaisseur, ONDE_ANGLE, ONDE_OUVERTURE));
-  }
-  return d;
+  const dSac = sdRoundedBox(mx, my, SAC.cx, SAC.cy, SAC.halfW, SAC.halfH, SAC.r);
+  const dAnse = sdArc(mx, my, SAC.cx, SAC.cy - SAC.halfH + ANSE.enfoncement,
+    ANSE.rayon, ANSE.epaisseur, -Math.PI / 2, ANSE.ouverture);
+  return Math.min(dSac, dAnse);
 }
 
 /* ---------- Palettes ---------- */
@@ -153,7 +151,7 @@ function renderIcon(size, maskable, palette) {
       const dHalo = sdCircle(mx, my, 0.5, 0.5, 0.42);
       over(color, [255, 255, 255], clamp(0.5 - dHalo / 0.34, 0, 1) * 0.08);
 
-      // Le « i » et ses ondes, en blanc
+      // Le sac, en blanc
       const dMotif = motif(mx, my);
       over(color, [255, 255, 255], clamp(0.5 - dMotif / aa, 0, 1));
 

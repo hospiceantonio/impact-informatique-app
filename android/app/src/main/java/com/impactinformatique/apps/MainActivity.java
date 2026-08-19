@@ -49,7 +49,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 /**
- * Coquille Android des applications IMPACT INFORMATIQUE :
+ * Coquille Android des applications BIZZOO :
  * la WebView charge les fichiers embarqués (assets/www) et
  * délègue au téléphone les liens externes (WhatsApp, appels…),
  * la prise de photos et l'enregistrement des sauvegardes.

@@ -1,6 +1,6 @@
 /* =========================================================
    Connexion à la base Supabase de la boutique
-   IMPACT INFORMATIQUE. Ces valeurs sont publiques : la
+   BIZZOO. Ces valeurs sont publiques : la
    sécurité est assurée par les règles de la base (lecture
    pour tous, écriture réservée au compte du gérant).
    ========================================================= */

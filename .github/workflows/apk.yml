@@ -42,15 +42,15 @@ jobs:
         run: |
           mkdir -p apk
           cp android/app/build/outputs/apk/client/release/app-client-release.apk \
-             apk/impact-informatique-client.apk
+             apk/bizzoo-client.apk
           cp android/app/build/outputs/apk/admin/release/app-admin-release.apk \
-             apk/impact-admin.apk
+             apk/bizzoo-admin.apk
           ls -lh apk/
 
       - name: Garder les APK en artefact
         uses: actions/upload-artifact@v4
         with:
-          name: apk-impact-informatique
+          name: apk-bizzoo
           path: apk/*.apk
 
       - name: Committer les APK sur la branche

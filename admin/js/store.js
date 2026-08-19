@@ -18,7 +18,7 @@ const Store = (() => {
   const MAX_VIDEO_MO = 40;  // au-delà, l'envoi devient trop long au téléphone
 
   const BOUTIQUE_DEFAUT = {
-    nomBoutique: "IMPACT INFORMATIQUE",
+    nomBoutique: "BIZZOO",
     slogan: "Nous sommes imbattables en prix",
     description: "",
     tel: "",

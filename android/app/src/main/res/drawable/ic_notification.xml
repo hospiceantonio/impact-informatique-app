@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Icône de la barre de notifications : le « i » d'IMPACT dans son rond.
-     Android n'en garde que la silhouette, le « i » est donc creusé
-     (fillType evenOdd) pour rester lisible en blanc sur fond sombre. -->
+<!-- Icône de la barre de notifications : le sac de BIZZOO.
+     Android n'en garde que la silhouette : l'anse est un trait plein
+     et le sac est creusé (fillType evenOdd) pour rester lisible en
+     blanc sur fond sombre. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -10,7 +11,6 @@
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M12,2C6.477,2 2,6.477 2,12s4.477,10 10,10 10,-4.477 10,-10S17.523,2 12,2Z
-                          M12,4.3m-1.5,0a1.5,1.5 0,1 0,3 0a1.5,1.5 0,1 0,-3 0Z
-                          M10.6,9.1L13.4,9.1L13.4,18.2L10.6,18.2Z" />
+        android:pathData="M12,2.2c-2.7,0 -4.9,2.2 -4.9,4.9L7.1,8.6L4.2,8.6c-0.7,0 -1.2,0.5 -1.2,1.2v9.8c0,0.7 0.5,1.2 1.2,1.2h15.6c0.7,0 1.2,-0.5 1.2,-1.2L21,9.8c0,-0.7 -0.5,-1.2 -1.2,-1.2h-2.9L16.9,7.1c0,-2.7 -2.2,-4.9 -4.9,-4.9Z
+                          M12,4.2c1.6,0 2.9,1.3 2.9,2.9L14.9,8.6L9.1,8.6L9.1,7.1c0,-1.6 1.3,-2.9 2.9,-2.9Z" />
 </vector>

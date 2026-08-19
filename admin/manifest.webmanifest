@@ -1,7 +1,7 @@
 {
-  "name": "Impact Admin — Catalogue",
-  "short_name": "Impact Admin",
-  "description": "Gérer et publier le catalogue d'IMPACT INFORMATIQUE : produits, photos, catégories, mise en avant.",
+  "name": "BIZZOO Admin",
+  "short_name": "BIZZOO Admin",
+  "description": "Gérer les boutiques BIZZOO : produits, photos, catégories, prix et mise en avant.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",

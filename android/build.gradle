@@ -1,4 +1,4 @@
-// Projet Android des deux applications IMPACT INFORMATIQUE
+// Projet Android des deux applications BIZZOO
 // (une seule base de code, deux variantes : client et admin).
 plugins {
     id "com.android.application" version "8.7.3" apply false

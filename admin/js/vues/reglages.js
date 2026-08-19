@@ -361,7 +361,7 @@ const VueReglages = (() => {
       '<div class="carte">' +
         '<div class="carte-titre">À propos</div>' +
         '<p class="aide" style="margin:0">' +
-          "Impact Admin — gestion du catalogue IMPACT INFORMATIQUE.<br>" +
+          "BIZZOO Admin — gestion des boutiques et de leurs catalogues.<br>" +
           "Base en ligne : les modifications sont visibles immédiatement par les clients." +
         "</p>" +
       "</div>";

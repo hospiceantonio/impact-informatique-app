@@ -1,6 +1,6 @@
 /* =========================================================
-   Impact Informatique — application client (mobile d'abord)
-   Charte graphique du logo : bleu vif, rouge, blanc.
+   BIZZOO — application client (mobile d'abord)
+   Charte graphique : bleu vif, rouge, blanc.
    ========================================================= */
 
 /* ---------- Jetons de design ---------- */
@@ -94,11 +94,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .logo{display:inline-flex;align-items:center;gap:9px;min-width:0}
 .marque{flex:none}
 .logo-textes{display:flex;flex-direction:column;min-width:0;line-height:1.05}
-.logo-nom{font-size:27px;font-weight:800;color:var(--rouge);letter-spacing:-.5px;margin-left:-4px}
+/* « BIZZOO » se lit en capitales espacées : le mot est court, il a
+   besoin d'air là où « mpact » avait besoin d'être resserré. */
+.logo-nom{font-size:26px;font-weight:800;color:var(--rouge);letter-spacing:.06em}
 .topbar .logo-nom{color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.12)}
-.topbar-logo .logo-nom{color:#FFDDDD}
-.topbar-logo .logo-nom i{color:#fff;font-style:italic}
-.logo-nom i{font-style:italic}
+.topbar-logo .logo-nom{color:#fff}
 .logo-sous{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.85;white-space:nowrap}
 
 /* ---------- Zone de vue ---------- */
