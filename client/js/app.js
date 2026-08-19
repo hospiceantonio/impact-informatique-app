@@ -149,9 +149,10 @@ const App = { evenementInstallation: null };
       if (c && c.boutiqueId) Catalogue.choisirBoutique(c.boutiqueId);
     }
 
-    /* Les onglets Catégories, Recherche et Infos parlent forcément
-       d'une boutique : à défaut de choix, ce sera la première. */
-    if (/^\/(categories|recherche|infos|promos)$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
+    /* Catégories, recherche et promotions parlent forcément d'une
+       boutique : à défaut de choix, ce sera la première. Infos, non :
+       sans boutique choisie, ce sont les coordonnées de l'enseigne. */
+    if (/^\/(categories|recherche|promos)$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
       const premiere = Catalogue.boutiques()[0];
       if (premiere) Catalogue.choisirBoutique(premiere.id);
     }

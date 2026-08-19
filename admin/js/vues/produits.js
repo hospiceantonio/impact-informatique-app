@@ -314,7 +314,34 @@ const VueProduits = (() => {
     const tauxBoutique = Store.lireReglages().tauxMarge;
     const tauxProduit = existant ? existant.tauxMarge : null;
 
+    const boutiques = Store.listerBoutiques();
+    const laBoutique = Store.boutiqueCourante();
+    /* Un produit appartient à une boutique et n'en change plus : on le
+       dit clairement, et l'administrateur choisit laquelle avant de
+       créer. Sur un produit existant, c'est un rappel, pas un choix. */
+    const peutChoisirBoutique = boutiques.length > 1 && !existant && Supabase.estAdmin();
+
     vue.innerHTML =
+      (laBoutique
+        ? '<div class="carte">' +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Boutique</div>" +
+            (peutChoisirBoutique
+              ? '<div class="champ">' +
+                  '<label for="p-boutique">Ce produit ira dans</label>' +
+                  '<select id="p-boutique">' +
+                    boutiques.map((b) =>
+                      '<option value="' + Utils.echapper(b.id) + '"' +
+                      (b.id === laBoutique.id ? " selected" : "") + ">" +
+                      Utils.echapper(b.nomBoutique) + "</option>").join("") +
+                  "</select>" +
+                  '<div class="aide">Ses rayons, sa devise et sa marge suivent la boutique choisie.</div>' +
+                "</div>"
+              : '<p class="aide" style="margin:0">' +
+                  (existant ? "Ce produit appartient à " : "Ce produit ira dans ") +
+                  "<strong>" + Utils.echapper(laBoutique.nomBoutique) + "</strong>" +
+                  (existant ? " et n'en change pas." : ".") + "</p>") +
+          "</div>"
+        : "") +
       '<div class="carte">' +
         '<div class="carte-titre">Photos <span class="aide-inline">(' + Store.MAX_PHOTOS + ' max, la première s\'affiche en vitrine)</span></div>' +
         '<div class="photos-zone" id="photos-zone"></div>' +
@@ -418,6 +445,21 @@ const VueProduits = (() => {
     const majZoneStock = () => { zoneStock.hidden = surCommande.checked; };
     surCommande.addEventListener("change", majZoneStock);
     majZoneStock();
+
+    /* Changer de boutique change tout le reste — rayons, devise, marge :
+       on rouvre le formulaire sur la boutique choisie. */
+    const champBoutique = UI.$("#p-boutique");
+    if (champBoutique) {
+      champBoutique.addEventListener("change", () => {
+        try {
+          const ouverte = Store.choisirBoutique(champBoutique.value);
+          UI.toast("Produit pour « " + ouverte.nomBoutique + " »", "ok");
+          formulaire(vue, id);
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+      });
+    }
 
     UI.$("#p-categorie").addEventListener("change", (ev) => {
       UI.$("#p-souscategorie").innerHTML = optionsSousCategories(categories, ev.target.value, "");
@@ -580,6 +622,9 @@ const VueProduits = (() => {
           (p.reference ? "Réf : " + Utils.echapper(p.reference) + " · " : "") +
           Utils.echapper(categorie ? categorie.nom + (sousCategorie ? " · " + sousCategorie.nom : "") : "Sans catégorie") +
           " — modifié le " + Utils.echapper(Utils.fmtDate(p.modifieLe)) +
+          (Store.boutiqueCourante()
+            ? "<br>Boutique : " + Utils.echapper(Store.boutiqueCourante().nomBoutique)
+            : "") +
         "</div>" +
       "</div>";
 

@@ -16,7 +16,10 @@
 --   - seul un utilisateur CONNECTÉ (le gérant) peut écrire.
 -- =========================================================
 
--- ---------- La boutique (une seule ligne) ----------
+-- ---------- L'enseigne BIZZOO (une seule ligne) ----------
+-- BIZZOO réunit les boutiques ; cette ligne porte SES coordonnées à
+-- elle — celles de l'enseigne, pas celles d'un secteur. Chaque
+-- boutique a les siennes dans la table « boutiques » plus bas.
 create table if not exists public.boutique (
   id          int primary key default 1 check (id = 1),
   nom         text not null default 'IMPACT INFORMATIQUE',
@@ -42,6 +45,7 @@ create table if not exists public.boutique (
   --                   "latitude": 6.36, "longitude": 2.41 }]
   telephones  jsonb not null default '[]'::jsonb,
   adresses    jsonb not null default '[]'::jsonb,
+  video       text not null default '',      -- vidéo de présentation
   -- Marge appliquée par défaut au prix grossiste pour obtenir le prix
   -- public. Chaque produit peut avoir son propre taux.
   taux_marge  numeric(6,2) not null default 20,
@@ -59,6 +63,7 @@ alter table public.boutique add column if not exists photos text[] not null defa
 alter table public.boutique add column if not exists telephones jsonb not null default '[]'::jsonb;
 alter table public.boutique add column if not exists adresses jsonb not null default '[]'::jsonb;
 alter table public.boutique add column if not exists taux_marge numeric(6,2) not null default 20;
+alter table public.boutique add column if not exists video text not null default '';
 
 -- ---------- Les boutiques ----------
 -- L'application couvre plusieurs secteurs d'activité : une boutique par
@@ -92,10 +97,12 @@ create table if not exists public.boutiques (
   photos      text[] not null default '{}',
   telephones  jsonb not null default '[]'::jsonb,
   adresses    jsonb not null default '[]'::jsonb,
+  video       text not null default '',      -- vidéo de présentation
   taux_marge  numeric(6,2) not null default 20,
   cree_le     timestamptz not null default now(),
   maj_le      timestamptz not null default now()
 );
+alter table public.boutiques add column if not exists video text not null default '';
 create index if not exists boutiques_ordre on public.boutiques(ordre);
 
 -- La boutique d'origine devient la première du lot, avec tous ses réglages.
@@ -418,13 +425,24 @@ create policy "journal lecture connectee" on public.journal
 create policy "journal ecriture connectee" on public.journal
   for insert to authenticated with check (public.est_equipe());
 
--- ---------- Ligne boutique par défaut ----------
+-- ---------- Ligne de l'enseigne ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;
 
--- Numéro WhatsApp de la boutique (rempli seulement s'il est vide :
+-- Numéro WhatsApp de l'enseigne (rempli seulement s'il est vide :
 -- la valeur saisie ensuite dans l'app admin est toujours prioritaire).
 update public.boutique set whatsapp = '69842516', maj_le = now()
 where id = 1 and whatsapp = '';
+
+-- Une fois le catalogue déménagé dans « INFORMATIQUE ET ELECTRONIQUE »,
+-- cette ligne ne désigne plus un secteur mais l'enseigne : elle prend
+-- son nom. Ses coordonnées restent celles d'avant — un bon point de
+-- départ, que le gérant ajuste ensuite.
+update public.boutique
+   set nom = 'BIZZOO',
+       slogan = case when slogan = 'Nous sommes imbattables en prix'
+                     then 'Toutes vos boutiques' else slogan end,
+       maj_le = now()
+ where id = 1 and nom in ('IMPACT INFORMATIQUE', 'INFORMATIQUE ET ELECTRONIQUE');
 
 -- ---------- Sécurité : lecture publique, écriture selon le rôle ----------
 -- Le catalogue se lit par tous (application client).

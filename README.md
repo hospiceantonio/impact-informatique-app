@@ -286,6 +286,17 @@ impact-informatique-app/
   n'est annoncé deux fois. La permission est demandée au premier
   lancement (Android 13+) ; l'app admin, elle, n'en reçoit aucune
   (`notifications_actives` à `false` dans sa variante).
+- **Deux niveaux de coordonnées.** *BIZZOO l'enseigne* (table `boutique`,
+  ligne unique) a les siennes — nom, slogan, présentation, WhatsApp,
+  téléphone, adresse, horaires, réseaux, position, autres numéros, autres
+  adresses, photos et **vidéo** ; *chaque boutique* a exactement les
+  mêmes, plus sa devise et sa marge (l'enseigne ne vend rien, elle n'en
+  a pas). Côté admin, **Réglages** porte une bascule *BIZZOO / boutique
+  ouverte* et tout l'écran suit. Côté client, l'onglet **Infos** montre
+  BIZZOO tant qu'aucune boutique n'est choisie — et redescend vers elles
+  par une liste — puis les coordonnées de la boutique dès qu'on est
+  dedans. Les autres onglets (Catégories, Recherche) entrent d'office
+  dans la première boutique : eux ne savent parler que d'un catalogue.
 - **Plusieurs boutiques** (table `boutiques`) : un secteur d'activité par
   boutique, chacune avec son nom, son icône, sa couleur, son logo
   facultatif, ses coordonnées, ses photos, sa marge — et son propre
@@ -306,6 +317,12 @@ impact-informatique-app/
   modérateur qui s'adresse directement à la base pour un produit d'un
   autre secteur se fait refuser, et ne voit pas non plus les marges du
   voisin.
+  Le formulaire produit **annonce la boutique** dans laquelle le produit
+  va naître, et l'administrateur peut en changer avant de créer — le
+  formulaire se rouvre alors sur cette boutique, avec ses rayons, sa
+  devise et sa marge. Sur un produit existant c'est un rappel, pas un
+  choix : un produit ne change pas de boutique (son rayon n'y existerait
+  pas).
   Les références produit (`IMP-0001`…) se numérotent sur **toutes** les
   boutiques : deux produits de secteurs différents ne portent jamais le
   même numéro, sinon une commande WhatsApp deviendrait ambiguë.

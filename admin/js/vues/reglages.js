@@ -97,6 +97,71 @@ const VueReglages = (() => {
     }
   }
 
+  /** Vidéo en cours d'édition : { chemin, url } | { fichier, url, taille } | null */
+  let videoTravail = null;
+
+  function htmlVideoBoutique() {
+    if (videoTravail) {
+      return (
+        '<div class="video-boite">' +
+          '<video src="' + Utils.echapper(videoTravail.url) + '" controls preload="metadata" playsinline></video>' +
+          '<div class="video-pied">' +
+            "<span>" + (videoTravail.taille
+              ? "Nouvelle vidéo · " + Utils.echapper(Utils.tailleLisible(videoTravail.taille))
+              : "Vidéo en ligne") + "</span>" +
+            '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" id="boutique-video-retirer" ' +
+              'aria-label="Retirer la vidéo">' + UI.icone("poubelle", "ic-sm") + "</button>" +
+          "</div>" +
+        "</div>"
+      );
+    }
+    return (
+      '<label class="video-ajout">' + UI.icone("video") +
+        "<span>Ajouter une vidéo</span>" +
+        '<small>Facultatif · ' + Store.MAX_VIDEO_MO + ' Mo maximum</small>' +
+        '<input type="file" accept="video/*" hidden id="boutique-video-fichier">' +
+      "</label>"
+    );
+  }
+
+  function brancherVideoBoutique(base) {
+    const zone = UI.$("#boutique-video", base);
+    if (!zone) return;
+
+    const rafraichir = () => {
+      zone.innerHTML = htmlVideoBoutique();
+      brancher();
+    };
+
+    const brancher = () => {
+      const champ = UI.$("#boutique-video-fichier", zone);
+      if (champ) {
+        champ.addEventListener("change", () => {
+          const fichier = champ.files && champ.files[0];
+          if (!fichier) return;
+          if (fichier.size > Store.MAX_VIDEO_MO * 1024 * 1024) {
+            UI.toast("Vidéo trop lourde (" + Utils.tailleLisible(fichier.size) + ") : " +
+              Store.MAX_VIDEO_MO + " Mo au maximum.", "err");
+            return;
+          }
+          if (videoTravail && videoTravail.taille && videoTravail.url) URL.revokeObjectURL(videoTravail.url);
+          videoTravail = { fichier, url: URL.createObjectURL(fichier), taille: fichier.size };
+          rafraichir();
+        });
+      }
+      const retirer = UI.$("#boutique-video-retirer", zone);
+      if (retirer) {
+        retirer.onclick = () => {
+          if (videoTravail && videoTravail.taille && videoTravail.url) URL.revokeObjectURL(videoTravail.url);
+          videoTravail = null;
+          rafraichir();
+        };
+      }
+    };
+
+    rafraichir();
+  }
+
   function htmlPhotosBoutique() {
     let html = photosTravail.map((photo, i) =>
       '<div class="photo-boite">' +
@@ -153,35 +218,63 @@ const VueReglages = (() => {
     rafraichir();
   }
 
-  async function afficher(vue, params) {
-    UI.entete({ titre: "Réglages", sous: "Boutique, compte et sauvegarde" });
+  /** Sur quoi portent les réglages affichés : l'enseigne ou une boutique. */
+  let cible = "boutique";
 
-    const r = Store.lireReglages();
+  async function afficher(vue, params) {
+    const boutiques = Store.listerBoutiques();
+    const courante = Store.boutiqueCourante();
+    /* Sans table des boutiques, il n'y a qu'un jeu de réglages. */
+    if (!boutiques.length) cible = "boutique";
+    const surEnseigne = cible === "enseigne";
+
+    UI.entete({ titre: "Réglages",
+      sous: boutiques.length
+        ? (surEnseigne ? "L'enseigne BIZZOO" : (courante || {}).nomBoutique || "")
+        : "Boutique, compte et sauvegarde" });
+
+    const r = surEnseigne ? Store.lireEnseigne() : Store.lireReglages();
     const configEnDur = typeof CONFIG !== "undefined" && !!CONFIG.SUPABASE_URL;
     const configActuelle = Supabase.configuration() || { url: "", cle: "" };
 
-    const boutiques = Store.listerBoutiques();
-    const courante = Store.boutiqueCourante();
+    /* Enregistrer va dans la ligne de l'enseigne ou dans celle de la
+       boutique ouverte, selon l'onglet choisi. */
+    const enregistrer = (maj, libelle) =>
+      (surEnseigne ? Store.majEnseigne(maj, libelle) : Store.majReglages(maj, libelle));
 
     vue.innerHTML =
-      /* ---------- Les boutiques de l'enseigne ---------- */
+      /* ---------- Enseigne ou boutique : de quoi parle-t-on ? ---------- */
       (boutiques.length
         ? '<div class="carte">' +
-            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Boutiques (" + boutiques.length + ")</div>" +
-            '<p class="aide" style="margin:-4px 0 12px">L\'application couvre plusieurs secteurs. ' +
-              "Tout ce qui suit — coordonnées, réseaux, photos, marge — concerne la boutique ouverte : " +
-              "<strong>" + Utils.echapper((courante || {}).nomBoutique || "—") + "</strong>.</p>" +
-            '<a class="btn" href="#/boutiques">' + UI.icone("magasin") +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Régler quoi ?</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">BIZZOO réunit ' + boutiques.length +
+              " boutique" + (boutiques.length > 1 ? "s" : "") + ". L'enseigne a ses propres " +
+              "coordonnées — celles que voient les clients à l'accueil — et chaque boutique " +
+              "a les siennes.</p>" +
+            '<div class="cible-choix">' +
+              '<button type="button" class="cible-onglet' + (surEnseigne ? " actif" : "") +
+                '" data-cible="enseigne">' + UI.icone("magasin", "ic-sm") +
+                "<span>BIZZOO<small>L'enseigne</small></span></button>" +
+              '<button type="button" class="cible-onglet' + (surEnseigne ? "" : " actif") +
+                '" data-cible="boutique">' + UI.icone("boite", "ic-sm") +
+                "<span>" + Utils.echapper((courante || {}).nomBoutique || "Boutique") +
+                "<small>La boutique ouverte</small></span></button>" +
+            "</div>" +
+            '<a class="btn btn-clair" href="#/boutiques" style="margin-top:12px">' + UI.icone("magasin") +
               "Gérer les boutiques</a>" +
           "</div>"
         : "") +
 
-      /* ---------- Boutique ---------- */
+      /* ---------- Identité et contacts ---------- */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " " +
-          Utils.echapper((courante || {}).nomBoutique || "La boutique") + "</div>" +
-        '<p class="aide" style="margin:0 0 12px">Ces informations s\'affichent dans l\'application client ' +
-          "(contact, WhatsApp de commande…). Elles sont mises à jour immédiatement.</p>" +
+          Utils.echapper(surEnseigne ? "BIZZOO" : ((courante || {}).nomBoutique || "La boutique")) + "</div>" +
+        '<p class="aide" style="margin:0 0 12px">' +
+          (surEnseigne
+            ? "Les coordonnées de l'enseigne : elles s'affichent dans l'onglet Infos des " +
+              "clients tant qu'ils n'ont pas choisi de boutique."
+            : "Ces informations s'affichent dans l'application client quand on entre dans " +
+              "cette boutique (contact, WhatsApp de commande…).") + "</p>" +
         UI.champTexte({ id: "r-nom", label: "Nom", valeur: r.nomBoutique, obligatoire: true }) +
         UI.champTexte({ id: "r-slogan", label: "Slogan", valeur: r.slogan,
           aide: "Affiché en bandeau rouge dans l'application client." }) +
@@ -191,18 +284,22 @@ const VueReglages = (() => {
           aide: "Les clients commandent par ce numéro depuis l'application." }) +
         UI.champTexte({ id: "r-tel", label: "Téléphone (appels)", valeur: r.tel, type: "tel",
           placeholder: "01 97 00 00 00" }) +
-        '<div class="champ-duo">' +
-          UI.champTexte({ id: "r-indicatif", label: "Indicatif pays", valeur: r.indicatif, placeholder: "229" }) +
-          UI.champTexte({ id: "r-devise", label: "Devise", valeur: r.devise, placeholder: "FCFA" }) +
-        "</div>" +
+        (surEnseigne
+          ? UI.champTexte({ id: "r-indicatif", label: "Indicatif pays", valeur: r.indicatif,
+              placeholder: "229" })
+          : '<div class="champ-duo">' +
+              UI.champTexte({ id: "r-indicatif", label: "Indicatif pays", valeur: r.indicatif, placeholder: "229" }) +
+              UI.champTexte({ id: "r-devise", label: "Devise", valeur: r.devise, placeholder: "FCFA" }) +
+            "</div>") +
         UI.champTexte({ id: "r-adresse", label: "Adresse", valeur: r.adresse,
           placeholder: "Quartier, rue, ville" }) +
         UI.champTexte({ id: "r-horaires", label: "Horaires", valeur: r.horaires,
           placeholder: "Lun–Sam : 8h–19h" }) +
-        '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + "Enregistrer la boutique</button>" +
+        '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + (surEnseigne ? "Enregistrer BIZZOO" : "Enregistrer la boutique") + "</button>" +
       "</div>" +
 
-      /* ---------- Marge ---------- */
+      /* ---------- Marge (une boutique seulement : l'enseigne ne vend rien) ---------- */
+      (surEnseigne ? "" :
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Marge par défaut</div>" +
         '<p class="aide" style="margin:0 0 12px">Vous tapez le prix grossiste d\'un produit, ' +
@@ -222,7 +319,7 @@ const VueReglages = (() => {
         '<p class="aide" style="margin:12px 0 0">Changer ce taux ne retouche aucun prix ' +
           "déjà enregistré : il s'appliquera aux prochains produits, et à ceux que vous " +
           "rouvrirez sans taux propre.</p>" +
-      "</div>" +
+      "</div>") +
 
       /* ---------- Autres numéros ---------- */
       '<div class="carte">' +
@@ -301,15 +398,26 @@ const VueReglages = (() => {
         "</div>" +
       "</div>" +
 
-      /* ---------- Photos de la boutique ---------- */
+      /* ---------- Photos ---------- */
       '<div class="carte">' +
-        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Photos de la boutique " +
+        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Photos " +
           '<span class="aide-inline">(' + Store.MAX_PHOTOS_BOUTIQUE + " max)</span></div>" +
         '<p class="aide" style="margin:0 0 12px">Devanture, rayons, atelier… Elles rassurent les clients ' +
           "et s'affichent dans l'onglet Infos de leur application.</p>" +
         '<div class="photos-zone" id="boutique-photos"></div>' +
         '<button type="button" class="btn" id="boutique-photos-enregistrer" style="margin-top:14px">' +
           UI.icone("check") + "Enregistrer les photos</button>" +
+      "</div>" +
+
+      /* ---------- Vidéo de présentation ---------- */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation " +
+          '<span class="aide-inline">(facultative · ' + Store.MAX_VIDEO_MO + " Mo max)</span></div>" +
+        '<p class="aide" style="margin:0 0 12px">Une visite filmée vaut mille photos. Elle se lit ' +
+          "dans l'onglet Infos des clients.</p>" +
+        '<div id="boutique-video"></div>' +
+        '<button type="button" class="btn" id="boutique-video-enregistrer" style="margin-top:14px">' +
+          UI.icone("check") + "Enregistrer la vidéo</button>" +
       "</div>" +
 
       /* ---------- Comptes ---------- */
@@ -374,20 +482,25 @@ const VueReglages = (() => {
     /* ---------- Boutique ---------- */
     UI.$("#r-enregistrer").onclick = async () => {
       const nom = UI.$("#r-nom").value.trim();
-      if (!nom) { UI.toast("Le nom de la boutique est obligatoire.", "err"); return; }
+      if (!nom) {
+        UI.toast((surEnseigne ? "Le nom de l'enseigne" : "Le nom de la boutique") +
+          " est obligatoire.", "err");
+        return;
+      }
       try {
-        await Store.majReglages({
+        await enregistrer({
           nomBoutique: nom,
           slogan: UI.$("#r-slogan").value.trim(),
           description: UI.$("#r-description").value.trim(),
           whatsapp: UI.$("#r-whatsapp").value.trim(),
           tel: UI.$("#r-tel").value.trim(),
           indicatif: UI.$("#r-indicatif").value.trim() || "229",
-          devise: UI.$("#r-devise").value.trim() || "FCFA",
+          ...(surEnseigne ? {} : { devise: UI.$("#r-devise").value.trim() || "FCFA" }),
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
-        }, "Informations de la boutique modifiées");
-        UI.toast("Boutique enregistrée — visible immédiatement chez les clients.", "ok");
+        }, (surEnseigne ? "Coordonnées de BIZZOO modifiées" : "Informations de la boutique modifiées"));
+        UI.toast((surEnseigne ? "BIZZOO enregistrée" : "Boutique enregistrée") +
+          " — visible immédiatement chez les clients.", "ok");
       } catch (err) {
         UI.toast(err.message, "err");
       }
@@ -397,31 +510,33 @@ const VueReglages = (() => {
        Un exemple chiffré vaut mieux qu'une explication : on montre en
        direct ce que devient un achat à 100 000. */
     const champTaux = UI.$("#r-taux");
-    const exemple = UI.$("#r-taux-exemple");
+    /* Absent quand on règle l'enseigne : elle n'a pas de marge. */
+    if (champTaux) {
+      const exemple = UI.$("#r-taux-exemple");
+      const direExemple = () => {
+        const taux = Store.lireTaux(champTaux.value);
+        if (taux === null) {
+          exemple.textContent = "Indiquez un nombre entre 0 et " + Store.TAUX_MAX + ".";
+          return;
+        }
+        const achat = 100000;
+        exemple.textContent = "Exemple : acheté à " + Utils.fmtMontant(achat, r.devise) +
+          ", vendu " + Utils.fmtMontant(Store.prixPublic(achat, taux), r.devise) + ".";
+      };
+      champTaux.addEventListener("input", Utils.tempo(direExemple, 300));
+      direExemple();
 
-    const direExemple = () => {
-      const taux = Store.lireTaux(champTaux.value);
-      if (taux === null) {
-        exemple.textContent = "Indiquez un nombre entre 0 et " + Store.TAUX_MAX + ".";
-        return;
-      }
-      const achat = 100000;
-      exemple.textContent = "Exemple : acheté à " + Utils.fmtMontant(achat, r.devise) +
-        ", vendu " + Utils.fmtMontant(Store.prixPublic(achat, taux), r.devise) + ".";
-    };
-    champTaux.addEventListener("input", Utils.tempo(direExemple, 300));
-    direExemple();
-
-    UI.$("#r-taux-enregistrer").onclick = async () => {
-      try {
-        await Store.majReglages({ tauxMarge: champTaux.value },
-          "Taux de marge de la boutique : " + Utils.fmtTaux(Store.lireTaux(champTaux.value)) + " %");
-        UI.toast("Taux enregistré", "ok");
-        afficher(vue, params);
-      } catch (err) {
-        UI.toast(err.message, "err");
-      }
-    };
+      UI.$("#r-taux-enregistrer").onclick = async () => {
+        try {
+          await enregistrer({ tauxMarge: champTaux.value },
+            "Taux de marge de la boutique : " + Utils.fmtTaux(Store.lireTaux(champTaux.value)) + " %");
+          UI.toast("Taux enregistré", "ok");
+          afficher(vue, params);
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+      };
+    }
 
     /* ---------- Autres numéros ---------- */
     telsTravail = (r.telephones || []).map((t) => ({ ...t }));
@@ -455,7 +570,7 @@ const VueReglages = (() => {
       lireTelephones(zoneTels);
       const vides = telsTravail.filter((t) => !/\d/.test(t.numero)).length;
       try {
-        const maj = await Store.majReglages({ telephones: telsTravail },
+        const maj = await enregistrer({ telephones: telsTravail },
           "Autres numéros de la boutique mis à jour");
         telsTravail = (maj.telephones || []).map((t) => ({ ...t }));
         rendreTels();
@@ -512,7 +627,7 @@ const VueReglages = (() => {
       lireAdresses(zoneAdresses);
       const vides = adressesTravail.filter((a) => !String(a.texte || "").trim()).length;
       try {
-        const maj = await Store.majReglages({ adresses: adressesTravail },
+        const maj = await enregistrer({ adresses: adressesTravail },
           "Autres adresses de la boutique mises à jour");
         adressesTravail = (maj.adresses || []).map((a) => ({ ...a }));
         rendreAdresses();
@@ -568,7 +683,7 @@ const VueReglages = (() => {
       try {
         const maj = {};
         for (const [cle] of RESEAUX) maj[cle] = UI.$("#rs-" + cle).value.trim();
-        await Store.majReglages(maj, "Réseaux sociaux mis à jour");
+        await enregistrer(maj, "Réseaux sociaux mis à jour");
         UI.toast("Réseaux enregistrés — visibles chez les clients", "ok");
       } catch (err) {
         UI.toast(err.message, "err");
@@ -620,7 +735,7 @@ const VueReglages = (() => {
       const lng = UI.$("#loc-lng").value.trim();
       if (!lat && !lng) {
         try {
-          await Store.majReglages({ latitude: null, longitude: null }, "Position de la boutique retirée");
+          await enregistrer({ latitude: null, longitude: null }, "Position de la boutique retirée");
           UI.toast("Position retirée", "ok");
           afficher(vue, params);
         } catch (err) { UI.toast(err.message, "err"); }
@@ -634,7 +749,7 @@ const VueReglages = (() => {
         return;
       }
       try {
-        await Store.majReglages({ latitude, longitude },
+        await enregistrer({ latitude, longitude },
           "Position de la boutique enregistrée (" + latitude.toFixed(5) + ", " + longitude.toFixed(5) + ")");
         UI.toast("Position enregistrée — visible chez les clients", "ok");
         afficher(vue, params);
@@ -643,16 +758,41 @@ const VueReglages = (() => {
       }
     };
 
-    /* ---------- Photos de la boutique ---------- */
-    photosTravail = Store.photosBoutique();
+    /* ---------- Enseigne ou boutique : la bascule ---------- */
+    for (const bouton of UI.$$("[data-cible]", vue)) {
+      bouton.onclick = () => {
+        cible = bouton.dataset.cible;
+        afficher(vue, params);
+      };
+    }
+
+    /* ---------- Photos ---------- */
+    photosTravail = Store.photosBoutique(cible);
     brancherPhotosBoutique(vue);
 
     UI.$("#boutique-photos-enregistrer").onclick = async () => {
       const bouton = UI.$("#boutique-photos-enregistrer");
       bouton.disabled = true;
       try {
-        await Store.sauverPhotosBoutique(photosTravail);
-        UI.toast("Photos de la boutique enregistrées", "ok");
+        await Store.sauverPhotosBoutique(photosTravail, cible);
+        UI.toast("Photos enregistrées", "ok");
+        afficher(vue, params);
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
+      }
+    };
+
+    /* ---------- Vidéo de présentation ---------- */
+    videoTravail = Store.videoBoutique(cible);
+    brancherVideoBoutique(vue);
+
+    UI.$("#boutique-video-enregistrer").onclick = async () => {
+      const bouton = UI.$("#boutique-video-enregistrer");
+      bouton.disabled = true;
+      try {
+        await Store.sauverVideoBoutique(videoTravail, cible);
+        UI.toast(videoTravail ? "Vidéo enregistrée" : "Vidéo retirée", "ok");
         afficher(vue, params);
       } catch (err) {
         UI.toast(err.message, "err");

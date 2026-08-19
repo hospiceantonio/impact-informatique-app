@@ -573,6 +573,23 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .choix-couleur.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--encre)}
 
+/* ---------- Enseigne ou boutique : la bascule des réglages ---------- */
+.cible-choix{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.cible-onglet{
+  display:flex;align-items:center;gap:8px;
+  padding:12px 11px;border-radius:var(--r-md);
+  border:1.5px solid var(--trait);background:var(--blanc);
+  text-align:left;color:var(--encre-douce);
+}
+.cible-onglet .ic-sm{flex:none;color:var(--encre-tres-douce)}
+.cible-onglet span{display:flex;flex-direction:column;gap:2px;min-width:0;
+  font-size:13px;font-weight:800;color:var(--encre);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cible-onglet small{font-size:11px;font-weight:600;color:var(--encre-tres-douce)}
+.cible-onglet.actif{border-color:var(--bleu);background:var(--bleu-50)}
+.cible-onglet.actif .ic-sm{color:var(--bleu)}
+.cible-onglet.actif span{color:var(--bleu-800)}
+
 /* ---------- Marge (prix grossiste → prix public) ---------- */
 .note-marge{
   display:flex;align-items:center;gap:9px;

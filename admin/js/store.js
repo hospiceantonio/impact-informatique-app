@@ -35,6 +35,7 @@ const Store = (() => {
     latitude: null,
     longitude: null,
     photos: [],      // chemins des photos de la boutique
+    video: "",       // vidéo de présentation (facultative)
     telephones: [],  // autres numéros : { libelle, numero, whatsapp }
     adresses: [],    // autres adresses : { libelle, texte, latitude, longitude }
     tauxMarge: 20,   // marge appliquée par défaut au prix grossiste
@@ -47,6 +48,8 @@ const Store = (() => {
   const MAX_ADRESSES = 8;      // en plus de l'adresse principale
 
   let reglages = { ...BOUTIQUE_DEFAUT };
+  /* L'enseigne : ses coordonnées à elle, distinctes de celles des boutiques. */
+  let enseigne = { ...BOUTIQUE_DEFAUT, nomBoutique: "BIZZOO", slogan: "Toutes vos boutiques" };
 
   /* Faux tant que la table des prix d'achat n'existe pas : le catalogue
      fonctionne alors comme avant, prix public seul. */
@@ -249,6 +252,7 @@ const Store = (() => {
       /* Colonnes absentes d'une base pas encore mise à jour : liste vide. */
       telephones: telephonesDepuisListe(l.telephones),
       adresses: adressesDepuisListe(l.adresses),
+      video: l.video || "",
       tauxMarge: l.taux_marge === null || l.taux_marge === undefined
         ? BOUTIQUE_DEFAUT.tauxMarge : Number(l.taux_marge),
     };
@@ -333,6 +337,7 @@ const Store = (() => {
       photos: b.photos || [],
       telephones: b.telephones || [],
       adresses: b.adresses || [],
+      video: b.video || "",
       taux_marge: b.tauxMarge === undefined ? 20 : b.tauxMarge,
       maj_le: new Date().toISOString(),
     };
@@ -434,6 +439,12 @@ const Store = (() => {
       throw err;
     }
     await Supabase.chargerProfil();   // le rôle du compte : ce qu'il a le droit de faire
+
+    /* L'enseigne d'abord : c'est elle qui accueille les clients, avant
+       même qu'ils aient choisi une boutique. */
+    const lignes = await Supabase.requete("GET", "boutique?select=*&id=eq.1");
+    if (lignes && lignes.length) enseigne = boutiqueDepuisLigne(lignes[0]);
+
     try {
       await chargerBoutiques();
     } catch (err) {
@@ -449,8 +460,52 @@ const Store = (() => {
       }
       return;
     }
-    const lignes = await Supabase.requete("GET", "boutique?select=*&id=eq.1");
-    if (lignes && lignes.length) reglages = boutiqueDepuisLigne(lignes[0]);
+    /* Sans table des boutiques, l'ancienne ligne unique fait les deux. */
+    reglages = { ...enseigne };
+  }
+
+  /* =====================================================
+     L'enseigne
+
+     BIZZOO n'est pas une boutique : c'est ce qui les réunit.
+     Elle a donc ses propres coordonnées — nom, slogan, WhatsApp,
+     adresse, réseaux… — que le client voit à l'accueil, avant
+     d'entrer dans une boutique.
+     ===================================================== */
+
+  const lireEnseigne = () => ({ ...enseigne });
+
+  async function majEnseigne(maj, libelleJournal) {
+    const propre = { ...maj };
+    if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
+    if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
+    enseigne = { ...enseigne, ...propre };
+    const e = enseigne;
+    await Supabase.requete("PATCH", "boutique?id=eq.1", {
+      nom: e.nomBoutique,
+      slogan: e.slogan,
+      description: e.description,
+      tel: e.tel,
+      whatsapp: e.whatsapp,
+      indicatif: e.indicatif,
+      devise: e.devise,
+      adresse: e.adresse,
+      horaires: e.horaires,
+      facebook: e.facebook,
+      instagram: e.instagram,
+      tiktok: e.tiktok,
+      youtube: e.youtube,
+      snapchat: e.snapchat,
+      latitude: e.latitude,
+      longitude: e.longitude,
+      photos: e.photos || [],
+      telephones: e.telephones || [],
+      adresses: e.adresses || [],
+      video: e.video || "",
+      maj_le: new Date().toISOString(),
+    });
+    if (libelleJournal) journaliser("boutique", "modification", libelleJournal, e.nomBoutique);
+    return lireEnseigne();
   }
 
   /* ---------- Comptes de l'équipe (réservé à l'administrateur) ---------- */
@@ -656,6 +711,7 @@ const Store = (() => {
       photos: r.photos || [],
       telephones: r.telephones || [],
       adresses: r.adresses || [],
+      video: r.video || "",
       taux_marge: r.tauxMarge,
       maj_le: new Date().toISOString(),
     });
@@ -664,8 +720,14 @@ const Store = (() => {
   }
 
   /** URL publiques des photos de la boutique, pour l'aperçu. */
-  function photosBoutique() {
-    return (reglages.photos || []).map((chemin) => ({
+  /* Photos et vidéo se règlent de la même façon pour l'enseigne et pour
+     une boutique : seule change la ligne où l'on écrit. */
+  const sourceReglages = (cible) => (cible === "enseigne" ? enseigne : reglages);
+  const ecrireReglages = (cible, maj, libelle) =>
+    (cible === "enseigne" ? majEnseigne(maj, libelle) : majReglages(maj, libelle));
+
+  function photosBoutique(cible) {
+    return (sourceReglages(cible).photos || []).map((chemin) => ({
       id: chemin.replace(/^boutique\//, "").replace(/\.jpg$/i, ""),
       chemin,
       apercu: Supabase.urlImage(chemin),
@@ -673,10 +735,10 @@ const Store = (() => {
   }
 
   /**
-   * Enregistre les photos de la boutique.
+   * Enregistre les photos de l'enseigne ou d'une boutique.
    * `photosFinales` : [{ id, chemin? (en ligne), dataUrl? (nouvelle) }]
    */
-  async function sauverPhotosBoutique(photosFinales) {
+  async function sauverPhotosBoutique(photosFinales, cible) {
     const photos = (photosFinales || []).slice(0, MAX_PHOTOS_BOUTIQUE);
     const chemins = [];
     for (const photo of photos) {
@@ -688,10 +750,42 @@ const Store = (() => {
         chemins.push(chemin);
       }
     }
-    const retirees = (reglages.photos || []).filter((chemin) => !chemins.includes(chemin));
+    const retirees = (sourceReglages(cible).photos || []).filter((chemin) => !chemins.includes(chemin));
     await Supabase.supprimerImages(retirees);
-    return majReglages({ photos: chemins },
-      "Photos de la boutique mises à jour (" + chemins.length + " photo" + (chemins.length > 1 ? "s" : "") + ")");
+    return ecrireReglages(cible, { photos: chemins },
+      "Photos mises à jour (" + chemins.length + " photo" + (chemins.length > 1 ? "s" : "") + ")");
+  }
+
+  /** L'URL de la vidéo de présentation, pour l'aperçu dans l'admin. */
+  function videoBoutique(cible) {
+    const chemin = sourceReglages(cible).video || "";
+    return chemin ? { chemin, url: Supabase.urlImage(chemin) } : null;
+  }
+
+  /**
+   * Enregistre la vidéo de présentation. `video` vaut { chemin } pour
+   * garder celle en ligne, { fichier } pour une nouvelle, null pour la
+   * retirer.
+   */
+  async function sauverVideoBoutique(video, cible) {
+    const actuelle = sourceReglages(cible).video || "";
+    let chemin = "";
+    if (video && video.chemin) {
+      chemin = video.chemin;
+    } else if (video && video.fichier) {
+      const octets = video.fichier.size || 0;
+      if (octets > MAX_VIDEO_MO * 1024 * 1024) {
+        throw new Error("Vidéo trop lourde (" + Utils.tailleLisible(octets) + "). " +
+          "Filmez une présentation plus courte : " + MAX_VIDEO_MO + " Mo au maximum.");
+      }
+      const extension = (video.fichier.name || "").match(/\.([a-z0-9]{2,4})$/i);
+      /* Dans « boutique/ » : ce dossier est réservé à l'administrateur. */
+      chemin = "boutique/" + Utils.uid("vid") + (extension ? "." + extension[1].toLowerCase() : ".mp4");
+      await Supabase.televerserVideo(chemin, video.fichier);
+    }
+    if (actuelle && actuelle !== chemin) await Supabase.supprimerImages([actuelle]);
+    return ecrireReglages(cible, { video: chemin },
+      chemin ? "Vidéo de présentation mise à jour" : "Vidéo de présentation retirée");
   }
 
   /* ---------- Catégories ---------- */
@@ -1367,6 +1461,7 @@ const Store = (() => {
     MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES,
     prixPublic, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
+    lireEnseigne, majEnseigne, videoBoutique, sauverVideoBoutique,
     listerBoutiques, lireBoutique, boutiqueCourante, choisirBoutique,
     sauverBoutique, basculerBoutique, deplacerBoutique, supprimerBoutique,
     journaliser, lireJournal,

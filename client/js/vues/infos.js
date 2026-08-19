@@ -6,26 +6,42 @@ const VueInfos = (() => {
 
   async function afficher(vue) {
     const b = Catalogue.boutique();
-    UI.entete({ titre: "Infos boutique", sous: b.slogan });
+    /* Tant qu'aucune boutique n'est choisie, c'est l'enseigne qui parle :
+       BIZZOO a ses propres coordonnées. */
+    const enseigne = b.estEnseigne;
+    UI.entete({ titre: enseigne ? "Infos" : "Infos boutique",
+      sous: b.slogan || (enseigne ? "" : b.nom) });
 
     let html = UI.bandeauBoutique();
 
     html +=
       '<div class="carte carte-boutique">' +
-        UI.logo() +
+        (enseigne
+          ? UI.logo()
+          : '<h2 class="boutique-nom">' + Utils.echapper(b.nom) + "</h2>") +
         (b.description ? '<p class="boutique-desc">' + Utils.echapper(b.description) + "</p>" : "") +
-        '<span class="chip-slogan">' + Utils.echapper(b.slogan) + "</span>" +
+        (b.slogan ? '<span class="chip-slogan">' + Utils.echapper(b.slogan) + "</span>" : "") +
       "</div>";
 
     if (b.photos && b.photos.length) {
       html +=
         '<div class="carte">' +
-          '<div class="carte-titre">Notre boutique</div>' +
+          '<div class="carte-titre">' + (enseigne ? "En images" : "Notre boutique") + "</div>" +
           '<div class="boutique-photos">' +
             b.photos.map((url, i) =>
               '<img src="' + Utils.echapper(url) + '" alt="Photo de la boutique ' + (i + 1) +
               '" data-photo-boutique="' + i + '"' + (i > 0 ? ' loading="lazy"' : "") + ">").join("") +
           "</div>" +
+        "</div>";
+    }
+
+    /* La visite filmée, si le gérant en a déposé une. */
+    if (b.video) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation</div>" +
+          '<video class="video-lecture" src="' + Utils.echapper(b.video) +
+          '" controls preload="metadata" playsinline></video>' +
         "</div>";
     }
 
@@ -118,8 +134,29 @@ const VueInfos = (() => {
       '<div class="carte-titre">Nous contacter</div>' +
       (contacts.length
         ? contacts.join("")
-        : '<p class="aide" style="margin:0">Les coordonnées de la boutique seront bientôt disponibles.</p>') +
+        : '<p class="aide" style="margin:0">Les coordonnées seront bientôt disponibles.</p>') +
     "</div>";
+
+    /* Depuis l'enseigne, on redescend vers les boutiques et leurs
+       coordonnées à elles. */
+    if (enseigne && Catalogue.boutiques().length) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Nos boutiques</div>" +
+          '<p class="aide" style="margin:0 0 12px">Chaque boutique a ses propres horaires, ' +
+            "son adresse et son numéro. Ouvrez-en une pour les voir.</p>" +
+          Catalogue.boutiques().map((x) =>
+            '<a class="ligne-info" href="#/boutique/' + Utils.echapper(x.id) + '">' +
+              (x.logo
+                ? '<span class="bou-rond bou-rond-photo"><img src="' + Utils.echapper(x.logo) + '" alt=""></span>'
+                : '<span class="bou-rond" style="background:' + Utils.echapper(x.couleur) + '">' +
+                  UI.icone(x.icone) + "</span>") +
+              "<span><strong>" + Utils.echapper(x.nom) + "</strong><br><small>" +
+                Utils.echapper(x.secteur || "Voir la boutique") + "</small></span>" +
+              UI.icone("chevron", "ic-sm") +
+            "</a>").join("") +
+        "</div>";
+    }
 
     const reseaux = ["facebook", "instagram", "tiktok", "youtube", "snapchat"]
       .map((cle) => ({ cle, lien: Utils.lienReseau(cle, b[cle]) }))

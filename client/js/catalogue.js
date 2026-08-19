@@ -149,6 +149,7 @@ const Catalogue = (() => {
           photos: (Array.isArray(b.photos) ? b.photos : []).map(urlImagePublique),
           telephones: autresNumeros(b.telephones),
           adresses: autresAdresses(b.adresses),
+          video: b.video ? urlImagePublique(b.video) : "",
         },
         boutiques: (lesBoutiques || []).map((b2) => ({
           id: b2.id,
@@ -170,6 +171,7 @@ const Catalogue = (() => {
           photos: (Array.isArray(b2.photos) ? b2.photos : []).map(urlImagePublique),
           telephones: autresNumeros(b2.telephones),
           adresses: autresAdresses(b2.adresses),
+          video: b2.video ? urlImagePublique(b2.video) : "",
         })),
         categories: (categories || []).map((cat) => ({
           id: cat.id,
@@ -391,6 +393,9 @@ const Catalogue = (() => {
       photos: Array.isArray(b.photos) ? b.photos : [],
       telephones: autresNumeros(b.telephones),
       adresses: autresAdresses(b.adresses),
+      video: b.video || "",
+      /* Vrai quand on parle de l'enseigne et non d'une boutique. */
+      estEnseigne: !choisie,
     };
   }
 
