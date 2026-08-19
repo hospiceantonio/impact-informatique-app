@@ -60,12 +60,72 @@ alter table public.boutique add column if not exists telephones jsonb not null d
 alter table public.boutique add column if not exists adresses jsonb not null default '[]'::jsonb;
 alter table public.boutique add column if not exists taux_marge numeric(6,2) not null default 20;
 
+-- ---------- Les boutiques ----------
+-- L'application couvre plusieurs secteurs d'activité : une boutique par
+-- secteur, avec son catalogue, ses catégories, son slider et ses
+-- coordonnées. La table « boutique » du dessus reste la boutique
+-- historique — elle sert de modèle à la première ligne d'ici.
+create table if not exists public.boutiques (
+  id          text primary key,
+  nom         text not null,
+  secteur     text not null default '',        -- « Informatique », « Cosmétiques »…
+  slogan      text not null default '',
+  description text not null default '',
+  icone       text not null default 'magasin', -- icône affichée chez le client
+  couleur     text not null default '#1176D8',
+  logo        text not null default '',        -- image dans le bucket (remplace l'icône)
+  actif       boolean not null default true,   -- une boutique fermée disparaît du client
+  ordre       int not null default 0,
+  tel         text not null default '',
+  whatsapp    text not null default '',
+  indicatif   text not null default '229',
+  devise      text not null default 'FCFA',
+  adresse     text not null default '',
+  horaires    text not null default '',
+  facebook    text not null default '',
+  instagram   text not null default '',
+  tiktok      text not null default '',
+  youtube     text not null default '',
+  snapchat    text not null default '',
+  latitude    double precision,
+  longitude   double precision,
+  photos      text[] not null default '{}',
+  telephones  jsonb not null default '[]'::jsonb,
+  adresses    jsonb not null default '[]'::jsonb,
+  taux_marge  numeric(6,2) not null default 20,
+  cree_le     timestamptz not null default now(),
+  maj_le      timestamptz not null default now()
+);
+create index if not exists boutiques_ordre on public.boutiques(ordre);
+
+-- La boutique d'origine devient la première du lot, avec tous ses réglages.
+insert into public.boutiques (
+  id, nom, secteur, slogan, description, icone, couleur, actif, ordre,
+  tel, whatsapp, indicatif, devise, adresse, horaires,
+  facebook, instagram, tiktok, youtube, snapchat,
+  latitude, longitude, photos, telephones, adresses, taux_marge)
+select 'bou_informatique', 'INFORMATIQUE ET ELECTRONIQUE', 'Informatique et électronique',
+       b.slogan, b.description, 'magasin', '#1176D8', true, 1,
+       b.tel, b.whatsapp, b.indicatif, b.devise, b.adresse, b.horaires,
+       b.facebook, b.instagram, b.tiktok, b.youtube, b.snapchat,
+       b.latitude, b.longitude, b.photos, b.telephones, b.adresses, b.taux_marge
+  from public.boutique b where b.id = 1
+on conflict (id) do nothing;
+
+-- Base neuve, sans ligne « boutique » : on pose quand même la première.
+insert into public.boutiques (id, nom, secteur, ordre)
+select 'bou_informatique', 'INFORMATIQUE ET ELECTRONIQUE', 'Informatique et électronique', 1
+where not exists (select 1 from public.boutiques);
+
 -- ---------- Catégories et sous-catégories ----------
+-- Les rayons appartiennent à une boutique : « Ordinateurs portables »
+-- n'a rien à faire dans une boutique de cosmétiques.
 create table if not exists public.categories (
-  id      text primary key,
-  nom     text not null,
-  ordre   int  not null default 0,
-  cree_le timestamptz not null default now()
+  id          text primary key,
+  boutique_id text references public.boutiques(id) on delete cascade,
+  nom         text not null,
+  ordre       int  not null default 0,
+  cree_le     timestamptz not null default now()
 );
 
 create table if not exists public.sous_categories (
@@ -80,6 +140,7 @@ create index if not exists sous_categories_categorie
 -- ---------- Produits ----------
 create table if not exists public.produits (
   id                text primary key,
+  boutique_id       text references public.boutiques(id) on delete cascade,
   nom               text not null,
   reference         text not null default '',
   description       text not null default '',
@@ -98,6 +159,8 @@ create table if not exists public.produits (
   modifie_le        timestamptz not null default now()
 );
 -- Ajout des colonnes sur les bases déjà créées (sans risque).
+alter table public.categories add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
+alter table public.produits   add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
 alter table public.produits add column if not exists reference text not null default '';
 alter table public.produits add column if not exists video text not null default '';
 alter table public.produits add column if not exists stock int not null default 0;
@@ -137,16 +200,35 @@ create table if not exists public.produits_prive (
 -- Les images que la boutique fait défiler en haut de l'écran d'accueil.
 -- Elles sont choisies une par une : ce ne sont plus les produits mis en
 -- avant. Une image peut renvoyer vers un produit (facultatif).
+-- Chaque boutique compose le sien ; l'accueil du client les réunit tous.
 create table if not exists public.slides (
-  id         text primary key,
-  image      text not null default '',   -- chemin dans le bucket « produits »
-  titre      text not null default '',   -- légende facultative posée sur l'image
-  produit_id text references public.produits(id) on delete set null,
-  ordre      int not null default 0,
-  actif      boolean not null default true,
-  cree_le    timestamptz not null default now()
+  id          text primary key,
+  boutique_id text references public.boutiques(id) on delete cascade,
+  image       text not null default '',   -- chemin dans le bucket « produits »
+  titre       text not null default '',   -- légende facultative posée sur l'image
+  produit_id  text references public.produits(id) on delete set null,
+  ordre       int not null default 0,
+  actif       boolean not null default true,
+  cree_le     timestamptz not null default now()
 );
+alter table public.slides add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
 create index if not exists slides_ordre on public.slides(ordre);
+
+-- ---------- Tout le catalogue d'avant rejoint la première boutique ----------
+-- Produits, rayons et images du slider : rien ne se perd, tout se range.
+do $$
+declare premiere text;
+begin
+  select id into premiere from public.boutiques order by ordre, cree_le limit 1;
+  if premiere is null then return; end if;
+  update public.categories set boutique_id = premiere where boutique_id is null;
+  update public.produits   set boutique_id = premiere where boutique_id is null;
+  update public.slides     set boutique_id = premiere where boutique_id is null;
+end $$;
+
+create index if not exists produits_boutique   on public.produits(boutique_id);
+create index if not exists categories_boutique on public.categories(boutique_id);
+create index if not exists slides_boutique     on public.slides(boutique_id);
 
 -- ---------- Comptes de l'application admin et leurs rôles ----------
 -- Deux rôles :
@@ -161,10 +243,15 @@ create table if not exists public.profils (
   -- Droit accordé au cas par cas : modifier un produit déjà au catalogue.
   -- Sans lui, le modérateur peut en ajouter de nouveaux, pas toucher aux autres.
   peut_modifier_produits boolean not null default true,
+  -- Boutique du modérateur : il n'agit que sur celle-là. À null pour un
+  -- administrateur, qui circule dans toutes.
+  boutique_id text references public.boutiques(id) on delete set null,
   cree_le timestamptz not null default now()
 );
 alter table public.profils
   add column if not exists peut_modifier_produits boolean not null default true;
+alter table public.profils
+  add column if not exists boutique_id text references public.boutiques(id) on delete set null;
 
 -- Rôle du compte connecté. « security definer » : la fonction lit la table
 -- sans repasser par les règles RLS — sinon les règles s'appelleraient elles-mêmes.
@@ -192,12 +279,30 @@ language sql stable security definer set search_path = public as $$
                      from public.profils where id = auth.uid() and actif), false);
 $$;
 
+-- La boutique à laquelle le compte est rattaché. Null pour un
+-- administrateur : il n'est enfermé nulle part.
+create or replace function public.boutique_du_compte() returns text
+language sql stable security definer set search_path = public as $$
+  select boutique_id from public.profils where id = auth.uid() and actif;
+$$;
+
+-- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
+-- L'administrateur partout ; le modérateur dans la sienne seulement.
+create or replace function public.peut_agir_sur(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_admin()
+      or (public.est_equipe() and cible is not null
+          and cible = public.boutique_du_compte());
+$$;
+
 -- Les règles de sécurité, y compris celles du stockage des photos,
 -- appellent ces fonctions au nom du compte connecté.
 grant execute on function public.peut_modifier_produits() to authenticated;
 grant execute on function public.role_courant() to authenticated;
 grant execute on function public.est_admin() to authenticated;
 grant execute on function public.est_equipe() to authenticated;
+grant execute on function public.boutique_du_compte() to authenticated;
+grant execute on function public.peut_agir_sur(text) to authenticated;
 
 -- Tout compte créé (par l'application ou dans le tableau de bord Supabase)
 -- reçoit une fiche en attente : l'administrateur l'active et lui donne son rôle.
@@ -327,10 +432,19 @@ where id = 1 and whatsapp = '';
 -- le seul administrateur. Les règles ci-dessous s'appliquent aussi aux
 -- appels directs à la base : ce n'est pas qu'un décor dans l'application.
 alter table public.boutique        enable row level security;
+alter table public.boutiques       enable row level security;
 alter table public.categories      enable row level security;
 alter table public.sous_categories enable row level security;
 alter table public.produits        enable row level security;
 alter table public.slides          enable row level security;
+
+-- Les boutiques : tout le monde les voit (le client en affiche la liste),
+-- seul l'administrateur en crée, en modifie ou en ferme.
+drop policy if exists "lecture publique"   on public.boutiques;
+drop policy if exists "ecriture connectee" on public.boutiques;
+create policy "lecture publique"   on public.boutiques for select using (true);
+create policy "ecriture connectee" on public.boutiques
+  for all to authenticated using (public.est_admin()) with check (public.est_admin());
 
 drop policy if exists "lecture publique"  on public.slides;
 drop policy if exists "ecriture connectee" on public.slides;
@@ -345,21 +459,29 @@ create policy "lecture publique"   on public.boutique        for select using (t
 create policy "ecriture connectee" on public.boutique
   for all to authenticated using (public.est_admin()) with check (public.est_admin());
 
+-- Les rayons appartiennent à une boutique : le modérateur ne touche
+-- qu'à ceux de la sienne, l'administrateur à tous.
 drop policy if exists "lecture publique"  on public.categories;
 drop policy if exists "ecriture connectee" on public.categories;
 create policy "lecture publique"   on public.categories      for select using (true);
 create policy "ecriture connectee" on public.categories
-  for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
+  for all to authenticated
+  using (public.peut_agir_sur(boutique_id)) with check (public.peut_agir_sur(boutique_id));
 
+-- Une sous-catégorie suit le sort de son rayon.
 drop policy if exists "lecture publique"  on public.sous_categories;
 drop policy if exists "ecriture connectee" on public.sous_categories;
 create policy "lecture publique"   on public.sous_categories for select using (true);
 create policy "ecriture connectee" on public.sous_categories
-  for all to authenticated using (public.est_equipe()) with check (public.est_equipe());
+  for all to authenticated
+  using (public.peut_agir_sur(
+    (select c.boutique_id from public.categories c where c.id = categorie_id)))
+  with check (public.peut_agir_sur(
+    (select c.boutique_id from public.categories c where c.id = categorie_id)));
 
 -- Les produits se découpent en trois droits : ajouter, modifier, supprimer.
--- Toute l'équipe ajoute ; retoucher ou retirer un produit déjà publié
--- demande le droit correspondant.
+-- Toute l'équipe ajoute — dans sa boutique ; retoucher ou retirer un
+-- produit déjà publié demande en plus le droit correspondant.
 drop policy if exists "lecture publique"  on public.produits;
 drop policy if exists "ecriture connectee" on public.produits;
 drop policy if exists "produits ajout" on public.produits;
@@ -367,12 +489,14 @@ drop policy if exists "produits modification" on public.produits;
 drop policy if exists "produits suppression" on public.produits;
 create policy "lecture publique" on public.produits for select using (true);
 create policy "produits ajout" on public.produits
-  for insert to authenticated with check (public.est_equipe());
+  for insert to authenticated with check (public.peut_agir_sur(boutique_id));
 create policy "produits modification" on public.produits
   for update to authenticated
-  using (public.peut_modifier_produits()) with check (public.peut_modifier_produits());
+  using (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id))
+  with check (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id));
 create policy "produits suppression" on public.produits
-  for delete to authenticated using (public.peut_modifier_produits());
+  for delete to authenticated
+  using (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id));
 
 -- Les prix d'achat : jamais de lecture publique. La clé publiable de
 -- l'application client n'a aucun droit dessus, pas même de lecture ;
@@ -385,15 +509,25 @@ drop policy if exists "prix achat lecture"      on public.produits_prive;
 drop policy if exists "prix achat ajout"        on public.produits_prive;
 drop policy if exists "prix achat modification" on public.produits_prive;
 drop policy if exists "prix achat suppression"  on public.produits_prive;
+-- Un modérateur ne voit même pas les marges des autres boutiques.
 create policy "prix achat lecture" on public.produits_prive
-  for select to authenticated using (public.est_equipe());
+  for select to authenticated
+  using (public.peut_agir_sur(
+    (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat ajout" on public.produits_prive
-  for insert to authenticated with check (public.est_equipe());
+  for insert to authenticated
+  with check (public.peut_agir_sur(
+    (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat modification" on public.produits_prive
   for update to authenticated
-  using (public.peut_modifier_produits()) with check (public.peut_modifier_produits());
+  using (public.peut_modifier_produits() and public.peut_agir_sur(
+    (select p.boutique_id from public.produits p where p.id = produit_id)))
+  with check (public.peut_modifier_produits() and public.peut_agir_sur(
+    (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat suppression" on public.produits_prive
-  for delete to authenticated using (public.peut_modifier_produits());
+  for delete to authenticated
+  using (public.peut_modifier_produits() and public.peut_agir_sur(
+    (select p.boutique_id from public.produits p where p.id = produit_id)));
 
 -- Le slider de l'application client reste la décision de l'administrateur :
 -- le modérateur peut tout modifier d'un produit, sauf sa mise en avant.
@@ -425,7 +559,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['boutique', 'categories', 'sous_categories', 'produits', 'slides'] loop
+    foreach t in array array['boutique', 'boutiques', 'categories', 'sous_categories', 'produits', 'slides'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
@@ -448,31 +582,35 @@ drop policy if exists "photos suppression connectee" on storage.objects;
 create policy "photos lecture publique" on storage.objects
   for select using (bucket_id = 'produits');
 -- Photos de produits : toute l'équipe.
--- Dossiers « boutique/ » et « slider/ » : administrateur seul.
+-- Dossiers « boutique/ », « boutiques/ » (logos) et « slider/ » :
+-- administrateur seul.
 create policy "photos ecriture connectee" on storage.objects
   for insert to authenticated with check (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and name not like 'boutique/%' and name not like 'slider/%')));
+     (public.est_equipe() and name not like 'boutique/%' and name not like 'boutiques/%'
+                      and name not like 'slider/%')));
 create policy "photos maj connectee" on storage.objects
   for update to authenticated using (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and name not like 'boutique/%' and name not like 'slider/%')));
+     (public.est_equipe() and name not like 'boutique/%' and name not like 'boutiques/%'
+                      and name not like 'slider/%')));
 create policy "photos suppression connectee" on storage.objects
   for delete to authenticated using (
     bucket_id = 'produits' and
     (public.est_admin() or
-     (public.est_equipe() and name not like 'boutique/%' and name not like 'slider/%')));
+     (public.est_equipe() and name not like 'boutique/%' and name not like 'boutiques/%'
+                      and name not like 'slider/%')));
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
-insert into public.categories (id, nom, ordre) values
-  ('cat_ordinateurs',  'Ordinateurs',            1),
-  ('cat_imprimantes',  'Imprimantes & scanners', 2),
-  ('cat_consommables', 'Consommables',           3),
-  ('cat_accessoires',  'Accessoires',            4),
-  ('cat_stockage',     'Stockage',               5),
-  ('cat_reseau',       'Réseau & énergie',       6)
+insert into public.categories (id, boutique_id, nom, ordre) values
+  ('cat_ordinateurs',  'bou_informatique', 'Ordinateurs',            1),
+  ('cat_imprimantes',  'bou_informatique', 'Imprimantes & scanners', 2),
+  ('cat_consommables', 'bou_informatique', 'Consommables',           3),
+  ('cat_accessoires',  'bou_informatique', 'Accessoires',            4),
+  ('cat_stockage',     'bou_informatique', 'Stockage',               5),
+  ('cat_reseau',       'bou_informatique', 'Réseau & énergie',       6)
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values
@@ -506,24 +644,24 @@ update public.produits set reference = 'IMP-0006' where id = 'prod_logitech_m185
 
 -- ---------- Produits d'exemple (supprimables depuis l'app admin) ----------
 insert into public.produits
-  (id, nom, description, prix, ancien_prix, categorie_id, sous_categorie_id,
+  (id, boutique_id, nom, description, prix, ancien_prix, categorie_id, sous_categorie_id,
    stock, sur_commande, disponible, en_avant, ordre_avant) values
-  ('prod_hp15', 'Ordinateur portable HP 15',
+  ('prod_hp15', 'bou_informatique', 'Ordinateur portable HP 15',
    e'Écran 15,6" HD, processeur Intel Core i5, 8 Go de RAM, SSD 512 Go, Windows 11.\nIdéal pour le bureau, les études et la navigation.\nGarantie boutique, livraison possible à Cotonou.',
    385000, null, 'cat_ordinateurs', 'sc_portables', 4, false, true, true, 1),
-  ('prod_epson_l3250', 'Imprimante Epson EcoTank L3250',
+  ('prod_epson_l3250', 'bou_informatique', 'Imprimante Epson EcoTank L3250',
    e'Multifonction 3 en 1 (impression, copie, scan) à réservoirs d''encre rechargeables.\nWifi intégré, impression depuis le téléphone.\nJusqu''à 4 500 pages noir avec un seul flacon.',
    145000, 165000, 'cat_imprimantes', 'sc_multifonctions', 2, false, true, true, 2),
-  ('prod_apc650', 'Onduleur APC Back-UPS 650 VA',
+  ('prod_apc650', 'bou_informatique', 'Onduleur APC Back-UPS 650 VA',
    e'Protège votre ordinateur des coupures et variations de courant.\nAutonomie suffisante pour enregistrer votre travail et éteindre proprement.\nPrises multiples, protection téléphone/ADSL.',
    42000, null, 'cat_reseau', 'sc_onduleurs', 7, false, true, true, 3),
-  ('prod_usb_kingston64', 'Clé USB Kingston 64 Go',
+  ('prod_usb_kingston64', 'bou_informatique', 'Clé USB Kingston 64 Go',
    e'Clé USB 3.2 rapide et fiable pour vos documents, photos et vidéos.\nCompatible ordinateur, TV et autoradio.',
    6500, null, 'cat_stockage', 'sc_cles_usb', 25, false, true, true, 4),
-  ('prod_toner_85a', 'Toner HP 85A (CE285A)',
+  ('prod_toner_85a', 'bou_informatique', 'Toner HP 85A (CE285A)',
    e'Cartouche de toner noir d''origine pour HP LaserJet P1102, M1132, M1212…\nEnviron 1 600 pages.',
    28000, 32000, 'cat_consommables', 'sc_toners', 0, false, false, true, 5),
-  ('prod_logitech_m185', 'Souris sans fil Logitech M185',
+  ('prod_logitech_m185', 'bou_informatique', 'Souris sans fil Logitech M185',
    e'Souris sans fil compacte avec récepteur USB nano.\nJusqu''à 12 mois d''autonomie avec une pile AA.',
    8500, null, 'cat_accessoires', 'sc_claviers_souris', 12, false, true, false, 0)
 on conflict (id) do nothing;

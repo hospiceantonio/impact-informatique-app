@@ -13,12 +13,13 @@ const VueCategories = (() => {
     const comptes = Catalogue.nombreParCategorie();
 
     if (!categories.length) {
-      vue.innerHTML = UI.vide("categories", "Aucune catégorie pour l'instant",
-        "Les rayons de la boutique s'afficheront ici.");
+      vue.innerHTML = UI.bandeauBoutique() +
+        UI.vide("categories", "Aucune catégorie pour l'instant",
+          "Les rayons de la boutique s'afficheront ici.");
       return;
     }
 
-    vue.innerHTML = categories.map((c) => {
+    vue.innerHTML = UI.bandeauBoutique() + categories.map((c) => {
       const sousCategories = Catalogue.sousCategories(c.id);
       return (
         '<a class="carte cat-ligne" href="#/categorie/' + Utils.echapper(c.id) + '">' +

@@ -13,24 +13,34 @@ const VueAccueil = (() => {
      Deux sources à la suite : les images composées par la boutique
      dans l'application admin, puis ses produits mis en avant. */
 
-  /** Une image libre. Elle peut renvoyer vers un produit, ou ne rien faire. */
-  function slideImage(s, index) {
+  /**
+   * Une image libre. Elle mène au produit qu'elle annonce ; à défaut, sur
+   * l'accueil général, elle mène à la boutique qui l'a composée.
+   */
+  function slideImage(s, index, avecBoutique) {
     const produit = s.produitId ? Catalogue.produit(s.produitId) : null;
-    const balise = produit ? "a" : "div";
-    const lien = produit ? ' href="#/produit/' + Utils.echapper(produit.id) + '"' : "";
-    const etiquette = s.titre || (produit ? produit.nom : "");
+    const laBoutique = avecBoutique && s.boutiqueId ? Catalogue.laBoutique(s.boutiqueId) : null;
+    const cible = produit
+      ? "#/produit/" + Utils.echapper(produit.id)
+      : (laBoutique ? "#/boutique/" + Utils.echapper(laBoutique.id) : "");
+    const balise = cible ? "a" : "div";
+    const lien = cible ? ' href="' + cible + '"' : "";
+    const etiquette = s.titre || (produit ? produit.nom : (laBoutique ? laBoutique.nom : ""));
     return (
       "<" + balise + ' class="slide"' + lien +
         (etiquette ? ' aria-label="' + Utils.echapper(etiquette) + '"' : "") + ">" +
         '<img class="slide-img" src="' + Utils.echapper(s.image) + '" alt="' +
           Utils.echapper(etiquette) + '"' + (index > 0 ? ' loading="lazy"' : "") + ">" +
-        (s.titre || produit
+        (s.titre || produit || laBoutique
           ? '<span class="slide-voile"></span>' +
             '<span class="slide-infos">' +
               (s.titre ? '<span class="slide-nom">' + Utils.echapper(s.titre) + "</span>" : "") +
               (produit
                 ? '<span class="slide-cta">Voir le produit ' + UI.icone("chevron", "ic-sm") + "</span>"
-                : "") +
+                : laBoutique
+                  ? '<span class="slide-cta">' + Utils.echapper(laBoutique.nom) + " " +
+                    UI.icone("chevron", "ic-sm") + "</span>"
+                  : "") +
             "</span>"
           : "") +
       "</" + balise + ">"
@@ -60,11 +70,11 @@ const VueAccueil = (() => {
     );
   }
 
-  function htmlSlider(images, enAvant) {
+  function htmlSlider(images, enAvant, avecBoutique) {
     const total = images.length + enAvant.length;
     if (!total) return "";
     const ecrans =
-      images.map((s, i) => slideImage(s, i)).concat(
+      images.map((s, i) => slideImage(s, i, avecBoutique)).concat(
       enAvant.map((p, i) => slideProduit(p, images.length + i)));
     return (
       '<section class="slider" aria-label="À la une">' +
@@ -126,13 +136,111 @@ const VueAccueil = (() => {
     );
   }
 
+  /* ---------- Les boutiques de l'enseigne ---------- */
+
+  /** La vignette d'une boutique : son logo, ou son icône sur sa couleur. */
+  function carteBoutique(b, compte) {
+    return (
+      '<a class="bou-carte" href="#/boutique/' + Utils.echapper(b.id) + '" data-boutique="' +
+        Utils.echapper(b.id) + '">' +
+        (b.logo
+          ? '<span class="bou-rond bou-rond-photo"><img src="' + Utils.echapper(b.logo) +
+            '" alt="" loading="lazy"></span>'
+          : '<span class="bou-rond" style="background:' + Utils.echapper(b.couleur) + '">' +
+            UI.icone(b.icone) + "</span>") +
+        '<span class="bou-carte-nom">' + Utils.echapper(b.nom) + "</span>" +
+        '<span class="bou-carte-sous">' +
+          Utils.echapper(b.secteur || (compte + " produit" + (compte > 1 ? "s" : ""))) + "</span>" +
+      "</a>"
+    );
+  }
+
   /* ---------- Vue ---------- */
 
+  /**
+   * L'accueil de l'application : d'abord ce que les boutiques mettent en
+   * avant — images et produits confondus —, puis les boutiques elles-mêmes.
+   * On choisit la sienne, et tout l'écran suivant ne parle plus que d'elle.
+   */
   async function afficher(vue) {
+    if (!Catalogue.multiBoutiques()) return accueilBoutique(vue, true);
+
+    Catalogue.quitterBoutique();
     UI.entete({ accueil: true, actions:
       '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
         UI.icone("actualiser") + "</button>" +
       '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
+
+    const boutiques = Catalogue.boutiques();
+    const comptes = Catalogue.nombreParBoutique();
+
+    let html = htmlSlider(Catalogue.slidesGeneral(), Catalogue.misEnAvantGeneral(), true);
+    html += htmlEtatCatalogue();
+
+    html += UI.titreSection("Nos boutiques");
+    html += boutiques.length
+      ? '<div class="bou-grille">' +
+          boutiques.map((b) => carteBoutique(b, comptes[b.id] || 0)).join("") +
+        "</div>"
+      : UI.vide("magasin", "Les boutiques arrivent bientôt",
+          "Elles s'afficheront ici dès leur ouverture.");
+
+    vue.innerHTML = html;
+    demarrerSlider();
+    brancherActualiser();
+  }
+
+  /** L'état du catalogue : hors ligne, démonstration… */
+  function htmlEtatCatalogue() {
+    if (Catalogue.depuisCache()) {
+      return '<div class="note-hors-ligne">' + UI.icone("alerte", "ic-sm") +
+        " Hors connexion — catalogue du " +
+        Utils.echapper(Utils.fmtDateHeure(new Date(Catalogue.versionPubliee() || 0).getTime())) + "</div>";
+    }
+    if (Catalogue.modeDemo()) {
+      return '<div class="note-hors-ligne">' + UI.icone("alerte", "ic-sm") +
+        " Catalogue de démonstration — la connexion à la boutique se règle dans l'onglet Infos.</div>";
+    }
+    return "";
+  }
+
+  function brancherActualiser() {
+    const btnActualiser = UI.$("#accueil-actualiser");
+    if (!btnActualiser) return;
+    btnActualiser.onclick = async () => {
+      btnActualiser.disabled = true;
+      btnActualiser.classList.add("tourne");
+      const change = await Live.verifier();
+      btnActualiser.disabled = false;
+      btnActualiser.classList.remove("tourne");
+      if (!change) UI.toast("Catalogue déjà à jour", "ok");
+    };
+  }
+
+  /** L'accueil d'une boutique : on y entre depuis la grille des icônes. */
+  async function boutique(vue, id) {
+    const cible = Catalogue.choisirBoutique(id);
+    if (!cible) {
+      UI.entete({ titre: "Boutique", retour: true });
+      vue.innerHTML = UI.vide("magasin", "Boutique introuvable",
+        "Elle a peut-être fermé.",
+        '<a class="btn btn-clair" href="#/">Voir les boutiques</a>');
+      return;
+    }
+    return accueilBoutique(vue, false);
+  }
+
+  async function accueilBoutique(vue, enseigne) {
+    const b = Catalogue.boutique();
+    UI.entete(enseigne
+      ? { accueil: true, actions:
+          '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
+            UI.icone("actualiser") + "</button>" +
+          '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" }
+      : { titre: b.nom, sous: b.slogan || b.description || "", retour: true, actions:
+          '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
+            UI.icone("actualiser") + "</button>" +
+          '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
 
     const slides = Catalogue.slides();
     const enAvant = Catalogue.misEnAvant();
@@ -144,17 +252,8 @@ const VueAccueil = (() => {
 
     let html = "";
 
-    html += htmlSlider(slides, enAvant);
-
-    if (Catalogue.depuisCache()) {
-      html +=
-        '<div class="note-hors-ligne">' + UI.icone("alerte", "ic-sm") +
-        " Hors connexion — catalogue du " + Utils.echapper(Utils.fmtDateHeure(new Date(Catalogue.versionPubliee() || 0).getTime())) + "</div>";
-    } else if (Catalogue.modeDemo()) {
-      html +=
-        '<div class="note-hors-ligne">' + UI.icone("alerte", "ic-sm") +
-        " Catalogue de démonstration — la connexion à la boutique se règle dans l'onglet Infos.</div>";
-    }
+    html += htmlSlider(slides, enAvant, false);
+    html += htmlEtatCatalogue();
 
     if (categories.length) {
       html += UI.titreSection("Catégories", "#/categories");
@@ -192,19 +291,8 @@ const VueAccueil = (() => {
 
     vue.innerHTML = html;
     demarrerSlider();
-
-    const btnActualiser = UI.$("#accueil-actualiser");
-    if (btnActualiser) {
-      btnActualiser.onclick = async () => {
-        btnActualiser.disabled = true;
-        btnActualiser.classList.add("tourne");
-        const change = await Live.verifier();
-        btnActualiser.disabled = false;
-        btnActualiser.classList.remove("tourne");
-        if (!change) UI.toast("Catalogue déjà à jour", "ok");
-      };
-    }
+    brancherActualiser();
   }
 
-  return { afficher, arreterSlider };
+  return { afficher, boutique, arreterSlider };
 })();

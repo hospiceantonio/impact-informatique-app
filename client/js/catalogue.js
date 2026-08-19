@@ -122,11 +122,14 @@ const Catalogue = (() => {
     const controleur = new AbortController();
     const minuterie = setTimeout(() => controleur.abort(), 15000);
     try {
-      const [boutiques, categories, produits, slides] = await Promise.all([
+      const [boutiques, categories, produits, slides, lesBoutiques] = await Promise.all([
         lireTable(c, "boutique?select=*&id=eq.1", controleur.signal),
         lireTable(c, "categories?select=*,sous_categories(*)&order=ordre.asc", controleur.signal),
         lireTable(c, "produits?select=*&order=modifie_le.desc", controleur.signal),
         lireTable(c, "slides?select=*&order=ordre.asc", controleur.signal),
+        /* Les secteurs de l'enseigne. Base pas encore mise à jour :
+           l'application retombe sur la boutique unique d'avant. */
+        lireTable(c, "boutiques?select=*&order=ordre.asc", controleur.signal).catch(() => []),
       ]);
       const b = (boutiques && boutiques[0]) || {};
       const urlImagePublique = (chemin) =>
@@ -147,8 +150,30 @@ const Catalogue = (() => {
           telephones: autresNumeros(b.telephones),
           adresses: autresAdresses(b.adresses),
         },
+        boutiques: (lesBoutiques || []).map((b2) => ({
+          id: b2.id,
+          nom: b2.nom || "",
+          secteur: b2.secteur || "",
+          slogan: b2.slogan || "",
+          description: b2.description || "",
+          icone: b2.icone || "magasin",
+          couleur: b2.couleur || "#1176D8",
+          logo: b2.logo ? urlImagePublique(b2.logo) : "",
+          actif: b2.actif !== false,
+          ordre: b2.ordre || 0,
+          tel: b2.tel || "", whatsapp: b2.whatsapp || "", indicatif: b2.indicatif || "",
+          devise: b2.devise || "", adresse: b2.adresse || "", horaires: b2.horaires || "",
+          facebook: b2.facebook || "", instagram: b2.instagram || "",
+          tiktok: b2.tiktok || "", youtube: b2.youtube || "", snapchat: b2.snapchat || "",
+          latitude: b2.latitude === null || b2.latitude === undefined ? null : Number(b2.latitude),
+          longitude: b2.longitude === null || b2.longitude === undefined ? null : Number(b2.longitude),
+          photos: (Array.isArray(b2.photos) ? b2.photos : []).map(urlImagePublique),
+          telephones: autresNumeros(b2.telephones),
+          adresses: autresAdresses(b2.adresses),
+        })),
         categories: (categories || []).map((cat) => ({
           id: cat.id,
+          boutiqueId: cat.boutique_id || "",
           nom: cat.nom,
           ordre: cat.ordre || 0,
           sousCategories: (cat.sous_categories || [])
@@ -157,6 +182,7 @@ const Catalogue = (() => {
         })),
         produits: (produits || []).map((p) => ({
           id: p.id,
+          boutiqueId: p.boutique_id || "",
           nom: p.nom,
           reference: p.reference || "",
           description: p.description || "",
@@ -176,6 +202,7 @@ const Catalogue = (() => {
         })),
         slides: (slides || []).map((s) => ({
           id: s.id,
+          boutiqueId: s.boutique_id || "",
           image: s.image ? urlImagePublique(s.image) : "",
           titre: s.titre || "",
           produitId: s.produit_id || "",
@@ -282,11 +309,66 @@ const Catalogue = (() => {
   const depuisCache = () => source === "cache";
   const modeDemo = () => source === "demo";
 
+  /* =====================================================
+     Les boutiques
+
+     L'application réunit plusieurs secteurs d'activité. L'accueil
+     les présente en icônes ; on entre dans l'une d'elles et tout
+     l'écran — rayons, produits, coordonnées — ne parle plus que
+     d'elle. Le choix se retient d'une visite à l'autre.
+     ===================================================== */
+
+  const CLE_BOUTIQUE = "impact-boutique";
+  let boutiqueId = "";
+  try { boutiqueId = localStorage.getItem(CLE_BOUTIQUE) || ""; } catch (_) { /* privée */ }
+
+  /** Les boutiques ouvertes aux clients, dans l'ordre voulu par le gérant. */
+  function boutiques() {
+    return ((donnees && donnees.boutiques) || [])
+      .filter((b) => b.actif !== false)
+      .slice()
+      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+  }
+
+  /** Une boutique par son identifiant, ouverte ou non (liens directs). */
+  const laBoutique = (id) =>
+    ((donnees && donnees.boutiques) || []).find((b) => b.id === id) || null;
+
+  /** Vrai dès que la base connaît des boutiques : sinon, on garde l'ancien mode. */
+  const multiBoutiques = () => boutiques().length > 0;
+
+  /** La boutique visitée. Sans choix valable, la première ouverte. */
+  function boutiqueChoisie() {
+    if (!multiBoutiques()) return null;
+    const choisie = boutiques().find((b) => b.id === boutiqueId);
+    return choisie || null;
+  }
+
+  function choisirBoutique(id) {
+    const cible = boutiques().find((b) => b.id === id);
+    boutiqueId = cible ? cible.id : "";
+    try {
+      if (boutiqueId) localStorage.setItem(CLE_BOUTIQUE, boutiqueId);
+      else localStorage.removeItem(CLE_BOUTIQUE);
+    } catch (_) { /* navigation privée */ }
+    return cible || null;
+  }
+
+  const quitterBoutique = () => choisirBoutique("");
+
+  /** Le filtre appliqué au catalogue : rien à filtrer en mode boutique unique. */
+  const dansLaBoutique = (x) => {
+    const b = boutiqueChoisie();
+    return !b || !x.boutiqueId || x.boutiqueId === b.id;
+  };
+
   /* ---------- Boutique ---------- */
 
   function boutique() {
-    const b = (donnees && donnees.boutique) || {};
+    /* Une boutique choisie parle en son nom ; sinon, c'est l'enseigne. */
+    const b = boutiqueChoisie() || (donnees && donnees.boutique) || {};
     return {
+      id: b.id || "",
       nom: b.nom || "IMPACT INFORMATIQUE",
       slogan: b.slogan || "Nous sommes imbattables en prix",
       description: b.description || "",
@@ -314,11 +396,14 @@ const Catalogue = (() => {
   /* ---------- Catégories ---------- */
 
   function categories() {
-    const liste = (donnees && donnees.categories) || [];
+    const liste = ((donnees && donnees.categories) || []).filter(dansLaBoutique);
     return liste.slice().sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
 
-  const categorie = (id) => categories().find((c) => c.id === id) || null;
+  /* Un lien direct vers un rayon peut arriver avant tout choix de
+     boutique : on retrouve la catégorie même hors de la boutique en cours. */
+  const toutesCategories = () => ((donnees && donnees.categories) || []).slice();
+  const categorie = (id) => toutesCategories().find((c) => c.id === id) || null;
 
   function sousCategories(categorieId) {
     const c = categorie(categorieId);
@@ -332,17 +417,22 @@ const Catalogue = (() => {
 
   /* ---------- Produits ---------- */
 
+  const normaliser = (p) => ({
+    ...p,
+    stock: stockDeLigne(p),
+    surCommande: !!p.surCommande,
+    images: Array.isArray(p.images) ? p.images : [],
+    video: p.video || "",
+  });
+
   function produits() {
-    return ((donnees && donnees.produits) || []).map((p) => ({
-      ...p,
-      stock: stockDeLigne(p),
-      surCommande: !!p.surCommande,
-      images: Array.isArray(p.images) ? p.images : [],
-      video: p.video || "",
-    }));
+    return ((donnees && donnees.produits) || []).filter(dansLaBoutique).map(normaliser);
   }
 
-  const produit = (id) => produits().find((p) => p.id === id) || null;
+  /* Comme pour les rayons : un lien direct doit ouvrir la fiche même
+     si la boutique visitée n'est pas encore la bonne. */
+  const tousProduits = () => ((donnees && donnees.produits) || []).map(normaliser);
+  const produit = (id) => tousProduits().find((p) => p.id === id) || null;
 
   /* Les trois états d'un produit, tels que le client les voit. */
   const STATUTS = {
@@ -384,11 +474,46 @@ const Catalogue = (() => {
 
   /* ---------- Slider ---------- */
 
-  /** Les images que la boutique fait défiler sur l'accueil, dans son ordre. */
+  /** Les images que la boutique visitée fait défiler, dans son ordre. */
   function slides() {
     return ((donnees && donnees.slides) || [])
-      .filter((s) => s.actif !== false && s.image)
+      .filter((s) => s.actif !== false && s.image && dansLaBoutique(s))
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+  }
+
+  /**
+   * Le slider de l'accueil : les images de TOUTES les boutiques ouvertes,
+   * boutique par boutique dans l'ordre d'affichage, puis leur ordre à
+   * elles. Chaque image sait d'où elle vient, pour mener au bon rayon.
+   */
+  function slidesGeneral() {
+    const rangs = {};
+    boutiques().forEach((b, i) => { rangs[b.id] = i; });
+    return ((donnees && donnees.slides) || [])
+      .filter((s) => s.actif !== false && s.image && (!s.boutiqueId || rangs[s.boutiqueId] !== undefined))
+      .sort((a, b) =>
+        (rangs[a.boutiqueId] || 0) - (rangs[b.boutiqueId] || 0) ||
+        (a.ordre || 0) - (b.ordre || 0));
+  }
+
+  /** Les produits mis en avant de toutes les boutiques ouvertes. */
+  function misEnAvantGeneral() {
+    const rangs = {};
+    boutiques().forEach((b, i) => { rangs[b.id] = i; });
+    return tousProduits()
+      .filter((p) => p.enAvant && (!p.boutiqueId || rangs[p.boutiqueId] !== undefined))
+      .sort((a, b) =>
+        (rangs[a.boutiqueId] || 0) - (rangs[b.boutiqueId] || 0) ||
+        (a.ordreAvant || 0) - (b.ordreAvant || 0));
+  }
+
+  /** Combien de produits dans chaque boutique — affiché sous son icône. */
+  function nombreParBoutique() {
+    const table = {};
+    for (const p of tousProduits()) {
+      if (p.boutiqueId) table[p.boutiqueId] = (table[p.boutiqueId] || 0) + 1;
+    }
+    return table;
   }
 
   /** Les produits mis en avant, qui défilent à la suite des images. */
@@ -453,9 +578,12 @@ const Catalogue = (() => {
     charger, rafraichir, pret, depuisCache, modeDemo,
     estConfigure, majConfiguration, configuration,
     boutique, versionPubliee,
+    boutiques, laBoutique, multiBoutiques, boutiqueChoisie, choisirBoutique,
+    quitterBoutique, nombreParBoutique,
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
-    slides, misEnAvant, nouveautes, promotions, rechercher, similaires,
+    slides, slidesGeneral, misEnAvant, misEnAvantGeneral,
+    nouveautes, promotions, rechercher, similaires,
     urlImage, imagePrincipale, statut, STATUTS,
     signature, signalerAndroid,
   };

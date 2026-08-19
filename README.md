@@ -1,24 +1,29 @@
-# IMPACT INFORMATIQUE — Applications mobiles
+# IMPACT — Applications mobiles
 
-Deux applications Android pour la boutique **IMPACT INFORMATIQUE**
-(« Nous sommes imbattables en prix »), reliées à une base **Supabase**
-partagée en temps réel :
+Deux applications Android pour l'enseigne **IMPACT**, reliées à une base
+**Supabase** partagée en temps réel :
 
-- **Impact Admin** (icône rouge) : l'application du gérant. Produits avec
-  photos, vidéo, prix et promotions, catégories et sous-catégories, et le
-  **slider** — ses propres images, puis les produits mis en avant. Tout
-  est enregistré directement en ligne.
+- **Impact Admin** (icône rouge) : l'application du gérant. Boutiques,
+  produits avec photos, vidéo, prix grossiste et prix public, catégories
+  et sous-catégories, et le **slider** — ses propres images, puis les
+  produits mis en avant. Tout est enregistré directement en ligne.
 - **Impact Informatique** (icône bleue) : l'application des clients.
-  Slider de la boutique, rayons par catégorie et
+  Slider de l'enseigne, **boutiques en icônes**, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit et **commande par
   WhatsApp**. Mise à jour en temps réel, consultable hors connexion.
+
+**Plusieurs boutiques.** L'enseigne couvre plusieurs secteurs
+d'activité — informatique, cosmétiques, etc. Chaque boutique a son
+catalogue, ses rayons, son slider et ses coordonnées. Le client voit
+d'abord le slider de l'enseigne, puis les boutiques en icônes ; il entre
+dans l'une d'elles et tout l'écran ne parle plus que d'elle.
 
 ```
 Impact Admin (téléphone du gérant, connexion email + mot de passe)
     │  écrit directement dans la base
     ▼
-Supabase  →  tables boutique / categories / sous_categories / produits
-             / slides / profils / journal
+Supabase  →  tables boutiques / categories / sous_categories / produits
+             / produits_prive / slides / profils / journal
              + stockage des photos (lecture publique, écriture protégée)
     │  lu en direct
     ▼
@@ -106,14 +111,14 @@ impact-informatique-app/
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion
 │       ├── ui.js             # Logo, cartes produit, prix, badges
-│       └── vues/             # Accueil (slider), catégories, produit, recherche, infos
+│       └── vues/             # Accueil (slider + boutiques), catégories, produit, recherche, infos
 ├── admin/                    # Application du gérant (rouge)
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
-│       └── vues/             # Connexion, accueil, produits, catégories, réglages
+│       └── vues/             # Connexion, accueil, boutiques, produits, catégories, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application
@@ -281,6 +286,41 @@ impact-informatique-app/
   n'est annoncé deux fois. La permission est demandée au premier
   lancement (Android 13+) ; l'app admin, elle, n'en reçoit aucune
   (`notifications_actives` à `false` dans sa variante).
+- **Plusieurs boutiques** (table `boutiques`) : un secteur d'activité par
+  boutique, chacune avec son nom, son icône, sa couleur, son logo
+  facultatif, ses coordonnées, ses photos, sa marge — et son propre
+  catalogue (`produits.boutique_id`, `categories.boutique_id`,
+  `slides.boutique_id`). **Seul l'administrateur** en crée, en modifie ou
+  en ferme (`boutiques` : lecture publique, écriture `est_admin()`). Une
+  boutique **fermée** garde tout son contenu mais disparaît de
+  l'application client.
+  Côté admin, une **boutique ouverte** à la fois : produits, rayons,
+  slider et réglages ne parlent que d'elle, et l'accueil l'affiche en
+  bandeau. L'administrateur en change dans **Réglages → Gérer les
+  boutiques** (le choix se retient dans `localStorage`) ; le modérateur
+  est verrouillé sur la sienne (`profils.boutique_id`, choisie à la
+  création du compte).
+  La serrure est en base, pas seulement à l'écran : `peut_agir_sur(id)`
+  — administrateur partout, modérateur dans sa boutique — garde les
+  produits, les rayons, les sous-catégories et les prix d'achat. Un
+  modérateur qui s'adresse directement à la base pour un produit d'un
+  autre secteur se fait refuser, et ne voit pas non plus les marges du
+  voisin.
+  Les références produit (`IMP-0001`…) se numérotent sur **toutes** les
+  boutiques : deux produits de secteurs différents ne portent jamais le
+  même numéro, sinon une commande WhatsApp deviendrait ambiguë.
+  Côté client, l'accueil montre **le slider d'abord** — les images et
+  les produits mis en avant de toutes les boutiques ouvertes, boutique
+  par boutique — puis la grille des **icônes**. On entre dans une
+  boutique (`#/boutique/:id`) et rayons, recherche et infos ne parlent
+  plus que d'elle ; un bandeau rappelle laquelle et ramène aux autres.
+  Un lien direct — produit partagé sur WhatsApp, rayon mis en favori —
+  ouvre la bonne boutique tout seul : elle se déduit de ce qui est
+  affiché.
+  Migration : la ligne `boutique` d'origine devient
+  « INFORMATIQUE ET ELECTRONIQUE » avec tous ses réglages, et tout le
+  catalogue existant y est rangé. Tant que la table n'existe pas, les
+  deux applications retombent sur le fonctionnement à boutique unique.
 - Deux rôles dans l'app admin (table `profils`) : **administrateur** —
   toute l'application, et lui seul crée les comptes ; **modérateur** —
   produits et catégories, sans réglages, ni comptes, ni historique, ni

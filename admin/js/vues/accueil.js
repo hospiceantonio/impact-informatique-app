@@ -21,6 +21,24 @@ const VueAccueil = (() => {
 
     let html = "";
 
+    /* ---- La boutique sur laquelle on travaille ----
+       Avec plusieurs secteurs, il faut savoir en un coup d'œil où l'on
+       est : tout ce qui suit ne concerne que cette boutique-là. */
+    const courante = Store.boutiqueCourante();
+    if (courante) {
+      html +=
+        '<a class="carte carte-boutique-active"' +
+          (admin ? ' href="#/boutiques"' : "") + ">" +
+          VueBoutiques.pastille(courante) +
+          "<span><strong>" + Utils.echapper(courante.nomBoutique) + "</strong><br>" +
+          "<small>" + (admin
+            ? "Boutique ouverte — touchez pour en changer"
+            : Utils.echapper(courante.secteur || "Votre boutique")) +
+          (courante.actif ? "" : " · fermée aux clients") + "</small></span>" +
+          (admin ? UI.icone("chevron", "ic-sm") : "") +
+        "</a>";
+    }
+
     /* ---- Chiffres clés ---- */
     html +=
       '<div class="stats">' +

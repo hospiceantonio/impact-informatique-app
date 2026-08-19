@@ -221,6 +221,14 @@ const Store = (() => {
 
   function boutiqueDepuisLigne(l) {
     return {
+      id: l.id || "",
+      secteur: l.secteur || "",
+      icone: l.icone || "magasin",
+      couleur: l.couleur || "#1176D8",
+      logo: l.logo || "",
+      logoUrl: l.logo ? Supabase.urlImage(l.logo) : "",
+      actif: l.actif !== false,
+      ordre: l.ordre || 0,
       nomBoutique: l.nom || BOUTIQUE_DEFAUT.nomBoutique,
       slogan: l.slogan || BOUTIQUE_DEFAUT.slogan,
       description: l.description || "",
@@ -246,6 +254,177 @@ const Store = (() => {
     };
   }
 
+  /* =====================================================
+     Les boutiques
+
+     L'application couvre plusieurs secteurs : une boutique par
+     secteur, chacune avec son catalogue, ses rayons et son slider.
+     L'administrateur passe de l'une à l'autre ; le modérateur reste
+     dans la sienne, sans même savoir que les autres existent.
+     ===================================================== */
+
+  const CLE_BOUTIQUE = "impact-admin-boutique";
+
+  let boutiques = [];        // toutes les boutiques, dans l'ordre
+  let boutiqueId = "";       // celle sur laquelle on travaille
+
+  async function chargerBoutiques() {
+    const lignes = await Supabase.requete("GET", "boutiques?select=*&order=ordre.asc,cree_le.asc");
+    boutiques = (lignes || []).map(boutiqueDepuisLigne);
+    return boutiques;
+  }
+
+  const listerBoutiques = () => boutiques.map((b) => ({ ...b }));
+  const boutiqueCourante = () => boutiques.find((b) => b.id === boutiqueId) || null;
+  const lireBoutique = (id) => boutiques.find((b) => b.id === id) || null;
+
+  /**
+   * Choisit la boutique sur laquelle on travaille. Un modérateur ne peut
+   * pas en sortir : la base le lui refuserait de toute façon.
+   */
+  function choisirBoutique(id) {
+    const cible = lireBoutique(id);
+    if (!cible) throw new Error("Cette boutique n'existe plus.");
+    if (!Supabase.estAdmin() && cible.id !== Supabase.boutiqueDuCompte()) {
+      throw new Error("Votre compte ne gère que la boutique « " +
+        ((lireBoutique(Supabase.boutiqueDuCompte()) || {}).nomBoutique || "qui lui est confiée") + " ».");
+    }
+    boutiqueId = cible.id;
+    reglages = { ...cible };
+    try { localStorage.setItem(CLE_BOUTIQUE, boutiqueId); } catch (_) { /* navigation privée */ }
+    return reglages;
+  }
+
+  /** La boutique retenue au démarrage : celle du compte, ou la dernière ouverte. */
+  function boutiqueDeDepart() {
+    const duCompte = Supabase.boutiqueDuCompte();
+    if (duCompte && lireBoutique(duCompte)) return duCompte;
+    if (!Supabase.estAdmin() && Supabase.rolesActifs()) return "";
+    let memorisee = "";
+    try { memorisee = localStorage.getItem(CLE_BOUTIQUE) || ""; } catch (_) { /* sans importance */ }
+    if (memorisee && lireBoutique(memorisee)) return memorisee;
+    return (boutiques[0] || {}).id || "";
+  }
+
+  function ligneDepuisBoutique(b) {
+    return {
+      nom: b.nomBoutique,
+      secteur: b.secteur || "",
+      slogan: b.slogan || "",
+      description: b.description || "",
+      icone: b.icone || "magasin",
+      couleur: b.couleur || "#1176D8",
+      logo: b.logo || "",
+      actif: b.actif !== false,
+      ordre: b.ordre || 0,
+      tel: b.tel || "",
+      whatsapp: b.whatsapp || "",
+      indicatif: b.indicatif || "229",
+      devise: b.devise || "FCFA",
+      adresse: b.adresse || "",
+      horaires: b.horaires || "",
+      facebook: b.facebook || "",
+      instagram: b.instagram || "",
+      tiktok: b.tiktok || "",
+      youtube: b.youtube || "",
+      snapchat: b.snapchat || "",
+      latitude: b.latitude === undefined ? null : b.latitude,
+      longitude: b.longitude === undefined ? null : b.longitude,
+      photos: b.photos || [],
+      telephones: b.telephones || [],
+      adresses: b.adresses || [],
+      taux_marge: b.tauxMarge === undefined ? 20 : b.tauxMarge,
+      maj_le: new Date().toISOString(),
+    };
+  }
+
+  /** Crée une boutique ou modifie son identité. Réservé à l'administrateur. */
+  async function sauverBoutique(donnees) {
+    const nom = (donnees.nomBoutique || "").trim();
+    if (!nom) throw new Error("Le nom de la boutique est obligatoire.");
+    const existante = donnees.id ? lireBoutique(donnees.id) : null;
+
+    /* Logo : une image neuve part au stockage, sinon on garde l'ancienne. */
+    let logo = existante ? existante.logo : "";
+    if (donnees.logo && donnees.logo.dataUrl) {
+      logo = "boutiques/" + Utils.uid("bou") + ".jpg";
+      await Supabase.televerserImage(logo, donnees.logo.dataUrl);
+    } else if (donnees.logo === null) {
+      logo = "";
+    }
+
+    const boutique = {
+      ...(existante || { ...BOUTIQUE_DEFAUT, actif: true }),
+      ...donnees,
+      logo,
+      nomBoutique: nom,
+      id: existante ? existante.id : Utils.uid("bou"),
+      ordre: existante ? existante.ordre
+        : boutiques.reduce((m, b) => Math.max(m, b.ordre || 0), 0) + 1,
+    };
+
+    const ligne = ligneDepuisBoutique(boutique);
+    if (existante) {
+      await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutique.id), ligne);
+      journaliser("boutique", "modification", "Boutique modifiée : " + nom, nom);
+    } else {
+      await Supabase.requete("POST", "boutiques", { id: boutique.id, ...ligne,
+        cree_le: new Date().toISOString() });
+      journaliser("boutique", "ajout", "Nouvelle boutique : " + nom, nom);
+    }
+
+    await chargerBoutiques();
+    if (boutiqueId === boutique.id) reglages = { ...(lireBoutique(boutiqueId) || reglages) };
+    return lireBoutique(boutique.id);
+  }
+
+  /** Ouvre ou ferme une boutique : fermée, elle disparaît de l'app client. */
+  async function basculerBoutique(id) {
+    const b = lireBoutique(id);
+    if (!b) throw new Error("Cette boutique n'existe plus.");
+    const actif = !b.actif;
+    await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(id),
+      { actif, maj_le: new Date().toISOString() });
+    journaliser("boutique", actif ? "activation" : "desactivation",
+      (actif ? "Boutique ouverte : " : "Boutique fermée : ") + b.nomBoutique, b.nomBoutique);
+    await chargerBoutiques();
+    if (boutiqueId === id) reglages = { ...(lireBoutique(id) || reglages) };
+    return lireBoutique(id);
+  }
+
+  /** Monte ou descend une boutique dans l'ordre d'affichage du client. */
+  async function deplacerBoutique(id, sens) {
+    const liste = boutiques.slice().sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+    const i = liste.findIndex((b) => b.id === id);
+    const j = i + (sens === "haut" ? -1 : 1);
+    if (i < 0 || j < 0 || j >= liste.length) return listerBoutiques();
+    const tmp = liste[i]; liste[i] = liste[j]; liste[j] = tmp;
+    for (let k = 0; k < liste.length; k++) {
+      if (liste[k].ordre !== k + 1) {
+        await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(liste[k].id),
+          { ordre: k + 1 });
+      }
+    }
+    return chargerBoutiques();
+  }
+
+  /**
+   * Supprime une boutique : son catalogue, ses rayons et son slider
+   * partent avec elle (la base s'en charge en cascade).
+   */
+  async function supprimerBoutique(id) {
+    const b = lireBoutique(id);
+    if (!b) throw new Error("Cette boutique n'existe plus.");
+    if (boutiques.length <= 1) {
+      throw new Error("C'est la dernière boutique : l'application doit en garder au moins une.");
+    }
+    await Supabase.requete("DELETE", "boutiques?id=eq." + encodeURIComponent(id));
+    journaliser("boutique", "suppression", "Boutique supprimée : " + b.nomBoutique, b.nomBoutique);
+    await chargerBoutiques();
+    if (boutiqueId === id) choisirBoutique((boutiques[0] || {}).id);
+    return listerBoutiques();
+  }
+
   /* ---------- Démarrage ---------- */
 
   async function init() {
@@ -255,6 +434,21 @@ const Store = (() => {
       throw err;
     }
     await Supabase.chargerProfil();   // le rôle du compte : ce qu'il a le droit de faire
+    try {
+      await chargerBoutiques();
+    } catch (err) {
+      /* Base pas encore mise à jour : on retombe sur la boutique unique. */
+      if (!/boutiques|does not exist|mise à jour de la base/i.test(err.message || "")) throw err;
+      boutiques = [];
+    }
+    if (boutiques.length) {
+      const depart = boutiqueDeDepart();
+      if (depart) {
+        boutiqueId = depart;
+        reglages = { ...lireBoutique(depart) };
+      }
+      return;
+    }
     const lignes = await Supabase.requete("GET", "boutique?select=*&id=eq.1");
     if (lignes && lignes.length) reglages = boutiqueDepuisLigne(lignes[0]);
   }
@@ -273,6 +467,7 @@ const Store = (() => {
       role: l.role === "administrateur" ? "administrateur" : "moderateur",
       actif: l.actif !== false,
       peutModifier: l.peut_modifier_produits !== false,
+      boutiqueId: l.boutique_id || "",
       creeLe: versMs(l.cree_le),
     };
   }
@@ -288,16 +483,26 @@ const Store = (() => {
    * déjà — la base la pose à la création du compte — il ne reste qu'à
    * l'activer et à inscrire le rôle voulu.
    */
-  async function creerCompte(email, motDePasse, role) {
+  async function creerCompte(email, motDePasse, role, boutiqueRattachee) {
     const adresse = String(email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
     if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
     if (!ROLES[role]) throw new Error("Choisissez le rôle du compte.");
 
+    /* Un modérateur travaille dans une boutique et une seule ;
+       un administrateur les gère toutes, il n'en porte donc aucune. */
+    let attachee = null;
+    if (role === "moderateur" && boutiques.length) {
+      attachee = boutiqueRattachee || "";
+      if (!attachee) throw new Error("Choisissez la boutique confiée à ce modérateur.");
+      if (!lireBoutique(attachee)) throw new Error("Cette boutique n'existe plus.");
+    }
+
     const cree = await Supabase.creerCompte(adresse, motDePasse);
-    const fiche = { id: cree.id, email: adresse, role, actif: true };
+    const fiche = { id: cree.id, email: adresse, role, actif: true, boutique_id: attachee };
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
-    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse, adresse);
+    const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")" : "";
+    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse + ou, adresse);
     return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
   }
 
@@ -308,6 +513,10 @@ const Store = (() => {
       ligne.peut_modifier_produits = !!maj.peutModifier;
       delete ligne.peutModifier;
     }
+    if (maj.boutiqueId !== undefined) {
+      ligne.boutique_id = maj.boutiqueId || null;
+      delete ligne.boutiqueId;
+    }
     const lignes = await Supabase.requete("PATCH", "profils?id=eq." + encodeURIComponent(id), ligne);
     const c = compteDepuisLigne((lignes || [])[0] || { id, ...ligne });
     if (maj.role) {
@@ -316,6 +525,9 @@ const Store = (() => {
     } else if (maj.actif !== undefined) {
       journaliser("compte", maj.actif ? "activation" : "desactivation",
         (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email);
+    } else if (maj.boutiqueId !== undefined) {
+      const nom = (lireBoutique(maj.boutiqueId) || {}).nomBoutique || "toutes les boutiques";
+      journaliser("compte", "modification", c.email + " s'occupe de " + nom, c.email);
     } else if (maj.peutModifier !== undefined) {
       journaliser("compte", "modification",
         (maj.peutModifier
@@ -385,7 +597,35 @@ const Store = (() => {
 
   const lireReglages = () => ({ ...reglages });
 
+  /** Le filtre « seulement ma boutique », ajouté à chaque lecture. */
+  const filtreBoutique = () =>
+    (boutiqueId ? "boutique_id=eq." + encodeURIComponent(boutiqueId) : "");
+
   async function majReglages(maj, libelleJournal) {
+    /* Depuis les boutiques multiples, les réglages sont ceux de la
+       boutique ouverte : on écrit dans sa ligne à elle. */
+    if (boutiqueId) {
+      const propre = { ...maj };
+      if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
+      if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
+      if (maj.tauxMarge !== undefined) {
+        const taux = lireTaux(maj.tauxMarge);
+        if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
+        propre.tauxMarge = taux;
+      }
+      reglages = { ...reglages, ...propre };
+      await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutiqueId),
+        ligneDepuisBoutique(reglages));
+      const index = boutiques.findIndex((b) => b.id === boutiqueId);
+      if (index >= 0) boutiques[index] = { ...reglages };
+      if (libelleJournal) journaliser("boutique", "modification", libelleJournal, reglages.nomBoutique);
+      return lireReglages();
+    }
+    return majReglagesUnique(maj, libelleJournal);
+  }
+
+  /** Ancienne base, boutique unique : on écrit dans la ligne « boutique ». */
+  async function majReglagesUnique(maj, libelleJournal) {
     const propre = { ...maj };
     if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
     if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
@@ -458,7 +698,8 @@ const Store = (() => {
 
   async function listerCategories() {
     const lignes = await Supabase.requete("GET",
-      "categories?select=*,sous_categories(*)&order=ordre.asc");
+      "categories?select=*,sous_categories(*)&order=ordre.asc" +
+      (filtreBoutique() ? "&" + filtreBoutique() : ""));
     return (lignes || []).map((c) => ({
       id: c.id,
       nom: c.nom,
@@ -489,7 +730,9 @@ const Store = (() => {
     if (existante) {
       await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(id), { nom, ordre });
     } else {
-      await Supabase.requete("POST", "categories", { id, nom, ordre });
+      /* Un rayon appartient à la boutique ouverte. */
+      await Supabase.requete("POST", "categories",
+        boutiqueId ? { id, boutique_id: boutiqueId, nom, ordre } : { id, nom, ordre });
     }
 
     /* Sous-catégories : aligner la base sur la liste finale. */
@@ -556,7 +799,8 @@ const Store = (() => {
    * laisse alors de côté plutôt que de bloquer tout le catalogue.
    */
   async function lignesProduits(suite) {
-    const fin = suite ? "&" + suite : "";
+    const morceaux = [suite, filtreBoutique()].filter(Boolean);
+    const fin = morceaux.length ? "&" + morceaux.join("&") : "";
     if (prixAchatEnBase) {
       try {
         return await Supabase.requete("GET", "produits?select=*,produits_prive(*)" + fin,
@@ -594,11 +838,16 @@ const Store = (() => {
   }
 
   /** Prochaine référence libre au format IMP-0001, IMP-0002… */
+  /**
+   * La prochaine référence libre. Elle se compte sur TOUTES les boutiques :
+   * deux produits de rayons différents ne doivent jamais porter le même
+   * numéro, sinon une commande WhatsApp devient ambiguë.
+   */
   async function prochaineReference() {
-    const produits = await listerProduits();
+    const lignes = await Supabase.requete("GET", "produits?select=reference");
     let max = 0;
-    for (const p of produits) {
-      const m = /^IMP-(\d+)$/i.exec((p.reference || "").trim());
+    for (const l of lignes || []) {
+      const m = /^IMP-(\d+)$/i.exec(String(l.reference || "").trim());
       if (m) max = Math.max(max, parseInt(m[1], 10));
     }
     return "IMP-" + String(max + 1).padStart(4, "0");
@@ -735,6 +984,8 @@ const Store = (() => {
         produit.reference || produit.nom);
     } else {
       ligne.cree_le = new Date().toISOString();
+      /* Le produit naît dans la boutique ouverte, et n'en bougera plus. */
+      if (boutiqueId) ligne.boutique_id = boutiqueId;
       lignes = await Supabase.requete("POST", "produits", ligne);
       journaliser("produit", "ajout",
         "Nouveau produit : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
@@ -896,7 +1147,8 @@ const Store = (() => {
   }
 
   async function listerSlides() {
-    const lignes = await Supabase.requete("GET", "slides?select=*&order=ordre.asc");
+    const lignes = await Supabase.requete("GET", "slides?select=*&order=ordre.asc" +
+      (filtreBoutique() ? "&" + filtreBoutique() : ""));
     return (lignes || []).map(slideDepuisLigne);
   }
 
@@ -929,6 +1181,9 @@ const Store = (() => {
       ordre: existant ? existant.ordre : liste.reduce((m, s) => Math.max(m, s.ordre || 0), 0) + 1,
       actif: donnees.actif !== false,
     };
+    /* Le slider appartient à la boutique ouverte : l'accueil du client
+       réunit ensuite ceux de toutes les boutiques ouvertes. */
+    if (boutiqueId) slide.boutique_id = boutiqueId;
     const lignes = await Supabase.requete("POST", "slides?on_conflict=id", slide, { upsert: true });
 
     /* L'ancienne image ne sert plus à rien : on libère la place. */
@@ -1112,6 +1367,8 @@ const Store = (() => {
     MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES,
     prixPublic, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
+    listerBoutiques, lireBoutique, boutiqueCourante, choisirBoutique,
+    sauverBoutique, basculerBoutique, deplacerBoutique, supprimerBoutique,
     journaliser, lireJournal,
     listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,

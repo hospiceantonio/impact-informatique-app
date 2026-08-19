@@ -162,6 +162,8 @@ const Supabase = (() => {
         id: l.id, email: l.email || "", role: l.role, actif: l.actif !== false,
         /* Colonne absente d'une base pas encore mise à jour : on n'enlève rien. */
         peutModifier: l.peut_modifier_produits !== false,
+        /* Boutique du modérateur ; vide pour un administrateur. */
+        boutiqueId: l.boutique_id || "",
       };
     }
     return profil;
@@ -174,6 +176,8 @@ const Supabase = (() => {
   /** Retoucher un produit déjà au catalogue : l'administrateur toujours,
       le modérateur si l'administrateur le lui a accordé. */
   const peutModifierProduits = () => estAdmin() || !!(profil && profil.peutModifier);
+  /** La boutique confiée au compte. Vide pour un administrateur : il les gère toutes. */
+  const boutiqueDuCompte = () => (estAdmin() ? "" : (profil && profil.boutiqueId) || "");
   /** Membre actif de l'équipe : sans fiche active, aucune écriture n'est permise. */
   const compteActif = () => !rolesEnBase || !!(profil && profil.actif);
 
@@ -405,7 +409,8 @@ const Supabase = (() => {
   return {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
-    chargerProfil, compte, role, estAdmin, peutModifierProduits, compteActif, rolesActifs,
+    chargerProfil, compte, role, estAdmin, peutModifierProduits, boutiqueDuCompte,
+    compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };

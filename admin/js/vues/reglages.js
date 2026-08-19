@@ -160,10 +160,26 @@ const VueReglages = (() => {
     const configEnDur = typeof CONFIG !== "undefined" && !!CONFIG.SUPABASE_URL;
     const configActuelle = Supabase.configuration() || { url: "", cle: "" };
 
+    const boutiques = Store.listerBoutiques();
+    const courante = Store.boutiqueCourante();
+
     vue.innerHTML =
+      /* ---------- Les boutiques de l'enseigne ---------- */
+      (boutiques.length
+        ? '<div class="carte">' +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Boutiques (" + boutiques.length + ")</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">L\'application couvre plusieurs secteurs. ' +
+              "Tout ce qui suit — coordonnées, réseaux, photos, marge — concerne la boutique ouverte : " +
+              "<strong>" + Utils.echapper((courante || {}).nomBoutique || "—") + "</strong>.</p>" +
+            '<a class="btn" href="#/boutiques">' + UI.icone("magasin") +
+              "Gérer les boutiques</a>" +
+          "</div>"
+        : "") +
+
       /* ---------- Boutique ---------- */
       '<div class="carte">' +
-        '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " La boutique</div>" +
+        '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " " +
+          Utils.echapper((courante || {}).nomBoutique || "La boutique") + "</div>" +
         '<p class="aide" style="margin:0 0 12px">Ces informations s\'affichent dans l\'application client ' +
           "(contact, WhatsApp de commande…). Elles sont mises à jour immédiatement.</p>" +
         UI.champTexte({ id: "r-nom", label: "Nom", valeur: r.nomBoutique, obligatoire: true }) +

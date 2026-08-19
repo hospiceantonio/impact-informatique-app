@@ -356,8 +356,27 @@ const UI = (() => {
     );
   }
 
+  /**
+   * Le bandeau « vous êtes dans telle boutique », posé en haut des
+   * écrans qui ne parlent que d'elle. Il ramène aux autres boutiques.
+   */
+  function bandeauBoutique() {
+    const b = Catalogue.boutiqueChoisie();
+    if (!b) return "";
+    return (
+      '<a class="bou-bandeau" href="#/">' +
+        (b.logo
+          ? '<span class="bou-rond bou-rond-photo"><img src="' + e(b.logo) + '" alt=""></span>'
+          : '<span class="bou-rond" style="background:' + e(b.couleur) + '">' + icone(b.icone) + "</span>") +
+        "<span><strong>" + e(b.nom) + "</strong>" +
+          "Changer de boutique</span>" +
+        icone("chevron", "ic-sm") +
+      "</a>"
+    );
+  }
+
   return {
-    $, $$, entete, icone, marque, logo, toast,
+    $, $$, entete, icone, marque, logo, toast, bandeauBoutique,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,

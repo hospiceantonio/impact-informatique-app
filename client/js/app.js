@@ -8,6 +8,7 @@ const App = { evenementInstallation: null };
 
   const ROUTES = [
     { motif: /^\/$/, vue: (v) => VueAccueil.afficher(v), onglet: "/" },
+    { motif: /^\/boutique\/([^/]+)$/, vue: (v, m) => VueAccueil.boutique(v, m[1]), onglet: "/" },
     { motif: /^\/categories$/, vue: (v) => VueCategories.liste(v), onglet: "/categories" },
     { motif: /^\/categorie\/([^/]+)$/, vue: (v, m, p) => VueCategories.rayon(v, m[1], p), onglet: "/categories" },
     { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v) },
@@ -103,6 +104,7 @@ const App = { evenementInstallation: null };
       location.hash = "#/";
       return;
     }
+    reglerBoutique(chemin);
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
@@ -123,6 +125,35 @@ const App = { evenementInstallation: null };
       const memorisee = retourEnArriere ? positions.get(ecran) : 0;
       if (memorisee) restaurerHauteur(memorisee);
       else window.scrollTo(0, 0);
+    }
+  }
+
+  /* ---------- La boutique du moment ----------
+     Un lien direct — un produit partagé sur WhatsApp, un rayon mis en
+     favori — doit ouvrir le bon écran même si le client visitait une
+     autre boutique. On déduit donc la boutique de ce qui est affiché ;
+     et si rien ne l'indique, on entre dans la première ouverte plutôt
+     que de laisser un écran vide. */
+
+  function reglerBoutique(chemin) {
+    if (!Catalogue.multiBoutiques()) return;
+
+    const produit = /^\/produit\/([^/]+)$/.exec(chemin);
+    if (produit) {
+      const p = Catalogue.produit(produit[1]);
+      if (p && p.boutiqueId) Catalogue.choisirBoutique(p.boutiqueId);
+    }
+    const rayon = /^\/categorie\/([^/]+)$/.exec(chemin);
+    if (rayon) {
+      const c = Catalogue.categorie(rayon[1]);
+      if (c && c.boutiqueId) Catalogue.choisirBoutique(c.boutiqueId);
+    }
+
+    /* Les onglets Catégories, Recherche et Infos parlent forcément
+       d'une boutique : à défaut de choix, ce sera la première. */
+    if (/^\/(categories|recherche|infos|promos)$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
+      const premiere = Catalogue.boutiques()[0];
+      if (premiere) Catalogue.choisirBoutique(premiere.id);
     }
   }
 

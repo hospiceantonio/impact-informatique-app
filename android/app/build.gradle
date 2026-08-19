@@ -9,8 +9,8 @@ android {
     defaultConfig {
         minSdk 24
         targetSdk 35
-        versionCode 28
-        versionName "2.9.1"
+        versionCode 29
+        versionName "3.0.0"
     }
 
     // Deux applications à partir du même code : client (bleue) et admin (rouge).

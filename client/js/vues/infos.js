@@ -8,7 +8,7 @@ const VueInfos = (() => {
     const b = Catalogue.boutique();
     UI.entete({ titre: "Infos boutique", sous: b.slogan });
 
-    let html = "";
+    let html = UI.bandeauBoutique();
 
     html +=
       '<div class="carte carte-boutique">' +
