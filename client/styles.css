@@ -350,6 +350,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .badge-avant{background:#FFF3D6;color:#9A6B00}
 .badge-promo{background:var(--rouge);color:#fff}
+.badge-flash{background:#FFF1E0;color:#B45309}
+.flash-echeance{
+  display:flex;align-items:center;gap:7px;
+  margin:10px 0 2px;padding:9px 12px;border-radius:var(--r-sm);
+  background:#FFF1E0;color:#B45309;
+  font-size:12.5px;font-weight:700;
+}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
 
 /* Les trois états d'un produit : le vert rassure, le rouge qui bat

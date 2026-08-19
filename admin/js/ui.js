@@ -228,6 +228,7 @@ const UI = (() => {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
     if (p.enAvant) html += '<span class="badge badge-avant">' + icone("etoile", "ic-sm") + "En avant</span>";
+    if (Store.enVenteFlash(p)) html += '<span class="badge badge-flash">' + icone("energie", "ic-sm") + "Vente flash</span>";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
     const etat = Store.statut(p);
     if (etat !== "disponible") {

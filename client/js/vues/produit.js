@@ -4,6 +4,18 @@
    ========================================================= */
 const VueProduit = (() => {
 
+  /** « dans 2 j 4 h », « dans 3 h 12 min », « dans 40 min ». */
+  function dansCombien(ms) {
+    const reste = Math.max(0, ms - Date.now());
+    const minutes = Math.round(reste / 60000);
+    if (minutes < 60) return "dans " + Math.max(1, minutes) + " min";
+    const heures = Math.floor(minutes / 60);
+    if (heures < 24) return "dans " + heures + " h" + (minutes % 60 ? " " + (minutes % 60) + " min" : "");
+    const jours = Math.floor(heures / 24);
+    return "dans " + jours + " j" + (heures % 24 ? " " + (heures % 24) + " h" : "");
+  }
+
+
   /** "IMP-0002-imprimante-epson-l3250-1.jpg" */
   function nomPhoto(p, rang) {
     const debut = p.reference ? Utils.versNomFichier(p.reference) + "-" : "";
@@ -97,8 +109,15 @@ const VueProduit = (() => {
             (etat === "disponible" ? UI.icone("check", "ic-sm") : "") +
             Catalogue.STATUTS[etat].nom + "</span>" +
           (remise !== null ? '<span class="badge badge-promo">Promotion -' + remise + " %</span>" : "") +
+          (Catalogue.enVenteFlash(p)
+            ? '<span class="badge badge-flash">' + UI.icone("energie", "ic-sm") + "Vente flash</span>"
+            : "") +
           (p.enAvant ? '<span class="badge badge-avant">' + UI.icone("etoile", "ic-sm") + "Sélection</span>" : "") +
         "</div>" +
+        (Catalogue.enVenteFlash(p)
+          ? '<div class="flash-echeance">' + UI.icone("horloge", "ic-sm") +
+            " Vente flash — se termine " + Utils.echapper(dansCombien(p.flashFin)) + "</div>"
+          : "") +
         '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
         (p.reference ? '<div class="fiche-reference">Réf. ' + Utils.echapper(p.reference) + "</div>" : "") +
         UI.prixHtml(p, { grand: true }) +

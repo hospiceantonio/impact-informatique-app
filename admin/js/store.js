@@ -123,6 +123,32 @@ const Store = (() => {
     return p.stock > 0 ? "disponible" : "rupture";
   }
 
+  /** En vente flash : une date de fin posée, et pas encore passée. */
+  const enVenteFlash = (p) => !!(p && p.flashFin && p.flashFin > Date.now());
+
+  /**
+   * Place le produit en vente flash jusqu'à `fin` (Date ou ms), ou l'en
+   * retire (`fin` à null). La disparition à l'échéance est automatique :
+   * le client ignore toute date passée.
+   */
+  async function majVenteFlash(id, fin) {
+    const produit = await lireProduit(id);
+    if (!produit) throw new Error("Produit introuvable.");
+    const quand = fin ? new Date(fin) : null;
+    if (quand && (isNaN(quand.getTime()) || quand.getTime() <= Date.now())) {
+      throw new Error("Choisissez une date de fin à venir.");
+    }
+    const lignes = await Supabase.requete("PATCH",
+      "produits?id=eq." + encodeURIComponent(id),
+      { flash_fin: quand ? quand.toISOString() : null, modifie_le: new Date().toISOString() });
+    journaliser("produit", "modification",
+      quand
+        ? "Vente flash : " + produit.nom + " jusqu'au " + Utils.fmtDateHeure(quand.getTime())
+        : "Vente flash retirée : " + produit.nom,
+      produit.reference || produit.nom);
+    return produitDepuisLigne((lignes || [])[0] || {});
+  }
+
   /**
    * Le prix d'achat vient d'une table à part, jamais lisible avec la clé
    * publique. PostgREST le rend soit en objet, soit en tableau selon la
@@ -154,6 +180,8 @@ const Store = (() => {
       sousCategorieId: l.sous_categorie_id || "",
       stock,
       surCommande: !!l.sur_commande,
+      /* Fin de la vente flash (ms), ou null. Passée, elle ne compte plus. */
+      flashFin: l.flash_fin ? Date.parse(l.flash_fin) || null : null,
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
       images,
@@ -1506,6 +1534,7 @@ const Store = (() => {
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
+    enVenteFlash, majVenteFlash,
     statistiques, exporter, importer,
   };
 })();

@@ -185,6 +185,14 @@ const VueAccueil = (() => {
       : UI.vide("magasin", "Les boutiques arrivent bientôt",
           "Elles s'afficheront ici dès leur ouverture.");
 
+    /* Les ventes flash de toutes les boutiques, juste sous leurs icônes.
+       La rangée disparaît d'elle-même quand la dernière expire. */
+    const flash = Catalogue.ventesFlash();
+    if (flash.length) {
+      html += UI.titreSection("Ventes flash");
+      html += UI.rangeeProduits(flash);
+    }
+
     vue.innerHTML = html;
     demarrerSlider();
     brancherActualiser();
@@ -260,6 +268,14 @@ const VueAccueil = (() => {
       html += '<div class="cat-grille">' +
         categories.slice(0, 6).map((c) => carteCategorie(c, comptes[c.id] || 0)).join("") +
       "</div>";
+    }
+
+    const flash = Catalogue.produits()
+      .filter((p) => Catalogue.enVenteFlash(p))
+      .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0));
+    if (flash.length) {
+      html += UI.titreSection("Ventes flash");
+      html += UI.rangeeProduits(flash);
     }
 
     if (promos.length) {

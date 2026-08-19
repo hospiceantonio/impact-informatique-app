@@ -355,6 +355,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .badge .ic-sm{width:13px;height:13px}
 .badge-promo{background:var(--rouge);color:#fff}
+.badge-flash{background:#FFF1E0;color:#B45309}
 .badge-rupture{background:var(--rouge);color:#fff}
 .badge-disponible{background:var(--vert-clair);color:var(--vert)}
 .badge-commande{background:var(--bleu-50);color:var(--bleu-700)}

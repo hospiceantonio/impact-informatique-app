@@ -264,6 +264,9 @@ const UI = (() => {
   function badgesProduit(p) {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
+    if (Catalogue.enVenteFlash(p)) {
+      html += '<span class="badge badge-flash">' + icone("energie", "ic-sm") + "Flash</span>";
+    }
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
     const etat = Catalogue.statut(p);
     html += '<span class="badge ' + Catalogue.STATUTS[etat].classe + '">' +

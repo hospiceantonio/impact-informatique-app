@@ -172,6 +172,10 @@ alter table public.produits add column if not exists reference text not null def
 alter table public.produits add column if not exists video text not null default '';
 alter table public.produits add column if not exists stock int not null default 0;
 alter table public.produits add column if not exists sur_commande boolean not null default false;
+-- Vente flash : le produit y est tant que la date n'est pas passée.
+-- À null, pas de vente flash. Aucun nettoyage à faire : une date
+-- passée s'ignore d'elle-même.
+alter table public.produits add column if not exists flash_fin timestamptz;
 
 -- Passage à la gestion de stock : les produits jusque-là « en stock »
 -- démarrent à 1 pour ne pas basculer d'un coup en « En rupture ».

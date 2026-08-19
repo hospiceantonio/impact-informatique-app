@@ -133,6 +133,86 @@ const VueProduits = (() => {
   }
 
   /* =====================================================
+     Vente flash : choisir la durée, ou l'arrêter
+     ===================================================== */
+
+  function feuilleFlash(p, auTermine) {
+    const active = Store.enVenteFlash(p);
+    const DUREES = [
+      [24, "24 heures"], [48, "48 heures"], [72, "3 jours"], [168, "7 jours"],
+    ];
+
+    const corps = UI.ouvrirFeuille("Vente flash — " + p.nom,
+      '<p class="aide" style="margin:0 0 14px">' +
+        (active
+          ? "Ce produit est en vente flash jusqu'au <strong>" +
+            Utils.echapper(Utils.fmtDateHeure(p.flashFin)) + "</strong>. " +
+            "Il défile sur l'accueil de l'application client, après les boutiques."
+          : "Le produit défilera sur l'accueil de l'application client, après les " +
+            "boutiques, jusqu'à la fin choisie — puis il en sortira tout seul.") + "</p>" +
+      '<div class="champ">' +
+        "<label>" + (active ? "Prolonger jusqu'à" : "Pendant") + "</label>" +
+        '<div class="puces">' +
+          DUREES.map(([h, nom]) =>
+            '<button type="button" class="puce" data-flash-heures="' + h + '">' + nom + "</button>"
+          ).join("") +
+        "</div>" +
+      "</div>" +
+      '<div class="champ">' +
+        '<label for="flash-fin">…ou choisissez la date et l\'heure de fin</label>' +
+        '<input id="flash-fin" type="datetime-local">' +
+        '<div class="aide">La vente flash s\'arrête d\'elle-même à cette échéance.</div>' +
+      "</div>" +
+      '<div class="btn-rangee" style="margin-top:16px">' +
+        '<button type="button" class="btn" id="flash-enregistrer">' + UI.icone("check") +
+          (active ? "Enregistrer la nouvelle fin" : "Lancer la vente flash") + "</button>" +
+        (active
+          ? '<button type="button" class="btn btn-clair btn-danger-clair" id="flash-retirer">' +
+              UI.icone("fermer") + "Arrêter la vente flash</button>"
+          : "") +
+      "</div>");
+
+    const champFin = UI.$("#flash-fin", corps);
+
+    /** Une date locale -> la valeur d'un champ datetime-local. */
+    const versChampDate = (ms) => {
+      const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000);
+      return d.toISOString().slice(0, 16);
+    };
+    champFin.min = versChampDate(Date.now() + 30 * 60000);
+    if (active) champFin.value = versChampDate(p.flashFin);
+
+    for (const bouton of UI.$$("[data-flash-heures]", corps)) {
+      bouton.onclick = () => {
+        champFin.value = versChampDate(Date.now() + Number(bouton.dataset.flashHeures) * 3600000);
+        for (const x of UI.$$("[data-flash-heures]", corps)) x.classList.toggle("active", x === bouton);
+      };
+    }
+
+    const appliquer = async (fin, message) => {
+      try {
+        await Store.majVenteFlash(p.id, fin);
+        UI.fermerFeuille();
+        UI.toast(message, "ok");
+        auTermine();
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+    };
+
+    UI.$("#flash-enregistrer", corps).onclick = () => {
+      if (!champFin.value) {
+        UI.toast("Choisissez une durée ou une date de fin.", "err");
+        return;
+      }
+      const fin = new Date(champFin.value).getTime();
+      appliquer(fin, "Vente flash jusqu'au " + Utils.fmtDateHeure(fin));
+    };
+    const retirer = UI.$("#flash-retirer", corps);
+    if (retirer) retirer.onclick = () => appliquer(null, "Vente flash arrêtée");
+  }
+
+  /* =====================================================
      Formulaire (création / modification)
      ===================================================== */
 
@@ -685,6 +765,11 @@ const VueProduits = (() => {
               : "") +
             '<button type="button" class="btn btn-clair" id="p-modifier-stock">' +
               UI.icone("boite") + "Modifier la disponibilité</button>" +
+            '<button type="button" class="btn btn-clair" id="p-vente-flash">' +
+              UI.icone("energie") +
+              (Store.enVenteFlash(p)
+                ? "Vente flash — jusqu'au " + Utils.echapper(Utils.fmtDateHeure(p.flashFin))
+                : "Mettre en vente flash") + "</button>" +
             '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(p.id) + '/modifier">' +
               UI.icone("crayon") + "Modifier le produit</a>" +
           "</div>" +
@@ -717,6 +802,7 @@ const VueProduits = (() => {
     }
 
     UI.$("#p-modifier-stock").onclick = () => feuilleStock(p, () => detail(vue, p.id));
+    UI.$("#p-vente-flash").onclick = () => feuilleFlash(p, () => detail(vue, p.id));
   }
 
   return { liste, formulaire, detail };

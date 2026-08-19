@@ -202,6 +202,19 @@ impact-informatique-app/
   résultats de recherche sont classés **du prix le plus bas au plus
   élevé** (à prix égal, par ordre alphabétique). Les nouveautés restent
   classées par date et le slider garde l'ordre choisi par le gérant.
+- **Ventes flash.** Chaque boutique peut mettre des produits en vente
+  flash avec une date de fin (fiche produit → Actions rapides →
+  « Mettre en vente flash » : 24 h, 48 h, 3 jours, 7 jours ou une date
+  précise). Une seule colonne, `produits.flash_fin` — nulle : pas de
+  flash ; passée : le flash s'éteint tout seul, sans tâche planifiée,
+  car les deux applications ne montrent le badge « Vente flash » que si
+  `flash_fin` est à venir. Côté client, la rangée **Ventes flash**
+  défile juste après les icônes des boutiques sur l'accueil de
+  l'enseigne (toutes boutiques actives confondues, les échéances les
+  plus proches d'abord), chaque accueil de boutique montre les siennes,
+  et la fiche affiche « se termine dans 2 j 4 h ». Peut poser ou retirer
+  un flash quiconque a le droit de modifier les produits de la boutique
+  (mêmes règles RLS que la modification de produit, rien à ajouter).
 - **Deux prix par produit.** Le gérant saisit un **prix grossiste** —
   ce que la boutique paie — et un **taux de marge** ; le **prix
   public** en découle et reste modifiable pour arrondir (le corriger à

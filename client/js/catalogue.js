@@ -194,6 +194,7 @@ const Catalogue = (() => {
           sousCategorieId: p.sous_categorie_id || "",
           stock: stockDeLigne(p),
           surCommande: !!p.sur_commande,
+          flashFin: p.flash_fin ? Date.parse(p.flash_fin) || null : null,
           enAvant: !!p.en_avant,
           ordreAvant: p.ordre_avant || 0,
           images: (Array.isArray(p.images) ? p.images : []).map(urlImagePublique),
@@ -504,6 +505,23 @@ const Catalogue = (() => {
         (a.ordre || 0) - (b.ordre || 0));
   }
 
+  /** En vente flash : une fin posée, pas encore passée. */
+  const enVenteFlash = (p) => !!(p && p.flashFin && p.flashFin > Date.now());
+
+  /**
+   * Les ventes flash de toutes les boutiques ouvertes, la plus pressée
+   * d'abord. C'est la rangée qui défile sous les boutiques, sur
+   * l'accueil de l'application.
+   */
+  function ventesFlash() {
+    const ouvertes = {};
+    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    return tousProduits()
+      .filter((p) => enVenteFlash(p) && (!p.boutiqueId || ouvertes[p.boutiqueId] ||
+        !multiBoutiques()))
+      .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0));
+  }
+
   /** Les produits mis en avant de toutes les boutiques ouvertes. */
   function misEnAvantGeneral() {
     const rangs = {};
@@ -593,6 +611,7 @@ const Catalogue = (() => {
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
     slides, slidesGeneral, misEnAvant, misEnAvantGeneral,
+    enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,
     urlImage, imagePrincipale, statut, STATUTS,
     signature, signalerAndroid,
