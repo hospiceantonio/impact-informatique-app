@@ -289,7 +289,7 @@ const Store = (() => {
   function choisirBoutique(id) {
     const cible = lireBoutique(id);
     if (!cible) throw new Error("Cette boutique n'existe plus.");
-    if (!Supabase.estAdmin() && cible.id !== Supabase.boutiqueDuCompte()) {
+    if (!Supabase.estSuper() && cible.id !== Supabase.boutiqueDuCompte()) {
       throw new Error("Votre compte ne gère que la boutique « " +
         ((lireBoutique(Supabase.boutiqueDuCompte()) || {}).nomBoutique || "qui lui est confiée") + " ».");
     }
@@ -303,7 +303,8 @@ const Store = (() => {
   function boutiqueDeDepart() {
     const duCompte = Supabase.boutiqueDuCompte();
     if (duCompte && lireBoutique(duCompte)) return duCompte;
-    if (!Supabase.estAdmin() && Supabase.rolesActifs()) return "";
+    /* Sans boutique attribuée, seul le superadministrateur circule. */
+    if (!Supabase.estSuper() && Supabase.rolesActifs()) return "";
     let memorisee = "";
     try { memorisee = localStorage.getItem(CLE_BOUTIQUE) || ""; } catch (_) { /* sans importance */ }
     if (memorisee && lireBoutique(memorisee)) return memorisee;
@@ -510,16 +511,44 @@ const Store = (() => {
 
   /* ---------- Comptes de l'équipe (réservé à l'administrateur) ---------- */
 
+  /* Trois rangs, du plus large au plus étroit. Chacun dit ce qu'il
+     couvre, pour que le choix se fasse sans deviner. */
   const ROLES = {
-    administrateur: { nom: "Administrateur", aide: "Toute l'application : produits, catégories, réglages, comptes." },
-    moderateur: { nom: "Modérateur", aide: "Produits et catégories uniquement." },
+    superadministrateur: {
+      nom: "Super administrateur",
+      aide: "Toute l'enseigne : les boutiques, les réglages BIZZOO et tous les comptes.",
+      surToutesLesBoutiques: true,
+    },
+    administrateur: {
+      nom: "Administrateur",
+      aide: "Tout sur sa boutique : produits, rayons, slider, réglages et ses modérateurs.",
+    },
+    moderateur: {
+      nom: "Modérateur",
+      aide: "Les produits et les rayons de sa boutique, rien d'autre.",
+    },
   };
+
+  /** Les rôles qu'un compte a le droit de distribuer. */
+  function rolesAttribuables() {
+    if (Supabase.estSuper()) return ["superadministrateur", "administrateur", "moderateur"];
+    /* Un administrateur ne nomme que des modérateurs, et chez lui. */
+    return Supabase.estAdmin() ? ["moderateur"] : [];
+  }
+
+  /** Ce compte est-il sous ma responsabilité ? */
+  function gereLeCompte(c) {
+    if (!c) return false;
+    if (Supabase.estSuper()) return true;
+    return Supabase.estAdmin() && c.role === "moderateur" &&
+      !!c.boutiqueId && c.boutiqueId === Supabase.boutiqueDuCompte();
+  }
 
   function compteDepuisLigne(l) {
     return {
       id: l.id,
       email: l.email || "",
-      role: l.role === "administrateur" ? "administrateur" : "moderateur",
+      role: ROLES[l.role] ? l.role : "moderateur",
       actif: l.actif !== false,
       peutModifier: l.peut_modifier_produits !== false,
       boutiqueId: l.boutique_id || "",
@@ -547,10 +576,16 @@ const Store = (() => {
     /* Un modérateur travaille dans une boutique et une seule ;
        un administrateur les gère toutes, il n'en porte donc aucune. */
     let attachee = null;
-    if (role === "moderateur" && boutiques.length) {
+    if (role !== "superadministrateur" && boutiques.length) {
       attachee = boutiqueRattachee || "";
-      if (!attachee) throw new Error("Choisissez la boutique confiée à ce modérateur.");
+      if (!attachee) throw new Error("Choisissez la boutique confiée à ce compte.");
       if (!lireBoutique(attachee)) throw new Error("Cette boutique n'existe plus.");
+    }
+    if (!rolesAttribuables().includes(role)) {
+      throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
+    }
+    if (!Supabase.estSuper() && attachee !== Supabase.boutiqueDuCompte()) {
+      throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
 
     const cree = await Supabase.creerCompte(adresse, motDePasse);
@@ -1458,7 +1493,7 @@ const Store = (() => {
 
   return {
     MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
-    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES,
+    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte,
     prixPublic, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     lireEnseigne, majEnseigne, videoBoutique, sauverVideoBoutique,

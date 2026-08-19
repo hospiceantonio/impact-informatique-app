@@ -338,7 +338,21 @@ impact-informatique-app/
   « INFORMATIQUE ET ELECTRONIQUE » avec tous ses réglages, et tout le
   catalogue existant y est rangé. Tant que la table n'existe pas, les
   deux applications retombent sur le fonctionnement à boutique unique.
-- Deux rôles dans l'app admin (table `profils`) : **administrateur** —
+- **Trois rangs de comptes** (table `profils`) : le
+  **super administrateur** tient toute l'enseigne — boutiques, réglages
+  BIZZOO, tous les comptes (les administrateurs d'avant la migration
+  deviennent super administrateurs) ; l'**administrateur** a tous les
+  droits de gestion de SA boutique — produits, rayons, slider, réglages
+  et ses modérateurs, rien en dehors ; le **modérateur** garde son
+  périmètre. La hiérarchie est en base, pas seulement à l'écran :
+  `est_super()`, `administre(boutique)` et `gere_le_compte(compte)`
+  gardent l'enseigne, les boutiques, les sliders, les comptes et les
+  deux RPC (`supprimer_compte`, `changer_mot_de_passe`). Un
+  administrateur ne voit que l'équipe de sa boutique, ne nomme que des
+  modérateurs, et ne peut ni créer une boutique, ni toucher l'enseigne,
+  ni écrire chez le voisin — les tests attaquent la base directement
+  pour le prouver.
+- Deux rôles historiques dans l'app admin : **administrateur** —
   toute l'application, et lui seul crée les comptes ; **modérateur** —
   produits et catégories, sans réglages, ni comptes, ni historique, ni
   composition du slider. Le rôle est lu au démarrage

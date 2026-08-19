@@ -26,16 +26,18 @@ const VueAccueil = (() => {
        est : tout ce qui suit ne concerne que cette boutique-là. */
     const courante = Store.boutiqueCourante();
     if (courante) {
+      /* Seul le super administrateur passe d'une boutique à l'autre. */
+      const peutChanger = Supabase.estSuper();
       html +=
         '<a class="carte carte-boutique-active"' +
-          (admin ? ' href="#/boutiques"' : "") + ">" +
+          (peutChanger ? ' href="#/boutiques"' : "") + ">" +
           VueBoutiques.pastille(courante) +
           "<span><strong>" + Utils.echapper(courante.nomBoutique) + "</strong><br>" +
-          "<small>" + (admin
+          "<small>" + (peutChanger
             ? "Boutique ouverte — touchez pour en changer"
             : Utils.echapper(courante.secteur || "Votre boutique")) +
           (courante.actif ? "" : " · fermée aux clients") + "</small></span>" +
-          (admin ? UI.icone("chevron", "ic-sm") : "") +
+          (peutChanger ? UI.icone("chevron", "ic-sm") : "") +
         "</a>";
     }
 

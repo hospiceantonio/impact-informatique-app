@@ -11,7 +11,7 @@
     { motif: /^\/produit\/([^/]+)\/modifier$/, vue: (v, m) => VueProduits.formulaire(v, m[1]) },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduits.detail(v, m[1]) },
     { motif: /^\/categories$/, vue: (v) => VueCategories.afficher(v), onglet: "/categories" },
-    { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), admin: true },
+    { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), super: true },
     { motif: /^\/slider$/, vue: (v) => VueSlider.afficher(v), admin: true },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },
@@ -107,6 +107,11 @@
 
     const route = ROUTES.find((r) => r.motif.test(chemin));
     if (!route) {
+      location.hash = "#/";
+      return;
+    }
+    if (route.super && !Supabase.estSuper()) {
+      UI.toast("Cet écran est réservé au super administrateur.", "err");
       location.hash = "#/";
       return;
     }

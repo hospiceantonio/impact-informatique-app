@@ -171,13 +171,17 @@ const Supabase = (() => {
 
   const compte = () => profil;
   const rolesActifs = () => rolesEnBase;
-  const role = () => (profil ? profil.role : rolesEnBase ? null : "administrateur");
-  const estAdmin = () => role() === "administrateur";
-  /** Retoucher un produit déjà au catalogue : l'administrateur toujours,
-      le modérateur si l'administrateur le lui a accordé. */
+  const role = () => (profil ? profil.role : rolesEnBase ? null : "superadministrateur");
+  /** Le superadministrateur : toute l'enseigne, boutiques comprises. */
+  const estSuper = () => role() === "superadministrateur";
+  /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique. */
+  const estAdmin = () => estSuper() || role() === "administrateur";
+  /** Retoucher un produit déjà au catalogue : les administrateurs toujours,
+      le modérateur si on le lui a accordé. */
   const peutModifierProduits = () => estAdmin() || !!(profil && profil.peutModifier);
-  /** La boutique confiée au compte. Vide pour un administrateur : il les gère toutes. */
-  const boutiqueDuCompte = () => (estAdmin() ? "" : (profil && profil.boutiqueId) || "");
+  /** La boutique confiée au compte. Vide pour un superadministrateur :
+      il les gère toutes. */
+  const boutiqueDuCompte = () => (estSuper() ? "" : (profil && profil.boutiqueId) || "");
   /** Membre actif de l'équipe : sans fiche active, aucune écriture n'est permise. */
   const compteActif = () => !rolesEnBase || !!(profil && profil.actif);
 
@@ -409,7 +413,7 @@ const Supabase = (() => {
   return {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
-    chargerProfil, compte, role, estAdmin, peutModifierProduits, boutiqueDuCompte,
+    chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,

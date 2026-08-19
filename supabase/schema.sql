@@ -238,20 +238,24 @@ create index if not exists categories_boutique on public.categories(boutique_id)
 create index if not exists slides_boutique     on public.slides(boutique_id);
 
 -- ---------- Comptes de l'application admin et leurs rôles ----------
--- Deux rôles :
---   administrateur — tous les droits, et lui seul crée les comptes ;
---   moderateur     — produits et catégories, rien d'autre.
+-- Trois rôles, du plus large au plus étroit :
+--   superadministrateur — toute l'enseigne : il crée les boutiques, les
+--                         comptes de tous rangs, et règle BIZZOO ;
+--   administrateur      — TOUT sur SA boutique : produits, rayons,
+--                         slider, réglages, et les modérateurs de
+--                         celle-ci. Rien en dehors ;
+--   moderateur          — produits et rayons de sa boutique, rien d'autre.
 create table if not exists public.profils (
   id      uuid primary key references auth.users(id) on delete cascade,
   email   text not null default '',
   role    text not null default 'moderateur'
-          check (role in ('administrateur', 'moderateur')),
+          check (role in ('superadministrateur', 'administrateur', 'moderateur')),
   actif   boolean not null default true,
   -- Droit accordé au cas par cas : modifier un produit déjà au catalogue.
   -- Sans lui, le modérateur peut en ajouter de nouveaux, pas toucher aux autres.
   peut_modifier_produits boolean not null default true,
-  -- Boutique du modérateur : il n'agit que sur celle-là. À null pour un
-  -- administrateur, qui circule dans toutes.
+  -- Boutique du compte : administrateur et modérateur n'agissent que sur
+  -- celle-là. À null pour un superadministrateur, qui circule dans toutes.
   boutique_id text references public.boutiques(id) on delete set null,
   cree_le timestamptz not null default now()
 );
@@ -260,6 +264,17 @@ alter table public.profils
 alter table public.profils
   add column if not exists boutique_id text references public.boutiques(id) on delete set null;
 
+-- Le rôle accepte désormais « superadministrateur ».
+alter table public.profils drop constraint if exists profils_role_check;
+alter table public.profils add constraint profils_role_check
+  check (role in ('superadministrateur', 'administrateur', 'moderateur'));
+
+-- Les administrateurs d'avant tenaient toute l'application : ils
+-- deviennent superadministrateurs, sans quoi ils se retrouveraient
+-- enfermés dans une boutique qu'ils n'ont pas.
+update public.profils set role = 'superadministrateur'
+ where role = 'administrateur' and boutique_id is null;
+
 -- Rôle du compte connecté. « security definer » : la fonction lit la table
 -- sans repasser par les règles RLS — sinon les règles s'appelleraient elles-mêmes.
 create or replace function public.role_courant() returns text
@@ -267,22 +282,32 @@ language sql stable security definer set search_path = public as $$
   select role from public.profils where id = auth.uid() and actif;
 $$;
 
-create or replace function public.est_admin() returns boolean
+-- Le superadministrateur : l'enseigne entière, boutiques comprises.
+create or replace function public.est_super() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce(public.role_courant() = 'administrateur', false);
+  select coalesce(public.role_courant() = 'superadministrateur', false);
 $$;
 
--- Membre actif de l'équipe (administrateur ou modérateur).
+-- « Droits d'administration » : le superadministrateur partout, et
+-- l'administrateur dans sa boutique. Les règles qui appellent cette
+-- fonction ajoutent, quand il le faut, la vérification de la boutique.
+create or replace function public.est_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() in ('superadministrateur', 'administrateur'), false);
+$$;
+
+-- Membre actif de l'équipe, quel que soit son rang.
 create or replace function public.est_equipe() returns boolean
 language sql stable security definer set search_path = public as $$
   select public.role_courant() is not null;
 $$;
 
--- Peut-il retoucher un produit déjà au catalogue ? L'administrateur
--- toujours ; le modérateur seulement si l'administrateur le lui accorde.
+-- Peut-il retoucher un produit déjà au catalogue ? Les deux rangs
+-- d'administrateur toujours ; le modérateur seulement si on le lui accorde.
 create or replace function public.peut_modifier_produits() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role = 'administrateur' or peut_modifier_produits
+  select coalesce((select role in ('superadministrateur', 'administrateur')
+                       or peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false);
 $$;
 
@@ -294,11 +319,20 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
--- L'administrateur partout ; le modérateur dans la sienne seulement.
+-- Le superadministrateur partout ; les autres dans la leur seulement.
 create or replace function public.peut_agir_sur(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.est_admin()
+  select public.est_super()
       or (public.est_equipe() and cible is not null
+          and cible = public.boutique_du_compte());
+$$;
+
+-- Droits d'administration SUR cette boutique-là : le superadministrateur
+-- partout, l'administrateur uniquement chez lui.
+create or replace function public.administre(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or (public.est_admin() and cible is not null
           and cible = public.boutique_du_compte());
 $$;
 
@@ -310,6 +344,8 @@ grant execute on function public.est_admin() to authenticated;
 grant execute on function public.est_equipe() to authenticated;
 grant execute on function public.boutique_du_compte() to authenticated;
 grant execute on function public.peut_agir_sur(text) to authenticated;
+grant execute on function public.est_super() to authenticated;
+grant execute on function public.administre(text) to authenticated;
 
 -- Tout compte créé (par l'application ou dans le tableau de bord Supabase)
 -- reçoit une fiche en attente : l'administrateur l'active et lui donne son rôle.
@@ -327,10 +363,10 @@ create trigger profil_a_la_creation
   after insert on auth.users
   for each row execute function public.profil_nouveau_compte();
 
--- Les comptes qui existaient avant les rôles deviennent administrateurs :
--- personne ne se retrouve enfermé dehors.
+-- Les comptes qui existaient avant les rôles deviennent
+-- superadministrateurs : personne ne se retrouve enfermé dehors.
 insert into public.profils (id, email, role, actif)
-select u.id, coalesce(u.email, ''), 'administrateur', true from auth.users u
+select u.id, coalesce(u.email, ''), 'superadministrateur', true from auth.users u
 on conflict (id) do nothing;
 
 alter table public.profils enable row level security;
@@ -339,15 +375,38 @@ drop policy if exists "profils lecture" on public.profils;
 drop policy if exists "profils ajout admin" on public.profils;
 drop policy if exists "profils modification admin" on public.profils;
 drop policy if exists "profils suppression admin" on public.profils;
--- Chacun voit sa propre fiche ; l'administrateur voit toute l'équipe.
+-- Chacun voit sa fiche. Le superadministrateur voit toute l'enseigne ;
+-- l'administrateur, l'équipe de sa boutique.
 create policy "profils lecture" on public.profils
-  for select to authenticated using (id = auth.uid() or public.est_admin());
+  for select to authenticated using (
+    id = auth.uid()
+    or public.est_super()
+    or (public.est_admin() and boutique_id is not null
+        and boutique_id = public.boutique_du_compte()));
+
+-- Créer, modifier, supprimer un compte : le superadministrateur sans
+-- limite ; l'administrateur seulement des MODÉRATEURS de SA boutique —
+-- il ne se nomme pas de pairs et ne touche pas à ses supérieurs.
 create policy "profils ajout admin" on public.profils
-  for insert to authenticated with check (public.est_admin());
+  for insert to authenticated with check (
+    public.est_super()
+    or (public.est_admin() and role = 'moderateur'
+        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
 create policy "profils modification admin" on public.profils
-  for update to authenticated using (public.est_admin()) with check (public.est_admin());
+  for update to authenticated
+  using (
+    public.est_super()
+    or (public.est_admin() and role = 'moderateur'
+        and boutique_id is not null and boutique_id = public.boutique_du_compte()))
+  with check (
+    public.est_super()
+    or (public.est_admin() and role = 'moderateur'
+        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
 create policy "profils suppression admin" on public.profils
-  for delete to authenticated using (public.est_admin());
+  for delete to authenticated using (
+    public.est_super()
+    or (public.est_admin() and role = 'moderateur'
+        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
 
 -- ---------- Gestion des comptes par l'administrateur ----------
 -- Supprimer un compte ou changer son mot de passe demande des droits que
@@ -359,12 +418,25 @@ create policy "profils suppression admin" on public.profils
 -- Supabase lui-même.
 create extension if not exists pgcrypto with schema extensions;
 
+-- Qui a le droit d'agir sur ce compte-là ? Le superadministrateur sur
+-- tous ; l'administrateur seulement sur les modérateurs de sa boutique.
+create or replace function public.gere_le_compte(cible uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or (public.est_admin() and exists (
+            select 1 from public.profils p
+             where p.id = cible and p.role = 'moderateur'
+               and p.boutique_id is not null
+               and p.boutique_id = public.boutique_du_compte()));
+$$;
+grant execute on function public.gere_le_compte(uuid) to authenticated;
+
 create or replace function public.supprimer_compte(cible uuid)
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not public.est_admin() then
-    raise exception 'Seul un administrateur peut supprimer un compte';
+  if not public.gere_le_compte(cible) then
+    raise exception 'Ce compte n''est pas sous votre responsabilité';
   end if;
   if cible = auth.uid() then
     raise exception 'On ne supprime pas son propre compte';
@@ -379,8 +451,8 @@ create or replace function public.changer_mot_de_passe(cible uuid, nouveau text)
 returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  if not public.est_admin() then
-    raise exception 'Seul un administrateur peut changer un mot de passe';
+  if not public.gere_le_compte(cible) then
+    raise exception 'Ce compte n''est pas sous votre responsabilité';
   end if;
   if length(coalesce(nouveau, '')) < 6 then
     raise exception 'Le mot de passe doit faire 6 caractères au moins';
@@ -422,6 +494,7 @@ drop policy if exists "journal ecriture connectee" on public.journal;
 -- Le journal n'est PAS public : l'administrateur le lit, l'équipe l'alimente.
 create policy "journal lecture connectee" on public.journal
   for select to authenticated using (public.est_admin());
+-- (Les deux rangs d'administrateur lisent l'historique ; le modérateur non.)
 create policy "journal ecriture connectee" on public.journal
   for insert to authenticated with check (public.est_equipe());
 
@@ -460,22 +533,35 @@ alter table public.slides          enable row level security;
 -- seul l'administrateur en crée, en modifie ou en ferme.
 drop policy if exists "lecture publique"   on public.boutiques;
 drop policy if exists "ecriture connectee" on public.boutiques;
+drop policy if exists "boutiques creation super"    on public.boutiques;
+drop policy if exists "boutiques reglages"          on public.boutiques;
+drop policy if exists "boutiques suppression super" on public.boutiques;
 create policy "lecture publique"   on public.boutiques for select using (true);
-create policy "ecriture connectee" on public.boutiques
-  for all to authenticated using (public.est_admin()) with check (public.est_admin());
+-- Créer, fermer, supprimer une boutique : décision de l'enseigne.
+-- L'administrateur peut en revanche régler la sienne.
+create policy "boutiques creation super" on public.boutiques
+  for insert to authenticated with check (public.est_super());
+create policy "boutiques reglages" on public.boutiques
+  for update to authenticated
+  using (public.administre(id)) with check (public.administre(id));
+create policy "boutiques suppression super" on public.boutiques
+  for delete to authenticated using (public.est_super());
 
 drop policy if exists "lecture publique"  on public.slides;
 drop policy if exists "ecriture connectee" on public.slides;
--- La vitrine de la boutique : l'administrateur la compose, tout le monde la voit.
+-- La vitrine d'une boutique : son administrateur la compose, tout le
+-- monde la voit. Le modérateur, lui, n'y touche pas.
 create policy "lecture publique"   on public.slides           for select using (true);
 create policy "ecriture connectee" on public.slides
-  for all to authenticated using (public.est_admin()) with check (public.est_admin());
+  for all to authenticated
+  using (public.administre(boutique_id)) with check (public.administre(boutique_id));
 
 drop policy if exists "lecture publique"  on public.boutique;
 drop policy if exists "ecriture connectee" on public.boutique;
 create policy "lecture publique"   on public.boutique        for select using (true);
+-- Les coordonnées de l'enseigne ne regardent que le superadministrateur.
 create policy "ecriture connectee" on public.boutique
-  for all to authenticated using (public.est_admin()) with check (public.est_admin());
+  for all to authenticated using (public.est_super()) with check (public.est_super());
 
 -- Les rayons appartiennent à une boutique : le modérateur ne touche
 -- qu'à ceux de la sienne, l'administrateur à tous.
@@ -547,19 +633,19 @@ create policy "prix achat suppression" on public.produits_prive
   using (public.peut_modifier_produits() and public.peut_agir_sur(
     (select p.boutique_id from public.produits p where p.id = produit_id)));
 
--- Le slider de l'application client reste la décision de l'administrateur :
--- le modérateur peut tout modifier d'un produit, sauf sa mise en avant.
+-- Le slider reste la décision de qui administre la boutique : le
+-- modérateur peut tout modifier d'un produit, sauf sa mise en avant.
 create or replace function public.controle_mise_en_avant() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if public.est_admin() then return new; end if;
+  if public.administre(new.boutique_id) then return new; end if;
   if tg_op = 'INSERT' then
     if new.en_avant or coalesce(new.ordre_avant, 0) <> 0 then
-      raise exception 'Seul l''administrateur choisit les produits mis en avant';
+      raise exception 'Seul l''administrateur de la boutique choisit les produits mis en avant';
     end if;
   elsif new.en_avant is distinct from old.en_avant
      or new.ordre_avant is distinct from old.ordre_avant then
-    raise exception 'Seul l''administrateur choisit les produits mis en avant';
+    raise exception 'Seul l''administrateur de la boutique choisit les produits mis en avant';
   end if;
   return new;
 end $$;

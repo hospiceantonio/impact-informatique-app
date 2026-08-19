@@ -276,7 +276,8 @@ const VueBoutiques = (() => {
         "</div>" +
       "</div>";
 
-    UI.$("#bq-nouvelle").onclick = () => ouvrirFiche(null, () => afficher(vue));
+    const nouvelle = UI.$("#bq-nouvelle");
+    if (nouvelle) nouvelle.onclick = () => ouvrirFiche(null, () => afficher(vue));
 
     for (const bouton of UI.$$("[data-boutique]", vue)) {
       bouton.onclick = () => {

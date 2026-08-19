@@ -319,7 +319,9 @@ const VueProduits = (() => {
     /* Un produit appartient à une boutique et n'en change plus : on le
        dit clairement, et l'administrateur choisit laquelle avant de
        créer. Sur un produit existant, c'est un rappel, pas un choix. */
-    const peutChoisirBoutique = boutiques.length > 1 && !existant && Supabase.estAdmin();
+    /* Seul le super administrateur crée dans une autre boutique que la
+       sienne — les autres n'en ont qu'une. */
+    const peutChoisirBoutique = boutiques.length > 1 && !existant && Supabase.estSuper();
 
     vue.innerHTML =
       (laBoutique

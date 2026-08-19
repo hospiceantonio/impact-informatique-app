@@ -23,24 +23,34 @@ const VueComptes = (() => {
         Utils.echapper(b.nomBoutique) + (b.actif ? "" : " (fermée)") + "</option>").join("");
   }
 
+  const ICONE_ROLE = {
+    superadministrateur: "bouclier",
+    administrateur: "cle",
+    moderateur: "personne",
+  };
+
   function htmlLigne(compte, moi) {
-    const admin = compte.role === "administrateur";
+    const admin = compte.role !== "moderateur";
+    const partout = compte.role === "superadministrateur";
     /* Un modérateur privé du droit de modification se voit d'un coup d'œil
        dans la liste : inutile d'ouvrir sa fiche pour le savoir. */
-    const bride = !admin && !compte.peutModifier;
+    const bride = compte.role === "moderateur" && !compte.peutModifier;
     return (
       '<div class="compte-ligne' + (compte.actif ? "" : " compte-inactif") + '">' +
         '<span class="compte-rond ' + (admin ? "compte-rond-admin" : "") + '">' +
-          UI.icone(admin ? "bouclier" : "personne", "ic-sm") + "</span>" +
+          UI.icone(ICONE_ROLE[compte.role] || "personne", "ic-sm") + "</span>" +
         '<span class="compte-corps">' +
           '<span class="compte-email">' + Utils.echapper(compte.email || "—") +
             (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
-            (admin ? "" : " · " + Utils.echapper(nomBoutique(compte.boutiqueId))) +
+            (partout ? " · toutes les boutiques"
+                     : " · " + Utils.echapper(nomBoutique(compte.boutiqueId))) +
             (compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
         "</span>" +
-        (moi ? "" :
+        /* Pas de crayon sur un compte qu'on n'a pas le droit de toucher :
+           la base le refuserait, autant ne pas le proposer. */
+        (moi || !Store.gereLeCompte(compte) ? "" :
           '<button type="button" class="btn-ic btn-ic-clair" data-compte="' +
             Utils.echapper(compte.id) + '" aria-label="Modifier ce compte">' +
             UI.icone("crayon", "ic-sm") + "</button>") +
@@ -51,11 +61,16 @@ const VueComptes = (() => {
   /* ---------- Modifier un compte existant ---------- */
 
   function ouvrirFiche(compte, apres) {
+    /* On ne propose que les rangs qu'on a le droit de donner — et celui
+       du compte, pour que le menu montre au moins ce qu'il est. */
+    const rolesOfferts = Array.from(new Set(Store.rolesAttribuables().concat([compte.role])))
+      .filter((cle) => Store.ROLES[cle]);
+
     const corps = UI.ouvrirFeuille(compte.email || "Compte",
       '<div class="champ">' +
         '<label for="cp-role">Rôle</label>' +
-        '<select id="cp-role">' +
-          Object.keys(Store.ROLES).map((cle) =>
+        '<select id="cp-role"' + (rolesOfferts.length < 2 ? " disabled" : "") + ">" +
+          rolesOfferts.map((cle) =>
             '<option value="' + cle + '"' + (compte.role === cle ? " selected" : "") + ">" +
             Utils.echapper(Store.ROLES[cle].nom) + "</option>").join("") +
         "</select>" +
@@ -63,18 +78,22 @@ const VueComptes = (() => {
       "</div>" +
       UI.interrupteur({ id: "cp-actif", label: "Compte actif", actif: compte.actif,
         aide: "Désactivé, il ne peut plus rien modifier, même en se connectant." }) +
-      /* Droit réservé aux modérateurs : un administrateur peut toujours tout
-         modifier, on masque donc l'interrupteur quand le rôle choisi est
-         « administrateur ». */
-      '<div id="cp-zone-modif"' + (compte.role === "administrateur" ? " hidden" : "") + ">" +
-        (Store.listerBoutiques().length
-          ? '<div class="champ">' +
+      /* La boutique concerne administrateur et modérateur ; seul le
+         super administrateur les gère toutes. */
+      (Store.listerBoutiques().length
+        ? '<div id="cp-zone-boutique"' +
+            (compte.role === "superadministrateur" ? " hidden" : "") + ">" +
+            '<div class="champ">' +
               '<label for="cp-boutique">Boutique confiée</label>' +
               '<select id="cp-boutique">' + optionsBoutiques(compte.boutiqueId) + "</select>" +
-              '<div class="aide">Ce modérateur ne verra et ne touchera que les produits ' +
-                "de cette boutique. Un administrateur, lui, les gère toutes.</div>" +
-            "</div>"
-          : "") +
+              '<div class="aide">Ce compte ne verra et ne touchera que cette boutique. ' +
+                "Un super administrateur, lui, les gère toutes.</div>" +
+            "</div>" +
+          "</div>"
+        : "") +
+      /* Le droit de retoucher les produits ne concerne que le modérateur :
+         un administrateur l'a toujours. */
+      '<div id="cp-zone-modif"' + (compte.role === "moderateur" ? "" : " hidden") + ">" +
         UI.interrupteur({ id: "cp-modifier", label: "Peut modifier les produits",
           actif: compte.peutModifier !== false,
           aide: "Décoché, ce modérateur peut encore ajouter des produits, " +
@@ -105,7 +124,9 @@ const VueComptes = (() => {
     const selecteur = UI.$("#cp-role", corps);
     selecteur.onchange = () => {
       UI.$("#cp-role-aide", corps).textContent = Store.ROLES[selecteur.value].aide;
-      UI.$("#cp-zone-modif", corps).hidden = selecteur.value === "administrateur";
+      UI.$("#cp-zone-modif", corps).hidden = selecteur.value !== "moderateur";
+      const zoneBoutique = UI.$("#cp-zone-boutique", corps);
+      if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "superadministrateur";
     };
 
     UI.$("#cp-mdp-changer", corps).onclick = async () => {
@@ -150,13 +171,14 @@ const VueComptes = (() => {
       const actif = UI.$("#cp-actif", corps).checked;
       /* Un administrateur garde toujours le droit de modifier : si le rôle
          passe à « administrateur », on remet le droit à vrai. */
-      const peutModifier = role === "administrateur" ? true : UI.$("#cp-modifier", corps).checked;
+      const peutModifier = role === "moderateur" ? UI.$("#cp-modifier", corps).checked : true;
       const champBoutique = UI.$("#cp-boutique", corps);
-      /* Un administrateur n'appartient à aucune boutique : il circule partout. */
-      const boutiqueId = role === "administrateur" ? "" : (champBoutique ? champBoutique.value : compte.boutiqueId);
+      /* Le super administrateur n'appartient à aucune boutique : il circule partout. */
+      const boutiqueId = role === "superadministrateur"
+        ? "" : (champBoutique ? champBoutique.value : compte.boutiqueId);
       try {
-        if (role === "moderateur" && champBoutique && !boutiqueId) {
-          throw new Error("Choisissez la boutique confiée à ce modérateur.");
+        if (role !== "superadministrateur" && champBoutique && !boutiqueId) {
+          throw new Error("Choisissez la boutique confiée à ce compte.");
         }
         /* Un enregistrement par changement plutôt qu'un seul : le journal
            raconte alors précisément ce qui a changé. */
@@ -181,6 +203,15 @@ const VueComptes = (() => {
   /* ---------- Créer un compte ---------- */
 
   function ouvrirCreation(apres) {
+    /* Du plus étroit au plus large : on propose d'abord le rang le plus
+       courant, et le menu disparaît quand il n'y a pas le choix. */
+    const rangs = ["moderateur", "administrateur", "superadministrateur"]
+      .filter((cle) => Store.rolesAttribuables().includes(cle));
+    if (!rangs.length) {
+      UI.toast("Votre compte ne peut pas créer d'autres comptes.", "err");
+      return;
+    }
+
     const corps = UI.ouvrirFeuille("Nouveau compte",
       UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
         type: "email", placeholder: "prenom@exemple.com",
@@ -190,18 +221,21 @@ const VueComptes = (() => {
         aide: "À lui communiquer ; elle pourra le changer elle-même ensuite." }) +
       '<div class="champ">' +
         '<label for="nc-role">Rôle</label>' +
-        '<select id="nc-role">' +
-          '<option value="moderateur" selected>' + Utils.echapper(Store.ROLES.moderateur.nom) + "</option>" +
-          '<option value="administrateur">' + Utils.echapper(Store.ROLES.administrateur.nom) + "</option>" +
+        '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +
+          rangs.map((cle, i) =>
+            '<option value="' + cle + '"' + (i === 0 ? " selected" : "") + ">" +
+            Utils.echapper(Store.ROLES[cle].nom) + "</option>").join("") +
         "</select>" +
-        '<div class="aide" id="nc-role-aide">' + Utils.echapper(Store.ROLES.moderateur.aide) + "</div>" +
+        '<div class="aide" id="nc-role-aide">' + Utils.echapper(Store.ROLES[rangs[0]].aide) + "</div>" +
       "</div>" +
       (Store.listerBoutiques().length
         ? '<div class="champ" id="nc-zone-boutique">' +
             '<label for="nc-boutique">Boutique confiée <span class="obligatoire">*</span></label>' +
-            '<select id="nc-boutique">' +
+            '<select id="nc-boutique"' + (Supabase.estSuper() ? "" : " disabled") + ">" +
               optionsBoutiques((Store.boutiqueCourante() || {}).id) + "</select>" +
-            '<div class="aide">Le modérateur ne s\'occupera que de cette boutique-là.</div>' +
+            '<div class="aide">' + (Supabase.estSuper()
+              ? "Ce compte ne s'occupera que de cette boutique-là."
+              : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
         : "") +
       '<div class="btn-rangee" style="margin-top:18px">' +
@@ -214,7 +248,7 @@ const VueComptes = (() => {
     selecteur.onchange = () => {
       UI.$("#nc-role-aide", corps).textContent = Store.ROLES[selecteur.value].aide;
       /* Un administrateur les gère toutes : pas de boutique à choisir. */
-      if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "administrateur";
+      if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "superadministrateur";
     };
 
     UI.$("#nc-creer", corps).onclick = async () => {
@@ -264,8 +298,11 @@ const VueComptes = (() => {
     vue.innerHTML =
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("equipe", "ic-sm") + " L'équipe (" + comptes.length + ")</div>" +
-        '<p class="aide" style="margin:-4px 0 12px">L\'administrateur a tous les droits. Le modérateur ' +
-          "s'occupe des produits et des catégories : ni réglages, ni comptes, ni slider.</p>" +
+        '<p class="aide" style="margin:-4px 0 12px">Le <strong>super administrateur</strong> tient ' +
+          "toute l'enseigne : les boutiques, les réglages BIZZOO et les comptes. " +
+          "L'<strong>administrateur</strong> a tous les droits sur SA boutique — produits, rayons, " +
+          "slider, réglages et ses modérateurs. Le <strong>modérateur</strong> s'occupe des produits " +
+          "et des rayons de sa boutique, rien d'autre.</p>" +
         (comptes.length
           ? comptes.map((c) => htmlLigne(c, c.id === moi)).join("")
           : '<p class="aide" style="margin:0">Aucun compte enregistré.</p>') +

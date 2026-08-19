@@ -224,8 +224,9 @@ const VueReglages = (() => {
   async function afficher(vue, params) {
     const boutiques = Store.listerBoutiques();
     const courante = Store.boutiqueCourante();
-    /* Sans table des boutiques, il n'y a qu'un jeu de réglages. */
-    if (!boutiques.length) cible = "boutique";
+    /* Sans table des boutiques, il n'y a qu'un jeu de réglages. Et les
+       coordonnées de l'enseigne ne regardent que le super administrateur. */
+    if (!boutiques.length || !Supabase.estSuper()) cible = "boutique";
     const surEnseigne = cible === "enseigne";
 
     UI.entete({ titre: "Réglages",
@@ -244,7 +245,7 @@ const VueReglages = (() => {
 
     vue.innerHTML =
       /* ---------- Enseigne ou boutique : de quoi parle-t-on ? ---------- */
-      (boutiques.length
+      (boutiques.length && Supabase.estSuper()
         ? '<div class="carte">' +
             '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Régler quoi ?</div>" +
             '<p class="aide" style="margin:-4px 0 12px">BIZZOO réunit ' + boutiques.length +
