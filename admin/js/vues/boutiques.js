@@ -7,18 +7,48 @@
    ========================================================= */
 const VueBoutiques = (() => {
 
-  /* Le jeu d'icônes proposé à la création : de quoi représenter
-     les secteurs les plus courants sans dessiner quoi que ce soit. */
+  /* Le jeu d'icônes proposé à la création : un glyphe par grand
+     secteur d'activité, sans rien avoir à dessiner. */
   const ICONES = [
-    ["magasin", "Boutique"], ["boite", "Matériel"], ["categories", "Rayons"],
-    ["image", "Beauté"], ["nuage", "Services"], ["etoile", "Sélection"],
+    ["magasin", "Boutique"], ["boite", "Matériel"],
+    ["portable", "Informatique"], ["telephone", "Téléphonie"],
+    ["ecran", "TV & écrans"], ["casque", "Audio"],
+    ["energie", "Énergie"], ["tshirt", "Mode & vêtements"],
+    ["sacoche", "Sacs & cuir"], ["goutte", "Cosmétiques"],
+    ["sante", "Santé & pharmacie"], ["couverts", "Restauration"],
+    ["voiture", "Auto & moto"], ["outils", "Outillage"],
+    ["livre", "Librairie"], ["ballon", "Sport"],
+    ["diamant", "Bijoux"], ["cadeau", "Cadeaux"],
+    ["categories", "Rayons"], ["image", "Galerie"],
+    ["nuage", "Services"], ["etoile", "Sélection"],
     ["promo", "Bons plans"], ["carte", "Point de vente"],
   ];
 
   const COULEURS = [
     ["#1176D8", "Bleu"], ["#E62329", "Rouge"], ["#0F9D58", "Vert"],
-    ["#9A6B00", "Ocre"], ["#6C3FBF", "Violet"], ["#0B7C8C", "Turquoise"],
+    ["#E8710A", "Orange"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
+    ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
+    ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#1F2A44", "Bleu nuit"],
   ];
+
+  /* Une boutique enregistrée avec une icône ou une couleur qui ne figure
+     plus dans les choix la garde : on l'ajoute à la volée, sinon rien ne
+     serait sélectionné et l'enregistrement la remplacerait en silence. */
+  function listeIcones(b) {
+    const liste = ICONES.slice();
+    if (b && b.icone && !liste.some(([cle]) => cle === b.icone)) {
+      liste.push([b.icone, "Icône actuelle"]);
+    }
+    return liste;
+  }
+
+  function listeCouleurs(b) {
+    const liste = COULEURS.slice();
+    if (b && b.couleur && !liste.some(([code]) => code === b.couleur)) {
+      liste.push([b.couleur, "Couleur actuelle"]);
+    }
+    return liste;
+  }
 
   /** Logo en cours de choix : { chemin } (en ligne), { dataUrl } (neuf) ou null. */
   let logoTravail = null;
@@ -73,7 +103,7 @@ const VueBoutiques = (() => {
       '<div class="champ">' +
         "<label>Icône</label>" +
         '<div class="choix-icones" id="bq-icones">' +
-          ICONES.map(([cle, nom]) =>
+          listeIcones(b).map(([cle, nom]) =>
             '<button type="button" class="choix-icone' +
               ((b ? b.icone : "magasin") === cle ? " actif" : "") +
               '" data-icone="' + cle + '" aria-label="' + Utils.echapper(nom) + '">' +
@@ -84,7 +114,7 @@ const VueBoutiques = (() => {
       '<div class="champ">' +
         "<label>Couleur</label>" +
         '<div class="choix-couleurs" id="bq-couleurs">' +
-          COULEURS.map(([code, nom]) =>
+          listeCouleurs(b).map(([code, nom]) =>
             '<button type="button" class="choix-couleur' +
               ((b ? b.couleur : "#1176D8") === code ? " actif" : "") +
               '" data-couleur="' + code + '" style="background:' + code +
