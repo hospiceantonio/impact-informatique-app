@@ -61,6 +61,41 @@ const UI = (() => {
         '<div class="topbar-actions">' + (actions || "") + "</div>" +
       "</div>" +
       (accueil ? '<div class="topbar-slogan">' + e(Catalogue.boutique().slogan) + "</div>" : "");
+    mesurerEntete();
+  }
+
+  /* La barre du haut ne fait pas toujours la même hauteur : logo et
+     slogan sur l'accueil, titre seul ailleurs, deux lignes quand il y a
+     un sous-titre. Ce qui doit se figer juste en dessous — les
+     sous-catégories d'un rayon — lit sa hauteur dans « --haut-topbar ». */
+
+  let mesureEnAttente = false;
+
+  function mesurerEntete() {
+    if (mesureEnAttente) return;
+    mesureEnAttente = true;
+    requestAnimationFrame(() => {
+      mesureEnAttente = false;
+      const zone = $("#topbar");
+      if (!zone) return;
+      const hauteur = Math.round(zone.getBoundingClientRect().height);
+      if (hauteur) document.documentElement.style.setProperty("--haut-topbar", hauteur + "px");
+    });
+  }
+
+  /* Rotation de l'écran, retour de la barre système, police agrandie… */
+  window.addEventListener("resize", mesurerEntete);
+  if (window.ResizeObserver) {
+    const observateur = new ResizeObserver(mesurerEntete);
+    const surveiller = () => {
+      const zone = $("#topbar");
+      if (zone) observateur.observe(zone);
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", surveiller);
+    } else {
+      surveiller();
+    }
   }
 
   function icone(nom, classe) {

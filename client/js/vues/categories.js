@@ -61,7 +61,10 @@ const VueCategories = (() => {
     let html = "";
 
     if (sousCategories.length) {
-      html += '<div class="puces">' +
+      /* « collees » : la rangée se fige sous la barre du haut quand on
+         fait défiler le rayon, pour changer de sous-catégorie sans
+         avoir à remonter. */
+      html += '<div class="puces puces-collees">' +
         '<a class="puce' + (scActive ? "" : " active") + '" href="#/categorie/' + Utils.echapper(c.id) + '">Tout</a>' +
         sousCategories.map((s) =>
           '<a class="puce' + (scActive === s.id ? " active" : "") + '" href="#/categorie/' +

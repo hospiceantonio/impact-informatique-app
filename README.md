@@ -220,6 +220,19 @@ impact-informatique-app/
   bénéfice à la pièce et sur le stock) qui ne quitte jamais l'admin, et
   la sauvegarde JSON emporte les prix d'achat — l'écran de sauvegarde
   le dit.
+- Sous-catégories figées (client, écran d'un rayon) : la rangée de puces
+  est `position:sticky` et se cale juste sous la barre du haut pendant
+  qu'on fait défiler les produits — on change de sous-catégorie sans
+  remonter. La barre du haut n'a pas toujours la même hauteur (logo et
+  slogan sur l'accueil, titre seul ou titre + sous-titre ailleurs) :
+  `UI.entete()` la mesure après chaque rendu et publie le résultat dans
+  la variable CSS `--haut-topbar`, que `.puces-collees` lit dans son
+  `top`. Un `ResizeObserver` et l'événement `resize` la remesurent à la
+  rotation de l'écran ou quand la barre système revient. Le bandeau
+  déborde des marges de la vue (`margin:-16px -16px 0`) pour qu'aucune
+  carte ne passe derrière, et cette marge négative en haut le met dès le
+  départ à la place qu'il gardera une fois figé : il ne saute pas au
+  premier défilement.
 - Boutique : coordonnées GPS (`latitude`/`longitude`) et photos
   (`photos[]`, dossier `boutique/` du bucket) réglées dans l'admin —
   relevé de la position sur place en un bouton, ou extraction depuis un
