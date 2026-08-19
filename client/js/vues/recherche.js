@@ -1,6 +1,7 @@
 /* =========================================================
    Recherche — plein texte sur les produits, insensible
-   aux accents, avec raccourcis vers les catégories.
+   aux accents. Les produits seulement : les rayons ont
+   leur propre onglet.
    ========================================================= */
 const VueRecherche = (() => {
 
@@ -25,15 +26,12 @@ const VueRecherche = (() => {
       dernierTerme = terme;
 
       if (!terme) {
-        const categories = Catalogue.categories();
-        zone.innerHTML = categories.length
-          ? UI.titreSection("Parcourir les rayons") +
-            '<div class="puces puces-pliees">' +
-              categories.map((c) =>
-                '<a class="puce" href="#/categorie/' + Utils.echapper(c.id) + '">' + Utils.echapper(c.nom) + "</a>"
-              ).join("") +
-            "</div>"
-          : "";
+        /* La recherche ne concerne que les produits : tant que rien
+           n'est tapé, on ne montre rien d'autre qu'un mot d'aide. Les
+           rayons se parcourent depuis l'onglet Catégories. */
+        zone.innerHTML =
+          '<p class="aide" style="margin:6px 2px 0">Tapez un nom de produit, ' +
+          "une référence ou un mot de la description.</p>";
         return;
       }
 
