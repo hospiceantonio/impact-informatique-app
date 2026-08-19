@@ -544,17 +544,19 @@ const Catalogue = (() => {
       .sort(parPrixCroissant);
   }
 
+  /**
+   * La recherche ne lit que le produit lui-même : son nom, sa référence
+   * et sa description. Le nom du rayon n'y entre pas — un produit qui ne
+   * contient pas le mot cherché ne doit pas apparaître.
+   */
   function rechercher(terme) {
     const t = Utils.sansAccent(terme).trim();
     if (!t) return [];
     const mots = t.split(/\s+/);
     return produits()
       .filter((p) => {
-        const cat = categorie(p.categorieId);
-        const sc = sousCategorie(p.categorieId, p.sousCategorieId);
         const texte = Utils.sansAccent(
-          p.nom + " " + (p.reference || "") + " " + (p.description || "") + " " +
-          (cat ? cat.nom : "") + " " + (sc ? sc.nom : ""));
+          p.nom + " " + (p.reference || "") + " " + (p.description || ""));
         return mots.every((mot) => texte.includes(mot));
       })
       .sort(parPrixCroissant);
