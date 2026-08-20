@@ -4,10 +4,11 @@ Deux applications Android pour l'enseigne **BIZZOO**, reliées à une base
 **Supabase** partagée en temps réel :
 
 - **BIZZOO Admin** (l'icône BIZZOO marquée d'une roue dentée) :
-  l'application du gérant. Boutiques,
-  produits avec photos, vidéo, prix grossiste et prix public, catégories
-  et sous-catégories, et le **slider** — ses propres images, puis les
-  produits mis en avant. Tout est enregistré directement en ligne.
+  l'application du gérant. Boutiques, produits avec photos, vidéo, prix
+  grossiste et prix public, catégories et sous-catégories, et les
+  **sliders** — celui de l'enseigne (photos et vidéos, dans les réglages
+  de BIZZOO) et celui de chaque boutique. Tout est enregistré
+  directement en ligne.
 - **BIZZOO** (l'icône bleue de la marque) : l'application des clients.
   Slider de l'enseigne, **boutiques en icônes**, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit et **commande par
@@ -233,6 +234,26 @@ impact-informatique-app/
   doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se
   pose tangente à l'intérieur de la zone sûre — sinon le téléphone lui
   couperait la moitié.
+- **Le slider appartient à l'enseigne.** Ce qui défile en haut de
+  l'accueil de l'application client est composé dans **BIZZOO Admin →
+  Réglages → onglet BIZZOO → Slider** : des **photos et des vidéos**,
+  ajoutées une par une, dans l'ordre voulu, chacune pouvant renvoyer
+  vers un produit de n'importe quelle boutique. Les boutiques n'envoient
+  plus rien à l'accueil, et les produits mis en avant n'y défilent plus.
+  Chaque boutique garde pourtant **son** slider — ses écrans puis ses
+  produits mis en avant — qui défile sur son écran à elle.
+  Une seule colonne sépare les deux : `slides.portee` vaut `enseigne` ou
+  `boutique`. Elle porte aussi les droits (le slider de BIZZOO au
+  superadministrateur, celui d'une boutique à son administrateur) et
+  protège la reprise d'avant les boutiques multiples, qui rangeait dans
+  la première boutique tout écran sans `boutique_id` — ce que sont
+  justement les écrans de l'enseigne.
+  Une vidéo (`slides.video`, 40 Mo maximum) part **sans le son** et sans
+  passer en plein écran : c'est la seule façon qu'un téléphone la lance
+  tout seul. Une seule joue à la fois, celle qu'on regarde ; les autres
+  se taisent et repartent du début. Le slider n'avance pas tant qu'elle
+  n'est pas finie — au-delà d'une minute, il passe outre, une vidéo qui
+  bloque ne doit pas figer la vitrine.
 - **Ventes flash.** Chaque boutique peut mettre des produits en vente
   flash avec une date de fin (fiche produit → Actions rapides →
   « Mettre en vente flash » : 24 h, 48 h, 3 jours, 7 jours ou une date

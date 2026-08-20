@@ -211,21 +211,32 @@ create table if not exists public.produits_prive (
 );
 
 -- ---------- Slider de l'application client ----------
--- Les images que la boutique fait défiler en haut de l'écran d'accueil.
--- Elles sont choisies une par une : ce ne sont plus les produits mis en
--- avant. Une image peut renvoyer vers un produit (facultatif).
--- Chaque boutique compose le sien ; l'accueil du client les réunit tous.
+-- Ce qui défile en haut de l'écran : des photos et des vidéos choisies
+-- une par une, chacune pouvant renvoyer vers un produit (facultatif).
+--
+-- Deux sliders, que « portee » distingue :
+--   'enseigne' — celui de BIZZOO, composé dans ses réglages. C'est lui,
+--                et lui seul, qui défile sur l'accueil de l'application.
+--   'boutique' — celui d'une boutique, qui défile sur son écran à elle.
+-- Rien ne remonte plus d'une boutique vers l'accueil.
 create table if not exists public.slides (
   id          text primary key,
   boutique_id text references public.boutiques(id) on delete cascade,
+  portee      text not null default 'boutique',
   image       text not null default '',   -- chemin dans le bucket « produits »
-  titre       text not null default '',   -- légende facultative posée sur l'image
+  video       text not null default '',   -- ou une vidéo, à la place de la photo
+  titre       text not null default '',   -- légende facultative posée sur l'écran
   produit_id  text references public.produits(id) on delete set null,
   ordre       int not null default 0,
   actif       boolean not null default true,
   cree_le     timestamptz not null default now()
 );
 alter table public.slides add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
+-- Sans « portee », la reprise plus bas rangerait le slider de l'enseigne
+-- dans une boutique : ses écrans n'ont pas de boutique_id, comme ceux
+-- d'avant les boutiques multiples.
+alter table public.slides add column if not exists portee text not null default 'boutique';
+alter table public.slides add column if not exists video text not null default '';
 create index if not exists slides_ordre on public.slides(ordre);
 
 -- ---------- Tout le catalogue d'avant rejoint la première boutique ----------
@@ -237,7 +248,8 @@ begin
   if premiere is null then return; end if;
   update public.categories set boutique_id = premiere where boutique_id is null;
   update public.produits   set boutique_id = premiere where boutique_id is null;
-  update public.slides     set boutique_id = premiere where boutique_id is null;
+  update public.slides     set boutique_id = premiere
+   where boutique_id is null and portee <> 'enseigne';
 end $$;
 
 create index if not exists produits_boutique   on public.produits(boutique_id);
@@ -556,12 +568,17 @@ create policy "boutiques suppression super" on public.boutiques
 
 drop policy if exists "lecture publique"  on public.slides;
 drop policy if exists "ecriture connectee" on public.slides;
--- La vitrine d'une boutique : son administrateur la compose, tout le
--- monde la voit. Le modérateur, lui, n'y touche pas.
+-- Une vitrine se compose par celui à qui elle appartient, et tout le
+-- monde la voit. Le slider de l'enseigne est au superadministrateur,
+-- comme le reste des réglages de BIZZOO ; celui d'une boutique est à
+-- son administrateur. Le modérateur, lui, n'y touche pas.
 create policy "lecture publique"   on public.slides           for select using (true);
 create policy "ecriture connectee" on public.slides
   for all to authenticated
-  using (public.administre(boutique_id)) with check (public.administre(boutique_id));
+  using (case when portee = 'enseigne'
+              then public.est_super() else public.administre(boutique_id) end)
+  with check (case when portee = 'enseigne'
+                   then public.est_super() else public.administre(boutique_id) end);
 
 drop policy if exists "lecture publique"  on public.boutique;
 drop policy if exists "ecriture connectee" on public.boutique;

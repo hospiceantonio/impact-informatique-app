@@ -206,7 +206,11 @@ const Catalogue = (() => {
         slides: (slides || []).map((s) => ({
           id: s.id,
           boutiqueId: s.boutique_id || "",
+          /* « enseigne » : le slider de BIZZOO, sur l'accueil.
+             « boutique » : celui d'une boutique, sur son écran. */
+          portee: s.portee === "enseigne" ? "enseigne" : "boutique",
           image: s.image ? urlImagePublique(s.image) : "",
+          video: s.video ? urlImagePublique(s.video) : "",
           titre: s.titre || "",
           produitId: s.produit_id || "",
           ordre: s.ordre || 0,
@@ -332,10 +336,6 @@ const Catalogue = (() => {
       .slice()
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
-
-  /** Une boutique par son identifiant, ouverte ou non (liens directs). */
-  const laBoutique = (id) =>
-    ((donnees && donnees.boutiques) || []).find((b) => b.id === id) || null;
 
   /** Vrai dès que la base connaît des boutiques : sinon, on garde l'ancien mode. */
   const multiBoutiques = () => boutiques().length > 0;
@@ -483,26 +483,27 @@ const Catalogue = (() => {
 
   /* ---------- Slider ---------- */
 
-  /** Les images que la boutique visitée fait défiler, dans son ordre. */
+  /** Un écran de slider montre quelque chose et n'est pas masqué. */
+  const ecranVisible = (s) => s.actif !== false && (s.image || s.video);
+
+  /** Les écrans que la boutique visitée fait défiler, dans son ordre. */
   function slides() {
+    const b = boutiqueChoisie();
     return ((donnees && donnees.slides) || [])
-      .filter((s) => s.actif !== false && s.image && dansLaBoutique(s))
-      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+      .filter((s) => ecranVisible(s) && s.portee !== "enseigne" &&
+        (!b ? !s.boutiqueId : s.boutiqueId === b.id))
+      .sort((a, b2) => (a.ordre || 0) - (b2.ordre || 0));
   }
 
   /**
-   * Le slider de l'accueil : les images de TOUTES les boutiques ouvertes,
-   * boutique par boutique dans l'ordre d'affichage, puis leur ordre à
-   * elles. Chaque image sait d'où elle vient, pour mener au bon rayon.
+   * Le slider de l'accueil : les photos et vidéos de l'enseigne BIZZOO,
+   * composées dans ses réglages, et elles seules. Les boutiques n'y
+   * envoient plus rien — chacune garde le sien pour son écran.
    */
   function slidesGeneral() {
-    const rangs = {};
-    boutiques().forEach((b, i) => { rangs[b.id] = i; });
     return ((donnees && donnees.slides) || [])
-      .filter((s) => s.actif !== false && s.image && (!s.boutiqueId || rangs[s.boutiqueId] !== undefined))
-      .sort((a, b) =>
-        (rangs[a.boutiqueId] || 0) - (rangs[b.boutiqueId] || 0) ||
-        (a.ordre || 0) - (b.ordre || 0));
+      .filter((s) => ecranVisible(s) && s.portee === "enseigne")
+      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
 
   /** En vente flash : une fin posée, pas encore passée. */
@@ -520,17 +521,6 @@ const Catalogue = (() => {
       .filter((p) => enVenteFlash(p) && (!p.boutiqueId || ouvertes[p.boutiqueId] ||
         !multiBoutiques()))
       .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0));
-  }
-
-  /** Les produits mis en avant de toutes les boutiques ouvertes. */
-  function misEnAvantGeneral() {
-    const rangs = {};
-    boutiques().forEach((b, i) => { rangs[b.id] = i; });
-    return tousProduits()
-      .filter((p) => p.enAvant && (!p.boutiqueId || rangs[p.boutiqueId] !== undefined))
-      .sort((a, b) =>
-        (rangs[a.boutiqueId] || 0) - (rangs[b.boutiqueId] || 0) ||
-        (a.ordreAvant || 0) - (b.ordreAvant || 0));
   }
 
   /** Combien de produits dans chaque boutique — affiché sous son icône. */
@@ -606,11 +596,11 @@ const Catalogue = (() => {
     charger, rafraichir, pret, depuisCache, modeDemo,
     estConfigure, majConfiguration, configuration,
     boutique, versionPubliee,
-    boutiques, laBoutique, multiBoutiques, boutiqueChoisie, choisirBoutique,
+    boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,
     quitterBoutique, nombreParBoutique,
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
-    slides, slidesGeneral, misEnAvant, misEnAvantGeneral,
+    slides, slidesGeneral, misEnAvant,
     enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,
     urlImage, imagePrincipale, statut, STATUTS,

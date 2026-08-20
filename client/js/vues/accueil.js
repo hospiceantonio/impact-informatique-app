@@ -1,7 +1,11 @@
 /* =========================================================
-   Accueil — slider (les images choisies par la boutique,
-   puis ses produits mis en avant), catégories, promotions
-   et nouveautés.
+   Accueil — slider, catégories, promotions et nouveautés.
+
+   Deux sliders, selon l'écran :
+   - l'accueil de l'enseigne fait défiler les photos et les
+     vidéos de BIZZOO, et rien d'autre ;
+   - l'écran d'une boutique fait défiler les siennes, puis
+     ses produits mis en avant.
    ========================================================= */
 const VueAccueil = (() => {
 
@@ -9,38 +13,38 @@ const VueAccueil = (() => {
   let minuterie = null;
   let derniereInteraction = 0;
 
-  /* ---------- Slider ----------
-     Deux sources à la suite : les images composées par la boutique
-     dans l'application admin, puis ses produits mis en avant. */
+  /* ---------- Slider ---------- */
 
   /**
-   * Une image libre. Elle mène au produit qu'elle annonce ; à défaut, sur
-   * l'accueil général, elle mène à la boutique qui l'a composée.
+   * Un écran composé à la main : une photo ou une vidéo. Il mène au
+   * produit qu'il annonce, s'il en annonce un.
+   *
+   * Les vidéos partent sans le son (les téléphones refusent d'ouvrir
+   * une vidéo sonore toute seule) et ne tournent pas en boucle : le
+   * slider attend la fin pour passer à l'écran suivant.
    */
-  function slideImage(s, index, avecBoutique) {
+  function slideEcran(s, index) {
     const produit = s.produitId ? Catalogue.produit(s.produitId) : null;
-    const laBoutique = avecBoutique && s.boutiqueId ? Catalogue.laBoutique(s.boutiqueId) : null;
-    const cible = produit
-      ? "#/produit/" + Utils.echapper(produit.id)
-      : (laBoutique ? "#/boutique/" + Utils.echapper(laBoutique.id) : "");
+    const cible = produit ? "#/produit/" + Utils.echapper(produit.id) : "";
     const balise = cible ? "a" : "div";
     const lien = cible ? ' href="' + cible + '"' : "";
-    const etiquette = s.titre || (produit ? produit.nom : (laBoutique ? laBoutique.nom : ""));
+    const etiquette = s.titre || (produit ? produit.nom : "");
+    const media = s.video
+      ? '<video class="slide-img" src="' + Utils.echapper(s.video) + '" muted playsinline ' +
+          'preload="' + (index === 0 ? "auto" : "metadata") + '"></video>'
+      : '<img class="slide-img" src="' + Utils.echapper(s.image) + '" alt="' +
+          Utils.echapper(etiquette) + '"' + (index > 0 ? ' loading="lazy"' : "") + ">";
     return (
       "<" + balise + ' class="slide"' + lien +
         (etiquette ? ' aria-label="' + Utils.echapper(etiquette) + '"' : "") + ">" +
-        '<img class="slide-img" src="' + Utils.echapper(s.image) + '" alt="' +
-          Utils.echapper(etiquette) + '"' + (index > 0 ? ' loading="lazy"' : "") + ">" +
-        (s.titre || produit || laBoutique
+        media +
+        (s.titre || produit
           ? '<span class="slide-voile"></span>' +
             '<span class="slide-infos">' +
               (s.titre ? '<span class="slide-nom">' + Utils.echapper(s.titre) + "</span>" : "") +
               (produit
                 ? '<span class="slide-cta">Voir le produit ' + UI.icone("chevron", "ic-sm") + "</span>"
-                : laBoutique
-                  ? '<span class="slide-cta">' + Utils.echapper(laBoutique.nom) + " " +
-                    UI.icone("chevron", "ic-sm") + "</span>"
-                  : "") +
+                : "") +
             "</span>"
           : "") +
       "</" + balise + ">"
@@ -70,12 +74,12 @@ const VueAccueil = (() => {
     );
   }
 
-  function htmlSlider(images, enAvant, avecBoutique) {
-    const total = images.length + enAvant.length;
+  function htmlSlider(ecransComposes, enAvant) {
+    const total = ecransComposes.length + enAvant.length;
     if (!total) return "";
     const ecrans =
-      images.map((s, i) => slideImage(s, i, avecBoutique)).concat(
-      enAvant.map((p, i) => slideProduit(p, images.length + i)));
+      ecransComposes.map((s, i) => slideEcran(s, i)).concat(
+      enAvant.map((p, i) => slideProduit(p, ecransComposes.length + i)));
     return (
       '<section class="slider" aria-label="À la une">' +
         '<div class="slider-piste" id="slider-piste">' + ecrans.join("") + "</div>" +
@@ -90,17 +94,53 @@ const VueAccueil = (() => {
     );
   }
 
+  /* Au-delà, on passe à l'écran suivant même si la vidéo n'est pas
+     finie : une vidéo qui bloque ne doit pas figer le slider. */
+  const ATTENTE_MAX_VIDEO = 60000;
+
   function demarrerSlider() {
     arreterSlider();
     const piste = UI.$("#slider-piste");
-    if (!piste || piste.children.length < 2) return;
+    if (!piste || !piste.children.length) return;
     const points = UI.$$("#slider-points [data-slide]");
+    const videos = Array.prototype.slice.call(piste.querySelectorAll("video.slide-img"));
+    let index = 0;
+    let depuis = Date.now();
 
-    const majPoints = () => {
-      const index = Math.round(piste.scrollLeft / piste.clientWidth);
-      points.forEach((pt, i) => pt.classList.toggle("actif", i === index));
+    const indexVu = () => Math.round(piste.scrollLeft / piste.clientWidth) || 0;
+    const ecranDe = (video) => Array.prototype.indexOf.call(piste.children, video.parentElement);
+
+    /* Une seule vidéo joue : celle qu'on regarde. Les autres se taisent
+       et repartent du début — sans quoi le téléphone chauffe et la
+       connexion s'épuise pour des écrans que personne ne voit. */
+    const reglerVideos = () => {
+      for (const video of videos) {
+        if (ecranDe(video) === index) {
+          const promesse = video.play();
+          if (promesse && promesse.catch) promesse.catch(() => {});
+        } else {
+          video.pause();
+          try { video.currentTime = 0; } catch (e) { /* pas encore chargée */ }
+        }
+      }
     };
-    piste.addEventListener("scroll", Utils.tempo(majPoints, 80), { passive: true });
+
+    const suivre = () => {
+      const vu = indexVu();
+      if (vu === index) return;
+      index = vu;
+      depuis = Date.now();
+      points.forEach((pt, i) => pt.classList.toggle("actif", i === index));
+      reglerVideos();
+    };
+
+    const avancer = () => {
+      const n = piste.children.length;
+      if (n < 2) return;
+      piste.scrollTo({ left: ((index + 1) % n) * piste.clientWidth, behavior: "smooth" });
+    };
+
+    piste.addEventListener("scroll", Utils.tempo(suivre, 80), { passive: true });
     piste.addEventListener("pointerdown", () => { derniereInteraction = Date.now(); }, { passive: true });
     piste.addEventListener("touchstart", () => { derniereInteraction = Date.now(); }, { passive: true });
 
@@ -111,17 +151,34 @@ const VueAccueil = (() => {
       };
     }
 
+    /* La vidéo terminée, l'écran suivant prend la main tout de suite. */
+    for (const video of videos) {
+      video.addEventListener("ended", () => {
+        if (ecranDe(video) === index) avancer();
+      });
+    }
+
+    reglerVideos();
+    if (piste.children.length < 2) return;   // rien à faire défiler
+
     minuterie = setInterval(() => {
       if (!document.body.contains(piste)) { arreterSlider(); return; }
       if (Date.now() - derniereInteraction < 6000) return; // l'utilisateur explore
-      const n = piste.children.length;
-      const index = Math.round(piste.scrollLeft / piste.clientWidth);
-      piste.scrollTo({ left: ((index + 1) % n) * piste.clientWidth, behavior: "smooth" });
+      /* Une vidéo en cours garde l'écran : on la laisse aller au bout. */
+      const ecran = piste.children[index];
+      const video = ecran ? ecran.querySelector("video.slide-img") : null;
+      if (video && !video.paused && !video.ended && Date.now() - depuis < ATTENTE_MAX_VIDEO) return;
+      avancer();
     }, DELAI_SLIDER);
   }
 
   function arreterSlider() {
     if (minuterie) { clearInterval(minuterie); minuterie = null; }
+    /* En quittant l'écran, plus rien ne joue en fond. */
+    const piste = UI.$("#slider-piste");
+    if (piste) {
+      for (const video of piste.querySelectorAll("video.slide-img")) video.pause();
+    }
   }
 
   /* ---------- Catégories ---------- */
@@ -174,7 +231,8 @@ const VueAccueil = (() => {
     const boutiques = Catalogue.boutiques();
     const comptes = Catalogue.nombreParBoutique();
 
-    let html = htmlSlider(Catalogue.slidesGeneral(), Catalogue.misEnAvantGeneral(), true);
+    /* Le slider de l'accueil ne montre que ce que BIZZOO y met. */
+    let html = htmlSlider(Catalogue.slidesGeneral(), []);
     html += htmlEtatCatalogue();
 
     html += UI.titreSection("Nos boutiques");
@@ -260,7 +318,7 @@ const VueAccueil = (() => {
 
     let html = "";
 
-    html += htmlSlider(slides, enAvant, false);
+    html += htmlSlider(slides, enAvant);
     html += htmlEtatCatalogue();
 
     if (categories.length) {

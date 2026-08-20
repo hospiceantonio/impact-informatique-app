@@ -1,22 +1,47 @@
 /* =========================================================
    Slider — ce qui défile en haut de l'application client.
 
-   Deux sources, l'une après l'autre :
-     1. les images libres, choisies une par une (affiches,
-        promotions, arrivages) ;
-     2. les produits mis en avant, avec leur photo et leur prix.
+   Deux sliders sans rapport l'un avec l'autre :
+     - celui de l'enseigne BIZZOO, composé dans ses réglages,
+       qui défile sur l'accueil de l'application client ;
+     - celui d'une boutique, qui défile sur son écran à elle,
+       suivi de ses produits mis en avant.
+   Rien ne remonte plus d'une boutique vers l'accueil.
+
+   Chaque écran est une photo OU une vidéo, et peut renvoyer
+   vers un produit.
+
+   Le même gestionnaire sert les deux : l'écran Slider de la
+   boutique l'affiche en pleine page, les réglages de BIZZOO
+   le posent dans une carte.
    ========================================================= */
 const VueSlider = (() => {
 
-  /** Image en cours d'édition : { chemin? , dataUrl?, apercu } */
-  let imageTravail = null;
+  /**
+   * Média en cours d'édition :
+   *   { type:"photo", chemin?, dataUrl?, apercu }
+   *   { type:"video", chemin?, fichier?, url, taille? }
+   */
+  let mediaTravail = null;
+
+  const compte = (n, mot) => n + " " + mot + (n > 1 ? "s" : "");
+
+  /* ---------- Vignettes ---------- */
+
+  function htmlApercuMedia(slide) {
+    return slide.estVideo
+      ? '<video src="' + Utils.echapper(slide.videoUrl) + '" muted playsinline ' +
+          'preload="metadata"></video>' +
+        '<span class="slide-marque-video">' + UI.icone("video", "ic-sm") + "Vidéo</span>"
+      : '<img src="' + Utils.echapper(slide.apercu) + '" alt="">';
+  }
 
   function htmlVignette(slide, i, total) {
     return (
       '<div class="carte slide-bloc' + (slide.actif ? "" : " slide-eteint") + '">' +
         '<div class="slide-apercu">' +
-          '<img src="' + Utils.echapper(slide.apercu) + '" alt="Image ' + (i + 1) + '">' +
-          (slide.actif ? "" : '<span class="slide-etiquette">Masquée</span>') +
+          htmlApercuMedia(slide) +
+          (slide.actif ? "" : '<span class="slide-etiquette">Masqué</span>') +
         "</div>" +
         '<div class="slide-pied">' +
           '<span class="slide-texte">' +
@@ -37,7 +62,7 @@ const VueSlider = (() => {
     );
   }
 
-  /** Un produit mis en avant, dans la seconde partie du slider. */
+  /** Un produit mis en avant, dans la seconde partie du slider d'une boutique. */
   function htmlProduit(p, i, total, decalage) {
     return (
       '<div class="avant-ligne">' +
@@ -57,19 +82,30 @@ const VueSlider = (() => {
     );
   }
 
-  async function afficher(vue) {
-    UI.entete({ titre: "Slider", retour: true, sous: "Ce qui défile chez vos clients" });
+  /* ---------- Le gestionnaire, posé où on veut ----------
+     `cible` vaut "enseigne" (le slider de BIZZOO) ou "boutique". */
 
-    vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture du slider…</div>';
+  async function rendre(conteneur, cible, options) {
+    const opts = options || {};
+    const enseigne = cible === "enseigne";
+    /* Les produits mis en avant ne défilent que dans le slider d'une
+       boutique : l'accueil de l'application ne montre plus qu'eux. */
+    const avecEnAvant = !enseigne;
+
+    conteneur.innerHTML =
+      '<div class="chargement"><span class="chargement-rond"></span>Lecture du slider…</div>';
 
     let slides, produits;
     try {
-      [slides, produits] = await Promise.all([Store.listerSlides(), Store.listerProduits()]);
+      [slides, produits] = await Promise.all([
+        Store.listerSlides(cible),
+        Store.listerProduits(enseigne ? { toutesBoutiques: true } : undefined),
+      ]);
     } catch (err) {
-      vue.innerHTML =
+      conteneur.innerHTML =
         '<div class="carte"><div class="carte-titre">Slider indisponible</div>' +
         '<p class="aide" style="margin:0">' + Utils.echapper(err.message) +
-        "<br>Si le slider vient d'être ajouté, exécutez le fichier supabase/schema.sql.</p></div>";
+        "<br>Si le slider vient de changer, exécutez le fichier supabase/schema.sql.</p></div>";
       return;
     }
     for (const s of slides) {
@@ -77,70 +113,100 @@ const VueSlider = (() => {
       s.nomProduit = p ? "Renvoie vers " + p.nom : "";
     }
     const visibles = slides.filter((s) => s.actif);
-    const enAvant = produits
-      .filter((p) => p.enAvant)
-      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0));
+    const enAvant = avecEnAvant
+      ? produits.filter((p) => p.enAvant).sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0))
+      : [];
     const total = visibles.length + enAvant.length;
+    const plein = slides.length >= Store.MAX_SLIDES;
 
-    const compte = (n, mot) => n + " " + mot + (n > 1 ? "s" : "");
+    const resume = enseigne
+      ? (total
+          ? compte(total, "écran") + " défile" + (total > 1 ? "nt" : "") + " sur l'accueil"
+          : "Rien ne défile sur l'accueil")
+      : (total
+          ? compte(total, "écran") + " en haut de la boutique"
+          : "Rien ne défile pour l'instant");
+    const detail = enseigne
+      ? (total
+          ? "Vos photos et vidéos, dans cet ordre. Elles seules occupent le haut de " +
+            "l'accueil : les boutiques n'y envoient plus rien."
+          : "Ajoutez une photo ou une vidéo : c'est la première chose que voient vos clients.")
+      : (total
+          ? compte(visibles.length, "écran") + " puis " + compte(enAvant.length, "produit") +
+            " mis en avant, dans cet ordre."
+          : "Ajoutez une photo ou une vidéo, ou mettez un produit en avant depuis sa fiche.");
 
-    vue.innerHTML =
-      '<div class="carte carte-publier">' +
-        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " " +
-          (total ? compte(total, "écran") + " en haut de l'accueil" : "Rien ne défile pour l'instant") + "</div>" +
-        '<p class="aide" style="margin:0">' +
-          (total
-            ? compte(visibles.length, "image") + " puis " + compte(enAvant.length, "produit") +
-              " mis en avant, dans cet ordre."
-            : "Ajoutez une image, ou mettez un produit en avant depuis sa fiche.") +
-        "</p>" +
-      "</div>" +
+    conteneur.innerHTML =
+      (opts.sansResume
+        ? '<p class="aide" style="margin:0 0 12px">' + detail + "</p>"
+        : '<div class="carte carte-publier">' +
+            '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " " + resume + "</div>" +
+            '<p class="aide" style="margin:0">' + detail + "</p>" +
+          "</div>") +
 
-      /* ---------- 1. Les images libres ---------- */
-      '<div class="titre-section">Images (' + visibles.length +
-        (slides.length > visibles.length ? " visible" + (visibles.length > 1 ? "s" : "") +
-          " sur " + slides.length : "") + "/" + Store.MAX_SLIDES + ")</div>" +
-      (slides.length < Store.MAX_SLIDES
-        ? '<button type="button" class="btn" id="slide-ajouter">' + UI.icone("plus") + "Ajouter une image</button>"
-        : '<p class="aide" style="margin:0">Le maximum est atteint (' + Store.MAX_SLIDES +
-          " images). Retirez-en une pour en ajouter une autre.</p>") +
+      /* ---------- 1. Les écrans composés à la main ---------- */
+      (opts.sansResume
+        ? ""
+        : '<div class="titre-section">Photos et vidéos (' + visibles.length +
+            (slides.length > visibles.length
+              ? " visible" + (visibles.length > 1 ? "s" : "") + " sur " + slides.length
+              : "") + "/" + Store.MAX_SLIDES + ")</div>") +
+      (plein
+        ? '<p class="aide" style="margin:0 0 10px">Le maximum est atteint (' + Store.MAX_SLIDES +
+          " écrans). Retirez-en un pour en ajouter un autre.</p>"
+        : '<div class="btn-rangee" style="margin-bottom:4px">' +
+            '<button type="button" class="btn" id="slide-ajout-photo">' +
+              UI.icone("camera") + "Ajouter une photo</button>" +
+            '<button type="button" class="btn btn-clair" id="slide-ajout-video">' +
+              UI.icone("video") + "Ajouter une vidéo</button>" +
+          "</div>") +
       (slides.length
         ? slides.map((s, i) => htmlVignette(s, i, slides.length)).join("")
-        : UI.vide("image", "Aucune image",
-            "Vos affiches, promotions ou arrivages défileront ici, avant les produits.")) +
+        : UI.vide("image", "Aucun écran",
+            enseigne
+              ? "Vos affiches, promotions et vidéos défileront ici, en haut de l'accueil."
+              : "Vos affiches et vidéos défileront ici, avant les produits mis en avant.")) +
 
-      /* ---------- 2. Les produits mis en avant ---------- */
-      '<div class="titre-section">Produits mis en avant (' + enAvant.length + "/" + Store.MAX_EN_AVANT + ")</div>" +
-      '<div class="carte">' +
-        '<p class="aide" style="margin:0 0 12px">Ils défilent après vos images, avec leur photo et leur prix. ' +
-          "Pour en ajouter un : ouvrez sa fiche puis « Mettre en avant ».</p>" +
-        (enAvant.length
-          ? enAvant.map((p, i) => htmlProduit(p, i, enAvant.length, visibles.length)).join("")
-          : '<p class="aide" style="margin:0">Aucun produit mis en avant.</p>') +
-      "</div>";
+      /* ---------- 2. Les produits mis en avant (boutique seulement) ---------- */
+      (avecEnAvant
+        ? '<div class="titre-section">Produits mis en avant (' + enAvant.length + "/" +
+            Store.MAX_EN_AVANT + ")</div>" +
+          '<div class="carte">' +
+            '<p class="aide" style="margin:0 0 12px">Ils défilent après vos écrans, avec leur photo ' +
+              "et leur prix, sur l'écran de cette boutique. Pour en ajouter un : ouvrez sa fiche " +
+              "puis « Mettre en avant ».</p>" +
+            (enAvant.length
+              ? enAvant.map((p, i) => htmlProduit(p, i, enAvant.length, visibles.length)).join("")
+              : '<p class="aide" style="margin:0">Aucun produit mis en avant.</p>') +
+          "</div>"
+        : "");
 
-    const recharger = () => afficher(vue);
-    const bouton = UI.$("#slide-ajouter", vue);
-    if (bouton) bouton.onclick = () => formulaire(null, produits, recharger);
-    for (const b of UI.$$("[data-monter]", vue)) {
-      b.onclick = async () => { await Store.deplacerSlide(b.dataset.monter, -1); recharger(); };
+    const recharger = () => rendre(conteneur, cible, options);
+    const ajouter = (type) => formulaire(null, produits, cible, recharger, type);
+    const photo = UI.$("#slide-ajout-photo", conteneur);
+    if (photo) photo.onclick = () => ajouter("photo");
+    const video = UI.$("#slide-ajout-video", conteneur);
+    if (video) video.onclick = () => ajouter("video");
+
+    for (const b of UI.$$("[data-monter]", conteneur)) {
+      b.onclick = async () => { await Store.deplacerSlide(b.dataset.monter, -1, cible); recharger(); };
     }
-    for (const b of UI.$$("[data-descendre]", vue)) {
-      b.onclick = async () => { await Store.deplacerSlide(b.dataset.descendre, +1); recharger(); };
+    for (const b of UI.$$("[data-descendre]", conteneur)) {
+      b.onclick = async () => { await Store.deplacerSlide(b.dataset.descendre, +1, cible); recharger(); };
     }
-    for (const b of UI.$$("[data-modifier]", vue)) {
+    for (const b of UI.$$("[data-modifier]", conteneur)) {
       b.onclick = () => {
         const slide = slides.find((s) => s.id === b.dataset.modifier);
-        if (slide) formulaire(slide, produits, recharger);
+        if (slide) formulaire(slide, produits, cible, recharger);
       };
     }
-    for (const b of UI.$$("[data-avant-monter]", vue)) {
+    for (const b of UI.$$("[data-avant-monter]", conteneur)) {
       b.onclick = async () => { await Store.deplacerEnAvant(b.dataset.avantMonter, -1); recharger(); };
     }
-    for (const b of UI.$$("[data-avant-descendre]", vue)) {
+    for (const b of UI.$$("[data-avant-descendre]", conteneur)) {
       b.onclick = async () => { await Store.deplacerEnAvant(b.dataset.avantDescendre, +1); recharger(); };
     }
-    for (const b of UI.$$("[data-avant-retirer]", vue)) {
+    for (const b of UI.$$("[data-avant-retirer]", conteneur)) {
       b.onclick = async () => {
         await Store.basculerEnAvant(b.dataset.avantRetirer);
         UI.toast("Produit retiré du slider", "ok");
@@ -149,29 +215,57 @@ const VueSlider = (() => {
     }
   }
 
+  /* ---------- L'écran Slider d'une boutique ---------- */
+
+  async function afficher(vue) {
+    UI.entete({ titre: "Slider", retour: true, sous: "Ce qui défile dans cette boutique" });
+    await rendre(vue, "boutique");
+  }
+
   /* ---------- Feuille de création / modification ---------- */
 
-  function htmlImage() {
-    if (imageTravail) {
+  function htmlMedia() {
+    if (mediaTravail && mediaTravail.type === "video") {
+      return (
+        '<div class="video-boite">' +
+          '<video src="' + Utils.echapper(mediaTravail.url) + '" controls preload="metadata" playsinline></video>' +
+          '<div class="video-pied">' +
+            "<span>" + (mediaTravail.taille
+              ? "Nouvelle vidéo · " + Utils.echapper(Utils.tailleLisible(mediaTravail.taille))
+              : "Vidéo en ligne") + "</span>" +
+            '<button type="button" class="btn-ic btn-ic-clair btn-ic-danger" data-retirer="1" ' +
+              'aria-label="Retirer la vidéo">' + UI.icone("poubelle", "ic-sm") + "</button>" +
+          "</div>" +
+        "</div>"
+      );
+    }
+    if (mediaTravail) {
       return (
         '<div class="photo-boite">' +
-          '<img src="' + imageTravail.apercu + '" alt="Image du slider" data-agrandir="0">' +
-          '<button type="button" class="photo-retirer" data-retirer="1" aria-label="Retirer l\'image">' +
+          '<img src="' + mediaTravail.apercu + '" alt="Photo du slider" data-agrandir="0">' +
+          '<button type="button" class="photo-retirer" data-retirer="1" aria-label="Retirer la photo">' +
             UI.icone("fermer", "ic-sm") + "</button>" +
         "</div>"
       );
     }
     return (
-      '<label class="photo-ajout">' +
-        UI.icone("camera") + "<span>Choisir</span>" +
-        '<input type="file" accept="image/*" hidden id="slide-fichier">' +
-      "</label>"
+      '<div class="media-choix">' +
+        '<label class="photo-ajout">' +
+          UI.icone("camera") + "<span>Une photo</span>" +
+          '<input type="file" accept="image/*" hidden id="slide-fichier">' +
+        "</label>" +
+        '<label class="photo-ajout">' +
+          UI.icone("video") + "<span>Une vidéo</span>" +
+          '<small>' + Store.MAX_VIDEO_MO + " Mo maximum</small>" +
+          '<input type="file" accept="video/*" hidden id="slide-video">' +
+        "</label>" +
+      "</div>"
     );
   }
 
-  function brancherImage(corps) {
-    const zone = UI.$("#slide-image", corps);
-    const rafraichir = () => { zone.innerHTML = htmlImage(); brancher(); };
+  function brancherMedia(corps) {
+    const zone = UI.$("#slide-media", corps);
+    const rafraichir = () => { zone.innerHTML = htmlMedia(); brancher(); };
 
     const brancher = () => {
       const champ = UI.$("#slide-fichier", zone);
@@ -182,53 +276,80 @@ const VueSlider = (() => {
           try {
             /* Une affiche mérite plus de finesse qu'une vignette de produit. */
             const { dataUrl } = await Utils.compresserImage(fichier, 1600, 0.82);
-            imageTravail = { dataUrl, apercu: dataUrl };
+            mediaTravail = { type: "photo", dataUrl, apercu: dataUrl };
           } catch (err) {
             UI.toast(err.message || "Image illisible", "err");
           }
           rafraichir();
         });
       }
+      const champVideo = UI.$("#slide-video", zone);
+      if (champVideo) {
+        champVideo.addEventListener("change", () => {
+          const fichier = (champVideo.files || [])[0];
+          if (!fichier) return;
+          const octets = fichier.size || 0;
+          if (octets > Store.MAX_VIDEO_MO * 1024 * 1024) {
+            UI.toast("Vidéo trop lourde (" + Utils.tailleLisible(octets) + "). " +
+              Store.MAX_VIDEO_MO + " Mo au maximum.", "err");
+            champVideo.value = "";
+            return;
+          }
+          mediaTravail = {
+            type: "video", fichier, taille: octets, url: URL.createObjectURL(fichier),
+          };
+          rafraichir();
+        });
+      }
       const retirer = UI.$("[data-retirer]", zone);
-      if (retirer) retirer.onclick = () => { imageTravail = null; rafraichir(); };
+      if (retirer) retirer.onclick = () => { mediaTravail = null; rafraichir(); };
       const agrandir = UI.$("[data-agrandir]", zone);
       if (agrandir) {
-        agrandir.onclick = () => UI.ouvrirVisionneuse([{ src: imageTravail.apercu }], 0);
+        agrandir.onclick = () => UI.ouvrirVisionneuse([{ src: mediaTravail.apercu }], 0);
       }
     };
 
     rafraichir();
   }
 
-  function formulaire(slide, produits, auTermine) {
-    imageTravail = slide && slide.apercu
-      ? { chemin: slide.chemin, apercu: slide.apercu }
-      : null;
+  function formulaire(slide, produits, cible, auTermine, typeDemande) {
+    const enseigne = cible === "enseigne";
+    mediaTravail = null;
+    if (slide && slide.estVideo) {
+      mediaTravail = { type: "video", chemin: slide.video, url: slide.videoUrl };
+    } else if (slide && slide.apercu) {
+      mediaTravail = { type: "photo", chemin: slide.chemin, apercu: slide.apercu };
+    }
 
-    const corps = UI.ouvrirFeuille(slide ? "Image du slider" : "Nouvelle image",
+    const titreFeuille = slide
+      ? (slide.estVideo ? "Vidéo du slider" : "Photo du slider")
+      : (typeDemande === "video" ? "Nouvelle vidéo" : "Nouvelle photo");
+
+    const corps = UI.ouvrirFeuille(titreFeuille,
       '<div class="champ">' +
-        "<label>Image <span class=\"obligatoire\">*</span></label>" +
-        '<div class="photos-zone" id="slide-image"></div>' +
-        '<div class="aide">Format paysage de préférence (16/10) : une affiche, une promotion, un arrivage.</div>' +
+        '<label>Photo ou vidéo <span class="obligatoire">*</span></label>' +
+        '<div class="photos-zone" id="slide-media"></div>' +
+        '<div class="aide">Format paysage de préférence (16/10). Une vidéo défile sans le son, ' +
+          "et l'écran suivant attend qu'elle se termine.</div>" +
       "</div>" +
       UI.champTexte({ id: "slide-titre", label: "Légende (facultatif)",
         valeur: slide ? slide.titre : "",
         placeholder: "Rentrée scolaire : -20 % sur les clés USB",
-        aide: "Posée en bas de l'image. Laissez vide si votre image dit déjà tout." }) +
+        aide: "Posée en bas de l'écran. Laissez vide si votre image dit déjà tout." }) +
       '<div class="champ">' +
         '<label for="slide-produit">Renvoyer vers un produit (facultatif)</label>' +
         '<select id="slide-produit">' +
-          '<option value="">Aucun — l\'image ne fait rien</option>' +
+          '<option value="">Aucun — l\'écran ne fait rien</option>' +
           produits.map((p) =>
             '<option value="' + Utils.echapper(p.id) + '"' +
             (slide && slide.produitId === p.id ? " selected" : "") + ">" +
             Utils.echapper(p.nom) + "</option>").join("") +
         "</select>" +
-        '<div class="aide">Le client touche l\'image et arrive sur la fiche du produit.</div>' +
+        '<div class="aide">Le client touche l\'écran et arrive sur la fiche du produit.</div>' +
       "</div>" +
       UI.interrupteur({ id: "slide-actif", label: "Visible dans le slider",
         actif: !slide || slide.actif,
-        aide: "Désactivée, l'image reste ici mais ne défile plus chez les clients." }) +
+        aide: "Désactivé, l'écran reste ici mais ne défile plus chez les clients." }) +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="slide-enregistrer">' + UI.icone("check") +
           (slide ? "Enregistrer" : "Ajouter au slider") + "</button>" +
@@ -238,7 +359,12 @@ const VueSlider = (() => {
           : "") +
       "</div>");
 
-    brancherImage(corps);
+    brancherMedia(corps);
+    /* Créer depuis « Ajouter une vidéo » : le sélecteur s'ouvre tout seul. */
+    if (!slide && typeDemande === "video") {
+      const champ = UI.$("#slide-video", corps);
+      if (champ) champ.click();
+    }
 
     UI.$("#slide-enregistrer", corps).onclick = async () => {
       const bouton = UI.$("#slide-enregistrer", corps);
@@ -246,13 +372,14 @@ const VueSlider = (() => {
       try {
         await Store.sauverSlide({
           id: slide ? slide.id : null,
-          image: imageTravail || {},
+          media: mediaTravail || {},
           titre: UI.$("#slide-titre", corps).value,
           produitId: UI.$("#slide-produit", corps).value,
           actif: UI.$("#slide-actif", corps).checked,
-        });
+        }, cible);
         UI.fermerFeuille();
-        UI.toast(slide ? "Image enregistrée" : "Image ajoutée au slider", "ok");
+        UI.toast(slide ? "Écran enregistré" : "Écran ajouté au slider" +
+          (enseigne ? " de BIZZOO" : ""), "ok");
         auTermine();
       } catch (err) {
         UI.toast(err.message, "err");
@@ -266,14 +393,14 @@ const VueSlider = (() => {
         UI.feuilleSansRappel();
         UI.fermerFeuille();
         const ok = await UI.confirmer({
-          titre: "Retirer cette image ?",
+          titre: slide.estVideo ? "Retirer cette vidéo ?" : "Retirer cette photo ?",
           texte: "Elle disparaîtra du slider de l'application client.",
           bouton: "Retirer", danger: true,
         });
         if (!ok) return;
         try {
-          await Store.supprimerSlide(slide.id);
-          UI.toast("Image retirée du slider", "ok");
+          await Store.supprimerSlide(slide.id, cible);
+          UI.toast("Écran retiré du slider", "ok");
           auTermine();
         } catch (err) {
           UI.toast(err.message, "err");
@@ -282,5 +409,5 @@ const VueSlider = (() => {
     }
   }
 
-  return { afficher };
+  return { afficher, rendre };
 })();

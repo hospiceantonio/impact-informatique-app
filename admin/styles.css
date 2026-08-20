@@ -284,7 +284,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   position:relative;border-radius:var(--r-sm);overflow:hidden;
   aspect-ratio:16/10;background:var(--bleu-50);
 }
-.slide-apercu img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.slide-apercu img,
+.slide-apercu video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+/* Une vignette de vidéo se signale : sans cela, l'image figée de la
+   première seconde se prend pour une photo. */
+.slide-marque-video{
+  position:absolute;bottom:8px;right:8px;
+  display:inline-flex;align-items:center;gap:5px;
+  background:rgba(6,16,31,.72);color:#fff;
+  font-size:11px;font-weight:700;padding:3px 8px;border-radius:7px;
+}
+/* Ajouter un écran : une photo ou une vidéo, côte à côte. */
+.media-choix{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.media-choix .photo-ajout{aspect-ratio:4/3}
+.media-choix .photo-ajout small{font-size:10.5px;font-weight:600;color:var(--encre-tres-douce)}
 .slide-etiquette{
   position:absolute;top:8px;left:8px;
   background:rgba(6,16,31,.72);color:#fff;
@@ -310,7 +323,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   position:relative;flex:0 0 128px;height:80px;
   border-radius:var(--r-sm);overflow:hidden;background:var(--bleu-50);
 }
-.slider-apercu-img img{width:100%;height:100%;object-fit:cover;display:block}
+.slider-apercu-img img,
+.slider-apercu-img video{width:100%;height:100%;object-fit:cover;display:block;background:#000}
 .slider-apercu-img .slide-etiquette{top:6px;left:6px;font-size:10px;padding:2px 6px}
 
 /* ---------- Comptes de l'équipe ---------- */

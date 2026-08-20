@@ -955,8 +955,10 @@ const Store = (() => {
    * Sur une base pas encore mise à jour, elle n'existe pas — on la
    * laisse alors de côté plutôt que de bloquer tout le catalogue.
    */
-  async function lignesProduits(suite) {
-    const morceaux = [suite, filtreBoutique()].filter(Boolean);
+  async function lignesProduits(suite, toutesBoutiques) {
+    /* Le slider de l'enseigne peut renvoyer vers n'importe quel produit :
+       il ne dépend d'aucune boutique. */
+    const morceaux = [suite, toutesBoutiques ? "" : filtreBoutique()].filter(Boolean);
     const fin = morceaux.length ? "&" + morceaux.join("&") : "";
     if (prixAchatEnBase) {
       try {
@@ -970,8 +972,9 @@ const Store = (() => {
     return Supabase.requete("GET", "produits?select=*" + fin, undefined, { avecSession: true });
   }
 
-  async function listerProduits() {
-    const lignes = await lignesProduits("order=modifie_le.desc");
+  async function listerProduits(options) {
+    const lignes = await lignesProduits("order=modifie_le.desc",
+      options && options.toutesBoutiques);
     return (lignes || []).map(produitDepuisLigne);
   }
 
@@ -1287,82 +1290,129 @@ const Store = (() => {
       courant.reference || courant.nom);
   }
 
-  /* ---------- Images libres du slider ----------
-     Choisies une par une, dans l'ordre voulu. Chacune peut renvoyer
-     vers un produit — ou n'être qu'une affiche. */
+  /* ---------- Écrans du slider ----------
+     Photos et vidéos choisies une par une, dans l'ordre voulu. Chacune
+     peut renvoyer vers un produit — ou n'être qu'une affiche.
+
+     Deux sliders sans rapport l'un avec l'autre : celui de l'enseigne
+     BIZZOO, qui défile sur l'accueil de l'application client, et celui
+     d'une boutique, qui défile sur son écran à elle. */
 
   function slideDepuisLigne(l) {
+    const video = l.video || "";
     return {
       id: l.id,
       chemin: l.image || "",
       apercu: l.image ? Supabase.urlImage(l.image) : "",
+      video,
+      videoUrl: video ? Supabase.urlImage(video) : "",
+      estVideo: !!video,
       titre: l.titre || "",
       produitId: l.produit_id || "",
       ordre: l.ordre || 0,
       actif: l.actif !== false,
+      portee: l.portee === "enseigne" ? "enseigne" : "boutique",
     };
   }
 
-  async function listerSlides() {
-    const lignes = await Supabase.requete("GET", "slides?select=*&order=ordre.asc" +
-      (filtreBoutique() ? "&" + filtreBoutique() : ""));
+  /* Le slider de l'enseigne n'appartient à aucune boutique ; celui d'une
+     boutique ne sort jamais de la sienne. */
+  const filtreSlides = (cible) =>
+    cible === "enseigne"
+      ? "portee=eq.enseigne"
+      : "portee=eq.boutique" + (filtreBoutique() ? "&" + filtreBoutique() : "");
+
+  async function listerSlides(cible) {
+    const lignes = await Supabase.requete("GET",
+      "slides?select=*&order=ordre.asc&" + filtreSlides(cible));
     return (lignes || []).map(slideDepuisLigne);
   }
 
-  const lireSlide = async (id) => (await listerSlides()).find((s) => s.id === id) || null;
+  const lireSlide = async (id, cible) =>
+    (await listerSlides(cible)).find((s) => s.id === id) || null;
 
   /**
-   * Enregistre une image du slider. `donnees.image` est soit une image
-   * déjà en ligne ({ chemin }), soit une nouvelle ({ dataUrl }).
+   * Enregistre un écran du slider. `donnees.media` porte la photo ou la
+   * vidéo : { type:"photo", chemin } ou { type:"photo", dataUrl } pour
+   * une image, { type:"video", chemin } ou { type:"video", fichier }
+   * pour une vidéo. Un écran ne montre qu'un seul média.
    */
-  async function sauverSlide(donnees) {
-    const existant = donnees.id ? await lireSlide(donnees.id) : null;
-    const liste = await listerSlides();
+  async function sauverSlide(donnees, cible) {
+    const enseigne = cible === "enseigne";
+    const existant = donnees.id ? await lireSlide(donnees.id, cible) : null;
+    const liste = await listerSlides(cible);
     if (!existant && liste.length >= MAX_SLIDES) {
-      throw new Error("Le slider accepte " + MAX_SLIDES + " images au maximum. Retirez-en une d'abord.");
+      throw new Error("Le slider accepte " + MAX_SLIDES + " écrans au maximum. Retirez-en un d'abord.");
     }
 
-    const image = donnees.image || {};
-    let chemin = image.chemin || (existant ? existant.chemin : "");
-    if (image.dataUrl) {
-      chemin = "slider/" + Utils.uid("sli") + ".jpg";
-      await Supabase.televerserImage(chemin, image.dataUrl);
+    const media = donnees.media || {};
+    let chemin = "";
+    let cheminVideo = "";
+    if (media.type === "video") {
+      cheminVideo = media.chemin || "";
+      if (media.fichier) {
+        const octets = media.fichier.size || 0;
+        if (octets > MAX_VIDEO_MO * 1024 * 1024) {
+          throw new Error("Vidéo trop lourde (" + Utils.tailleLisible(octets) + "). " +
+            "Le slider accepte " + MAX_VIDEO_MO + " Mo au maximum par écran.");
+        }
+        const extension = (media.fichier.name || "").match(/\.([a-z0-9]{2,4})$/i);
+        cheminVideo = "slider/" + Utils.uid("vid") +
+          (extension ? "." + extension[1].toLowerCase() : ".mp4");
+        await Supabase.televerserVideo(cheminVideo, media.fichier);
+      }
+      if (!cheminVideo) throw new Error("Choisissez la vidéo à faire défiler.");
+    } else {
+      chemin = media.chemin || "";
+      if (media.dataUrl) {
+        chemin = "slider/" + Utils.uid("sli") + ".jpg";
+        await Supabase.televerserImage(chemin, media.dataUrl);
+      }
+      if (!chemin) throw new Error("Choisissez la photo à faire défiler.");
     }
-    if (!chemin) throw new Error("Choisissez l'image à faire défiler.");
 
     const slide = {
       id: existant ? existant.id : Utils.uid("sli"),
       image: chemin,
+      video: cheminVideo,
       titre: (donnees.titre || "").trim(),
       produit_id: donnees.produitId || null,
       ordre: existant ? existant.ordre : liste.reduce((m, s) => Math.max(m, s.ordre || 0), 0) + 1,
       actif: donnees.actif !== false,
+      portee: enseigne ? "enseigne" : "boutique",
+      /* Le slider de l'enseigne n'appartient à aucune boutique. */
+      boutique_id: enseigne ? null : boutiqueId || null,
     };
-    /* Le slider appartient à la boutique ouverte : l'accueil du client
-       réunit ensuite ceux de toutes les boutiques ouvertes. */
-    if (boutiqueId) slide.boutique_id = boutiqueId;
     const lignes = await Supabase.requete("POST", "slides?on_conflict=id", slide, { upsert: true });
 
-    /* L'ancienne image ne sert plus à rien : on libère la place. */
-    if (existant && existant.chemin && existant.chemin !== chemin) {
-      await Supabase.supprimerImages([existant.chemin]);
-    }
+    /* L'ancien média ne sert plus à rien : on libère la place. */
+    const anciens = existant
+      ? [existant.chemin, existant.video].filter((c) => c && c !== chemin && c !== cheminVideo)
+      : [];
+    if (anciens.length) await Supabase.supprimerImages(anciens);
+
+    const quoi = cheminVideo ? "Vidéo" : "Photo";
     journaliser("slider", existant ? "modification" : "ajout",
-      existant ? "Image du slider modifiée" : "Image ajoutée au slider",
+      (existant ? quoi + " du slider modifiée" : quoi + " ajoutée au slider") +
+        (enseigne ? " (BIZZOO)" : ""),
       slide.titre);
     return slideDepuisLigne((lignes && lignes[0]) || slide);
   }
 
-  async function supprimerSlide(id) {
-    const slide = await lireSlide(id);
+  async function supprimerSlide(id, cible) {
+    const slide = await lireSlide(id, cible);
     await Supabase.requete("DELETE", "slides?id=eq." + encodeURIComponent(id));
-    if (slide && slide.chemin) await Supabase.supprimerImages([slide.chemin]);
-    journaliser("slider", "suppression", "Image retirée du slider", slide ? slide.titre : "");
+    const medias = slide ? [slide.chemin, slide.video].filter(Boolean) : [];
+    if (medias.length) await Supabase.supprimerImages(medias);
+    journaliser("slider", "suppression",
+      (slide && slide.estVideo ? "Vidéo retirée du slider" : "Photo retirée du slider") +
+        (cible === "enseigne" ? " (BIZZOO)" : ""),
+      slide ? slide.titre : "");
   }
 
-  /** Monte ou descend une image dans le slider (direction -1 ou +1). */
-  async function deplacerSlide(id, direction) {
-    const liste = await listerSlides();
+  /** Monte ou descend un écran dans le slider (direction -1 ou +1). */
+  async function deplacerSlide(id, direction, cible) {
+    const liste = await listerSlides(cible);
     const index = liste.findIndex((s) => s.id === id);
     const voisin = liste[index + direction];
     if (index < 0 || !voisin) return;
@@ -1374,7 +1424,9 @@ const Store = (() => {
     for (const s of [courant, voisin]) {
       await Supabase.requete("PATCH", "slides?id=eq." + encodeURIComponent(s.id), { ordre: s.ordre });
     }
-    journaliser("slider", "ordre", "Ordre du slider modifié : image en position " + courant.ordre,
+    journaliser("slider", "ordre",
+      "Ordre du slider modifié : écran en position " + courant.ordre +
+        (cible === "enseigne" ? " (BIZZOO)" : ""),
       courant.titre);
   }
 

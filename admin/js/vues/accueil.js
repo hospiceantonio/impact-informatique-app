@@ -77,25 +77,29 @@ const VueAccueil = (() => {
       .filter((p) => p.enAvant)
       .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0));
     const images = slides.filter((s) => s.actif);
-    const ecrans = images.map((s) => ({ apercu: s.apercu, produit: false }))
-      .concat(enAvant.map((p) => ({ apercu: p.vignette, produit: true })));
+    const ecrans = images.map((s) => ({ apercu: s.apercu, video: s.videoUrl, produit: false }))
+      .concat(enAvant.map((p) => ({ apercu: p.vignette, video: "", produit: true })));
 
     if (admin) {
       html += '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Slider — à la une (" +
           ecrans.length + ")</div>" +
         '<p class="aide" style="margin:-4px 0 12px">' +
-          images.length + " image" + (images.length > 1 ? "s" : "") +
+          images.length + " écran" + (images.length > 1 ? "s" : "") +
           " puis " + enAvant.length + " produit" + (enAvant.length > 1 ? "s" : "") +
-          " mis en avant, dans cet ordre, en haut de l'application client.</p>";
+          " mis en avant, dans cet ordre, en haut de l'écran de cette boutique. " +
+          "L'accueil de l'application, lui, fait défiler le slider de BIZZOO " +
+          "(Réglages → BIZZOO).</p>";
 
       if (ecrans.length) {
         html += '<div class="slider-apercu">' +
           ecrans.map((e, i) =>
             '<a class="slider-apercu-img" href="#/slider" aria-label="Écran ' + (i + 1) + ' du slider">' +
-              (e.apercu
-                ? '<img src="' + Utils.echapper(e.apercu) + '" alt="">'
-                : '<span class="slider-apercu-vide">' + UI.icone("image", "ic-sm") + "</span>") +
+              (e.video
+                ? '<video src="' + Utils.echapper(e.video) + '" muted playsinline preload="metadata"></video>'
+                : e.apercu
+                  ? '<img src="' + Utils.echapper(e.apercu) + '" alt="">'
+                  : '<span class="slider-apercu-vide">' + UI.icone("image", "ic-sm") + "</span>") +
               (e.produit ? '<span class="slide-etiquette slide-etiquette-produit">Produit</span>' : "") +
             "</a>").join("") +
         "</div>";

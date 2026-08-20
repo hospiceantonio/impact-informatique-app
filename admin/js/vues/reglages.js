@@ -410,6 +410,15 @@ const VueReglages = (() => {
           UI.icone("check") + "Enregistrer les photos</button>" +
       "</div>" +
 
+      /* ---------- Slider ----------
+         Celui de l'enseigne défile sur l'accueil de l'application ;
+         celui d'une boutique, sur son écran à elle. */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("image", "ic-sm") + " Slider" +
+          (surEnseigne ? " de BIZZOO" : "") + "</div>" +
+        '<div id="reg-slider"></div>' +
+      "</div>" +
+
       /* ---------- Vidéo de présentation ---------- */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation " +
@@ -766,6 +775,11 @@ const VueReglages = (() => {
         afficher(vue, params);
       };
     }
+
+    /* ---------- Slider ----------
+       Le même gestionnaire que l'écran Slider, posé dans la carte. */
+    const zoneSlider = UI.$("#reg-slider", vue);
+    if (zoneSlider) VueSlider.rendre(zoneSlider, surEnseigne ? "enseigne" : "boutique");
 
     /* ---------- Photos ---------- */
     photosTravail = Store.photosBoutique(cible);
