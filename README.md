@@ -253,9 +253,18 @@ impact-informatique-app/
   grignoté pour ôter la frange bleue laissée par le lissage.
   Le motif est ensuite **rogné au plus juste, centré**, et posé à une
   emprise qui dépend de ce que le téléphone laisse voir : large sur une
-  tuile carrée, plus serrée sous un masque rond, où c'est la **diagonale**
-  du motif qui doit tenir dans le disque. L'icône adaptative porte tout
-  dans son calque de fond, le premier plan restant transparent.
+  tuile carrée, plus serrée sous un masque rond. Repère utile : le calque
+  adaptatif fait 108 dp mais le téléphone n'en montre que **72** — le
+  motif à 0,60 occupe donc 90 % de ce qu'on voit, et au-delà les traits
+  de vitesse se font couper. L'icône adaptative porte tout dans son
+  calque de fond, le premier plan restant transparent.
+  Le fond de la tuile n'est pas blanc pur mais un **blanc à peine grisé**
+  (`#EDF1F9`) : sur un écran d'accueil clair, une icône blanche n'a plus
+  de bord et se fond dans le fond d'écran.
+  L'**écran de démarrage** (`fond_demarrage`, la couleur affichée le temps
+  que l'application s'ouvre) est passé du bleu au **blanc** : l'ouverture
+  ne commence plus par un éclair bleu, et enchaîne sans rupture sur les
+  écrans clairs de l'application.
   L'application admin reçoit la **même** œuvre, marquée d'une pastille
   « réglages » : les deux applications vivent sur le même téléphone, on
   doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se

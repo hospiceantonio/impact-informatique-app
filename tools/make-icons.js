@@ -57,11 +57,21 @@ const SOURCE = path.join(__dirname, "bizzoo-icone.jpg");
      lissage — sans quoi le motif garde un halo sur blanc. */
 const DETOURAGE = { tolerance: 4, retrait: 0.035, frange: 1 };
 
+/* Le fond de la tuile : un blanc à peine grisé plutôt que du blanc
+   pur. Sur un écran d'accueil clair, une icône blanche n'a plus de
+   bord — elle se fond dans le fond d'écran. Ce souffle de gris suffit
+   à la détacher sans faire revenir de couleur. */
+const FOND = "#EDF1F9";
+
 /* Part du côté occupée par le motif, selon ce que le téléphone
    laisse voir. Sur une tuile carrée on peut aller large ; sous un
    masque rond, il faut que la DIAGONALE du motif tienne dans le
-   disque. */
-const EMPRISE = { carre: 0.78, rond: 0.66, maskable: 0.68, adaptatif: 0.6 };
+   disque. Le motif remplit largement : une pastille trop vide se
+   perd sur l'écran d'accueil. */
+const EMPRISE = { carre: 0.84, rond: 0.7, maskable: 0.7, adaptatif: 0.6 };
+/* Repère : le calque adaptatif fait 108 dp mais le téléphone n'en
+   montre que 72 — le motif à 0,60 occupe donc 90 % de ce qu'on voit.
+   Au-delà, les traits de vitesse se font couper. */
 
 /* Icônes PWA. */
 const CIBLES_PWA = [
@@ -82,7 +92,7 @@ const DENSITES = [
 
 /* Ce code s'exécute dans Chromium : il décode l'œuvre, détoure le
    motif, puis dessine chaque variante demandée. */
-async function atelier([b64, DETOURAGE, EMPRISE, demandes]) {
+async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
   const img = new Image();
   img.src = "data:image/jpeg;base64," + b64;
   await img.decode();
@@ -254,7 +264,7 @@ async function atelier([b64, DETOURAGE, EMPRISE, demandes]) {
 
   /* Le motif centré sur du blanc, à l'emprise voulue. */
   function poser(ctx, taille, emprise) {
-    ctx.fillStyle = "#FFFFFF";
+    ctx.fillStyle = FOND;
     ctx.fillRect(0, 0, taille, taille);
     const c = taille * emprise;
     ctx.imageSmoothingQuality = "high";
@@ -388,7 +398,7 @@ async function atelier([b64, DETOURAGE, EMPRISE, demandes]) {
 
   const nav = await chromium.launch();
   const page = await nav.newPage();
-  const sorties = await page.evaluate(atelier, [b64, DETOURAGE, EMPRISE, demandes]);
+  const sorties = await page.evaluate(atelier, [b64, DETOURAGE, EMPRISE, FOND, demandes]);
   await nav.close();
 
   let ecrits = 0;

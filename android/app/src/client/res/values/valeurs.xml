@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">BIZZOO</string>
-    <color name="fond_demarrage">#0B5CF5</color>
+    <color name="fond_demarrage">#FFFFFF</color>
     <color name="ic_launcher_fond">#FFFFFF</color>
     <!-- Prévenir le client des nouveautés du catalogue. -->
     <bool name="notifications_actives">true</bool>
