@@ -160,6 +160,10 @@ create table if not exists public.produits (
   sous_categorie_id text references public.sous_categories(id),
   stock             int not null default 0 check (stock >= 0),
   sur_commande      boolean not null default false, -- vendu sans stock : « Sur commande »
+  -- Date d'arrivée attendue d'un réassort : « En approvisionnement,
+  -- arrive dans 3 jours ». Le décompte se fait tout seul, et une date
+  -- passée s'ignore — le produit redevient « En rupture ».
+  appro_le          date,
   disponible        boolean not null default true,  -- tenu à jour : sur_commande ou stock > 0
   en_avant          boolean not null default false,  -- 5 max (contrôlé par l'app admin)
   ordre_avant       int not null default 0,          -- ordre dans le slider client
@@ -175,6 +179,7 @@ alter table public.produits add column if not exists reference text not null def
 alter table public.produits add column if not exists video text not null default '';
 alter table public.produits add column if not exists stock int not null default 0;
 alter table public.produits add column if not exists sur_commande boolean not null default false;
+alter table public.produits add column if not exists appro_le date;
 -- Vente flash : le produit y est tant que la date n'est pas passée.
 -- À null, pas de vente flash. Aucun nettoyage à faire : une date
 -- passée s'ignore d'elle-même.

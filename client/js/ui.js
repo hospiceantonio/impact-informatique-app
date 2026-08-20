@@ -276,8 +276,12 @@ const UI = (() => {
     }
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
     const etat = Catalogue.statut(p);
+    /* Un produit qui arrive dit quand : c'est ce que le client veut savoir. */
+    const nom = etat === "approvisionnement"
+      ? "Arrive " + Utils.delaiEnMots(Catalogue.joursAppro(p))
+      : Catalogue.STATUTS[etat].nom;
     html += '<span class="badge ' + Catalogue.STATUTS[etat].classe + '">' +
-      Catalogue.STATUTS[etat].nom + "</span>";
+      Utils.echapper(nom) + "</span>";
     return html;
   }
 

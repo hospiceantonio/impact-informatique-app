@@ -106,20 +106,49 @@ const Store = (() => {
     return Math.round(((vente - achat) / achat) * 10000) / 100;
   }
 
-  /* Les trois états possibles d'un produit, et ce qu'en voit le client. */
+  /* Les quatre états possibles d'un produit, et ce qu'en voit le client. */
   const STATUTS = {
     disponible: { nom: "Disponible", teinte: "vert" },
     rupture: { nom: "En rupture", teinte: "rouge" },
     commande: { nom: "Sur commande", teinte: "bleu" },
+    approvisionnement: { nom: "En approvisionnement", teinte: "or" },
+  };
+
+  /* Réassort en route : la date d'arrivée est posée et pas encore
+     passée. Le décompte se fait tout seul — au lendemain de la date,
+     le produit repasse « En rupture » sans que personne n'y touche. */
+  const APPRO_MIN = 1;
+  const APPRO_MAX = 8;
+  const joursAppro = (p) => (p ? Utils.joursAvant(p.approLe) : null);
+
+  /**
+   * Le délai choisi (1 à 8 jours) devient une date d'arrivée. Une date
+   * plutôt qu'un nombre de jours : sans cela il faudrait décrémenter
+   * chaque produit chaque nuit, et le compte serait faux dès qu'une
+   * journée passe sans que l'application s'ouvre.
+   */
+  function dateApproDans(jours) {
+    const n = Math.round(Number(jours) || 0);
+    if (n < APPRO_MIN || n > APPRO_MAX) {
+      throw new Error("Le délai d'approvisionnement va de " + APPRO_MIN +
+        " à " + APPRO_MAX + " jours.");
+    }
+    return Utils.dateDansXJours(n);
+  }
+  const enAppro = (p) => {
+    const jours = joursAppro(p);
+    return jours !== null && jours >= 0;
   };
 
   /**
    * « disponible » quand il reste des pièces, « rupture » quand il n'en
-   * reste plus, « commande » pour un produit vendu sans stock.
+   * reste plus, « commande » pour un produit vendu sans stock, et
+   * « approvisionnement » quand un réassort est annoncé.
    */
   function statut(p) {
     if (!p) return "rupture";
     if (p.surCommande) return "commande";
+    if (enAppro(p)) return "approvisionnement";
     return p.stock > 0 ? "disponible" : "rupture";
   }
 
@@ -180,6 +209,7 @@ const Store = (() => {
       sousCategorieId: l.sous_categorie_id || "",
       stock,
       surCommande: !!l.sur_commande,
+      approLe: l.appro_le || "",
       /* Fin de la vente flash (ms), ou null. Passée, elle ne compte plus. */
       flashFin: l.flash_fin ? Date.parse(l.flash_fin) || null : null,
       enAvant: !!l.en_avant,
@@ -205,6 +235,7 @@ const Store = (() => {
       sous_categorie_id: p.sousCategorieId || null,
       stock: p.surCommande ? 0 : p.stock,
       sur_commande: !!p.surCommande,
+      appro_le: p.approLe || null,
       disponible: !!p.surCommande || p.stock > 0,
       en_avant: p.enAvant,
       ordre_avant: p.ordreAvant,
@@ -1115,6 +1146,11 @@ const Store = (() => {
     }
 
     const surCommande = !!donnees.surCommande;
+    /* Les deux options s'excluent : un produit qu'on ne tient jamais
+       n'est pas en cours de réassort. */
+    const approLe = !surCommande && donnees.approJours
+      ? dateApproDans(donnees.approJours)
+      : "";
     const stock = lireStock(donnees.stock);
     const produit = {
       id: existant ? existant.id : Utils.uid("prod"),
@@ -1127,8 +1163,9 @@ const Store = (() => {
       ancienPrix,
       categorieId: donnees.categorieId,
       sousCategorieId,
-      stock: surCommande ? 0 : stock,
+      stock: surCommande || approLe ? 0 : stock,
       surCommande,
+      approLe,
       enAvant,
       ordreAvant,
       images: chemins,
@@ -1201,38 +1238,53 @@ const Store = (() => {
   }
 
   /**
-   * Change l'état d'un produit sans repasser par le formulaire :
-   * un nombre de pièces, ou le passage en « Sur commande ».
+   * Change l'état d'un produit sans repasser par le formulaire : un
+   * nombre de pièces, le passage en « Sur commande », ou un réassort
+   * annoncé (`approJours` de 1 à 8, ou 0 pour l'annuler).
    */
   async function majDisponibilite(id, maj) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
     const surCommande = maj.surCommande !== undefined ? !!maj.surCommande : produit.surCommande;
-    const stock = surCommande ? 0 : lireStock(maj.stock !== undefined ? maj.stock : produit.stock);
-    if (stock === produit.stock && surCommande === produit.surCommande) return produit;
+    /* Les trois options s'excluent : dire l'une efface les autres. */
+    let approLe = produit.approLe;
+    if (maj.approJours !== undefined) approLe = maj.approJours ? dateApproDans(maj.approJours) : "";
+    else if (surCommande || maj.stock !== undefined) approLe = "";
+    const stock = surCommande || approLe
+      ? 0
+      : lireStock(maj.stock !== undefined ? maj.stock : produit.stock);
+    if (stock === produit.stock && surCommande === produit.surCommande &&
+        approLe === produit.approLe) {
+      return produit;
+    }
 
     await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(id), {
       stock,
       sur_commande: surCommande,
+      appro_le: approLe || null,
       disponible: surCommande || stock > 0,
       modifie_le: new Date().toISOString(),
     });
 
     const avant = statut(produit);
-    const apres = statut({ stock, surCommande });
+    const apres = statut({ stock, surCommande, approLe });
     /* Un changement d'état a plus de sens dans l'historique qu'un simple chiffre. */
     const action = apres === "rupture" ? "rupture"
       : apres === "commande" ? "sur_commande"
+      : apres === "approvisionnement" ? "appro"
       : (avant === "disponible" ? "stock" : "retour_stock");
     const libelle = apres === "commande"
       ? "Passé en « Sur commande » : " + produit.nom
-      : apres === "rupture"
-        ? "En rupture : " + produit.nom
-        : (avant === "disponible"
-            ? "Stock : " + produit.stock + " → " + stock + " — " + produit.nom
-            : "Réapprovisionné (" + stock + ") : " + produit.nom);
+      : apres === "approvisionnement"
+        ? "En approvisionnement, arrive " +
+          Utils.delaiEnMots(Utils.joursAvant(approLe)) + " : " + produit.nom
+        : apres === "rupture"
+          ? "En rupture : " + produit.nom
+          : (avant === "disponible"
+              ? "Stock : " + produit.stock + " → " + stock + " — " + produit.nom
+              : "Réapprovisionné (" + stock + ") : " + produit.nom);
     journaliser("produit", action, libelle, produit.reference || produit.nom);
-    return { ...produit, stock, surCommande };
+    return { ...produit, stock, surCommande, approLe };
   }
 
   /* ---------- Produits mis en avant ----------
@@ -1537,6 +1589,7 @@ const Store = (() => {
         sous_categorie_id: p.sousCategorieId || null,
         stock: p.stock === undefined ? (p.disponible === false ? 0 : 1) : p.stock,
         sur_commande: !!p.surCommande,
+        appro_le: p.approLe || p.appro_le || null,
         disponible: !!p.surCommande ||
           (p.stock === undefined ? p.disponible !== false : p.stock > 0),
         en_avant: !!p.enAvant,
@@ -1586,6 +1639,7 @@ const Store = (() => {
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
+    enAppro, joursAppro, dateApproDans, APPRO_MIN, APPRO_MAX,
     enVenteFlash, majVenteFlash,
     statistiques, exporter, importer,
   };

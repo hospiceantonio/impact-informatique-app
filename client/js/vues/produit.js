@@ -118,6 +118,12 @@ const VueProduit = (() => {
           ? '<div class="flash-echeance">' + UI.icone("horloge", "ic-sm") +
             " Vente flash — se termine " + Utils.echapper(dansCombien(p.flashFin)) + "</div>"
           : "") +
+        /* Le réassort annoncé : le client sait quand revenir. */
+        (etat === "approvisionnement"
+          ? '<div class="appro-echeance">' + UI.icone("horloge", "ic-sm") +
+            " En cours d'approvisionnement — arrive " +
+            Utils.echapper(Utils.delaiEnMots(Catalogue.joursAppro(p))) + "</div>"
+          : "") +
         '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
         (p.reference ? '<div class="fiche-reference">Réf. ' + Utils.echapper(p.reference) + "</div>" : "") +
         UI.prixHtml(p, { grand: true }) +

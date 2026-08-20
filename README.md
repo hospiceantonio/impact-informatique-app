@@ -159,18 +159,35 @@ impact-informatique-app/
   les 45 s en secours, et bouton d'actualisation sur l'accueil. Le temps
   réel exige que les tables soient dans la publication `supabase_realtime`
   — la section « Temps réel » de `schema.sql` s'en charge.
-- Gestion de stock, **trois états** dérivés de deux colonnes
-  (`produits.stock` et `produits.sur_commande`) :
+- Gestion de stock, **quatre états** dérivés de trois colonnes
+  (`produits.stock`, `produits.sur_commande` et `produits.appro_le`) :
   **Disponible** (vert) quand il reste des pièces, **En rupture** (rouge
   clignotant) quand le stock est à zéro, **Sur commande** (bleu) pour un
   produit que la boutique ne tient pas — celui-là n'a pas de stock du
-  tout. `Store.statut()` et `Catalogue.statut()` calculent l'état ; rien
-  n'est stocké en double.
+  tout — et **En approvisionnement** (ambre) pour un produit qui n'est
+  pas là mais qui arrive. `Store.statut()` et `Catalogue.statut()`
+  calculent l'état ; rien n'est stocké en double.
   Dans l'admin : le stock se saisit dans le formulaire (le champ
-  disparaît si le produit est sur commande) et se corrige d'un geste
-  depuis la fiche — − / + / « En rupture » / « Sur commande ». La liste
-  des produits affiche « Stock 12 », « Stock 0 » en rouge, ou
-  « Sans stock ».
+  disparaît si le produit est sur commande ou en approvisionnement) et
+  se corrige d'un geste depuis la fiche — − / + / « En rupture » /
+  « Sur commande » / « Arrive dans N jours ». La liste des produits
+  affiche « Stock 12 », « Stock 0 » en rouge, « Sans stock » ou
+  « Arrive dans 3 jours ».
+- **Produit en cours d'approvisionnement**, avec un délai de **1 à
+  8 jours décompté chaque jour**. Ce qu'on enregistre n'est pas un
+  nombre de jours mais la **date d'arrivée** (`produits.appro_le`) :
+  sinon il faudrait décrémenter chaque produit chaque nuit, et le compte
+  serait faux dès qu'une journée passe sans que l'application s'ouvre.
+  Le décompte se lit donc en jours de calendrier — « arrive dans
+  3 jours », « arrive demain », « arrive aujourd'hui » — et non en
+  heures, sans quoi « dans 3 jours » deviendrait « dans 2 jours » à
+  midi. Passée la date, le produit repasse **En rupture** de lui-même,
+  comme une vente flash s'éteint : aucune tâche à faire tourner.
+  Les trois options s'excluent : annoncer une arrivée efface « sur
+  commande », et saisir un stock efface l'arrivée annoncée. Côté client,
+  la carte porte le décompte dans son badge (elle n'a pas la place
+  d'autre chose) et la fiche l'écrit en toutes lettres sur une bande
+  ambre, sous le badge d'état.
   Côté client, le nombre exact n'est jamais montré, et le message
   WhatsApp suit l'état : disponibilité, date de retour, ou délai de
   commande. Le clignotement du rouge s'arrête sous

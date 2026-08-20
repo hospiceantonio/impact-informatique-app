@@ -24,6 +24,7 @@ const VueHistorique = (() => {
     retrait_avant: { icone: "etoile", teinte: "gris" },
     stock: { icone: "boite", teinte: "bleu" },
     rupture: { icone: "alerte", teinte: "rouge" },
+    appro: { icone: "horloge", teinte: "or" },
     retour_stock: { icone: "check", teinte: "vert" },
     ordre_slider: { icone: "haut", teinte: "bleu" },
     ordre: { icone: "haut", teinte: "bleu" },

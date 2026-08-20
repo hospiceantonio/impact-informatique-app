@@ -239,7 +239,12 @@ const UI = (() => {
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
     const etat = Store.statut(p);
     if (etat !== "disponible") {
-      html += '<span class="badge badge-' + etat + '">' + Store.STATUTS[etat].nom + "</span>";
+      /* En approvisionnement, le badge porte le décompte : c'est
+         l'information utile, pas l'état seul. */
+      const nom = etat === "approvisionnement"
+        ? "Arrive " + Utils.delaiEnMots(Store.joursAppro(p))
+        : Store.STATUTS[etat].nom;
+      html += '<span class="badge badge-' + etat + '">' + e(nom) + "</span>";
     }
     return html;
   }
@@ -256,7 +261,11 @@ const UI = (() => {
         '<span class="ligne-fin">' +
           '<span class="ligne-montant">' + e(Utils.fmtMontant(p.prix, devise)) + "</span>" +
           '<span class="ligne-stock' + (Store.statut(p) === "rupture" ? " ligne-stock-vide" : "") + '">' +
-            (p.surCommande ? "Sans stock" : "Stock " + p.stock) + "</span>" +
+            (p.surCommande
+              ? "Sans stock"
+              : Store.enAppro(p)
+                ? "Arrive " + e(Utils.delaiEnMots(Store.joursAppro(p)))
+                : "Stock " + p.stock) + "</span>" +
           '<span class="ligne-badges">' + badgesProduit(p) + "</span>" +
         "</span>" +
       "</button>"

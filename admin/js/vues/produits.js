@@ -80,10 +80,18 @@ const VueProduits = (() => {
      ===================================================== */
 
   function feuilleStock(p, auTermine) {
+    const joursAppro = [];
+    for (let n = Store.APPRO_MIN; n <= Store.APPRO_MAX; n++) joursAppro.push(n);
+    const restant = Store.joursAppro(p);
+    const joursChoisis = restant !== null && restant >= Store.APPRO_MIN
+      ? Math.min(Store.APPRO_MAX, restant)
+      : 3;
+
     const corps = UI.ouvrirFeuille("Disponibilité — " + p.nom,
       '<p class="aide" style="margin:0 0 14px">Combien de pièces reste-t-il en boutique ? ' +
         "À zéro, vos clients voient « En rupture ». Un produit que vous ne tenez pas " +
-        "en boutique se met « Sur commande ».</p>" +
+        "en boutique se met « Sur commande » ; un produit qui arrive bientôt se met " +
+        "« En approvisionnement ».</p>" +
       '<div class="stock-saisie">' +
         '<button type="button" class="btn-ic btn-ic-clair" id="stock-moins" aria-label="Un de moins">' +
           UI.icone("bas") + "</button>" +
@@ -101,6 +109,25 @@ const VueProduits = (() => {
           ? ""
           : '<button type="button" class="btn btn-clair" id="stock-commande">' +
               UI.icone("nuage") + "Passer en « Sur commande »</button>") +
+      "</div>" +
+
+      /* ---- Réassort annoncé ---- */
+      '<div class="champ" style="margin-top:20px">' +
+        '<label for="stock-appro-jours">' + UI.icone("horloge", "ic-sm") +
+          " En approvisionnement — arrive dans</label>" +
+        '<select id="stock-appro-jours">' +
+          joursAppro.map((n) =>
+            '<option value="' + n + '"' + (n === joursChoisis ? " selected" : "") + ">" +
+            n + (n > 1 ? " jours" : " jour") + "</option>").join("") +
+        "</select>" +
+      "</div>" +
+      '<div class="btn-rangee">' +
+        '<button type="button" class="btn btn-clair" id="stock-appro">' +
+          UI.icone("horloge") + "Annoncer l'arrivée</button>" +
+        (Store.enAppro(p)
+          ? '<button type="button" class="btn btn-clair btn-danger-clair" id="stock-appro-retirer">' +
+              UI.icone("fermer") + "Annuler l'approvisionnement</button>"
+          : "") +
       "</div>");
 
     const champ = UI.$("#stock-valeur", corps);
@@ -129,6 +156,17 @@ const VueProduits = (() => {
     if (versCommande) {
       versCommande.onclick = () =>
         enregistrer({ surCommande: true }, "Produit passé « Sur commande »");
+    }
+
+    UI.$("#stock-appro", corps).onclick = () => {
+      const jours = Number(UI.$("#stock-appro-jours", corps).value);
+      enregistrer({ approJours: jours, surCommande: false },
+        "En approvisionnement — arrive " + Utils.delaiEnMots(jours));
+    };
+    const retirerAppro = UI.$("#stock-appro-retirer", corps);
+    if (retirerAppro) {
+      retirerAppro.onclick = () =>
+        enregistrer({ approJours: 0, stock: 0 }, "Approvisionnement annulé");
     }
   }
 
@@ -391,6 +429,17 @@ const VueProduits = (() => {
     }
 
     const categorieInitiale = existant ? existant.categorieId : (categories[0] && categories[0].id);
+
+    /* Délai d'approvisionnement : de 1 à 8 jours. On rouvre le
+       formulaire sur ce qu'il reste à courir, pas sur ce qui a été
+       saisi le premier jour. */
+    const joursAppro = [];
+    for (let n = Store.APPRO_MIN; n <= Store.APPRO_MAX; n++) joursAppro.push(n);
+    const restantAppro = existant ? Store.joursAppro(existant) : null;
+    const joursChoisis = restantAppro !== null && restantAppro >= Store.APPRO_MIN
+      ? Math.min(Store.APPRO_MAX, restantAppro)
+      : 3;
+
     const tauxBoutique = Store.lireReglages().tauxMarge;
     const tauxProduit = existant ? existant.tauxMarge : null;
 
@@ -495,6 +544,20 @@ const VueProduits = (() => {
         UI.interrupteur({ id: "p-sur-commande", label: "Produit sur commande",
           actif: existant ? !!existant.surCommande : false,
           aide: "Vous ne le tenez pas en boutique : il est commandé à la demande. Pas de stock à saisir." }) +
+        UI.interrupteur({ id: "p-appro", label: "Produit en cours d'approvisionnement",
+          actif: existant ? Store.enAppro(existant) : false,
+          aide: "Il n'est pas en boutique mais il arrive. Vos clients voient le nombre " +
+            "de jours qui restent, décompté chaque jour." }) +
+        '<div class="champ" id="p-zone-appro">' +
+          '<label for="p-appro-jours">Arrive dans</label>' +
+          '<select id="p-appro-jours">' +
+            joursAppro.map((n) =>
+              '<option value="' + n + '"' + (n === joursChoisis ? " selected" : "") + ">" +
+              n + (n > 1 ? " jours" : " jour") + "</option>").join("") +
+          "</select>" +
+          '<div class="aide">Le décompte se fait tout seul. Passée la date, le produit ' +
+            "repasse « En rupture » : vous n'avez qu'à saisir le stock reçu.</div>" +
+        "</div>" +
         '<div id="p-zone-stock">' +
           UI.champTexte({ id: "p-stock", label: "Stock", type: "tel",
             valeur: existant ? existant.stock : "",
@@ -521,12 +584,25 @@ const VueProduits = (() => {
     brancherPhotos(vue);
     brancherVideo(vue);
 
-    /* Un produit sur commande n'a pas de stock : le champ disparaît. */
+    /* Trois façons d'être indisponible, qui s'excluent : sur commande,
+       en cours d'approvisionnement, ou simplement un stock à saisir. */
     const surCommande = UI.$("#p-sur-commande");
+    const appro = UI.$("#p-appro");
     const zoneStock = UI.$("#p-zone-stock");
-    const majZoneStock = () => { zoneStock.hidden = surCommande.checked; };
-    surCommande.addEventListener("change", majZoneStock);
-    majZoneStock();
+    const zoneAppro = UI.$("#p-zone-appro");
+    const majZones = () => {
+      zoneStock.hidden = surCommande.checked || appro.checked;
+      zoneAppro.hidden = !appro.checked;
+    };
+    surCommande.addEventListener("change", () => {
+      if (surCommande.checked) appro.checked = false;
+      majZones();
+    });
+    appro.addEventListener("change", () => {
+      if (appro.checked) surCommande.checked = false;
+      majZones();
+    });
+    majZones();
 
     /* Changer de boutique change tout le reste — rayons, devise, marge :
        on rouvre le formulaire sur la boutique choisie. */
@@ -620,6 +696,7 @@ const VueProduits = (() => {
           sousCategorieId: UI.$("#p-souscategorie").value,
           stock: UI.$("#p-stock").value,
           surCommande: UI.$("#p-sur-commande").checked,
+          approJours: UI.$("#p-appro").checked ? Number(UI.$("#p-appro-jours").value) : 0,
           /* Sans l'interrupteur à l'écran (modérateur), la mise en avant ne bouge pas. */
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),
           video: videoTravail,

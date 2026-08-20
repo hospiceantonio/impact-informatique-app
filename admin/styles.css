@@ -385,6 +385,9 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .badge-rupture{background:var(--rouge);color:#fff}
 .badge-disponible{background:var(--vert-clair);color:var(--vert)}
 .badge-commande{background:var(--bleu-50);color:var(--bleu-700)}
+/* Un réassort en route : l'ambre de la charte, qui dit l'attente
+   sans alarmer comme le rouge de la rupture. */
+.badge-approvisionnement{background:var(--ambre-clair);color:var(--orange-fonce)}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
 
 .prix{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}

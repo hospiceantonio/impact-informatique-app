@@ -48,6 +48,43 @@ const Utils = (() => {
       " à " + pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
 
+  /* ---------- Délai d'approvisionnement ----------
+     Un produit en cours d'approvisionnement porte la date à laquelle il
+     est attendu. Le décompte se fait donc tout seul, jour après jour :
+     rien à recalculer, aucune tâche à faire tourner. */
+
+  /**
+   * Jours entiers qui restent avant une date « AAAA-MM-JJ » :
+   * 0 = aujourd'hui, 1 = demain, -1 = hier. null si la date manque.
+   * On compare des jours de calendrier, pas des heures — sans quoi
+   * « dans 3 jours » deviendrait « dans 2 jours » à midi.
+   */
+  function joursAvant(dateISO) {
+    const morceaux = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateISO || ""));
+    if (!morceaux) return null;
+    const cible = new Date(Number(morceaux[1]), Number(morceaux[2]) - 1, Number(morceaux[3]));
+    if (isNaN(cible)) return null;
+    const aujourdhui = new Date();
+    aujourdhui.setHours(0, 0, 0, 0);
+    return Math.round((cible - aujourdhui) / 86400000);
+  }
+
+  /** « aujourd'hui », « demain », « dans 3 jours ». */
+  function delaiEnMots(jours) {
+    if (jours === null || jours === undefined) return "";
+    if (jours <= 0) return "aujourd'hui";
+    if (jours === 1) return "demain";
+    return "dans " + jours + " jours";
+  }
+
+  /** La date, en « AAAA-MM-JJ », dans `jours` jours à partir d'aujourd'hui. */
+  function dateDansXJours(jours) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + Math.max(0, Math.round(Number(jours) || 0)));
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
   /* ---------- Téléphone & WhatsApp ---------- */
 
   /**
@@ -180,6 +217,7 @@ const Utils = (() => {
     pad, echapper,
     fmtNombre, fmtMontant, remisePourcent,
     fmtDateHeure,
+    joursAvant, delaiEnMots, dateDansXJours,
     normaliserTel, lienWhatsApp, lienTel,
     sansAccent, tempo, paragraphes,
     versNomFichier, enregistrerBlob, telechargerImage,

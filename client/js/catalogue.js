@@ -194,6 +194,7 @@ const Catalogue = (() => {
           sousCategorieId: p.sous_categorie_id || "",
           stock: stockDeLigne(p),
           surCommande: !!p.sur_commande,
+          approLe: p.appro_le || "",
           flashFin: p.flash_fin ? Date.parse(p.flash_fin) || null : null,
           enAvant: !!p.en_avant,
           ordreAvant: p.ordre_avant || 0,
@@ -443,20 +444,32 @@ const Catalogue = (() => {
   const tousProduits = () => ((donnees && donnees.produits) || []).map(normaliser);
   const produit = (id) => tousProduits().find((p) => p.id === id) || null;
 
-  /* Les trois états d'un produit, tels que le client les voit. */
+  /* Les quatre états d'un produit, tels que le client les voit. */
   const STATUTS = {
     disponible: { nom: "Disponible", classe: "badge-disponible" },
     rupture: { nom: "En rupture", classe: "badge-rupture" },
     commande: { nom: "Sur commande", classe: "badge-commande" },
+    approvisionnement: { nom: "En approvisionnement", classe: "badge-approvisionnement" },
+  };
+
+  /* Réassort annoncé : la date d'arrivée est posée et pas encore
+     passée. Le décompte se fait tout seul, jour après jour ; passée la
+     date, le produit repasse « En rupture » sans rien demander. */
+  const joursAppro = (p) => (p ? Utils.joursAvant(p.approLe) : null);
+  const enAppro = (p) => {
+    const jours = joursAppro(p);
+    return jours !== null && jours >= 0;
   };
 
   /**
    * « disponible » s'il reste des pièces, « rupture » s'il n'en reste
-   * plus, « commande » pour un produit que la boutique ne tient pas.
+   * plus, « commande » pour un produit que la boutique ne tient pas,
+   * « approvisionnement » pour un produit qui arrive.
    */
   function statut(p) {
     if (!p) return "rupture";
     if (p.surCommande) return "commande";
+    if (enAppro(p)) return "approvisionnement";
     return p.stock > 0 ? "disponible" : "rupture";
   }
 
@@ -603,7 +616,7 @@ const Catalogue = (() => {
     slides, slidesGeneral, misEnAvant,
     enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,
-    urlImage, imagePrincipale, statut, STATUTS,
+    urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };
 })();
