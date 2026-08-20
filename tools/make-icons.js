@@ -57,11 +57,17 @@ const SOURCE = path.join(__dirname, "bizzoo-icone.jpg");
      lissage — sans quoi le motif garde un halo sur blanc. */
 const DETOURAGE = { tolerance: 4, retrait: 0.035, frange: 1 };
 
-/* Le fond de la tuile : un blanc à peine grisé plutôt que du blanc
-   pur. Sur un écran d'accueil clair, une icône blanche n'a plus de
-   bord — elle se fond dans le fond d'écran. Ce souffle de gris suffit
-   à la détacher sans faire revenir de couleur. */
-const FOND = "#EDF1F9";
+/* D'où vient la marque :
+     "dessin" — redessinée à plat (tools/marque-bizzoo.js). Seule façon
+               d'avoir du BLANC à l'intérieur du B : dans l'œuvre
+               d'origine, la boucle du B est fermée par le sac, et le
+               bleu foncé qu'on y voit est le corps du sac dans l'ombre.
+     "photo"  — l'œuvre d'origine, fond détouré. Le B y reste plein.
+   Un mot à changer suffit pour revenir en arrière. */
+const SOURCE_MARQUE = "dessin";
+
+/* Le fond de la tuile : blanc franc. */
+const FOND = "#FFFFFF";
 
 /* Part du côté occupée par le motif, selon ce que le téléphone
    laisse voir. Sur une tuile carrée on peut aller large ; sous un
@@ -92,7 +98,7 @@ const DENSITES = [
 
 /* Ce code s'exécute dans Chromium : il décode l'œuvre, détoure le
    motif, puis dessine chaque variante demandée. */
-async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
+async function atelier([b64, DETOURAGE, EMPRISE, FOND, SOURCE_MARQUE, codeMarque, demandes]) {
   const img = new Image();
   img.src = "data:image/jpeg;base64," + b64;
   await img.decode();
@@ -219,6 +225,8 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
   let my0 = N;
   let mx1 = -1;
   let my1 = -1;
+  /* Mesurés ici sur le détourage ; recalculés plus bas si c'est le
+     dessin qui sert de marque. */
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       if (!masque[y * N + x]) continue;
@@ -232,16 +240,34 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
   plein.width = N;
   plein.height = N;
   const pctx = plein.getContext("2d");
-  const im = pctx.createImageData(N, N);
-  for (let k = 0; k < N * N; k++) {
-    const i = k * 4;
-    if (!masque[k]) continue;
-    im.data[i] = src[i];
-    im.data[i + 1] = src[i + 1];
-    im.data[i + 2] = src[i + 2];
-    im.data[i + 3] = 255;
+  if (SOURCE_MARQUE === "dessin") {
+    /* La marque redessinée : on la trace, puis la même mesure de boîte
+       qu'au-dessus la rognera et la centrera. */
+    eval(codeMarque);
+    dessinerMarque(pctx, 0, 0, N);
+    const rendu = pctx.getImageData(0, 0, N, N).data;
+    mx0 = N; my0 = N; mx1 = -1; my1 = -1;
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        if (rendu[(y * N + x) * 4 + 3] < 8) continue;
+        if (x < mx0) mx0 = x;
+        if (x > mx1) mx1 = x;
+        if (y < my0) my0 = y;
+        if (y > my1) my1 = y;
+      }
+    }
+  } else {
+    const im = pctx.createImageData(N, N);
+    for (let k = 0; k < N * N; k++) {
+      const i = k * 4;
+      if (!masque[k]) continue;
+      im.data[i] = src[i];
+      im.data[i + 1] = src[i + 1];
+      im.data[i + 2] = src[i + 2];
+      im.data[i + 3] = 255;
+    }
+    pctx.putImageData(im, 0, 0);
   }
-  pctx.putImageData(im, 0, 0);
 
   const largeurMotif = mx1 - mx0 + 1;
   const hauteurMotif = my1 - my0 + 1;
@@ -384,6 +410,10 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
     process.exit(1);
   }
   const b64 = fs.readFileSync(SOURCE).toString("base64");
+  /* Le dessin est un fichier à part : on le passe tel quel au navigateur. */
+  const codeMarque = fs
+    .readFileSync(path.join(__dirname, "marque-bizzoo.js"), "utf8")
+    .replace(/if \(typeof module[\s\S]*$/, "");
 
   const demandes = [];
   for (const app of ["client", "admin"]) {
@@ -398,7 +428,8 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
 
   const nav = await chromium.launch();
   const page = await nav.newPage();
-  const sorties = await page.evaluate(atelier, [b64, DETOURAGE, EMPRISE, FOND, demandes]);
+  const sorties = await page.evaluate(atelier,
+    [b64, DETOURAGE, EMPRISE, FOND, SOURCE_MARQUE, codeMarque, demandes]);
   await nav.close();
 
   let ecrits = 0;
@@ -429,5 +460,5 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
     }
   }
 
-  console.log(ecrits + " icônes écrites depuis " + path.basename(SOURCE) + " (motif détouré sur blanc).");
+  console.log(ecrits + " icônes écrites depuis " + path.basename(SOURCE) + " (marque " + SOURCE_MARQUE + ", fond blanc).");
 })();

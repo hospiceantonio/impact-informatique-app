@@ -236,7 +236,18 @@ impact-informatique-app/
   style partagent les mêmes noms de variables, et les tests lisent la
   teinte dans l'application au lieu de la figer, pour qu'un changement de
   charte ne casse rien.
-- **Les icônes sortent de l'œuvre, motif détouré sur blanc.**
+- **La marque est redessinée à plat** (`tools/marque-bizzoo.js`), et
+  c'est elle qui donne les icônes. La raison tient en une phrase : dans
+  l'œuvre d'origine, le **B n'a pas d'intérieur à lui** — sa boucle est
+  fermée par le sac, et le bleu foncé qu'on y voit EST le corps du sac
+  dans l'ombre. Impossible d'y mettre du blanc sans effacer le sac.
+  Redessinée, la marque a de vraies contre-formes : le blanc du fond
+  traverse le B. Le chariot passe sur le corps bleu du sac, seul endroit
+  où du blanc se détache.
+  `SOURCE_MARQUE` dans `tools/make-icons.js` bascule entre `"dessin"` et
+  `"photo"` : un mot suffit pour revenir à l'œuvre détourée, décrite
+  ci-dessous, qui reste en place dans le code.
+- **Le détourage de l'œuvre, motif sur blanc** (mode `"photo"`).
   `node tools/make-icons.js` décode `tools/bizzoo-icone.jpg` dans Chromium
   et en tire les 48 fichiers (PWA et Android, toutes densités). Le **fond
   bleu de l'œuvre est retiré** : sur le téléphone, la tuile bleue pleine
