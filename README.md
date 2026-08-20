@@ -236,18 +236,7 @@ impact-informatique-app/
   style partagent les mêmes noms de variables, et les tests lisent la
   teinte dans l'application au lieu de la figer, pour qu'un changement de
   charte ne casse rien.
-- **La marque est redessinée à plat** (`tools/marque-bizzoo.js`), et
-  c'est elle qui donne les icônes. La raison tient en une phrase : dans
-  l'œuvre d'origine, le **B n'a pas d'intérieur à lui** — sa boucle est
-  fermée par le sac, et le bleu foncé qu'on y voit EST le corps du sac
-  dans l'ombre. Impossible d'y mettre du blanc sans effacer le sac.
-  Redessinée, la marque a de vraies contre-formes : le blanc du fond
-  traverse le B. Le chariot passe sur le corps bleu du sac, seul endroit
-  où du blanc se détache.
-  `SOURCE_MARQUE` dans `tools/make-icons.js` bascule entre `"dessin"` et
-  `"photo"` : un mot suffit pour revenir à l'œuvre détourée, décrite
-  ci-dessous, qui reste en place dans le code.
-- **Le détourage de l'œuvre, motif sur blanc** (mode `"photo"`).
+- **Les icônes sortent de l'œuvre, motif détouré sur blanc.**
   `node tools/make-icons.js` décode `tools/bizzoo-icone.jpg` dans Chromium
   et en tire les 48 fichiers (PWA et Android, toutes densités). Le **fond
   bleu de l'œuvre est retiré** : sur le téléphone, la tuile bleue pleine
@@ -269,9 +258,8 @@ impact-informatique-app/
   motif à 0,60 occupe donc 90 % de ce qu'on voit, et au-delà les traits
   de vitesse se font couper. L'icône adaptative porte tout dans son
   calque de fond, le premier plan restant transparent.
-  Le fond de la tuile n'est pas blanc pur mais un **blanc à peine grisé**
-  (`#EDF1F9`) : sur un écran d'accueil clair, une icône blanche n'a plus
-  de bord et se fond dans le fond d'écran.
+  Le fond de la tuile est **blanc franc** : l'œuvre garde sa structure,
+  on ne lui retire que son fond bleu.
   L'**écran de démarrage** (`fond_demarrage`, la couleur affichée le temps
   que l'application s'ouvre) est passé du bleu au **blanc** : l'ouverture
   ne commence plus par un éclair bleu, et enchaîne sans rupture sur les
