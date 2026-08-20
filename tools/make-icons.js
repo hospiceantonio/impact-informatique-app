@@ -1,25 +1,32 @@
 /* =========================================================
    Fabrique les icônes des deux applications à partir de
-   l'œuvre officielle BIZZOO (tools/bizzoo-icone.jpg) :
-   le sac de courses qui dessine un B, le chariot blanc et
-   les traits de vitesse, sur le bleu de la marque avec la
-   vague orange.
+   l'œuvre officielle BIZZOO (tools/bizzoo-icone.jpg) : le sac
+   de courses qui dessine un B, le chariot blanc et les traits
+   de vitesse.
+
+   Le fond bleu de l'œuvre est RETIRÉ : sur le téléphone, la
+   tuile bleue pleine écrasait tout. Il ne reste que le motif,
+   posé sur blanc.
+
+   Comment on détoure : on part des bords du carré et on avance
+   tant que la couleur ne change presque pas. Le fond est un
+   dégradé lisse — la propagation le suit sans peine ; le motif
+   a des bords francs — elle s'y arrête. Le chariot blanc,
+   enfermé au milieu du motif, est conservé : la propagation ne
+   peut pas l'atteindre. (Un simple seuil de couleur ne
+   marcherait pas : le sac est bleu, comme le fond.)
 
    Ce que le script produit, pour chaque application :
    - les icônes PWA (192, 512, maskable, apple-touch) ;
-   - les icônes Android classiques et adaptatives (fond +
-     premier plan), toutes densités.
+   - les icônes Android classiques et adaptatives, toutes
+     densités.
 
-   L'application admin reçoit la même œuvre, marquée d'une
-   pastille « réglages » : les deux applications vivent sur
-   le même téléphone, on doit les distinguer d'un coup d'œil.
+   L'application admin reçoit le même motif, marqué d'une
+   pastille « réglages » : les deux applications vivent sur le
+   même téléphone, on doit les distinguer d'un coup d'œil.
 
-   Le fond de l'œuvre est prolongé au-delà du carré arrondi
-   pour que les masques d'Android (rond, carré, goutte) ne
-   découvrent jamais de coin vide.
-
-   Dépendance : Chromium, piloté par Playwright — il décode
-   le JPEG et rééchantillonne proprement.
+   Dépendance : Chromium, piloté par Playwright — il décode le
+   JPEG et rééchantillonne proprement.
    Usage : node tools/make-icons.js
    ========================================================= */
 const fs = require("fs");
@@ -40,11 +47,21 @@ try {
 const RACINE = path.join(__dirname, "..");
 const SOURCE = path.join(__dirname, "bizzoo-icone.jpg");
 
-/* Emprise du motif dans l'œuvre (fractions du côté) : traits de
-   vitesse à gauche, panse du B à droite, anse en haut, chariot en
-   bas. Sert à centrer le motif dans la zone sûre des icônes
-   adaptatives, car il n'est pas centré dans l'œuvre d'origine. */
-const MOTIF = { x0: 0.118, y0: 0.116, x1: 0.834, y1: 0.816 };
+/* Réglages du détourage, trouvés à l'œil sur l'œuvre :
+   - tolerance : écart de couleur admis d'un pixel au suivant ;
+     au-delà de 4, la propagation franchit le bord du sac ;
+   - retrait   : part du côté rentrée pour effacer le liseré adouci
+     du cadre (le faire par érosion creuserait aussi autour du
+     chariot blanc, qui est un trou dans le masque) ;
+   - frange    : pixels de bord grignotés, mélangés au bleu par le
+     lissage — sans quoi le motif garde un halo sur blanc. */
+const DETOURAGE = { tolerance: 4, retrait: 0.035, frange: 1 };
+
+/* Part du côté occupée par le motif, selon ce que le téléphone
+   laisse voir. Sur une tuile carrée on peut aller large ; sous un
+   masque rond, il faut que la DIAGONALE du motif tienne dans le
+   disque. */
+const EMPRISE = { carre: 0.78, rond: 0.66, maskable: 0.68, adaptatif: 0.6 };
 
 /* Icônes PWA. */
 const CIBLES_PWA = [
@@ -63,9 +80,9 @@ const DENSITES = [
   ["mipmap-xxxhdpi", 192, 432],
 ];
 
-/* Ce code s'exécute dans Chromium : il décode l'œuvre, prolonge son
-   fond, puis dessine chaque variante demandée. */
-async function atelier([b64, MOTIF, demandes]) {
+/* Ce code s'exécute dans Chromium : il décode l'œuvre, détoure le
+   motif, puis dessine chaque variante demandée. */
+async function atelier([b64, DETOURAGE, EMPRISE, demandes]) {
   const img = new Image();
   img.src = "data:image/jpeg;base64," + b64;
   await img.decode();
@@ -76,98 +93,173 @@ async function atelier([b64, MOTIF, demandes]) {
   source.height = N;
   const sctx = source.getContext("2d");
   sctx.drawImage(img, 0, 0);
-  const im = sctx.getImageData(0, 0, N, N);
-  const d = im.data;
+  const src = sctx.getImageData(0, 0, N, N).data;
 
-  /* Le carré arrondi : un pixel en fait partie s'il est franchement
-     coloré. Le blanc du pourtour et son ombre grise sont gris neutres,
-     ils tombent d'eux-mêmes. */
-  let masque = new Uint8Array(N * N);
+  /* La tuile d'origine : pixels franchement colorés. Le blanc autour
+     et son ombre grise n'en sont pas. */
+  const dedans = new Uint8Array(N * N);
+  let x0 = N;
+  let y0 = N;
+  let x1 = -1;
+  let y1 = -1;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const i = (y * N + x) * 4;
-      const mx = Math.max(d[i], d[i + 1], d[i + 2]);
-      const mn = Math.min(d[i], d[i + 1], d[i + 2]);
-      masque[y * N + x] = mx - mn > 45 ? 1 : 0;
+      const mx = Math.max(src[i], src[i + 1], src[i + 2]);
+      const mn = Math.min(src[i], src[i + 1], src[i + 2]);
+      if (mx - mn > 45) {
+        dedans[y * N + x] = 1;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
     }
   }
 
-  /* Érosion : on recule franchement du bord pour ne prolonger que des
-     couleurs pleines, jamais le liseré adouci ni l'ombre portée. */
-  const RECUL = Math.round(N * 0.028);
-  const erode = new Uint8Array(N * N);
+  /* Propagation du fond depuis une couronne posée juste à l'intérieur
+     du cadre. On compare chaque pixel à son VOISIN, pas au germe : le
+     dégradé se suit ainsi de proche en proche, alors qu'un écart mesuré
+     depuis le germe finirait par tout avaler. */
+  const fond = new Uint8Array(N * N);
+  const pile = [];
+  const semer = (x, y) => {
+    const k = y * N + x;
+    if (!dedans[k] || fond[k]) return;
+    fond[k] = 1;
+    pile.push(k);
+  };
+  const marge = Math.round(N * 0.09);
+  for (let x = x0; x <= x1; x++) {
+    for (let d = 0; d < marge; d++) {
+      if (y0 + d <= y1) semer(x, y0 + d);
+      if (y1 - d >= y0) semer(x, y1 - d);
+    }
+  }
+  for (let y = y0; y <= y1; y++) {
+    for (let d = 0; d < marge; d++) {
+      if (x0 + d <= x1) semer(x0 + d, y);
+      if (x1 - d >= x0) semer(x1 - d, y);
+    }
+  }
+  while (pile.length) {
+    const k = pile.pop();
+    const x = k % N;
+    const y = (k - x) / N;
+    const i = k * 4;
+    const voisins = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dy] of voisins) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+      const nk = ny * N + nx;
+      if (fond[nk] || !dedans[nk]) continue;
+      const j = nk * 4;
+      const ecart = Math.max(
+        Math.abs(src[i] - src[j]),
+        Math.abs(src[i + 1] - src[j + 1]),
+        Math.abs(src[i + 2] - src[j + 2])
+      );
+      if (ecart <= DETOURAGE.tolerance) {
+        fond[nk] = 1;
+        pile.push(nk);
+      }
+    }
+  }
+
+  /* Le liseré du cadre s'en va par géométrie : un carré arrondi rentré
+     de quelques pour cent. */
+  const cote = Math.max(x1 - x0, y1 - y0);
+  const inset = cote * DETOURAGE.retrait;
+  const bx0 = x0 + inset;
+  const by0 = y0 + inset;
+  const bx1 = x1 - inset;
+  const by1 = y1 - inset;
+  const rCadre = (bx1 - bx0) * 0.2237;
+  const dansCadre = (x, y) => {
+    if (x < bx0 || x > bx1 || y < by0 || y > by1) return false;
+    const qx = Math.max(bx0 + rCadre - x, x - (bx1 - rCadre), 0);
+    const qy = Math.max(by0 + rCadre - y, y - (by1 - rCadre), 0);
+    return Math.hypot(qx, qy) <= rCadre;
+  };
+
+  let masque = new Uint8Array(N * N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const k = y * N + x;
+      masque[k] = !fond[k] && dansCadre(x, y) ? 1 : 0;
+    }
+  }
+  for (let tour = 0; tour < DETOURAGE.frange; tour++) {
+    const suivant = new Uint8Array(N * N);
+    for (let y = 1; y < N - 1; y++) {
+      for (let x = 1; x < N - 1; x++) {
+        const k = y * N + x;
+        if (masque[k] && masque[k - 1] && masque[k + 1] && masque[k - N] && masque[k + N]) {
+          suivant[k] = 1;
+        }
+      }
+    }
+    masque = suivant;
+  }
+
+  /* Le motif, fond transparent, rogné au plus juste : c'est lui qu'on
+     posera ensuite sur du blanc, à la taille voulue. */
+  let mx0 = N;
+  let my0 = N;
+  let mx1 = -1;
+  let my1 = -1;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       if (!masque[y * N + x]) continue;
-      let plein = 1;
-      for (let k = 0; k < 4 && plein; k++) {
-        const nx = x + [RECUL, -RECUL, 0, 0][k];
-        const ny = y + [0, 0, RECUL, -RECUL][k];
-        if (nx < 0 || ny < 0 || nx >= N || ny >= N || !masque[ny * N + nx]) plein = 0;
-      }
-      erode[y * N + x] = plein;
+      if (x < mx0) mx0 = x;
+      if (x > mx1) mx1 = x;
+      if (y < my0) my0 = y;
+      if (y > my1) my1 = y;
     }
   }
-  masque = erode;
-
-  /* Prolongement : chaque ligne s'étire depuis son premier et son
-     dernier pixel franc ; au-dessus et au-dessous, on recopie la
-     ligne pleine la plus proche. Le raccord est invisible parce que
-     le fond de l'œuvre est un dégradé lisse. */
-  const copie = (src, dst) => {
-    d[dst] = d[src];
-    d[dst + 1] = d[src + 1];
-    d[dst + 2] = d[src + 2];
-  };
-  const pleines = [];
-  for (let y = 0; y < N; y++) {
-    let a = -1;
-    let b = -1;
-    for (let x = 0; x < N; x++) {
-      if (masque[y * N + x]) {
-        if (a < 0) a = x;
-        b = x;
-      }
-    }
-    if (a < 0) continue;
-    pleines.push(y);
-    for (let x = 0; x < a; x++) copie((y * N + a) * 4, (y * N + x) * 4);
-    for (let x = b + 1; x < N; x++) copie((y * N + b) * 4, (y * N + x) * 4);
+  const plein = document.createElement("canvas");
+  plein.width = N;
+  plein.height = N;
+  const pctx = plein.getContext("2d");
+  const im = pctx.createImageData(N, N);
+  for (let k = 0; k < N * N; k++) {
+    const i = k * 4;
+    if (!masque[k]) continue;
+    im.data[i] = src[i];
+    im.data[i + 1] = src[i + 1];
+    im.data[i + 2] = src[i + 2];
+    im.data[i + 3] = 255;
   }
-  const yHaut = pleines[0];
-  const yBas = pleines[pleines.length - 1];
-  for (let y = 0; y < yHaut; y++) for (let x = 0; x < N; x++) copie((yHaut * N + x) * 4, (y * N + x) * 4);
-  for (let y = yBas + 1; y < N; y++) for (let x = 0; x < N; x++) copie((yBas * N + x) * 4, (y * N + x) * 4);
-  for (let i = 3; i < d.length; i += 4) d[i] = 255;
-  sctx.putImageData(im, 0, 0);
+  pctx.putImageData(im, 0, 0);
 
-  /* Centre du motif, pour le poser au centre de la tuile. */
-  const centreMotifX = (MOTIF.x0 + MOTIF.x1) / 2;
-  const centreMotifY = (MOTIF.y0 + MOTIF.y1) / 2;
+  const largeurMotif = mx1 - mx0 + 1;
+  const hauteurMotif = my1 - my0 + 1;
+  const coteMotif = Math.max(largeurMotif, hauteurMotif);
+  /* Carré autour du motif : il se posera ainsi sans se déformer. */
+  const motif = document.createElement("canvas");
+  motif.width = coteMotif;
+  motif.height = coteMotif;
+  motif.getContext("2d").drawImage(
+    plein,
+    mx0 - (coteMotif - largeurMotif) / 2,
+    my0 - (coteMotif - hauteurMotif) / 2,
+    coteMotif,
+    coteMotif,
+    0,
+    0,
+    coteMotif,
+    coteMotif
+  );
 
-  /* Dessine l'œuvre à l'échelle voulue, motif centré, le fond
-     prolongé jusqu'aux bords par étirement des bandes de rive. */
-  function poser(ctx, taille, echelle) {
-    const cote = taille * echelle;
-    const x = taille / 2 - cote * centreMotifX;
-    const y = taille / 2 - cote * centreMotifY;
-    const resteX = taille - (x + cote);
-    const resteY = taille - (y + cote);
-    /* Rives : une colonne (ou ligne) source étirée vers l'extérieur. */
-    if (x > 0) ctx.drawImage(source, 0, 0, 1, N, 0, y, x + 1, cote);
-    if (y > 0) ctx.drawImage(source, 0, 0, N, 1, x, 0, cote, y + 1);
-    if (resteX > 0) ctx.drawImage(source, N - 1, 0, 1, N, x + cote - 1, y, resteX + 1, cote);
-    if (resteY > 0) ctx.drawImage(source, 0, N - 1, N, 1, x, y + cote - 1, cote, resteY + 1);
-    /* Coins : le pixel d'angle étiré. */
-    const coin = (sx, sy, dx, dy, dw, dh) => {
-      if (dw > 0 && dh > 0) ctx.drawImage(source, sx, sy, 1, 1, dx, dy, dw, dh);
-    };
-    coin(0, 0, 0, 0, x + 1, y + 1);
-    coin(N - 1, 0, x + cote - 1, 0, resteX + 1, y + 1);
-    coin(0, N - 1, 0, y + cote - 1, x + 1, resteY + 1);
-    coin(N - 1, N - 1, x + cote - 1, y + cote - 1, resteX + 1, resteY + 1);
-    ctx.drawImage(source, x, y, cote, cote);
-    return { x, y, cote };
+  /* Le motif centré sur du blanc, à l'emprise voulue. */
+  function poser(ctx, taille, emprise) {
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, taille, taille);
+    const c = taille * emprise;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(motif, (taille - c) / 2, (taille - c) / 2, c, c);
+    return { cote: c };
   }
 
   /* Le contour d'un carré arrondi, à la manière des icônes de téléphone. */
@@ -182,22 +274,21 @@ async function atelier([b64, MOTIF, demandes]) {
     ctx.closePath();
   }
 
-  /* Pastille « réglages » de l'application admin : un disque bleu
-     nuit cerné de blanc, avec la roue dentée. Elle se pose en bas à
-     droite. Sur une tuile carrée elle va dans l'angle ; sous un masque
-     rond, elle se pose tangente à l'intérieur de la zone sûre, sans
-     quoi le téléphone lui couperait la moitié.
+  /* Pastille « réglages » de l'application admin : un disque bleu nuit
+     cerné de blanc, avec la roue dentée. Sur une tuile carrée elle va
+     dans l'angle ; sous un masque rond, elle se pose tangente à
+     l'intérieur de la zone sûre, sans quoi le téléphone lui couperait
+     la moitié.
      @param rayonSur rayon utile de la tuile, en fraction du côté
                      (null : tuile carrée, l'angle est libre) */
   function pastilleAdmin(ctx, taille, pose, rayonSur) {
     let rExterieur;
     let cx;
     if (rayonSur === null) {
-      rExterieur = taille * 0.175;
-      cx = taille * 0.795;
+      rExterieur = taille * 0.17;
+      cx = taille * 0.79;
     } else {
-      const motifLarge = pose.cote * (MOTIF.x1 - MOTIF.x0);
-      rExterieur = Math.min(motifLarge * 0.25, rayonSur * taille * 0.52);
+      rExterieur = Math.min(pose.cote * 0.26, rayonSur * taille * 0.52);
       cx = taille / 2 + Math.max(0, rayonSur * taille - rExterieur) / Math.SQRT2;
     }
     const r = rExterieur * 0.855;
@@ -241,17 +332,14 @@ async function atelier([b64, MOTIF, demandes]) {
     t.width = taille;
     t.height = taille;
     const ctx = t.getContext("2d");
-    ctx.imageSmoothingQuality = "high";
 
-    /* Pour chaque forme : l'échelle de l'œuvre, et le rayon utile de
-       la tuile — ce que le masque du téléphone laisse voir. */
     let pose;
     let rayonSur;
     if (forme === "carre-arrondi") {
       ctx.save();
       cheminCarreArrondi(ctx, taille);
       ctx.clip();
-      pose = poser(ctx, taille, 1);
+      pose = poser(ctx, taille, EMPRISE.carre);
       ctx.restore();
       rayonSur = null;
     } else if (forme === "rond") {
@@ -259,19 +347,19 @@ async function atelier([b64, MOTIF, demandes]) {
       ctx.beginPath();
       ctx.arc(taille / 2, taille / 2, taille / 2, 0, Math.PI * 2);
       ctx.clip();
-      pose = poser(ctx, taille, 0.8);
+      pose = poser(ctx, taille, EMPRISE.rond);
       ctx.restore();
       rayonSur = 0.47;
     } else if (forme === "maskable") {
       /* Zone sûre PWA : disque de 80 % du côté. */
-      pose = poser(ctx, taille, 0.84);
+      pose = poser(ctx, taille, EMPRISE.maskable);
       rayonSur = 0.4;
     } else if (forme === "adaptatif") {
       /* Zone sûre Android : le motif doit tenir dans le disque de 72/108. */
-      pose = poser(ctx, taille, 0.72);
+      pose = poser(ctx, taille, EMPRISE.adaptatif);
       rayonSur = 0.333;
     } else {
-      pose = poser(ctx, taille, 1);
+      pose = poser(ctx, taille, EMPRISE.carre);
       rayonSur = null;
     }
     if (admin) pastilleAdmin(ctx, taille, pose, rayonSur);
@@ -300,7 +388,7 @@ async function atelier([b64, MOTIF, demandes]) {
 
   const nav = await chromium.launch();
   const page = await nav.newPage();
-  const sorties = await page.evaluate(atelier, [b64, MOTIF, demandes]);
+  const sorties = await page.evaluate(atelier, [b64, DETOURAGE, EMPRISE, demandes]);
   await nav.close();
 
   let ecrits = 0;
@@ -315,8 +403,8 @@ async function atelier([b64, MOTIF, demandes]) {
     ecrits++;
   }
 
-  /* Premier plan adaptatif : entièrement transparent. L'œuvre tient
-     dans le calque de fond, motif déjà centré dans la zone sûre. */
+  /* Premier plan adaptatif : entièrement transparent. Le motif tient
+     dans le calque de fond, déjà centré dans la zone sûre. */
   const vide = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
     "base64"
@@ -331,5 +419,5 @@ async function atelier([b64, MOTIF, demandes]) {
     }
   }
 
-  console.log(ecrits + " icônes écrites depuis " + path.basename(SOURCE) + ".");
+  console.log(ecrits + " icônes écrites depuis " + path.basename(SOURCE) + " (motif détouré sur blanc).");
 })();

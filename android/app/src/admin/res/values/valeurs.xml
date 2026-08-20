@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">BIZZOO Admin</string>
     <color name="fond_demarrage">#001A6E</color>
-    <color name="ic_launcher_fond">#0B5CF5</color>
+    <color name="ic_launcher_fond">#FFFFFF</color>
     <!-- Le gérant fait lui-même les mises à jour : rien à lui annoncer. -->
     <bool name="notifications_actives">false</bool>
 </resources>

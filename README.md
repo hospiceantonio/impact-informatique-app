@@ -236,16 +236,26 @@ impact-informatique-app/
   style partagent les mêmes noms de variables, et les tests lisent la
   teinte dans l'application au lieu de la figer, pour qu'un changement de
   charte ne casse rien.
-- **Les icônes sortent de l'œuvre, pas d'un dessin approché.**
+- **Les icônes sortent de l'œuvre, motif détouré sur blanc.**
   `node tools/make-icons.js` décode `tools/bizzoo-icone.jpg` dans Chromium
-  et en tire les 48 fichiers (PWA et Android, toutes densités). Deux
-  précautions : le fond de l'œuvre est **prolongé au-delà du carré
-  arrondi** (chaque ligne s'étire depuis son dernier pixel franc, après
-  une érosion qui écarte le liseré adouci et l'ombre portée), sinon les
-  masques d'Android découvriraient des coins vides ; et le **motif est
-  recentré** — il ne l'est pas dans l'œuvre — puis réduit pour tenir dans
-  la zone sûre (disque de 72/108). L'icône adaptative porte donc tout dans
-  son calque de fond, le premier plan restant transparent.
+  et en tire les 48 fichiers (PWA et Android, toutes densités). Le **fond
+  bleu de l'œuvre est retiré** : sur le téléphone, la tuile bleue pleine
+  écrasait tout. Il ne reste que le motif, posé sur blanc.
+  Le détourage part des bords du carré et avance **tant que la couleur ne
+  change presque pas** (écart de 4 au plus d'un pixel au suivant) : le
+  fond est un dégradé lisse, la propagation le suit ; le motif a des bords
+  francs, elle s'y arrête. Un simple seuil de couleur ne marcherait pas —
+  le sac est bleu, comme le fond. Le **chariot blanc est conservé** sans
+  rien faire de particulier : enfermé au milieu du motif, la propagation
+  ne peut pas l'atteindre. Le liseré du cadre s'efface par **géométrie**
+  (un carré arrondi rentré de 3,5 %) et non par érosion, qui creuserait
+  aussi autour du chariot — un trou dans le masque. Un pixel de bord est
+  grignoté pour ôter la frange bleue laissée par le lissage.
+  Le motif est ensuite **rogné au plus juste, centré**, et posé à une
+  emprise qui dépend de ce que le téléphone laisse voir : large sur une
+  tuile carrée, plus serrée sous un masque rond, où c'est la **diagonale**
+  du motif qui doit tenir dans le disque. L'icône adaptative porte tout
+  dans son calque de fond, le premier plan restant transparent.
   L'application admin reçoit la **même** œuvre, marquée d'une pastille
   « réglages » : les deux applications vivent sur le même téléphone, on
   doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se
