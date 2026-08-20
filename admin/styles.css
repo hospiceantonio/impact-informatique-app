@@ -245,6 +245,15 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .histo-ligne{display:flex;align-items:flex-start;gap:11px;padding:11px 8px}
 .histo-ligne + .histo-ligne{border-top:1px solid var(--trait)}
+/* Une action annulée reste au journal, en retrait : l'historique dit ce
+   qui s'est passé, y compris qu'on est revenu en arrière. */
+.histo-annulee{opacity:.55}
+.histo-annulee .histo-libelle{text-decoration:line-through}
+.histo-marque-annulee{
+  display:inline-flex;align-items:center;gap:5px;margin-top:3px;
+  font-size:11.5px;font-weight:700;color:var(--orange-fonce);
+}
+.histo-ligne [data-annuler]{flex:none;align-self:center}
 .histo-compact{padding:9px 0}
 .histo-compact + .histo-compact{border-top:1px solid var(--trait)}
 .histo-rond{

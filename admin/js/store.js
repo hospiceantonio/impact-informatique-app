@@ -162,6 +162,7 @@ const Store = (() => {
    */
   async function majVenteFlash(id, fin) {
     const produit = await lireProduit(id);
+    const avant = await ligneBrute("produits", id);
     if (!produit) throw new Error("Produit introuvable.");
     const quand = fin ? new Date(fin) : null;
     if (quand && (isNaN(quand.getTime()) || quand.getTime() <= Date.now())) {
@@ -174,7 +175,8 @@ const Store = (() => {
       quand
         ? "Vente flash : " + produit.nom + " jusqu'au " + Utils.fmtDateHeure(quand.getTime())
         : "Vente flash retirée : " + produit.nom,
-      produit.reference || produit.nom);
+      produit.reference || produit.nom,
+      aAnnuler("produits", [avant], [id]));
     return produitDepuisLigne((lignes || [])[0] || {});
   }
 
@@ -429,13 +431,16 @@ const Store = (() => {
     };
 
     const ligne = ligneDepuisBoutique(boutique);
+    const avant = existante ? await ligneBrute("boutiques", boutique.id) : null;
     if (existante) {
       await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutique.id), ligne);
-      journaliser("boutique", "modification", "Boutique modifiée : " + nom, nom);
+      journaliser("boutique", "modification", "Boutique modifiée : " + nom, nom,
+        aAnnuler("boutiques", [avant], [boutique.id]));
     } else {
       await Supabase.requete("POST", "boutiques", { id: boutique.id, ...ligne,
         cree_le: new Date().toISOString() });
-      journaliser("boutique", "ajout", "Nouvelle boutique : " + nom, nom);
+      journaliser("boutique", "ajout", "Nouvelle boutique : " + nom, nom,
+        aAnnuler("boutiques", [], [boutique.id]));
     }
 
     await chargerBoutiques();
@@ -448,10 +453,12 @@ const Store = (() => {
     const b = lireBoutique(id);
     if (!b) throw new Error("Cette boutique n'existe plus.");
     const actif = !b.actif;
+    const avant = await ligneBrute("boutiques", id);
     await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(id),
       { actif, maj_le: new Date().toISOString() });
     journaliser("boutique", actif ? "activation" : "desactivation",
-      (actif ? "Boutique ouverte : " : "Boutique fermée : ") + b.nomBoutique, b.nomBoutique);
+      (actif ? "Boutique ouverte : " : "Boutique fermée : ") + b.nomBoutique, b.nomBoutique,
+      aAnnuler("boutiques", [avant], [id]));
     await chargerBoutiques();
     if (boutiqueId === id) reglages = { ...(lireBoutique(id) || reglages) };
     return lireBoutique(id);
@@ -539,6 +546,7 @@ const Store = (() => {
     const propre = { ...maj };
     if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
     if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
+    const avant = await ligneBrute("boutique", 1);
     enseigne = { ...enseigne, ...propre };
     const e = enseigne;
     await Supabase.requete("PATCH", "boutique?id=eq.1", {
@@ -564,7 +572,10 @@ const Store = (() => {
       video: e.video || "",
       maj_le: new Date().toISOString(),
     });
-    if (libelleJournal) journaliser("boutique", "modification", libelleJournal, e.nomBoutique);
+    if (libelleJournal) {
+      journaliser("boutique", "modification", libelleJournal, e.nomBoutique,
+        aAnnuler("boutique", [avant], [1]));
+    }
     return lireEnseigne();
   }
 
@@ -666,22 +677,24 @@ const Store = (() => {
       ligne.boutique_id = maj.boutiqueId || null;
       delete ligne.boutiqueId;
     }
+    const avant = await ligneBrute("profils", id);
     const lignes = await Supabase.requete("PATCH", "profils?id=eq." + encodeURIComponent(id), ligne);
     const c = compteDepuisLigne((lignes || [])[0] || { id, ...ligne });
+    const retour = aAnnuler("profils", [avant], [id]);
     if (maj.role) {
       journaliser("compte", "modification",
-        c.email + " devient " + ROLES[c.role].nom.toLowerCase(), c.email);
+        c.email + " devient " + ROLES[c.role].nom.toLowerCase(), c.email, retour);
     } else if (maj.actif !== undefined) {
       journaliser("compte", maj.actif ? "activation" : "desactivation",
-        (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email);
+        (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email, retour);
     } else if (maj.boutiqueId !== undefined) {
       const nom = (lireBoutique(maj.boutiqueId) || {}).nomBoutique || "toutes les boutiques";
-      journaliser("compte", "modification", c.email + " s'occupe de " + nom, c.email);
+      journaliser("compte", "modification", c.email + " s'occupe de " + nom, c.email, retour);
     } else if (maj.peutModifier !== undefined) {
       journaliser("compte", "modification",
         (maj.peutModifier
           ? "Autorisé à modifier les produits : "
-          : "Ne peut plus modifier les produits : ") + c.email, c.email);
+          : "Ne peut plus modifier les produits : ") + c.email, c.email, retour);
     }
     return c;
   }
@@ -714,15 +727,92 @@ const Store = (() => {
      Chaque geste du gérant laisse une trace lisible : qui, quoi, quand.
      L'écriture ne bloque jamais l'action elle-même. */
 
-  function journaliser(famille, action, libelle, cible) {
+  /* ---------- De quoi annuler une action ----------
+     On garde la ligne telle qu'elle était AVANT l'écriture. Annuler,
+     c'est la réécrire ; et si elle n'existait pas avant, c'est la
+     supprimer. Le même mécanisme sert donc pour un ajout, une
+     modification et une suppression, sans code particulier. */
+
+  /** La ligne brute d'une table, colonnes de la base telles quelles. */
+  async function ligneBrute(table, id) {
+    if (id === undefined || id === null || id === "") return null;
+    const lignes = await Supabase.requete("GET",
+      table + "?select=*&id=eq." + encodeURIComponent(id), undefined, { avecSession: true })
+      .catch(() => null);
+    return (lignes && lignes[0]) || null;
+  }
+
+  /**
+   * Décrit ce qu'il faudra remettre en place.
+   * @param table  la table concernée
+   * @param avant  les lignes telles qu'elles étaient (celles qui n'existaient pas : rien)
+   * @param ids    les lignes touchées par l'action
+   */
+  function aAnnuler(table, avant, ids) {
+    return {
+      table,
+      avant: (avant || []).filter(Boolean).map((ligne) => ({ table, ligne })),
+      ids: (ids || []).filter((id) => id !== undefined && id !== null && id !== "")
+        .map((id) => ({ table, id: String(id) })),
+    };
+  }
+
+  function journaliser(famille, action, libelle, cible, retour) {
     const ligne = {
       utilisateur: Supabase.utilisateur() || "",
       famille, action, libelle,
       cible: cible || "",
       fait_le: new Date().toISOString(),
     };
+    /* Une action sans « retour » reste au journal, simplement elle ne
+       s'annule pas : une suppression de compte, par exemple. */
+    if (retour && retour.ids && retour.ids.length) {
+      ligne.cible_table = retour.table || "";
+      ligne.retour = { avant: retour.avant || [], ids: retour.ids };
+    }
     return Supabase.requete("POST", "journal", ligne, { sansRetour: true })
       .catch(() => { /* le journal ne doit jamais gêner le travail */ });
+  }
+
+  /**
+   * Remet les choses comme elles étaient avant une action du journal.
+   * Réservé au superadministrateur — la base le vérifie aussi, l'écran
+   * n'est qu'une politesse.
+   */
+  async function annulerAction(idJournal) {
+    if (!Supabase.estSuper()) {
+      throw new Error("Seul un superadministrateur peut annuler une action.");
+    }
+    const lignes = await Supabase.requete("GET",
+      "journal?select=*&id=eq." + encodeURIComponent(idJournal), undefined, { avecSession: true });
+    const entree = (lignes || [])[0];
+    if (!entree) throw new Error("Action introuvable.");
+    if (entree.annule_le) throw new Error("Cette action a déjà été annulée.");
+    const retour = entree.retour || {};
+    const ids = retour.ids || [];
+    if (!ids.length) throw new Error("Cette action ne peut pas être annulée.");
+
+    const avant = retour.avant || [];
+    for (const cible of ids) {
+      const precedent = avant.find((a) =>
+        a.table === cible.table && String(a.ligne && a.ligne.id) === String(cible.id));
+      if (precedent) {
+        await Supabase.requete("POST", cible.table + "?on_conflict=id", precedent.ligne,
+          { upsert: true });
+      } else {
+        await Supabase.requete("DELETE",
+          cible.table + "?id=eq." + encodeURIComponent(cible.id));
+      }
+    }
+
+    await Supabase.requete("PATCH", "journal?id=eq." + encodeURIComponent(idJournal), {
+      annule_le: new Date().toISOString(),
+      annule_par: Supabase.utilisateur() || "",
+    });
+    /* L'annulation est elle-même une action : elle laisse sa trace, mais
+       ne s'annule pas — sinon on tournerait en rond. */
+    await journaliser(entree.famille || "autre", "annulation",
+      "Action annulée : " + (entree.libelle || ""), entree.cible || "");
   }
 
   /** Les dernières actions, de la plus récente à la plus ancienne.
@@ -739,6 +829,15 @@ const Store = (() => {
       action: l.action || "",
       libelle: l.libelle || "",
       cible: l.cible || "",
+      /* Annulable si on a gardé de quoi remettre les lignes en place et
+         que personne ne l'a déjà fait. Les actions d'avant cette
+         version n'ont rien gardé : elles ne s'annulent pas. */
+      annulable: !!(l.retour && (l.retour.ids || []).length) && !l.annule_le &&
+        l.action !== "annulation",
+      /* Pas de versMs ici : il retombe sur « maintenant » quand la date
+         manque, ce qui marquerait toutes les lignes comme annulées. */
+      annuleLe: l.annule_le ? Date.parse(l.annule_le) || 0 : 0,
+      annulePar: l.annule_par || "",
     }));
   }
 
@@ -762,12 +861,16 @@ const Store = (() => {
         if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
         propre.tauxMarge = taux;
       }
+      const avant = await ligneBrute("boutiques", boutiqueId);
       reglages = { ...reglages, ...propre };
       await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutiqueId),
         ligneDepuisBoutique(reglages));
       const index = boutiques.findIndex((b) => b.id === boutiqueId);
       if (index >= 0) boutiques[index] = { ...reglages };
-      if (libelleJournal) journaliser("boutique", "modification", libelleJournal, reglages.nomBoutique);
+      if (libelleJournal) {
+        journaliser("boutique", "modification", libelleJournal, reglages.nomBoutique,
+          aAnnuler("boutiques", [avant], [boutiqueId]));
+      }
       return lireReglages();
     }
     return majReglagesUnique(maj, libelleJournal);
@@ -783,6 +886,7 @@ const Store = (() => {
       if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
       propre.tauxMarge = taux;
     }
+    const avant = await ligneBrute("boutique", 1);
     reglages = { ...reglages, ...propre };
     const r = reglages;
     await Supabase.requete("PATCH", "boutique?id=eq.1", {
@@ -809,7 +913,10 @@ const Store = (() => {
       taux_marge: r.tauxMarge,
       maj_le: new Date().toISOString(),
     });
-    if (libelleJournal) journaliser("boutique", "modification", libelleJournal, r.nomBoutique);
+    if (libelleJournal) {
+      journaliser("boutique", "modification", libelleJournal, r.nomBoutique,
+        aAnnuler("boutique", [avant], [1]));
+    }
     return lireReglages();
   }
 
@@ -915,6 +1022,15 @@ const Store = (() => {
       ? existante.ordre
       : existantes.reduce((m, c) => Math.max(m, c.ordre || 0), 0) + 1;
 
+    /* Un rayon, ce sont deux tables : la catégorie et ses
+       sous-catégories. On garde les deux pour pouvoir revenir dessus. */
+    const avantCategorie = existante ? await ligneBrute("categories", id) : null;
+    const avantSous = existante
+      ? await Supabase.requete("GET",
+          "sous_categories?select=*&categorie_id=eq." + encodeURIComponent(id),
+          undefined, { avecSession: true }).catch(() => [])
+      : [];
+
     if (existante) {
       await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(id), { nom, ordre });
     } else {
@@ -948,9 +1064,23 @@ const Store = (() => {
       }
     }
 
+    /* Les sous-catégories d'après, pour que l'annulation efface celles
+       qui viennent d'être créées. */
+    const apresSous = await Supabase.requete("GET",
+      "sous_categories?select=id&categorie_id=eq." + encodeURIComponent(id),
+      undefined, { avecSession: true }).catch(() => []);
+    const retour = aAnnuler("categories", [avantCategorie], [id]);
+    for (const ligne of avantSous || []) retour.avant.push({ table: "sous_categories", ligne });
+    const idsSous = new Set([
+      ...(avantSous || []).map((x) => x.id),
+      ...(apresSous || []).map((x) => x.id),
+    ]);
+    for (const sousId of idsSous) retour.ids.push({ table: "sous_categories", id: String(sousId) });
+
     journaliser("categorie", existante ? "modification" : "ajout",
       (existante ? "Catégorie modifiée : " : "Nouvelle catégorie : ") + nom +
-      " (" + voulues.length + " sous-catégorie" + (voulues.length > 1 ? "s" : "") + ")", nom);
+      " (" + voulues.length + " sous-catégorie" + (voulues.length > 1 ? "s" : "") + ")", nom,
+      retour);
     return lireCategorie(id);
   }
 
@@ -961,9 +1091,21 @@ const Store = (() => {
         " se trouve" + (produits.length > 1 ? "nt" : "") + " dans cette catégorie. Déplacez-les d'abord.");
     }
     const categorie = await lireCategorie(id);
+    /* La suppression emporte les sous-catégories : on les garde aussi,
+       sinon annuler rendrait un rayon vide. */
+    const avantCategorie = await ligneBrute("categories", id);
+    const avantSous = await Supabase.requete("GET",
+      "sous_categories?select=*&categorie_id=eq." + encodeURIComponent(id),
+      undefined, { avecSession: true }).catch(() => []);
     await Supabase.requete("DELETE", "categories?id=eq." + encodeURIComponent(id));
+    const retour = aAnnuler("categories", [avantCategorie], [id]);
+    for (const ligne of avantSous || []) {
+      retour.avant.push({ table: "sous_categories", ligne });
+      retour.ids.push({ table: "sous_categories", id: String(ligne.id) });
+    }
     journaliser("categorie", "suppression",
-      "Catégorie supprimée : " + (categorie ? categorie.nom : id), categorie ? categorie.nom : "");
+      "Catégorie supprimée : " + (categorie ? categorie.nom : id), categorie ? categorie.nom : "",
+      retour);
   }
 
   /** Échange l'ordre avec la catégorie voisine (direction -1 ou +1). */
@@ -973,9 +1115,11 @@ const Store = (() => {
     const voisin = categories[index + direction];
     if (index < 0 || !voisin) return;
     const courant = categories[index];
+    const avant = [await ligneBrute("categories", courant.id), await ligneBrute("categories", voisin.id)];
     await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(courant.id), { ordre: voisin.ordre });
     await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(voisin.id), { ordre: courant.ordre });
-    journaliser("categorie", "ordre", "Ordre des catégories modifié : " + courant.nom, courant.nom);
+    journaliser("categorie", "ordre", "Ordre des catégories modifié : " + courant.nom, courant.nom,
+      aAnnuler("categories", avant, [courant.id, voisin.id]));
   }
 
   /* ---------- Produits ---------- */
@@ -1173,12 +1317,15 @@ const Store = (() => {
     };
 
     const ligne = ligneDepuisProduit(produit);
+    /* La ligne d'avant, pour pouvoir revenir dessus. */
+    const avant = existant ? await ligneBrute("produits", produit.id) : null;
     let lignes;
     if (existant) {
       lignes = await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(produit.id), ligne);
       journaliser("produit", "modification",
         "Produit modifié : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
-        produit.reference || produit.nom);
+        produit.reference || produit.nom,
+        aAnnuler("produits", [avant], [produit.id]));
     } else {
       ligne.cree_le = new Date().toISOString();
       /* Le produit naît dans la boutique ouverte, et n'en bougera plus. */
@@ -1186,7 +1333,8 @@ const Store = (() => {
       lignes = await Supabase.requete("POST", "produits", ligne);
       journaliser("produit", "ajout",
         "Nouveau produit : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
-        produit.reference || produit.nom);
+        produit.reference || produit.nom,
+        aAnnuler("produits", [], [produit.id]));
     }
     await sauverPrixAchat(produit.id, prixGrossiste, tauxMarge);
     const enregistre = produitDepuisLigne(Array.isArray(lignes) ? lignes[0] : ligne);
@@ -1215,15 +1363,15 @@ const Store = (() => {
 
   async function supprimerProduit(id) {
     const produit = await lireProduit(id);
-    if (produit) {
-      const fichiers = (produit.images || []).slice();
-      if (produit.video) fichiers.push(produit.video);
-      await Supabase.supprimerImages(fichiers);
-    }
+    const avant = await ligneBrute("produits", id);
+    /* Les photos et la vidéo restent dans le stockage : sans elles,
+       annuler la suppression rendrait un produit aux images mortes.
+       Elles ne pèsent que quelques centaines de kilo-octets. */
     await Supabase.requete("DELETE", "produits?id=eq." + encodeURIComponent(id));
     if (produit) {
       journaliser("produit", "suppression", "Produit supprimé : " + produit.nom,
-        produit.reference || produit.nom);
+        produit.reference || produit.nom,
+        aAnnuler("produits", [avant], [id]));
     }
   }
 
@@ -1245,6 +1393,7 @@ const Store = (() => {
   async function majDisponibilite(id, maj) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
+    const ligneAvant = await ligneBrute("produits", id);
     const surCommande = maj.surCommande !== undefined ? !!maj.surCommande : produit.surCommande;
     /* Les trois options s'excluent : dire l'une efface les autres. */
     let approLe = produit.approLe;
@@ -1283,7 +1432,8 @@ const Store = (() => {
           : (avant === "disponible"
               ? "Stock : " + produit.stock + " → " + stock + " — " + produit.nom
               : "Réapprovisionné (" + stock + ") : " + produit.nom);
-    journaliser("produit", action, libelle, produit.reference || produit.nom);
+    journaliser("produit", action, libelle, produit.reference || produit.nom,
+      aAnnuler("produits", [ligneAvant], [id]));
     return { ...produit, stock, surCommande, approLe };
   }
 
@@ -1300,6 +1450,7 @@ const Store = (() => {
   async function basculerEnAvant(id) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
+    const avant = await ligneBrute("produits", id);
     if (!produit.enAvant) {
       const actuels = (await listerEnAvant()).filter((p) => p.id !== id);
       if (actuels.length >= MAX_EN_AVANT) {
@@ -1318,7 +1469,8 @@ const Store = (() => {
     });
     journaliser("produit", produit.enAvant ? "mise_en_avant" : "retrait_avant",
       (produit.enAvant ? "Ajouté au slider client : " : "Retiré du slider client : ") + produit.nom,
-      produit.reference || produit.nom);
+      produit.reference || produit.nom,
+      aAnnuler("produits", [avant], [id]));
     return produit;
   }
 
@@ -1330,6 +1482,9 @@ const Store = (() => {
     if (index < 0 || !voisin) return;
     liste.forEach((p, i) => { p.ordreAvant = i + 1; });
     const courant = liste[index];
+    /* Un échange touche deux lignes : on garde les deux, sinon annuler
+       laisserait le classement de travers. */
+    const avant = [await ligneBrute("produits", courant.id), await ligneBrute("produits", voisin.id)];
     const tmp = courant.ordreAvant;
     courant.ordreAvant = voisin.ordreAvant;
     voisin.ordreAvant = tmp;
@@ -1339,7 +1494,8 @@ const Store = (() => {
     }
     journaliser("produit", "ordre_slider",
       "Ordre du slider modifié : " + courant.nom + " en position " + courant.ordreAvant,
-      courant.reference || courant.nom);
+      courant.reference || courant.nom,
+      aAnnuler("produits", avant, [courant.id, voisin.id]));
   }
 
   /* ---------- Écrans du slider ----------
@@ -1397,6 +1553,7 @@ const Store = (() => {
       throw new Error("Le slider accepte " + MAX_SLIDES + " écrans au maximum. Retirez-en un d'abord.");
     }
 
+    const avant = existant ? await ligneBrute("slides", existant.id) : null;
     const media = donnees.media || {};
     let chemin = "";
     let cheminVideo = "";
@@ -1447,19 +1604,22 @@ const Store = (() => {
     journaliser("slider", existant ? "modification" : "ajout",
       (existant ? quoi + " du slider modifiée" : quoi + " ajoutée au slider") +
         (enseigne ? " (BIZZOO)" : ""),
-      slide.titre);
+      slide.titre,
+      aAnnuler("slides", [avant], [slide.id]));
     return slideDepuisLigne((lignes && lignes[0]) || slide);
   }
 
   async function supprimerSlide(id, cible) {
     const slide = await lireSlide(id, cible);
+    const avant = await ligneBrute("slides", id);
+    /* La photo ou la vidéo reste dans le stockage : sans elle, annuler
+       le retrait rendrait un écran vide. */
     await Supabase.requete("DELETE", "slides?id=eq." + encodeURIComponent(id));
-    const medias = slide ? [slide.chemin, slide.video].filter(Boolean) : [];
-    if (medias.length) await Supabase.supprimerImages(medias);
     journaliser("slider", "suppression",
       (slide && slide.estVideo ? "Vidéo retirée du slider" : "Photo retirée du slider") +
         (cible === "enseigne" ? " (BIZZOO)" : ""),
-      slide ? slide.titre : "");
+      slide ? slide.titre : "",
+      aAnnuler("slides", [avant], [id]));
   }
 
   /** Monte ou descend un écran dans le slider (direction -1 ou +1). */
@@ -1470,6 +1630,7 @@ const Store = (() => {
     if (index < 0 || !voisin) return;
     liste.forEach((s, i) => { s.ordre = i + 1; });
     const courant = liste[index];
+    const avant = [await ligneBrute("slides", courant.id), await ligneBrute("slides", voisin.id)];
     const tmp = courant.ordre;
     courant.ordre = voisin.ordre;
     voisin.ordre = tmp;
@@ -1479,7 +1640,8 @@ const Store = (() => {
     journaliser("slider", "ordre",
       "Ordre du slider modifié : écran en position " + courant.ordre +
         (cible === "enseigne" ? " (BIZZOO)" : ""),
-      courant.titre);
+      courant.titre,
+      aAnnuler("slides", avant, [courant.id, voisin.id]));
   }
 
   /* ---------- Statistiques ---------- */
@@ -1639,6 +1801,7 @@ const Store = (() => {
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
+    annulerAction,
     enAppro, joursAppro, dateApproDans, APPRO_MIN, APPRO_MAX,
     enVenteFlash, majVenteFlash,
     statistiques, exporter, importer,

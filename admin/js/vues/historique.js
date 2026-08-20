@@ -55,8 +55,11 @@ const VueHistorique = (() => {
 
   function htmlEntree(entree) {
     const a = aspect(entree);
+    /* Annuler, c'est écrire dans les tables : le superadministrateur
+       seul le peut, et la base le vérifie de son côté. */
+    const annulable = entree.annulable && Supabase.estSuper();
     return (
-      '<div class="histo-ligne">' +
+      '<div class="histo-ligne' + (entree.annuleLe ? " histo-annulee" : "") + '">' +
         '<span class="histo-rond histo-' + a.teinte + '">' + UI.icone(a.icone, "ic-sm") + "</span>" +
         '<span class="histo-corps">' +
           '<span class="histo-libelle">' + Utils.echapper(entree.libelle) + "</span>" +
@@ -65,7 +68,17 @@ const VueHistorique = (() => {
             (entree.utilisateur ? " · " + Utils.echapper(entree.utilisateur) : "") +
             (entree.cible ? " · " + Utils.echapper(entree.cible) : "") +
           "</span>" +
+          (entree.annuleLe
+            ? '<span class="histo-marque-annulee">' + UI.icone("actualiser", "ic-sm") +
+              " Annulée" + (entree.annulePar ? " par " + Utils.echapper(entree.annulePar) : "") +
+              "</span>"
+            : "") +
         "</span>" +
+        (annulable
+          ? '<button type="button" class="btn-ic btn-ic-clair" data-annuler="' + entree.id +
+            '" aria-label="Annuler cette action" title="Annuler cette action">' +
+            UI.icone("actualiser", "ic-sm") + "</button>"
+          : "") +
       "</div>"
     );
   }
@@ -97,6 +110,34 @@ const VueHistorique = (() => {
     UI.$("#histo-liste", vue).innerHTML = htmlListe(filtrees());
     const bouton = UI.$("#histo-plus", vue);
     if (bouton) bouton.hidden = toutCharge || !entrees.length;
+    brancherAnnulation(vue);
+  }
+
+  /** « Annuler » remet les lignes touchées telles qu'elles étaient. */
+  function brancherAnnulation(vue) {
+    for (const bouton of UI.$$("[data-annuler]", vue)) {
+      bouton.onclick = async () => {
+        const entree = entrees.find((e) => String(e.id) === bouton.dataset.annuler);
+        if (!entree) return;
+        const ok = await UI.confirmer({
+          titre: "Annuler cette action ?",
+          texte: "« " + entree.libelle + " »\n\nTout revient comme avant cette action. " +
+            "Ce qui a été fait depuis, sur les mêmes fiches, sera écrasé.",
+          bouton: "Annuler l'action",
+          danger: true,
+        });
+        if (!ok) return;
+        bouton.disabled = true;
+        try {
+          await Store.annulerAction(entree.id);
+          UI.toast("Action annulée — tout est revenu comme avant", "ok");
+          await afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          bouton.disabled = false;
+        }
+      };
+    }
   }
 
   async function afficher(vue) {

@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v33";
+const VERSION = "impact-admin-v34";
 
 const FICHIERS = [
   "./",

@@ -509,6 +509,15 @@ create table if not exists public.journal (
   libelle     text not null default '',       -- phrase lisible par le gérant
   cible       text not null default ''        -- nom du produit, de la catégorie…
 );
+-- Annuler une action : on garde de quoi remettre les choses en place.
+--   retour = { "avant": [ { "table": "produits", "ligne": {…} } ],
+--              "ids":   [ { "table": "produits", "id": "prod_x" } ] }
+-- Une ligne présente dans « avant » est réécrite telle quelle ;
+-- une ligne absente est supprimée — c'est ainsi qu'on annule un ajout.
+alter table public.journal add column if not exists cible_table text not null default '';
+alter table public.journal add column if not exists retour jsonb;
+alter table public.journal add column if not exists annule_le timestamptz;
+alter table public.journal add column if not exists annule_par text not null default '';
 create index if not exists journal_date on public.journal(fait_le desc);
 
 alter table public.journal enable row level security;
@@ -521,6 +530,12 @@ create policy "journal lecture connectee" on public.journal
 -- (Les deux rangs d'administrateur lisent l'historique ; le modérateur non.)
 create policy "journal ecriture connectee" on public.journal
   for insert to authenticated with check (public.est_equipe());
+-- Marquer une action comme annulée : le superadministrateur seul. Lui
+-- seul peut annuler, et l'annulation touche parfois une autre boutique
+-- que la sienne.
+drop policy if exists "journal annulation" on public.journal;
+create policy "journal annulation" on public.journal
+  for update to authenticated using (public.est_super()) with check (public.est_super());
 
 -- ---------- Ligne de l'enseigne ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;

@@ -251,6 +251,30 @@ impact-informatique-app/
   doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se
   pose tangente à l'intérieur de la zone sûre — sinon le téléphone lui
   couperait la moitié.
+- **Annuler une action, depuis l'historique.** Réservé au
+  **SuperAdministrateur** : chaque ligne de `Réglages → Historique`
+  porte un bouton qui remet les choses comme elles étaient avant cette
+  action. Le mécanisme tient en une idée : au moment d'écrire,
+  l'application range dans le journal la **ligne telle qu'elle était**
+  (`journal.retour`). Annuler, c'est la réécrire ; et si elle n'existait
+  pas avant, c'est la supprimer — un ajout, une modification et une
+  suppression s'annulent donc par le même code, sans cas particulier.
+  `retour` porte une **liste** de lignes et une liste d'identifiants, ce
+  qui couvre aussi ce qui touche plusieurs lignes à la fois : un échange
+  de position (deux lignes) ou un rayon avec ses sous-catégories (deux
+  tables).
+  Deux conséquences assumées : supprimer un produit ou un écran du
+  slider **ne supprime plus la photo ni la vidéo** du stockage — sans
+  elles, l'annulation rendrait une fiche aux images mortes ; et
+  l'annulation reste inscrite au journal (la ligne annulée est barrée,
+  l'action d'annulation apparaît à son tour) plutôt que d'effacer
+  l'histoire.
+  Ne s'annulent pas : la suppression d'un **compte** (l'identifiant de
+  connexion lui-même est effacé), la suppression d'une **boutique**
+  (elle emporte tout son catalogue), et les actions d'avant cette
+  version — le journal n'en avait rien gardé. La règle
+  `journal annulation` (RLS) est ce qui ferme vraiment la porte aux
+  autres rangs ; cacher le bouton n'est qu'une politesse.
 - **Le slider appartient à l'enseigne.** Ce qui défile en haut de
   l'accueil de l'application client est composé dans **BIZZOO Admin →
   Réglages → onglet BIZZOO → Slider** : des **photos et des vidéos**,
