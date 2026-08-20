@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_fond" />
+    <!-- L'œuvre BIZZOO tient entière dans le calque de fond : son
+         motif est déjà centré dans la zone sûre, et son fond est
+         prolongé jusqu'aux bords pour tous les masques. -->
+    <background android:drawable="@mipmap/ic_launcher_fond" />
     <foreground android:drawable="@mipmap/ic_launcher_premier_plan" />
 </adaptive-icon>

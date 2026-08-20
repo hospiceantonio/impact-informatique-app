@@ -77,7 +77,7 @@ create table if not exists public.boutiques (
   slogan      text not null default '',
   description text not null default '',
   icone       text not null default 'magasin', -- icône affichée chez le client
-  couleur     text not null default '#1176D8',
+  couleur     text not null default '#0B5CF5',
   logo        text not null default '',        -- image dans le bucket (remplace l'icône)
   actif       boolean not null default true,   -- une boutique fermée disparaît du client
   ordre       int not null default 0,
@@ -103,6 +103,9 @@ create table if not exists public.boutiques (
   maj_le      timestamptz not null default now()
 );
 alter table public.boutiques add column if not exists video text not null default '';
+-- La charte a changé : une boutique sans couleur choisie prend le bleu
+-- BIZZOO. Celles déjà enregistrées gardent la leur.
+alter table public.boutiques alter column couleur set default '#0B5CF5';
 create index if not exists boutiques_ordre on public.boutiques(ordre);
 
 -- La boutique d'origine devient la première du lot, avec tous ses réglages.

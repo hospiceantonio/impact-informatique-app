@@ -158,7 +158,7 @@ const Catalogue = (() => {
           slogan: b2.slogan || "",
           description: b2.description || "",
           icone: b2.icone || "magasin",
-          couleur: b2.couleur || "#1176D8",
+          couleur: b2.couleur || "#0B5CF5",
           logo: b2.logo ? urlImagePublique(b2.logo) : "",
           actif: b2.actif !== false,
           ordre: b2.ordre || 0,

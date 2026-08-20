@@ -24,11 +24,13 @@ const VueBoutiques = (() => {
     ["promo", "Bons plans"], ["carte", "Point de vente"],
   ];
 
+  /* Le bleu et l'orange de BIZZOO ouvrent la liste ; les autres
+     teintes servent à distinguer les secteurs d'un coup d'œil. */
   const COULEURS = [
-    ["#1176D8", "Bleu"], ["#E62329", "Rouge"], ["#0F9D58", "Vert"],
-    ["#E8710A", "Orange"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
+    ["#0B5CF5", "Bleu BIZZOO"], ["#F96302", "Orange BIZZOO"], ["#0F9D58", "Vert"],
+    ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
     ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
-    ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#1F2A44", "Bleu nuit"],
+    ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],
   ];
 
   /* Une boutique enregistrée avec une icône ou une couleur qui ne figure
@@ -54,7 +56,7 @@ const VueBoutiques = (() => {
   let logoTravail = null;
 
   function pastille(b, taille) {
-    const style = 'style="background:' + Utils.echapper(b.couleur || "#1176D8") + '"';
+    const style = 'style="background:' + Utils.echapper(b.couleur || "#0B5CF5") + '"';
     return b.logoUrl
       ? '<span class="bou-pastille bou-pastille-photo"><img src="' +
           Utils.echapper(b.logoUrl) + '" alt=""></span>'
@@ -116,7 +118,7 @@ const VueBoutiques = (() => {
         '<div class="choix-couleurs" id="bq-couleurs">' +
           listeCouleurs(b).map(([code, nom]) =>
             '<button type="button" class="choix-couleur' +
-              ((b ? b.couleur : "#1176D8") === code ? " actif" : "") +
+              ((b ? b.couleur : "#0B5CF5") === code ? " actif" : "") +
               '" data-couleur="' + code + '" style="background:' + code +
               '" aria-label="' + Utils.echapper(nom) + '"></button>').join("") +
         "</div>" +
@@ -228,7 +230,7 @@ const VueBoutiques = (() => {
           secteur: UI.$("#bq-secteur", corps).value.trim(),
           slogan: UI.$("#bq-slogan", corps).value.trim(),
           icone: choisi(corps, "#bq-icones", "icone", "magasin"),
-          couleur: choisi(corps, "#bq-couleurs", "couleur", "#1176D8"),
+          couleur: choisi(corps, "#bq-couleurs", "couleur", "#0B5CF5"),
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
         });

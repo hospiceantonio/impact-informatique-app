@@ -3,11 +3,12 @@
 Deux applications Android pour l'enseigne **BIZZOO**, reliées à une base
 **Supabase** partagée en temps réel :
 
-- **BIZZOO Admin** (icône rouge) : l'application du gérant. Boutiques,
+- **BIZZOO Admin** (l'icône BIZZOO marquée d'une roue dentée) :
+  l'application du gérant. Boutiques,
   produits avec photos, vidéo, prix grossiste et prix public, catégories
   et sous-catégories, et le **slider** — ses propres images, puis les
   produits mis en avant. Tout est enregistré directement en ligne.
-- **BIZZOO** (icône bleue) : l'application des clients.
+- **BIZZOO** (l'icône bleue de la marque) : l'application des clients.
   Slider de l'enseigne, **boutiques en icônes**, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit et **commande par
   WhatsApp**. Mise à jour en temps réel, consultable hors connexion.
@@ -104,7 +105,7 @@ ou `python -m http.server 5180` à la racine du dépôt.
 ```
 impact-informatique-app/
 ├── supabase/schema.sql       # La base : tables, sécurité, stockage, données de départ
-├── client/                   # Application des clients (bleue)
+├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
@@ -112,7 +113,7 @@ impact-informatique-app/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion
 │       ├── ui.js             # Logo, cartes produit, prix, badges
 │       └── vues/             # Accueil (slider + boutiques), catégories, produit, recherche, infos
-├── admin/                    # Application du gérant (rouge)
+├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
 │   └── js/
@@ -125,7 +126,9 @@ impact-informatique-app/
 │   ├── preparer-assets.js    # Copie les fichiers web dans les APK
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
-└── tools/make-icons.js       # Icônes PWA + Android (node tools/make-icons.js)
+└── tools/
+    ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
+    └── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
 ```
 
 ## Détails techniques
@@ -202,6 +205,34 @@ impact-informatique-app/
   résultats de recherche sont classés **du prix le plus bas au plus
   élevé** (à prix égal, par ordre alphabétique). Les nouveautés restent
   classées par date et le slider garde l'ordre choisi par le gérant.
+- **La charte graphique vient de l'icône.** Les couleurs des deux
+  applications sont relevées sur l'œuvre BIZZOO (`tools/bizzoo-icone.jpg`) :
+  le **bleu vif** du fond (`--bleu`, #0B5CF5), le **bleu nuit** du sac
+  (`--bleu-900`, #001450), l'**orange** de la vague (`--orange`, #F96302)
+  et l'**ambre** de l'anse (`--ambre`, #FFA808). Une règle de lisibilité
+  gouverne l'orange : il sert de **fond** et porte alors du bleu nuit
+  (5,6:1) ; **en texte** sur fond clair, c'est l'orange foncé
+  (`--orange-fonce`, #C24B00 — 4,9:1), car l'orange vif ne fait que 3:1 et
+  se lit mal en petit. Le **rouge ne dit plus la marque** : il est réservé
+  au danger (suppression, erreur, rupture de stock). Les deux feuilles de
+  style partagent les mêmes noms de variables, et les tests lisent la
+  teinte dans l'application au lieu de la figer, pour qu'un changement de
+  charte ne casse rien.
+- **Les icônes sortent de l'œuvre, pas d'un dessin approché.**
+  `node tools/make-icons.js` décode `tools/bizzoo-icone.jpg` dans Chromium
+  et en tire les 48 fichiers (PWA et Android, toutes densités). Deux
+  précautions : le fond de l'œuvre est **prolongé au-delà du carré
+  arrondi** (chaque ligne s'étire depuis son dernier pixel franc, après
+  une érosion qui écarte le liseré adouci et l'ombre portée), sinon les
+  masques d'Android découvriraient des coins vides ; et le **motif est
+  recentré** — il ne l'est pas dans l'œuvre — puis réduit pour tenir dans
+  la zone sûre (disque de 72/108). L'icône adaptative porte donc tout dans
+  son calque de fond, le premier plan restant transparent.
+  L'application admin reçoit la **même** œuvre, marquée d'une pastille
+  « réglages » : les deux applications vivent sur le même téléphone, on
+  doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se
+  pose tangente à l'intérieur de la zone sûre — sinon le téléphone lui
+  couperait la moitié.
 - **Ventes flash.** Chaque boutique peut mettre des produits en vente
   flash avec une date de fin (fiche produit → Actions rapides →
   « Mettre en vente flash » : 24 h, 48 h, 3 jours, 7 jours ou une date

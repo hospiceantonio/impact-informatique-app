@@ -1,31 +1,43 @@
 /* =========================================================
    BIZZOO — application client (mobile d'abord)
-   Charte graphique : bleu vif, rouge, blanc.
+   Charte graphique tirée de l'icône : bleu vif, bleu nuit,
+   orange et ambre.
    ========================================================= */
 
 /* ---------- Jetons de design ---------- */
+/* La charte vient de l'icône BIZZOO : le bleu vif du fond, le bleu
+   nuit du sac, l'orange de la vague et l'ambre de l'anse.
+   Règle de lisibilité : l'orange sert de fond et porte du bleu nuit
+   (5,6:1) ; en texte sur fond clair, c'est l'orange foncé (4,9:1).
+   Le rouge ne dit plus la marque, seulement le danger et la rupture. */
 :root{
-  --bleu-900:#082A52;
-  --bleu-800:#0B4FA0;
-  --bleu-700:#0E63C4;
-  --bleu:#1176D8;
-  --bleu-400:#3D9BEE;
-  --bleu-100:#DCEBFA;
-  --bleu-50:#EFF6FD;
+  --bleu-900:#001450;
+  --bleu-800:#001A6E;
+  --bleu-700:#0139B5;
+  --bleu:#0B5CF5;
+  --bleu-400:#3D86FF;
+  --bleu-300:#12A5FD;
+  --bleu-100:#DBE7FE;
+  --bleu-50:#EEF3FE;
+  --orange:#F96302;
+  --orange-fonce:#C24B00;
+  --orange-clair:#FFEFE2;
+  --ambre:#FFA808;
+  --ambre-clair:#FFF3DE;
   --rouge:#E62329;
   --rouge-fonce:#B8161C;
   --rouge-clair:#FDE8E8;
   --vert:#0F9D58;
   --vert-clair:#E4F5EC;
   --wa:#1FAF56;
-  --encre:#0F2239;
-  --encre-douce:#54637A;
-  --encre-tres-douce:#8794A8;
-  --trait:#E3E8F0;
-  --fond:#F4F7FB;
+  --encre:#0B1B33;
+  --encre-douce:#4E5F78;
+  --encre-tres-douce:#8492A8;
+  --trait:#E1E7F2;
+  --fond:#F3F6FC;
   --blanc:#FFFFFF;
-  --ombre:0 12px 30px -18px rgba(8,42,82,.55);
-  --ombre-forte:0 20px 45px -20px rgba(8,42,82,.6);
+  --ombre:0 12px 30px -18px rgba(0,20,80,.55);
+  --ombre-forte:0 20px 45px -20px rgba(0,20,80,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
@@ -74,8 +86,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .topbar-logo{flex:1;min-width:0}
 .topbar-slogan{
   margin-top:10px;
-  background:var(--rouge);
-  color:#fff;
+  background:var(--orange);
+  color:var(--bleu-900);
   font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
   text-align:center;
   padding:7px 10px;
@@ -96,7 +108,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .logo-textes{display:flex;flex-direction:column;min-width:0;line-height:1.05}
 /* « BIZZOO » se lit en capitales espacées : le mot est court, il a
    besoin d'air là où « mpact » avait besoin d'être resserré. */
-.logo-nom{font-size:26px;font-weight:800;color:var(--rouge);letter-spacing:.06em}
+.logo-nom{font-size:26px;font-weight:800;color:var(--bleu);letter-spacing:.06em}
 .topbar .logo-nom{color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.12)}
 .topbar-logo .logo-nom{color:#fff}
 .logo-sous{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.85;white-space:nowrap}
@@ -217,12 +229,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   font-size:17.5px;font-weight:800;letter-spacing:-.2px;line-height:1.25;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
-.slide-prix{font-size:15.5px;font-weight:800;color:#FFD8D9}
+.slide-prix{font-size:15.5px;font-weight:800;color:#FFD7A6}
 .slide-prix s{font-size:12.5px;font-weight:600;color:rgba(255,255,255,.65);margin-left:6px}
 .slide-cta{
   display:inline-flex;align-items:center;gap:4px;align-self:flex-start;
   margin-top:6px;padding:7px 12px;border-radius:999px;
-  background:var(--rouge);color:#fff;font-size:12.5px;font-weight:700;
+  background:var(--orange);color:var(--bleu-900);font-size:12.5px;font-weight:700;
 }
 .slider-points{
   display:flex;justify-content:center;gap:7px;
@@ -338,7 +350,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Prix & badges ---------- */
 .prix{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
-.prix-actuel{font-size:14.5px;font-weight:800;color:var(--rouge)}
+.prix-actuel{font-size:14.5px;font-weight:800;color:var(--orange-fonce)}
 .prix-grand .prix-actuel{font-size:22px}
 .prix-ancien{font-size:11.5px;color:var(--encre-tres-douce)}
 .prix-grand .prix-ancien{font-size:14px}
@@ -348,13 +360,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:4px 9px;border-radius:999px;
   font-size:11px;font-weight:800;
 }
-.badge-avant{background:#FFF3D6;color:#9A6B00}
-.badge-promo{background:var(--rouge);color:#fff}
-.badge-flash{background:#FFF1E0;color:#B45309}
+.badge-avant{background:var(--ambre-clair);color:var(--orange-fonce)}
+.badge-promo{background:var(--orange);color:var(--bleu-900)}
+.badge-flash{background:var(--ambre);color:var(--bleu-900)}
 .flash-echeance{
   display:flex;align-items:center;gap:7px;
   margin:10px 0 2px;padding:9px 12px;border-radius:var(--r-sm);
-  background:#FFF1E0;color:#B45309;
+  background:var(--ambre-clair);color:var(--orange-fonce);
   font-size:12.5px;font-weight:700;
 }
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
@@ -518,7 +530,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .boutique-nom{font-size:19px;font-weight:800;letter-spacing:-.2px;color:var(--encre)}
 .boutique-desc{margin:0;font-size:13.5px;line-height:1.55;color:var(--encre-douce)}
 .chip-slogan{
-  display:inline-block;background:var(--rouge);color:#fff;
+  display:inline-block;background:var(--orange);color:var(--bleu-900);
   font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
   padding:7px 12px;border-radius:999px;
 }

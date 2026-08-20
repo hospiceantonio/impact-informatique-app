@@ -1,32 +1,44 @@
 /* =========================================================
    BIZZOO Admin — feuille de style unique (mobile d'abord)
-   Charte : bleu vif, rouge, blanc — version admin
-   sur fond bleu nuit.
+   Charte BIZZOO : bleu vif, bleu nuit, orange et ambre —
+   les couleurs de l'icône. Le rouge ne dit plus la marque,
+   seulement le danger.
    ========================================================= */
 
 /* ---------- Jetons de design ---------- */
+/* Même charte que l'application client, tirée de l'icône BIZZOO :
+   bleu vif, bleu nuit, orange de la vague, ambre de l'anse. L'orange
+   sert de fond et porte du bleu nuit ; en texte, c'est l'orange
+   foncé. Le rouge est réservé au danger (suppression, erreur). */
 :root{
-  --nuit-900:#0A1C36;
-  --nuit-800:#122C4F;
-  --bleu-800:#0B4FA0;
-  --bleu-700:#0E63C4;
-  --bleu:#1176D8;
-  --bleu-400:#3D9BEE;
-  --bleu-100:#DCEBFA;
-  --bleu-50:#EFF6FD;
+  --nuit-900:#000E38;
+  --nuit-800:#001A6E;
+  --bleu-900:#001450;
+  --bleu-800:#001A6E;
+  --bleu-700:#0139B5;
+  --bleu:#0B5CF5;
+  --bleu-400:#3D86FF;
+  --bleu-300:#12A5FD;
+  --bleu-100:#DBE7FE;
+  --bleu-50:#EEF3FE;
+  --orange:#F96302;
+  --orange-fonce:#C24B00;
+  --orange-clair:#FFEFE2;
+  --ambre:#FFA808;
+  --ambre-clair:#FFF3DE;
   --rouge:#E62329;
   --rouge-fonce:#B8161C;
   --rouge-clair:#FDE8E8;
   --vert:#0F9D58;
   --vert-clair:#E4F5EC;
-  --encre:#0F2239;
-  --encre-douce:#54637A;
-  --encre-tres-douce:#8794A8;
-  --trait:#E3E8F0;
-  --fond:#F4F7FB;
+  --encre:#0B1B33;
+  --encre-douce:#4E5F78;
+  --encre-tres-douce:#8492A8;
+  --trait:#E1E7F2;
+  --fond:#F3F6FC;
   --blanc:#FFFFFF;
-  --ombre:0 12px 30px -18px rgba(10,28,54,.55);
-  --ombre-forte:0 20px 45px -20px rgba(10,28,54,.6);
+  --ombre:0 12px 30px -18px rgba(0,20,80,.55);
+  --ombre-forte:0 20px 45px -20px rgba(0,20,80,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
@@ -120,8 +132,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .tab-cta-rond{
   display:flex;align-items:center;justify-content:center;
   width:52px;height:52px;border-radius:50%;
-  background:linear-gradient(135deg,var(--rouge),var(--rouge-fonce));
-  color:#fff;box-shadow:0 10px 22px -8px rgba(230,35,41,.8);
+  background:linear-gradient(135deg,var(--orange),var(--orange-fonce));
+  color:#fff;box-shadow:0 10px 22px -8px rgba(201,77,0,.8);
   margin-bottom:12px;
 }
 .tab-cta-rond .ic{stroke-width:2.4;width:26px;height:26px}
@@ -171,7 +183,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .stat-valeur small{font-size:13px;color:var(--encre-tres-douce);font-weight:700}
 .stat-label{font-size:11px;font-weight:700;color:var(--encre-tres-douce);text-transform:uppercase;letter-spacing:.06em}
 
-.carte-publier{border-top:4px solid var(--rouge)}
+.carte-publier{border-top:4px solid var(--orange)}
 .pub-etat{margin:0 0 10px;font-size:13.5px;line-height:1.5;color:var(--encre-douce)}
 .note-attente{
   display:flex;align-items:center;gap:8px;
@@ -210,7 +222,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .ligne-titre{font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ligne-sous{font-size:11.5px;color:var(--encre-tres-douce);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ligne-fin{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
-.ligne-montant{font-size:13px;font-weight:800;color:var(--rouge)}
+.ligne-montant{font-size:13px;font-weight:800;color:var(--orange-fonce)}
 .ligne-stock{font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
 .ligne-stock-vide{color:var(--rouge-fonce)}
 .ligne-badges{display:flex;gap:4px}
@@ -242,7 +254,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .histo-vert{background:var(--vert-clair);color:var(--vert)}
 .histo-bleu{background:var(--bleu-50);color:var(--bleu-700)}
 .histo-rouge{background:var(--rouge-clair);color:var(--rouge-fonce)}
-.histo-or{background:#FFF3D6;color:#9A6B00}
+.histo-or{background:var(--ambre-clair);color:var(--orange-fonce)}
 .histo-gris{background:#EEF1F6;color:var(--encre-douce)}
 .histo-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .histo-libelle{font-size:13.5px;font-weight:600;line-height:1.4}
@@ -258,14 +270,14 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .avant-num{
   flex:none;width:24px;height:24px;border-radius:50%;
   display:inline-flex;align-items:center;justify-content:center;
-  background:var(--rouge);color:#fff;font-size:12.5px;font-weight:800;
+  background:var(--orange);color:var(--bleu-900);font-size:12.5px;font-weight:800;
 }
 .avant-nom{
   flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;
   font-size:13.5px;font-weight:700;color:var(--encre);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.badge-avant{background:#FFF3D6;color:#9A6B00}
+.badge-avant{background:var(--ambre-clair);color:var(--orange-fonce)}
 .slide-bloc{padding:10px}
 .slide-eteint{opacity:.6}
 .slide-apercu{
@@ -310,7 +322,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   width:36px;height:36px;border-radius:12px;
   background:#EEF1F6;color:var(--encre-douce);
 }
-.compte-rond-admin{background:var(--rouge-clair);color:var(--rouge-fonce)}
+.compte-rond-admin{background:var(--ambre-clair);color:var(--orange-fonce)}
 .compte-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .compte-email{
   font-size:13.5px;font-weight:700;line-height:1.35;
@@ -354,15 +366,15 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   font-size:11px;font-weight:800;
 }
 .badge .ic-sm{width:13px;height:13px}
-.badge-promo{background:var(--rouge);color:#fff}
-.badge-flash{background:#FFF1E0;color:#B45309}
+.badge-promo{background:var(--orange);color:var(--bleu-900)}
+.badge-flash{background:var(--ambre);color:var(--bleu-900)}
 .badge-rupture{background:var(--rouge);color:#fff}
 .badge-disponible{background:var(--vert-clair);color:var(--vert)}
 .badge-commande{background:var(--bleu-50);color:var(--bleu-700)}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
 
 .prix{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.prix-actuel{font-size:14.5px;font-weight:800;color:var(--rouge)}
+.prix-actuel{font-size:14.5px;font-weight:800;color:var(--orange-fonce)}
 .prix-grand .prix-actuel{font-size:22px}
 .prix-ancien{font-size:11.5px;color:var(--encre-tres-douce)}
 .prix-grand .prix-ancien{font-size:14px}
