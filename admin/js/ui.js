@@ -210,6 +210,7 @@ const UI = (() => {
   let pince = null;        // geste à deux doigts en cours
   let glisse = null;       // photo agrandie promenée à un doigt
   let derniereTape = 0;
+  let dernierToucher = 0;  // pour ignorer le dblclick fabriqué par le tactile
 
   const borner = (v, min, max) => Math.min(Math.max(v, min), max);
   const estAgrandie = () => zoom > 1.001;
@@ -343,6 +344,7 @@ const UI = (() => {
     }, { passive: false });
 
     piste.addEventListener("touchend", (ev) => {
+      dernierToucher = Date.now();
       const tape = !pince && glisse && !glisse.bouge && ev.touches.length === 0;
       const doigt = ev.changedTouches && ev.changedTouches[0];
       if (ev.touches.length === 0) {
@@ -366,7 +368,13 @@ const UI = (() => {
       ev.preventDefault();
       zoomerVers(zoom * (ev.deltaY < 0 ? 1.18 : 1 / 1.18), ev.clientX, ev.clientY);
     }, { passive: false });
-    piste.addEventListener("dblclick", (ev) => basculerZoom(ev.clientX, ev.clientY));
+    /* Une double-tape sur l'écran fabrique aussi un dblclick : sans ce
+       garde-fou, le doigt agrandirait puis réduirait aussitôt, et la
+       double-tape ne ferait rien du tout. */
+    piste.addEventListener("dblclick", (ev) => {
+      if (Date.now() - dernierToucher < 700) return;
+      basculerZoom(ev.clientX, ev.clientY);
+    });
 
     const bouton = $("#visionneuse-zoom");
     if (bouton) bouton.onclick = () => basculerZoom();
