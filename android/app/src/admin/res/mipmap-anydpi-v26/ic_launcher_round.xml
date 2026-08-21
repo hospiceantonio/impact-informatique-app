@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- L'œuvre BIZZOO tient entière dans le calque de fond : son
-         motif est déjà centré dans la zone sûre, et son fond est
-         prolongé jusqu'aux bords pour tous les masques. -->
-    <background android:drawable="@mipmap/ic_launcher_fond" />
+    <!-- La forme que les lanceurs attendent : un fond de COULEUR,
+         un motif au premier plan. Tout mettre dans le calque de
+         fond, comme avant, poussait certains téléphones à repeindre
+         la tuile à leur façon (fond teinté par le fond d'écran).
+         Pas de calque « monochrome » ici : il ferait basculer les
+         téléphones réglés en icônes thématisées vers une silhouette
+         d'une seule couleur, plus loin encore du fond blanc. -->
+    <background android:drawable="@color/ic_launcher_fond" />
     <foreground android:drawable="@mipmap/ic_launcher_premier_plan" />
 </adaptive-icon>

@@ -264,6 +264,11 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
   function poser(ctx, taille, emprise) {
     ctx.fillStyle = FOND;
     ctx.fillRect(0, 0, taille, taille);
+    return poserSansFond(ctx, taille, emprise);
+  }
+
+  /* Le motif seul, sans rien derrière. */
+  function poserSansFond(ctx, taille, emprise) {
     const c = taille * emprise;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(motif, (taille - c) / 2, (taille - c) / 2, c, c);
@@ -362,9 +367,13 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
       /* Zone sûre PWA : disque de 80 % du côté. */
       pose = poser(ctx, taille, EMPRISE.maskable);
       rayonSur = 0.4;
-    } else if (forme === "adaptatif") {
-      /* Zone sûre Android : le motif doit tenir dans le disque de 72/108. */
-      pose = poser(ctx, taille, EMPRISE.adaptatif);
+    } else if (forme === "premier-plan") {
+      /* Le calque AVANT d'une icône adaptative : le motif seul, sur du
+         vide. Le fond est une couleur à part (blanc), déclarée dans le
+         XML. C'est la forme que les lanceurs attendent ; tout mettre
+         dans le calque de fond, comme on le faisait, les pousse à
+         repeindre la tuile à leur façon. */
+      pose = poserSansFond(ctx, taille, EMPRISE.adaptatif);
       rayonSur = 0.333;
     } else {
       pose = poser(ctx, taille, EMPRISE.carre);
@@ -390,7 +399,7 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
     for (const [densite, classique, adaptatif] of DENSITES) {
       demandes.push([app + "|" + densite + "|ic_launcher.png", classique, "carre-arrondi", admin]);
       demandes.push([app + "|" + densite + "|ic_launcher_round.png", classique, "rond", admin]);
-      demandes.push([app + "|" + densite + "|ic_launcher_fond.png", adaptatif, "adaptatif", admin]);
+      demandes.push([app + "|" + densite + "|ic_launcher_premier_plan.png", adaptatif, "premier-plan", admin]);
     }
   }
 
@@ -411,19 +420,12 @@ async function atelier([b64, DETOURAGE, EMPRISE, FOND, demandes]) {
     ecrits++;
   }
 
-  /* Premier plan adaptatif : entièrement transparent. Le motif tient
-     dans le calque de fond, déjà centré dans la zone sûre. */
-  const vide = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
-    "base64"
-  );
+  /* L'ancien calque de fond en image ne sert plus : le fond est une
+     couleur, déclarée dans le XML de l'icône adaptative. */
   for (const app of ["client", "admin"]) {
     for (const [densite] of DENSITES) {
-      fs.writeFileSync(
-        path.join(RACINE, "android", "app", "src", app, "res", densite, "ic_launcher_premier_plan.png"),
-        vide
-      );
-      ecrits++;
+      const vieux = path.join(RACINE, "android", "app", "src", app, "res", densite, "ic_launcher_fond.png");
+      if (fs.existsSync(vieux)) fs.unlinkSync(vieux);
     }
   }
 
