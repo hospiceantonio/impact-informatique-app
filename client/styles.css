@@ -124,7 +124,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Barre d'onglets ---------- */
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
-  display:grid;grid-template-columns:repeat(4,1fr);
+  /* Autant de colonnes que d'onglets visibles : l'onglet « Contact »
+     disparaît quand BIZZOO n'a pas de numéro, et la barre se
+     répartit sans qu'aucun compte ne soit écrit en dur. */
+  display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
   align-items:center;
   height:calc(var(--barre-h) + var(--safe-b));
   padding-bottom:var(--safe-b);
@@ -134,8 +137,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .tabbar a{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  height:100%;font-size:10.5px;font-weight:600;color:var(--encre-tres-douce);
+  height:100%;font-size:9.5px;font-weight:600;color:var(--encre-tres-douce);
+  min-width:0;padding:0 2px;
 }
+.tabbar a[hidden]{display:none}
+/* Six onglets sur un écran étroit : « Catégories » doit tenir sans
+   pousser ses voisins, et s'écourter plutôt que déborder. */
+.tabbar a span{
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.tabbar .ic{width:21px;height:21px}
+/* Le vert de WhatsApp : ce dernier onglet quitte l'application, et
+   c'est la couleur qui le dit avant qu'on ait lu le mot. */
+.tabbar .tab-contact{color:var(--wa)}
+.tabbar .tab-contact .ic{stroke-width:2}
 .tabbar a.actif{color:var(--bleu-700)}
 .tabbar a.actif .ic{stroke-width:2}
 
@@ -323,6 +338,11 @@ video.slide-img{background:#000}
   border-radius:999px;font-size:12px;font-weight:800;
 }
 .cat-ligne > .ic-sm{color:var(--encre-tres-douce)}
+/* Sur l'accueil de l'enseigne, la sous-ligne d'un rayon nomme sa
+   boutique : c'est ce qu'on veut savoir avant de cliquer. */
+.cat-ligne-boutique{display:flex;align-items:center;gap:5px;color:var(--bleu-700);font-weight:700}
+.cat-ligne-boutique .ic{width:13px;height:13px;stroke-width:2;flex:none}
+.cat-ligne-boutique > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------- Puces ---------- */
 .puces{display:flex;gap:8px;overflow-x:auto;padding:2px;scrollbar-width:none}

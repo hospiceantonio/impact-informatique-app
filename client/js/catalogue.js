@@ -401,6 +401,25 @@ const Catalogue = (() => {
     };
   }
 
+  /**
+   * L'enseigne BIZZOO elle-même, quelle que soit la boutique visitée.
+   * C'est à elle qu'écrit l'onglet « Contact » : le client s'adresse à
+   * la maison, pas au rayon où il se trouvait par hasard.
+   *
+   * Pas de numéro inventé ici, contrairement à `boutique()` : sans
+   * numéro renseigné, l'onglet disparaît plutôt que d'ouvrir WhatsApp
+   * sur personne.
+   */
+  function enseigne() {
+    const b = (donnees && donnees.boutique) || {};
+    return {
+      nom: b.nom || "BIZZOO",
+      whatsapp: b.whatsapp || b.tel || "",
+      tel: b.tel || "",
+      indicatif: b.indicatif || "229",
+    };
+  }
+
   const versionPubliee = () => (donnees ? donnees.publieLe : null);
 
   /* ---------- Catégories ---------- */
@@ -492,6 +511,60 @@ const Catalogue = (() => {
       table[p.categorieId] = (table[p.categorieId] || 0) + 1;
     }
     return table;
+  }
+
+  /**
+   * Tout ce que l'enseigne vend, boutiques ouvertes confondues : c'est
+   * l'onglet Produits. Une boutique peut être demandée pour n'en garder
+   * qu'elle — les puces en haut de l'écran.
+   */
+  function produitsDeLEnseigne(idBoutique) {
+    const ouvertes = {};
+    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    return tousProduits()
+      .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
+      .filter((p) => !idBoutique || p.boutiqueId === idBoutique)
+      .sort(parPrixCroissant);
+  }
+
+  /**
+   * Tous les rayons de l'enseigne, boutiques ouvertes confondues, par
+   * ordre alphabétique. C'est la liste que l'accueil déroule sous les
+   * ventes flash : on cherche souvent un rayon — « encre », « écrans » —
+   * avant de savoir quelle boutique le tient.
+   *
+   * Chaque entrée porte sa boutique et son nombre de produits. Les
+   * rayons vides restent de la liste : le gérant les a créés, ils
+   * annoncent ce qui vient, et leur écran dit lui-même qu'il se
+   * remplira.
+   */
+  function rayonsDeLEnseigne() {
+    const ouvertes = {};
+    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    const ouverte = (x) => !multiBoutiques() || !x.boutiqueId || ouvertes[x.boutiqueId];
+
+    const comptes = {};
+    for (const p of tousProduits()) {
+      if (ouverte(p)) comptes[p.categorieId] = (comptes[p.categorieId] || 0) + 1;
+    }
+
+    return toutesCategories()
+      .filter(ouverte)
+      .map((c) => ({
+        categorie: c,
+        boutique: boutiques().find((b) => b.id === c.boutiqueId) || null,
+        compte: comptes[c.id] || 0,
+      }))
+      /* Accents ignorés pour le classement : « Écrans » se range entre
+         « Disques » et « Encre », et non tout à la fin. À noms égaux,
+         c'est la boutique qui départage. */
+      .sort((a, b) => {
+        const parNom = Utils.sansAccent(a.categorie.nom)
+          .localeCompare(Utils.sansAccent(b.categorie.nom), "fr");
+        if (parNom) return parNom;
+        return Utils.sansAccent((a.boutique && a.boutique.nom) || "")
+          .localeCompare(Utils.sansAccent((b.boutique && b.boutique.nom) || ""), "fr");
+      });
   }
 
   /* ---------- Slider ---------- */
@@ -680,11 +753,12 @@ const Catalogue = (() => {
   return {
     charger, rafraichir, pret, depuisCache, modeDemo,
     estConfigure, majConfiguration, configuration,
-    boutique, versionPubliee,
+    boutique, enseigne, versionPubliee,
     boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,
     quitterBoutique, nombreParBoutique,
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
+    rayonsDeLEnseigne, produitsDeLEnseigne,
     slides, slidesGeneral, misEnAvant,
     enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,

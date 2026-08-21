@@ -113,7 +113,7 @@ impact-informatique-app/
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion
 │       ├── ui.js             # Logo, cartes produit, prix, badges
-│       └── vues/             # Accueil (slider + boutiques), catégories, produit, recherche, infos
+│       └── vues/             # Accueil, catégories, produit, produits, recherche, infos
 ├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
@@ -224,6 +224,34 @@ impact-informatique-app/
   alphabétique). Les nouveautés restent classées par date et le slider
   garde l'ordre choisi par le gérant. La recherche, elle, classe par
   pertinence, et le prix ne départage qu'à pertinence égale.
+- **Six onglets, dont trois qui traversent l'enseigne.** Accueil ·
+  Catégories · Produits · Recherche · Infos · Contact.
+  - **Catégories** liste **tous les rayons de toutes les boutiques
+    ouvertes**, par ordre **alphabétique**, chacun avec **sa boutique**
+    et **son nombre de produits** (`Catalogue.rayonsDeLEnseigne`). Les
+    accents sont ignorés pour le classement : « Écrans » se range entre
+    « Disques » et « Encre », pas à la fin. Un rayon **vide** reste de
+    la liste avec un 0 : le gérant l'a créé, il annonce ce qui vient.
+    Toucher un rayon y entre directement — la boutique se règle en
+    chemin, par le mécanisme des liens partagés. En **boutique
+    unique**, l'écran garde les rayons dans l'ordre choisi par le
+    gérant : là, l'alphabet n'apporterait rien.
+    L'accueil de l'enseigne déroule la **même liste** sous les ventes
+    flash ; la ligne est écrite une seule fois (`UI.ligneRayon`).
+  - **Produits** montre **tout le catalogue** des boutiques ouvertes,
+    du moins cher au plus cher, avec des **puces** en haut pour n'en
+    garder qu'une (`#/produits?b=<id>`). Chaque carte porte le nom de
+    sa boutique et son prix dans **sa** devise.
+  - **Contact** n'est pas un écran : il ouvre **WhatsApp** sur le
+    numéro de **BIZZOO** — l'enseigne, jamais la boutique où l'on se
+    trouvait par hasard (`Catalogue.enseigne`, distinct de
+    `Catalogue.boutique`). Le lien est reposé à chaque écran, donc il
+    suit une mise à jour des réglages sans rouvrir l'application ;
+    **sans numéro renseigné, l'onglet se retire** et la barre se
+    répartit d'elle-même sur ceux qui restent — d'où
+    `grid-auto-columns` plutôt qu'un nombre de colonnes écrit en dur.
+    Le libellé est « Contact » et non « Nous contacter » : à six
+    onglets sur un téléphone, le mot long se ferait couper.
 - **La recherche traverse toutes les boutiques ouvertes.** Le client
   cherche un produit ; il ne sait pas encore qui le vend. Trois règles
   (`Catalogue.rechercher`) :
@@ -483,9 +511,9 @@ impact-informatique-app/
   ouverte* et tout l'écran suit. Côté client, l'onglet **Infos** montre
   BIZZOO tant qu'aucune boutique n'est choisie — et redescend vers elles
   par une liste — puis les coordonnées de la boutique dès qu'on est
-  dedans. **Catégories** entre d'office dans la première boutique : un
-  rayon ne sait parler que d'un catalogue. **Recherche**, non — elle
-  fouille toute l'enseigne (voir plus bas).
+  dedans. **Catégories**, **Produits** et **Recherche** traversent
+  toutes les boutiques ouvertes ; seules les **Promotions** entrent
+  d'office dans la première boutique.
 - **Plusieurs boutiques** (table `boutiques`) : un secteur d'activité par
   boutique, chacune avec son nom, son icône, sa couleur, son logo
   facultatif, ses coordonnées, ses photos, sa marge — et son propre
@@ -518,10 +546,11 @@ impact-informatique-app/
   Côté client, l'accueil montre **le slider d'abord** — les images et
   les produits mis en avant de toutes les boutiques ouvertes, boutique
   par boutique — puis la grille des **icônes**. On entre dans une
-  boutique (`#/boutique/:id`) et rayons et infos ne parlent plus que
-  d'elle ; un bandeau rappelle laquelle et ramène aux autres. La
-  recherche fait exception : elle traverse toutes les boutiques
-  ouvertes, où qu'on se trouve.
+  boutique (`#/boutique/:id`) : son écran et ses infos ne parlent plus
+  que d'elle, et un bandeau rappelle laquelle et ramène aux autres.
+  Les onglets **Catégories**, **Produits** et **Recherche** font
+  exception : ils traversent toutes les boutiques ouvertes, où qu'on se
+  trouve.
   Un lien direct — produit partagé sur WhatsApp, rayon mis en favori —
   ouvre la bonne boutique tout seul : elle se déduit de ce qui est
   affiché.

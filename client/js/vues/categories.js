@@ -7,36 +7,35 @@ const VueCategories = (() => {
   /* ---------- Toutes les catégories ---------- */
 
   async function liste(vue) {
-    UI.entete({ titre: "Catégories", sous: "Tout le matériel, classé par rayon" });
+    /* Plusieurs boutiques : TOUS les rayons de l'enseigne, par ordre
+       alphabétique, chacun avec sa boutique et son nombre de produits.
+       On cherche « encre » ou « écrans » sans savoir encore qui le
+       vend — n'afficher que la boutique du moment revenait à cacher
+       les autres.
+       Une seule boutique : ses rayons, dans l'ordre qu'elle a choisi. */
+    const multi = Catalogue.multiBoutiques();
+    const comptes = multi ? {} : Catalogue.nombreParCategorie();
+    const rayons = multi
+      ? Catalogue.rayonsDeLEnseigne()
+      : Catalogue.categories().map((c) => ({
+          categorie: c, boutique: null, compte: comptes[c.id] || 0,
+        }));
 
-    const categories = Catalogue.categories();
-    const comptes = Catalogue.nombreParCategorie();
+    UI.entete({ titre: "Catégories",
+      sous: multi ? "Les rayons de toutes les boutiques" : "Tout le matériel, classé par rayon" });
 
-    if (!categories.length) {
-      vue.innerHTML = UI.bandeauBoutique() +
+    /* Le bandeau « vous êtes chez X » n'a plus de sens quand la liste
+       les traverse toutes. */
+    const bandeau = multi ? "" : UI.bandeauBoutique();
+
+    if (!rayons.length) {
+      vue.innerHTML = bandeau +
         UI.vide("categories", "Aucune catégorie pour l'instant",
-          "Les rayons de la boutique s'afficheront ici.");
+          "Les rayons des boutiques s'afficheront ici.");
       return;
     }
 
-    vue.innerHTML = UI.bandeauBoutique() + categories.map((c) => {
-      const sousCategories = Catalogue.sousCategories(c.id);
-      return (
-        '<a class="carte cat-ligne" href="#/categorie/' + Utils.echapper(c.id) + '">' +
-          '<span class="cat-rond">' + UI.icone(UI.iconeCategorie(c.nom)) + "</span>" +
-          '<span class="cat-ligne-corps">' +
-            '<span class="cat-ligne-nom">' + Utils.echapper(c.nom) + "</span>" +
-            '<span class="cat-ligne-sous">' +
-              (sousCategories.length
-                ? Utils.echapper(sousCategories.map((s) => s.nom).join(" · "))
-                : (comptes[c.id] || 0) + " produit" + ((comptes[c.id] || 0) > 1 ? "s" : "")) +
-            "</span>" +
-          "</span>" +
-          '<span class="cat-ligne-compte">' + (comptes[c.id] || 0) + "</span>" +
-          UI.icone("chevron", "ic-sm") +
-        "</a>"
-      );
-    }).join("");
+    vue.innerHTML = bandeau + rayons.map((r) => UI.ligneRayon(r)).join("");
   }
 
   /* ---------- Une catégorie ---------- */

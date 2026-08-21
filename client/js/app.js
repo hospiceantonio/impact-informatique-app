@@ -12,6 +12,7 @@ const App = { evenementInstallation: null };
     { motif: /^\/categories$/, vue: (v) => VueCategories.liste(v), onglet: "/categories" },
     { motif: /^\/categorie\/([^/]+)$/, vue: (v, m, p) => VueCategories.rayon(v, m[1], p), onglet: "/categories" },
     { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v) },
+    { motif: /^\/produits$/, vue: (v, m, p) => VueProduits.afficher(v, p), onglet: "/produits" },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]) },
     { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/recherche" },
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
@@ -105,6 +106,7 @@ const App = { evenementInstallation: null };
       return;
     }
     reglerBoutique(chemin);
+    reglerContact();
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
@@ -149,15 +151,42 @@ const App = { evenementInstallation: null };
       if (c && c.boutiqueId) Catalogue.choisirBoutique(c.boutiqueId);
     }
 
-    /* Catégories et promotions parlent forcément d'une boutique : à
-       défaut de choix, ce sera la première. Infos, non : sans boutique
-       choisie, ce sont les coordonnées de l'enseigne. La recherche non
-       plus — elle fouille toute l'enseigne, et entrer d'autorité dans
-       la première boutique reviendrait à cacher les autres. */
-    if (/^\/(categories|promos)$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
+    /* Les promotions parlent forcément d'une boutique : à défaut de
+       choix, ce sera la première. Les autres onglets, non — Infos
+       montre l'enseigne, et Catégories, Produits et Recherche
+       traversent toutes les boutiques ; entrer d'autorité dans la
+       première reviendrait à cacher les autres. */
+    if (/^\/promos$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
       const premiere = Catalogue.boutiques()[0];
       if (premiere) Catalogue.choisirBoutique(premiere.id);
     }
+  }
+
+  /* ---------- « Nous contacter » ----------
+     Le dernier onglet n'ouvre pas un écran : il écrit à BIZZOO sur
+     WhatsApp — à l'enseigne, jamais à la boutique où l'on se trouvait
+     par hasard. Le numéro venant du catalogue, on repose le lien à
+     chaque écran plutôt que de le figer dans la page : il suit une mise
+     à jour des réglages sans qu'on ait à rouvrir l'application.
+
+     Sans numéro renseigné, l'onglet se retire — la barre se répartit
+     alors d'elle-même sur ceux qui restent (`grid-auto-columns`). */
+
+  function reglerContact() {
+    const lien = document.getElementById("tab-contact");
+    if (!lien) return;
+    const maison = Catalogue.enseigne();
+    if (!maison.whatsapp) {
+      lien.hidden = true;
+      return;
+    }
+    lien.hidden = false;
+    lien.href = Utils.lienWhatsApp(
+      maison.whatsapp,
+      "Bonjour " + maison.nom + ", je souhaite un renseignement.",
+      maison.indicatif);
+    lien.target = "_blank";
+    lien.rel = "noopener";
   }
 
   /* ---------- Interactions globales ---------- */

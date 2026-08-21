@@ -85,8 +85,13 @@
 <nav class="tabbar" id="tabbar" aria-label="Navigation principale">
   <a href="#/" data-tab="/"><svg class="ic" viewBox="0 0 24 24"><use href="#i-accueil"/></svg><span>Accueil</span></a>
   <a href="#/categories" data-tab="/categories"><svg class="ic" viewBox="0 0 24 24"><use href="#i-categories"/></svg><span>Catégories</span></a>
+  <a href="#/produits" data-tab="/produits"><svg class="ic" viewBox="0 0 24 24"><use href="#i-boite"/></svg><span>Produits</span></a>
   <a href="#/recherche" data-tab="/recherche"><svg class="ic" viewBox="0 0 24 24"><use href="#i-recherche"/></svg><span>Recherche</span></a>
   <a href="#/infos" data-tab="/infos"><svg class="ic" viewBox="0 0 24 24"><use href="#i-infos"/></svg><span>Infos</span></a>
+  <!-- Pas un écran : le lien part vers WhatsApp. Le numéro est celui de
+       BIZZOO et vient du catalogue, donc il est posé par app.js ; sans
+       numéro renseigné, l'onglet reste caché. -->
+  <a id="tab-contact" class="tab-contact" href="#/infos" aria-label="Nous contacter sur WhatsApp" hidden><svg class="ic" viewBox="0 0 24 24"><use href="#i-whatsapp"/></svg><span>Contact</span></a>
 </nav>
 
 <div id="visionneuse" class="visionneuse" hidden>
@@ -125,6 +130,7 @@
 <script src="js/vues/accueil.js"></script>
 <script src="js/vues/categories.js"></script>
 <script src="js/vues/produit.js"></script>
+<script src="js/vues/produits.js"></script>
 <script src="js/vues/recherche.js"></script>
 <script src="js/vues/infos.js"></script>
 <script src="js/app.js"></script>

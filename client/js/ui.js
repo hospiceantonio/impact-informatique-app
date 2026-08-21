@@ -582,6 +582,38 @@ const UI = (() => {
    * Le bandeau « vous êtes dans telle boutique », posé en haut des
    * écrans qui ne parlent que d'elle. Il ramène aux autres boutiques.
    */
+  /**
+   * Une ligne de rayon, partagée par l'accueil de l'enseigne et
+   * l'onglet Catégories : le nom du rayon, ce qui le décrit dessous —
+   * la boutique qui le tient, ou à défaut ses sous-catégories — et
+   * combien de produits s'y trouvent.
+   *
+   * Le lien mène droit au rayon : la boutique se règle toute seule en
+   * chemin, par le mécanisme qui sert déjà aux liens partagés.
+   */
+  function ligneRayon(r) {
+    const nomBoutique = r.boutique ? r.boutique.nom : "";
+    const sousCategories = Catalogue.sousCategories(r.categorie.id);
+    const dessous = nomBoutique
+      ? '<span class="cat-ligne-sous cat-ligne-boutique">' + icone("magasin", "ic-sm") +
+          "<span>" + e(nomBoutique) + "</span></span>"
+      : '<span class="cat-ligne-sous">' +
+          e(sousCategories.length
+            ? sousCategories.map((s) => s.nom).join(" · ")
+            : r.compte + " produit" + (r.compte > 1 ? "s" : "")) + "</span>";
+    return (
+      '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
+        '<span class="cat-rond">' + icone(iconeCategorie(r.categorie.nom)) + "</span>" +
+        '<span class="cat-ligne-corps">' +
+          '<span class="cat-ligne-nom">' + e(r.categorie.nom) + "</span>" +
+          dessous +
+        "</span>" +
+        '<span class="cat-ligne-compte">' + r.compte + "</span>" +
+        icone("chevron", "ic-sm") +
+      "</a>"
+    );
+  }
+
   function bandeauBoutique() {
     const b = Catalogue.boutiqueChoisie();
     if (!b) return "";
@@ -598,7 +630,7 @@ const UI = (() => {
   }
 
   return {
-    $, $$, entete, icone, marque, logo, toast, bandeauBoutique,
+    $, $$, entete, icone, marque, logo, toast, bandeauBoutique, ligneRayon,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,

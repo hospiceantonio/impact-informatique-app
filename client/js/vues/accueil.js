@@ -193,6 +193,7 @@ const VueAccueil = (() => {
     );
   }
 
+
   /* ---------- Les boutiques de l'enseigne ---------- */
 
   /** La vignette d'une boutique : son logo, ou son icône sur sa couleur. */
@@ -249,6 +250,15 @@ const VueAccueil = (() => {
     if (flash.length) {
       html += UI.titreSection("Ventes flash");
       html += UI.rangeeProduits(flash);
+    }
+
+    /* Puis tous les rayons de l'enseigne, par ordre alphabétique. On
+       cherche souvent un rayon — « encre », « écrans » — avant de
+       savoir quelle boutique le tient. */
+    const rayons = Catalogue.rayonsDeLEnseigne();
+    if (rayons.length) {
+      html += UI.titreSection("Tous les rayons", "#/categories");
+      html += rayons.map((r) => UI.ligneRayon(r)).join("");
     }
 
     vue.innerHTML = html;
