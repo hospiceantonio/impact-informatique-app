@@ -256,8 +256,14 @@ impact-informatique-app/
   tuile carrée, plus serrée sous un masque rond. Repère utile : le calque
   adaptatif fait 108 dp mais le téléphone n'en montre que **72** — le
   motif à 0,60 occupe donc 90 % de ce qu'on voit, et au-delà les traits
-  de vitesse se font couper. L'icône adaptative porte tout dans son
-  calque de fond, le premier plan restant transparent.
+  de vitesse se font couper. L'icône adaptative est dans la
+  **forme que les lanceurs attendent** : un **fond de couleur** (blanc)
+  et le **motif au premier plan**. Elle a d'abord été faite à l'envers —
+  tout le dessin dans le calque de fond, premier plan vide — et certains
+  téléphones repeignaient alors la tuile à leur façon, le fond prenant
+  la teinte du fond d'écran. Pas de calque `monochrome` : il ferait
+  basculer les téléphones réglés en « icônes thématisées » vers une
+  silhouette d'une seule couleur, plus loin encore du fond blanc voulu.
   Le fond de la tuile est **blanc franc** : l'œuvre garde sa structure,
   on ne lui retire que son fond bleu.
   **Un seul dessin sert partout** : `UI.marque()` affiche le fichier
