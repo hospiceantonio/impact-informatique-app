@@ -1,6 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Impact" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@drawable/ecran_demarrage</item>
+        <!-- Une simple COULEUR, et rien d'autre. Une tentative d'y poser
+             le logo via <bitmap android:src="@mipmap/ic_launcher"/> a fait
+             planter les deux applications au lancement : depuis Android 8,
+             cette référence désigne un XML d'icône adaptative, pas une
+             image, et le fond de fenêtre ne peut pas la décoder. -->
+        <item name="android:windowBackground">@color/fond_demarrage</item>
         <!-- Les barres sont masquées (plein écran) ; ces couleurs ne servent
              que le temps de leur retour à l'écran. -->
         <item name="android:statusBarColor">@android:color/transparent</item>
