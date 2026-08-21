@@ -362,6 +362,17 @@ const UI = (() => {
       }
     }, { passive: false });
 
+    /* Un appel, un volet de notifications : le système reprend les
+       doigts sans jamais envoyer de touchend. Sans ceci, le geste
+       resterait ouvert et le prochain déplacement partirait de
+       travers. */
+    piste.addEventListener("touchcancel", () => {
+      pince = null;
+      glisse = null;
+      derniereTape = 0;
+      piste.classList.remove("pincee");
+    }, { passive: true });
+
     /* À la souris. */
     piste.addEventListener("wheel", (ev) => {
       if ($("#visionneuse").hidden) return;
