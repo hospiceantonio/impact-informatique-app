@@ -219,10 +219,13 @@ create table if not exists public.produits_prive (
 -- Ce qui défile en haut de l'écran : des photos et des vidéos choisies
 -- une par une, chacune pouvant renvoyer vers un produit (facultatif).
 --
--- Deux sliders, que « portee » distingue :
---   'enseigne' — celui de BIZZOO, composé dans ses réglages. C'est lui,
---                et lui seul, qui défile sur l'accueil de l'application.
---   'boutique' — celui d'une boutique, qui défile sur son écran à elle.
+-- Trois vitrines, que « portee » distingue :
+--   'enseigne'  — le slider de BIZZOO, composé dans ses réglages. C'est
+--                 lui, et lui seul, qui défile en haut de l'accueil.
+--   'publicite' — ce que BIZZOO met en avant plus bas sur l'accueil :
+--                 affiches et produits pris dans n'importe quelle
+--                 boutique. Réservée au superadministrateur.
+--   'boutique'  — le slider d'une boutique, sur son écran à elle.
 -- Rien ne remonte plus d'une boutique vers l'accueil.
 create table if not exists public.slides (
   id          text primary key,
@@ -242,6 +245,9 @@ alter table public.slides add column if not exists boutique_id text references p
 -- d'avant les boutiques multiples.
 alter table public.slides add column if not exists portee text not null default 'boutique';
 alter table public.slides add column if not exists video text not null default '';
+-- Un écran peut renvoyer vers un produit. C'est ce qui permet à la
+-- publicité de BIZZOO de piocher dans le catalogue des boutiques.
+alter table public.slides add column if not exists produit_id text references public.produits(id) on delete set null;
 create index if not exists slides_ordre on public.slides(ordre);
 
 -- ---------- Tout le catalogue d'avant rejoint la première boutique ----------
@@ -253,8 +259,10 @@ begin
   if premiere is null then return; end if;
   update public.categories set boutique_id = premiere where boutique_id is null;
   update public.produits   set boutique_id = premiere where boutique_id is null;
+  -- Ni le slider de l'enseigne ni sa publicité n'appartiennent à une
+  -- boutique : ils resteraient rangés là où ils n'ont rien à faire.
   update public.slides     set boutique_id = premiere
-   where boutique_id is null and portee <> 'enseigne';
+   where boutique_id is null and portee not in ('enseigne', 'publicite');
 end $$;
 
 create index if not exists produits_boutique   on public.produits(boutique_id);
@@ -589,15 +597,17 @@ create policy "boutiques suppression super" on public.boutiques
 drop policy if exists "lecture publique"  on public.slides;
 drop policy if exists "ecriture connectee" on public.slides;
 -- Une vitrine se compose par celui à qui elle appartient, et tout le
--- monde la voit. Le slider de l'enseigne est au superadministrateur,
--- comme le reste des réglages de BIZZOO ; celui d'une boutique est à
--- son administrateur. Le modérateur, lui, n'y touche pas.
+-- monde la voit. Le slider de l'enseigne ET sa publicité sont au
+-- superadministrateur, comme le reste des réglages de BIZZOO ; le
+-- slider d'une boutique est à son administrateur. Le modérateur, lui,
+-- n'y touche pas. C'est cette règle qui ferme vraiment la porte :
+-- l'écran ne fait que cacher le bouton.
 create policy "lecture publique"   on public.slides           for select using (true);
 create policy "ecriture connectee" on public.slides
   for all to authenticated
-  using (case when portee = 'enseigne'
+  using (case when portee in ('enseigne', 'publicite')
               then public.est_super() else public.administre(boutique_id) end)
-  with check (case when portee = 'enseigne'
+  with check (case when portee in ('enseigne', 'publicite')
                    then public.est_super() else public.administre(boutique_id) end);
 
 drop policy if exists "lecture publique"  on public.boutique;

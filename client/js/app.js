@@ -12,7 +12,7 @@ const App = { evenementInstallation: null };
     { motif: /^\/categories$/, vue: (v) => VueCategories.liste(v), onglet: "/categories" },
     { motif: /^\/categorie\/([^/]+)$/, vue: (v, m, p) => VueCategories.rayon(v, m[1], p), onglet: "/categories" },
     { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v) },
-    { motif: /^\/produits$/, vue: (v, m, p) => VueProduits.afficher(v, p), onglet: "/produits" },
+    { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/produits" },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]) },
     { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/recherche" },
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
@@ -107,6 +107,7 @@ const App = { evenementInstallation: null };
     }
     reglerBoutique(chemin);
     reglerContact();
+    reglerOnglets(route.onglet || "");
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
@@ -140,6 +141,14 @@ const App = { evenementInstallation: null };
   function reglerBoutique(chemin) {
     if (!Catalogue.multiBoutiques()) return;
 
+    /* L'accueil BIZZOO ne parle d'aucune boutique en particulier ;
+       l'écran d'une boutique parle de celle-là. C'est ici que la
+       question se règle, avant que l'écran ne se dessine — la barre
+       d'onglets, juste après, a besoin de la réponse. */
+    if (chemin === "/") Catalogue.quitterBoutique();
+    const laBoutique = /^\/boutique\/([^/]+)$/.exec(chemin);
+    if (laBoutique) Catalogue.choisirBoutique(laBoutique[1]);
+
     const produit = /^\/produit\/([^/]+)$/.exec(chemin);
     if (produit) {
       const p = Catalogue.produit(produit[1]);
@@ -159,6 +168,31 @@ const App = { evenementInstallation: null };
     if (/^\/promos$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
       const premiere = Catalogue.boutiques()[0];
       if (premiere) Catalogue.choisirBoutique(premiere.id);
+    }
+  }
+
+  /* ---------- Les onglets d'un catalogue ----------
+     Catégories et Produits parlent d'un catalogue : ils n'ont rien à
+     dire tant que le client n'est entré nulle part. Sur l'accueil
+     BIZZOO il choisit d'abord chez qui il va — les icônes des
+     boutiques et la liste des rayons sont là pour ça — et les deux
+     onglets apparaissent une fois qu'il est dedans.
+
+     En boutique unique il n'y a pas d'accueil d'enseigne : les deux
+     onglets sont alors toujours là.
+
+     Un onglet reste visible quand c'est l'écran affiché, même hors
+     d'une boutique : une barre qui ne montre pas où l'on se trouve
+     désoriente plus qu'elle n'allège. */
+
+  const ONGLETS_DE_BOUTIQUE = ["/categories", "/produits"];
+
+  function reglerOnglets(ongletAffiche) {
+    const dansUneBoutique = !Catalogue.multiBoutiques() || !!Catalogue.boutiqueChoisie();
+    for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
+      const onglet = lien.dataset.tab;
+      lien.hidden = ONGLETS_DE_BOUTIQUE.includes(onglet) &&
+        !dansUneBoutique && onglet !== ongletAffiche;
     }
   }
 
@@ -190,6 +224,16 @@ const App = { evenementInstallation: null };
   }
 
   /* ---------- Interactions globales ---------- */
+
+  /* Accueil ramène toujours en début de page. Deux raisons de s'en
+     occuper à la main : si l'on y est déjà, l'adresse ne change pas et
+     rien ne se redessine ; et si l'on en revient, la position de
+     lecture mémorisée reprendrait la main. */
+  document.addEventListener("click", (ev) => {
+    if (!ev.target.closest('#tabbar a[data-tab="/"]')) return;
+    positions.delete("#/");
+    requestAnimationFrame(() => window.scrollTo(0, 0));
+  });
 
   document.addEventListener("click", (ev) => {
     const nav = ev.target.closest("[data-nav]");

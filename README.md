@@ -224,24 +224,34 @@ impact-informatique-app/
   alphabétique). Les nouveautés restent classées par date et le slider
   garde l'ordre choisi par le gérant. La recherche, elle, classe par
   pertinence, et le prix ne départage qu'à pertinence égale.
-- **Six onglets, dont trois qui traversent l'enseigne.** Accueil ·
-  Catégories · Produits · Recherche · Infos · Contact.
-  - **Catégories** liste **tous les rayons de toutes les boutiques
-    ouvertes**, par ordre **alphabétique**, chacun avec **sa boutique**
-    et **son nombre de produits** (`Catalogue.rayonsDeLEnseigne`). Les
-    accents sont ignorés pour le classement : « Écrans » se range entre
-    « Disques » et « Encre », pas à la fin. Un rayon **vide** reste de
-    la liste avec un 0 : le gérant l'a créé, il annonce ce qui vient.
-    Toucher un rayon y entre directement — la boutique se règle en
-    chemin, par le mécanisme des liens partagés. En **boutique
-    unique**, l'écran garde les rayons dans l'ordre choisi par le
-    gérant : là, l'alphabet n'apporterait rien.
-    L'accueil de l'enseigne déroule la **même liste** sous les ventes
-    flash ; la ligne est écrite une seule fois (`UI.ligneRayon`).
-  - **Produits** montre **tout le catalogue** des boutiques ouvertes,
-    du moins cher au plus cher, avec des **puces** en haut pour n'en
-    garder qu'une (`#/produits?b=<id>`). Chaque carte porte le nom de
-    sa boutique et son prix dans **sa** devise.
+- **Six onglets, dont deux qui n'existent que dans une boutique.**
+  Accueil · Catégories · Produits · Recherche · Infos · Contact.
+  - **Catégories** et **Produits** parlent d'**un** catalogue : ils
+    n'ont rien à dire tant que le client n'est entré nulle part. Sur
+    l'accueil BIZZOO ils sont **masqués** — il y choisit d'abord chez
+    qui il va — et ils reparaissent dès qu'il est dans une boutique
+    (`reglerOnglets`, `app.js`). En boutique unique il n'y a pas
+    d'accueil d'enseigne : les deux sont alors toujours là. Un onglet
+    reste visible quand c'est l'écran affiché — arrivé par un lien
+    partagé, par exemple : une barre qui ne montre pas où l'on se
+    trouve désoriente plus qu'elle n'allège.
+  - **Catégories** montre les rayons de la boutique visitée, dans
+    l'ordre choisi par son gérant. **La vue d'ensemble vit sur
+    l'accueil BIZZOO** : « Tous les rayons » y liste **tous les rayons
+    de toutes les boutiques ouvertes**, par ordre **alphabétique**,
+    chacun avec **sa boutique** et **son nombre de produits**
+    (`Catalogue.rayonsDeLEnseigne`). Les accents sont ignorés pour le
+    classement : « Écrans » se range entre « Disques » et « Encre »,
+    pas à la fin. Un rayon **vide** reste de la liste avec un 0 : le
+    gérant l'a créé, il annonce ce qui vient. Toucher un rayon y entre
+    directement — la boutique se règle en chemin, par le mécanisme des
+    liens partagés. La ligne est écrite une seule fois
+    (`UI.ligneRayon`) et sert aux deux écrans.
+  - **Produits** montre tout le catalogue de la boutique visitée, du
+    moins cher au plus cher. Ouvert par un lien direct avant tout choix
+    de boutique, il montre toute l'enseigne — et chaque carte porte
+    alors le nom de sa boutique, sans quoi le mélange ne voudrait rien
+    dire.
   - **Contact** n'est pas un écran : il ouvre **WhatsApp** sur le
     numéro de **BIZZOO** — l'enseigne, jamais la boutique où l'on se
     trouvait par hasard (`Catalogue.enseigne`, distinct de
@@ -252,6 +262,39 @@ impact-informatique-app/
     `grid-auto-columns` plutôt qu'un nombre de colonnes écrit en dur.
     Le libellé est « Contact » et non « Nous contacter » : à six
     onglets sur un téléphone, le mot long se ferait couper.
+  - **Accueil ramène toujours en début de page.** Deux raisons de s'en
+    occuper à la main : si l'on y est déjà, l'adresse ne change pas et
+    rien ne se redessine ; et si l'on en revient, la position de
+    lecture mémorisée reprendrait la main.
+- **La publicité de BIZZOO**, sur l'accueil de l'enseigne, à l'endroit
+  qu'occupaient les ventes flash. Des **affiches** — photos ou vidéos —
+  et des **produits** pris dans n'importe quelle boutique. C'est une
+  **troisième vitrine** dans la table `slides`
+  (`portee = 'publicite'`), à côté du slider de l'enseigne et de celui
+  d'une boutique : même gestionnaire, même stockage, même mécanique
+  d'ordre et de masquage — rien de neuf à maintenir.
+  **Réservée au superadministrateur** : la carte n'apparaît que dans
+  Réglages → BIZZOO, et la règle RLS route `'enseigne'` **et**
+  `'publicite'` vers `est_super()`. L'écran cache le bouton, la base
+  ferme la porte.
+  Côté client, une **rangée qui se pousse du doigt**, pas un second
+  slider : celui du haut a déjà cette place, et deux choses qui
+  défilent seules sur le même écran se disputent l'œil. Une vidéo se
+  joue à la demande (`controls`) — plusieurs vidéos qui démarreraient
+  ensemble feraient chauffer le téléphone — et, la vidéo ayant pris le
+  geste, le lien vers le produit s'écrit alors en toutes lettres.
+  Une annonce qui renvoie vers un **produit disparu** ou vers une
+  **boutique fermée** s'efface d'elle-même : mieux vaut un écran plus
+  court qu'une promesse qu'on ne peut pas tenir.
+- **Les ventes flash appartiennent aux boutiques.** Elles ne remontent
+  plus sur l'accueil BIZZOO : une vente flash est faite par une
+  boutique, elle s'annonce sur son écran à elle
+  (`Catalogue.ventesFlash`, sur la boutique visitée).
+- **Le logo de la boutique accompagne son nom** en haut de son écran
+  (`UI.vignetteBoutique`, posée par `entete({ vignette })`) : son image
+  si elle en a une, sinon son icône sur sa couleur — exactement ce que
+  montre sa carte sur l'accueil, pour qu'on la reconnaisse d'un écran à
+  l'autre.
 - **La recherche traverse toutes les boutiques ouvertes.** Le client
   cherche un produit ; il ne sait pas encore qui le vend. Trois règles
   (`Catalogue.rechercher`) :

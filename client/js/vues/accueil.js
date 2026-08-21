@@ -94,6 +94,64 @@ const VueAccueil = (() => {
     );
   }
 
+  /* ---------- Publicité de BIZZOO ----------
+     Ce que l'enseigne met en avant sur son accueil : des affiches —
+     photos ou vidéos — et des produits pris dans n'importe quelle
+     boutique. Une rangée qui se pousse du doigt, et non un second
+     slider : celui du haut a déjà cette place, et deux choses qui
+     défilent toutes seules sur le même écran se disputent l'œil.
+
+     Une vidéo se joue à la demande (`controls`) : plusieurs vidéos qui
+     démarreraient ensemble feraient chauffer le téléphone et
+     mangeraient le forfait. */
+
+  function cartePublicite(s, index) {
+    const produit = s.produitId ? Catalogue.produit(s.produitId) : null;
+    const boutique = produit ? Catalogue.boutiqueDuProduit(produit) : null;
+    const image = s.image || (produit ? Catalogue.imagePrincipale(produit) : "");
+    const etiquette = s.titre || (produit ? produit.nom : "");
+    /* Une vidéo se manipule : elle ne peut pas être le corps d'un lien,
+       sans quoi le premier geste ouvrirait la fiche produit. */
+    const lien = produit && !s.video ? "#/produit/" + Utils.echapper(produit.id) : "";
+    const balise = lien ? "a" : "div";
+    const media = s.video
+      ? '<video class="pub-media" src="' + Utils.echapper(s.video) + '" controls muted ' +
+          'playsinline preload="metadata"></video>'
+      : (image
+        ? '<img class="pub-media" src="' + Utils.echapper(image) + '" alt="' +
+            Utils.echapper(etiquette) + '"' + (index > 0 ? ' loading="lazy"' : "") + ">"
+        : '<span class="pub-motif">' + UI.marque(64) + "</span>");
+    return (
+      "<" + balise + ' class="pub-carte"' + (lien ? ' href="' + lien + '"' : "") +
+        (etiquette ? ' aria-label="' + Utils.echapper(etiquette) + '"' : "") + ">" +
+        '<span class="pub-cadre">' + media + "</span>" +
+        (etiquette || produit
+          ? '<span class="pub-pied">' +
+              (etiquette ? '<span class="pub-titre">' + Utils.echapper(etiquette) + "</span>" : "") +
+              (produit
+                ? '<span class="pub-prix">' +
+                    Utils.echapper(Utils.fmtMontant(produit.prix, Catalogue.deviseDe(produit))) +
+                  "</span>" +
+                  (boutique
+                    ? '<span class="pub-boutique">' + UI.icone("magasin", "ic-sm") +
+                        "<span>" + Utils.echapper(boutique.nom) + "</span></span>"
+                    : "") +
+                  /* La vidéo ayant pris le geste, le lien vers le
+                     produit s'écrit ici en toutes lettres. */
+                  (s.video
+                    ? '<a class="pub-lien" href="#/produit/' + Utils.echapper(produit.id) + '">' +
+                        "Voir le produit " + UI.icone("chevron", "ic-sm") + "</a>"
+                    : "")
+                : "") +
+            "</span>"
+          : "") +
+      "</" + balise + ">"
+    );
+  }
+
+  const htmlPublicite = (liste) =>
+    '<div class="pub-rangee">' + liste.map((s, i) => cartePublicite(s, i)).join("") + "</div>";
+
   /* Au-delà, on passe à l'écran suivant même si la vidéo n'est pas
      finie : une vidéo qui bloque ne doit pas figer le slider. */
   const ATTENTE_MAX_VIDEO = 60000;
@@ -223,7 +281,8 @@ const VueAccueil = (() => {
   async function afficher(vue) {
     if (!Catalogue.multiBoutiques()) return accueilBoutique(vue, true);
 
-    Catalogue.quitterBoutique();
+    /* La boutique a déjà été quittée par le routeur, qui devait
+       trancher avant que la barre d'onglets ne se règle. */
     UI.entete({ accueil: true, actions:
       '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
         UI.icone("actualiser") + "</button>" +
@@ -244,12 +303,14 @@ const VueAccueil = (() => {
       : UI.vide("magasin", "Les boutiques arrivent bientôt",
           "Elles s'afficheront ici dès leur ouverture.");
 
-    /* Les ventes flash de toutes les boutiques, juste sous leurs icônes.
-       La rangée disparaît d'elle-même quand la dernière expire. */
-    const flash = Catalogue.ventesFlash();
-    if (flash.length) {
-      html += UI.titreSection("Ventes flash");
-      html += UI.rangeeProduits(flash);
+    /* Pas de ventes flash ici : une vente flash appartient à la
+       boutique qui la fait, et s'annonce sur son écran à elle. Ce que
+       BIZZOO met en avant à ce niveau, c'est sa publicité — composée
+       dans ses réglages, par le superadministrateur seul. */
+    const publicites = Catalogue.publicites();
+    if (publicites.length) {
+      html += UI.titreSection("Publicité");
+      html += htmlPublicite(publicites);
     }
 
     /* Puis tous les rayons de l'enseigne, par ordre alphabétique. On
@@ -257,7 +318,9 @@ const VueAccueil = (() => {
        savoir quelle boutique le tient. */
     const rayons = Catalogue.rayonsDeLEnseigne();
     if (rayons.length) {
-      html += UI.titreSection("Tous les rayons", "#/categories");
+      /* Pas de « Tout voir » : la liste est déjà complète ici, et
+         l'onglet Catégories n'existe qu'une fois entré quelque part. */
+      html += UI.titreSection("Tous les rayons");
       html += rayons.map((r) => UI.ligneRayon(r)).join("");
     }
 
@@ -313,7 +376,10 @@ const VueAccueil = (() => {
           '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
             UI.icone("actualiser") + "</button>" +
           '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" }
-      : { titre: b.nom, sous: b.slogan || b.description || "", retour: true, actions:
+      /* Le logo de la boutique à gauche de son nom : on sait chez qui
+         l'on est sans avoir à lire. */
+      : { titre: b.nom, sous: b.slogan || b.description || "", retour: true,
+          vignette: UI.vignetteBoutique(Catalogue.boutiqueChoisie()), actions:
           '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
             UI.icone("actualiser") + "</button>" +
           '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
@@ -338,9 +404,9 @@ const VueAccueil = (() => {
       "</div>";
     }
 
-    const flash = Catalogue.produits()
-      .filter((p) => Catalogue.enVenteFlash(p))
-      .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0));
+    /* Les ventes flash de cette boutique : elles n'appartiennent
+       qu'à elle, et ne remontent plus sur l'accueil de BIZZOO. */
+    const flash = Catalogue.ventesFlash();
     if (flash.length) {
       html += UI.titreSection("Ventes flash");
       html += UI.rangeeProduits(flash);

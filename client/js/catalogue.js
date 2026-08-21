@@ -207,9 +207,12 @@ const Catalogue = (() => {
         slides: (slides || []).map((s) => ({
           id: s.id,
           boutiqueId: s.boutique_id || "",
-          /* « enseigne » : le slider de BIZZOO, sur l'accueil.
-             « boutique » : celui d'une boutique, sur son écran. */
-          portee: s.portee === "enseigne" ? "enseigne" : "boutique",
+          /* « enseigne »  : le slider de BIZZOO, en haut de l'accueil.
+             « publicite » : ce que BIZZOO met en avant plus bas sur
+                             l'accueil — affiches et produits choisis
+                             dans n'importe quelle boutique.
+             « boutique »  : le slider d'une boutique, sur son écran. */
+          portee: s.portee === "enseigne" || s.portee === "publicite" ? s.portee : "boutique",
           image: s.image ? urlImagePublique(s.image) : "",
           video: s.video ? urlImagePublique(s.video) : "",
           titre: s.titre || "",
@@ -592,20 +595,41 @@ const Catalogue = (() => {
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
 
+  /**
+   * La publicité de BIZZOO, sur l'accueil de l'enseigne : des affiches
+   * — photos ou vidéos — et des produits choisis dans n'importe quelle
+   * boutique. Elle a pris la place des ventes flash, qui appartiennent
+   * désormais aux boutiques et s'annoncent sur leur écran à elles.
+   *
+   * Une annonce qui renvoie vers un produit disparu, ou vers une
+   * boutique fermée, s'efface d'elle-même : mieux vaut un écran plus
+   * court qu'une promesse qu'on ne peut pas tenir.
+   */
+  function publicites() {
+    const ouvertes = {};
+    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    return ((donnees && donnees.slides) || [])
+      .filter((s) => s.actif !== false && s.portee === "publicite")
+      .filter((s) => {
+        if (!s.produitId) return !!(s.image || s.video);
+        const p = produit(s.produitId);
+        return !!p && (!multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId]);
+      })
+      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+  }
+
   /** En vente flash : une fin posée, pas encore passée. */
   const enVenteFlash = (p) => !!(p && p.flashFin && p.flashFin > Date.now());
 
   /**
-   * Les ventes flash de toutes les boutiques ouvertes, la plus pressée
-   * d'abord. C'est la rangée qui défile sous les boutiques, sur
-   * l'accueil de l'application.
+   * Les ventes flash de la boutique visitée, la plus pressée d'abord.
+   * Une vente flash appartient à la boutique qui la fait : elle
+   * s'annonce sur son écran à elle, et non sur l'accueil de BIZZOO —
+   * là, c'est la publicité de l'enseigne qui parle.
    */
   function ventesFlash() {
-    const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
-    return tousProduits()
-      .filter((p) => enVenteFlash(p) && (!p.boutiqueId || ouvertes[p.boutiqueId] ||
-        !multiBoutiques()))
+    return produits()
+      .filter(enVenteFlash)
       .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0));
   }
 
@@ -759,7 +783,7 @@ const Catalogue = (() => {
     categories, categorie, sousCategories, sousCategorie,
     produits, produit, produitsDeCategorie, nombreParCategorie,
     rayonsDeLEnseigne, produitsDeLEnseigne,
-    slides, slidesGeneral, misEnAvant,
+    slides, slidesGeneral, publicites, misEnAvant,
     enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,
     boutiqueDuProduit, deviseDe,

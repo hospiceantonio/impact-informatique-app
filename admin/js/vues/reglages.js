@@ -419,6 +419,23 @@ const VueReglages = (() => {
         '<div id="reg-slider"></div>' +
       "</div>" +
 
+      /* ---------- Publicité ----------
+         Réservée à BIZZOO, et au superadministrateur seul : c'est
+         l'enseigne qui met en avant, à travers toutes ses boutiques.
+         L'écran cache la carte aux autres, mais c'est la règle de la
+         base qui ferme vraiment la porte. */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte">' +
+            '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Publicité " +
+              '<span class="aide-inline">(BIZZOO)</span></div>' +
+            '<p class="aide" style="margin:0 0 12px">Ce que BIZZOO met en avant sur l\'accueil de ' +
+              "l'application, sous les boutiques — là où les ventes flash apparaissaient avant. " +
+              "Chaque annonce est une photo ou une vidéo, et peut renvoyer vers un produit de " +
+              "n'importe quelle boutique.</p>" +
+            '<div id="reg-publicite"></div>' +
+          "</div>"
+        : "") +
+
       /* ---------- Vidéo de présentation ---------- */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation " +
@@ -780,6 +797,11 @@ const VueReglages = (() => {
        Le même gestionnaire que l'écran Slider, posé dans la carte. */
     const zoneSlider = UI.$("#reg-slider", vue);
     if (zoneSlider) VueSlider.rendre(zoneSlider, surEnseigne ? "enseigne" : "boutique");
+
+    /* ---------- Publicité ----------
+       Le même gestionnaire encore, sur la troisième vitrine. */
+    const zonePublicite = UI.$("#reg-publicite", vue);
+    if (zonePublicite) VueSlider.rendre(zonePublicite, "publicite");
 
     /* ---------- Photos ---------- */
     photosTravail = Store.photosBoutique(cible);

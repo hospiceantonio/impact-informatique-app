@@ -38,7 +38,12 @@ const UI = (() => {
 
   /* ---------- Barre supérieure ---------- */
 
-  function entete({ titre, sous, retour, accueil, actions }) {
+  /**
+   * La barre du haut. `vignette` pose une pastille à gauche du titre :
+   * c'est par elle qu'une boutique met son logo à côté de son nom, pour
+   * qu'on sache d'un coup d'œil chez qui l'on est.
+   */
+  function entete({ titre, sous, retour, accueil, actions, vignette }) {
     const zone = $("#topbar");
     zone.innerHTML =
       '<div class="topbar-ligne">' +
@@ -47,7 +52,8 @@ const UI = (() => {
           : "") +
         (accueil
           ? '<div class="topbar-logo">' + logo() + "</div>"
-          : "<div style='flex:1;min-width:0'>" +
+          : (vignette || "") +
+            "<div style='flex:1;min-width:0'>" +
               "<h1>" + e(titre || "") + "</h1>" +
               (sous ? '<div class="sous">' + e(sous) + "</div>" : "") +
             "</div>") +
@@ -614,6 +620,19 @@ const UI = (() => {
     );
   }
 
+  /**
+   * Le logo d'une boutique, en pastille : son image si elle en a une,
+   * sinon son icône sur sa couleur — exactement ce que montre sa carte
+   * sur l'accueil, pour qu'on la reconnaisse d'un écran à l'autre.
+   */
+  function vignetteBoutique(b) {
+    if (!b) return "";
+    return b.logo
+      ? '<span class="topbar-vignette topbar-vignette-photo"><img src="' + e(b.logo) + '" alt=""></span>'
+      : '<span class="topbar-vignette" style="background:' + e(b.couleur || "#0B5CF5") + '">' +
+          icone(b.icone || "magasin") + "</span>";
+  }
+
   function bandeauBoutique() {
     const b = Catalogue.boutiqueChoisie();
     if (!b) return "";
@@ -630,7 +649,7 @@ const UI = (() => {
   }
 
   return {
-    $, $$, entete, icone, marque, logo, toast, bandeauBoutique, ligneRayon,
+    $, $$, entete, icone, marque, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,

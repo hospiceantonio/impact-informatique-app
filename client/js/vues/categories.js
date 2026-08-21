@@ -7,26 +7,29 @@ const VueCategories = (() => {
   /* ---------- Toutes les catégories ---------- */
 
   async function liste(vue) {
-    /* Plusieurs boutiques : TOUS les rayons de l'enseigne, par ordre
-       alphabétique, chacun avec sa boutique et son nombre de produits.
-       On cherche « encre » ou « écrans » sans savoir encore qui le
-       vend — n'afficher que la boutique du moment revenait à cacher
-       les autres.
-       Une seule boutique : ses rayons, dans l'ordre qu'elle a choisi. */
-    const multi = Catalogue.multiBoutiques();
-    const comptes = multi ? {} : Catalogue.nombreParCategorie();
-    const rayons = multi
+    /* Cet onglet n'apparaît qu'une fois le client entré dans une
+       boutique : il parle donc d'elle seule, et garde l'ordre que son
+       gérant a choisi. La vue d'ensemble — tous les rayons de
+       l'enseigne, par ordre alphabétique — vit sur l'accueil BIZZOO.
+
+       Reste le cas d'un lien direct ouvert avant tout choix de
+       boutique : on montre alors cette vue d'ensemble plutôt qu'un
+       mélange de rayons sans étiquette. */
+    const choisie = Catalogue.boutiqueChoisie();
+    const toutesBoutiques = Catalogue.multiBoutiques() && !choisie;
+    const comptes = toutesBoutiques ? {} : Catalogue.nombreParCategorie();
+    const rayons = toutesBoutiques
       ? Catalogue.rayonsDeLEnseigne()
       : Catalogue.categories().map((c) => ({
           categorie: c, boutique: null, compte: comptes[c.id] || 0,
         }));
 
     UI.entete({ titre: "Catégories",
-      sous: multi ? "Les rayons de toutes les boutiques" : "Tout le matériel, classé par rayon" });
+      sous: toutesBoutiques ? "Les rayons de toutes les boutiques" : "Tout le matériel, classé par rayon" });
 
-    /* Le bandeau « vous êtes chez X » n'a plus de sens quand la liste
-       les traverse toutes. */
-    const bandeau = multi ? "" : UI.bandeauBoutique();
+    /* Le bandeau « vous êtes chez X » n'aurait rien à dire quand la
+       liste les traverse toutes. */
+    const bandeau = toutesBoutiques ? "" : UI.bandeauBoutique();
 
     if (!rayons.length) {
       vue.innerHTML = bandeau +

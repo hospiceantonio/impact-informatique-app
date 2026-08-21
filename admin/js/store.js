@@ -1519,15 +1519,17 @@ const Store = (() => {
       produitId: l.produit_id || "",
       ordre: l.ordre || 0,
       actif: l.actif !== false,
-      portee: l.portee === "enseigne" ? "enseigne" : "boutique",
+      portee: l.portee === "enseigne" || l.portee === "publicite" ? l.portee : "boutique",
     };
   }
 
-  /* Le slider de l'enseigne n'appartient à aucune boutique ; celui d'une
-     boutique ne sort jamais de la sienne. */
+  /* Ce qui appartient à l'enseigne — son slider et sa publicité — n'a
+     pas de boutique ; le slider d'une boutique ne sort jamais de la
+     sienne. */
+  const auNiveauEnseigne = (cible) => cible === "enseigne" || cible === "publicite";
   const filtreSlides = (cible) =>
-    cible === "enseigne"
-      ? "portee=eq.enseigne"
+    auNiveauEnseigne(cible)
+      ? "portee=eq." + cible
       : "portee=eq.boutique" + (filtreBoutique() ? "&" + filtreBoutique() : "");
 
   async function listerSlides(cible) {
@@ -1535,6 +1537,10 @@ const Store = (() => {
       "slides?select=*&order=ordre.asc&" + filtreSlides(cible));
     return (lignes || []).map(slideDepuisLigne);
   }
+
+  /** « (BIZZOO) », « (Publicité BIZZOO) », ou rien pour une boutique. */
+  const ditLaVitrine = (cible) =>
+    cible === "publicite" ? " (Publicité BIZZOO)" : (cible === "enseigne" ? " (BIZZOO)" : "");
 
   const lireSlide = async (id, cible) =>
     (await listerSlides(cible)).find((s) => s.id === id) || null;
@@ -1546,7 +1552,7 @@ const Store = (() => {
    * pour une vidéo. Un écran ne montre qu'un seul média.
    */
   async function sauverSlide(donnees, cible) {
-    const enseigne = cible === "enseigne";
+    const enseigne = auNiveauEnseigne(cible);
     const existant = donnees.id ? await lireSlide(donnees.id, cible) : null;
     const liste = await listerSlides(cible);
     if (!existant && liste.length >= MAX_SLIDES) {
@@ -1588,8 +1594,8 @@ const Store = (() => {
       produit_id: donnees.produitId || null,
       ordre: existant ? existant.ordre : liste.reduce((m, s) => Math.max(m, s.ordre || 0), 0) + 1,
       actif: donnees.actif !== false,
-      portee: enseigne ? "enseigne" : "boutique",
-      /* Le slider de l'enseigne n'appartient à aucune boutique. */
+      portee: enseigne ? cible : "boutique",
+      /* Ce qui est à l'enseigne n'appartient à aucune boutique. */
       boutique_id: enseigne ? null : boutiqueId || null,
     };
     const lignes = await Supabase.requete("POST", "slides?on_conflict=id", slide, { upsert: true });
@@ -1602,8 +1608,8 @@ const Store = (() => {
 
     const quoi = cheminVideo ? "Vidéo" : "Photo";
     journaliser("slider", existant ? "modification" : "ajout",
-      (existant ? quoi + " du slider modifiée" : quoi + " ajoutée au slider") +
-        (enseigne ? " (BIZZOO)" : ""),
+      (existant ? quoi + " modifiée" : quoi + " ajoutée") + ditLaVitrine(cible) +
+        (cible === "publicite" ? "" : " (slider)"),
       slide.titre,
       aAnnuler("slides", [avant], [slide.id]));
     return slideDepuisLigne((lignes && lignes[0]) || slide);
@@ -1616,8 +1622,8 @@ const Store = (() => {
        le retrait rendrait un écran vide. */
     await Supabase.requete("DELETE", "slides?id=eq." + encodeURIComponent(id));
     journaliser("slider", "suppression",
-      (slide && slide.estVideo ? "Vidéo retirée du slider" : "Photo retirée du slider") +
-        (cible === "enseigne" ? " (BIZZOO)" : ""),
+      (slide && slide.estVideo ? "Vidéo retirée" : "Photo retirée") + ditLaVitrine(cible) +
+        (cible === "publicite" ? "" : " (slider)"),
       slide ? slide.titre : "",
       aAnnuler("slides", [avant], [id]));
   }
@@ -1638,8 +1644,8 @@ const Store = (() => {
       await Supabase.requete("PATCH", "slides?id=eq." + encodeURIComponent(s.id), { ordre: s.ordre });
     }
     journaliser("slider", "ordre",
-      "Ordre du slider modifié : écran en position " + courant.ordre +
-        (cible === "enseigne" ? " (BIZZOO)" : ""),
+      "Ordre modifié : écran en position " + courant.ordre + ditLaVitrine(cible) +
+        (cible === "publicite" ? "" : " (slider)"),
       courant.titre,
       aAnnuler("slides", avant, [courant.id, voisin.id]));
   }

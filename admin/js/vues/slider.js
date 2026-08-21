@@ -83,17 +83,26 @@ const VueSlider = (() => {
   }
 
   /* ---------- Le gestionnaire, posé où on veut ----------
-     `cible` vaut "enseigne" (le slider de BIZZOO) ou "boutique". */
+     `cible` vaut :
+       "enseigne"  — le slider en haut de l'accueil de l'application ;
+       "publicite" — ce que BIZZOO met en avant plus bas sur l'accueil ;
+       "boutique"  — le slider d'une boutique, sur son écran à elle.
+     Les deux premiers sont au superadministrateur ; le troisième à
+     l'administrateur de la boutique. */
 
   async function rendre(conteneur, cible, options) {
     const opts = options || {};
-    const enseigne = cible === "enseigne";
+    const pub = cible === "publicite";
+    /* Ce qui appartient à l'enseigne pioche dans TOUTES les boutiques. */
+    const enseigne = cible === "enseigne" || pub;
     /* Les produits mis en avant ne défilent que dans le slider d'une
        boutique : l'accueil de l'application ne montre plus qu'eux. */
     const avecEnAvant = !enseigne;
+    const mot = pub ? "annonce" : "écran";
 
     conteneur.innerHTML =
-      '<div class="chargement"><span class="chargement-rond"></span>Lecture du slider…</div>';
+      '<div class="chargement"><span class="chargement-rond"></span>Lecture de la ' +
+      (pub ? "publicité" : "vitrine") + "…</div>";
 
     let slides, produits;
     try {
@@ -103,9 +112,10 @@ const VueSlider = (() => {
       ]);
     } catch (err) {
       conteneur.innerHTML =
-        '<div class="carte"><div class="carte-titre">Slider indisponible</div>' +
+        '<div class="carte"><div class="carte-titre">' +
+          (pub ? "Publicité indisponible" : "Slider indisponible") + "</div>" +
         '<p class="aide" style="margin:0">' + Utils.echapper(err.message) +
-        "<br>Si le slider vient de changer, exécutez le fichier supabase/schema.sql.</p></div>";
+        "<br>Si la base vient de changer, exécutez le fichier supabase/schema.sql.</p></div>";
       return;
     }
     for (const s of slides) {
@@ -119,22 +129,32 @@ const VueSlider = (() => {
     const total = visibles.length + enAvant.length;
     const plein = slides.length >= Store.MAX_SLIDES;
 
-    const resume = enseigne
+    const resume = pub
       ? (total
-          ? compte(total, "écran") + " défile" + (total > 1 ? "nt" : "") + " sur l'accueil"
-          : "Rien ne défile sur l'accueil")
-      : (total
-          ? compte(total, "écran") + " en haut de la boutique"
-          : "Rien ne défile pour l'instant");
-    const detail = enseigne
+          ? compte(total, "annonce") + " sur l'accueil de BIZZOO"
+          : "Aucune annonce pour l'instant")
+      : enseigne
+        ? (total
+            ? compte(total, "écran") + " défile" + (total > 1 ? "nt" : "") + " sur l'accueil"
+            : "Rien ne défile sur l'accueil")
+        : (total
+            ? compte(total, "écran") + " en haut de la boutique"
+            : "Rien ne défile pour l'instant");
+    const detail = pub
       ? (total
-          ? "Vos photos et vidéos, dans cet ordre. Elles seules occupent le haut de " +
-            "l'accueil : les boutiques n'y envoient plus rien."
-          : "Ajoutez une photo ou une vidéo : c'est la première chose que voient vos clients.")
-      : (total
-          ? compte(visibles.length, "écran") + " puis " + compte(enAvant.length, "produit") +
-            " mis en avant, dans cet ordre."
-          : "Ajoutez une photo ou une vidéo, ou mettez un produit en avant depuis sa fiche.");
+          ? "Vos annonces, dans cet ordre, sous les boutiques sur l'accueil. Chacune peut " +
+            "renvoyer vers un produit de n'importe quelle boutique."
+          : "Ajoutez une affiche — photo ou vidéo — et renvoyez-la, si vous voulez, vers un " +
+            "produit de n'importe quelle boutique.")
+      : enseigne
+        ? (total
+            ? "Vos photos et vidéos, dans cet ordre. Elles seules occupent le haut de " +
+              "l'accueil : les boutiques n'y envoient plus rien."
+            : "Ajoutez une photo ou une vidéo : c'est la première chose que voient vos clients.")
+        : (total
+            ? compte(visibles.length, "écran") + " puis " + compte(enAvant.length, "produit") +
+              " mis en avant, dans cet ordre."
+            : "Ajoutez une photo ou une vidéo, ou mettez un produit en avant depuis sa fiche.");
 
     conteneur.innerHTML =
       (opts.sansResume
@@ -147,13 +167,14 @@ const VueSlider = (() => {
       /* ---------- 1. Les écrans composés à la main ---------- */
       (opts.sansResume
         ? ""
-        : '<div class="titre-section">Photos et vidéos (' + visibles.length +
+        : '<div class="titre-section">' + (pub ? "Annonces" : "Photos et vidéos") + " (" + visibles.length +
             (slides.length > visibles.length
               ? " visible" + (visibles.length > 1 ? "s" : "") + " sur " + slides.length
               : "") + "/" + Store.MAX_SLIDES + ")</div>") +
       (plein
         ? '<p class="aide" style="margin:0 0 10px">Le maximum est atteint (' + Store.MAX_SLIDES +
-          " écrans). Retirez-en un pour en ajouter un autre.</p>"
+          " " + mot + "s). Retirez-en un" + (pub ? "e" : "") + " pour en ajouter un" +
+          (pub ? "e" : "") + " autre.</p>"
         : '<div class="btn-rangee" style="margin-bottom:4px">' +
             '<button type="button" class="btn" id="slide-ajout-photo">' +
               UI.icone("camera") + "Ajouter une photo</button>" +
@@ -162,10 +183,13 @@ const VueSlider = (() => {
           "</div>") +
       (slides.length
         ? slides.map((s, i) => htmlVignette(s, i, slides.length)).join("")
-        : UI.vide("image", "Aucun écran",
-            enseigne
-              ? "Vos affiches, promotions et vidéos défileront ici, en haut de l'accueil."
-              : "Vos affiches et vidéos défileront ici, avant les produits mis en avant.")) +
+        : UI.vide("image", pub ? "Aucune annonce" : "Aucun écran",
+            pub
+              ? "Vos affiches et les produits que vous mettez en avant s'afficheront ici, sur " +
+                "l'accueil de BIZZOO."
+              : enseigne
+                ? "Vos affiches, promotions et vidéos défileront ici, en haut de l'accueil."
+                : "Vos affiches et vidéos défileront ici, avant les produits mis en avant.")) +
 
       /* ---------- 2. Les produits mis en avant (boutique seulement) ---------- */
       (avecEnAvant
