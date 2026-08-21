@@ -260,6 +260,14 @@ impact-informatique-app/
   calque de fond, le premier plan restant transparent.
   Le fond de la tuile est **blanc franc** : l'œuvre garde sa structure,
   on ne lui retire que son fond bleu.
+  **Un seul dessin sert partout** : `UI.marque()` affiche le fichier
+  d'icône lui-même (`icons/icon-192.png`) au lieu d'un SVG approché —
+  barre du haut, écran de connexion admin, vignette d'un produit sans
+  photo. Plus de version parallèle qui finirait par diverger, et le
+  fichier est déjà gardé hors connexion par le service worker.
+  L'**écran de démarrage** (`drawable/ecran_demarrage.xml`) pose la même
+  icône au centre du fond blanc : l'ouverture montre la marque au lieu
+  d'un écran vide.
   L'**écran de démarrage** (`fond_demarrage`, la couleur affichée le temps
   que l'application s'ouvre) est passé du bleu au **blanc** : l'ouverture
   ne commence plus par un éclair bleu, et enchaîne sans rupture sur les

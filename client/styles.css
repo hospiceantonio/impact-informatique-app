@@ -104,7 +104,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Logo ---------- */
 .logo{display:inline-flex;align-items:center;gap:9px;min-width:0}
-.marque{flex:none}
+.marque{flex:none;display:block;object-fit:contain}
 .logo-textes{display:flex;flex-direction:column;min-width:0;line-height:1.05}
 /* « BIZZOO » se lit en capitales espacées : le mot est court, il a
    besoin d'air là où « mpact » avait besoin d'être resserré. */

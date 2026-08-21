@@ -10,25 +10,16 @@ const UI = (() => {
 
   /* ---------- Marque (reprend la charte du logo officiel) ---------- */
 
-  /** Le sac de BIZZOO : un carré arrondi bleu, l'anse et le sac en blanc. */
+  /**
+   * La marque : l'icône même de l'application, celle qu'on voit sur
+   * l'écran d'accueil du téléphone. Un seul dessin pour les deux —
+   * plus de version approchée qui finirait par diverger.
+   * Le fichier est déjà gardé hors connexion par le service worker.
+   */
   function marque(taille = 40) {
     return (
-      '<svg class="marque" width="' + taille + '" height="' + taille + '" viewBox="0 0 64 64" aria-hidden="true">' +
-        "<defs>" +
-          '<linearGradient id="grad-marque" x1="0" y1="0" x2="1" y2="1">' +
-            '<stop offset="0" stop-color="#1268FF"/><stop offset="1" stop-color="#0132A8"/>' +
-          "</linearGradient>" +
-          '<clipPath id="coupe-marque"><rect x="2" y="2" width="60" height="60" rx="17"/></clipPath>' +
-        "</defs>" +
-        '<g clip-path="url(#coupe-marque)">' +
-          '<rect x="2" y="2" width="60" height="60" fill="url(#grad-marque)"/>' +
-          /* La vague orange de l'icône, dans l'angle bas-droite. */
-          '<path d="M62 31c-11 7-17 17-19 31h19z" fill="#F96302"/>' +
-        "</g>" +
-        /* L'anse ambrée d'abord : le sac vient ensuite en cacher les deux bouts. */
-        '<path d="M24.3 32.7a7.7 7.7 0 0 1 15.4 0" fill="none" stroke="#FFA808" stroke-width="3"/>' +
-        '<rect x="15.7" y="31.4" width="32.6" height="19.2" rx="2.6" fill="#fff"/>' +
-      "</svg>"
+      '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
+      ' width="' + taille + '" height="' + taille + '">'
     );
   }
 
