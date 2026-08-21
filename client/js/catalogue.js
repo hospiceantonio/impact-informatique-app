@@ -565,23 +565,95 @@ const Catalogue = (() => {
       .sort(parPrixCroissant);
   }
 
-  /**
-   * La recherche ne lit que le produit lui-même : son nom, sa référence
-   * et sa description. Le nom du rayon n'y entre pas — un produit qui ne
-   * contient pas le mot cherché ne doit pas apparaître.
-   */
+  /* ---------- Recherche ----------
+     Ce qu'on attend d'une recherche dans une enseigne à plusieurs
+     boutiques : taper quelques lettres et voir ce qui s'en approche,
+     où que ce soit. Trois règles en découlent.
+
+     1. Quelques lettres suffisent : « ordi » trouve « Ordinateur ».
+     2. Un seul des mots tapés suffit : « ordinateur portable » sort
+        aussi les ordinateurs qui ne sont pas des portables — mais
+        après ceux qui le sont. Exiger tous les mots ne rendait plus
+        rien dès qu'on en tapait un de trop.
+     3. On cherche dans TOUTES les boutiques ouvertes, pas seulement
+        celle qu'on visite : le client cherche un produit, il ne sait
+        pas encore qui le vend.
+
+     Le classement fait le reste, et c'est lui qui rend la règle 2
+     supportable : le nom pèse plus que la référence, qui pèse plus
+     que la description ; un mot en tête de nom pèse plus qu'un mot
+     au milieu ; et retrouver tout ce qui a été tapé vaut mieux que
+     la moitié. Le rayon n'entre toujours pas dans la recherche : un
+     produit qui ne porte pas le mot n'a rien à faire dans la liste. */
+
+  const POIDS = {
+    nom: 100,          // le mot est dans le nom
+    debutNom: 60,      // ... et le nom commence par lui
+    debutMot: 30,      // ... ou c'est le début d'un des mots du nom
+    reference: 45,
+    description: 12,
+    /* Tout retrouver vaut mieux que la moitié — mais comme un
+       MULTIPLICATEUR, jamais comme un bonus fixe. Ajouté à plat, il
+       faisait passer devant une sacoche dont la description contient
+       « ordinateur » et « portable » un ordinateur qui porte le mot
+       dans son nom. Multiplier garde l'ordre : ce qui valait peu
+       vaut un peu plus, pas soudain davantage. */
+    complet: 2.5,
+  };
+
+  /** Ce que vaut un produit pour les mots cherchés. Zéro : il ne sort pas. */
+  function noteRecherche(p, mots) {
+    const nom = Utils.sansAccent(p.nom);
+    const reference = Utils.sansAccent(p.reference || "");
+    const description = Utils.sansAccent(p.description || "");
+    let note = 0;
+    let trouves = 0;
+    for (const mot of mots) {
+      let gagne = 0;
+      if (nom.includes(mot)) {
+        gagne = POIDS.nom;
+        if (nom.startsWith(mot)) gagne += POIDS.debutNom;
+        else if (nom.includes(" " + mot) || nom.includes("-" + mot)) gagne += POIDS.debutMot;
+      } else if (reference.includes(mot)) {
+        gagne = POIDS.reference;
+      } else if (description.includes(mot)) {
+        gagne = POIDS.description;
+      }
+      if (gagne) {
+        note += gagne;
+        trouves++;
+      }
+    }
+    if (!trouves) return 0;
+    return trouves === mots.length ? note * POIDS.complet : note;
+  }
+
   function rechercher(terme) {
     const t = Utils.sansAccent(terme).trim();
     if (!t) return [];
-    const mots = t.split(/\s+/);
-    return produits()
-      .filter((p) => {
-        const texte = Utils.sansAccent(
-          p.nom + " " + (p.reference || "") + " " + (p.description || ""));
-        return mots.every((mot) => texte.includes(mot));
-      })
-      .sort(parPrixCroissant);
+    const mots = t.split(/\s+/).filter(Boolean);
+    const ouvertes = {};
+    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    return tousProduits()
+      /* Une boutique fermée ne vend plus : ses produits n'ont pas à
+         remonter dans les résultats. */
+      .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
+      .map((p) => ({ produit: p, note: noteRecherche(p, mots) }))
+      .filter((x) => x.note > 0)
+      .sort((a, b) => b.note - a.note || parPrixCroissant(a.produit, b.produit))
+      .map((x) => x.produit);
   }
+
+  /** D'où vient un produit. La recherche traversant les boutiques, il
+      faut pouvoir dire laquelle le vend — et dans quelle monnaie. */
+  const boutiqueDuProduit = (p) =>
+    (p && p.boutiqueId ? boutiques().find((b) => b.id === p.boutiqueId) : null) || null;
+
+  /** La devise d'un produit : celle de sa boutique, sinon celle affichée. */
+  const deviseDe = (p) => {
+    const b = boutiqueDuProduit(p);
+    return (b && b.devise) || boutique().devise;
+  };
 
   /** Produits proches : même sous-catégorie d'abord, puis même catégorie. */
   function similaires(p, n = 4) {
@@ -616,6 +688,7 @@ const Catalogue = (() => {
     slides, slidesGeneral, misEnAvant,
     enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,
+    boutiqueDuProduit, deviseDe,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };

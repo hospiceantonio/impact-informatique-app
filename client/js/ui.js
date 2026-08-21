@@ -456,7 +456,9 @@ const UI = (() => {
 
   function prixHtml(p, options) {
     const o = options || {};
-    const devise = Catalogue.boutique().devise;
+    /* La devise du produit, pas celle de l'écran : un résultat de
+       recherche peut venir d'une boutique qui compte autrement. */
+    const devise = Catalogue.deviseDe(p);
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     return (
       '<span class="prix' + (o.grand ? " prix-grand" : "") + '">' +
@@ -502,9 +504,14 @@ const UI = (() => {
   /* ---------- Cartes produit ---------- */
 
   /** Carte pour les grilles à 2 colonnes. */
-  function carteProduit(p) {
+  /* `options.boutique` : dire d'où vient le produit. La recherche
+     traverse toute l'enseigne — sans ce nom, on ne saurait pas chez
+     qui aller le chercher. */
+  function carteProduit(p, options) {
+    const o = options || {};
     const sc = Catalogue.sousCategorie(p.categorieId, p.sousCategorieId);
     const cat = Catalogue.categorie(p.categorieId);
+    const bou = o.boutique ? Catalogue.boutiqueDuProduit(p) : null;
     return (
       '<a class="p-carte" href="#/produit/' + e(p.id) + '">' +
         '<span class="p-carte-img">' +
@@ -513,6 +520,10 @@ const UI = (() => {
           pastilleVideo(p) +
         "</span>" +
         '<span class="p-carte-corps">' +
+          (bou
+            ? '<span class="p-carte-boutique">' + icone("magasin", "ic-sm") +
+                "<span>" + e(bou.nom) + "</span></span>"
+            : "") +
           '<span class="p-carte-nom">' + e(p.nom) + "</span>" +
           prixHtml(p) +
           '<span class="p-carte-cat">' + e(sc ? sc.nom : (cat ? cat.nom : "")) + "</span>" +
@@ -521,9 +532,9 @@ const UI = (() => {
     );
   }
 
-  function grilleProduits(liste) {
+  function grilleProduits(liste, options) {
     if (!liste.length) return "";
-    return '<div class="p-grille">' + liste.map(carteProduit).join("") + "</div>";
+    return '<div class="p-grille">' + liste.map((p) => carteProduit(p, options)).join("") + "</div>";
   }
 
   /** Petite carte pour les rangées horizontales (nouveautés, similaires). */

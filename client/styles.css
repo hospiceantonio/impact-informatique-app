@@ -423,6 +423,16 @@ video.slide-img{background:#000}
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
 .p-carte-cat{font-size:11px;color:var(--encre-tres-douce);font-weight:600}
+/* La boutique d'où vient le produit, en tête de carte : c'est ce
+   qu'on cherche d'abord quand le résultat vient d'ailleurs. */
+.p-carte-boutique{
+  display:flex;align-items:center;gap:4px;
+  font-size:10.5px;font-weight:700;letter-spacing:.02em;
+  color:var(--bleu-700);
+  text-transform:uppercase;
+}
+.p-carte-boutique span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p-carte-boutique .ic{width:13px;height:13px;stroke-width:2}
 
 .p-rangee{
   display:flex;gap:12px;overflow-x:auto;

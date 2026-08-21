@@ -219,10 +219,32 @@ impact-informatique-app/
   `position:absolute` (sans quoi une photo verticale étire sa carte).
   Grille et rangées : photo cadrée (`cover`) ; fiche produit : photo
   entière visible (`contain`).
-- Tri du catalogue client : rayons, sous-catégories, promotions et
-  résultats de recherche sont classés **du prix le plus bas au plus
-  élevé** (à prix égal, par ordre alphabétique). Les nouveautés restent
-  classées par date et le slider garde l'ordre choisi par le gérant.
+- Tri du catalogue client : rayons, sous-catégories et promotions sont
+  classés **du prix le plus bas au plus élevé** (à prix égal, par ordre
+  alphabétique). Les nouveautés restent classées par date et le slider
+  garde l'ordre choisi par le gérant. La recherche, elle, classe par
+  pertinence, et le prix ne départage qu'à pertinence égale.
+- **La recherche traverse toutes les boutiques ouvertes.** Le client
+  cherche un produit ; il ne sait pas encore qui le vend. Trois règles
+  (`Catalogue.rechercher`) :
+  1. **quelques lettres suffisent** — « ordi » trouve « Ordinateur » ;
+  2. **un seul des mots tapés suffit** — « ordinateur portable » sort
+     aussi les ordinateurs de bureau, mais après les portables. Exiger
+     tous les mots, comme avant, ne rendait plus rien dès qu'on en
+     tapait un de trop ;
+  3. on lit le **nom, la référence et la description** ; le rayon
+     n'entre pas dans la recherche.
+  Le classement rend la règle 2 supportable : le nom pèse plus que la
+  référence, qui pèse plus que la description ; un mot en tête de nom
+  pèse plus qu'un mot au milieu. Retrouver **tout** ce qui a été tapé
+  agit comme un **multiplicateur**, jamais comme un bonus fixe — à plat,
+  il faisait passer devant une sacoche dont la description contient
+  « ordinateur » et « portable » un ordinateur qui porte le mot dans son
+  nom. Une boutique **fermée** ne remonte rien.
+  Chaque résultat porte le **nom de sa boutique** et son **prix dans la
+  devise de celle-ci** (`Catalogue.deviseDe`) — deux boutiques peuvent
+  compter autrement. L'ouvrir fait entrer dans sa boutique, par le même
+  chemin qu'un lien partagé sur WhatsApp.
 - **La charte graphique vient de l'icône.** Les couleurs des deux
   applications sont relevées sur l'œuvre BIZZOO (`tools/bizzoo-icone.jpg`) :
   le **bleu vif** du fond (`--bleu`, #0B5CF5), le **bleu nuit** du sac
@@ -461,8 +483,9 @@ impact-informatique-app/
   ouverte* et tout l'écran suit. Côté client, l'onglet **Infos** montre
   BIZZOO tant qu'aucune boutique n'est choisie — et redescend vers elles
   par une liste — puis les coordonnées de la boutique dès qu'on est
-  dedans. Les autres onglets (Catégories, Recherche) entrent d'office
-  dans la première boutique : eux ne savent parler que d'un catalogue.
+  dedans. **Catégories** entre d'office dans la première boutique : un
+  rayon ne sait parler que d'un catalogue. **Recherche**, non — elle
+  fouille toute l'enseigne (voir plus bas).
 - **Plusieurs boutiques** (table `boutiques`) : un secteur d'activité par
   boutique, chacune avec son nom, son icône, sa couleur, son logo
   facultatif, ses coordonnées, ses photos, sa marge — et son propre
@@ -495,8 +518,10 @@ impact-informatique-app/
   Côté client, l'accueil montre **le slider d'abord** — les images et
   les produits mis en avant de toutes les boutiques ouvertes, boutique
   par boutique — puis la grille des **icônes**. On entre dans une
-  boutique (`#/boutique/:id`) et rayons, recherche et infos ne parlent
-  plus que d'elle ; un bandeau rappelle laquelle et ramène aux autres.
+  boutique (`#/boutique/:id`) et rayons et infos ne parlent plus que
+  d'elle ; un bandeau rappelle laquelle et ramène aux autres. La
+  recherche fait exception : elle traverse toutes les boutiques
+  ouvertes, où qu'on se trouve.
   Un lien direct — produit partagé sur WhatsApp, rayon mis en favori —
   ouvre la bonne boutique tout seul : elle se déduit de ce qui est
   affiché.
