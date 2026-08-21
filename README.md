@@ -271,13 +271,20 @@ impact-informatique-app/
   barre du haut, écran de connexion admin, vignette d'un produit sans
   photo. Plus de version parallèle qui finirait par diverger, et le
   fichier est déjà gardé hors connexion par le service worker.
-  L'**écran de démarrage** (`drawable/ecran_demarrage.xml`) pose la même
-  icône au centre du fond blanc : l'ouverture montre la marque au lieu
-  d'un écran vide.
   L'**écran de démarrage** (`fond_demarrage`, la couleur affichée le temps
   que l'application s'ouvre) est passé du bleu au **blanc** : l'ouverture
   ne commence plus par un éclair bleu, et enchaîne sans rupture sur les
-  écrans clairs de l'application.
+  écrans clairs de l'application. C'est une **couleur, et rien d'autre**.
+  Y poser le logo par
+  `<bitmap android:src="@mipmap/ic_launcher"/>` a fait **planter les deux
+  applications au lancement** (3.9.2 et 3.9.3, corrigé en 3.9.4) :
+  depuis Android 8 cette référence désigne le **XML d'une icône
+  adaptative**, pas une image ; le fond de fenêtre ne sait pas la
+  décoder, l'inflation du thème lève `Resources$NotFoundException` et
+  l'application se referme dès le clic — sans rien afficher qui explique
+  pourquoi. Le compilateur, lui, ne dit rien : la référence existe. Pour
+  y remettre un logo un jour, il faudra un **vrai PNG** (`drawable/…png`
+  dans un `<layer-list>`), jamais `@mipmap/ic_launcher`.
   L'application admin reçoit la **même** œuvre, marquée d'une pastille
   « réglages » : les deux applications vivent sur le même téléphone, on
   doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se
@@ -409,6 +416,27 @@ impact-informatique-app/
   l'autre du doigt, par les flèches, les points ou les touches ←/→ ;
   compteur « 2 / 3 » et bouton d'enregistrement qui suit la photo
   affichée.
+- **Zoom sur la photo affichée** (les deux applications) : pincement à
+  deux doigts jusqu'à 4×, double-tape pour aller et venir entre la vue
+  d'ensemble et le détail, doigt pour promener la photo agrandie ;
+  molette, double-clic, `+`/`−` et un bouton loupe pour la souris. Trois
+  choix expliquent le code (`ui.js`, section « Visionneuse : zoom ») :
+  1. le décalage est gardé **en pixels d'écran** (`translate(x,y)
+     scale(z)` : la translation s'applique après l'agrandissement), pour
+     ne pas avoir à raisonner dans deux repères à la fois ;
+  2. agrandie, la photo prend la piste pour elle — classe `figee`,
+     `overflow:hidden` et `touch-action:none` — sinon le même glissement
+     voudrait dire deux choses : promener la photo, ou changer de photo.
+     À 1× l'événement n'est pas intercepté et le défilement natif garde
+     la main ;
+  3. changer de photo **remet à 1×** : autrement la suivante s'ouvrirait
+     déjà agrandie sur un coin que personne n'a choisi.
+  Le pincement est intercepté (`touch-action:pan-x` sur la piste, puis
+  `preventDefault`) : sans cela, `maximum-scale=5` laisserait le
+  navigateur agrandir **toute la page** par-dessus. Les boutons de la
+  visionneuse portent un `z-index` pour rester atteignables sous la photo
+  agrandie, qui les recouvrirait sinon. La photo est retenue à ses bords
+  (`retenirZoom`) : on ne peut pas la pousser hors du cadre.
 - Réseaux sociaux : Facebook, Instagram, TikTok, YouTube et Snapchat
   (colonnes de `boutique`). Le gérant saisit un nom de compte ou un lien
   complet ; l'adresse finale est reconstruite (`Utils.lienReseau`) et

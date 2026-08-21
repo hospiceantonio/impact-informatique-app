@@ -33,6 +33,8 @@
     <g id="i-promo"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.6"/></g>
     <g id="i-video"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="m15.5 11 6-3.5v9l-6-3.5z"/></g>
     <g id="i-telecharger"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 20h16"/></g>
+    <g id="i-zoom-plus"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/><path d="M11 8.3v5.4M8.3 11h5.4"/></g>
+    <g id="i-zoom-moins"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/><path d="M8.3 11h5.4"/></g>
     <g id="i-image"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4 17 5-5 4.5 4.5L17 13l3 3"/></g>
     <g id="i-itineraire"><path d="m3 11 18-8-8 18-2.5-7.5z"/></g>
     <g id="i-carte"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></g>
@@ -93,6 +95,12 @@
   </button>
   <button type="button" class="visionneuse-telecharger btn-ic" id="visionneuse-telecharger" aria-label="Enregistrer la photo">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-telecharger"/></svg>
+  </button>
+  <!-- Le zoom se fait surtout à deux doigts ; ce bouton est là pour
+       qu'on sache que c'est possible, et pour la souris. -->
+  <button type="button" class="visionneuse-zoom btn-ic" id="visionneuse-zoom" aria-label="Agrandir la photo">
+    <svg class="ic ic-zoom-plus" viewBox="0 0 24 24"><use href="#i-zoom-plus"/></svg>
+    <svg class="ic ic-zoom-moins" viewBox="0 0 24 24"><use href="#i-zoom-moins"/></svg>
   </button>
   <div class="visionneuse-piste" id="visionneuse-piste"></div>
   <button type="button" class="visionneuse-fleche visionneuse-precedent" id="visionneuse-precedent" aria-label="Photo précédente" hidden>

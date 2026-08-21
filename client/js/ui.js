@@ -117,7 +117,8 @@ const UI = (() => {
 
   /* ---------- Visionneuse : galerie plein écran ----------
      On ouvre une photo, on fait défiler toutes celles de
-     l'article du bout du doigt. */
+     l'article du bout du doigt, et on grossit celle qu'on
+     regarde pour en juger le détail. */
 
   let photosVisionneuse = [];
   let indexVisionneuse = 0;
@@ -148,6 +149,7 @@ const UI = (() => {
     $("#visionneuse").hidden = false;
     document.body.style.overflow = "hidden";
     brancherVisionneuse();
+    reinitialiserZoom();
 
     /* Se placer sur la photo choisie une fois la largeur connue. */
     requestAnimationFrame(() => {
@@ -171,13 +173,197 @@ const UI = (() => {
       if ($("#visionneuse").hidden) return;
       if (ev.key === "ArrowLeft") allerAPhoto(indexVisionneuse - 1);
       if (ev.key === "ArrowRight") allerAPhoto(indexVisionneuse + 1);
+      if (ev.key === "+" || ev.key === "=") basculerZoom();
+      if (ev.key === "-") reinitialiserZoom();
     });
+    brancherZoom($("#visionneuse-piste"));
   }
 
   function allerAPhoto(rang) {
     const piste = $("#visionneuse-piste");
     const cible = Math.min(Math.max(rang, 0), photosVisionneuse.length - 1);
+    reinitialiserZoom();
     piste.scrollTo({ left: cible * piste.clientWidth, behavior: "smooth" });
+  }
+
+  /* ---------- Visionneuse : zoom ----------
+     Pincer à deux doigts pour grossir, promener la photo du bout
+     du doigt, taper deux fois pour aller et venir entre la vue
+     d'ensemble et le détail. À la souris : molette et double-clic,
+     et le bouton loupe pour ceux qui ne devinent pas le geste.
+
+     On revient toujours à 1× en changeant de photo : sinon la
+     suivante s'ouvrirait déjà agrandie, sur un coin qu'on n'a pas
+     choisi. */
+
+  const ZOOM_MAX = 4;
+  const ZOOM_TAPE = 2.5;   // ce que donne une double-tape
+  let zoom = 1;
+  let zoomX = 0;           // décalage de la photo, en pixels d'écran
+  let zoomY = 0;
+  let pince = null;        // geste à deux doigts en cours
+  let glisse = null;       // photo agrandie promenée à un doigt
+  let derniereTape = 0;
+
+  const borner = (v, min, max) => Math.min(Math.max(v, min), max);
+  const estAgrandie = () => zoom > 1.001;
+
+  function imageActive() {
+    return $$("#visionneuse-piste .visionneuse-vue img")[indexVisionneuse] || null;
+  }
+
+  /** La photo ne quitte jamais le cadre : on retient ses bords. */
+  function retenirZoom() {
+    const img = imageActive();
+    const piste = $("#visionneuse-piste");
+    if (!img || !piste) return;
+    const debord = (taille, cadre) => Math.max(0, (taille * zoom - cadre) / 2);
+    const x = debord(img.clientWidth, piste.clientWidth);
+    const y = debord(img.clientHeight, piste.clientHeight);
+    zoomX = borner(zoomX, -x, x);
+    zoomY = borner(zoomY, -y, y);
+  }
+
+  function appliquerZoom() {
+    if (!estAgrandie()) { zoomX = 0; zoomY = 0; }
+    retenirZoom();
+    const img = imageActive();
+    const piste = $("#visionneuse-piste");
+    if (img) {
+      img.style.transform = estAgrandie()
+        ? "translate(" + zoomX + "px," + zoomY + "px) scale(" + zoom + ")"
+        : "";
+    }
+    /* Agrandie, la photo garde le doigt pour elle : on ne passe à
+       la suivante qu'une fois revenu à 1×. */
+    if (piste) piste.classList.toggle("figee", estAgrandie());
+    marquerBoutonZoom();
+  }
+
+  function marquerBoutonZoom() {
+    const bouton = $("#visionneuse-zoom");
+    if (!bouton) return;
+    bouton.classList.toggle("actif", estAgrandie());
+    bouton.setAttribute("aria-label", estAgrandie() ? "Revenir à la taille normale" : "Agrandir la photo");
+  }
+
+  function reinitialiserZoom() {
+    zoom = 1;
+    zoomX = 0;
+    zoomY = 0;
+    pince = null;
+    glisse = null;
+    for (const img of $$("#visionneuse-piste .visionneuse-vue img")) img.style.transform = "";
+    const piste = $("#visionneuse-piste");
+    if (piste) piste.classList.remove("figee", "pincee");
+    marquerBoutonZoom();
+  }
+
+  /** Grossit autour d'un point de l'écran : ce qu'on vise ne bouge pas. */
+  function zoomerVers(niveau, versX, versY) {
+    const piste = $("#visionneuse-piste");
+    if (!piste) return;
+    const cadre = piste.getBoundingClientRect();
+    const centreX = cadre.left + cadre.width / 2 + zoomX;
+    const centreY = cadre.top + cadre.height / 2 + zoomY;
+    const cible = borner(niveau, 1, ZOOM_MAX);
+    const rapport = cible / (zoom || 1);
+    zoomX += (versX - centreX) * (1 - rapport);
+    zoomY += (versY - centreY) * (1 - rapport);
+    zoom = cible;
+    appliquerZoom();
+  }
+
+  /** Le bouton loupe et la double-tape : agrandir, ou tout remettre. */
+  function basculerZoom(versX, versY) {
+    const piste = $("#visionneuse-piste");
+    if (!piste) return;
+    if (estAgrandie()) { reinitialiserZoom(); return; }
+    const cadre = piste.getBoundingClientRect();
+    zoomerVers(ZOOM_TAPE,
+      versX == null ? cadre.left + cadre.width / 2 : versX,
+      versY == null ? cadre.top + cadre.height / 2 : versY);
+  }
+
+  const ecartDoigts = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+
+  function brancherZoom(piste) {
+    piste.addEventListener("touchstart", (ev) => {
+      piste.classList.add("pincee"); // pas d'animation pendant le geste
+      if (ev.touches.length === 2) {
+        pince = {
+          ecart: ecartDoigts(ev.touches[0], ev.touches[1]),
+          depart: zoom,
+          x: (ev.touches[0].clientX + ev.touches[1].clientX) / 2,
+          y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2,
+        };
+        glisse = null;
+        ev.preventDefault();
+      } else if (ev.touches.length === 1) {
+        const t = ev.touches[0];
+        glisse = { x: t.clientX, y: t.clientY, xDepart: t.clientX, yDepart: t.clientY, bouge: false };
+      }
+    }, { passive: false });
+
+    piste.addEventListener("touchmove", (ev) => {
+      if (pince && ev.touches.length === 2) {
+        const ecart = ecartDoigts(ev.touches[0], ev.touches[1]);
+        const x = (ev.touches[0].clientX + ev.touches[1].clientX) / 2;
+        const y = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
+        zoomerVers(pince.depart * (ecart / pince.ecart), x, y);
+        zoomX += x - pince.x;   // et la photo suit les deux doigts
+        zoomY += y - pince.y;
+        pince.x = x;
+        pince.y = y;
+        appliquerZoom();
+        ev.preventDefault();
+        return;
+      }
+      if (!glisse || ev.touches.length !== 1) return;
+      const doigt = ev.touches[0];
+      const dx = doigt.clientX - glisse.x;
+      const dy = doigt.clientY - glisse.y;
+      /* Depuis le point de départ, sinon un déplacement lent — quelques
+         pixels par image — passerait pour une tape. */
+      if (Math.abs(doigt.clientX - glisse.xDepart) > 6 ||
+          Math.abs(doigt.clientY - glisse.yDepart) > 6) glisse.bouge = true;
+      if (!estAgrandie()) return;  // à 1×, le doigt fait défiler la galerie
+      zoomX += dx;
+      zoomY += dy;
+      glisse.x = doigt.clientX;
+      glisse.y = doigt.clientY;
+      appliquerZoom();
+      ev.preventDefault();
+    }, { passive: false });
+
+    piste.addEventListener("touchend", (ev) => {
+      const tape = !pince && glisse && !glisse.bouge && ev.touches.length === 0;
+      const doigt = ev.changedTouches && ev.changedTouches[0];
+      if (ev.touches.length === 0) {
+        pince = null;
+        glisse = null;
+        piste.classList.remove("pincee");
+      }
+      if (!tape || !doigt) return;
+      const maintenant = Date.now();
+      if (maintenant - derniereTape < 320) {
+        derniereTape = 0;
+        basculerZoom(doigt.clientX, doigt.clientY);
+      } else {
+        derniereTape = maintenant;
+      }
+    }, { passive: false });
+
+    /* À la souris. */
+    piste.addEventListener("wheel", (ev) => {
+      if ($("#visionneuse").hidden) return;
+      ev.preventDefault();
+      zoomerVers(zoom * (ev.deltaY < 0 ? 1.18 : 1 / 1.18), ev.clientX, ev.clientY);
+    }, { passive: false });
+    piste.addEventListener("dblclick", (ev) => basculerZoom(ev.clientX, ev.clientY));
+
+    const bouton = $("#visionneuse-zoom");
+    if (bouton) bouton.onclick = () => basculerZoom();
   }
 
   /** Met à jour points, compteur et flèches selon la photo affichée. */
@@ -185,7 +371,10 @@ const UI = (() => {
     const piste = $("#visionneuse-piste");
     if (!piste || !piste.clientWidth) return;
     const total = photosVisionneuse.length;
+    const avant = indexVisionneuse;
     indexVisionneuse = Math.min(Math.round(piste.scrollLeft / piste.clientWidth), Math.max(0, total - 1));
+    /* Photo suivante : on repart de la vue d'ensemble. */
+    if (indexVisionneuse !== avant) reinitialiserZoom();
 
     for (const point of $$("#visionneuse-points [data-vue]")) {
       point.classList.toggle("actif", Number(point.dataset.vue) === indexVisionneuse);
@@ -206,6 +395,7 @@ const UI = (() => {
     const visionneuse = $("#visionneuse");
     if (!visionneuse || visionneuse.hidden) return;
     visionneuse.hidden = true;
+    reinitialiserZoom();
     $("#visionneuse-piste").innerHTML = "";
     photosVisionneuse = [];
     indexVisionneuse = 0;

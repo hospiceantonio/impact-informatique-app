@@ -43,6 +43,8 @@
     <g id="i-alerte"><path d="M12 3.5 22 20H2z"/><path d="M12 10v4.5M12 17.2h.01"/></g>
     <g id="i-telecharger"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 20h16"/></g>
     <g id="i-televerser"><path d="M12 21V9M7.5 13.5 12 9l4.5 4.5"/><path d="M4 4h16"/></g>
+    <g id="i-zoom-plus"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/><path d="M11 8.3v5.4M8.3 11h5.4"/></g>
+    <g id="i-zoom-moins"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/><path d="M8.3 11h5.4"/></g>
     <g id="i-actualiser"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 3v4.5h-4.5"/></g>
     <g id="i-haut"><path d="m5 15 7-7 7 7"/></g>
     <g id="i-bas"><path d="m5 9 7 7 7-7"/></g>
@@ -109,6 +111,12 @@
 <div id="visionneuse" class="visionneuse" hidden>
   <button type="button" class="visionneuse-fermer btn-ic" data-action="fermer-visionneuse" aria-label="Fermer">
     <svg class="ic" viewBox="0 0 24 24"><use href="#i-fermer"/></svg>
+  </button>
+  <!-- Le zoom se fait surtout à deux doigts ; ce bouton est là pour
+       qu'on sache que c'est possible, et pour la souris. -->
+  <button type="button" class="visionneuse-zoom btn-ic" id="visionneuse-zoom" aria-label="Agrandir la photo">
+    <svg class="ic ic-zoom-plus" viewBox="0 0 24 24"><use href="#i-zoom-plus"/></svg>
+    <svg class="ic ic-zoom-moins" viewBox="0 0 24 24"><use href="#i-zoom-moins"/></svg>
   </button>
   <div class="visionneuse-piste" id="visionneuse-piste"></div>
   <button type="button" class="visionneuse-fleche visionneuse-precedent" id="visionneuse-precedent" aria-label="Photo précédente" hidden>
