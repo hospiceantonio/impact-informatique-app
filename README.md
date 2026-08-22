@@ -407,6 +407,46 @@ impact-informatique-app/
   version — le journal n'en avait rien gardé. La règle
   `journal annulation` (RLS) est ce qui ferme vraiment la porte aux
   autres rangs ; cacher le bouton n'est qu'une politesse.
+  **Le journal est un député qu'il faut tenir.** `retour` dit *dans
+  quelle table* écrire, et c'est le SuperAdministrateur qui clique :
+  c'est donc **son** compte qui écrit. Or toute l'équipe alimente le
+  journal — il le faut bien. Sans garde-fou, un modérateur y déposait
+  une fausse ligne au libellé anodin dont l'annulation le nommait
+  superadministrateur. Trois verrous ferment cela :
+  1. `journal_verifie` (trigger) écrit `utilisateur` **d'après le
+     jeton** : on ne signe plus du nom d'un autre, et il impose sa
+     boutique à qui n'est pas superadministrateur ;
+  2. `retour` ne peut viser que les tables du catalogue
+     (`journal_tables_permises`). **`profils` n'y est acceptée que d'un
+     superadministrateur** — d'un autre rang, elle serait un piège ;
+  3. `journal_immuable` (trigger) : une ligne d'historique ne se
+     réécrit pas, seule l'annulation s'y inscrit.
+  `Store.TABLES_ANNULABLES` porte la même liste côté application : la
+  base tranche, mais mieux vaut ne pas dépendre d'une seule barrière.
+  **Chacun ne lit que sa boutique.** `journal.boutique_id` dit de qui
+  parle une ligne ; l'administrateur des cosmétiques n'a pas à lire ce
+  qui se passe en informatique — noms de produits, prix, mouvements de
+  comptes. À `null`, la ligne parle de l'**enseigne** (réglages BIZZOO,
+  publicité, comptes sans boutique) et ne se montre qu'au
+  SuperAdministrateur. Les lignes écrites **avant** cette version n'ont
+  pas de boutique : elles restent donc au SuperAdministrateur — on ne
+  peut pas deviner après coup à laquelle elles appartenaient, et mieux
+  vaut trop fermé que trop ouvert.
+- **Ouvrir ou fermer une boutique appartient à l'enseigne.**
+  L'administrateur règle la sienne — nom, coordonnées, marge, photos —
+  mais ne touche ni à `actif` ni à `ordre`. RLS ne sait pas parler
+  colonne par colonne : c'est le trigger `boutique_verrous` qui le dit,
+  et l'écran des réglages ne renvoie plus ces deux colonnes du tout.
+- **Le stockage suit les mêmes règles que les tables**, dossier par
+  dossier (`peut_deposer`) : `enseigne/` — slider et publicité de
+  BIZZOO — au SuperAdministrateur ; `slider/`, `boutique/` et
+  `boutiques/` aux administrateurs ; le reste, les photos de produits, à
+  toute l'équipe. Auparavant tout administrateur pouvait remplacer ou
+  effacer les affiches de l'enseigne, alors que la table `slides` les
+  lui refusait : la table disait une chose, les fichiers une autre. Le
+  seau n'accepte par ailleurs **que des images et des vidéos**, 60 Mo au
+  plus : il est public, et une page HTML déposée là serait servie depuis
+  l'adresse du projet.
 - **Le slider appartient à l'enseigne.** Ce qui défile en haut de
   l'accueil de l'application client est composé dans **BIZZOO Admin →
   Réglages → onglet BIZZOO → Slider** : des **photos et des vidéos**,

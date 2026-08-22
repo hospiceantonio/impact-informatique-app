@@ -526,15 +526,29 @@ alter table public.journal add column if not exists cible_table text not null de
 alter table public.journal add column if not exists retour jsonb;
 alter table public.journal add column if not exists annule_le timestamptz;
 alter table public.journal add column if not exists annule_par text not null default '';
+-- De quelle boutique parle cette ligne. C'est ce qui décide qui la lit :
+-- l'administrateur des cosmétiques n'a pas à savoir ce qui se passe en
+-- informatique. À null, la ligne parle de l'enseigne elle-même et ne se
+-- montre qu'au superadministrateur.
+alter table public.journal add column if not exists boutique_id text
+  references public.boutiques(id) on delete set null;
 create index if not exists journal_date on public.journal(fait_le desc);
+create index if not exists journal_boutique on public.journal(boutique_id);
 
 alter table public.journal enable row level security;
 
 drop policy if exists "journal lecture connectee" on public.journal;
 drop policy if exists "journal ecriture connectee" on public.journal;
--- Le journal n'est PAS public : l'administrateur le lit, l'équipe l'alimente.
+-- Le journal n'est PAS public : l'administrateur le lit, l'équipe
+-- l'alimente. Et chacun ne lit que SA boutique : l'administrateur des
+-- cosmétiques n'a pas à savoir ce qui se passe en informatique — noms
+-- de produits, prix, mouvements de comptes. Les lignes sans boutique
+-- parlent de l'enseigne, et ne se montrent qu'au superadministrateur.
 create policy "journal lecture connectee" on public.journal
-  for select to authenticated using (public.est_admin());
+  for select to authenticated using (
+    public.est_super()
+    or (public.est_admin() and boutique_id is not null
+        and boutique_id = public.boutique_du_compte()));
 -- (Les deux rangs d'administrateur lisent l'historique ; le modérateur non.)
 create policy "journal ecriture connectee" on public.journal
   for insert to authenticated with check (public.est_equipe());
@@ -544,6 +558,95 @@ create policy "journal ecriture connectee" on public.journal
 drop policy if exists "journal annulation" on public.journal;
 create policy "journal annulation" on public.journal
   for update to authenticated using (public.est_super()) with check (public.est_super());
+
+-- ---------- Le journal ne se laisse pas forger ----------
+-- Toute l'équipe écrit ici — il le faut bien. Mais « retour » dit au
+-- bouton « annuler » quelles lignes réécrire et DANS QUELLE TABLE, et
+-- c'est le superadministrateur qui clique : c'est donc SON compte qui
+-- écrit. Sans garde-fou, un modérateur déposait une fausse ligne au
+-- libellé anodin dont l'annulation le nommait superadministrateur.
+--
+-- Deux verrous : on ne signe que de son nom, et « retour » ne peut
+-- viser que les tables du catalogue. « profils » n'y est pas.
+-- « profils » manque volontairement : voir plus bas, elle n'est permise
+-- qu'au superadministrateur, et seulement pour lui-même.
+create or replace function public.journal_tables_permises() returns text[]
+language sql immutable as $$
+  select array['produits', 'produits_prive', 'categories', 'sous_categories',
+               'slides', 'boutiques', 'boutique'];
+$$;
+
+create or replace function public.journal_verifie() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  t text;
+begin
+  -- Qui écrit est lu dans le jeton, jamais dans le corps de la requête.
+  new.utilisateur := coalesce(
+    (select p.email from public.profils p where p.id = auth.uid()), '');
+  -- Qui n'est pas superadministrateur ne range sa trace que chez lui.
+  if not public.est_super() then
+    new.boutique_id := public.boutique_du_compte();
+  end if;
+  -- Une ligne naît toujours non annulée.
+  new.annule_le  := null;
+  new.annule_par := '';
+
+  if new.retour is not null then
+    if jsonb_typeof(new.retour) <> 'object' then
+      raise exception 'Journal : « retour » doit être un objet';
+    end if;
+    for t in
+      select x->>'table' from jsonb_array_elements(
+        coalesce(new.retour->'avant', '[]'::jsonb)) x
+      union all
+      select x->>'table' from jsonb_array_elements(
+        coalesce(new.retour->'ids', '[]'::jsonb)) x
+    loop
+      -- « profils » n'est acceptée que d'un superadministrateur : c'est
+      -- par elle que passerait une prise de pouvoir, et un modérateur
+      -- qui l'écrirait tendrait un piège à celui qui clique.
+      if t = 'profils' then
+        if not public.est_super() then
+          raise exception 'Journal : une action sur les comptes ne s''annule qu''entre les mains du superadministrateur';
+        end if;
+      elsif t is null or not (t = any(public.journal_tables_permises())) then
+        raise exception 'Journal : table interdite dans une annulation (%)',
+          coalesce(t, 'aucune');
+      end if;
+    end loop;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists journal_a_l_ecriture on public.journal;
+create trigger journal_a_l_ecriture
+  before insert on public.journal
+  for each row execute function public.journal_verifie();
+
+-- Une ligne d'historique ne se réécrit pas : seule l'annulation s'y
+-- inscrit. Sans cela, on pourrait récrire le passé.
+create or replace function public.journal_immuable() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.fait_le     is distinct from old.fait_le
+  or new.utilisateur is distinct from old.utilisateur
+  or new.famille     is distinct from old.famille
+  or new.action      is distinct from old.action
+  or new.libelle     is distinct from old.libelle
+  or new.cible       is distinct from old.cible
+  or new.cible_table is distinct from old.cible_table
+  or new.boutique_id is distinct from old.boutique_id
+  or new.retour      is distinct from old.retour then
+    raise exception 'Une ligne du journal ne se modifie pas : seule l''annulation s''y inscrit';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists journal_a_la_modification on public.journal;
+create trigger journal_a_la_modification
+  before update on public.journal
+  for each row execute function public.journal_immuable();
 
 -- ---------- Ligne de l'enseigne ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;
@@ -593,6 +696,28 @@ create policy "boutiques reglages" on public.boutiques
   using (public.administre(id)) with check (public.administre(id));
 create policy "boutiques suppression super" on public.boutiques
   for delete to authenticated using (public.est_super());
+
+-- L'administrateur règle sa boutique — nom, coordonnées, marge — mais
+-- ne l'ouvre pas, ne la ferme pas, et ne change pas sa place dans la
+-- liste : cela regarde l'enseigne. RLS ne sait pas parler colonne par
+-- colonne ; ce garde-fou le fait à sa place.
+create or replace function public.boutique_verrous() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.est_super() then return new; end if;
+  if new.actif is distinct from old.actif then
+    raise exception 'Ouvrir ou fermer une boutique est une décision de l''enseigne';
+  end if;
+  if new.ordre is distinct from old.ordre then
+    raise exception 'L''ordre des boutiques est réglé par l''enseigne';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists boutiques_verrous on public.boutiques;
+create trigger boutiques_verrous
+  before update on public.boutiques
+  for each row execute function public.boutique_verrous();
 
 drop policy if exists "lecture publique"  on public.slides;
 drop policy if exists "ecriture connectee" on public.slides;
@@ -733,33 +858,55 @@ insert into storage.buckets (id, name, public)
 values ('produits', 'produits', true)
 on conflict (id) do nothing;
 
+-- Le seau est public : ce qu'on y dépose est servi depuis l'adresse du
+-- projet. Une page HTML déposée là ressemblerait à une page de BIZZOO.
+-- On n'y accepte donc que des images et des vidéos.
+update storage.buckets
+   set file_size_limit = 62914560,   -- 60 Mo, la limite des vidéos
+       allowed_mime_types = array[
+         'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+         'video/mp4', 'video/webm', 'video/quicktime']
+ where id = 'produits';
+
 drop policy if exists "photos lecture publique"   on storage.objects;
 drop policy if exists "photos ecriture connectee" on storage.objects;
 drop policy if exists "photos maj connectee"      on storage.objects;
 drop policy if exists "photos suppression connectee" on storage.objects;
 create policy "photos lecture publique" on storage.objects
   for select using (bucket_id = 'produits');
--- Photos de produits : toute l'équipe.
--- Dossiers « boutique/ », « boutiques/ » (logos) et « slider/ » :
--- administrateur seul.
+
+-- Le stockage suit les mêmes règles que les tables, dossier par dossier :
+--   « enseigne/ »  — le slider et la publicité de BIZZOO, donc le
+--                    superadministrateur seul. La table « slides » le
+--                    réservait déjà ; les fichiers le sont maintenant
+--                    aussi, sans quoi un administrateur de boutique
+--                    pouvait remplacer ou effacer les affiches de
+--                    l'enseigne ;
+--   « slider/ »    — le slider d'une boutique : ses administrateurs ;
+--   « boutique/ », « boutiques/ » — devantures et logos : idem ;
+--   le reste       — les photos de produits : toute l'équipe.
+create or replace function public.peut_deposer(chemin text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case
+    when chemin like 'enseigne/%'  then public.est_super()
+    when chemin like 'slider/%'    then public.est_admin()
+    when chemin like 'boutique/%'  then public.est_admin()
+    when chemin like 'boutiques/%' then public.est_admin()
+    else public.est_equipe()
+  end;
+$$;
+grant execute on function public.peut_deposer(text) to authenticated;
+
 create policy "photos ecriture connectee" on storage.objects
-  for insert to authenticated with check (
-    bucket_id = 'produits' and
-    (public.est_admin() or
-     (public.est_equipe() and name not like 'boutique/%' and name not like 'boutiques/%'
-                      and name not like 'slider/%')));
+  for insert to authenticated
+  with check (bucket_id = 'produits' and public.peut_deposer(name));
 create policy "photos maj connectee" on storage.objects
-  for update to authenticated using (
-    bucket_id = 'produits' and
-    (public.est_admin() or
-     (public.est_equipe() and name not like 'boutique/%' and name not like 'boutiques/%'
-                      and name not like 'slider/%')));
+  for update to authenticated
+  using (bucket_id = 'produits' and public.peut_deposer(name))
+  with check (bucket_id = 'produits' and public.peut_deposer(name));
 create policy "photos suppression connectee" on storage.objects
-  for delete to authenticated using (
-    bucket_id = 'produits' and
-    (public.est_admin() or
-     (public.est_equipe() and name not like 'boutique/%' and name not like 'boutiques/%'
-                      and name not like 'slider/%')));
+  for delete to authenticated
+  using (bucket_id = 'produits' and public.peut_deposer(name));
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
 insert into public.categories (id, boutique_id, nom, ordre) values

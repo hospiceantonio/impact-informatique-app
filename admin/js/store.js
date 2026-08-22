@@ -17,6 +17,18 @@ const Store = (() => {
   const MAX_PHOTOS = 4;
   const MAX_VIDEO_MO = 40;  // au-delà, l'envoi devient trop long au téléphone
 
+  /* Les seules tables qu'une annulation peut réécrire. « profils » n'y
+     est pas et n'y sera jamais : c'est par elle que passerait une prise
+     de pouvoir (voir annulerAction). */
+  const TABLES_ANNULABLES = [
+    "produits", "produits_prive", "categories", "sous_categories",
+    "slides", "boutiques", "boutique",
+    /* « profils » est acceptée, mais la base n’en laisse écrire une
+       que par un superadministrateur : un modérateur ne peut donc pas
+       s’en servir pour tendre un piège à celui qui clique. */
+    "profils",
+  ];
+
   const BOUTIQUE_DEFAUT = {
     nomBoutique: "BIZZOO",
     slogan: "Nous sommes imbattables en prix",
@@ -458,7 +470,7 @@ const Store = (() => {
       { actif, maj_le: new Date().toISOString() });
     journaliser("boutique", actif ? "activation" : "desactivation",
       (actif ? "Boutique ouverte : " : "Boutique fermée : ") + b.nomBoutique, b.nomBoutique,
-      aAnnuler("boutiques", [avant], [id]));
+      aAnnuler("boutiques", [avant], [id]), id);
     await chargerBoutiques();
     if (boutiqueId === id) reglages = { ...(lireBoutique(id) || reglages) };
     return lireBoutique(id);
@@ -491,7 +503,8 @@ const Store = (() => {
       throw new Error("C'est la dernière boutique : l'application doit en garder au moins une.");
     }
     await Supabase.requete("DELETE", "boutiques?id=eq." + encodeURIComponent(id));
-    journaliser("boutique", "suppression", "Boutique supprimée : " + b.nomBoutique, b.nomBoutique);
+    journaliser("boutique", "suppression", "Boutique supprimée : " + b.nomBoutique,
+      b.nomBoutique, undefined, null);
     await chargerBoutiques();
     if (boutiqueId === id) choisirBoutique((boutiques[0] || {}).id);
     return listerBoutiques();
@@ -574,7 +587,7 @@ const Store = (() => {
     });
     if (libelleJournal) {
       journaliser("boutique", "modification", libelleJournal, e.nomBoutique,
-        aAnnuler("boutique", [avant], [1]));
+        aAnnuler("boutique", [avant], [1]), null);
     }
     return lireEnseigne();
   }
@@ -662,7 +675,8 @@ const Store = (() => {
     const fiche = { id: cree.id, email: adresse, role, actif: true, boutique_id: attachee };
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
     const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")" : "";
-    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse + ou, adresse);
+    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse + ou, adresse,
+      undefined, attachee || null);
     return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
   }
 
@@ -683,18 +697,22 @@ const Store = (() => {
     const retour = aAnnuler("profils", [avant], [id]);
     if (maj.role) {
       journaliser("compte", "modification",
-        c.email + " devient " + ROLES[c.role].nom.toLowerCase(), c.email, retour);
+        c.email + " devient " + ROLES[c.role].nom.toLowerCase(), c.email, retour,
+        c.boutiqueId || null);
     } else if (maj.actif !== undefined) {
       journaliser("compte", maj.actif ? "activation" : "desactivation",
-        (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email, retour);
+        (maj.actif ? "Compte réactivé : " : "Compte désactivé : ") + c.email, c.email, retour,
+        c.boutiqueId || null);
     } else if (maj.boutiqueId !== undefined) {
       const nom = (lireBoutique(maj.boutiqueId) || {}).nomBoutique || "toutes les boutiques";
-      journaliser("compte", "modification", c.email + " s'occupe de " + nom, c.email, retour);
+      journaliser("compte", "modification", c.email + " s'occupe de " + nom, c.email, retour,
+        c.boutiqueId || null);
     } else if (maj.peutModifier !== undefined) {
       journaliser("compte", "modification",
         (maj.peutModifier
           ? "Autorisé à modifier les produits : "
-          : "Ne peut plus modifier les produits : ") + c.email, c.email, retour);
+          : "Ne peut plus modifier les produits : ") + c.email, c.email, retour,
+        c.boutiqueId || null);
     }
     return c;
   }
@@ -708,7 +726,8 @@ const Store = (() => {
     const compte = liste.find((c) => c.id === id);
     await Supabase.rpc("supprimer_compte", { cible: id });
     journaliser("compte", "suppression",
-      "Compte supprimé : " + ((compte && compte.email) || id), compte ? compte.email : "");
+      "Compte supprimé : " + ((compte && compte.email) || id), compte ? compte.email : "",
+      undefined, (compte && compte.boutiqueId) || null);
   }
 
   /** L'administrateur redonne un mot de passe à un membre de l'équipe. */
@@ -720,7 +739,8 @@ const Store = (() => {
     const compte = liste.find((c) => c.id === id);
     await Supabase.rpc("changer_mot_de_passe", { cible: id, nouveau });
     journaliser("compte", "modification",
-      "Mot de passe redéfini : " + ((compte && compte.email) || id), compte ? compte.email : "");
+      "Mot de passe redéfini : " + ((compte && compte.email) || id), compte ? compte.email : "",
+      undefined, (compte && compte.boutiqueId) || null);
   }
 
   /* ---------- Journal des actions ----------
@@ -757,11 +777,24 @@ const Store = (() => {
     };
   }
 
-  function journaliser(famille, action, libelle, cible, retour) {
+  /**
+   * Écrit une ligne d'historique.
+   *
+   * `boutiqueDeLAction` dit de quelle boutique parle la ligne — c'est
+   * ce qui décide qui la lira. Sans précision, c'est celle sur
+   * laquelle on travaille ; `null` dit « l'enseigne », et la ligne ne
+   * se montre alors qu'au superadministrateur. La base rectifie de
+   * toute façon : pour qui n'est pas superadministrateur, elle impose
+   * sa boutique, quoi qu'on lui envoie.
+   */
+  function journaliser(famille, action, libelle, cible, retour, boutiqueDeLAction) {
     const ligne = {
       utilisateur: Supabase.utilisateur() || "",
       famille, action, libelle,
       cible: cible || "",
+      boutique_id: boutiqueDeLAction === undefined
+        ? (boutiqueId || null)
+        : (boutiqueDeLAction || null),
       fait_le: new Date().toISOString(),
     };
     /* Une action sans « retour » reste au journal, simplement elle ne
@@ -792,6 +825,21 @@ const Store = (() => {
     const ids = retour.ids || [];
     if (!ids.length) throw new Error("Cette action ne peut pas être annulée.");
 
+    /* Ce qu'une annulation a le droit de toucher. Le contenu de
+       « retour » vient du journal, où TOUTE l'équipe écrit : un
+       modérateur pouvait y déposer une fausse ligne au libellé anodin
+       dont l'annulation — exécutée avec le compte du
+       superadministrateur qui clique — l'aurait nommé
+       superadministrateur à son tour. La base porte désormais le même
+       garde-fou ; celui-ci évite d'en dépendre seul. */
+    const interdite = ids.concat(retour.avant || [])
+      .map((x) => (x || {}).table)
+      .find((t) => !TABLES_ANNULABLES.includes(t));
+    if (interdite !== undefined) {
+      throw new Error("Cette action ne peut pas être annulée : elle vise « " +
+        (interdite || "une table inconnue") + " ».");
+    }
+
     const avant = retour.avant || [];
     for (const cible of ids) {
       const precedent = avant.find((a) =>
@@ -812,7 +860,8 @@ const Store = (() => {
     /* L'annulation est elle-même une action : elle laisse sa trace, mais
        ne s'annule pas — sinon on tournerait en rond. */
     await journaliser(entree.famille || "autre", "annulation",
-      "Action annulée : " + (entree.libelle || ""), entree.cible || "");
+      "Action annulée : " + (entree.libelle || ""), entree.cible || "",
+      undefined, entree.boutique_id || null);
   }
 
   /** Les dernières actions, de la plus récente à la plus ancienne.
@@ -863,8 +912,15 @@ const Store = (() => {
       }
       const avant = await ligneBrute("boutiques", boutiqueId);
       reglages = { ...reglages, ...propre };
+      /* Ni « actif » ni « ordre » : ouvrir, fermer ou déplacer une
+         boutique appartient à l’enseigne, et la base le refuserait à
+         son administrateur. Les renvoyer tels quels risquait en outre
+         d’écraser une valeur changée entre-temps. */
+      const aEcrire = ligneDepuisBoutique(reglages);
+      delete aEcrire.actif;
+      delete aEcrire.ordre;
       await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutiqueId),
-        ligneDepuisBoutique(reglages));
+        aEcrire);
       const index = boutiques.findIndex((b) => b.id === boutiqueId);
       if (index >= 0) boutiques[index] = { ...reglages };
       if (libelleJournal) {
@@ -1553,6 +1609,10 @@ const Store = (() => {
    */
   async function sauverSlide(donnees, cible) {
     const enseigne = auNiveauEnseigne(cible);
+    /* Ce qui est à l'enseigne va dans son dossier à elle : la base y
+       réserve le dépôt au superadministrateur, quand « slider/ » reste
+       ouvert aux administrateurs de boutique. */
+    const dossier = enseigne ? "enseigne/" : "slider/";
     const existant = donnees.id ? await lireSlide(donnees.id, cible) : null;
     const liste = await listerSlides(cible);
     if (!existant && liste.length >= MAX_SLIDES) {
@@ -1572,7 +1632,7 @@ const Store = (() => {
             "Le slider accepte " + MAX_VIDEO_MO + " Mo au maximum par écran.");
         }
         const extension = (media.fichier.name || "").match(/\.([a-z0-9]{2,4})$/i);
-        cheminVideo = "slider/" + Utils.uid("vid") +
+        cheminVideo = dossier + Utils.uid("vid") +
           (extension ? "." + extension[1].toLowerCase() : ".mp4");
         await Supabase.televerserVideo(cheminVideo, media.fichier);
       }
@@ -1580,7 +1640,7 @@ const Store = (() => {
     } else {
       chemin = media.chemin || "";
       if (media.dataUrl) {
-        chemin = "slider/" + Utils.uid("sli") + ".jpg";
+        chemin = dossier + Utils.uid("sli") + ".jpg";
         await Supabase.televerserImage(chemin, media.dataUrl);
       }
       if (!chemin) throw new Error("Choisissez la photo à faire défiler.");
@@ -1611,7 +1671,8 @@ const Store = (() => {
       (existant ? quoi + " modifiée" : quoi + " ajoutée") + ditLaVitrine(cible) +
         (cible === "publicite" ? "" : " (slider)"),
       slide.titre,
-      aAnnuler("slides", [avant], [slide.id]));
+      aAnnuler("slides", [avant], [slide.id]),
+      enseigne ? null : undefined);
     return slideDepuisLigne((lignes && lignes[0]) || slide);
   }
 
@@ -1625,7 +1686,8 @@ const Store = (() => {
       (slide && slide.estVideo ? "Vidéo retirée" : "Photo retirée") + ditLaVitrine(cible) +
         (cible === "publicite" ? "" : " (slider)"),
       slide ? slide.titre : "",
-      aAnnuler("slides", [avant], [id]));
+      aAnnuler("slides", [avant], [id]),
+      auNiveauEnseigne(cible) ? null : undefined);
   }
 
   /** Monte ou descend un écran dans le slider (direction -1 ou +1). */
@@ -1647,7 +1709,8 @@ const Store = (() => {
       "Ordre modifié : écran en position " + courant.ordre + ditLaVitrine(cible) +
         (cible === "publicite" ? "" : " (slider)"),
       courant.titre,
-      aAnnuler("slides", avant, [courant.id, voisin.id]));
+      aAnnuler("slides", avant, [courant.id, voisin.id]),
+      auNiveauEnseigne(cible) ? null : undefined);
   }
 
   /* ---------- Statistiques ---------- */
