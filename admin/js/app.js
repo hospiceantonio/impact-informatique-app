@@ -13,6 +13,7 @@
     { motif: /^\/categories$/, vue: (v) => VueCategories.afficher(v), onglet: "/categories" },
     { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), super: true },
     { motif: /^\/slider$/, vue: (v) => VueSlider.afficher(v), admin: true },
+    { motif: /^\/validations$/, vue: (v) => VueValidations.afficher(v), super: true },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },

@@ -13,13 +13,36 @@ const VueAccueil = (() => {
         '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>"
       : '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
-    const [stats, slides, produits] = await Promise.all([
+    const [stats, slides, produits, demandes] = await Promise.all([
       Store.statistiques(),
       admin ? Store.listerSlides().catch(() => []) : Promise.resolve([]),
       Store.listerProduits(),
+      /* Les demandes de validation. La table peut ne pas exister encore
+         — le SQL n'a peut-être pas été exécuté : l'accueil ne doit pas
+         tomber pour autant. */
+      admin ? Store.listerDemandes().catch(() => []) : Promise.resolve([]),
     ]);
+    const enAttente = demandes.filter((d) => d.etat === "en_attente");
 
     let html = "";
+
+    /* ---- Ce qui attend une décision ----
+       Au superadministrateur, ce que les boutiques demandent ; à
+       l'administrateur d'une boutique, où en sont ses propres demandes.
+       Une demande oubliée, c'est une boutique qui attend. */
+    if (enAttente.length) {
+      const combien = enAttente.length + " demande" + (enAttente.length > 1 ? "s" : "");
+      html += Supabase.estSuper()
+        ? '<a class="carte carte-publier" href="#/validations">' +
+            '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") + " " +
+              combien + " en attente</div>" +
+            '<p class="aide" style="margin:0">Des boutiques veulent changer leur nom, ' +
+              "leur logo, leurs contacts ou leur slider. Touchez pour voir et trancher.</p>" +
+          "</a>"
+        : '<div class="note-attente">' + UI.icone("horloge", "ic-sm") + " " +
+            combien + " en attente de validation par BIZZOO : " +
+            Utils.echapper(enAttente.map((d) => d.objet).join(" · ")) + "</div>";
+    }
 
     /* ---- La boutique sur laquelle on travaille ----
        Avec plusieurs secteurs, il faut savoir en un coup d'œil où l'on

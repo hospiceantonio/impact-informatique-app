@@ -235,6 +235,14 @@ const VueReglages = (() => {
         : "Boutique, compte et sauvegarde" });
 
     const r = surEnseigne ? Store.lireEnseigne() : Store.lireReglages();
+
+    /* Ce que cette boutique a demandé et qui attend encore. Le
+       superadministrateur n'attend rien : il tranche. La table peut ne
+       pas exister — le SQL n'a peut-être pas été exécuté. */
+    const enAttente = (surEnseigne || Supabase.estSuper())
+      ? []
+      : (await Store.listerDemandes("en_attente").catch(() => []));
+
     const configEnDur = typeof CONFIG !== "undefined" && !!CONFIG.SUPABASE_URL;
     const configActuelle = Supabase.configuration() || { url: "", cle: "" };
 
@@ -276,7 +284,30 @@ const VueReglages = (() => {
               "clients tant qu'ils n'ont pas choisi de boutique."
             : "Ces informations s'affichent dans l'application client quand on entre dans " +
               "cette boutique (contact, WhatsApp de commande…).") + "</p>" +
+        /* Ce qui représente la boutique auprès des clients passe par
+           BIZZOO : le dire AVANT la saisie, pas après l'enregistrement. */
+        (surEnseigne || Supabase.estSuper()
+          ? ""
+          : '<div class="note-attente" style="margin-bottom:12px">' +
+              UI.icone("bouclier", "ic-sm") +
+              " Le nom, le logo, la présentation, l'adresse et les contacts sont envoyés " +
+              "à BIZZOO pour validation. Le reste s'applique tout de suite.</div>") +
+        (enAttente.length
+          ? '<div class="note-attente" style="margin-bottom:12px">' +
+              UI.icone("horloge", "ic-sm") + " En attente de BIZZOO : " +
+              Utils.echapper(enAttente.map((d) => d.objet).join(" · ")) +
+              ". Les valeurs ci-dessous restent celles d'aujourd'hui.</div>"
+          : "") +
         UI.champTexte({ id: "r-nom", label: "Nom", valeur: r.nomBoutique, obligatoire: true }) +
+        /* Le logo se règle ici, pas seulement depuis l'écran des
+           boutiques : c'est la boutique qui sait à quoi elle ressemble.
+           Elle le propose, l'enseigne l'approuve. */
+        (surEnseigne
+          ? ""
+          : '<div class="champ"><label>Logo</label>' +
+              '<div class="photos-zone" id="r-logo"></div>' +
+              '<div class="aide">Une image remplace l\'icône chez le client. ' +
+                "Carrée de préférence.</div></div>") +
         UI.champTexte({ id: "r-slogan", label: "Slogan", valeur: r.slogan,
           aide: "Affiché en bandeau rouge dans l'application client." }) +
         UI.champZone({ id: "r-description", label: "Présentation", valeur: r.description, lignes: 3 }) +
@@ -506,6 +537,44 @@ const VueReglages = (() => {
       if (section) setTimeout(() => section.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     }
 
+    /* ---------- Logo de la boutique ---------- */
+    let logoTravail = surEnseigne ? null : (r.logo ? { chemin: r.logo } : null);
+    let logoTouche = false;
+    const zoneLogo = UI.$("#r-logo", vue);
+    if (zoneLogo) {
+      const rendreLogo = () => {
+        const apercu = logoTravail
+          ? (logoTravail.dataUrl || Supabase.urlImage(logoTravail.chemin))
+          : "";
+        zoneLogo.innerHTML = apercu
+          ? '<div class="photo-boite">' +
+              '<img src="' + Utils.echapper(apercu) + '" alt="Logo">' +
+              '<button type="button" class="photo-retirer" id="r-logo-retirer" ' +
+                'aria-label="Retirer le logo">' + UI.icone("fermer", "ic-sm") + "</button>" +
+            "</div>"
+          : '<label class="photo-ajout">' + UI.icone("camera") + "<span>Ajouter</span>" +
+              '<input type="file" accept="image/*" hidden id="r-logo-fichier"></label>';
+        const champ = UI.$("#r-logo-fichier", zoneLogo);
+        if (champ) {
+          champ.addEventListener("change", async () => {
+            const fichier = champ.files && champ.files[0];
+            if (!fichier) return;
+            try {
+              const { dataUrl } = await Utils.compresserImage(fichier, 600, 0.85);
+              logoTravail = { dataUrl };
+              logoTouche = true;
+            } catch (err) {
+              UI.toast(err.message || "Image illisible", "err");
+            }
+            rendreLogo();
+          });
+        }
+        const retirer = UI.$("#r-logo-retirer", zoneLogo);
+        if (retirer) retirer.onclick = () => { logoTravail = null; logoTouche = true; rendreLogo(); };
+      };
+      rendreLogo();
+    }
+
     /* ---------- Boutique ---------- */
     UI.$("#r-enregistrer").onclick = async () => {
       const nom = UI.$("#r-nom").value.trim();
@@ -525,9 +594,21 @@ const VueReglages = (() => {
           ...(surEnseigne ? {} : { devise: UI.$("#r-devise").value.trim() || "FCFA" }),
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
+          /* Le logo ne part que s'il a bougé : sinon chaque
+             enregistrement demanderait une validation pour rien. */
+          ...(logoTouche ? { logo: logoTravail } : {}),
         }, (surEnseigne ? "Coordonnées de BIZZOO modifiées" : "Informations de la boutique modifiées"));
-        UI.toast((surEnseigne ? "BIZZOO enregistrée" : "Boutique enregistrée") +
-          " — visible immédiatement chez les clients.", "ok");
+        /* Nom, description, adresse et contacts peuvent être partis en
+           demande : le dire, plutôt que d'annoncer une mise en ligne
+           qui n'a pas eu lieu. */
+        const envoi = Store.dernierEnvoiValidation();
+        if (envoi) {
+          UI.toast("Envoyé à BIZZOO pour validation : " + envoi.objet, "ok");
+          afficher(vue, params);
+        } else {
+          UI.toast((surEnseigne ? "BIZZOO enregistrée" : "Boutique enregistrée") +
+            " — visible immédiatement chez les clients.", "ok");
+        }
       } catch (err) {
         UI.toast(err.message, "err");
       }

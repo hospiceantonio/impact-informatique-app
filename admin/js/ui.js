@@ -119,6 +119,39 @@ const UI = (() => {
     });
   }
 
+  /**
+   * Comme `confirmer`, mais on repart avec une phrase : le motif d'un
+   * refus, par exemple. Rend le texte saisi, ou `null` si on renonce —
+   * une chaîne vide reste une réponse, elle veut dire « sans motif ».
+   */
+  function demanderTexte({ titre, texte, libelle, bouton, danger, valeur }) {
+    return new Promise((resolve) => {
+      const corps = ouvrirFeuille(titre,
+        '<div class="carte" style="box-shadow:none;padding:0">' +
+          (texte
+            ? '<p style="margin:0 0 14px;font-size:14.5px;line-height:1.55;color:var(--encre-douce)">' +
+              e(texte) + "</p>"
+            : "") +
+          champZone({ id: "saisie-motif", label: libelle || "Votre réponse",
+            valeur: valeur || "", lignes: 3 }) +
+          '<div class="btn-rangee" style="margin-top:14px">' +
+            '<button type="button" class="btn btn-clair" data-role="annuler">Annuler</button>' +
+            '<button type="button" class="btn ' + (danger ? "btn-danger" : "") +
+              '" data-role="ok">' + e(bouton || "Envoyer") + "</button>" +
+          "</div></div>",
+        () => resolve(null));
+      const champ = $("#saisie-motif", corps);
+      if (champ) setTimeout(() => champ.focus(), 80);
+      $("[data-role=annuler]", corps).onclick = () => fermerFeuille();
+      $("[data-role=ok]", corps).onclick = () => {
+        const reponse = champ ? champ.value.trim() : "";
+        feuilleSansRappel();
+        fermerFeuille();
+        resolve(reponse);
+      };
+    });
+  }
+
   /* ---------- Visionneuse ---------- */
 
   /* ---------- Visionneuse : galerie plein écran ----------
@@ -537,7 +570,7 @@ const UI = (() => {
 
   return {
     $, $$, entete, icone, marque, logoAdmin, toast,
-    ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer,
+    ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,
     champTexte, champMontant, champZone, interrupteur,

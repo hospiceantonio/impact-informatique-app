@@ -648,6 +648,80 @@ create trigger journal_a_la_modification
   before update on public.journal
   for each row execute function public.journal_immuable();
 
+-- ---------- Demandes de validation ----------
+-- Une boutique ne change pas seule ce qui la représente auprès des
+-- clients : nom, logo, description, adresse, contacts, et les écrans
+-- de son slider. Elle dépose une demande ; l'enseigne tranche.
+-- Le verrou est plus bas, sur « boutiques » et « slides » : sans lui
+-- la validation ne serait qu'un détour poli.
+create table if not exists public.demandes (
+  id          text primary key,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  -- 'reglages' : nom, logo, description, adresse, contacts.
+  -- 'slider'   : un écran du slider de la boutique.
+  type        text not null check (type in ('reglages', 'slider')),
+  objet       text not null default '',   -- « Nom, adresse » : ce qui change, en clair
+  avant       jsonb,                      -- l'état d'aujourd'hui, pour comparer
+  apres       jsonb not null,             -- ce qui est demandé
+  cible_id    text,                       -- l'écran de slider visé, s'il existe déjà
+  demande_par text not null default '',
+  demande_le  timestamptz not null default now(),
+  etat        text not null default 'en_attente'
+              check (etat in ('en_attente', 'approuvee', 'refusee')),
+  decide_par  text not null default '',
+  decide_le   timestamptz,
+  motif       text not null default ''    -- pourquoi un refus
+);
+create index if not exists demandes_boutique on public.demandes(boutique_id);
+create index if not exists demandes_etat on public.demandes(etat, demande_le desc);
+
+alter table public.demandes enable row level security;
+
+drop policy if exists "demandes lecture"     on public.demandes;
+drop policy if exists "demandes depot"       on public.demandes;
+drop policy if exists "demandes decision"    on public.demandes;
+drop policy if exists "demandes retrait"     on public.demandes;
+
+-- Vous voyez tout ; un administrateur voit les siennes, et leur sort.
+create policy "demandes lecture" on public.demandes
+  for select to authenticated using (
+    public.est_super() or public.administre(boutique_id));
+
+-- Déposer une demande : l'administrateur de la boutique concernée.
+create policy "demandes depot" on public.demandes
+  for insert to authenticated with check (public.administre(boutique_id));
+
+-- Trancher : vous seul.
+create policy "demandes decision" on public.demandes
+  for update to authenticated
+  using (public.est_super()) with check (public.est_super());
+
+-- Retirer : vous, ou celui qui l'a déposée tant qu'elle attend.
+create policy "demandes retrait" on public.demandes
+  for delete to authenticated using (
+    public.est_super()
+    or (public.administre(boutique_id) and etat = 'en_attente'));
+
+-- Une demande naît en attente, signée de qui la dépose. On ne
+-- s'approuve pas soi-même en glissant « approuvee » dans la requête.
+create or replace function public.demande_a_l_ecriture() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.demande_par := coalesce(
+    (select p.email from public.profils p where p.id = auth.uid()), '');
+  new.demande_le  := now();
+  new.etat        := 'en_attente';
+  new.decide_par  := '';
+  new.decide_le   := null;
+  new.motif       := '';
+  return new;
+end $$;
+
+drop trigger if exists demandes_a_l_ecriture on public.demandes;
+create trigger demandes_a_l_ecriture
+  before insert on public.demandes
+  for each row execute function public.demande_a_l_ecriture();
+
 -- ---------- Ligne de l'enseigne ----------
 insert into public.boutique (id) values (1) on conflict (id) do nothing;
 
@@ -697,20 +771,47 @@ create policy "boutiques reglages" on public.boutiques
 create policy "boutiques suppression super" on public.boutiques
   for delete to authenticated using (public.est_super());
 
--- L'administrateur règle sa boutique — nom, coordonnées, marge — mais
--- ne l'ouvre pas, ne la ferme pas, et ne change pas sa place dans la
--- liste : cela regarde l'enseigne. RLS ne sait pas parler colonne par
--- colonne ; ce garde-fou le fait à sa place.
+-- L'administrateur règle sa boutique — slogan, secteur, icône, couleur,
+-- horaires, devise, marge, photos, vidéo, réseaux — mais ce qui la
+-- représente auprès des clients demande l'accord de l'enseigne, et
+-- elle ne s'ouvre ni ne se ferme d'elle-même. RLS ne sait pas parler
+-- colonne par colonne ; ce garde-fou le fait à sa place, et c'est lui
+-- qui rend la validation autre chose qu'une politesse d'écran.
+create or replace function public.champs_sous_validation() returns text[]
+language sql immutable as $$
+  select array['nom', 'logo', 'description', 'adresse', 'latitude', 'longitude',
+               'tel', 'whatsapp', 'indicatif', 'telephones', 'adresses'];
+$$;
+
 create or replace function public.boutique_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  -- L'enseigne fait ce qu'elle veut : c'est elle qui approuve.
   if public.est_super() then return new; end if;
+
   if new.actif is distinct from old.actif then
     raise exception 'Ouvrir ou fermer une boutique est une décision de l''enseigne';
   end if;
   if new.ordre is distinct from old.ordre then
     raise exception 'L''ordre des boutiques est réglé par l''enseigne';
   end if;
+
+  -- Ce qui représente la boutique auprès des clients passe par une
+  -- demande de validation.
+  if new.nom         is distinct from old.nom
+  or new.logo        is distinct from old.logo
+  or new.description is distinct from old.description
+  or new.adresse     is distinct from old.adresse
+  or new.latitude    is distinct from old.latitude
+  or new.longitude   is distinct from old.longitude
+  or new.tel         is distinct from old.tel
+  or new.whatsapp    is distinct from old.whatsapp
+  or new.indicatif   is distinct from old.indicatif
+  or new.telephones  is distinct from old.telephones
+  or new.adresses    is distinct from old.adresses then
+    raise exception 'Nom, logo, description, adresse et contacts demandent l''accord de l''enseigne : enregistrez, la demande lui sera envoyée';
+  end if;
+
   return new;
 end $$;
 
@@ -734,6 +835,32 @@ create policy "ecriture connectee" on public.slides
               then public.est_super() else public.administre(boutique_id) end)
   with check (case when portee in ('enseigne', 'publicite')
                    then public.est_super() else public.administre(boutique_id) end);
+
+-- Le slider d'une boutique : ajouter ou modifier un écran demande
+-- l'accord de l'enseigne. Retirer un écran ou changer l'ordre reste
+-- à l'administrateur — c'est sa vitrine, il l'allège comme il veut.
+create or replace function public.slide_verrous() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.est_super() then return new; end if;
+  if tg_op = 'INSERT' then
+    raise exception 'Ajouter un écran au slider demande l''accord de l''enseigne : enregistrez, la demande lui sera envoyée';
+  end if;
+  -- L'ordre et l'extinction restent libres ; l'image, la vidéo, la
+  -- légende et le produit visé, non.
+  if new.image      is distinct from old.image
+  or new.video      is distinct from old.video
+  or new.titre      is distinct from old.titre
+  or new.produit_id is distinct from old.produit_id then
+    raise exception 'Modifier un écran du slider demande l''accord de l''enseigne : enregistrez, la demande lui sera envoyée';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists slides_verrous on public.slides;
+create trigger slides_verrous
+  before insert or update on public.slides
+  for each row execute function public.slide_verrous();
 
 drop policy if exists "lecture publique"  on public.boutique;
 drop policy if exists "ecriture connectee" on public.boutique;
@@ -833,6 +960,97 @@ drop trigger if exists produits_mise_en_avant on public.produits;
 create trigger produits_mise_en_avant
   before insert or update on public.produits
   for each row execute function public.controle_mise_en_avant();
+
+-- ---------- Approuver ou refuser une demande ----------
+-- L'application n'écrit pas elle-même la modification approuvée :
+-- elle appelle cette fonction, qui vérifie qui l'appelle et n'écrit
+-- QUE les colonnes prévues. Rien de dynamique, rien qui se déduise
+-- du contenu de la demande : la leçon du journal.
+create or replace function public.approuver_demande(cible text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  d public.demandes%rowtype;
+  a jsonb;
+begin
+  if not public.est_super() then
+    raise exception 'Seule l''enseigne approuve une demande';
+  end if;
+  select * into d from public.demandes where id = cible for update;
+  if not found then raise exception 'Demande introuvable'; end if;
+  if d.etat <> 'en_attente' then raise exception 'Cette demande a déjà été traitée'; end if;
+  a := d.apres;
+
+  if d.type = 'reglages' then
+    update public.boutiques set
+      nom         = coalesce(a->>'nom', nom),
+      logo        = coalesce(a->>'logo', logo),
+      description = coalesce(a->>'description', description),
+      adresse     = coalesce(a->>'adresse', adresse),
+      latitude    = case when a ? 'latitude'
+                         then nullif(a->>'latitude', '')::double precision else latitude end,
+      longitude   = case when a ? 'longitude'
+                         then nullif(a->>'longitude', '')::double precision else longitude end,
+      tel         = coalesce(a->>'tel', tel),
+      whatsapp    = coalesce(a->>'whatsapp', whatsapp),
+      indicatif   = coalesce(a->>'indicatif', indicatif),
+      telephones  = coalesce(a->'telephones', telephones),
+      adresses    = coalesce(a->'adresses', adresses),
+      maj_le      = now()
+    where id = d.boutique_id;
+
+  elsif d.type = 'slider' then
+    insert into public.slides
+      (id, boutique_id, portee, image, video, titre, produit_id, ordre, actif)
+    values (
+      coalesce(d.cible_id, a->>'id'),
+      d.boutique_id,
+      'boutique',
+      coalesce(a->>'image', ''),
+      coalesce(a->>'video', ''),
+      coalesce(a->>'titre', ''),
+      nullif(a->>'produit_id', ''),
+      coalesce((a->>'ordre')::int, 0),
+      coalesce((a->>'actif')::boolean, true))
+    on conflict (id) do update set
+      image      = excluded.image,
+      video      = excluded.video,
+      titre      = excluded.titre,
+      produit_id = excluded.produit_id,
+      actif      = excluded.actif;
+  else
+    raise exception 'Type de demande inconnu : %', d.type;
+  end if;
+
+  update public.demandes
+     set etat = 'approuvee',
+         decide_par = coalesce(
+           (select p.email from public.profils p where p.id = auth.uid()), ''),
+         decide_le = now()
+   where id = cible;
+end $$;
+
+create or replace function public.refuser_demande(cible text, raison text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.est_super() then
+    raise exception 'Seule l''enseigne refuse une demande';
+  end if;
+  update public.demandes
+     set etat = 'refusee',
+         motif = coalesce(raison, ''),
+         decide_par = coalesce(
+           (select p.email from public.profils p where p.id = auth.uid()), ''),
+         decide_le = now()
+   where id = cible and etat = 'en_attente';
+  if not found then raise exception 'Demande introuvable ou déjà traitée'; end if;
+end $$;
+
+revoke all on function public.approuver_demande(text) from public;
+revoke all on function public.refuser_demande(text, text) from public;
+grant execute on function public.approuver_demande(text) to authenticated;
+grant execute on function public.refuser_demande(text, text) to authenticated;
 
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,

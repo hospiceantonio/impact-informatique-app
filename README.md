@@ -718,3 +718,33 @@ impact-informatique-app/
   reconstruisent automatiquement.
 - Historique : ce projet a d'abord vécu dans le dépôt `le-matelot-site`
   (dossier `impact-informatique/`) avant d'être déplacé ici.
+- **Une boutique ne change pas seule ce qui la représente.** Six choses
+  demandent l'accord de l'enseigne : le **nom**, le **logo**, la
+  **description**, l'**adresse** (et le point sur la carte), les
+  **contacts** (téléphone, WhatsApp, indicatif, autres numéros et autres
+  adresses), et l'**ajout ou la modification d'un écran du slider**.
+  L'administrateur remplit son écran comme avant et enregistre ; au lieu
+  d'être écrit, le changement part en **demande** (`public.demandes`).
+  Le SuperAdministrateur la voit dans **BIZZOO Admin → Validations**,
+  avec l'ancien et le nouveau côte à côte — approuver sans voir ce qui
+  change reviendrait à signer sans lire — et il approuve ou refuse avec
+  un motif.
+  Ce qui reste à la boutique, sans rien demander : slogan, secteur,
+  icône, couleur, horaires, devise, marge, photos, vidéo, réseaux
+  sociaux, l'ordre et l'extinction de ses écrans de slider — et tout son
+  catalogue, produits, rayons, stocks et prix compris.
+  **Le verrou est dans la base, pas à l'écran.** `boutique_verrous` et
+  `slide_verrous` (triggers) refusent l'écriture de ces colonnes à qui
+  n'est pas superadministrateur : même en appelant la base directement,
+  la validation ne se contourne pas. C'est ce qui distingue une
+  validation d'une politesse. L'application, elle, se contente de
+  choisir le bon chemin pour éviter à l'administrateur une erreur qu'il
+  ne comprendrait pas.
+  L'**application** d'une demande approuvée passe par
+  `approuver_demande()` — `security definer`, qui vérifie qui appelle et
+  n'écrit **que les colonnes prévues, nommées une par une**. Rien de
+  dynamique, rien qui se déduise du contenu de la demande : c'est la
+  leçon du piège du journal, tirée une fois pour toutes.
+  Un logo refusé laisse son fichier dans le stockage — orphelin, sans
+  conséquence : mieux vaut un fichier de trop qu'une image manquante si
+  la demande est finalement approuvée.

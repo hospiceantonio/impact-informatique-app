@@ -17,6 +17,33 @@ const Store = (() => {
   const MAX_PHOTOS = 4;
   const MAX_VIDEO_MO = 40;  // au-delà, l'envoi devient trop long au téléphone
 
+  /* ---------- Ce qui demande l'accord de l'enseigne ----------
+     Ce qui représente la boutique auprès des clients : son nom, son
+     logo, sa description, son adresse et ses contacts. L'administrateur
+     remplit son écran comme avant ; au lieu d'être écrit, le changement
+     part en demande, et l'enseigne tranche.
+
+     Le reste lui appartient : slogan, secteur, icône, couleur, horaires,
+     devise, marge, photos, vidéo, réseaux — et tout son catalogue.
+
+     Cette liste double celle de la base (« champs_sous_validation ») ;
+     c'est la base qui tranche, mais l'écran doit savoir quoi annoncer
+     plutôt que de laisser tomber une erreur. */
+  const CHAMPS_A_VALIDER = {
+    nomBoutique: "nom",          logo: "logo",
+    description: "description",  adresse: "adresse",
+    latitude: "latitude",        longitude: "longitude",
+    tel: "tel",                  whatsapp: "whatsapp",
+    indicatif: "indicatif",      telephones: "telephones",
+    adresses: "adresses",
+  };
+  const NOM_DU_CHAMP = {
+    nomBoutique: "Nom", logo: "Logo", description: "Description",
+    adresse: "Adresse", latitude: "Position", longitude: "Position",
+    tel: "Téléphone", whatsapp: "WhatsApp", indicatif: "Indicatif",
+    telephones: "Autres numéros", adresses: "Autres adresses",
+  };
+
   /* Les seules tables qu'une annulation peut réécrire. « profils » n'y
      est pas et n'y sera jamais : c'est par elle que passerait une prise
      de pouvoir (voir annulerAction). */
@@ -894,6 +921,94 @@ const Store = (() => {
 
   const lireReglages = () => ({ ...reglages });
 
+  /* Ce qu'a donné le dernier enregistrement : rien, ou une demande
+     envoyée. L'écran s'en sert pour dire ce qui s'est passé. */
+  let dernierEnvoi = null;
+  const dernierEnvoiValidation = () => (dernierEnvoi ? { ...dernierEnvoi } : null);
+
+  /** Quelques colonnes d'une ligne brute, pour montrer l'avant. */
+  function extraireChamps(ligne, colonnes) {
+    const sortie = {};
+    for (const c of colonnes) sortie[c] = ligne ? ligne[c] : null;
+    return sortie;
+  }
+
+  /** Sépare ce qui s'écrit tout de suite de ce qui demande un accord. */
+  function trierParValidation(maj) {
+    const libre = {};
+    const aValider = {};
+    const noms = [];
+    for (const cle of Object.keys(maj)) {
+      if (!CHAMPS_A_VALIDER[cle]) { libre[cle] = maj[cle]; continue; }
+      /* Une valeur inchangée ne demande rien à personne : sans cela,
+         enregistrer les horaires enverrait une demande pour le nom. */
+      if (JSON.stringify(maj[cle] ?? null) === JSON.stringify(reglages[cle] ?? null)) continue;
+      aValider[CHAMPS_A_VALIDER[cle]] = maj[cle] ?? null;
+      const nom = NOM_DU_CHAMP[cle];
+      if (nom && !noms.includes(nom)) noms.push(nom);
+    }
+    return { libre, aValider, noms };
+  }
+
+  /** Dépose une demande. La base y met la date, l'auteur et l'état. */
+  async function deposerDemande(type, apres, avant, objet, cibleId) {
+    const ligne = {
+      id: Utils.uid("dem"),
+      boutique_id: boutiqueId,
+      type,
+      objet,
+      avant: avant || null,
+      apres,
+      cible_id: cibleId || null,
+    };
+    await Supabase.requete("POST", "demandes", ligne, { sansRetour: true });
+    journaliser("boutique", "demande", "Demande envoyée à BIZZOO : " + objet,
+      reglages.nomBoutique, undefined, boutiqueId);
+    dernierEnvoi = { type, objet };
+    return ligne;
+  }
+
+  /* ---------- Les demandes, vues des deux côtés ---------- */
+
+  function demandeDepuisLigne(l) {
+    return {
+      id: l.id,
+      boutiqueId: l.boutique_id || "",
+      nomBoutique: (lireBoutique(l.boutique_id) || {}).nomBoutique || "",
+      type: l.type, objet: l.objet || "",
+      avant: l.avant || null, apres: l.apres || {},
+      cibleId: l.cible_id || "",
+      demandePar: l.demande_par || "",
+      demandeLe: versMs(l.demande_le),
+      etat: l.etat || "en_attente",
+      decidePar: l.decide_par || "",
+      decideLe: l.decide_le ? Date.parse(l.decide_le) || 0 : 0,
+      motif: l.motif || "",
+    };
+  }
+
+  /** Les demandes. Sans état précisé, celles qui attendent. */
+  async function listerDemandes(etat) {
+    const lignes = await Supabase.requete("GET",
+      "demandes?select=*&order=demande_le.desc" +
+      (etat ? "&etat=eq." + encodeURIComponent(etat) : ""),
+      undefined, { avecSession: true });
+    return (lignes || []).map(demandeDepuisLigne);
+  }
+
+  /* Approuver et refuser passent par la base : elle vérifie qui
+     appelle et n'écrit que les colonnes prévues. L'application ne
+     touche pas elle-même à la boutique — ce serait rouvrir la porte
+     que la validation vient de fermer. */
+  async function approuverDemande(id) {
+    await Supabase.rpc("approuver_demande", { cible: id });
+    await chargerBoutiques();
+  }
+  const refuserDemande = (id, motif) =>
+    Supabase.rpc("refuser_demande", { cible: id, raison: motif || "" });
+  const retirerDemande = (id) =>
+    Supabase.requete("DELETE", "demandes?id=eq." + encodeURIComponent(id));
+
   /** Le filtre « seulement ma boutique », ajouté à chaque lecture. */
   const filtreBoutique = () =>
     (boutiqueId ? "boutique_id=eq." + encodeURIComponent(boutiqueId) : "");
@@ -902,7 +1017,8 @@ const Store = (() => {
     /* Depuis les boutiques multiples, les réglages sont ceux de la
        boutique ouverte : on écrit dans sa ligne à elle. */
     if (boutiqueId) {
-      const propre = { ...maj };
+      dernierEnvoi = null;
+      let propre = { ...maj };
       if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
       if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
       if (maj.tauxMarge !== undefined) {
@@ -910,7 +1026,37 @@ const Store = (() => {
         if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
         propre.tauxMarge = taux;
       }
+
+      /* Un logo neuf part d'abord au stockage : ce qui circule ensuite —
+         et ce qui part en demande — n'est qu'un chemin, pas une image. */
+      if (propre.logo && propre.logo.dataUrl) {
+        const chemin = "boutiques/" + Utils.uid("bou") + ".jpg";
+        await Supabase.televerserImage(chemin, propre.logo.dataUrl);
+        propre.logo = chemin;
+      } else if (propre.logo === null) {
+        propre.logo = "";
+      } else if (propre.logo && propre.logo.chemin !== undefined) {
+        propre.logo = propre.logo.chemin || "";
+      }
+
       const avant = await ligneBrute("boutiques", boutiqueId);
+
+      /* Nom, logo, description, adresse, contacts : l'enseigne tranche.
+         Le reste s'écrit tout de suite. La base refuserait l'écriture
+         de toute façon — ici on choisit simplement le bon chemin, et on
+         évite à l'administrateur une erreur qu'il ne comprendrait pas. */
+      let envoiValidation = null;
+      if (!Supabase.estSuper()) {
+        const tri = trierParValidation(propre);
+        if (tri.noms.length) {
+          envoiValidation = await deposerDemande(
+            "reglages", tri.aValider,
+            avant ? extraireChamps(avant, Object.keys(tri.aValider)) : null,
+            tri.noms.join(", "));
+        }
+        propre = tri.libre;
+      }
+
       reglages = { ...reglages, ...propre };
       /* Ni « actif » ni « ordre » : ouvrir, fermer ou déplacer une
          boutique appartient à l’enseigne, et la base le refuserait à
@@ -919,13 +1065,20 @@ const Store = (() => {
       const aEcrire = ligneDepuisBoutique(reglages);
       delete aEcrire.actif;
       delete aEcrire.ordre;
-      await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutiqueId),
-        aEcrire);
-      const index = boutiques.findIndex((b) => b.id === boutiqueId);
-      if (index >= 0) boutiques[index] = { ...reglages };
-      if (libelleJournal) {
-        journaliser("boutique", "modification", libelleJournal, reglages.nomBoutique,
-          aAnnuler("boutiques", [avant], [boutiqueId]));
+      /* Ce qui attend un accord ne s'écrit pas : la boutique garde son
+         ancienne valeur jusqu'à la décision. */
+      if (envoiValidation) {
+        for (const colonne of Object.keys(envoiValidation.apres)) delete aEcrire[colonne];
+      }
+      if (Object.keys(aEcrire).length) {
+        await Supabase.requete("PATCH", "boutiques?id=eq." + encodeURIComponent(boutiqueId),
+          aEcrire);
+        const index = boutiques.findIndex((b) => b.id === boutiqueId);
+        if (index >= 0) boutiques[index] = { ...reglages };
+        if (libelleJournal) {
+          journaliser("boutique", "modification", libelleJournal, reglages.nomBoutique,
+            aAnnuler("boutiques", [avant], [boutiqueId]));
+        }
       }
       return lireReglages();
     }
@@ -1658,6 +1811,18 @@ const Store = (() => {
       /* Ce qui est à l'enseigne n'appartient à aucune boutique. */
       boutique_id: enseigne ? null : boutiqueId || null,
     };
+    /* Le slider d'une boutique est sa vitrine chez le client :
+       l'enseigne veut voir ce qu'on y met. Retirer un écran ou changer
+       l'ordre reste libre — on n'y ajoute rien. */
+    if (!enseigne && !Supabase.estSuper()) {
+      await deposerDemande("slider", {
+        id: slide.id, image: slide.image, video: slide.video,
+        titre: slide.titre, produit_id: slide.produit_id,
+        ordre: slide.ordre, actif: slide.actif,
+      }, avant, (existant ? "Écran du slider modifié" : "Écran ajouté au slider") +
+        (slide.titre ? " : " + slide.titre : ""), existant ? existant.id : null);
+      return slideDepuisLigne(slide);
+    }
     const lignes = await Supabase.requete("POST", "slides?on_conflict=id", slide, { upsert: true });
 
     /* L'ancien média ne sert plus à rien : on libère la place. */
@@ -1869,6 +2034,8 @@ const Store = (() => {
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
+    listerDemandes, approuverDemande, refuserDemande, retirerDemande,
+    dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
     annulerAction,
     enAppro, joursAppro, dateApproDans, APPRO_MIN, APPRO_MAX,
