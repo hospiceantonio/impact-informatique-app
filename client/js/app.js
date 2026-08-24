@@ -325,8 +325,22 @@ const App = { evenementInstallation: null };
     /* Le catalogue se met à jour tout seul (temps réel + vérifications). */
     Live.demarrer();
 
+    /* Le service worker sert les fichiers depuis son cache AVANT le
+       réseau : c'est ce qui rend le catalogue consultable hors connexion.
+       Sur une adresse locale c'est un piège — on modifie un fichier, on
+       recharge, et l'ancien réapparaît. On ne l'installe donc pas, et on
+       retire celui qu'une visite précédente aurait laissé : sinon il
+       continuerait de servir ses vieux fichiers sans qu'on comprenne. */
+    const enLocal = ["localhost", "127.0.0.1", "::1"]
+      .includes(location.hostname.replace(/^\[|\]$/g, ""));
     if ("serviceWorker" in navigator && !location.hostname.endsWith("appassets.androidx.dev")) {
-      navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne au premier chargement */ });
+      if (enLocal) {
+        navigator.serviceWorker.getRegistrations()
+          .then((liste) => liste.forEach((sw) => sw.unregister()))
+          .catch(() => { /* rien à retirer */ });
+      } else {
+        navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne au premier chargement */ });
+      }
     }
   }
 

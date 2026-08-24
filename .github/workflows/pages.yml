@@ -37,9 +37,13 @@ jobs:
       - name: Assembler le site
         run: |
           mkdir -p _site
+          # Ce qui part en ligne : l'accueil et les deux applications.
+          # Le reste — schéma de la base, captures, projet Android — n'a
+          # rien à faire sur un site que des clients ouvrent.
           rsync -a --exclude '.git' --exclude '.github' --exclude '_site' \
             --exclude 'serve.ps1' --exclude 'tools' \
-            --exclude 'android' --exclude 'apk' ./ _site/
+            --exclude 'android' --exclude 'apk' \
+            --exclude 'supabase' --exclude 'captures' ./ _site/
 
       - name: Téléverser l'artefact Pages
         uses: actions/upload-pages-artifact@v3

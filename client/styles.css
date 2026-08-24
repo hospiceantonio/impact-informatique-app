@@ -151,6 +151,9 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   min-width:0;padding:0 2px;
 }
 .tabbar a[hidden]{display:none}
+/* Le nom de l'enseigne n'apparaît que dans le menu latéral, sur
+   ordinateur : sur un téléphone il ferait une septième colonne. */
+.tabbar-marque{display:none}
 /* Six onglets sur un écran étroit : « Catégories » doit tenir sans
    pousser ses voisins, et s'écourter plutôt que déborder. */
 .tabbar a span{
@@ -921,4 +924,71 @@ a.pub-carte:active{transform:scale(.98)}
 @media (min-width:560px){
   .p-grille{grid-template-columns:repeat(3,1fr)}
   .cat-grille{grid-template-columns:repeat(4,1fr)}
+}
+
+/* =========================================================
+   Écran d'ordinateur
+   =========================================================
+   La barre du bas est faite pour le pouce : sur un écran large
+   elle laisse un bandeau vide tout en bas, où le regard ne va
+   jamais. Au-delà de 1024 px elle devient donc un menu, à
+   gauche, là où la lecture commence — et le catalogue s'étale
+   au lieu de flotter dans une colonne étroite.
+
+   Rien de tout cela ne descend sous 1024 px : sur un téléphone
+   l'application reste exactement celle qu'elle est aujourd'hui.
+   ========================================================= */
+@media (min-width:1024px){
+  :root{ --rail:240px; }
+
+  /* Le corps se décale une fois pour toutes : la barre du haut et
+     les écrans suivent, sans qu'on ait à décaler chacun d'eux. */
+  body{ padding-left:var(--rail); }
+
+  /* ---------- Le menu, sur le bord gauche ---------- */
+  .tabbar{
+    top:0;bottom:0;right:auto;width:var(--rail);
+    height:100dvh;padding:16px 12px;
+    /* En colonne, et chaque entrée à sa hauteur : sans quoi la
+       grille étirerait les six onglets sur toute la hauteur. */
+    grid-auto-flow:row;grid-auto-columns:auto;grid-auto-rows:max-content;
+    align-content:start;gap:3px;
+    background:var(--blanc);backdrop-filter:none;
+    border-top:0;border-right:1px solid var(--trait);
+  }
+  .tabbar a{
+    flex-direction:row;justify-content:flex-start;gap:13px;
+    height:46px;padding:0 13px;border-radius:12px;
+    font-size:14px;font-weight:600;
+  }
+  .tabbar a span{max-width:none;font-size:14px}
+  .tabbar .ic{width:22px;height:22px;flex:none}
+  .tabbar a:hover{background:var(--fond)}
+  .tabbar a.actif,.tabbar a.actif:hover{background:var(--bleu-50);color:var(--bleu-700)}
+  .tabbar .tab-contact:hover{background:rgba(31,175,86,.10)}
+
+  /* Le nom de l'enseigne en haut du menu : la barre du haut change
+     de titre à chaque écran, le menu, lui, ne bouge pas. */
+  .tabbar-marque{
+    display:flex;align-items:center;gap:10px;
+    padding:6px 13px 16px;margin-bottom:6px;
+    border-bottom:1px solid var(--trait);
+  }
+  .tabbar-marque img{width:34px;height:34px;border-radius:9px;flex:none}
+  .tabbar-marque span{
+    font-size:17px;font-weight:800;letter-spacing:-.3px;color:var(--bleu-800);
+  }
+
+  /* ---------- Ce que le menu libère ---------- */
+  .topbar{border-radius:0}
+  .vue{
+    max-width:1180px;
+    padding:22px 28px 48px;   /* plus de barre en bas : plus de place à lui réserver */
+  }
+  .toasts{left:calc(var(--rail) + 16px);bottom:22px}
+
+  /* Quatre produits de front plutôt que trois : à cette largeur,
+     trois cartes deviennent des affiches. */
+  .p-grille{grid-template-columns:repeat(4,1fr)}
+  .cat-grille{grid-template-columns:repeat(6,1fr)}
 }

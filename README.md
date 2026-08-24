@@ -51,10 +51,49 @@ applications inconnues » → installer. (Signés avec la **clé de test**
 versionnée dans `android/signature/` — parfaite pour essayer, pas pour
 le Play Store.)
 
-## Versions web (GitHub Pages)
+## Les versions web
 
-Les mêmes applications, installables comme PWA :
+Ce sont **les mêmes applications**, pas des copies : un seul code, que
+l'APK Android embarque et que le navigateur lit tel quel. Une correction
+faite ici arrive des deux côtés.
 
+### Les ouvrir sur son ordinateur
+
+```bash
+bash tools/servir.sh        # Linux, macOS
+.\serve.ps1                 # Windows
+```
+
+Puis, dans le navigateur :
+
+| | |
+|---|---|
+| Accueil | `http://localhost:5180/` |
+| La boutique | `http://localhost:5180/client/` |
+| Espace admin | `http://localhost:5180/admin/` |
+
+La base reste celle de Supabase, en ligne : **ce qu'on enregistre là est
+enregistré pour de bon**. Ce n'est pas un bac à sable.
+
+Pour voir ce que voit un téléphone, réduire la fenêtre sous 1024 px.
+
+> Le service worker ne s'installe pas sur une adresse locale, et celui
+> qu'une visite précédente aurait laissé est retiré. Il sert ses fichiers
+> depuis son cache AVANT le réseau : en développement on modifierait un
+> fichier, on rechargerait, et l'ancien réapparaîtrait.
+
+### Deux tailles d'écran, une seule application
+
+Au-delà de **1024 px**, la barre du bas — faite pour le pouce — devient un
+menu à gauche, là où la lecture commence ; le catalogue passe à quatre
+colonnes et les écrans s'élargissent. En dessous, rien ne change : le
+téléphone garde exactement l'application qu'il a.
+
+La bascule est vérifiée à 1023 et à 1024 px, des deux côtés.
+
+### En ligne (GitHub Pages)
+
+- Accueil : `https://hospiceantonio.github.io/impact-informatique-app/`
 - Client : `https://hospiceantonio.github.io/impact-informatique-app/client/`
 - Admin : `https://hospiceantonio.github.io/impact-informatique-app/admin/`
 
@@ -402,15 +441,6 @@ Le projet est déjà conforme aux exigences actuelles : `targetSdk 35`,
 icônes adaptatives, portrait, aucune permission sensible (l'appareil
 photo passe par l'application Photos du téléphone).
 
-## Test local (versions web)
-
-```powershell
-./serve.ps1        # client : http://localhost:5180/client/
-                   # admin  : http://localhost:5180/admin/
-```
-
-ou `python -m http.server 5180` à la racine du dépôt.
-
 ## Structure
 
 ```
@@ -447,11 +477,14 @@ impact-informatique-app/
 │   ├── preparer-assets.js    # Copie les fichiers web dans les APK
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
+├── index.html                # L'accueil du site : les deux portes, boutique et admin
+├── serve.ps1                 # Ouvrir les deux applications en local (Windows)
 └── tools/
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
-    └── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
+    ├── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
+    └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)
 ```
 
 ## Détails techniques

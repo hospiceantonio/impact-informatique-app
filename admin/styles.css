@@ -128,6 +128,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .tabbar a.actif{color:var(--bleu-700)}
 .tabbar a.actif .ic{stroke-width:2}
+/* Ces deux-là n'existent que dans le menu latéral, sur ordinateur :
+   au téléphone, le nom ferait une sixième colonne et le bouton
+   orange perdrait son rond. */
+.tabbar-marque,.tab-cta-nom{display:none}
 .tab-cta{position:relative}
 .tab-cta-rond{
   display:flex;align-items:center;justify-content:center;
@@ -596,7 +600,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .carte-boutique-active{display:flex;align-items:center;gap:12px;padding:14px 16px;font-size:13.5px}
 .carte-boutique-active strong{font-size:15px;color:var(--encre)}
 .carte-boutique-active small{color:var(--encre-tres-douce)}
-.carte-boutique-active > span{flex:1;min-width:0}
+/* La pastille de la boutique est un carré de 40 px — mais elle est,
+   elle aussi, un « span » enfant direct : sans cette exception, elle
+   héritait du « flex:1 » et s'étirait en un grand rectangle bleu. */
+.carte-boutique-active > span:not(.bou-pastille){flex:1;min-width:0}
 .carte-boutique-active > .ic{flex:none;color:var(--encre-tres-douce)}
 
 .choix-icones,.choix-couleurs{display:flex;gap:8px;flex-wrap:wrap}
@@ -1029,4 +1036,85 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 @media (max-width:400px){
   .st-chiffres{grid-template-columns:repeat(2,1fr)}
+}
+
+/* =========================================================
+   Écran d'ordinateur
+   =========================================================
+   Une boutique se tient au comptoir avec un téléphone, mais
+   se gère assis, sur un écran large : c'est là qu'on saisit
+   vingt produits, qu'on relit des chiffres, qu'on compare.
+   Au-delà de 1024 px la barre du bas devient donc un menu à
+   gauche, et « Nouveau produit » y prend sa vraie place —
+   en haut, sous le nom, là où l'on commence à lire.
+
+   Rien ne descend sous 1024 px : au téléphone, l'application
+   reste exactement celle d'aujourd'hui.
+   ========================================================= */
+@media (min-width:1024px){
+  :root{ --rail:240px; }
+
+  body{ padding-left:var(--rail); }
+
+  /* ---------- Le menu, sur le bord gauche ---------- */
+  .tabbar{
+    top:0;bottom:0;right:auto;width:var(--rail);
+    height:100dvh;padding:16px 12px;
+    /* Une seule colonne : la barre du bas en comptait cinq. */
+    grid-template-columns:1fr;grid-auto-rows:max-content;
+    align-content:start;gap:3px;
+    background:var(--blanc);backdrop-filter:none;
+    border-top:0;border-right:1px solid var(--trait);
+  }
+  .tabbar a{
+    flex-direction:row;justify-content:flex-start;gap:13px;
+    height:46px;padding:0 13px;border-radius:12px;
+    font-size:14px;font-weight:600;
+  }
+  .tabbar a span{font-size:14px}
+  .tabbar .ic{width:22px;height:22px;flex:none}
+  .tabbar a:hover{background:var(--fond)}
+  .tabbar a.actif,.tabbar a.actif:hover{background:var(--bleu-50);color:var(--bleu-700)}
+
+  .tabbar-marque{
+    order:-2;
+    display:flex;align-items:center;gap:10px;
+    padding:6px 13px 16px;margin-bottom:6px;
+    border-bottom:1px solid var(--trait);
+  }
+  .tabbar-marque img{width:34px;height:34px;border-radius:9px;flex:none}
+  .tabbar-marque span{
+    font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--bleu-800);
+  }
+
+  /* Le rond orange du milieu redevient ce qu'il est : le bouton
+     principal. En haut de la liste, avec son nom écrit. */
+  .tab-cta{order:-1;height:auto;padding:0;margin-bottom:10px}
+  .tab-cta-rond{
+    width:100%;height:44px;border-radius:12px;margin:0;
+    justify-content:flex-start;gap:10px;padding:0 14px;
+    box-shadow:0 8px 18px -10px rgba(201,77,0,.85);
+  }
+  .tab-cta-rond .ic{width:21px;height:21px}
+  .tab-cta-nom{display:inline;font-size:14px;font-weight:700;color:#fff}
+
+  /* ---------- Ce que le menu libère ---------- */
+  .topbar{border-radius:0}
+  .vue{
+    max-width:1180px;
+    padding:22px 28px 48px;   /* plus de barre en bas : plus de place à lui réserver */
+  }
+  .toasts{left:calc(var(--rail) + 16px);bottom:22px}
+  /* Les feuilles modales montaient du bas de l'écran, au pouce.
+     Sur un ordinateur elles se posent au centre. */
+  .feuille-boite{
+    left:50%;bottom:auto;top:50%;transform:translate(-50%,-50%);
+    width:min(680px,92vw);max-height:86vh;
+    border-radius:var(--r-lg);
+    animation:none;
+  }
+
+  /* Les compteurs gardent leurs trois colonnes : à six, ils se
+     tasseraient à gauche en laissant la moitié de la carte vide. */
+  .photos-zone{grid-template-columns:repeat(6,1fr)}
 }

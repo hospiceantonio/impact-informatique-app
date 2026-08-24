@@ -86,9 +86,12 @@
 <main id="vue" class="vue" tabindex="-1"></main>
 
 <nav class="tabbar" id="tabbar" aria-label="Navigation principale">
+  <!-- Le nom, en tête du menu latéral : visible sur ordinateur seulement,
+       où le menu passe à gauche. -->
+  <div class="tabbar-marque" aria-hidden="true"><img src="icons/icon-192.png" alt=""><span>BIZZOO Admin</span></div>
   <a href="#/" data-tab="/"><svg class="ic" viewBox="0 0 24 24"><use href="#i-accueil"/></svg><span>Accueil</span></a>
   <a href="#/produits" data-tab="/produits"><svg class="ic" viewBox="0 0 24 24"><use href="#i-boite"/></svg><span>Produits</span></a>
-  <a href="#/produit/nouveau" class="tab-cta" aria-label="Nouveau produit"><span class="tab-cta-rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-plus"/></svg></span></a>
+  <a href="#/produit/nouveau" class="tab-cta" aria-label="Nouveau produit"><span class="tab-cta-rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-plus"/></svg><span class="tab-cta-nom">Nouveau produit</span></span></a>
   <a href="#/categories" data-tab="/categories"><svg class="ic" viewBox="0 0 24 24"><use href="#i-categories"/></svg><span>Catégories</span></a>
   <a href="#/reglages" data-tab="/reglages" data-acces="administrateur"><svg class="ic" viewBox="0 0 24 24"><use href="#i-reglages"/></svg><span>Réglages</span></a>
   <a href="#/compte" data-tab="/compte" data-acces="moderateur" style="display:none"><svg class="ic" viewBox="0 0 24 24"><use href="#i-personne"/></svg><span>Mon compte</span></a>

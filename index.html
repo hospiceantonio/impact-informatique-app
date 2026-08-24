@@ -2,10 +2,113 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="0; url=client/">
-<title>Impact Informatique</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIZZOO — Toutes vos boutiques</title>
+<meta name="description" content="BIZZOO réunit les boutiques de votre ville : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money.">
+<meta name="theme-color" content="#0B5CF5">
+<link rel="icon" href="client/icons/icon-192.png">
+<style>
+  :root{
+    --bleu:#0B5CF5; --bleu-800:#001A6E; --bleu-900:#001450; --bleu-50:#EEF3FE;
+    --orange:#F96302; --encre:#0B1B33; --encre-douce:#4E5F78; --encre-tres-douce:#8492A8;
+    --trait:#E1E7F2; --fond:#F3F6FC; --blanc:#fff;
+    --police:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  body{
+    margin:0;font-family:var(--police);color:var(--encre);background:var(--fond);
+    -webkit-font-smoothing:antialiased;
+    min-height:100dvh;display:flex;flex-direction:column;
+  }
+  .bandeau{
+    background:linear-gradient(135deg,var(--bleu) 0%,var(--bleu-800) 78%,var(--bleu-900) 100%);
+    color:#fff;padding:56px 24px 64px;text-align:center;
+  }
+  .bandeau img{width:76px;height:76px;border-radius:20px;background:#fff;padding:6px}
+  .bandeau h1{margin:16px 0 6px;font-size:34px;font-weight:800;letter-spacing:-.8px}
+  .bandeau p{margin:0 auto;max-width:520px;font-size:15.5px;line-height:1.55;opacity:.86}
+
+  main{flex:1;width:100%;max-width:880px;margin:0 auto;padding:0 24px 56px}
+  .portes{display:grid;gap:18px;margin-top:-34px}
+  @media (min-width:720px){ .portes{grid-template-columns:1fr 1fr} }
+
+  .porte{
+    display:block;text-decoration:none;color:inherit;
+    background:var(--blanc);border-radius:20px;padding:24px;
+    box-shadow:0 12px 30px -18px rgba(0,20,80,.55);
+    border:1px solid var(--trait);
+    transition:transform .18s ease, box-shadow .18s ease;
+  }
+  .porte:hover{transform:translateY(-3px);box-shadow:0 20px 45px -20px rgba(0,20,80,.6)}
+  .porte-rond{
+    display:flex;align-items:center;justify-content:center;
+    width:52px;height:52px;border-radius:15px;
+    background:var(--bleu-50);color:var(--bleu-800);margin-bottom:14px;
+  }
+  .porte-admin .porte-rond{background:#FFEFE2;color:var(--orange)}
+  .porte-rond svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;
+    stroke-linecap:round;stroke-linejoin:round}
+  .porte h2{margin:0 0 6px;font-size:19px;font-weight:800;letter-spacing:-.3px}
+  .porte p{margin:0;font-size:14px;line-height:1.55;color:var(--encre-douce)}
+  .porte-aller{
+    display:inline-flex;align-items:center;gap:6px;margin-top:14px;
+    font-size:14px;font-weight:700;color:var(--bleu);
+  }
+
+  .note{
+    margin-top:28px;padding:16px 18px;border-radius:14px;
+    background:var(--blanc);border:1px solid var(--trait);
+    font-size:13.5px;line-height:1.6;color:var(--encre-douce);
+  }
+  .note strong{color:var(--encre)}
+  footer{
+    padding:20px 24px 28px;text-align:center;
+    font-size:12.5px;color:var(--encre-tres-douce);
+  }
+</style>
 </head>
 <body>
-<p><a href="client/">Ouvrir le catalogue Impact Informatique</a></p>
+
+<header class="bandeau">
+  <img src="client/icons/icon-192.png" alt="">
+  <h1>BIZZOO</h1>
+  <p>Toutes les boutiques de votre ville, réunies : parcourez leurs catalogues,
+     comparez les prix, commandez et payez par Mobile Money.</p>
+</header>
+
+<main>
+  <div class="portes">
+
+    <a class="porte" href="client/">
+      <span class="porte-rond">
+        <svg viewBox="0 0 24 24"><path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.6 2.6 0 0 0 5.3 0 2.65 2.65 0 0 0 5.4 0 2.6 2.6 0 0 0 5.3 0"/><path d="M5 12v8.5h14V12M9.5 20.5v-5.5h5v5.5"/></svg>
+      </span>
+      <h2>La boutique</h2>
+      <p>Le catalogue, ouvert à tous. C'est l'adresse à donner à vos clients.</p>
+      <span class="porte-aller">Ouvrir le catalogue →</span>
+    </a>
+
+    <a class="porte porte-admin" href="admin/">
+      <span class="porte-rond">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+      </span>
+      <h2>Espace admin</h2>
+      <p>La gestion des boutiques : produits, photos, prix, commandes et statistiques.
+         Réservé aux comptes de l'équipe.</p>
+      <span class="porte-aller">Ouvrir l'espace admin →</span>
+    </a>
+
+  </div>
+
+  <p class="note">
+    <strong>Les deux s'installent comme une application.</strong>
+    Ouvrez l'une d'elles dans Chrome, puis menu ⋮ → « Installer l'application » :
+    elle prend son icône sur l'écran d'accueil et s'ouvre en plein écran, hors
+    connexion comprise.
+  </p>
+</main>
+
+<footer>BIZZOO — Cotonou, Bénin</footer>
+
 </body>
 </html>
