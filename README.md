@@ -119,6 +119,12 @@ Trois règles pour que ce banc garde sa valeur :
   de poser. `node tools/aligner-migrations.js` recopie dans chaque
   fichier le corps que `schema.sql` donne à la fonction : `schema.sql`
   reste la seule source de vérité.
+- **La base du gérant existe déjà : chez lui, le corps d'un
+  `create table if not exists` n'est jamais lu.** Une colonne ajoutée là
+  après coup n'arrivera jamais dans sa base — il faut la répéter en
+  `alter table … add column if not exists`. Le banc refait son chemin
+  (l'ancien `schema.sql`, puis les fichiers envoyés) et compare colonne
+  par colonne à une base neuve : il nomme celles qui manqueraient.
 
 Le même banc tourne à chaque poussée touchant `supabase/`
 (`.github/workflows/base.yml`).

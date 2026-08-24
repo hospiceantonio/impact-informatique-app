@@ -130,6 +130,57 @@ for migration in "$RACINE"/supabase/*.sql; do
   fi
 done
 
+# ---------- Une base DÉJÀ EN SERVICE ----------
+# Le gérant n'installe pas la base : il l'a déjà. Chez lui, « create table
+# if not exists » ne fait rien du tout — une colonne ajoutée depuis dans le
+# corps d'un « create table » ne lui arrivera JAMAIS. C'est arrivé avec la
+# marge : elle existait pour une base neuve, pas pour la sienne.
+#
+# On refait donc son chemin : l'ancien schema.sql, puis les fichiers qu'on
+# lui envoie. Il doit arriver exactement où arrive une base neuve.
+AVANT="$(git -C "$RACINE" log -2 --format=%H -- supabase/schema.sql 2>/dev/null | tail -1 || true)"
+NEUVE="$SOCLE/neuve.txt"
+SERVICE="$SOCLE/service.txt"
+echo
+if [ -z "$AVANT" ] || [ "$AVANT" = "$(git -C "$RACINE" log -1 --format=%H -- supabase/schema.sql 2>/dev/null)" ]; then
+  gris "Base déjà en service : pas d'historique de schema.sql ici, étape sautée."
+else
+  gris "La base du gérant, qui existe DÉJÀ (schema.sql de ${AVANT:0:7}, puis les fichiers) :"
+  git -C "$RACINE" show "$AVANT:supabase/schema.sql" > "$SOCLE/schema-avant.sql"
+  lancer "createdb -h '$PGHOST' -p $PORT enservice" >/dev/null 2>&1 || true
+  PSQL_SERVICE="psql -h '$PGHOST' -p $PORT -d enservice -v ON_ERROR_STOP=1 --no-psqlrc -c 'set client_min_messages = warning' -q"
+  lancer "$PSQL_SERVICE -f '$RACINE/supabase/tests/00-plateforme.sql'" >/dev/null 2>&1
+  lancer "$PSQL_SERVICE -c \"insert into auth.users (id, email) values
+    ('11111111-1111-1111-1111-111111111111', 'enseigne@bizzoo.bj')
+    on conflict do nothing;\"" >/dev/null 2>&1
+  lancer "$PSQL_SERVICE -f '$SOCLE/schema-avant.sql'" >/dev/null 2>&1
+
+  for migration in "$RACINE"/supabase/*.sql; do
+    [ "$(basename "$migration")" = "schema.sql" ] && continue
+    if ! lancer "$PSQL_SERVICE --single-transaction -f '$migration'" >"$SORTIE" 2>&1; then
+      echo
+      rouge "$(basename "$migration") échoue sur une base déjà en service :"
+      grep -E "ERROR|ERREUR" "$SORTIE" | head -3
+      rouge "Le gérant collerait ce fichier, et tout serait annulé."
+      exit 1
+    fi
+  done
+
+  INVENTAIRE="select table_name || '.' || column_name from information_schema.columns
+              where table_schema = 'public' order by 1;"
+  lancer "$PSQL -t -A -c \"$INVENTAIRE\"" > "$NEUVE" 2>/dev/null
+  lancer "$PSQL_SERVICE -t -A -c \"$INVENTAIRE\"" > "$SERVICE" 2>/dev/null
+  if ! diff -q "$NEUVE" "$SERVICE" >/dev/null; then
+    echo
+    rouge "La base du gérant n'arrive pas là où arrive une base neuve :"
+    diff "$NEUVE" "$SERVICE" | sed -n 's/^< /  il lui MANQUE  /p;s/^> /  elle a EN TROP /p' | head -12
+    rouge "Ajoutez « alter table … add column if not exists » : chez lui,"
+    rouge "le corps d'un « create table if not exists » n'est jamais lu."
+    exit 1
+  fi
+  vert "  la base du gérant arrive exactement où arrive une base neuve ✔"
+fi
+
 # Les comptes suivants naissent modérateurs et inactifs, comme ceux que
 # l'on crée depuis l'application : c'est à l'enseigne de les élever.
 lancer "$PSQL_MUET -c \"insert into auth.users (id, email) values

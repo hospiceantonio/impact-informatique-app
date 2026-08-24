@@ -34,6 +34,11 @@
 -- ---------------------------------------------------------
 -- 1. La marge appartient à l'enseigne
 -- ---------------------------------------------------------
+-- La colonne d'abord : une base déjà en service ne l'a pas. 20 % par
+-- défaut, que l'enseigne ajuste boutique par boutique.
+alter table public.boutiques
+  add column if not exists taux_marge numeric(6,2) not null default 20;
+
 create or replace function public.boutique_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin

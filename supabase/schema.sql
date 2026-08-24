@@ -103,6 +103,12 @@ create table if not exists public.boutiques (
   maj_le      timestamptz not null default now()
 );
 alter table public.boutiques add column if not exists video text not null default '';
+-- « create table if not exists » ne touche pas une table qui existe déjà :
+-- une colonne ajoutée plus tard doit être répétée ici, sinon elle n'arrive
+-- jamais dans une base en service. La marge de BIZZOO en fait partie —
+-- sans elle, aucun prix de vente ne se calcule.
+alter table public.boutiques
+  add column if not exists taux_marge numeric(6,2) not null default 20;
 -- La charte a changé : une boutique sans couleur choisie prend le bleu
 -- BIZZOO. Celles déjà enregistrées gardent la leur.
 alter table public.boutiques alter column couleur set default '#0B5CF5';

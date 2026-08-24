@@ -25,6 +25,11 @@ jobs:
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
+        with:
+          # L'historique complet : le banc refait le chemin d'une base déjà
+          # en service en repartant du schema.sql d'avant. Sans lui, cette
+          # vérification se sauterait en silence.
+          fetch-depth: 0
 
       - name: PostgreSQL
         run: |
