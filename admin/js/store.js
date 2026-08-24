@@ -240,6 +240,9 @@ const Store = (() => {
     return {
       id: l.id,
       nom: l.nom,
+      /* Le code vient de la base et n'y retourne jamais : « ligneDepuisProduit »
+         ne l'envoie pas. Même transmis, la base l'ignorerait. */
+      code: l.code || "",
       reference: l.reference || "",
       description: l.description || "",
       prix: Number(l.prix) || 0,
@@ -1039,7 +1042,7 @@ const Store = (() => {
       boutiqueId: x.boutique_id || "",
       nomBoutique: (lireBoutique(x.boutique_id) || {}).nomBoutique || "",
       produitId: x.produit_id || "",
-      nom: x.nom || "", reference: x.reference || "",
+      nom: x.nom || "", code: x.code || "", reference: x.reference || "",
       prix: Number(x.prix) || 0,
       quantite: Number(x.quantite) || 1,
       etat: x.etat || "nouvelle",
@@ -1523,7 +1526,8 @@ const Store = (() => {
     const t = Utils.sansAccent(terme).trim();
     if (!t) return produits;
     return produits.filter((p) => {
-      const texte = Utils.sansAccent(p.nom + " " + (p.reference || "") + " " + (p.description || ""));
+      const texte = Utils.sansAccent(p.nom + " " + (p.code || "") + " " +
+        (p.reference || "") + " " + (p.description || ""));
       return t.split(/\s+/).every((mot) => texte.includes(mot));
     });
   }

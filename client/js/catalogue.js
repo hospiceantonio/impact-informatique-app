@@ -186,6 +186,9 @@ const Catalogue = (() => {
           id: p.id,
           boutiqueId: p.boutique_id || "",
           nom: p.nom,
+          /* Le code vient de la base et n'en bouge jamais ; la référence
+             appartient à la boutique. Deux choses différentes. */
+          code: p.code || "",
           reference: p.reference || "",
           description: p.description || "",
           prix: Number(p.prix) || 0,
@@ -676,53 +679,67 @@ const Catalogue = (() => {
         celle qu'on visite : le client cherche un produit, il ne sait
         pas encore qui le vend.
 
-     Le classement fait le reste, et c'est lui qui rend la règle 2
-     supportable : le nom pèse plus que la référence, qui pèse plus
-     que la description ; un mot en tête de nom pèse plus qu'un mot
-     au milieu ; et retrouver tout ce qui a été tapé vaut mieux que
-     la moitié. Le rayon n'entre toujours pas dans la recherche : un
-     produit qui ne porte pas le mot n'a rien à faire dans la liste. */
+     Le classement suit L'ENDROIT où le mot a été trouvé, dans cet
+     ordre : le nom, le rayon, le sous-rayon, le code, la référence,
+     la description. C'est un ordre STRICT — un produit trouvé par son
+     nom passe devant un produit trouvé par son rayon, quel que soit
+     le nombre de mots retrouvés. Sans quoi trois mots dans une
+     description finiraient par battre le titre exact. */
 
-  const POIDS = {
-    nom: 100,          // le mot est dans le nom
-    debutNom: 60,      // ... et le nom commence par lui
-    debutMot: 30,      // ... ou c'est le début d'un des mots du nom
-    reference: 45,
-    description: 12,
-    /* Tout retrouver vaut mieux que la moitié — mais comme un
-       MULTIPLICATEUR, jamais comme un bonus fixe. Ajouté à plat, il
-       faisait passer devant une sacoche dont la description contient
-       « ordinateur » et « portable » un ordinateur qui porte le mot
-       dans son nom. Multiplier garde l'ordre : ce qui valait peu
-       vaut un peu plus, pas soudain davantage. */
-    complet: 2.5,
-  };
+  const CHAMPS_RECHERCHE = ["nom", "categorie", "sousCategorie",
+                            "code", "reference", "description"];
+
+  /* La finesse départage à l'intérieur d'un rang ; elle ne doit jamais
+     faire franchir la frontière du rang suivant. */
+  const LARGEUR_RANG = 1000;
+  const DEBUT_NOM = 6;   // le nom commence par le mot
+  const DEBUT_MOT = 3;   // ... ou c'est le début d'un des mots du nom
+  const COMPLET = 2.5;   // tout retrouver vaut mieux que la moitié
+
+  /** Les six endroits où l'on cherche, déjà mis à plat. */
+  function champsDeRecherche(p) {
+    const cat = categorie(p.categorieId);
+    const sc = sousCategorie(p.categorieId, p.sousCategorieId);
+    return {
+      nom: Utils.sansAccent(p.nom),
+      categorie: Utils.sansAccent(cat ? cat.nom : ""),
+      sousCategorie: Utils.sansAccent(sc ? sc.nom : ""),
+      code: Utils.sansAccent(p.code || ""),
+      reference: Utils.sansAccent(p.reference || ""),
+      description: Utils.sansAccent(p.description || ""),
+    };
+  }
 
   /** Ce que vaut un produit pour les mots cherchés. Zéro : il ne sort pas. */
   function noteRecherche(p, mots) {
-    const nom = Utils.sansAccent(p.nom);
-    const reference = Utils.sansAccent(p.reference || "");
-    const description = Utils.sansAccent(p.description || "");
-    let note = 0;
+    const champs = champsDeRecherche(p);
+    let meilleur = CHAMPS_RECHERCHE.length;   // aucun endroit trouvé
     let trouves = 0;
+    let finesse = 0;
+
     for (const mot of mots) {
-      let gagne = 0;
-      if (nom.includes(mot)) {
-        gagne = POIDS.nom;
-        if (nom.startsWith(mot)) gagne += POIDS.debutNom;
-        else if (nom.includes(" " + mot) || nom.includes("-" + mot)) gagne += POIDS.debutMot;
-      } else if (reference.includes(mot)) {
-        gagne = POIDS.reference;
-      } else if (description.includes(mot)) {
-        gagne = POIDS.description;
+      let rang = -1;
+      for (let i = 0; i < CHAMPS_RECHERCHE.length; i++) {
+        if (champs[CHAMPS_RECHERCHE[i]].includes(mot)) { rang = i; break; }
       }
-      if (gagne) {
-        note += gagne;
-        trouves++;
+      if (rang < 0) continue;
+      trouves++;
+      if (rang < meilleur) meilleur = rang;
+      finesse += CHAMPS_RECHERCHE.length - rang;
+      if (rang === 0) {
+        if (champs.nom.startsWith(mot)) finesse += DEBUT_NOM;
+        else if (champs.nom.includes(" " + mot) || champs.nom.includes("-" + mot)) {
+          finesse += DEBUT_MOT;
+        }
       }
     }
     if (!trouves) return 0;
-    return trouves === mots.length ? note * POIDS.complet : note;
+
+    /* L'endroit le plus fort donne le rang ; le reste ne fait que
+       départager à l'intérieur, jamais changer de rang. */
+    const rangDuProduit = (CHAMPS_RECHERCHE.length - meilleur) * LARGEUR_RANG;
+    const detail = finesse * (trouves === mots.length ? COMPLET : 1);
+    return rangDuProduit + Math.min(LARGEUR_RANG - 1, detail);
   }
 
   function rechercher(terme) {

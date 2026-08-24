@@ -39,9 +39,16 @@ const VuePanier = (() => {
 
   function messageBoutique(groupe, client, numero) {
     const devise = Catalogue.deviseDe(groupe.lignes[0].produit);
+    /* Le code d'abord : c'est par lui que la boutique retrouve l'article
+       à coup sûr, quel que soit le nom qu'elle lui donne en rayon. */
+    const repere = (p) => {
+      const bouts = [];
+      if (p.code) bouts.push("code " + p.code);
+      if (p.reference) bouts.push("réf. " + p.reference);
+      return bouts.length ? " (" + bouts.join(", ") + ")" : "";
+    };
     const lignes = groupe.lignes.map((l) =>
-      "  • " + l.produit.nom +
-      (l.produit.reference ? " (réf. " + l.produit.reference + ")" : "") +
+      "  • " + l.produit.nom + repere(l.produit) +
       " × " + l.quantite + " — " + Utils.fmtMontant((l.produit.prix || 0) * l.quantite, devise));
     return "Bonjour " + ((groupe.boutique && groupe.boutique.nom) || "") + " 👋\n" +
       (numero ? "Commande " + numero + "\n" : "") +
@@ -388,7 +395,7 @@ const VuePanier = (() => {
         { id: b.id, nom: b.nom, whatsapp: b.whatsapp, indicatif: b.indicatif, tel: "" },
       montant: b.montant,
       lignes: (b.lignes || []).map((l) => ({
-        produit: { nom: l.nom, reference: l.reference, prix: l.prix },
+        produit: { nom: l.nom, code: l.code || "", reference: l.reference, prix: l.prix },
         quantite: l.quantite,
       })),
     }));
@@ -424,6 +431,9 @@ const VuePanier = (() => {
             "<span>" + Utils.echapper(g.boutique.nom || "Boutique") + "</span></div>" +
           g.lignes.map((l) =>
             '<div class="re-ligne"><span>' + Utils.echapper(l.produit.nom) +
+              (l.produit.code
+                ? ' <small class="re-code">code ' + Utils.echapper(l.produit.code) + "</small>"
+                : "") +
               ' <small>× ' + l.quantite + "</small></span><strong>" +
               Utils.echapper(Utils.fmtMontant(l.produit.prix * l.quantite, commande.devise)) +
             "</strong></div>").join("") +

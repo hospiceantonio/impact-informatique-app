@@ -115,6 +115,9 @@ const VueProduit = (() => {
       .map((l) => l.trim()).filter(Boolean).map((l) => "  - " + l).join("\n");
     const fiche =
       "• Produit : " + p.nom +
+      /* Le code d'abord : c'est le seul repère que la boutique et le
+         client désignent de la même façon, quoi qu'il arrive au reste. */
+      (p.code ? "\n• Code : " + p.code : "") +
       (p.reference ? "\n• Référence : " + p.reference : "") +
       "\n• Prix affiché : " + Utils.fmtMontant(p.prix, boutique.devise) +
       (description ? "\n• Description :\n" + description : "");
@@ -155,7 +158,12 @@ const VueProduit = (() => {
             Utils.echapper(Utils.delaiEnMots(Catalogue.joursAppro(p))) + "</div>"
           : "") +
         '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
-        (p.reference ? '<div class="fiche-reference">Réf. ' + Utils.echapper(p.reference) + "</div>" : "") +
+        (p.code || p.reference
+          ? '<div class="fiche-reference">' +
+              (p.code ? '<span class="fiche-code">Code ' + Utils.echapper(p.code) + "</span>" : "") +
+              (p.reference ? "Réf. " + Utils.echapper(p.reference) : "") +
+            "</div>"
+          : "") +
         UI.prixHtml(p, { grand: true }) +
         (cat
           ? '<div class="fiche-chemin">' +

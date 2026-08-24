@@ -775,6 +775,14 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .visionneuse-compteur:empty{display:none}
 
+/* Le code du produit : un repère, pas une décoration. Il se lit avant
+   la référence et se recopie sans erreur. */
+.fiche-code{
+  display:inline-block;margin-right:10px;padding:2px 8px;
+  border-radius:6px;background:var(--bleu-50);color:var(--bleu-700);
+  font-weight:800;letter-spacing:.06em;
+}
+
 /* ---------- Panier, commande, reçu ---------- */
 /* Le bouton du panier vit dans la barre du haut : la pastille déborde
    volontairement du rond, c'est ce qui la rend visible du coin de l'œil. */
@@ -872,6 +880,10 @@ a.pub-carte:active{transform:scale(.98)}
   padding:8px 0;font-size:13.5px;
 }
 .re-ligne small{color:var(--encre-tres-douce)}
+.re-code{
+  padding:1px 6px;border-radius:5px;
+  background:var(--bleu-50);color:var(--bleu-700);font-weight:800;
+}
 .re-resume{
   display:flex;justify-content:space-between;align-items:center;gap:12px;
   text-decoration:none;color:inherit;

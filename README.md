@@ -123,6 +123,55 @@ ou `create or replace`, et aucune donnée de départ ne déclenche un
 garde-fou de l'application — un seul `raise` annulerait tout le fichier,
 l'éditeur SQL de Supabase exécutant l'ensemble d'un bloc.
 
+## Le code d'un produit
+
+Chaque produit reçoit à sa création un **code** : un numéro, rien que
+des chiffres, donné par la base. Il ne se choisit pas, ne se corrige
+pas, ne se réutilise pas — **pas même par un super administrateur**.
+C'est ce qui en fait un repère : un code dicté au téléphone désigne un
+seul produit, aujourd'hui et dans dix ans.
+
+À ne pas confondre avec la **référence**, qui reste ce que la boutique
+veut en faire : elle la choisit, la change, la laisse vide. Deux choses
+différentes, deux colonnes.
+
+Le code s'affiche **avant** la référence sur la fiche produit, et
+accompagne l'article partout où il est nommé : message WhatsApp d'une
+demande de prix, récapitulatif de commande envoyé à la boutique, lignes
+de commande dans l'application admin, message de la boutique au client.
+Les commandes le **figent** avec le nom et le prix : c'est ce qui a été
+vendu.
+
+Ce qui le protège, dans la base : le déclencheur `produits_code` donne
+le code à l'insertion — ce que l'application envoie dans cette colonne
+n'est jamais écouté — et le remet à sa valeur d'origine à chaque
+modification. Un index unique garantit que deux produits ne le
+partagent pas. Sur une base déjà en service,
+[`supabase/code-produit.sql`](supabase/code-produit.sql) attribue leur
+code aux produits existants, du plus ancien au plus récent.
+
+## Ce que cherche la recherche
+
+Le champ de recherche regarde six endroits, **dans cet ordre** :
+
+1. le nom du produit,
+2. sa catégorie,
+3. sa sous-catégorie,
+4. son code,
+5. sa référence,
+6. sa description.
+
+L'ordre est **strict** : un produit trouvé par son nom passe devant un
+produit trouvé par son rayon, même si ce dernier retrouve davantage des
+mots tapés. Sans cette règle, trois mots retrouvés dans une description
+finiraient par battre un titre exact — c'est le piège qu'un classement
+par simple addition de points tend toujours.
+
+À l'intérieur d'un même rang, le classement se fait plus fin : un mot en
+tête de nom pèse plus qu'un mot au milieu, et retrouver tout ce qui a
+été tapé vaut mieux que la moitié. Mais jamais assez pour changer de
+rang.
+
 ## Paiement en ligne (KkiaPay)
 
 Le client remplit un panier, valide, paie par **Mobile Money** (MTN,
@@ -303,6 +352,7 @@ impact-informatique-app/
 ├── supabase/
 │   ├── schema.sql            # La base : tables, sécurité, stockage, données de départ
 │   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
+│   ├── code-produit.sql             # Le code d'un produit, pour une base déjà en place
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
 │   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »

@@ -25,7 +25,8 @@ const VueCommandes = (() => {
   /** Le récapitulatif de SA part, prêt à partir sur le WhatsApp du client. */
   function messageClient(c) {
     const lignes = c.lignes.map((l) =>
-      "  • " + l.nom + " × " + l.quantite + " — " +
+      "  • " + l.nom + (l.code ? " (code " + l.code + ")" : "") +
+      " × " + l.quantite + " — " +
       Utils.fmtMontant(l.prix * l.quantite, c.devise));
     return "Bonjour" + (c.client.nom ? " " + c.client.nom : "") + " 👋\n" +
       "Votre commande " + c.numero + " est bien arrivée chez nous :\n" +
@@ -43,6 +44,7 @@ const VueCommandes = (() => {
           '<div class="cmd-ligne-nom">' + Utils.echapper(l.nom) +
             ' <span class="cmd-quantite">× ' + l.quantite + "</span></div>" +
           '<div class="cmd-ligne-sous">' +
+            (l.code ? '<span class="code-produit">' + Utils.echapper(l.code) + "</span> · " : "") +
             (l.reference ? "Réf. " + Utils.echapper(l.reference) + " · " : "") +
             Utils.echapper(Utils.fmtMontant(l.prix * l.quantite, devise)) +
           "</div>" +

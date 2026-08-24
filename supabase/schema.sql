@@ -199,6 +199,58 @@ end $$;
 update public.produits set disponible = (sur_commande or stock > 0)
 where disponible <> (sur_commande or stock > 0);
 
+-- ---------- Le code d'un produit ----------
+-- Un numéro, rien que des chiffres, donné par la base à la création.
+-- Il ne se choisit pas, ne se corrige pas, ne se réutilise pas — pas
+-- même par un superadministrateur. C'est ce qui en fait un repère :
+-- un code dicté au téléphone désigne un seul produit, pour toujours.
+-- À ne pas confondre avec la RÉFÉRENCE, que la boutique choisit et
+-- change à sa guise.
+alter table public.produits add column if not exists code text not null default '';
+
+-- Six chiffres, sans zéro en tête : un code se dicte au téléphone et se
+-- recopie à la main. Le compteur ne revient jamais en arrière, même si
+-- un produit est supprimé — un code retiré du catalogue reste retiré.
+create sequence if not exists public.produits_code start with 100001;
+
+-- Le déclencheur est posé APRÈS ce rattrapage : il refuserait cette
+-- écriture, puisqu'un code ne se change pas.
+drop trigger if exists produits_code on public.produits;
+
+do $$
+declare p record;
+begin
+  for p in select id from public.produits
+            where coalesce(code, '') = '' order by cree_le, id loop
+    update public.produits set code = nextval('public.produits_code')::text
+     where id = p.id;
+  end loop;
+end $$;
+
+-- Deux produits ne partagent pas un code : sans cela, il ne désignerait
+-- plus rien.
+create unique index if not exists produits_code_unique
+  on public.produits(code) where code <> '';
+
+create or replace function public.produit_code() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    -- Ce que l'application envoie dans « code » n'est jamais écouté :
+    -- la base le donne elle-même.
+    new.code := nextval('public.produits_code')::text;
+  else
+    -- Et il ne bouge plus, quel que soit le rang de qui écrit. Un repère
+    -- qu'on peut corriger n'est plus un repère.
+    new.code := old.code;
+  end if;
+  return new;
+end $$;
+
+create trigger produits_code
+  before insert or update on public.produits
+  for each row execute function public.produit_code();
+
 create index if not exists produits_categorie on public.produits(categorie_id);
 create index if not exists produits_en_avant on public.produits(en_avant) where en_avant;
 
@@ -1150,6 +1202,10 @@ create table if not exists public.commande_lignes (
               check (etat in ('nouvelle', 'vue', 'preparee', 'remise', 'annulee')),
   cree_le     timestamptz not null default now()
 );
+-- Le code du produit, figé comme son nom et son prix : c'est ce qui a
+-- été vendu.
+alter table public.commande_lignes add column if not exists code text not null default '';
+
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
 
@@ -1194,6 +1250,7 @@ begin
   end if;
   new.boutique_id := p.boutique_id;
   new.nom         := p.nom;
+  new.code        := coalesce(p.code, '');
   new.reference   := coalesce(p.reference, '');
   new.prix        := coalesce(p.prix, 0)::int;
   new.etat        := 'nouvelle';
@@ -1290,6 +1347,7 @@ begin
   or new.boutique_id is distinct from old.boutique_id
   or new.produit_id  is distinct from old.produit_id
   or new.nom         is distinct from old.nom
+  or new.code        is distinct from old.code
   or new.reference   is distinct from old.reference
   or new.prix        is distinct from old.prix
   or new.quantite    is distinct from old.quantite then
@@ -1356,7 +1414,6 @@ declare
   qte      int;
   p        public.produits%rowtype;
   devises  text[];
-  combien  int := 0;
   sortie   jsonb;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
@@ -1370,8 +1427,6 @@ begin
     raise exception 'Un numéro de téléphone est nécessaire pour vous joindre.';
   end if;
 
-  -- Ce qui suit est écrit par la base pour elle-même : le total et la
-  -- monnaie. Le verrou de « commandes » le reconnaît à ce drapeau.
   perform set_config('bizzoo.interne', 'oui', true);
 
   insert into public.commandes
@@ -1390,22 +1445,16 @@ begin
     if not found then
       raise exception 'Un des produits de votre panier n''existe plus.';
     end if;
-    -- Un produit dont il ne reste rien, et qui n'est ni sur commande ni
-    -- annoncé en réassort, ne se paie pas : la boutique ne pourrait pas
-    -- le remettre.
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
     end if;
-    combien := combien + 1;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
     insert into public.commande_lignes (id, commande_id, produit_id, quantite)
     values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
   end loop;
 
-  -- Deux boutiques qui ne comptent pas dans la même monnaie ne se
-  -- paient pas d'un seul versement.
   if (select count(distinct d) from unnest(devises) d) > 1 then
     raise exception 'Ces produits ne se paient pas dans la même monnaie : commandez boutique par boutique.';
   end if;
@@ -1424,8 +1473,9 @@ begin
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
-                     jsonb_agg(jsonb_build_object('nom', l.nom, 'reference', l.reference,
-                       'prix', l.prix, 'quantite', l.quantite) order by l.nom) as lignes
+                     jsonb_agg(jsonb_build_object('nom', l.nom, 'code', l.code,
+                       'reference', l.reference, 'prix', l.prix,
+                       'quantite', l.quantite) order by l.nom) as lignes
                 from public.commande_lignes l
                where l.commande_id = c.id
                group by l.boutique_id) g), '[]'::jsonb))

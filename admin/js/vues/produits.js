@@ -47,7 +47,8 @@ const VueProduits = (() => {
         : ((c.sousCategories || []).find((x) => x.id === p.sousCategorieId) || {}).nom
           ? c.nom + " · " + (c.sousCategories || []).find((x) => x.id === p.sousCategorieId).nom
           : c.nom;
-      return (p.reference ? p.reference + " · " : "") + cat;
+      return (p.code ? p.code + " · " : "") +
+        (p.reference ? p.reference + " · " : "") + cat;
     };
 
     const rendre = () => {
@@ -486,6 +487,17 @@ const VueProduits = (() => {
       '<div class="carte">' +
         UI.champTexte({ id: "p-nom", label: "Nom du produit", valeur: existant ? existant.nom : "",
           obligatoire: true, placeholder: "Ex. Ordinateur portable HP 15" }) +
+        (existant && existant.code
+          ? '<div class="champ"><label>Code</label>' +
+              '<div class="code-fige">' + UI.icone("bouclier", "ic-sm") +
+                '<span class="code-produit">' + Utils.echapper(existant.code) + "</span>" +
+                "<small>Donné par la base à la création. Il ne se corrige pas, " +
+                "même par un super administrateur : c'est ce qui en fait un repère sûr.</small>" +
+              "</div></div>"
+          : '<div class="champ"><label>Code</label>' +
+              '<div class="code-fige">' + UI.icone("bouclier", "ic-sm") +
+                "<small>Le code sera donné par la base à l'enregistrement.</small>" +
+              "</div></div>") +
         UI.champTexte({ id: "p-reference", label: "Référence", valeur: referenceProposee,
           aide: "Attribuée automatiquement, modifiable (elle apparaît sur la fiche et dans les commandes WhatsApp)." }) +
         UI.champZone({ id: "p-description", label: "Description", valeur: existant ? existant.description : "",
@@ -778,6 +790,7 @@ const VueProduits = (() => {
           (remise !== null ? '<s class="prix-ancien">' + Utils.echapper(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>" : "") +
         "</div>" +
         '<div class="aide" style="margin-top:6px">' +
+          (p.code ? '<span class="code-produit">Code ' + Utils.echapper(p.code) + "</span> " : "") +
           (p.reference ? "Réf : " + Utils.echapper(p.reference) + " · " : "") +
           Utils.echapper(categorie ? categorie.nom + (sousCategorie ? " · " + sousCategorie.nom : "") : "Sans catégorie") +
           " — modifié le " + Utils.echapper(Utils.fmtDate(p.modifieLe)) +

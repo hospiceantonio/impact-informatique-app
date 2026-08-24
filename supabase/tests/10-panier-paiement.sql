@@ -127,6 +127,59 @@ select essai.egal((select total from public.commandes where id = :'cmd'),
   'le total suit ses lignes');
 
 -- ---------------------------------------------------------
+select essai.titre('Le code d''un produit : donné par la base, et gravé');
+-- ---------------------------------------------------------
+insert into public.produits (id, boutique_id, nom, prix, categorie_id, stock, code)
+values ('prod_essai_code', 'bou_informatique', 'Produit à coder', 1000,
+        'cat_accessoires', 3, '000-CHOISI-PAR-MOI');
+
+select essai.verifie(
+  (select code ~ '^[0-9]+$' from public.produits where id = 'prod_essai_code'),
+  'le code ne contient que des chiffres');
+select essai.verifie(
+  (select code <> '000-CHOISI-PAR-MOI' from public.produits where id = 'prod_essai_code'),
+  'celui que l''application propose n''est pas écouté');
+select essai.verifie(
+  (select count(*) = 0 from public.produits where coalesce(code, '') = ''),
+  'aucun produit du catalogue ne reste sans code');
+select essai.egal(
+  (select count(distinct code)::int from public.produits),
+  (select count(*)::int from public.produits),
+  'deux produits ne partagent pas un code');
+
+select code as code_grave from public.produits where id = 'prod_essai_code' \gset
+
+-- Personne ne le change : ni le catalogue, ni l'enseigne, ni la base
+-- elle-même par une écriture directe.
+update public.produits set code = '999999' where id = 'prod_essai_code';
+select essai.egal((select code from public.produits where id = 'prod_essai_code'),
+  :'code_grave', 'même écrit en direct, le code ne bouge pas');
+
+select essai.devenir('11111111-1111-1111-1111-111111111111'::uuid);
+set role authenticated;
+update public.produits set code = '999999', nom = 'Renommé'
+ where id = 'prod_essai_code';
+reset role;
+select essai.personne();
+select essai.egal((select code from public.produits where id = 'prod_essai_code'),
+  :'code_grave', 'L''ENSEIGNE ELLE-MÊME ne peut pas le corriger');
+select essai.egal((select nom from public.produits where id = 'prod_essai_code'),
+  'Renommé', 'mais le reste du produit se modifie normalement');
+
+-- Le code suit le produit dans la commande, et y reste figé.
+set role anon;
+select public.creer_commande('{"nom":"Codeur","tel":"97000111"}'::jsonb,
+  format('[{"produit_id":"prod_essai_code","quantite":1}]')::jsonb) as avec_code \gset
+reset role;
+select essai.egal(
+  ((:'avec_code'::jsonb -> 'boutiques' -> 0 -> 'lignes' -> 0) ->> 'code'),
+  :'code_grave', 'le récapitulatif du client porte le code');
+select essai.egal(
+  (select l.code from public.commande_lignes l
+    where l.produit_id = 'prod_essai_code' limit 1),
+  :'code_grave', 'et la ligne de commande le fige');
+
+-- ---------------------------------------------------------
 select essai.titre('Personne ne se déclare payé');
 -- ---------------------------------------------------------
 select essai.refuse(

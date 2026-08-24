@@ -165,7 +165,8 @@
       "enAvant": true,
       "ordreAvant": 1,
       "stock": 4,
-      "surCommande": false
+      "surCommande": false,
+      "code": "100001"
     },
     {
       "id": "prod_epson_l3250",
@@ -183,7 +184,8 @@
       "enAvant": true,
       "ordreAvant": 2,
       "stock": 2,
-      "surCommande": false
+      "surCommande": false,
+      "code": "100002"
     },
     {
       "id": "prod_apc650",
@@ -201,7 +203,8 @@
       "enAvant": true,
       "ordreAvant": 3,
       "stock": 7,
-      "surCommande": false
+      "surCommande": false,
+      "code": "100003"
     },
     {
       "id": "prod_usb_kingston64",
@@ -219,7 +222,8 @@
       "enAvant": false,
       "ordreAvant": 0,
       "stock": 25,
-      "surCommande": false
+      "surCommande": false,
+      "code": "100004"
     },
     {
       "id": "prod_toner_85a",
@@ -237,7 +241,8 @@
       "enAvant": false,
       "ordreAvant": 0,
       "stock": 0,
-      "surCommande": false
+      "surCommande": false,
+      "code": "100005"
     },
     {
       "id": "prod_logitech_m185",
@@ -255,7 +260,8 @@
       "enAvant": false,
       "ordreAvant": 0,
       "stock": 0,
-      "surCommande": true
+      "surCommande": true,
+      "code": "100006"
     }
   ],
   "slides": []
