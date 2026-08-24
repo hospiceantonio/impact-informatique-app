@@ -131,7 +131,10 @@ essais à la production sans reconstruire ni republier les APK.
    sable* et choisir un **secret de webhook**. Ne saisissez jamais la
    clé privée : elle ne sert à rien ici.
 2. **Base** : exécuter `supabase/schema.sql` (il porte déjà les tables
-   `commandes`, `commande_lignes` et `paiement`).
+   `commandes`, `commande_lignes` et `paiement`). Sur une base déjà en
+   place, [`supabase/commandes-paiement.sql`](supabase/commandes-paiement.sql)
+   suffit : il ne contient que les commandes et le paiement, et se
+   relance sans danger.
 3. **Fonction Edge**, une seule fois, depuis un ordinateur :
    ```bash
    supabase secrets set KKIAPAY_WEBHOOK_SECRET='votre-secret'
@@ -244,6 +247,7 @@ ou `python -m http.server 5180` à la racine du dépôt.
 impact-informatique-app/
 ├── supabase/
 │   ├── schema.sql            # La base : tables, sécurité, stockage, données de départ
+│   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
 │   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
