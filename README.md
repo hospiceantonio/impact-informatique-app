@@ -79,6 +79,18 @@ Les mêmes applications, installables comme PWA :
 La clé embarquée est la clé **publiable** : elle ne permet que la
 lecture ; toute écriture exige le compte du gérant (règles RLS).
 
+### Savoir où en est la base
+
+[`supabase/etat-des-lieux.sql`](supabase/etat-des-lieux.sql) répond en
+une requête, sans rien modifier : chaque fonctionnalité y est vérifiée
+dans le catalogue de PostgreSQL, et ce qui manque est nommé. Plus
+fiable que de se demander quel fichier a été exécuté et quand.
+
+`schema.sql` **se relance sans danger** : tout y est en `if not exists`
+ou `create or replace`, et aucune donnée de départ ne déclenche un
+garde-fou de l'application — un seul `raise` annulerait tout le fichier,
+l'éditeur SQL de Supabase exécutant l'ensemble d'un bloc.
+
 ## Paiement en ligne (KkiaPay)
 
 Le client remplit un panier, valide, paie par **Mobile Money** (MTN,
@@ -181,6 +193,17 @@ essais à la production sans reconstruire ni republier les APK.
 - **Le client ne se déclare pas payé.** Une commande naît « à payer », et
   le déclencheur `commande_verrous` refuse tout passage à « payée » qui
   ne vienne pas de `marquer_payee()`.
+- **Ce que le téléphone affirme et ce que KkiaPay prouve ne partagent pas
+  une colonne.** L'application peut noter la transaction que KkiaPay lui
+  a répondue — c'est un indice utile à la boutique — mais elle l'écrit
+  dans `transaction_annoncee`. La preuve, elle, vit dans
+  `transaction_id`, que seul le serveur remplit. Mélanger les deux
+  laisserait n'importe qui réclamer la transaction d'un autre pour
+  bloquer son encaissement.
+- **Une commande n'est retrouvée que par la référence que nous avons
+  nous-mêmes confiée à KkiaPay.** Se rabattre sur ce qu'un téléphone
+  annonce laisserait le client choisir quel versement valide quelle
+  commande — un versement de 100 000 réglant une commande de 100 francs.
 - **`marquer_payee()` n'est appelable par personne d'autre que le
   serveur.** `EXECUTE` est révoqué de `public`, `anon` **et**
   `authenticated` — révoquer du seul `public` ne suffirait pas, Supabase
@@ -248,6 +271,7 @@ impact-informatique-app/
 ├── supabase/
 │   ├── schema.sql            # La base : tables, sécurité, stockage, données de départ
 │   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
+│   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase

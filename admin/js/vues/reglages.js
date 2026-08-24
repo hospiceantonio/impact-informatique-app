@@ -221,7 +221,14 @@ const VueReglages = (() => {
   /** Sur quoi portent les réglages affichés : l'enseigne ou une boutique. */
   let cible = "boutique";
 
+  /* Plusieurs rendus peuvent se chevaucher : l'arrivée sur l'écran, la
+     bascule enseigne/boutique, un enregistrement. Seul le plus récent a
+     le droit de peindre. Sans cela, un rendu en retard remplace tout le
+     formulaire — et efface ce que le gérant était en train d'y saisir. */
+  let generation = 0;
+
   async function afficher(vue, params) {
+    const moi = ++generation;
     const boutiques = Store.listerBoutiques();
     const courante = Store.boutiqueCourante();
     /* Sans table des boutiques, il n'y a qu'un jeu de réglages. Et les
@@ -246,16 +253,15 @@ const VueReglages = (() => {
     const configEnDur = typeof CONFIG !== "undefined" && !!CONFIG.SUPABASE_URL;
     const configActuelle = Supabase.configuration() || { url: "", cle: "" };
 
-    /* Les réglages du paiement. Base d'avant les achats intégrés : la
-       carte s'affiche vide plutôt que de faire tomber tout l'écran. */
-    const paiement = (surEnseigne && Supabase.estSuper())
-      ? await Store.lirePaiement().catch(() => ({ actif: false, clePublique: "", bacASable: true }))
-      : { actif: false, clePublique: "", bacASable: true };
 
     /* Enregistrer va dans la ligne de l'enseigne ou dans celle de la
        boutique ouverte, selon l'onglet choisi. */
     const enregistrer = (maj, libelle) =>
       (surEnseigne ? Store.majEnseigne(maj, libelle) : Store.majReglages(maj, libelle));
+
+    /* Un rendu plus récent a pris la main pendant nos lectures : celui-ci
+       n'a plus rien à dire. */
+    if (moi !== generation) return;
 
     vue.innerHTML =
       /* ---------- Enseigne ou boutique : de quoi parle-t-on ? ---------- */
@@ -491,16 +497,16 @@ const VueReglages = (() => {
               "de chaque boutique concernée. Tant que c\'est fermé, le panier existe toujours " +
               "mais la commande part sur WhatsApp, comme avant.</p>" +
             UI.champTexte({ id: "pay-cle", label: "Clé publique KkiaPay",
-              valeur: paiement.clePublique, placeholder: "d1a2b3c4-…",
+              valeur: "", placeholder: "d1a2b3c4-…",
               aide: "Tableau de bord KkiaPay → API KEYS. Cette clé est faite pour être publique ; " +
                     "ne saisissez JAMAIS la clé privée ici." }) +
             UI.interrupteur({ id: "pay-essai", label: "Mode essai (bac à sable)",
-              actif: paiement.bacASable,
+              actif: true,
               aide: "En essai, aucun argent n\'est prélevé et seuls les numéros de test " +
                     "passent (MTN 97000000, Moov 95000000). Attention : essai et production " +
                     "ont chacun leur clé ET leur webhook — les deux se changent ensemble." }) +
             UI.interrupteur({ id: "pay-actif", label: "Ouvrir le paiement aux clients",
-              actif: paiement.actif,
+              actif: false,
               aide: "À n\'ouvrir qu\'une fois un paiement d\'essai réussi de bout en bout." }) +
             '<div class="note-attente" style="margin:12px 0">' + UI.icone("alerte", "ic-sm") +
               " Il reste une étape à faire une seule fois, sur un ordinateur : déployer la " +
@@ -578,6 +584,18 @@ const VueReglages = (() => {
 
     const boutonPaiement = UI.$("#pay-enregistrer");
     if (boutonPaiement) {
+      /* La carte est déjà à l'écran ; ses valeurs arrivent ensuite. Faire
+         attendre TOUT l'écran pour une lecture secondaire le remplacerait
+         sous les doigts de qui a commencé à saisir ailleurs. */
+      Store.lirePaiement().then((p) => {
+        if (moi !== generation) return;   // un autre écran a pris la main
+        const cle = UI.$("#pay-cle");
+        if (!cle) return;
+        cle.value = p.clePublique;
+        UI.$("#pay-essai").checked = p.bacASable;
+        UI.$("#pay-actif").checked = p.actif;
+      }).catch(() => { /* base d'avant les achats intégrés : carte vide */ });
+
       boutonPaiement.onclick = async () => {
         const cle = UI.$("#pay-cle").value.trim();
         const actif = UI.$("#pay-actif").checked;

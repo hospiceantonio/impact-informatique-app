@@ -177,6 +177,8 @@
 
   /* ---------- Démarrage ---------- */
 
+  let ecouteurNavigation = false;
+
   async function ouvrirApplication() {
     const vue = document.getElementById("vue");
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Ouverture du catalogue…</div>';
@@ -210,7 +212,15 @@
       compteSansBoutique(vue);
       return;
     }
-    window.addEventListener("hashchange", naviguer);
+    /* Une seule fois pour toute la vie de la page. On repasse ici à
+       chaque reconnexion : sans ce garde-fou, l'écouteur s'ajoutait à
+       lui-même, et chaque écran finissait par se dessiner deux fois, puis
+       trois — doublant les lectures de la base, et effaçant sous les
+       doigts ce qu'on était en train de saisir. */
+    if (!ecouteurNavigation) {
+      window.addEventListener("hashchange", naviguer);
+      ecouteurNavigation = true;
+    }
     naviguer();
   }
 

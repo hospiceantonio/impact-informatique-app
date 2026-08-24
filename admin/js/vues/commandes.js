@@ -92,7 +92,7 @@ const VueCommandes = (() => {
           : '<div class="cmd-etat cmd-etat-attente">' + UI.icone("horloge", "ic-sm") +
               "<span>" + (c.etat === "annulee" ? "Annulée"
                 : c.etat === "echouee" ? "Paiement non abouti"
-                : c.transactionId
+                : c.transactionAnnoncee
                   ? "Le client dit avoir payé — non confirmé par KkiaPay"
                   : "En attente de paiement") + "</span></div>") +
 
@@ -121,16 +121,17 @@ const VueCommandes = (() => {
           '<a class="btn btn-wa" target="_blank" rel="noopener" href="' +
             Utils.echapper(Utils.lienWhatsApp(c.client.tel, messageClient(c), c.client.indicatif)) +
             '">' + UI.icone("whatsapp") + "Écrire au client</a>" +
-          (attendue && Supabase.estSuper() && c.transactionId
+          (attendue && Supabase.estSuper() && c.transactionAnnoncee
             ? '<button type="button" class="btn btn-clair" data-confirmer="' +
                 Utils.echapper(c.id) + '">' + UI.icone("check") +
                 "Confirmer le paiement à la main</button>"
             : "") +
         "</div>" +
-        (attendue && c.transactionId
-          ? '<p class="aide" style="margin:10px 0 0">Transaction annoncée : <strong>' +
-            Utils.echapper(c.transactionId) + "</strong>. Vérifiez-la dans votre tableau " +
-            "de bord KkiaPay avant de confirmer.</p>"
+        (attendue && c.transactionAnnoncee
+          ? '<p class="aide" style="margin:10px 0 0">Transaction annoncée par le client : ' +
+            "<strong>" + Utils.echapper(c.transactionAnnoncee) + "</strong>. C'est une " +
+            "affirmation, pas une preuve : retrouvez-la dans votre tableau de bord " +
+            "KkiaPay avant de confirmer.</p>"
           : "") +
       "</div>"
     );
@@ -160,7 +161,8 @@ const VueCommandes = (() => {
     /* Les commandes non payées n'intéressent que l'enseigne : une
        boutique n'a pas à courir après un panier abandonné. */
     const attente = Supabase.estSuper()
-      ? commandes.filter((c) => c.etat !== "payee" && (c.transactionId || c.remarque))
+      ? commandes.filter((c) => c.etat !== "payee"
+          && (c.transactionAnnoncee || c.remarque))
       : [];
 
     if (!commandes.length) {

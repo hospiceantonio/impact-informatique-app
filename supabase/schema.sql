@@ -1120,6 +1120,13 @@ create table if not exists public.commandes (
   paye_le      timestamptz,
   cree_le      timestamptz not null default now()
 );
+-- Ce que le TÉLÉPHONE affirme, à ne jamais mélanger avec ce que KkiaPay
+-- PROUVE. La preuve porte un index unique ; si une affirmation venue du
+-- dehors pouvait s'y loger, il suffirait de réclamer la transaction d'un
+-- autre pour bloquer son encaissement.
+alter table public.commandes
+  add column if not exists transaction_annoncee text not null default '';
+
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction KkiaPay ne vaut que pour une commande : c'est ce qui
 -- rend le paiement rejouable sans danger (KkiaPay réessaie 5 fois tant
@@ -1158,6 +1165,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   new.etat := 'a_payer';
   new.transaction_id := '';
+  new.transaction_annoncee := '';
   new.confirme_par := '';
   new.remarque := '';
   new.annonce_le := null;
@@ -1252,6 +1260,7 @@ begin
   or new.client_tel is distinct from old.client_tel
   or new.client_adresse is distinct from old.client_adresse
   or new.transaction_id is distinct from old.transaction_id
+  or new.transaction_annoncee is distinct from old.transaction_annoncee
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
@@ -1459,10 +1468,15 @@ create or replace function public.signaler_transaction(cible text, transaction t
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
+  -- C'est la base qui écrit, au nom d'un client qui n'est pas connecté :
+  -- le verrou de « commandes » doit la reconnaître, sinon l'indice se
+  -- perdrait en silence et la boutique n'aurait rien à chercher.
+  perform set_config('bizzoo.interne', 'oui', true);
   update public.commandes
-     set transaction_id = left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64),
+     set transaction_annoncee =
+           left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64),
          annonce_le = now()
-   where id = cible and etat = 'a_payer' and transaction_id = ''
+   where id = cible and etat = 'a_payer' and transaction_annoncee = ''
      and coalesce(transaction, '') <> '';
 end $$;
 revoke all on function public.signaler_transaction(text, text) from public;
@@ -1486,12 +1500,14 @@ declare
 begin
   if net = '' then return jsonb_build_object('ok', false, 'raison', 'transaction absente'); end if;
 
-  -- Par la référence portée par le paiement ; à défaut, par la
-  -- transaction que le téléphone avait annoncée.
+  -- On ne retrouve la commande QUE par la référence que nous avons
+  -- nous-mêmes confiée à KkiaPay en ouvrant le paiement. Se rabattre sur
+  -- la transaction annoncée par un téléphone laisserait le client
+  -- choisir quel versement valide quelle commande — un versement de
+  -- 100 000 réglant une commande de 100 francs. Sans référence, c'est la
+  -- boutique qui tranche, à la main (confirmer_paiement), avec sous les
+  -- yeux la transaction annoncée.
   select * into c from public.commandes where id = coalesce(reference, '');
-  if not found then
-    select * into c from public.commandes where transaction_id = net;
-  end if;
   if not found then
     -- Un paiement qui ne nous concerne pas n'est pas une erreur.
     return jsonb_build_object('ok', true, 'raison', 'commande inconnue');
@@ -1503,14 +1519,26 @@ begin
 
   perform set_config('bizzoo.paiement', 'oui', true);
 
+  -- Cette transaction est déjà rattachée à une autre commande. On le
+  -- NOTE au lieu de lever une erreur : une erreur ferait réessayer
+  -- KkiaPay cinq fois pour rien, et l'encaissement resterait bloqué.
+  if exists (select 1 from public.commandes a
+              where a.transaction_id = net and a.id <> c.id) then
+    update public.commandes
+       set remarque = 'Transaction ' || net || ' déjà rattachée à une autre commande.'
+     where id = c.id;
+    return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
+  end if;
+
   -- Le montant qui compte est celui que KkiaPay annonce. S'il manque
   -- quelque chose, on ne valide pas : on écrit ce qu'on a reçu, et la
-  -- boutique tranche.
+  -- boutique tranche. La preuve, elle, n'est pas posée : la commande
+  -- n'est pas payée.
   if coalesce(montant, 0) < c.total then
     update public.commandes
-       set transaction_id = net,
-           remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
-                      || ' reçus sur ' || c.total::text || ' attendus.'
+       set remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
+                      || ' reçus sur ' || c.total::text || ' attendus'
+                      || ' (transaction ' || net || ').'
      where id = c.id;
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
@@ -1667,24 +1695,30 @@ update public.produits set reference = 'IMP-0005' where id = 'prod_toner_85a' an
 update public.produits set reference = 'IMP-0006' where id = 'prod_logitech_m185' and reference = '';
 
 -- ---------- Produits d'exemple (supprimables depuis l'app admin) ----------
+-- Aucun n'est « mis en avant » : le garde-fou de la mise en avant exige
+-- un administrateur connecté, et ce fichier s'exécute depuis l'éditeur
+-- SQL, où personne ne l'est. Une donnée de départ qui fait trébucher un
+-- garde-fou de l'application rendrait tout le fichier non rejouable —
+-- or l'éditeur de Supabase annule TOUT à la première erreur.
+-- La boutique choisit elle-même ses produits en avant, depuis l'app.
 insert into public.produits
   (id, boutique_id, nom, description, prix, ancien_prix, categorie_id, sous_categorie_id,
    stock, sur_commande, disponible, en_avant, ordre_avant) values
   ('prod_hp15', 'bou_informatique', 'Ordinateur portable HP 15',
    e'Écran 15,6" HD, processeur Intel Core i5, 8 Go de RAM, SSD 512 Go, Windows 11.\nIdéal pour le bureau, les études et la navigation.\nGarantie boutique, livraison possible à Cotonou.',
-   385000, null, 'cat_ordinateurs', 'sc_portables', 4, false, true, true, 1),
+   385000, null, 'cat_ordinateurs', 'sc_portables', 4, false, true, false, 0),
   ('prod_epson_l3250', 'bou_informatique', 'Imprimante Epson EcoTank L3250',
    e'Multifonction 3 en 1 (impression, copie, scan) à réservoirs d''encre rechargeables.\nWifi intégré, impression depuis le téléphone.\nJusqu''à 4 500 pages noir avec un seul flacon.',
-   145000, 165000, 'cat_imprimantes', 'sc_multifonctions', 2, false, true, true, 2),
+   145000, 165000, 'cat_imprimantes', 'sc_multifonctions', 2, false, true, false, 0),
   ('prod_apc650', 'bou_informatique', 'Onduleur APC Back-UPS 650 VA',
    e'Protège votre ordinateur des coupures et variations de courant.\nAutonomie suffisante pour enregistrer votre travail et éteindre proprement.\nPrises multiples, protection téléphone/ADSL.',
-   42000, null, 'cat_reseau', 'sc_onduleurs', 7, false, true, true, 3),
+   42000, null, 'cat_reseau', 'sc_onduleurs', 7, false, true, false, 0),
   ('prod_usb_kingston64', 'bou_informatique', 'Clé USB Kingston 64 Go',
    e'Clé USB 3.2 rapide et fiable pour vos documents, photos et vidéos.\nCompatible ordinateur, TV et autoradio.',
-   6500, null, 'cat_stockage', 'sc_cles_usb', 25, false, true, true, 4),
+   6500, null, 'cat_stockage', 'sc_cles_usb', 25, false, true, false, 0),
   ('prod_toner_85a', 'bou_informatique', 'Toner HP 85A (CE285A)',
    e'Cartouche de toner noir d''origine pour HP LaserJet P1102, M1132, M1212…\nEnviron 1 600 pages.',
-   28000, 32000, 'cat_consommables', 'sc_toners', 0, false, false, true, 5),
+   28000, 32000, 'cat_consommables', 'sc_toners', 0, false, false, false, 0),
   ('prod_logitech_m185', 'bou_informatique', 'Souris sans fil Logitech M185',
    e'Souris sans fil compacte avec récepteur USB nano.\nJusqu''à 12 mois d''autonomie avec une pile AA.',
    8500, null, 'cat_accessoires', 'sc_claviers_souris', 12, false, true, false, 0)

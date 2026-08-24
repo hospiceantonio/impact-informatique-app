@@ -1059,7 +1059,10 @@ const Store = (() => {
       montant: lignes.reduce((somme, x) => somme + x.prix * x.quantite, 0),
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
+      /* Ce que KkiaPay a PROUVÉ, et ce que le téléphone du client a
+         seulement AFFIRMÉ : deux choses différentes, deux colonnes. */
       transactionId: l.transaction_id || "",
+      transactionAnnoncee: l.transaction_annoncee || "",
       confirmePar: l.confirme_par || "",
       remarque: l.remarque || "",
       annonceLe: l.annonce_le ? Date.parse(l.annonce_le) || 0 : 0,

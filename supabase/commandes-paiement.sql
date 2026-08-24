@@ -95,6 +95,13 @@ create table if not exists public.commandes (
   paye_le      timestamptz,
   cree_le      timestamptz not null default now()
 );
+-- Ce que le TÉLÉPHONE affirme, à ne jamais mélanger avec ce que KkiaPay
+-- PROUVE. La preuve porte un index unique ; si une affirmation venue du
+-- dehors pouvait s'y loger, il suffirait de réclamer la transaction d'un
+-- autre pour bloquer son encaissement.
+alter table public.commandes
+  add column if not exists transaction_annoncee text not null default '';
+
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction KkiaPay ne vaut que pour une commande : c'est ce qui
 -- rend le paiement rejouable sans danger (KkiaPay réessaie 5 fois tant
@@ -135,6 +142,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   new.etat := 'a_payer';
   new.transaction_id := '';
+  new.transaction_annoncee := '';
   new.confirme_par := '';
   new.remarque := '';
   new.annonce_le := null;
@@ -229,6 +237,7 @@ begin
   or new.client_tel is distinct from old.client_tel
   or new.client_adresse is distinct from old.client_adresse
   or new.transaction_id is distinct from old.transaction_id
+  or new.transaction_annoncee is distinct from old.transaction_annoncee
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
@@ -442,10 +451,15 @@ create or replace function public.signaler_transaction(cible text, transaction t
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
+  -- C'est la base qui écrit, au nom d'un client qui n'est pas connecté :
+  -- le verrou de « commandes » doit la reconnaître, sinon l'indice se
+  -- perdrait en silence et la boutique n'aurait rien à chercher.
+  perform set_config('bizzoo.interne', 'oui', true);
   update public.commandes
-     set transaction_id = left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64),
+     set transaction_annoncee =
+           left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64),
          annonce_le = now()
-   where id = cible and etat = 'a_payer' and transaction_id = ''
+   where id = cible and etat = 'a_payer' and transaction_annoncee = ''
      and coalesce(transaction, '') <> '';
 end $$;
 revoke all on function public.signaler_transaction(text, text) from public;
@@ -471,12 +485,14 @@ declare
 begin
   if net = '' then return jsonb_build_object('ok', false, 'raison', 'transaction absente'); end if;
 
-  -- Par la référence portée par le paiement ; à défaut, par la
-  -- transaction que le téléphone avait annoncée.
+  -- On ne retrouve la commande QUE par la référence que nous avons
+  -- nous-mêmes confiée à KkiaPay en ouvrant le paiement. Se rabattre sur
+  -- la transaction annoncée par un téléphone laisserait le client
+  -- choisir quel versement valide quelle commande — un versement de
+  -- 100 000 réglant une commande de 100 francs. Sans référence, c'est la
+  -- boutique qui tranche, à la main (confirmer_paiement), avec sous les
+  -- yeux la transaction annoncée.
   select * into c from public.commandes where id = coalesce(reference, '');
-  if not found then
-    select * into c from public.commandes where transaction_id = net;
-  end if;
   if not found then
     -- Un paiement qui ne nous concerne pas n'est pas une erreur.
     return jsonb_build_object('ok', true, 'raison', 'commande inconnue');
@@ -488,14 +504,26 @@ begin
 
   perform set_config('bizzoo.paiement', 'oui', true);
 
+  -- Cette transaction est déjà rattachée à une autre commande. On le
+  -- NOTE au lieu de lever une erreur : une erreur ferait réessayer
+  -- KkiaPay cinq fois pour rien, et l'encaissement resterait bloqué.
+  if exists (select 1 from public.commandes a
+              where a.transaction_id = net and a.id <> c.id) then
+    update public.commandes
+       set remarque = 'Transaction ' || net || ' déjà rattachée à une autre commande.'
+     where id = c.id;
+    return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
+  end if;
+
   -- Le montant qui compte est celui que KkiaPay annonce. S'il manque
   -- quelque chose, on ne valide pas : on écrit ce qu'on a reçu, et la
-  -- boutique tranche.
+  -- boutique tranche. La preuve, elle, n'est pas posée : la commande
+  -- n'est pas payée.
   if coalesce(montant, 0) < c.total then
     update public.commandes
-       set transaction_id = net,
-           remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
-                      || ' reçus sur ' || c.total::text || ' attendus.'
+       set remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
+                      || ' reçus sur ' || c.total::text || ' attendus'
+                      || ' (transaction ' || net || ').'
      where id = c.id;
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
