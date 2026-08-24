@@ -14,7 +14,7 @@
 #
 # Ctrl+C pour arrêter.
 # =========================================================
-param([int]$Port = 5180)
+param([int]$Port = 5180, [switch]$SansNavigateur)
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
@@ -40,6 +40,10 @@ Write-Host "Astuce : reduisez la fenetre du navigateur sous 1024 px de large" -F
 Write-Host "         pour voir exactement ce que voit un telephone." -ForegroundColor DarkGray
 Write-Host "Ctrl+C pour arreter." -ForegroundColor DarkGray
 Write-Host ""
+
+# Le navigateur s'ouvre tout seul : c'est la raison d'etre du script.
+# -SansNavigateur pour s'en passer.
+if (-not $SansNavigateur) { Start-Process "http://localhost:$Port/" }
 
 # Le jeu de caracteres est annonce pour les fichiers texte : sans lui,
 # les accents des ecrans francais s'affichent de travers.

@@ -59,9 +59,19 @@ faite ici arrive des deux côtés.
 
 ### Les ouvrir sur son ordinateur
 
+**Windows — double-cliquer sur `DEMARRER-BIZZOO.bat`.** Une fenêtre noire
+s'ouvre, le navigateur suit. Pour arrêter : fermer la fenêtre noire.
+
+> Pourquoi un `.bat` plutôt que le `.ps1` directement ? Windows **refuse
+> par défaut d'exécuter un script PowerShell** — `.\serve.ps1` répond
+> « l'exécution de scripts est désactivée sur ce système ». Le `.bat`
+> lance PowerShell avec une exception valable pour ce seul lancement,
+> sans rien changer aux réglages de la machine.
+
+Linux et macOS :
+
 ```bash
-bash tools/servir.sh        # Linux, macOS
-.\serve.ps1                 # Windows
+bash tools/servir.sh
 ```
 
 Puis, dans le navigateur :
@@ -478,7 +488,8 @@ impact-informatique-app/
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
 ├── index.html                # L'accueil du site : les deux portes, boutique et admin
-├── serve.ps1                 # Ouvrir les deux applications en local (Windows)
+├── DEMARRER-BIZZOO.bat       # Windows : double-cliquer pour tout ouvrir en local
+├── serve.ps1                 # Le serveur local que le .bat appelle (Windows)
 └── tools/
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes

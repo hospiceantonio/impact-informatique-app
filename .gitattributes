@@ -1,0 +1,11 @@
+# Les scripts Windows gardent leurs fins de ligne Windows, quelle que
+# soit la machine qui les récupère : cmd.exe et PowerShell s'attendent
+# à des CRLF, et un fichier converti en LF peut cesser de fonctionner
+# sans message clair.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Les scripts Unix gardent les leurs, pour la raison inverse : bash
+# refuse un « #!/usr/bin/env bash » suivi d'un retour chariot.
+*.sh text eol=lf
