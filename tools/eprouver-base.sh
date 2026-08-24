@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# =========================================================
+# Éprouve supabase/schema.sql sur un VRAI PostgreSQL.
+#
+# Les tests des applications simulent la base : ils valident
+# l'écran, jamais les déclencheurs — ceux-ci ne s'exécutent
+# que pour de vrai. Ce banc d'essai monte un PostgreSQL
+# jetable, y pose le décor de Supabase (rôles, auth, storage),
+# charge schema.sql tel quel, puis essaie de forcer chaque
+# porte.
+#
+# Usage :  tools/eprouver-base.sh
+#
+# Sortie 0 : tout tient. Sortie 1 : une porte a cédé, et le
+# message dit laquelle.
+# =========================================================
+set -euo pipefail
+
+RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PORT="${PGPORT_ESSAI:-5433}"
+SOCLE="${TMPDIR:-/tmp}/bizzoo-essai-$$"
+export PGHOST="$SOCLE/socket"
+
+rouge() { printf '\033[31m%s\033[0m\n' "$*"; }
+vert()  { printf '\033[32m%s\033[0m\n' "$*"; }
+gris()  { printf '\033[90m%s\033[0m\n' "$*"; }
+
+# ---------- Trouver PostgreSQL ----------
+if command -v initdb >/dev/null 2>&1; then
+  BIN=""
+else
+  BIN="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)"
+  if [ -z "$BIN" ] || [ ! -x "$BIN/initdb" ]; then
+    rouge "PostgreSQL introuvable."
+    echo "  Debian/Ubuntu : sudo apt-get install -y postgresql"
+    echo "  macOS         : brew install postgresql@16"
+    exit 2
+  fi
+  export PATH="$BIN:$PATH"
+fi
+gris "PostgreSQL : $(postgres --version)"
+
+# ---------- Un serveur jetable, rien qu'à nous ----------
+# Il vit dans un dossier temporaire et disparaît à la sortie,
+# quelle qu'en soit la raison.
+DONNEES="$SOCLE/donnees"
+mkdir -p "$DONNEES" "$PGHOST"
+chmod 700 "$DONNEES"
+
+nettoyer() {
+  pg_ctl -D "$DONNEES" -m immediate stop >/dev/null 2>&1 || true
+  rm -rf "$SOCLE"
+}
+trap nettoyer EXIT
+
+# Sous root (conteneurs d'intégration continue), PostgreSQL refuse de
+# démarrer : on repasse par un compte ordinaire.
+COMME=""
+if [ "$(id -u)" = "0" ]; then
+  if id postgres >/dev/null 2>&1; then
+    chown -R postgres "$SOCLE"
+    COMME="postgres"
+  else
+    rouge "Ne pas lancer ce script en root sans compte « postgres »."
+    exit 2
+  fi
+fi
+
+lancer() {
+  if [ -n "$COMME" ]; then
+    su "$COMME" -c "PATH='$PATH' $*"
+  else
+    eval "$@"
+  fi
+}
+
+gris "Création du serveur d'essai…"
+lancer "initdb -D '$DONNEES' -A trust -E UTF8 --locale=C" >/dev/null
+# Aucune écoute réseau : on passe par une prise Unix, dans un dossier
+# qui n'appartient qu'à cette exécution. Deux essais lancés coup sur coup
+# ne peuvent donc pas se disputer un port.
+lancer "pg_ctl -D '$DONNEES' -o \"-k $PGHOST -p $PORT -c listen_addresses='' -c fsync=off -c full_page_writes=off\" -w start" >/dev/null
+
+PSQL="psql -h '$PGHOST' -p $PORT -d postgres -v ON_ERROR_STOP=1 --no-psqlrc"
+# Les « existe déjà, ignoré » d'un second passage n'apprennent rien :
+# on ne veut voir que ce que les essais racontent.
+PSQL_MUET="$PSQL -c 'set client_min_messages = warning' -q"
+
+charger() {
+  gris "  → $(basename "$1")"
+  lancer "$PSQL_MUET -f '$1'" >/dev/null 2>&1
+}
+
+echo
+gris "Le décor de Supabase, puis le schéma tel qu'il part chez le client :"
+charger "$RACINE/supabase/tests/00-plateforme.sql"
+
+# Dans l'ordre où cela se passe vraiment : le gérant crée d'abord son
+# compte dans Supabase, PUIS exécute schema.sql — qui fait de lui le
+# superadministrateur. L'inverse le laisserait dehors.
+lancer "$PSQL_MUET -c \"insert into auth.users (id, email) values
+  ('11111111-1111-1111-1111-111111111111', 'enseigne@bizzoo.bj')
+  on conflict do nothing;\"" >/dev/null 2>&1
+
+charger "$RACINE/supabase/schema.sql"
+
+# Une base se relance : le fichier doit pouvoir repasser sans rien casser.
+gris "  → schema.sql, une seconde fois (rejouabilité)"
+lancer "$PSQL_MUET -f '$RACINE/supabase/schema.sql'" >/dev/null 2>&1
+
+# Les comptes suivants naissent modérateurs et inactifs, comme ceux que
+# l'on crée depuis l'application : c'est à l'enseigne de les élever.
+lancer "$PSQL_MUET -c \"insert into auth.users (id, email) values
+  ('22222222-2222-2222-2222-222222222222', 'chef-boutique@bizzoo.bj'),
+  ('33333333-3333-3333-3333-333333333333', 'equipe@bizzoo.bj')
+  on conflict do nothing;\"" >/dev/null 2>&1
+
+echo
+ECHECS=0
+SORTIE="$SOCLE/sortie.txt"
+for fichier in "$RACINE"/supabase/tests/[1-9]*.sql; do
+  [ -e "$fichier" ] || continue
+  echo "── $(basename "$fichier")"
+  if lancer "$PSQL -f '$fichier'" >"$SORTIE" 2>&1; then
+    sed -n 's/^psql:.*: NOTICE:  //p' "$SORTIE"
+  else
+    sed -n 's/^psql:.*: NOTICE:  //p' "$SORTIE"
+    echo
+    grep -E "ÉCHEC|ERROR|ERREUR" "$SORTIE" | head -8
+    ECHECS=$((ECHECS + 1))
+  fi
+  echo
+done
+
+if [ "$ECHECS" -gt 0 ]; then
+  rouge "La base a laissé passer quelque chose, ou un essai n'a pas pu aller au bout."
+  exit 1
+fi
+
+vert "La base tient : schema.sql se rejoue, et chaque porte forcée a résisté ✔"

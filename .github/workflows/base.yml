@@ -1,0 +1,38 @@
+# Éprouve la base sur un vrai PostgreSQL à chaque modification du
+# schéma. Les tests des applications simulent la base : ils valident
+# l'écran, jamais les déclencheurs — ceux-ci ne s'exécutent que pour de
+# vrai. C'est ici qu'on essaie de forcer les portes.
+name: Éprouver la base
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "supabase/**"
+      - "tools/eprouver-base.sh"
+      - ".github/workflows/base.yml"
+  pull_request:
+    paths:
+      - "supabase/**"
+
+concurrency:
+  group: base-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eprouver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: PostgreSQL
+        run: |
+          if ! ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql
+          fi
+          ls -d /usr/lib/postgresql/*/bin | tail -1
+
+      - name: Forcer les portes
+        run: bash tools/eprouver-base.sh

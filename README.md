@@ -79,6 +79,38 @@ Les mêmes applications, installables comme PWA :
 La clé embarquée est la clé **publiable** : elle ne permet que la
 lecture ; toute écriture exige le compte du gérant (règles RLS).
 
+### Éprouver la base avant de la livrer
+
+```bash
+tools/eprouver-base.sh
+```
+
+Monte un PostgreSQL jetable, y pose le décor de Supabase (rôles `anon`
+et `authenticated`, schéma `auth`, stockage, temps réel), charge
+`schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
+qu'il se rejoue —, puis essaie de forcer chaque porte. Environ
+80 vérifications ; la sortie nomme celle qui cède.
+
+Pourquoi un vrai moteur : les tests des applications simulent la base.
+Ils valident l'écran, jamais les **déclencheurs** — ceux-ci ne
+s'exécutent que pour de vrai. Quatre défauts leur avaient échappé, dont
+un qui ne se serait manifesté qu'au premier vrai paiement.
+
+Deux règles pour que ce banc garde sa valeur :
+
+- **On simule le décor, jamais la serrure.** RLS, déclencheurs et
+  fonctions viennent tels quels de `schema.sql`. Le jour où l'on
+  simulerait l'un d'eux, le banc ne prouverait plus rien.
+- **Un essai doit passer par le compte qui a vraiment la main.** Essayer
+  de forcer une porte avec un compte que le *premier* garde-fou arrête
+  déjà, c'est croire éprouver le second. Retirer « Seul KkiaPay déclare
+  un paiement » n'a d'abord rien cassé : l'essai se heurtait plus tôt à
+  « seule l'équipe suit une commande ». Sabotez volontairement une règle
+  et vérifiez que le banc rougit — sinon, l'essai regarde ailleurs.
+
+Le même banc tourne à chaque poussée touchant `supabase/`
+(`.github/workflows/base.yml`).
+
 ### Savoir où en est la base
 
 [`supabase/etat-des-lieux.sql`](supabase/etat-des-lieux.sql) répond en
@@ -272,6 +304,7 @@ impact-informatique-app/
 │   ├── schema.sql            # La base : tables, sécurité, stockage, données de départ
 │   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
+│   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
 │   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
@@ -299,6 +332,7 @@ impact-informatique-app/
 ├── apk/                      # APK construits par GitHub Actions
 └── tools/
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
+    ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     └── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
 ```
 
