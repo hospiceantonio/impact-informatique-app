@@ -83,17 +83,28 @@ alter table public.commande_lignes add column if not exists code text not null d
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p public.produits%rowtype;
+  p    public.produits%rowtype;
+  achat int;
+  taux  numeric;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
     raise exception 'Produit introuvable : %', coalesce(new.produit_id, '(aucun)');
   end if;
+  select greatest(0, coalesce(prix_grossiste, 0))::int into achat
+    from public.produits_prive where produit_id = p.id;
+  select coalesce(taux_marge, 0) into taux
+    from public.boutiques where id = p.boutique_id;
+
   new.boutique_id := p.boutique_id;
   new.nom         := p.nom;
   new.code        := coalesce(p.code, '');
   new.reference   := coalesce(p.reference, '');
   new.prix        := coalesce(p.prix, 0)::int;
+  -- Ce que la boutique touche, et la marge du jour : figés avec le
+  -- reste. Les comptes d'hier ne se réécrivent pas.
+  new.prix_bizzoo := coalesce(achat, 0);
+  new.taux_marge  := taux;
   new.etat        := 'nouvelle';
   return new;
 end $$;
@@ -108,6 +119,8 @@ begin
   or new.code        is distinct from old.code
   or new.reference   is distinct from old.reference
   or new.prix        is distinct from old.prix
+  or new.prix_bizzoo is distinct from old.prix_bizzoo
+  or new.taux_marge  is distinct from old.taux_marge
   or new.quantite    is distinct from old.quantite then
     raise exception 'Une ligne de commande ne change que d''état : ce qui a été vendu est vendu';
   end if;

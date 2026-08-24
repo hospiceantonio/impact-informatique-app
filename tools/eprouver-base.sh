@@ -108,6 +108,28 @@ charger "$RACINE/supabase/schema.sql"
 gris "  → schema.sql, une seconde fois (rejouabilité)"
 lancer "$PSQL_MUET -f '$RACINE/supabase/schema.sql'" >/dev/null 2>&1
 
+SORTIE="$SOCLE/sortie.txt"
+
+# Les fichiers qu'on envoie au gérant se collent dans l'éditeur SQL de
+# Supabase, qui exécute TOUT d'un bloc et annule TOUT à la première
+# erreur. On les rejoue donc ici comme lui : en une seule transaction,
+# et SANS COMPTE CONNECTÉ — c'est ainsi qu'une simple requête de
+# vérification appelant une fonction réservée fait échouer le fichier
+# entier, sans rien laisser derrière elle.
+echo
+gris "Les fichiers à coller dans l'éditeur SQL, rejoués comme lui :"
+for migration in "$RACINE"/supabase/*.sql; do
+  [ "$(basename "$migration")" = "schema.sql" ] && continue
+  gris "  → $(basename "$migration")"
+  if ! lancer "$PSQL_MUET --single-transaction -f '$migration'" >"$SORTIE" 2>&1; then
+    echo
+    rouge "$(basename "$migration") ne passe pas dans l'éditeur SQL de Supabase :"
+    grep -E "ERROR|ERREUR" "$SORTIE" | head -3
+    rouge "Tout le fichier serait annulé, et le gérant n'aurait rien."
+    exit 1
+  fi
+done
+
 # Les comptes suivants naissent modérateurs et inactifs, comme ceux que
 # l'on crée depuis l'application : c'est à l'enseigne de les élever.
 lancer "$PSQL_MUET -c \"insert into auth.users (id, email) values
@@ -117,7 +139,6 @@ lancer "$PSQL_MUET -c \"insert into auth.users (id, email) values
 
 echo
 ECHECS=0
-SORTIE="$SOCLE/sortie.txt"
 for fichier in "$RACINE"/supabase/tests/[1-9]*.sql; do
   [ -e "$fichier" ] || continue
   echo "── $(basename "$fichier")"

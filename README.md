@@ -88,15 +88,17 @@ tools/eprouver-base.sh
 Monte un PostgreSQL jetable, y pose le décor de Supabase (rôles `anon`
 et `authenticated`, schéma `auth`, stockage, temps réel), charge
 `schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
-qu'il se rejoue —, puis essaie de forcer chaque porte. Environ
-80 vérifications ; la sortie nomme celle qui cède.
+qu'il se rejoue —, **rejoue ensuite chaque fichier de `supabase/` comme
+le fait l'éditeur SQL** (tout d'un bloc, sans compte connecté), puis
+essaie de forcer chaque porte. Environ 120 vérifications ; la sortie
+nomme celle qui cède.
 
 Pourquoi un vrai moteur : les tests des applications simulent la base.
 Ils valident l'écran, jamais les **déclencheurs** — ceux-ci ne
-s'exécutent que pour de vrai. Quatre défauts leur avaient échappé, dont
-un qui ne se serait manifesté qu'au premier vrai paiement.
+s'exécutent que pour de vrai. Six défauts leur avaient échappé, dont un
+qui ne se serait manifesté qu'au premier vrai paiement.
 
-Deux règles pour que ce banc garde sa valeur :
+Trois règles pour que ce banc garde sa valeur :
 
 - **On simule le décor, jamais la serrure.** RLS, déclencheurs et
   fonctions viennent tels quels de `schema.sql`. Le jour où l'on
@@ -107,6 +109,16 @@ Deux règles pour que ce banc garde sa valeur :
   un paiement » n'a d'abord rien cassé : l'essai se heurtait plus tôt à
   « seule l'équipe suit une commande ». Sabotez volontairement une règle
   et vérifiez que le banc rougit — sinon, l'essai regarde ailleurs.
+- **Un fichier envoyé au gérant doit passer sans compte connecté, et ne
+  jamais porter une fonction périmée.** L'éditeur SQL de Supabase exécute
+  tout d'un bloc et **annule tout à la première erreur** : une simple
+  requête de vérification appelant une fonction réservée à l'enseigne
+  fait échouer le fichier entier, et le gérant n'obtient rien. Et comme
+  les fichiers se rejouent dans l'ordre alphabétique, celui qui garde une
+  ancienne version d'une fonction défait en silence ce qu'un autre venait
+  de poser. `node tools/aligner-migrations.js` recopie dans chaque
+  fichier le corps que `schema.sql` donne à la fonction : `schema.sql`
+  reste la seule source de vérité.
 
 Le même banc tourne à chaque poussée touchant `supabase/`
 (`.github/workflows/base.yml`).
@@ -430,6 +442,7 @@ impact-informatique-app/
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
 └── tools/
+    ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     └── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)

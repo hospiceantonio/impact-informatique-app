@@ -223,4 +223,17 @@ select column_name as "colonne", data_type as "type"
 select nom as "boutique", taux_marge as "marge BIZZOO (%)" from public.boutiques order by ordre;
 
 -- 4. Ce que les ventes ont rapporté jusqu'ici (vide au départ : normal).
-select * from public.statistiques_ventes();
+--    On lit les lignes directement, sans passer par « statistiques_ventes » :
+--    cette fonction est réservée à l'enseigne CONNECTÉE, et l'éditeur SQL
+--    n'est connecté à aucun compte. L'appeler ici ferait échouer tout le
+--    fichier — et l'éditeur annule TOUT le bloc à la première erreur.
+select coalesce(b.nom, '(sans boutique)')             as "boutique",
+       sum(l.quantite)                                as "articles vendus",
+       sum(l.quantite * l.prix)                       as "encaissé",
+       sum(l.quantite * l.prix_bizzoo)                as "reversé",
+       sum(l.quantite * (l.prix - l.prix_bizzoo))     as "bénéfice BIZZOO"
+  from public.commande_lignes l
+  join public.commandes c on c.id = l.commande_id
+  left join public.boutiques b on b.id = l.boutique_id
+ where c.etat = 'payee' and l.etat <> 'annulee'
+ group by 1 order by 5 desc;

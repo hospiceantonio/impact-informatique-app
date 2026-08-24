@@ -163,16 +163,28 @@ create trigger commandes_a_l_ecriture
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p public.produits%rowtype;
+  p    public.produits%rowtype;
+  achat int;
+  taux  numeric;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
     raise exception 'Produit introuvable : %', coalesce(new.produit_id, '(aucun)');
   end if;
+  select greatest(0, coalesce(prix_grossiste, 0))::int into achat
+    from public.produits_prive where produit_id = p.id;
+  select coalesce(taux_marge, 0) into taux
+    from public.boutiques where id = p.boutique_id;
+
   new.boutique_id := p.boutique_id;
   new.nom         := p.nom;
+  new.code        := coalesce(p.code, '');
   new.reference   := coalesce(p.reference, '');
   new.prix        := coalesce(p.prix, 0)::int;
+  -- Ce que la boutique touche, et la marge du jour : figés avec le
+  -- reste. Les comptes d'hier ne se réécrivent pas.
+  new.prix_bizzoo := coalesce(achat, 0);
+  new.taux_marge  := taux;
   new.etat        := 'nouvelle';
   return new;
 end $$;
@@ -267,8 +279,11 @@ begin
   or new.boutique_id is distinct from old.boutique_id
   or new.produit_id  is distinct from old.produit_id
   or new.nom         is distinct from old.nom
+  or new.code        is distinct from old.code
   or new.reference   is distinct from old.reference
   or new.prix        is distinct from old.prix
+  or new.prix_bizzoo is distinct from old.prix_bizzoo
+  or new.taux_marge  is distinct from old.taux_marge
   or new.quantite    is distinct from old.quantite then
     raise exception 'Une ligne de commande ne change que d''état : ce qui a été vendu est vendu';
   end if;
@@ -337,7 +352,6 @@ declare
   qte      int;
   p        public.produits%rowtype;
   devises  text[];
-  combien  int := 0;
   sortie   jsonb;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
@@ -351,8 +365,6 @@ begin
     raise exception 'Un numéro de téléphone est nécessaire pour vous joindre.';
   end if;
 
-  -- Ce qui suit est écrit par la base pour elle-même : le total et la
-  -- monnaie. Le verrou de « commandes » le reconnaît à ce drapeau.
   perform set_config('bizzoo.interne', 'oui', true);
 
   insert into public.commandes
@@ -371,22 +383,16 @@ begin
     if not found then
       raise exception 'Un des produits de votre panier n''existe plus.';
     end if;
-    -- Un produit dont il ne reste rien, et qui n'est ni sur commande ni
-    -- annoncé en réassort, ne se paie pas : la boutique ne pourrait pas
-    -- le remettre.
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
     end if;
-    combien := combien + 1;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
     insert into public.commande_lignes (id, commande_id, produit_id, quantite)
     values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
   end loop;
 
-  -- Deux boutiques qui ne comptent pas dans la même monnaie ne se
-  -- paient pas d'un seul versement.
   if (select count(distinct d) from unnest(devises) d) > 1 then
     raise exception 'Ces produits ne se paient pas dans la même monnaie : commandez boutique par boutique.';
   end if;
@@ -405,8 +411,9 @@ begin
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
-                     jsonb_agg(jsonb_build_object('nom', l.nom, 'reference', l.reference,
-                       'prix', l.prix, 'quantite', l.quantite) order by l.nom) as lignes
+                     jsonb_agg(jsonb_build_object('nom', l.nom, 'code', l.code,
+                       'reference', l.reference, 'prix', l.prix,
+                       'quantite', l.quantite) order by l.nom) as lignes
                 from public.commande_lignes l
                where l.commande_id = c.id
                group by l.boutique_id) g), '[]'::jsonb))
