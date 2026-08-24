@@ -1009,6 +1009,150 @@ const Store = (() => {
   const retirerDemande = (id) =>
     Supabase.requete("DELETE", "demandes?id=eq." + encodeURIComponent(id));
 
+  /* =====================================================
+     Les commandes des clients
+
+     Un client remplit son panier dans l'application BIZZOO,
+     paie par Mobile Money, et sa commande arrive ici. Elle se
+     répartit entre les boutiques concernées : chacune ne voit
+     que SES lignes — c'est la base qui le décide, pas cet
+     écran.
+
+     Rien de ce qui touche à l'argent ne s'écrit d'ici : ni le
+     prix, ni le total, ni « payée ». La boutique fait avancer
+     ses lignes — vue, préparée, remise —, c'est tout.
+     ===================================================== */
+
+  const ETATS_LIGNE = {
+    nouvelle: { nom: "Nouvelle", classe: "badge-nouvelle", suivant: "Marquer vue" },
+    vue: { nom: "Vue", classe: "badge-commande", suivant: "Marquer préparée" },
+    preparee: { nom: "Préparée", classe: "badge-approvisionnement", suivant: "Marquer remise" },
+    remise: { nom: "Remise au client", classe: "badge-ok", suivant: "" },
+    annulee: { nom: "Annulée", classe: "badge-annulee", suivant: "" },
+  };
+  /** Ce qui vient après, quand la boutique fait avancer une ligne. */
+  const SUITE_LIGNE = { nouvelle: "vue", vue: "preparee", preparee: "remise" };
+
+  function commandeDepuisLigne(l) {
+    const lignes = (l.commande_lignes || []).map((x) => ({
+      id: x.id,
+      boutiqueId: x.boutique_id || "",
+      nomBoutique: (lireBoutique(x.boutique_id) || {}).nomBoutique || "",
+      produitId: x.produit_id || "",
+      nom: x.nom || "", reference: x.reference || "",
+      prix: Number(x.prix) || 0,
+      quantite: Number(x.quantite) || 1,
+      etat: x.etat || "nouvelle",
+    }));
+    return {
+      id: l.id,
+      numero: l.numero || "",
+      client: {
+        nom: l.client_nom || "", tel: l.client_tel || "",
+        indicatif: l.client_indicatif || "229",
+        adresse: l.client_adresse || "",
+      },
+      note: l.note || "",
+      /* Le total de la commande entière ; « montant » ne compte que ce
+         qui revient à la boutique qui regarde. */
+      total: Number(l.total) || 0,
+      montant: lignes.reduce((somme, x) => somme + x.prix * x.quantite, 0),
+      devise: l.devise || "FCFA",
+      etat: l.etat || "a_payer",
+      transactionId: l.transaction_id || "",
+      confirmePar: l.confirme_par || "",
+      remarque: l.remarque || "",
+      annonceLe: l.annonce_le ? Date.parse(l.annonce_le) || 0 : 0,
+      payeLe: l.paye_le ? Date.parse(l.paye_le) || 0 : 0,
+      creeLe: versMs(l.cree_le),
+      lignes,
+    };
+  }
+
+  /**
+   * Les commandes qui concernent le compte. La base ne renvoie que les
+   * lignes de sa boutique : une commande partagée avec une autre
+   * boutique arrive donc amputée de ce qui ne le regarde pas — c'est
+   * voulu.
+   *
+   * `options.etat` : « payee » pour ne voir que ce qui est réglé.
+   */
+  async function listerCommandes(options) {
+    const o = options || {};
+    let chemin = "commandes?select=*,commande_lignes(*)&order=cree_le.desc" +
+      "&limit=" + (o.combien || 100);
+    if (o.etat) chemin += "&etat=eq." + encodeURIComponent(o.etat);
+    const lignes = await Supabase.requete("GET", chemin, undefined, { avecSession: true });
+    return (lignes || [])
+      .map(commandeDepuisLigne)
+      /* Une commande dont la base n'a renvoyé aucune ligne ne parle pas
+         de cette boutique : elle n'a rien à faire à l'écran. */
+      .filter((c) => c.lignes.length);
+  }
+
+  /** Combien de lignes payées attendent encore d'être préparées. */
+  async function commandesEnAttente() {
+    const lignes = await Supabase.requete("GET",
+      "commandes?select=id,etat,commande_lignes(etat)&etat=eq.payee&limit=200",
+      undefined, { avecSession: true });
+    let combien = 0;
+    for (const c of lignes || []) {
+      if ((c.commande_lignes || []).some((l) => l.etat === "nouvelle" || l.etat === "vue")) {
+        combien++;
+      }
+    }
+    return combien;
+  }
+
+  /** Faire avancer une ligne. Seul son état bouge : la base y veille. */
+  async function avancerLigne(ligneId, etat) {
+    await Supabase.requete("PATCH",
+      "commande_lignes?id=eq." + encodeURIComponent(ligneId), { etat });
+    return etat;
+  }
+
+  /**
+   * Se porter garant d'un paiement que KkiaPay n'a pas confirmé. C'est
+   * le filet quand la notification se perd : le superadministrateur
+   * vérifie dans son tableau de bord KkiaPay, puis signe — et la
+   * commande garde la trace de qui a signé.
+   */
+  async function confirmerPaiement(id) {
+    await Supabase.rpc("confirmer_paiement", { cible: id });
+    journaliser("commande", "modification",
+      "Paiement confirmé à la main", id, undefined, null);
+  }
+
+  /* ---------- Le paiement en ligne ----------
+     La clé publique de KkiaPay vit en base, pas dans le code : on passe
+     des essais à la production sans reconstruire les applications.
+     Chez KkiaPay, bac à sable et production sont deux mondes séparés —
+     clés différentes, webhooks différents. Les trois interrupteurs se
+     poussent ensemble. */
+
+  async function lirePaiement() {
+    const lignes = await Supabase.requete("GET", "paiement?select=*&id=eq.1");
+    const l = (lignes || [])[0] || {};
+    return {
+      actif: l.actif === true,
+      clePublique: l.cle_publique || "",
+      bacASable: l.bac_a_sable !== false,
+    };
+  }
+
+  async function majPaiement(maj) {
+    await Supabase.requete("PATCH", "paiement?id=eq.1", {
+      actif: !!maj.actif,
+      cle_publique: (maj.clePublique || "").trim(),
+      bac_a_sable: !!maj.bacASable,
+      maj_le: new Date().toISOString(),
+    });
+    journaliser("boutique", "modification",
+      "Paiement en ligne " + (maj.actif ? "activé" : "désactivé") +
+      (maj.bacASable ? " (mode essai)" : " (production)"),
+      "KkiaPay", undefined, null);
+  }
+
   /** Le filtre « seulement ma boutique », ajouté à chaque lecture. */
   const filtreBoutique = () =>
     (boutiqueId ? "boutique_id=eq." + encodeURIComponent(boutiqueId) : "");
@@ -2035,6 +2179,8 @@ const Store = (() => {
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
+    listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
+    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
     annulerAction,

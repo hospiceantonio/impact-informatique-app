@@ -775,6 +775,129 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .visionneuse-compteur:empty{display:none}
 
+/* ---------- Panier, commande, reçu ---------- */
+/* Le bouton du panier vit dans la barre du haut : la pastille déborde
+   volontairement du rond, c'est ce qui la rend visible du coin de l'œil. */
+.btn-panier{position:relative;text-decoration:none}
+.panier-pastille{
+  position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;
+  border-radius:999px;background:var(--orange);color:var(--bleu-900);
+  font-size:11px;font-weight:800;line-height:18px;text-align:center;
+  box-shadow:0 0 0 2px var(--bleu);
+}
+
+/* La fiche produit : compteur + bouton, sur une seule ligne. */
+.p-panier-ligne{display:flex;align-items:center;gap:12px}
+.p-panier-ligne .btn{flex:1;margin:0}
+.p-panier-dedans{
+  display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  padding:9px 12px;border-radius:var(--r-sm);
+  background:var(--vert-clair);color:var(--vert);
+  font-size:13px;font-weight:700;
+}
+
+/* Le compteur — moins, quantité, plus — partagé par la fiche et le panier. */
+.pa-compteur{display:flex;align-items:center;gap:2px}
+.pa-compteur button{
+  width:34px;height:34px;border:1px solid var(--trait);border-radius:10px;
+  background:var(--blanc);color:var(--encre);
+  font-size:19px;font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+}
+.pa-compteur button:active{transform:scale(.92)}
+.pa-compteur > span{
+  min-width:34px;text-align:center;font-size:15px;font-weight:800;
+}
+.pa-compteur .pa-retirer{
+  margin-left:8px;border-color:transparent;background:transparent;
+  color:var(--encre-tres-douce);
+}
+
+/* Une boutique, un bloc : le panier se prépare boutique par boutique. */
+.pa-groupe-titre{
+  display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  font-size:13px;font-weight:800;color:var(--bleu-700);
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.pa-ligne{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--trait)}
+.pa-groupe .pa-ligne:first-of-type{border-top:0;padding-top:0}
+.pa-ligne-img{flex:none;width:66px;height:66px}
+.pa-ligne-photo{
+  width:66px;height:66px;border-radius:var(--r-sm);object-fit:cover;
+  background:var(--bleu-50);
+}
+.pa-ligne-photo.img-absente{display:flex;align-items:center;justify-content:center}
+.pa-ligne-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.pa-ligne-nom{
+  font-size:14px;font-weight:700;color:var(--encre);text-decoration:none;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.pa-ligne-prix{font-size:13px;color:var(--encre-douce)}
+.pa-ligne-sous{font-weight:800;color:var(--encre)}
+.pa-sous-total{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-top:12px;padding-top:12px;border-top:1px dashed var(--trait);
+  font-size:13.5px;color:var(--encre-douce);
+}
+.pa-sous-total strong{font-size:15px;color:var(--encre)}
+
+.pa-total-ligne{
+  display:flex;justify-content:space-between;align-items:baseline;
+  margin-bottom:12px;font-size:14px;color:var(--encre-douce);
+}
+.pa-total-ligne strong{font-size:22px;font-weight:800;color:var(--bleu-700)}
+
+.pa-avertissement,.pa-essai,.pa-confirme{
+  display:flex;align-items:flex-start;gap:10px;
+  font-size:13px;line-height:1.5;
+}
+.pa-avertissement{background:var(--ambre-clair);color:var(--orange-fonce)}
+.pa-essai{
+  background:var(--ambre-clair);color:var(--orange-fonce);
+  border-radius:var(--r-sm);padding:11px 13px;margin-bottom:14px;
+}
+.pa-confirme{background:var(--vert-clair);color:var(--vert)}
+.pa-avertissement .ic,.pa-essai .ic,.pa-confirme .ic{flex:none;margin-top:1px}
+.pa-confirme strong,.pa-avertissement strong{color:inherit}
+
+/* Le reçu : le numéro d'abord, c'est ce qu'on dicte au téléphone. */
+.re-entete{text-align:center}
+.re-numero{
+  font-size:13px;font-weight:800;letter-spacing:.12em;
+  color:var(--encre-tres-douce);margin-bottom:8px;
+}
+.re-montant{font-size:28px;font-weight:800;color:var(--bleu-700);margin-top:10px}
+.re-ligne{
+  display:flex;justify-content:space-between;gap:12px;
+  padding:8px 0;font-size:13.5px;
+}
+.re-ligne small{color:var(--encre-tres-douce)}
+.re-resume{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  text-decoration:none;color:inherit;
+}
+.re-resume-numero{font-size:14px;font-weight:800}
+.re-resume-date{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
+
+/* ---------- Formulaire (coordonnées de commande) ---------- */
+.champ{margin-bottom:14px}
+.champ:last-child{margin-bottom:0}
+.champ label{
+  display:block;margin-bottom:6px;
+  font-size:12.5px;font-weight:700;color:var(--encre-douce);
+}
+.champ label small{font-weight:500;color:var(--encre-tres-douce)}
+.champ input,.champ textarea{
+  width:100%;padding:12px 14px;
+  border:1px solid var(--trait);border-radius:var(--r-sm);
+  background:var(--blanc);color:var(--encre);
+  font-family:inherit;font-size:15px;
+}
+.champ input:focus,.champ textarea:focus{outline:0;border-color:var(--bleu)}
+.champ textarea{resize:vertical;min-height:52px}
+.champ-tel{display:flex;gap:8px}
+.champ-tel input:first-child{width:72px;flex:none;text-align:center}
+
 /* ---------- Écrans plus larges ---------- */
 @media (min-width:560px){
   .p-grille{grid-template-columns:repeat(3,1fr)}

@@ -38,6 +38,36 @@ const UI = (() => {
 
   /* ---------- Barre supérieure ---------- */
 
+  /* Le panier, toujours à portée. Un panier qu'on ne retrouve pas est
+     un panier abandonné : le bouton est donc dans la barre du haut, sur
+     tous les écrans, avec le nombre d'articles dessus. Il se retire des
+     écrans du panier lui-même — y renvoyer depuis là ne mènerait nulle
+     part. */
+
+  function boutonPanier() {
+    if (/^#\/(panier|commande|mes-commandes)/.test(location.hash)) return "";
+    const combien = Panier.nombre();
+    return (
+      '<a class="btn-ic btn-panier" href="#/panier" aria-label="' +
+        (combien ? "Mon panier, " + combien + " article" + (combien > 1 ? "s" : "") : "Mon panier") +
+        '">' + icone("sacoche") +
+        (combien ? '<span class="panier-pastille">' + (combien > 99 ? "99+" : combien) + "</span>" : "") +
+      "</a>"
+    );
+  }
+
+  /** Rafraîchit la pastille sans redessiner tout l'écran. */
+  function majPanier() {
+    const zone = $("#topbar .topbar-actions");
+    if (!zone) return;
+    const ancien = $(".btn-panier", zone);
+    const neuf = boutonPanier();
+    if (ancien) ancien.outerHTML = neuf;
+    else if (neuf) zone.insertAdjacentHTML("beforeend", neuf);
+  }
+
+  document.addEventListener("panier:maj", majPanier);
+
   /**
    * La barre du haut. `vignette` pose une pastille à gauche du titre :
    * c'est par elle qu'une boutique met son logo à côté de son nom, pour
@@ -45,6 +75,7 @@ const UI = (() => {
    */
   function entete({ titre, sous, retour, accueil, actions, vignette }) {
     const zone = $("#topbar");
+    actions = (actions || "") + boutonPanier();
     zone.innerHTML =
       '<div class="topbar-ligne">' +
         (retour
@@ -650,6 +681,7 @@ const UI = (() => {
 
   return {
     $, $$, entete, icone, marque, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
+    majPanier,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,

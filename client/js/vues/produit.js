@@ -62,6 +62,36 @@ const VueProduit = (() => {
     }
   }
 
+  /**
+   * Le compteur et le bouton « Ajouter au panier ». La fiche n'est pas
+   * redessinée après l'ajout : le client vient de la lire, la lui
+   * remettre sous les yeux lui ferait perdre sa place.
+   */
+  function brancherPanier(vue, p) {
+    const affichage = UI.$("#p-quantite", vue);
+    if (!affichage) return;
+    let quantite = 1;
+    const poser = () => { affichage.textContent = String(quantite); };
+
+    UI.$("#p-moins", vue).onclick = () => { quantite = Math.max(1, quantite - 1); poser(); };
+    UI.$("#p-plus", vue).onclick = () => {
+      quantite = Math.min(Panier.MAX_QUANTITE, quantite + 1);
+      poser();
+    };
+
+    UI.$("#p-ajouter", vue).onclick = () => {
+      if (!Panier.ajouter(p.id, quantite)) {
+        UI.toast("Votre panier est plein (" + Panier.MAX_ARTICLES + " produits différents)", "err");
+        return;
+      }
+      UI.toast(quantite > 1
+        ? quantite + " articles ajoutés au panier"
+        : "Ajouté au panier", "ok");
+      quantite = 1;
+      poser();
+    };
+  }
+
   async function afficher(vue, id) {
     const p = Catalogue.produit(id);
     if (!p) {
@@ -154,6 +184,34 @@ const VueProduit = (() => {
         "</div>";
     }
 
+    /* Le panier. Un produit en rupture n'y entre pas : la boutique ne
+       pourrait pas le remettre, et la base refuserait la commande au
+       moment de payer — autant le dire tout de suite. */
+    if (etat !== "rupture") {
+      const dejaDedans = Panier.quantiteDe(p.id);
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">' + UI.icone("sacoche", "ic-sm") + " Mon panier</div>" +
+          (dejaDedans
+            ? '<div class="p-panier-dedans">' + UI.icone("check", "ic-sm") +
+                "<span>Déjà dans votre panier — " + dejaDedans +
+                (dejaDedans > 1 ? " articles" : " article") + "</span></div>"
+            : "") +
+          '<div class="p-panier-ligne">' +
+            '<div class="pa-compteur">' +
+              '<button type="button" id="p-moins" aria-label="Un de moins">−</button>' +
+              '<span id="p-quantite">1</span>' +
+              '<button type="button" id="p-plus" aria-label="Un de plus">+</button>' +
+            "</div>" +
+            '<button type="button" class="btn" id="p-ajouter">' + UI.icone("sacoche") +
+              (dejaDedans ? "Ajouter encore" : "Ajouter au panier") + "</button>" +
+          "</div>" +
+          (dejaDedans
+            ? '<a class="btn btn-clair" href="#/panier" style="margin-top:10px">Voir mon panier</a>'
+            : "") +
+        "</div>";
+    }
+
     if (boutique.whatsapp || boutique.tel) {
       html +=
         '<div class="carte">' +
@@ -194,6 +252,7 @@ const VueProduit = (() => {
 
     vue.innerHTML = html;
     activerCarrousel();
+    brancherPanier(vue, p);
 
     /* Toute la série est ouverte d'un coup : le client fait défiler. */
     const serie = p.images.map(Catalogue.urlImage)

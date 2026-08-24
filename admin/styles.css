@@ -884,3 +884,77 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .dem-verdict .ic{flex:none}
 .dem-verdict-approuvee{color:#0B6E3E}
 .dem-verdict-refusee{color:var(--rouge-fonce)}
+
+/* ---------- Commandes des clients ---------- */
+/* Une commande payée qui attend, c'est un client qui attend : la carte
+   d'accueil se voit en premier, avant tout le reste. */
+.carte-commandes{
+  display:block;text-decoration:none;color:inherit;
+  border-top:4px solid var(--vert);
+}
+.carte-commandes .carte-titre{color:var(--vert)}
+
+.badge-nouvelle{background:var(--orange);color:var(--bleu-900)}
+.badge-annulee{background:var(--fond);color:var(--encre-tres-douce)}
+
+.cmd-carte{border-left:3px solid var(--vert)}
+/* Tout est remis : la carte s'efface sans disparaître. */
+.cmd-soldee{border-left-color:var(--trait);opacity:.72}
+
+.cmd-entete{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  padding-bottom:12px;border-bottom:1px solid var(--trait);
+}
+.cmd-numero{font-size:15px;font-weight:800;letter-spacing:.06em}
+.cmd-quand{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
+.cmd-montant{font-size:18px;font-weight:800;color:var(--orange-fonce)}
+.cmd-part{font-size:11.5px;color:var(--encre-tres-douce);margin-top:2px}
+
+.cmd-etat{
+  display:flex;align-items:flex-start;gap:7px;
+  margin-top:12px;padding:8px 11px;border-radius:var(--r-sm);
+  font-size:12.5px;font-weight:700;line-height:1.45;
+}
+.cmd-etat .ic{flex:none;margin-top:1px}
+.cmd-etat-payee{background:var(--vert-clair);color:var(--vert)}
+.cmd-etat-attente{background:var(--bleu-50);color:var(--bleu-700)}
+.cmd-etat-alerte{background:var(--rouge-clair);color:var(--rouge-fonce)}
+
+.cmd-client{
+  margin-top:12px;padding:11px 13px;
+  background:var(--fond);border-radius:var(--r-sm);
+  display:flex;flex-direction:column;gap:7px;font-size:13px;
+}
+.cmd-client .ic-sm{flex:none;color:var(--encre-tres-douce);margin-right:7px}
+.cmd-client-nom{display:flex;align-items:center;font-weight:700}
+.cmd-client-tel{
+  display:flex;align-items:center;color:var(--bleu-700);
+  font-weight:700;text-decoration:none;
+}
+.cmd-client-adresse{display:flex;align-items:flex-start;color:var(--encre-douce)}
+.cmd-note{
+  font-size:12.5px;font-style:italic;color:var(--encre-douce);
+  padding-top:7px;border-top:1px dashed var(--trait);
+}
+
+.cmd-lignes{margin-top:6px}
+.cmd-ligne{
+  display:flex;align-items:center;gap:12px;
+  padding:11px 0;border-bottom:1px solid var(--trait);
+}
+.cmd-ligne:last-child{border-bottom:0;padding-bottom:0}
+.cmd-ligne-corps{flex:1;min-width:0}
+.cmd-ligne-nom{font-size:13.5px;font-weight:700}
+.cmd-quantite{color:var(--orange-fonce)}
+.cmd-ligne-sous{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
+.cmd-ligne-etat{
+  flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;
+}
+.btn-mini{
+  border:1px solid var(--bleu-100);border-radius:999px;
+  background:var(--bleu-50);color:var(--bleu-700);
+  padding:5px 11px;font-size:11.5px;font-weight:800;font-family:inherit;
+  white-space:nowrap;
+}
+.btn-mini:active{transform:scale(.95)}
+.btn-mini:disabled{opacity:.5}

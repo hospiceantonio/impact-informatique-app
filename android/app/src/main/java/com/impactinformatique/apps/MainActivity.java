@@ -136,6 +136,14 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView vue, WebResourceRequest requete) {
                 Uri url = requete.getUrl();
                 if (url.toString().startsWith(ORIGINE)) return false;
+
+                /* La page de paiement s'ouvre dans un cadre à l'intérieur de
+                   l'application. Deux raisons de ne pas l'expédier dehors :
+                   un cadre n'est pas une navigation du client, et sortir au
+                   milieu d'une transaction ferait perdre l'argent de vue. */
+                if (!requete.isForMainFrame()) return false;
+                if (estPaiement(url)) return false;
+
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, url));
                 } catch (ActivityNotFoundException e) {
@@ -194,6 +202,18 @@ public class MainActivity extends Activity {
 
         demanderNotifications();
         VerificateurCatalogue.programmer(this);
+    }
+
+    /**
+     * Les adresses de KkiaPay, qui portent le paiement Mobile Money.
+     * Elles restent DANS l'application : c'est le seul moyen que le
+     * client revienne sur sa commande une fois payée.
+     */
+    private static boolean estPaiement(Uri url) {
+        String hote = url.getAuthority();
+        if (hote == null) return false;
+        hote = hote.toLowerCase();
+        return hote.equals("kkiapay.me") || hote.endsWith(".kkiapay.me");
     }
 
     /* ---------- Plein écran ---------- */

@@ -11,8 +11,9 @@ Deux applications Android pour l'enseigne **BIZZOO**, reliées à une base
   directement en ligne.
 - **BIZZOO** (l'icône bleue de la marque) : l'application des clients.
   Slider de l'enseigne, **boutiques en icônes**, rayons par catégorie et
-  sous-catégorie, promotions, recherche, fiches produit et **commande par
-  WhatsApp**. Mise à jour en temps réel, consultable hors connexion.
+  sous-catégorie, promotions, recherche, fiches produit, **panier et
+  paiement Mobile Money** (KkiaPay), et commande par WhatsApp. Mise à
+  jour en temps réel, consultable hors connexion.
 
 **Plusieurs boutiques.** L'enseigne couvre plusieurs secteurs
 d'activité — informatique, cosmétiques, etc. Chaque boutique a son
@@ -25,7 +26,8 @@ BIZZOO Admin (téléphone du gérant, connexion email + mot de passe)
     │  écrit directement dans la base
     ▼
 Supabase  →  tables boutiques / categories / sous_categories / produits
-             / produits_prive / slides / profils / journal
+             / produits_prive / slides / profils / journal / demandes
+             / commandes / commande_lignes / paiement
              + stockage des photos (lecture publique, écriture protégée)
     │  lu en direct
     ▼
@@ -77,6 +79,141 @@ Les mêmes applications, installables comme PWA :
 La clé embarquée est la clé **publiable** : elle ne permet que la
 lecture ; toute écriture exige le compte du gérant (règles RLS).
 
+## Paiement en ligne (KkiaPay)
+
+Le client remplit un panier, valide, paie par **Mobile Money** (MTN,
+Moov) ou par carte, et la commande arrive dans le compte administrateur
+de **chaque boutique concernée** — chacune ne voit que ses lignes à
+elle. Tant que le paiement n'est pas ouvert, le panier fonctionne quand
+même : la commande part sur WhatsApp, comme avant.
+
+### Le principe, à ne jamais contourner
+
+**L'application ne valide jamais un paiement.** Elle ouvre la page de
+KkiaPay, et c'est KkiaPay qui, une fois l'argent encaissé, appelle une
+fonction serveur.
+
+```
+Appli client ──ouvre le paiement (clé PUBLIQUE)──▶ KkiaPay
+                                                     │
+                             notification signée     │
+                             (secret du webhook)     ▼
+                                        Fonction Edge kkiapay-webhook
+                                                     │ service_role
+                                                     ▼
+                                             marquer_payee()
+```
+
+La raison tient en une phrase : le message de succès de KkiaPay arrive
+**sur le téléphone du client**. C'est du code qu'on peut modifier. Si
+l'application disait « j'ai payé, valide ma commande », n'importe qui
+pourrait le lui faire dire. Seul KkiaPay, qui détient le secret, peut
+déclencher la validation.
+
+Conséquence à l'écran : après le paiement, le reçu **attend** que l'état
+bouge, il ne l'annonce pas. Il s'écoule quelques secondes entre la
+confirmation chez KkiaPay et l'arrivée de sa notification.
+
+### Où vit chaque secret
+
+| Élément | Où il vit | Jamais |
+|---|---|---|
+| Clé **publique** | En base (table `paiement`), lue par l'app | — (elle est faite pour ça) |
+| Clé **privée** | Tableau de bord KkiaPay | on n'en a **jamais** besoin ici |
+| **Secret du webhook** | Secret Supabase (`KKIAPAY_WEBHOOK_SECRET`) | dans l'app, dans le dépôt, dans une conversation |
+
+La clé publique est **en base** et non dans le code : on passe des
+essais à la production sans reconstruire ni republier les APK.
+
+### Mise en route
+
+1. **Compte marchand KkiaPay**, puis relever la **clé publique** *bac à
+   sable* et choisir un **secret de webhook**. Ne saisissez jamais la
+   clé privée : elle ne sert à rien ici.
+2. **Base** : exécuter `supabase/schema.sql` (il porte déjà les tables
+   `commandes`, `commande_lignes` et `paiement`).
+3. **Fonction Edge**, une seule fois, depuis un ordinateur :
+   ```bash
+   supabase secrets set KKIAPAY_WEBHOOK_SECRET='votre-secret'
+   supabase functions deploy kkiapay-webhook --no-verify-jwt
+   ```
+   `--no-verify-jwt` est **indispensable** : KkiaPay n'envoie aucun jeton
+   Supabase, la fonction serait rejetée avant d'être exécutée. C'est le
+   secret qui la protège, vérifié à durée constante dans le code.
+4. **Déclarer l'adresse** dans le tableau de bord KkiaPay, **du bon
+   côté** (bac à sable ou production, voir le piège ci-dessous) :
+   `https://<projet>.supabase.co/functions/v1/kkiapay-webhook`
+5. **Application admin** → Réglages → BIZZOO → *Paiement en ligne* :
+   coller la clé publique, laisser « Mode essai », enregistrer.
+6. **Éprouver** : passer une commande avec le numéro de test
+   `97000000`, et vérifier que la commande apparaît « Payée » dans
+   l'écran Commandes. Tant que ce test n'est pas passé, l'intégration
+   n'est pas finie — c'est le seul qui prouve que la chaîne entière
+   tient.
+
+### Trois pièges qui coûtent des heures
+
+- **Bac à sable et production sont deux mondes séparés.** Chacun a ses
+  clés *et* ses webhooks. Un webhook déclaré en production n'est jamais
+  appelé par un paiement d'essai : l'argent « part » et rien ne se
+  valide, sans le moindre message. Les trois interrupteurs — le mode du
+  tableau de bord KkiaPay, la clé publique, le webhook — se poussent
+  **ensemble**.
+- **Un vrai numéro est toujours refusé en bac à sable.** « Le numéro
+  n'est pas valide » n'est pas une panne. Numéros de test : MTN
+  `97000000` (et `97000002` pour un solde insuffisant), Moov
+  `95000000`. Carte : `4242 4242 4242 4242`, exp. `01/31`, CVV `812`.
+  Compter 1 à 2 minutes entre la validation et la confirmation.
+- **Un délai dépassé n'est pas un échec.** Si un appel expire, la
+  transaction peut très bien avoir abouti. Rien ne marque « échoué » sur
+  une erreur réseau — c'est la première cause des « j'ai été débité mais
+  ma commande n'est pas passée ».
+
+### Ce que la base refuse, quoi qu'on lui envoie
+
+- **Le client n'écrit pas les prix.** Il envoie des identifiants et des
+  quantités ; `creer_commande()` relit le catalogue, fige le nom, la
+  référence et le prix, et calcule le total. C'est ce total-là qui part
+  chez KkiaPay.
+- **Le client ne se déclare pas payé.** Une commande naît « à payer », et
+  le déclencheur `commande_verrous` refuse tout passage à « payée » qui
+  ne vienne pas de `marquer_payee()`.
+- **`marquer_payee()` n'est appelable par personne d'autre que le
+  serveur.** `EXECUTE` est révoqué de `public`, `anon` **et**
+  `authenticated` — révoquer du seul `public` ne suffirait pas, Supabase
+  accordant d'office ces droits aux deux autres. La requête de
+  vérification est à la fin du fichier SQL : seul `service_role` doit
+  apparaître.
+- **Le montant qui compte est celui annoncé par KkiaPay.** Un paiement
+  incomplet ne valide rien : la commande porte alors la remarque « reçu
+  X sur Y attendus », que la boutique voit en rouge.
+- **La notification est rejouable sans danger.** KkiaPay réessaie cinq
+  fois tant qu'il n'a pas reçu un 200 ; un index unique sur la
+  transaction et un état déjà « payée » font que rejouer ne fait rien de
+  plus.
+
+### Si une notification se perd
+
+Le client a été débité, la commande reste « en attente ». L'écran
+Commandes montre alors, au superadministrateur seulement, la transaction
+que le téléphone a annoncée. Après l'avoir retrouvée dans le tableau de
+bord KkiaPay, il peut se porter garant : **Confirmer le paiement à la
+main**. La commande garde son nom — on voit d'un coup d'œil qu'elle n'a
+pas été confirmée par la banque.
+
+### Ce qui n'est pas fait, volontairement
+
+- **Le stock ne se décrémente pas** à la vente. La boutique ajuste
+  elle-même après avoir remis la marchandise. Décrémenter marquerait le
+  produit comme modifié, et enverrait une notification « catalogue mis à
+  jour » à tous les clients à chaque vente.
+- **Aucun message WhatsApp n'est envoyé automatiquement** à la boutique :
+  cela demanderait l'API WhatsApp Business, qui est payante et suppose un
+  numéro dédié. À la place, la commande arrive dans le compte
+  administrateur, et le reçu du client propose un bouton « Prévenir la
+  boutique » — le message part alors du WhatsApp du client, avec le
+  détail déjà écrit.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -105,22 +242,27 @@ ou `python -m http.server 5180` à la racine du dépôt.
 
 ```
 impact-informatique-app/
-├── supabase/schema.sql       # La base : tables, sécurité, stockage, données de départ
+├── supabase/
+│   ├── schema.sql            # La base : tables, sécurité, stockage, données de départ
+│   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion
+│       ├── panier.js         # Le panier : des identifiants, jamais des prix
+│       ├── paiement.js       # Commander, ouvrir KkiaPay, attendre la base
 │       ├── ui.js             # Logo, cartes produit, prix, badges
-│       └── vues/             # Accueil, catégories, produit, produits, recherche, infos
+│       └── vues/             # Accueil, catégories, produit, produits, panier, recherche, infos
 ├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
-│       └── vues/             # Connexion, accueil, boutiques, produits, catégories, réglages
+│       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
+│                             #   commandes, validations, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

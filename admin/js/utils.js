@@ -144,6 +144,12 @@ const Utils = (() => {
     return base + (message ? "?text=" + encodeURIComponent(message) : "");
   }
 
+  /** Rappeler un client d'une commande : le numéro tel qu'il l'a laissé. */
+  function lienTel(tel, indicatif) {
+    const num = normaliserTel(tel, indicatif);
+    return num ? "tel:+" + num : "";
+  }
+
   /* ---------- Divers ---------- */
 
   /** Comparaison insensible aux accents et à la casse. */
@@ -264,7 +270,7 @@ const Utils = (() => {
     fmtNombre, fmtMontant, fmtTaux, lireNombre, remisePourcent,
     fmtDateHeure, fmtDate, fmtHeure,
     joursAvant, delaiEnMots, dateDansXJours,
-    normaliserTel, lienWhatsApp,
+    normaliserTel, lienWhatsApp, lienTel,
     sansAccent, tempo, telecharger, tailleLisible, tailleDataUrl,
     compresserImage, vignetteDepuisDataUrl,
   };

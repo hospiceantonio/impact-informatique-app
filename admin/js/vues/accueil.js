@@ -8,12 +8,14 @@ const VueAccueil = (() => {
     const admin = Supabase.estAdmin();
 
     UI.entete({ accueil: true, actions: admin
-      ? '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
+      ? '<a class="btn-ic" href="#/commandes" aria-label="Commandes">' + UI.icone("boite") + "</a>" +
+        '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
         '<a class="btn-ic" href="#/comptes" aria-label="Comptes">' + UI.icone("equipe") + "</a>" +
         '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>"
-      : '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
+      : '<a class="btn-ic" href="#/commandes" aria-label="Commandes">' + UI.icone("boite") + "</a>" +
+        '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
-    const [stats, slides, produits, demandes] = await Promise.all([
+    const [stats, slides, produits, demandes, commandes] = await Promise.all([
       Store.statistiques(),
       admin ? Store.listerSlides().catch(() => []) : Promise.resolve([]),
       Store.listerProduits(),
@@ -21,10 +23,28 @@ const VueAccueil = (() => {
          — le SQL n'a peut-être pas été exécuté : l'accueil ne doit pas
          tomber pour autant. */
       admin ? Store.listerDemandes().catch(() => []) : Promise.resolve([]),
+      /* Les commandes payées qui attendent d'être préparées. Même
+         prudence : une base d'avant les achats intégrés n'a pas la table. */
+      Store.commandesEnAttente().catch(() => 0),
     ]);
     const enAttente = demandes.filter((d) => d.etat === "en_attente");
 
     let html = "";
+
+    /* ---- Les commandes qui attendent ----
+       C'est le message que la boutique reçoit dans son compte : un
+       client a payé, il attend sa marchandise. Rien ne doit passer
+       avant à l'écran. */
+    if (commandes) {
+      html +=
+        '<a class="carte carte-commandes" href="#/commandes">' +
+          '<div class="carte-titre">' + UI.icone("boite", "ic-sm") + " " +
+            commandes + " commande" + (commandes > 1 ? "s" : "") + " payée" +
+            (commandes > 1 ? "s" : "") + " à préparer</div>" +
+          '<p class="aide" style="margin:0">Un client a réglé sa commande et attend. ' +
+            "Touchez pour voir ce qu'il faut préparer et ses coordonnées.</p>" +
+        "</a>";
+    }
 
     /* ---- Ce qui attend une décision ----
        Au superadministrateur, ce que les boutiques demandent ; à

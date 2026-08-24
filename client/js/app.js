@@ -15,6 +15,12 @@ const App = { evenementInstallation: null };
     { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/produits" },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]) },
     { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/recherche" },
+    /* Le panier traverse les boutiques : aucun onglet ne s'allume, on y
+       entre par le bouton de la barre du haut. */
+    { motif: /^\/panier$/, vue: (v) => VuePanier.afficher(v) },
+    { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v) },
+    { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]) },
+    { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v) },
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
   ];
 
@@ -309,6 +315,12 @@ const App = { evenementInstallation: null };
 
     window.addEventListener("hashchange", () => naviguer());
     naviguer();
+
+    /* Les réglages du paiement : la clé publique de KkiaPay vit en base,
+       pour qu'on puisse passer des essais à la production sans
+       reconstruire l'application. Sans réponse, le panier reste ouvert
+       et la commande part sur WhatsApp comme avant. */
+    Paiement.charger();
 
     /* Le catalogue se met à jour tout seul (temps réel + vérifications). */
     Live.demarrer();

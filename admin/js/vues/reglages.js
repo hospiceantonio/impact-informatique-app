@@ -246,6 +246,12 @@ const VueReglages = (() => {
     const configEnDur = typeof CONFIG !== "undefined" && !!CONFIG.SUPABASE_URL;
     const configActuelle = Supabase.configuration() || { url: "", cle: "" };
 
+    /* Les réglages du paiement. Base d'avant les achats intégrés : la
+       carte s'affiche vide plutôt que de faire tomber tout l'écran. */
+    const paiement = (surEnseigne && Supabase.estSuper())
+      ? await Store.lirePaiement().catch(() => ({ actif: false, clePublique: "", bacASable: true }))
+      : { actif: false, clePublique: "", bacASable: true };
+
     /* Enregistrer va dans la ligne de l'enseigne ou dans celle de la
        boutique ouverte, selon l'onglet choisi. */
     const enregistrer = (maj, libelle) =>
@@ -467,6 +473,44 @@ const VueReglages = (() => {
           "</div>"
         : "") +
 
+      /* ---------- Paiement en ligne ----------
+         La clé publique de KkiaPay vit EN BASE, pas dans le code des
+         applications : c'est ce qui permet de passer des essais à la
+         production sans reconstruire ni republier les APK.
+
+         Il n'y a AUCUNE clé privée à saisir, ni ici ni ailleurs dans
+         l'application. Ce qui protège l'argent est le secret du
+         webhook, posé une fois pour toutes dans Supabase, sur le
+         serveur — jamais dans un téléphone. */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte" id="section-paiement">' +
+            '<div class="carte-titre">' + UI.icone("energie", "ic-sm") + " Paiement en ligne " +
+              '<span class="aide-inline">(KkiaPay)</span></div>' +
+            '<p class="aide" style="margin:0 0 12px">Quand c\'est ouvert, les clients paient ' +
+              "leur panier par Mobile Money ou par carte, et la commande arrive dans le compte " +
+              "de chaque boutique concernée. Tant que c\'est fermé, le panier existe toujours " +
+              "mais la commande part sur WhatsApp, comme avant.</p>" +
+            UI.champTexte({ id: "pay-cle", label: "Clé publique KkiaPay",
+              valeur: paiement.clePublique, placeholder: "d1a2b3c4-…",
+              aide: "Tableau de bord KkiaPay → API KEYS. Cette clé est faite pour être publique ; " +
+                    "ne saisissez JAMAIS la clé privée ici." }) +
+            UI.interrupteur({ id: "pay-essai", label: "Mode essai (bac à sable)",
+              actif: paiement.bacASable,
+              aide: "En essai, aucun argent n\'est prélevé et seuls les numéros de test " +
+                    "passent (MTN 97000000, Moov 95000000). Attention : essai et production " +
+                    "ont chacun leur clé ET leur webhook — les deux se changent ensemble." }) +
+            UI.interrupteur({ id: "pay-actif", label: "Ouvrir le paiement aux clients",
+              actif: paiement.actif,
+              aide: "À n\'ouvrir qu\'une fois un paiement d\'essai réussi de bout en bout." }) +
+            '<div class="note-attente" style="margin:12px 0">' + UI.icone("alerte", "ic-sm") +
+              " Il reste une étape à faire une seule fois, sur un ordinateur : déployer la " +
+              "fonction qui reçoit les paiements. Sans elle, l\'argent arrive chez KkiaPay " +
+              "mais les commandes restent « en attente ». Voir README.md, section « Paiement ».</div>" +
+            '<button type="button" class="btn" id="pay-enregistrer">' + UI.icone("check") +
+              "Enregistrer le paiement</button>" +
+          "</div>"
+        : "") +
+
       /* ---------- Vidéo de présentation ---------- */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation " +
@@ -531,6 +575,33 @@ const VueReglages = (() => {
           "Base en ligne : les modifications sont visibles immédiatement par les clients." +
         "</p>" +
       "</div>";
+
+    const boutonPaiement = UI.$("#pay-enregistrer");
+    if (boutonPaiement) {
+      boutonPaiement.onclick = async () => {
+        const cle = UI.$("#pay-cle").value.trim();
+        const actif = UI.$("#pay-actif").checked;
+        /* Ouvrir sans clé afficherait un bouton « Payer » qui ne ferait
+           rien : le client croirait à une panne de son téléphone. */
+        if (actif && !cle) {
+          UI.toast("Saisissez d'abord la clé publique KkiaPay", "err");
+          UI.$("#pay-cle").focus();
+          return;
+        }
+        boutonPaiement.disabled = true;
+        try {
+          await Store.majPaiement({
+            actif, clePublique: cle, bacASable: UI.$("#pay-essai").checked,
+          });
+          UI.toast(actif
+            ? "Paiement en ligne ouvert" + (UI.$("#pay-essai").checked ? " (mode essai)" : "")
+            : "Paiement en ligne fermé", "ok");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        boutonPaiement.disabled = false;
+      };
+    }
 
     if (params && params.section === "compte") {
       const section = UI.$("#section-compte");

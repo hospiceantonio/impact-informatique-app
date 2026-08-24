@@ -11,6 +11,10 @@
     { motif: /^\/produit\/([^/]+)\/modifier$/, vue: (v, m) => VueProduits.formulaire(v, m[1]) },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduits.detail(v, m[1]) },
     { motif: /^\/categories$/, vue: (v) => VueCategories.afficher(v), onglet: "/categories" },
+    /* Les commandes des clients. Toute l'équipe y a accès : préparer une
+       commande fait partie du travail quotidien de la boutique. La base
+       ne montre à chacun que les lignes de sa boutique. */
+    { motif: /^\/commandes$/, vue: (v) => VueCommandes.afficher(v) },
     { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), super: true },
     { motif: /^\/slider$/, vue: (v) => VueSlider.afficher(v), admin: true },
     { motif: /^\/validations$/, vue: (v) => VueValidations.afficher(v), super: true },
