@@ -342,27 +342,27 @@ const VueReglages = (() => {
         '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + (surEnseigne ? "Enregistrer BIZZOO" : "Enregistrer la boutique") + "</button>" +
       "</div>" +
 
-      /* ---------- Marge (une boutique seulement : l'enseigne ne vend rien) ---------- */
+      /* ---------- Marge de BIZZOO ----------
+         Elle appartient à l'enseigne, qui la pose en créant la boutique.
+         La boutique la LIT — elle a le droit de savoir ce qu'on prend
+         sur elle — mais ne la modifie pas : la base le refuse, et cet
+         écran n'a donc rien à lui proposer. */
       (surEnseigne ? "" :
       '<div class="carte">' +
-        '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Marge par défaut</div>" +
-        '<p class="aide" style="margin:0 0 12px">Vous tapez le prix grossiste d\'un produit, ' +
-          "l'application y ajoute ce taux et obtient le prix public — celui que voient vos clients. " +
-          "Chaque produit peut garder son propre taux ; celui-ci sert pour tous les autres.</p>" +
-        '<div class="champ">' +
-          '<label for="r-taux">Taux appliqué au prix grossiste</label>' +
-          '<div class="champ-montant">' +
-            '<input id="r-taux" inputmode="decimal" autocomplete="off" placeholder="20" value="' +
-              Utils.echapper(Utils.fmtTaux(r.tauxMarge)) + '">' +
-            '<span class="devise">%</span>' +
-          "</div>" +
-          '<div class="aide" id="r-taux-exemple"></div>' +
+        '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Marge de BIZZOO</div>" +
+        '<div class="code-fige" style="margin-bottom:12px">' + UI.icone("bouclier", "ic-sm") +
+          '<div><span class="code-produit">' + Utils.echapper(Utils.fmtTaux(r.tauxMarge)) +
+            " %</span><br><small>Fixée par BIZZOO à la création de la boutique. " +
+            "Elle ne se modifie pas ici.</small></div>" +
         "</div>" +
-        '<button type="button" class="btn" id="r-taux-enregistrer">' +
-          UI.icone("check") + "Enregistrer le taux</button>" +
-        '<p class="aide" style="margin:12px 0 0">Changer ce taux ne retouche aucun prix ' +
-          "déjà enregistré : il s'appliquera aux prochains produits, et à ceux que vous " +
-          "rouvrirez sans taux propre.</p>" +
+        '<p class="aide" style="margin:0">Vous indiquez sur chaque produit le ' +
+          "<strong>prix BIZZOO</strong> — ce que vous touchez. L'application y ajoute ce " +
+          "pourcentage et obtient le <strong>prix de vente</strong>, celui que voient les " +
+          "clients." +
+          (Supabase.estSuper()
+            ? "<br>Pour le changer, passez par Boutiques → cette boutique."
+            : "") +
+        "</p>" +
       "</div>") +
 
       /* ---------- Autres numéros ---------- */
@@ -702,38 +702,6 @@ const VueReglages = (() => {
         UI.toast(err.message, "err");
       }
     };
-
-    /* ---------- Marge ----------
-       Un exemple chiffré vaut mieux qu'une explication : on montre en
-       direct ce que devient un achat à 100 000. */
-    const champTaux = UI.$("#r-taux");
-    /* Absent quand on règle l'enseigne : elle n'a pas de marge. */
-    if (champTaux) {
-      const exemple = UI.$("#r-taux-exemple");
-      const direExemple = () => {
-        const taux = Store.lireTaux(champTaux.value);
-        if (taux === null) {
-          exemple.textContent = "Indiquez un nombre entre 0 et " + Store.TAUX_MAX + ".";
-          return;
-        }
-        const achat = 100000;
-        exemple.textContent = "Exemple : acheté à " + Utils.fmtMontant(achat, r.devise) +
-          ", vendu " + Utils.fmtMontant(Store.prixPublic(achat, taux), r.devise) + ".";
-      };
-      champTaux.addEventListener("input", Utils.tempo(direExemple, 300));
-      direExemple();
-
-      UI.$("#r-taux-enregistrer").onclick = async () => {
-        try {
-          await enregistrer({ tauxMarge: champTaux.value },
-            "Taux de marge de la boutique : " + Utils.fmtTaux(Store.lireTaux(champTaux.value)) + " %");
-          UI.toast("Taux enregistré", "ok");
-          afficher(vue, params);
-        } catch (err) {
-          UI.toast(err.message, "err");
-        }
-      };
-    }
 
     /* ---------- Autres numéros ---------- */
     telsTravail = (r.telephones || []).map((t) => ({ ...t }));

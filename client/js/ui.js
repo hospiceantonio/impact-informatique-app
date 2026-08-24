@@ -562,6 +562,9 @@ const UI = (() => {
                 "<span>" + e(bou.nom) + "</span></span>"
             : "") +
           '<span class="p-carte-nom">' + e(p.nom) + "</span>" +
+          /* Le code, sous le nom et avant le prix : c'est par lui qu'un
+             client désigne un article sans se tromper. */
+          (p.code ? '<span class="p-carte-code">Code ' + e(p.code) + "</span>" : "") +
           prixHtml(p) +
           '<span class="p-carte-cat">' + e(sc ? sc.nom : (cat ? cat.nom : "")) + "</span>" +
         "</span>" +
@@ -584,6 +587,7 @@ const UI = (() => {
           pastilleVideo(p) +
         "</span>" +
         '<span class="p-mini-nom">' + e(p.nom) + "</span>" +
+        (p.code ? '<span class="p-carte-code">Code ' + e(p.code) + "</span>" : "") +
         prixHtml(p) +
       "</a>"
     );

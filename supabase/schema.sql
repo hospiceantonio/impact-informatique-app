@@ -847,6 +847,11 @@ begin
   if new.ordre is distinct from old.ordre then
     raise exception 'L''ordre des boutiques est réglé par l''enseigne';
   end if;
+  -- La marge dit ce que BIZZOO gagne sur cette boutique. La laisser à
+  -- la boutique reviendrait à lui laisser fixer sa propre commission.
+  if new.taux_marge is distinct from old.taux_marge then
+    raise exception 'La marge de BIZZOO est fixée par l''enseigne à la création de la boutique';
+  end if;
 
   -- Ce qui représente la boutique auprès des clients passe par une
   -- demande de validation.
@@ -1205,6 +1210,13 @@ create table if not exists public.commande_lignes (
 -- Le code du produit, figé comme son nom et son prix : c'est ce qui a
 -- été vendu.
 alter table public.commande_lignes add column if not exists code text not null default '';
+-- Ce que la boutique touche, et la marge de l'enseigne le jour de la
+-- vente : figés eux aussi. Changer la marge demain ne réécrit pas les
+-- comptes d'hier.
+alter table public.commande_lignes
+  add column if not exists prix_bizzoo int not null default 0;
+alter table public.commande_lignes
+  add column if not exists taux_marge numeric;
 
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
@@ -1242,17 +1254,28 @@ create trigger commandes_a_l_ecriture
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p public.produits%rowtype;
+  p    public.produits%rowtype;
+  achat int;
+  taux  numeric;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
     raise exception 'Produit introuvable : %', coalesce(new.produit_id, '(aucun)');
   end if;
+  select greatest(0, coalesce(prix_grossiste, 0))::int into achat
+    from public.produits_prive where produit_id = p.id;
+  select coalesce(taux_marge, 0) into taux
+    from public.boutiques where id = p.boutique_id;
+
   new.boutique_id := p.boutique_id;
   new.nom         := p.nom;
   new.code        := coalesce(p.code, '');
   new.reference   := coalesce(p.reference, '');
   new.prix        := coalesce(p.prix, 0)::int;
+  -- Ce que la boutique touche, et la marge du jour : figés avec le
+  -- reste. Les comptes d'hier ne se réécrivent pas.
+  new.prix_bizzoo := coalesce(achat, 0);
+  new.taux_marge  := taux;
   new.etat        := 'nouvelle';
   return new;
 end $$;
@@ -1350,6 +1373,8 @@ begin
   or new.code        is distinct from old.code
   or new.reference   is distinct from old.reference
   or new.prix        is distinct from old.prix
+  or new.prix_bizzoo is distinct from old.prix_bizzoo
+  or new.taux_marge  is distinct from old.taux_marge
   or new.quantite    is distinct from old.quantite then
     raise exception 'Une ligne de commande ne change que d''état : ce qui a été vendu est vendu';
   end if;
@@ -1629,6 +1654,69 @@ begin
 end $$;
 revoke all on function public.confirmer_paiement(text) from public, anon;
 grant execute on function public.confirmer_paiement(text) to authenticated;
+
+-- ---------- Ce que chaque boutique rapporte ----------
+-- Les ventes RÉELLEMENT encaissées, produit par produit. Rien d'autre
+-- ne compte : une commande à payer n'est pas une vente.
+--
+-- Réservée à l'enseigne. Un administrateur de boutique verrait sinon
+-- la commission que BIZZOO prend sur ses voisins.
+create or replace function public.statistiques_ventes(
+  depuis date default null,
+  jusqu  date default null,
+  boutique text default null)
+returns table (
+  boutique_id  text,
+  nom_boutique text,
+  produit_id   text,
+  code         text,
+  nom          text,
+  quantite     bigint,
+  prix_bizzoo  bigint,
+  prix_vente   bigint,
+  taux_marge   numeric,
+  total_bizzoo bigint,
+  total_vente  bigint,
+  benefice     bigint
+)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.est_super() then
+    raise exception 'Ces chiffres ne regardent que l''enseigne';
+  end if;
+
+  return query
+    select l.boutique_id,
+           coalesce(b.nom, '') as nom_boutique,
+           l.produit_id,
+           l.code,
+           l.nom,
+           sum(l.quantite)::bigint,
+           l.prix_bizzoo::bigint,
+           l.prix::bigint,
+           l.taux_marge,
+           (sum(l.quantite) * l.prix_bizzoo)::bigint,
+           (sum(l.quantite) * l.prix)::bigint,
+           (sum(l.quantite) * (l.prix - l.prix_bizzoo))::bigint
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+      left join public.boutiques b on b.id = l.boutique_id
+     -- Payée, et la ligne pas annulée : c'est cela, une vente.
+     where c.etat = 'payee'
+       and l.etat <> 'annulee'
+       and (depuis is null or c.paye_le >= depuis::timestamptz)
+       and (jusqu  is null or c.paye_le <  (jusqu + 1)::timestamptz)
+       and (boutique is null or boutique = '' or l.boutique_id = boutique)
+     /* Les prix unitaires entrent dans le regroupement : un produit vendu
+        à deux tarifs différents fait deux lignes, et non une moyenne qui
+        ne correspondrait à aucune vente réelle. */
+     group by l.boutique_id, b.nom, l.produit_id, l.code, l.nom,
+              l.prix_bizzoo, l.prix, l.taux_marge
+     order by (sum(l.quantite) * (l.prix - l.prix_bizzoo)) desc;
+end $$;
+
+revoke all on function public.statistiques_ventes(date, date, text) from public, anon;
+grant execute on function public.statistiques_ventes(date, date, text) to authenticated;
 
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,

@@ -775,6 +775,13 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .visionneuse-compteur:empty{display:none}
 
+/* Sur une carte : discret, sous le nom, avant le prix. */
+.p-carte-code{
+  display:block;margin:2px 0 4px;
+  font-size:10.5px;font-weight:800;letter-spacing:.06em;
+  color:var(--encre-tres-douce);
+}
+
 /* Le code du produit : un repère, pas une décoration. Il se lit avant
    la référence et se recopie sans erreur. */
 .fiche-code{

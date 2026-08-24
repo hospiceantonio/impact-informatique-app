@@ -462,10 +462,18 @@ const Store = (() => {
       logo = "";
     }
 
+    /* La marge de BIZZOO sur cette boutique. Un champ vide garde celle
+       d'avant ; à la création, faute de mieux, celle par défaut. */
+    const marge = lireTaux(donnees.tauxMarge);
+    const tauxMarge = marge === null
+      ? (existante ? existante.tauxMarge : BOUTIQUE_DEFAUT.tauxMarge)
+      : marge;
+
     const boutique = {
       ...(existante || { ...BOUTIQUE_DEFAUT, actif: true }),
       ...donnees,
       logo,
+      tauxMarge,
       nomBoutique: nom,
       id: existante ? existante.id : Utils.uid("bou"),
       ordre: existante ? existante.ordre
@@ -1159,6 +1167,35 @@ const Store = (() => {
       "KkiaPay", undefined, null);
   }
 
+  /* ---------- Ce que chaque boutique rapporte ----------
+     Les ventes réellement encaissées, produit par produit, avec le prix
+     BIZZOO et la marge FIGÉS le jour de la vente. C'est la base qui
+     refuse ces chiffres à qui n'est pas l'enseigne — l'écran ne fait
+     que ne pas les demander. */
+
+  async function statistiquesVentes({ depuis, jusqu, boutique } = {}) {
+    const lignes = await Supabase.rpcLecture("statistiques_ventes", {
+      depuis: depuis || null,
+      jusqu: jusqu || null,
+      boutique: boutique || null,
+    });
+    return (lignes || []).map((l) => ({
+      boutiqueId: l.boutique_id || "",
+      nomBoutique: l.nom_boutique || "",
+      produitId: l.produit_id || "",
+      code: l.code || "",
+      nom: l.nom || "",
+      quantite: Number(l.quantite) || 0,
+      prixBizzoo: Number(l.prix_bizzoo) || 0,
+      prixVente: Number(l.prix_vente) || 0,
+      tauxMarge: l.taux_marge === null || l.taux_marge === undefined
+        ? null : Number(l.taux_marge),
+      totalBizzoo: Number(l.total_bizzoo) || 0,
+      totalVente: Number(l.total_vente) || 0,
+      benefice: Number(l.benefice) || 0,
+    }));
+  }
+
   /** Le filtre « seulement ma boutique », ajouté à chaque lecture. */
   const filtreBoutique = () =>
     (boutiqueId ? "boutique_id=eq." + encodeURIComponent(boutiqueId) : "");
@@ -1240,7 +1277,10 @@ const Store = (() => {
     const propre = { ...maj };
     if (maj.telephones !== undefined) propre.telephones = telephonesDepuisListe(maj.telephones);
     if (maj.adresses !== undefined) propre.adresses = adressesDepuisListe(maj.adresses);
-    if (maj.tauxMarge !== undefined) {
+    /* La marge n'entre plus par les réglages d'une boutique : elle
+       appartient à l'enseigne, qui la pose en créant la boutique. La
+       base refuserait de toute façon. */
+    if (maj.tauxMarge !== undefined && Supabase.estSuper()) {
       const taux = lireTaux(maj.tauxMarge);
       if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
       propre.tauxMarge = taux;
@@ -1569,23 +1609,18 @@ const Store = (() => {
       throw new Error("La référence « " + reference + " » est déjà utilisée par « " + doublon.nom + " ».");
     }
 
-    /* Prix d'achat et taux : le prix public en découle, sauf s'il a été
-       arrondi à la main — c'est alors celui-là qui fait foi. */
+    /* Le prix de vente NE SE SAISIT PAS : il découle du prix BIZZOO et
+       de la marge de l'enseigne. Accepter un prix envoyé par l'écran
+       rendrait les comptes de l'enseigne faux — le bénéfice ne serait
+       plus la marge annoncée. */
     const prixGrossiste = Math.max(0, Math.round(Utils.lireNombre(donnees.prixGrossiste) || 0));
-    const tauxMarge = prixGrossiste ? lireTaux(donnees.tauxMarge) : null;
-
-    const prix = donnees.prix === "" || donnees.prix === null || donnees.prix === undefined
-      ? prixPublic(prixGrossiste, tauxMarge)
-      : Math.round(Utils.lireNombre(donnees.prix));
-    if (prix <= 0) {
-      throw new Error(prixGrossiste
-        ? "Le prix public est vide : vérifiez le prix grossiste et le taux."
-        : "Indiquez le prix de vente.");
+    if (!prixGrossiste) {
+      throw new Error("Indiquez le prix BIZZOO : le prix de vente s'en déduit.");
     }
-    if (prixGrossiste && prix < prixGrossiste) {
-      throw new Error("Le prix public (" + Utils.fmtMontant(prix, reglages.devise) +
-        ") est inférieur au prix grossiste (" + Utils.fmtMontant(prixGrossiste, reglages.devise) +
-        ") : vous vendriez à perte.");
+    const tauxMarge = null;   // la marge est celle de la boutique, jamais du produit
+    const prix = prixPublic(prixGrossiste, null);
+    if (prix <= 0) {
+      throw new Error("Le prix de vente est vide : vérifiez le prix BIZZOO.");
     }
 
     let ancienPrix = donnees.ancienPrix === "" || donnees.ancienPrix === null || donnees.ancienPrix === undefined
@@ -2187,6 +2222,7 @@ const Store = (() => {
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
+    statistiquesVentes,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,

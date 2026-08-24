@@ -403,6 +403,15 @@ const Supabase = (() => {
     return requete("POST", "rpc/" + nom, parametres || {}, { sansRetour: true });
   }
 
+  /**
+   * Une fonction SQL dont on veut la RÉPONSE, et non le seul succès :
+   * les statistiques de ventes, par exemple. Le jeton du gérant est
+   * joint — c'est lui que la base regarde pour décider.
+   */
+  async function rpcLecture(nom, parametres) {
+    return requete("POST", "rpc/" + nom, parametres || {}, { avecSession: true });
+  }
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -415,7 +424,7 @@ const Supabase = (() => {
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     compteActif, rolesActifs,
-    creerCompte, changerMotDePasse, rpc,
+    creerCompte, changerMotDePasse, rpc, rpcLecture,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

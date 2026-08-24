@@ -442,7 +442,6 @@ const VueProduits = (() => {
       : 3;
 
     const tauxBoutique = Store.lireReglages().tauxMarge;
-    const tauxProduit = existant ? existant.tauxMarge : null;
 
     const boutiques = Store.listerBoutiques();
     const laBoutique = Store.boutiqueCourante();
@@ -505,30 +504,27 @@ const VueProduits = (() => {
       "</div>" +
 
       /* ---------- Prix ----------
-         On tape ce qu'on a payé, on choisit sa marge, et le prix public
-         se calcule tout seul. Il reste modifiable pour arrondir. */
+         La boutique annonce ce qu'elle veut toucher — le prix BIZZOO.
+         L'enseigne y ajoute SA marge, fixée en créant la boutique. La
+         somme est le prix de vente : il se calcule, il ne se saisit
+         pas. C'est ce qui rend les comptes de l'enseigne lisibles. */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Prix</div>" +
-        UI.champMontant({ id: "p-grossiste", label: "Prix grossiste",
+        UI.champMontant({ id: "p-grossiste", label: "Prix BIZZOO", obligatoire: true,
           valeur: existant && existant.prixGrossiste ? existant.prixGrossiste : "",
-          aide: "Ce que la boutique paie. Il ne quitte jamais l'application admin : " +
-            "vos clients ne le voient pas." }) +
+          aide: "Ce que la boutique touche sur cette vente. Il ne quitte jamais " +
+            "l'application admin : ni vos clients ni les autres boutiques ne le voient." }) +
         '<div class="champ">' +
-          '<label for="p-taux">Taux de marge</label>' +
-          '<div class="champ-montant">' +
-            '<input id="p-taux" inputmode="decimal" autocomplete="off" placeholder="' +
-              Utils.echapper(Utils.fmtTaux(tauxBoutique)) + '"' +
-              (tauxProduit === null ? "" : ' value="' + Utils.echapper(Utils.fmtTaux(tauxProduit)) + '"') +
-              ">" +
-            '<span class="devise">%</span>' +
+          "<label>Prix de vente</label>" +
+          '<div class="champ-montant champ-fige">' +
+            '<input id="p-prix" inputmode="numeric" readonly tabindex="-1" value="' +
+              Utils.echapper(existant && existant.prix ? Utils.fmtNombre(existant.prix) : "") + '">' +
+            '<span class="devise">' + Utils.echapper(Store.lireReglages().devise) + "</span>" +
           "</div>" +
-          '<div class="aide">Laissé vide, c\'est le taux de la boutique (' +
-            Utils.echapper(Utils.fmtTaux(tauxBoutique)) + " %) qui s'applique.</div>" +
+          '<div class="aide">Prix BIZZOO + la marge de l\'enseigne (' +
+            Utils.echapper(Utils.fmtTaux(tauxBoutique)) + " %). C'est le prix que voient " +
+            "vos clients ; il se calcule tout seul et ne se modifie pas.</div>" +
         "</div>" +
-        UI.champMontant({ id: "p-prix", label: "Prix public", obligatoire: true,
-          valeur: existant ? existant.prix : "",
-          aide: "Calculé à partir des deux champs ci-dessus. C'est le prix que voient " +
-            "vos clients — vous pouvez l'arrondir à la main." }) +
         '<div id="p-marge"></div>' +
         UI.champMontant({ id: "p-ancien", label: "Prix barré (optionnel)",
           valeur: existant && existant.ancienPrix ? existant.ancienPrix : "",
@@ -641,57 +637,33 @@ const VueProduits = (() => {
        recalcule le taux. Le bandeau du dessous dit le bénéfice. */
 
     const champGrossiste = UI.$("#p-grossiste");
-    const champTaux = UI.$("#p-taux");
     const champPrix = UI.$("#p-prix");
     const zoneMarge = UI.$("#p-marge");
     const devise = Store.lireReglages().devise;
 
     const lireGrossiste = () => Math.max(0, Math.round(Utils.lireNombre(champGrossiste.value) || 0));
-    const lirePrix = () => Math.max(0, Math.round(Utils.lireNombre(champPrix.value) || 0));
 
-    function direMarge() {
-      const achat = lireGrossiste();
-      const vente = lirePrix();
-      if (!achat) {
-        zoneMarge.innerHTML = '<div class="aide" style="margin:-6px 0 14px">Sans prix grossiste, ' +
-          "le prix public est celui que vous tapez.</div>";
-        return;
-      }
-      const benefice = vente - achat;
-      const taux = Store.tauxDepuisPrix(achat, vente);
-      zoneMarge.innerHTML =
-        '<div class="note-marge' + (benefice < 0 ? " note-marge-perte" : "") + '">' +
-          UI.icone(benefice < 0 ? "alerte" : "promo", "ic-sm") +
-          "<span>" + (benefice < 0
-            ? "Vente à perte : " + Utils.echapper(Utils.fmtMontant(benefice, devise)) + " par pièce."
-            : "Bénéfice : <strong>" + Utils.echapper(Utils.fmtMontant(benefice, devise)) +
-              "</strong> par pièce (" + Utils.echapper(Utils.fmtTaux(taux)) + " %).") +
-          "</span>" +
-        "</div>";
-    }
-
-    /** Le prix public découle du prix d'achat et du taux. */
+    /* Le prix de vente découle du prix BIZZOO et de la marge de
+       l'enseigne. Un seul sens : on ne remonte plus du prix de vente
+       vers le taux, puisque le taux n'appartient plus à la boutique. */
     function recalculerPrix() {
-      const achat = lireGrossiste();
-      if (!achat) return direMarge();
-      const taux = Store.lireTaux(champTaux.value);
-      champPrix.value = Utils.fmtNombre(Store.prixPublic(achat, taux));
-      direMarge();
-    }
-
-    /** …et le taux découle du prix public quand on l'arrondit à la main. */
-    function recalculerTaux() {
-      const achat = lireGrossiste();
-      if (!achat) return direMarge();
-      const taux = Store.tauxDepuisPrix(achat, lirePrix());
-      if (taux !== null) champTaux.value = Utils.fmtTaux(taux);
-      direMarge();
+      const bizzoo = lireGrossiste();
+      const vente = bizzoo ? Store.prixPublic(bizzoo, tauxBoutique) : 0;
+      champPrix.value = vente ? Utils.fmtNombre(vente) : "";
+      zoneMarge.innerHTML = bizzoo
+        ? '<div class="note-marge">' + UI.icone("promo", "ic-sm") +
+            "<span>La boutique touche <strong>" +
+              Utils.echapper(Utils.fmtMontant(bizzoo, devise)) + "</strong>, " +
+              "BIZZOO garde <strong>" +
+              Utils.echapper(Utils.fmtMontant(vente - bizzoo, devise)) + "</strong> " +
+              "(" + Utils.echapper(Utils.fmtTaux(tauxBoutique)) + " %) par pièce.</span>" +
+          "</div>"
+        : '<div class="aide" style="margin:-6px 0 14px">Indiquez le prix BIZZOO : ' +
+            "le prix de vente s'en déduit.</div>";
     }
 
     champGrossiste.addEventListener("input", Utils.tempo(recalculerPrix, 350));
-    champTaux.addEventListener("input", Utils.tempo(recalculerPrix, 350));
-    champPrix.addEventListener("input", Utils.tempo(recalculerTaux, 500));
-    direMarge();
+    recalculerPrix();
 
     UI.$("#p-enregistrer").onclick = async () => {
       try {
@@ -701,8 +673,8 @@ const VueProduits = (() => {
           reference: UI.$("#p-reference").value,
           description: UI.$("#p-description").value,
           prixGrossiste: champGrossiste.value,
-          tauxMarge: champTaux.value,
-          prix: champPrix.value,
+          /* Ni taux ni prix de vente : ils découlent de la marge de
+             l'enseigne, que la boutique ne choisit pas. */
           ancienPrix: UI.$("#p-ancien").value.trim(),
           categorieId: UI.$("#p-categorie").value,
           sousCategorieId: UI.$("#p-souscategorie").value,
@@ -809,13 +781,13 @@ const VueProduits = (() => {
           '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Marge " +
             '<span class="aide-inline">(visible ici seulement)</span></div>' +
           '<div class="marge-grille">' +
-            "<div><span>Prix grossiste</span><strong>" +
+            "<div><span>Prix BIZZOO</span><strong>" +
               Utils.echapper(Utils.fmtMontant(p.prixGrossiste, devise)) + "</strong></div>" +
-            "<div><span>Prix public</span><strong>" +
+            "<div><span>Prix de vente</span><strong>" +
               Utils.echapper(Utils.fmtMontant(p.prix, devise)) + "</strong></div>" +
-            "<div><span>Taux appliqué</span><strong>" +
+            "<div><span>Marge BIZZOO</span><strong>" +
               Utils.echapper(Utils.fmtTaux(tauxReel)) + " %</strong></div>" +
-            '<div><span>Bénéfice à la pièce</span><strong' +
+            '<div><span>Bénéfice de BIZZOO</span><strong' +
               (benefice < 0 ? ' class="marge-perte"' : "") + ">" +
               Utils.echapper(Utils.fmtMontant(benefice, devise)) + "</strong></div>" +
           "</div>" +
@@ -823,7 +795,7 @@ const VueProduits = (() => {
             ? '<div class="aide" style="margin:12px 0 0">Sur les ' + p.stock +
               " pièce" + (p.stock > 1 ? "s" : "") + " en boutique : <strong>" +
               Utils.echapper(Utils.fmtMontant(benefice * p.stock, devise)) +
-              "</strong> de bénéfice à venir.</div>"
+              "</strong> pour BIZZOO si tout part.</div>"
             : "") +
         "</div>";
     }

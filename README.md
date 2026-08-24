@@ -150,6 +150,54 @@ partagent pas. Sur une base déjà en service,
 [`supabase/code-produit.sql`](supabase/code-produit.sql) attribue leur
 code aux produits existants, du plus ancien au plus récent.
 
+## La marge de BIZZOO
+
+Le modèle est celui d'une place de marché :
+
+```
+prix de vente = prix BIZZOO + marge
+bénéfice      = prix de vente − prix BIZZOO
+```
+
+La boutique annonce le **prix BIZZOO** — ce qu'elle veut toucher.
+L'enseigne y ajoute **sa marge**, fixée au moment où elle crée la
+boutique. La somme est le **prix de vente**, le seul que le client voie.
+La différence revient à BIZZOO.
+
+Trois règles, et elles sont dans la base, pas à l'écran :
+
+1. **La marge appartient à l'enseigne.** Une boutique ne la retouche
+   pas — elle fixerait sinon elle-même la commission prise sur elle. Le
+   déclencheur `boutique_verrous` refuse toute écriture qui ne vienne
+   pas d'un super administrateur. Elle la **lit** dans ses réglages,
+   sans pouvoir la changer.
+2. **Le prix BIZZOO ne sort pas.** Il vit dans `produits_prive`, hors
+   de portée des clients et des autres boutiques : il dirait à chacun ce
+   que la boutique touche vraiment.
+3. **Ce qui a été vendu est figé.** La ligne de commande garde le prix
+   BIZZOO et le taux du jour de la vente. Changer une marge aujourd'hui
+   ne réécrit pas les comptes d'hier.
+
+Conséquence à l'écran : sur la fiche produit, la boutique saisit le prix
+BIZZOO ; le **prix de vente se calcule et ne se saisit pas**. C'est ce
+qui rend les comptes de l'enseigne vrais — un prix arrondi à la main
+ferait mentir le bénéfice annoncé. Il n'y a plus non plus de taux par
+produit : la marge est celle de la boutique, une fois pour toutes.
+
+### Ce que rapportent les boutiques
+
+Le tableau de bord du super administrateur mène à un écran qui ne compte
+que les **ventes encaissées** — une commande à payer n'est pas une
+vente. Pour chaque produit vendu : prix BIZZOO, marge, prix de vente et
+bénéfice, avec un filtre par **boutique** et par **période** (7 jours,
+30 jours, ce mois, tout).
+
+Les chiffres viennent de `statistiques_ventes()`, réservée à l'enseigne
+par la fonction elle-même : un administrateur de boutique y verrait la
+commission prise sur ses voisins. Un produit vendu à deux tarifs
+différents fait deux lignes, et non une moyenne qui ne correspondrait à
+aucune vente réelle.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
@@ -353,6 +401,7 @@ impact-informatique-app/
 │   ├── schema.sql            # La base : tables, sécurité, stockage, données de départ
 │   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
 │   ├── code-produit.sql             # Le code d'un produit, pour une base déjà en place
+│   ├── marge-bizzoo.sql             # La marge de l'enseigne et les statistiques de ventes
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
 │   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »
@@ -373,7 +422,7 @@ impact-informatique-app/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
-│                             #   commandes, validations, réglages
+│                             #   commandes, statistiques, validations, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

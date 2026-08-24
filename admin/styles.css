@@ -975,3 +975,58 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .code-fige .ic-sm{flex:none;margin-top:2px;color:var(--encre-tres-douce)}
 .code-fige small{font-size:12px;color:var(--encre-tres-douce);line-height:1.45}
 .code-fige .code-produit{margin-right:4px}
+
+/* ---------- Ce que rapportent les boutiques ---------- */
+.carte-benefice{
+  display:block;text-decoration:none;color:inherit;
+  border-top:4px solid var(--orange);
+}
+.carte-benefice .carte-titre{color:var(--orange-fonce)}
+
+.st-filtres{display:flex;gap:8px;flex-wrap:wrap}
+
+.st-resume{text-align:center}
+.st-resume-grand small{
+  display:block;font-size:12px;color:var(--encre-tres-douce);
+  text-transform:uppercase;letter-spacing:.08em;font-weight:700;
+}
+.st-resume-grand strong{
+  display:block;margin-top:6px;
+  font-size:30px;font-weight:800;color:var(--orange-fonce);
+}
+.st-resume-detail{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  margin-top:16px;padding-top:14px;border-top:1px solid var(--trait);
+}
+.st-resume-detail small{display:block;font-size:11px;color:var(--encre-tres-douce)}
+.st-resume-detail span{font-size:14px;font-weight:800}
+
+.st-ligne{
+  background:var(--blanc);border-radius:var(--r);
+  padding:14px 16px;margin-bottom:10px;box-shadow:var(--ombre);
+}
+.st-ligne-entete{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.st-nom{font-size:14px;font-weight:700}
+.st-boutique{
+  display:flex;align-items:center;gap:5px;margin-top:4px;
+  font-size:12px;color:var(--encre-tres-douce);
+}
+.st-quantite{flex:none;font-size:15px;font-weight:800;color:var(--orange-fonce)}
+.st-chiffres{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+  margin-top:12px;padding-top:12px;border-top:1px dashed var(--trait);
+}
+.st-chiffres small{display:block;font-size:10.5px;color:var(--encre-tres-douce)}
+.st-chiffres span{font-size:13px;font-weight:700}
+.st-benefice span{color:var(--vert)}
+.st-totaux{
+  margin-top:10px;font-size:12px;color:var(--encre-douce);line-height:1.5;
+}
+.st-boutique-ligne{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.st-boutique-benefice{
+  flex:none;font-size:17px;font-weight:800;color:var(--vert);
+}
+
+@media (max-width:400px){
+  .st-chiffres{grid-template-columns:repeat(2,1fr)}
+}

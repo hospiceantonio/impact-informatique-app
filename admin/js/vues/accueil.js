@@ -84,6 +84,20 @@ const VueAccueil = (() => {
         "</a>";
     }
 
+    /* ---- Ce que les boutiques rapportent ----
+       La question que se pose l'enseigne en ouvrant l'application : les
+       ventes encaissées, et ce qu'elle en garde. Réservée à elle. */
+    if (Supabase.estSuper()) {
+      html +=
+        '<a class="carte carte-benefice" href="#/statistiques">' +
+          '<div class="carte-titre">' + UI.icone("promo", "ic-sm") +
+            " Ce que rapportent les boutiques</div>" +
+          '<p class="aide" style="margin:0">Les ventes encaissées, produit par produit : ' +
+            "prix BIZZOO, marge, prix de vente et bénéfice. Filtrable par boutique et par " +
+            "période.</p>" +
+        "</a>";
+    }
+
     /* ---- Chiffres clés ---- */
     html +=
       '<div class="stats">' +

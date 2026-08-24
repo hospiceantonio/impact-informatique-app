@@ -102,6 +102,21 @@ const VueBoutiques = (() => {
       UI.champTexte({ id: "bq-slogan", label: "Slogan", valeur: b ? b.slogan : "",
         placeholder: "Une phrase courte, affichée en bandeau" }) +
 
+      /* La marge de BIZZOO sur cette boutique. Elle se pose ici, à la
+         création, et la boutique ne peut plus y toucher — la base le
+         refuse. C'est ce que l'enseigne gagne sur chaque vente. */
+      '<div class="champ">' +
+        '<label for="bq-marge">Marge BIZZOO <span class="obligatoire">*</span></label>' +
+        '<div class="champ-montant">' +
+          '<input id="bq-marge" inputmode="decimal" autocomplete="off" placeholder="20"' +
+            ' value="' + Utils.echapper(b ? Utils.fmtTaux(b.tauxMarge) : "20") + '">' +
+          '<span class="devise">%</span>' +
+        "</div>" +
+        '<div class="aide">Ce que BIZZOO ajoute au prix annoncé par la boutique. ' +
+          "La boutique saisit son prix, ce pourcentage s'y ajoute, et la somme " +
+          "devient le prix de vente. Elle ne peut pas le modifier.</div>" +
+      "</div>" +
+
       '<div class="champ">' +
         "<label>Icône</label>" +
         '<div class="choix-icones" id="bq-icones">' +
@@ -231,6 +246,7 @@ const VueBoutiques = (() => {
           slogan: UI.$("#bq-slogan", corps).value.trim(),
           icone: choisi(corps, "#bq-icones", "icone", "magasin"),
           couleur: choisi(corps, "#bq-couleurs", "couleur", "#0B5CF5"),
+          tauxMarge: UI.$("#bq-marge", corps).value,
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
         });
