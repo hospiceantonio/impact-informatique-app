@@ -159,10 +159,12 @@ lignes as (
          pg_size_pretty(o.poids),
          o.created_at::date::text,
          'plus référencé — supprimable'
+    -- 200, et non 30 : une liste tronquee en silence donnerait
+    -- l'impression d'avoir tout vu, et le menage serait a moitie fait.
     from (select * from fichiers f
            where f.name not in (select chemin from utilises where chemin is not null)
              and not exists (select 1 from en_attente a where a.texte like '%' || f.name || '%')
-           order by f.poids desc limit 30) o
+           order by f.poids desc limit 200) o
 )
 
 select "section", "quoi", "détail 1", "détail 2", "détail 3"

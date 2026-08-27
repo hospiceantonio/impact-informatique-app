@@ -190,6 +190,50 @@ ou `create or replace`, et aucune donnée de départ ne déclenche un
 garde-fou de l'application — un seul `raise` annulerait tout le fichier,
 l'éditeur SQL de Supabase exécutant l'ensemble d'un bloc.
 
+### Le stockage des médias
+
+Un seul seau, `produits`, et ce n'est pas lui qui sépare : c'est le
+**dossier**, et `peut_deposer()` dit qui a le droit d'écrire dans lequel.
+
+| Dossier | Contenu | Qui dépose |
+|---|---|---|
+| *(racine)* | photos et vidéos des produits | toute l'équipe |
+| `boutique/`, `boutiques/` | logos et devantures | administrateurs |
+| `slider/` | slider d'une boutique | administrateurs |
+| `enseigne/` | slider et publicité BIZZOO | superadministrateur |
+
+[`supabase/etat-du-stockage.sql`](supabase/etat-du-stockage.sql) ne
+modifie rien et répond en **une seule requête** — l'éditeur SQL de
+Supabase n'affiche que le résultat de la dernière d'un bloc, et tout ce
+qui précède se perdrait en silence. Il montre les seaux, les règles, le
+poids par dossier et par type, la part du gigaoctet gratuit, les plus
+gros fichiers, et les **orphelins**.
+
+Un orphelin est un fichier que plus aucune ligne de la base ne désigne :
+une photo retirée d'un produit reste dans le seau, la base ne la suit
+plus, le stockage la garde. La liste des fichiers « encore utilisés »
+doit rester **complète** — `demandes.apres` en fait partie, car un logo
+proposé et pas encore validé n'est dans aucune colonne. En cas de doute,
+on garde un fichier de trop : une suppression ne se rattrape pas.
+
+Pour faire le ménage, exporter le résultat en CSV puis :
+
+```powershell
+.\tools\menage-stockage.ps1 -Csv "resultat.csv" -Simulation   # pour voir
+.\tools\menage-stockage.ps1 -Csv "resultat.csv"               # pour faire
+```
+
+Le script ne supprime que les lignes marquées `ORPHELINS`, et **ne
+manipule aucun secret** : il se connecte avec le compte administrateur
+de la personne qui le lance, et ce sont les règles de la base qui
+autorisent chaque effacement — le même appel que celui de l'application.
+La clé `service_role`, qui contourne toutes les règles, n'a rien à faire
+sur un poste de travail.
+
+> Supprimer une ligne de `storage.objects` en SQL ne supprime **pas** le
+> fichier : les octets vivent ailleurs, et il ne resterait qu'un fichier
+> devenu inatteignable. La suppression passe par l'API Storage.
+
 ## Le code d'un produit
 
 Chaque produit reçoit à sa création un **code** : un numéro, rien que
@@ -495,6 +539,7 @@ impact-informatique-app/
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
+    ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)
 ```
 
