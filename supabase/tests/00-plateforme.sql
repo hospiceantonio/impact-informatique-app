@@ -48,10 +48,18 @@ $$;
 create table if not exists storage.buckets (
   id text primary key, name text, public boolean default false,
   file_size_limit bigint, allowed_mime_types text[]);
+-- Les colonnes sont celles de Supabase, « metadata » comprise : c'est là
+-- qu'est rangé le poids d'un fichier, et l'état des lieux du stockage le
+-- lit. Une colonne oubliée ici, et le fichier passerait le banc pour
+-- échouer chez le gérant.
 create table if not exists storage.objects (
   id uuid primary key default gen_random_uuid(),
   bucket_id text, name text, owner uuid,
-  created_at timestamptz default now());
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  last_accessed_at timestamptz default now(),
+  metadata jsonb,
+  path_tokens text[] generated always as (string_to_array(name, '/')) stored);
 
 do $$
 begin
