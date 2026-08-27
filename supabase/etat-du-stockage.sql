@@ -11,9 +11,10 @@
 --   1. SEAUX        les seaux qui existent, et ce qu'ils laissent passer
 --   2. RÈGLES       qui a le droit de déposer, et où
 --   3. DOSSIERS     combien de fichiers et quel poids, dossier par dossier
---   4. TOTAL        le poids de tout le stockage
---   5. PLUS GROS    les quinze fichiers les plus lourds
---   6. ORPHELINS    ceux que plus aucune ligne de la base ne désigne
+--   4. TYPES        photos et vidéos, combien de chaque et quel poids
+--   5. TOTAL        le poids de tout le stockage, et la part du 1 Go gratuit
+--   6. PLUS GROS    les quinze fichiers les plus lourds
+--   7. ORPHELINS    ceux que plus aucune ligne de la base ne désigne
 --
 -- À exécuter dans Supabase :
 --   Dashboard → SQL Editor → New query → coller tout → Run.
@@ -111,22 +112,38 @@ lignes as (
     from fichiers f
    group by f.dossier, f.bucket_id
 
-  -- 4. Le total ------------------------------------------------------
+  -- 4. Par type de fichier -------------------------------------------
+  -- C'est ce qui décide s'il faut un seau à part pour les vidéos : la
+  -- limite de 60 Mo n'existe que pour elles, et elle s'applique
+  -- aujourd'hui aussi aux photos de produits.
   union all
-  select 4, 0,
+  select 4, sum(f.poids),
+         'TYPES',
+         f.type,
+         count(*)::text || ' fichier(s)',
+         pg_size_pretty(sum(f.poids)),
+         'le plus gros : ' || pg_size_pretty(max(f.poids))
+    from fichiers f
+   group by f.type
+
+  -- 5. Le total ------------------------------------------------------
+  union all
+  select 5, 0,
          'TOTAL',
          'tout le stockage',
          count(*)::text || ' fichier(s)',
          pg_size_pretty(coalesce(sum(f.poids), 0)),
-         ''
+         -- L'offre gratuite de Supabase s'arrête à 1 Go.
+         'sur 1 Go (offre gratuite) : ' ||
+           round(coalesce(sum(f.poids), 0) * 100.0 / 1073741824, 1)::text || ' %'
     from fichiers f
 
-  -- 5. Les plus gros -------------------------------------------------
+  -- 6. Les plus gros -------------------------------------------------
   -- C'est ici qu'on voit si une image est partie sans être compressée :
   -- l'application les réduit à 1100 px avant l'envoi, donc au-delà de
   -- 1 Mo, une image n'est pas passée par elle.
   union all
-  select 5, g.poids,
+  select 6, g.poids,
          'PLUS GROS',
          g.name,
          g.type,
@@ -134,9 +151,9 @@ lignes as (
          g.created_at::date::text
     from (select * from fichiers order by poids desc limit 15) g
 
-  -- 6. Ce que plus personne n'utilise --------------------------------
+  -- 7. Ce que plus personne n'utilise --------------------------------
   union all
-  select 6, o.poids,
+  select 7, o.poids,
          'ORPHELINS',
          o.name,
          pg_size_pretty(o.poids),
