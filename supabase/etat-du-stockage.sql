@@ -1,13 +1,19 @@
 -- =========================================================
 -- BIZZOO — état des lieux du STOCKAGE
 --
--- Ce fichier ne modifie RIEN. Il répond à quatre questions,
--- avant de décider quoi que ce soit sur les seaux (buckets) :
+-- Ce fichier ne modifie RIEN. Il répond en UNE SEULE requête,
+-- donc en un seul tableau : l'éditeur SQL de Supabase n'affiche
+-- que le résultat de la dernière requête d'un bloc, et tout ce
+-- qui précède se perdrait en silence.
 --
---   1. Quels seaux existent, et que laissent-ils passer ?
---   2. Qui a le droit d'y déposer, et où ?
---   3. Combien de fichiers, et quel poids, dossier par dossier ?
---   4. Quels sont les plus gros ?
+-- Ce qu'il montre, dans l'ordre :
+--
+--   1. SEAUX        les seaux qui existent, et ce qu'ils laissent passer
+--   2. RÈGLES       qui a le droit de déposer, et où
+--   3. DOSSIERS     combien de fichiers et quel poids, dossier par dossier
+--   4. TOTAL        le poids de tout le stockage
+--   5. PLUS GROS    les quinze fichiers les plus lourds
+--   6. ORPHELINS    ceux que plus aucune ligne de la base ne désigne
 --
 -- À exécuter dans Supabase :
 --   Dashboard → SQL Editor → New query → coller tout → Run.
@@ -15,100 +21,32 @@
 -- Sans danger : aucune écriture, aucune suppression.
 -- =========================================================
 
--- ---------------------------------------------------------
--- 1. Les seaux
--- ---------------------------------------------------------
--- « public » veut dire : servi à qui connaît l'adresse, sans compte.
--- C'est ce qu'il faut pour un catalogue — mais cela rend la liste des
--- types acceptés importante : ce qu'on y dépose est servi depuis
--- l'adresse du projet.
-select b.id                                            as "seau",
-       case when b.public then 'oui' else 'non' end     as "lecture publique",
-       coalesce(pg_size_pretty(b.file_size_limit), 'aucune limite')
-                                                        as "poids maximum",
-       coalesce(array_to_string(b.allowed_mime_types, ', '), 'TOUS LES TYPES')
-                                                        as "types acceptés"
-  from storage.buckets b
- order by b.id;
+with
 
--- ---------------------------------------------------------
--- 2. Qui peut faire quoi
--- ---------------------------------------------------------
--- Les règles du stockage sont des politiques ordinaires, posées sur
--- « storage.objects ». S'il n'y en a aucune pour l'écriture, personne
--- ne dépose — ou tout le monde, selon que RLS est actif.
-select p.polname                                        as "règle",
-       case p.polcmd when 'r' then 'lecture'
-                     when 'a' then 'dépôt'
-                     when 'w' then 'modification'
-                     when 'd' then 'suppression'
-                     else 'tout' end                    as "porte",
-       coalesce(
-         (select string_agg(r.rolname, ', ')
-            from pg_roles r where r.oid = any(p.polroles)),
-         'tous les rôles')                              as "pour qui"
-  from pg_policy p
-  join pg_class c on c.oid = p.polrelid
-  join pg_namespace n on n.oid = c.relnamespace
- where n.nspname = 'storage' and c.relname = 'objects'
- order by p.polcmd, p.polname;
+-- Le poids d'un fichier est rangé par Supabase dans « metadata ».
+-- Un fichier déposé autrement que par l'API peut n'y rien avoir :
+-- il compte alors pour zéro plutôt que de faire échouer la lecture.
+fichiers as (
+  select o.bucket_id,
+         o.name,
+         o.created_at,
+         coalesce((o.metadata->>'size')::bigint, 0) as poids,
+         coalesce(o.metadata->>'mimetype', '?')     as type,
+         -- Le premier segment du chemin dit à qui le fichier appartient :
+         -- « enseigne/ » à BIZZOO, « slider/ » et « boutique(s)/ » à une
+         -- boutique, le reste aux photos de produits.
+         coalesce(nullif(split_part(o.name, '/', 1), o.name), '(produits)') as dossier
+    from storage.objects o
+),
 
--- ---------------------------------------------------------
--- 3. Ce qui est déjà stocké, dossier par dossier
--- ---------------------------------------------------------
--- Le premier segment du chemin dit à qui appartient le fichier :
---   « enseigne/ »  le slider et la publicité de BIZZOO
---   « slider/ »    le slider d'une boutique
---   « boutique(s)/ » devantures et logos
---   le reste       les photos de produits
+-- Tout ce qu'une ligne de la base désigne encore. Ce qui n'y figure
+-- pas est un orphelin : une photo retirée d'un produit reste dans le
+-- seau, la base ne la suit plus, le stockage la garde.
 --
--- Le poids est rangé par Supabase dans « metadata ». Un fichier déposé
--- autrement que par l'API peut ne rien y avoir : il compte alors pour 0.
-select coalesce(nullif(split_part(o.name, '/', 1), o.name), '(produits)')
-                                                        as "dossier",
-       o.bucket_id                                      as "seau",
-       count(*)                                         as "fichiers",
-       pg_size_pretty(sum(coalesce((o.metadata->>'size')::bigint, 0)))
-                                                        as "poids total",
-       pg_size_pretty(
-         (avg(coalesce((o.metadata->>'size')::bigint, 0)))::bigint)
-                                                        as "poids moyen"
-  from storage.objects o
- group by 1, 2
- order by sum(coalesce((o.metadata->>'size')::bigint, 0)) desc;
-
--- Le total, toutes catégories confondues.
-select count(*)                                         as "fichiers en tout",
-       pg_size_pretty(sum(coalesce((metadata->>'size')::bigint, 0)))
-                                                        as "poids en tout"
-  from storage.objects;
-
--- ---------------------------------------------------------
--- 4. Les vingt plus gros fichiers
--- ---------------------------------------------------------
--- C'est ici qu'on voit si une photo est partie sans être compressée :
--- l'application réduit les images à 1100 px avant de les envoyer, donc
--- au-delà de 1 Mo, une image n'est pas passée par elle.
-select o.name                                           as "fichier",
-       o.bucket_id                                      as "seau",
-       coalesce(o.metadata->>'mimetype', '?')           as "type",
-       pg_size_pretty(coalesce((o.metadata->>'size')::bigint, 0))
-                                                        as "poids",
-       o.created_at::date                               as "déposé le"
-  from storage.objects o
- order by coalesce((o.metadata->>'size')::bigint, 0) desc
- limit 20;
-
--- ---------------------------------------------------------
--- 5. Les fichiers que plus personne n'utilise
--- ---------------------------------------------------------
--- Une photo retirée d'un produit reste dans le seau : la base ne la
--- suit plus, le stockage la garde. Voici celles que rien ne désigne
--- plus — elles se suppriment sans conséquence.
---
--- Le seau est nommé en dur (« produits ») comme dans l'application :
--- si vous en ajoutez d'autres, cette requête sera à revoir.
-with utilises as (
+-- Cette liste doit être COMPLÈTE. Un fichier oublié ici serait annoncé
+-- « supprimable » alors qu'il est à l'écran — et une suppression ne se
+-- rattrape pas. En cas de doute, mieux vaut garder un fichier de trop.
+utilises as (
   select unnest(p.images) as chemin from public.produits p
   union select p.video from public.produits  p where coalesce(p.video, '') <> ''
   union select b.logo  from public.boutiques b where coalesce(b.logo,  '') <> ''
@@ -116,13 +54,100 @@ with utilises as (
   union select unnest(b.photos) from public.boutiques b
   union select s.image from public.slides    s where coalesce(s.image, '') <> ''
   union select s.video from public.slides    s where coalesce(s.video, '') <> ''
+  -- La boutique d'origine, celle d'avant les boutiques multiples : elle
+  -- existe toujours, et ses photos aussi.
+  union select o.video from public.boutique  o where coalesce(o.video, '') <> ''
+  union select unnest(o.photos) from public.boutique o
+),
+
+-- Les fichiers déposés pour une demande de modification que l'enseigne
+-- n'a pas encore tranchée. Ils ne sont ENCORE dans aucune colonne — le
+-- logo proposé n'est pas le logo en place — et disparaîtraient si on
+-- suivait la liste ci-dessus. On les reconnaît en cherchant le nom du
+-- fichier dans le texte de la demande : grossier, mais du bon côté.
+en_attente as (
+  select d.apres::text || coalesce(d.avant::text, '') as texte
+    from public.demandes d
+   where d.etat = 'en_attente'
+),
+
+lignes as (
+
+  -- 1. Les seaux ----------------------------------------------------
+  select 1 as rang, 0::bigint as tri,
+         'SEAUX'                                        as "section",
+         b.id                                           as "quoi",
+         case when b.public then 'lecture publique' else 'privé' end as "détail 1",
+         coalesce(pg_size_pretty(b.file_size_limit), 'AUCUNE LIMITE') as "détail 2",
+         coalesce(array_to_string(b.allowed_mime_types, ', '), 'TOUS LES TYPES') as "détail 3"
+    from storage.buckets b
+
+  -- 2. Qui peut faire quoi ------------------------------------------
+  -- Les règles du stockage sont des politiques ordinaires, posées sur
+  -- « storage.objects ».
+  union all
+  select 2, 0,
+         'RÈGLES',
+         p.polname,
+         case p.polcmd when 'r' then 'lecture'      when 'a' then 'dépôt'
+                       when 'w' then 'modification' when 'd' then 'suppression'
+                       else 'tout' end,
+         coalesce((select string_agg(r.rolname, ', ')
+                     from pg_roles r where r.oid = any(p.polroles)), 'tous les rôles'),
+         ''
+    from pg_policy p
+    join pg_class c     on c.oid = p.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'storage' and c.relname = 'objects'
+
+  -- 3. Ce qui est stocké, dossier par dossier -----------------------
+  union all
+  select 3, sum(f.poids),
+         'DOSSIERS',
+         f.dossier,
+         f.bucket_id,
+         count(*)::text || ' fichier(s)',
+         pg_size_pretty(sum(f.poids))
+    from fichiers f
+   group by f.dossier, f.bucket_id
+
+  -- 4. Le total ------------------------------------------------------
+  union all
+  select 4, 0,
+         'TOTAL',
+         'tout le stockage',
+         count(*)::text || ' fichier(s)',
+         pg_size_pretty(coalesce(sum(f.poids), 0)),
+         ''
+    from fichiers f
+
+  -- 5. Les plus gros -------------------------------------------------
+  -- C'est ici qu'on voit si une image est partie sans être compressée :
+  -- l'application les réduit à 1100 px avant l'envoi, donc au-delà de
+  -- 1 Mo, une image n'est pas passée par elle.
+  union all
+  select 5, g.poids,
+         'PLUS GROS',
+         g.name,
+         g.type,
+         pg_size_pretty(g.poids),
+         g.created_at::date::text
+    from (select * from fichiers order by poids desc limit 15) g
+
+  -- 6. Ce que plus personne n'utilise --------------------------------
+  union all
+  select 6, o.poids,
+         'ORPHELINS',
+         o.name,
+         pg_size_pretty(o.poids),
+         o.created_at::date::text,
+         'plus référencé — supprimable'
+    from (select * from fichiers f
+           where f.name not in (select chemin from utilises where chemin is not null)
+             and not exists (select 1 from en_attente a where a.texte like '%' || f.name || '%')
+           order by f.poids desc limit 30) o
 )
-select o.name                                           as "fichier orphelin",
-       pg_size_pretty(coalesce((o.metadata->>'size')::bigint, 0))
-                                                        as "poids",
-       o.created_at::date                               as "déposé le"
-  from storage.objects o
- where o.bucket_id = 'produits'
-   and o.name not in (select chemin from utilises where chemin is not null)
- order by coalesce((o.metadata->>'size')::bigint, 0) desc
- limit 50;
+
+select "section", "quoi", "détail 1", "détail 2", "détail 3"
+  from lignes
+ order by rang, tri desc, "quoi";
