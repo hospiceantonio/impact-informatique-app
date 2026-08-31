@@ -193,13 +193,34 @@ const App = { evenementInstallation: null };
 
   const ONGLETS_DE_BOUTIQUE = ["/categories", "/produits"];
 
+  /* Est-on CHEZ quelqu'un ? En boutique unique, toujours : il n'y a pas
+     d'accueil d'enseigne où se tenir. */
+  const enBoutique = () =>
+    !Catalogue.multiBoutiques() || !!Catalogue.boutiqueChoisie();
+
   function reglerOnglets(ongletAffiche) {
-    const dansUneBoutique = !Catalogue.multiBoutiques() || !!Catalogue.boutiqueChoisie();
+    const dansUneBoutique = enBoutique();
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       const onglet = lien.dataset.tab;
       lien.hidden = ONGLETS_DE_BOUTIQUE.includes(onglet) &&
         !dansUneBoutique && onglet !== ongletAffiche;
     }
+
+    /* ---------- Où mène « Accueil » ----------
+       Une fois entré chez quelqu'un, on y reste : « Accueil » ramène à
+       LA VITRINE DE CETTE BOUTIQUE, pas à BIZZOO. Sortir se demande, et
+       c'est l'onglet BIZZOO qui le fait — sinon on quitte la boutique
+       sans l'avoir voulu, en croyant simplement remonter en haut. */
+    const choisie = Catalogue.boutiqueChoisie();
+    const accueil = document.querySelector('#tabbar a[data-tab="/"]');
+    if (accueil) {
+      accueil.href = choisie ? "#/boutique/" + choisie.id : "#/";
+    }
+
+    /* L'onglet BIZZOO n'a de sens que si l'on peut en sortir : il faut
+       plusieurs boutiques, et être entré dans l'une d'elles. */
+    const versBizzoo = document.getElementById("tab-bizzoo");
+    if (versBizzoo) versBizzoo.hidden = !choisie;
   }
 
   /* ---------- « Nous contacter » ----------
@@ -213,20 +234,38 @@ const App = { evenementInstallation: null };
      alors d'elle-même sur ceux qui restent (`grid-auto-columns`). */
 
   function reglerContact() {
-    const lien = document.getElementById("tab-contact");
-    if (!lien) return;
+    const onglet = document.getElementById("tab-contact");
+    const flottant = document.getElementById("contact-flottant");
     const maison = Catalogue.enseigne();
+
     if (!maison.whatsapp) {
-      lien.hidden = true;
+      if (onglet) onglet.hidden = true;
+      if (flottant) flottant.hidden = true;
       return;
     }
-    lien.hidden = false;
-    lien.href = Utils.lienWhatsApp(
+
+    const lien = Utils.lienWhatsApp(
       maison.whatsapp,
       "Bonjour " + maison.nom + ", je souhaite un renseignement.",
       maison.indicatif);
-    lien.target = "_blank";
-    lien.rel = "noopener";
+
+    /* Dans une boutique, la barre du bas porte déjà six entrées, dont
+       le retour à BIZZOO. « Contact » en sort et devient le bouton
+       flottant : il ne bouge plus d'un écran à l'autre. Sur l'accueil
+       de l'enseigne, où la barre est plus courte, il y reprend sa
+       place — un bouton qui flotte au-dessus d'une barre à moitié vide
+       n'apporterait rien. */
+    const flotte = enBoutique();
+    if (onglet) {
+      onglet.hidden = flotte;
+      onglet.href = lien;
+      onglet.target = "_blank";
+      onglet.rel = "noopener";
+    }
+    if (flottant) {
+      flottant.hidden = !flotte;
+      flottant.href = lien;
+    }
   }
 
   /* ---------- Interactions globales ---------- */
@@ -236,8 +275,13 @@ const App = { evenementInstallation: null };
      rien ne se redessine ; et si l'on en revient, la position de
      lecture mémorisée reprendrait la main. */
   document.addEventListener("click", (ev) => {
-    if (!ev.target.closest('#tabbar a[data-tab="/"]')) return;
-    positions.delete("#/");
+    const accueil = ev.target.closest('#tabbar a[data-tab="/"]');
+    if (!accueil) return;
+    /* L'écran visé n'est plus toujours « #/ » : dans une boutique,
+       Accueil ramène à sa vitrine. On oublie la position mémorisée de
+       CELUI-LÀ, sans quoi on retomberait au milieu de la page. */
+    const vise = accueil.getAttribute("href") || "#/";
+    positions.delete(vise);
     requestAnimationFrame(() => window.scrollTo(0, 0));
   });
 

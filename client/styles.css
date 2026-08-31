@@ -154,6 +154,26 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* Le nom de l'enseigne n'apparaît que dans le menu latéral, sur
    ordinateur : sur un téléphone il ferait une septième colonne. */
 .tabbar-marque{display:none}
+/* Le logo BIZZOO tient la place d'une icône : c'est lui qui dit où l'on
+   revient, mieux qu'un dessin de plus. */
+.tab-logo{width:21px;height:21px;border-radius:6px;object-fit:cover;flex:none}
+
+/* ---------- Contact, en bouton flottant ----------
+   Dans une boutique, la barre du bas est pleine. « Contact » en sort et
+   se pose ici : au même endroit sur tous les écrans de la boutique, à
+   portée du pouce droit, et au-dessus de la barre pour ne rien couvrir
+   de ce qu'on lit. */
+.contact-flottant{
+  position:fixed;right:16px;z-index:45;
+  bottom:calc(var(--barre-h) + var(--safe-b) + 16px);
+  display:flex;align-items:center;justify-content:center;
+  width:54px;height:54px;border-radius:50%;
+  background:var(--wa);color:#fff;
+  box-shadow:0 12px 26px -8px rgba(31,175,86,.75);
+}
+.contact-flottant[hidden]{display:none}
+.contact-flottant .ic{width:27px;height:27px;stroke-width:1.9}
+.contact-flottant:active{transform:scale(.94)}
 /* Six onglets sur un écran étroit : « Catégories » doit tenir sans
    pousser ses voisins, et s'écourter plutôt que déborder. */
 .tabbar a span{
@@ -315,7 +335,11 @@ video.slide-img{background:#000}
 .bou-bandeau .bou-rond{width:40px;height:40px;border-radius:14px}
 .bou-bandeau .bou-rond .ic{width:20px;height:20px}
 .bou-bandeau strong{display:block;font-size:14px;color:var(--encre)}
-.bou-bandeau > span{flex:1;min-width:0}
+/* La pastille de la boutique est un carré de 40 px — mais elle est,
+   elle aussi, un « span » enfant direct. Sans cette exception elle
+   héritait du « flex:1 », dont le « flex-basis:0 » l'emportait sur sa
+   largeur : le rond devenait un long rectangle bleu. */
+.bou-bandeau > span:not(.bou-rond){flex:1;min-width:0}
 .bou-bandeau > .ic{flex:none;color:var(--encre-tres-douce)}
 
 .cat-grille{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -986,6 +1010,8 @@ a.pub-carte:active{transform:scale(.98)}
     padding:22px 28px 48px;   /* plus de barre en bas : plus de place à lui réserver */
   }
   .toasts{left:calc(var(--rail) + 16px);bottom:22px}
+  /* Plus de barre en bas : le bouton flottant descend d'autant. */
+  .contact-flottant{bottom:24px;right:24px}
 
   /* Quatre produits de front plutôt que trois : à cette largeur,
      trois cartes deviennent des affiches. */

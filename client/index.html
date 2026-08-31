@@ -91,11 +91,23 @@
   <a href="#/produits" data-tab="/produits"><svg class="ic" viewBox="0 0 24 24"><use href="#i-boite"/></svg><span>Produits</span></a>
   <a href="#/recherche" data-tab="/recherche"><svg class="ic" viewBox="0 0 24 24"><use href="#i-recherche"/></svg><span>Recherche</span></a>
   <a href="#/infos" data-tab="/infos"><svg class="ic" viewBox="0 0 24 24"><use href="#i-infos"/></svg><span>Infos</span></a>
+  <!-- Dans une boutique, « Accueil » ramène à SA vitrine : celui-ci
+       ramène à BIZZOO, c'est-à-dire à toutes les boutiques. Il n'a donc
+       de sens que lorsqu'on est entré quelque part. -->
+  <a id="tab-bizzoo" href="#/" hidden><img class="tab-logo" src="icons/icon-192.png" alt=""><span>BIZZOO</span></a>
   <!-- Pas un écran : le lien part vers WhatsApp. Le numéro est celui de
        BIZZOO et vient du catalogue, donc il est posé par app.js ; sans
-       numéro renseigné, l'onglet reste caché. -->
+       numéro renseigné, l'onglet reste caché. Dans une boutique il
+       s'efface au profit du bouton flottant, juste en dessous. -->
   <a id="tab-contact" class="tab-contact" href="#/infos" aria-label="Nous contacter sur WhatsApp" hidden><svg class="ic" viewBox="0 0 24 24"><use href="#i-whatsapp"/></svg><span>Contact</span></a>
 </nav>
+
+<!-- Dans une boutique, la barre du bas est pleine : « Contact » en sort
+     et se pose ici, toujours au même endroit, quel que soit l'écran. -->
+<a id="contact-flottant" class="contact-flottant" hidden target="_blank" rel="noopener"
+   aria-label="Nous contacter sur WhatsApp">
+  <svg class="ic" viewBox="0 0 24 24"><use href="#i-whatsapp"/></svg>
+</a>
 
 <div id="visionneuse" class="visionneuse" hidden>
   <button type="button" class="visionneuse-fermer btn-ic" data-action="fermer-visionneuse" aria-label="Fermer">
