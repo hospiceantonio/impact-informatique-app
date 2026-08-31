@@ -238,17 +238,6 @@ const App = { evenementInstallation: null };
     const flottant = document.getElementById("contact-flottant");
     const maison = Catalogue.enseigne();
 
-    if (!maison.whatsapp) {
-      if (onglet) onglet.hidden = true;
-      if (flottant) flottant.hidden = true;
-      return;
-    }
-
-    const lien = Utils.lienWhatsApp(
-      maison.whatsapp,
-      "Bonjour " + maison.nom + ", je souhaite un renseignement.",
-      maison.indicatif);
-
     /* Dans une boutique, la barre du bas porte déjà six entrées, dont
        le retour à BIZZOO. « Contact » en sort et devient le bouton
        flottant : il ne bouge plus d'un écran à l'autre. Sur l'accueil
@@ -256,6 +245,41 @@ const App = { evenementInstallation: null };
        place — un bouton qui flotte au-dessus d'une barre à moitié vide
        n'apporterait rien. */
     const flotte = enBoutique();
+
+    /* ---------- À QUI l'on écrit ----------
+       Le bouton vu DANS une boutique écrit à CETTE boutique : le client
+       qui le presse sur une fiche produit veut parler au commerçant qui
+       l'a en rayon, pas à l'enseigne. Celui de l'accueil BIZZOO, lui,
+       écrit à l'enseigne — c'est chez elle qu'on se trouve.
+
+       En boutique unique, la boutique EST l'enseigne : rien à
+       distinguer. */
+    const chez = Catalogue.boutiqueChoisie();
+    const sien = chez ? (chez.whatsapp || chez.tel || "") : "";
+
+    let numero, indicatif, texte;
+    if (chez && sien) {
+      numero = sien;
+      indicatif = chez.indicatif || maison.indicatif;
+      texte = "Bonjour " + chez.nom + ", je souhaite un renseignement.";
+    } else {
+      /* Boutique sans numéro : plutôt que de retirer le bouton, on passe
+         par l'enseigne — mais en DISANT de quelle boutique il s'agit,
+         sinon BIZZOO reçoit une question sans savoir sur quoi. */
+      numero = maison.whatsapp;
+      indicatif = maison.indicatif;
+      texte = "Bonjour " + maison.nom + ", je souhaite un renseignement" +
+        (chez ? " sur " + chez.nom : "") + ".";
+    }
+
+    if (!numero) {
+      if (onglet) onglet.hidden = true;
+      if (flottant) flottant.hidden = true;
+      return;
+    }
+
+    const lien = Utils.lienWhatsApp(numero, texte, indicatif);
+
     if (onglet) {
       onglet.hidden = flotte;
       onglet.href = lien;
@@ -265,6 +289,9 @@ const App = { evenementInstallation: null };
     if (flottant) {
       flottant.hidden = !flotte;
       flottant.href = lien;
+      flottant.setAttribute("aria-label",
+        chez && sien ? "Écrire à " + chez.nom + " sur WhatsApp"
+                     : "Nous contacter sur WhatsApp");
     }
   }
 
