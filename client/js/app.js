@@ -255,43 +255,40 @@ const App = { evenementInstallation: null };
        En boutique unique, la boutique EST l'enseigne : rien à
        distinguer. */
     const chez = Catalogue.boutiqueChoisie();
-    const sien = chez ? (chez.whatsapp || chez.tel || "") : "";
 
-    let numero, indicatif, texte;
-    if (chez && sien) {
-      numero = sien;
-      indicatif = chez.indicatif || maison.indicatif;
-      texte = "Bonjour " + chez.nom + ", je souhaite un renseignement.";
-    } else {
-      /* Boutique sans numéro : plutôt que de retirer le bouton, on passe
-         par l'enseigne — mais en DISANT de quelle boutique il s'agit,
-         sinon BIZZOO reçoit une question sans savoir sur quoi. */
-      numero = maison.whatsapp;
-      indicatif = maison.indicatif;
-      texte = "Bonjour " + maison.nom + ", je souhaite un renseignement" +
-        (chez ? " sur " + chez.nom : "") + ".";
-    }
+    /* Le bouton flottant écrit à la boutique, ET À PERSONNE D'AUTRE.
+       Une boutique qui n'a pas renseigné de numéro n'a pas de bouton :
+       le rabattre sur l'enseigne ferait croire au client qu'il écrit au
+       commerçant, et le message partirait ailleurs.
 
-    if (!numero) {
-      if (onglet) onglet.hidden = true;
-      if (flottant) flottant.hidden = true;
-      return;
-    }
+       En boutique unique, la boutique EST l'enseigne : c'est son numéro
+       qu'on emploie, et il n'y a rien à distinguer. */
+    const qui = chez
+      ? { numero: chez.whatsapp || chez.tel || "", indicatif: chez.indicatif || maison.indicatif,
+          nom: chez.nom }
+      : { numero: maison.whatsapp, indicatif: maison.indicatif, nom: maison.nom };
 
-    const lien = Utils.lienWhatsApp(numero, texte, indicatif);
+    const adresser = (a) => Utils.lienWhatsApp(
+      a.numero, "Bonjour " + a.nom + ", je souhaite un renseignement.", a.indicatif);
 
+    /* L'onglet, lui, ne paraît que sur l'accueil de l'enseigne : c'est
+       chez elle qu'on se trouve, c'est à elle qu'il écrit. */
     if (onglet) {
-      onglet.hidden = flotte;
-      onglet.href = lien;
-      onglet.target = "_blank";
-      onglet.rel = "noopener";
+      onglet.hidden = flotte || !maison.whatsapp;
+      if (maison.whatsapp) {
+        onglet.href = adresser({ numero: maison.whatsapp, indicatif: maison.indicatif,
+                                 nom: maison.nom });
+        onglet.target = "_blank";
+        onglet.rel = "noopener";
+      }
     }
+
     if (flottant) {
-      flottant.hidden = !flotte;
-      flottant.href = lien;
-      flottant.setAttribute("aria-label",
-        chez && sien ? "Écrire à " + chez.nom + " sur WhatsApp"
-                     : "Nous contacter sur WhatsApp");
+      flottant.hidden = !flotte || !qui.numero;
+      if (qui.numero) {
+        flottant.href = adresser(qui);
+        flottant.setAttribute("aria-label", "Écrire à " + qui.nom + " sur WhatsApp");
+      }
     }
   }
 
