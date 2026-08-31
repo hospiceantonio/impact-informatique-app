@@ -236,7 +236,7 @@ begin
     return new;
   end if;
   if coalesce(current_setting('bizzoo.paiement', true), '') = 'oui' then
-    return new;   -- KkiaPay, ou l'enseigne qui se porte garante
+    return new;   -- l'agrégateur, ou l'enseigne qui se porte garante
   end if;
 
   if not public.est_equipe() then
@@ -250,6 +250,10 @@ begin
   or new.client_adresse is distinct from old.client_adresse
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
+  -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui
+  -- demander si le versement a abouti. La laisser réécrire, c'est
+  -- laisser désigner quel versement répond pour quelle commande.
+  or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
@@ -257,7 +261,7 @@ begin
 
   -- Et surtout : elle n'invente pas un encaissement.
   if new.etat = 'payee' and old.etat <> 'payee' then
-    raise exception 'Seul KkiaPay déclare un paiement';
+    raise exception 'Seul l''agrégateur de paiement déclare un paiement';
   end if;
   if old.etat = 'payee' and new.etat not in ('payee', 'annulee') then
     raise exception 'Une commande payée ne peut être qu''annulée';

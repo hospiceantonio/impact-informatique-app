@@ -158,6 +158,11 @@ Trois règles pour que ce banc garde sa valeur :
   un paiement » n'a d'abord rien cassé : l'essai se heurtait plus tôt à
   « seule l'équipe suit une commande ». Sabotez volontairement une règle
   et vérifiez que le banc rougit — sinon, l'essai regarde ailleurs.
+  **Et sabotez-la dans `schema.sql` ET dans la migration qui la
+  redéfinit** : les fichiers se rejouent après le schéma, si bien qu'une
+  faille ouverte d'un seul côté est refermée par l'autre, et le banc
+  reste vert pour une raison qui n'a rien à voir avec ce qu'on croit
+  éprouver.
 - **Un fichier envoyé au gérant doit passer sans compte connecté, et ne
   jamais porter une fonction périmée.** L'éditeur SQL de Supabase exécute
   tout d'un bloc et **annule tout à la première erreur** : une simple
@@ -331,19 +336,61 @@ tête de nom pèse plus qu'un mot au milieu, et retrouver tout ce qui a
 été tapé vaut mieux que la moitié. Mais jamais assez pour changer de
 rang.
 
-## Paiement en ligne (KkiaPay)
+## Paiement en ligne
 
 Le client remplit un panier, valide, paie par **Mobile Money** (MTN,
-Moov) ou par carte, et la commande arrive dans le compte administrateur
-de **chaque boutique concernée** — chacune ne voit que ses lignes à
-elle. Tant que le paiement n'est pas ouvert, le panier fonctionne quand
-même : la commande part sur WhatsApp, comme avant.
+Moov, Celtiis) ou par carte, et la commande arrive dans le compte
+administrateur de **chaque boutique concernée** — chacune ne voit que ses
+lignes à elle. Tant que le paiement n'est pas ouvert, le panier
+fonctionne quand même : la commande part sur WhatsApp, comme avant.
+
+### Deux agrégateurs, au choix de l'enseigne
+
+`paiement.fournisseur` dit qui encaisse : `kkiapay` ou `feexpay`.
+L'enseigne en change dans ses réglages, sans qu'on republie quoi que ce
+soit. **Ils ne fonctionnent pas pareil, et c'est ce qui explique tout :**
+
+| | KkiaPay | FeexPay |
+|---|---|---|
+| Ce que l'app porte | une clé **publique** | **rien** |
+| Qui ouvre le paiement | l'app (widget) | **notre Edge Function** |
+| Ce qui prouve l'encaissement | une notification **signée** | notre serveur **interroge** FeexPay |
+| Frais (Bénin) | selon contrat | **1,7 %** Mobile Money, **4,5 %** carte |
+
+FeexPay n'envoie **aucune notification signée** — rien qu'un
+`callback_url`, c'est-à-dire une redirection de navigateur, fabriquée
+chez le client donc falsifiable. Et son jeton est un **secret porteur**,
+que leur propre SDK met pourtant dans le navigateur. On inverse donc le
+sens : notre Edge Function ouvre le paiement (le jeton reste dans les
+secrets Supabase), garde la **référence** que FeexPay lui rend, puis va
+lui demander si le versement a abouti. La réponse de FeexPay décide.
+
+> **Le mode « SANDBOX » de FeexPay est truqué côté navigateur.** Leur SDK
+> n'appelle pas l'API en mode test : il renvoie un succès écrit en dur.
+> Notre fonction n'a donc **pas** de mode test — le reproduire rouvrirait
+> exactement la porte que tout le reste du projet ferme. Éprouvez avec un
+> petit montant réel.
+
+Mise en route de FeexPay, une fois :
+
+```bash
+supabase secrets set FEEXPAY_TOKEN='fp_votre_jeton'
+supabase secrets set FEEXPAY_SHOP='identifiant-de-boutique'
+supabase functions deploy feexpay --no-verify-jwt
+```
+
+Puis `supabase/feexpay.sql` dans l'éditeur SQL, et l'agrégateur se
+choisit dans Admin → Réglages → BIZZOO.
 
 ### Le principe, à ne jamais contourner
 
-**L'application ne valide jamais un paiement.** Elle ouvre la page de
-KkiaPay, et c'est KkiaPay qui, une fois l'argent encaissé, appelle une
-fonction serveur.
+### Le principe, à ne jamais contourner
+
+**L'application ne valide jamais un paiement.** Avec KkiaPay elle ouvre
+la page de paiement, et c'est KkiaPay qui, une fois l'argent encaissé,
+appelle une fonction serveur. Avec FeexPay elle ne fait qu'inviter notre
+serveur à aller vérifier. Dans les deux cas, ce qui fait passer une
+commande à « payée » vient de l'agrégateur, jamais du téléphone.
 
 ```
 Appli client ──ouvre le paiement (clé PUBLIQUE)──▶ KkiaPay
@@ -504,9 +551,12 @@ impact-informatique-app/
 │   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
 │   ├── code-produit.sql             # Le code d'un produit, pour une base déjà en place
 │   ├── marge-bizzoo.sql             # La marge de l'enseigne et les statistiques de ventes
+│   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
+│   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
-│   └── functions/kkiapay-webhook/   # La seule porte vers « commande payée »
+│   ├── functions/kkiapay-webhook/   # KkiaPay : sa notification signée
+│   └── functions/feexpay/           # FeexPay : notre serveur ouvre, puis vérifie
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)

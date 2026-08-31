@@ -1142,10 +1142,28 @@ grant execute on function public.refuser_demande(text, text) to authenticated;
 create table if not exists public.paiement (
   id           int primary key default 1 check (id = 1),
   actif        boolean not null default false,  -- tant que faux : commande sans paiement en ligne
+  -- Quel agrégateur encaisse. L'enseigne en change dans ses réglages,
+  -- sans qu'on reconstruise ni republie quoi que ce soit.
+  fournisseur  text not null default 'kkiapay',
+  -- KkiaPay seulement, et c'est la clé PUBLIQUE : elle est faite pour
+  -- partir dans l'application. FeexPay, lui, exige un jeton porteur —
+  -- un secret, qui reste donc dans les secrets Supabase et ne descend
+  -- JAMAIS dans cette table, que « anon » a le droit de lire.
   cle_publique text not null default '',
   bac_a_sable  boolean not null default true,   -- vrai = numéros de test seulement
   maj_le       timestamptz not null default now()
 );
+-- Sur une base déjà en service, le corps ci-dessus n'est jamais relu.
+alter table public.paiement
+  add column if not exists fournisseur text not null default 'kkiapay';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_fournisseur_connu') then
+    alter table public.paiement
+      add constraint paiement_fournisseur_connu
+      check (fournisseur in ('kkiapay', 'feexpay'));
+  end if;
+end $$;
 insert into public.paiement (id) values (1) on conflict (id) do nothing;
 
 alter table public.paiement enable row level security;
@@ -1174,8 +1192,13 @@ create table if not exists public.commandes (
   devise       text not null default 'FCFA',
   etat         text not null default 'a_payer'
                check (etat in ('a_payer', 'payee', 'echouee', 'annulee')),
-  transaction_id text not null default '',     -- l'identifiant KkiaPay
-  -- Vide quand c'est KkiaPay qui a confirmé (le cas normal) ; sinon
+  transaction_id text not null default '',     -- l'identifiant du versement, chez l'agrégateur
+  -- La référence que l'agrégateur donne à CETTE tentative de paiement.
+  -- FeexPay ne signe aucune notification : c'est avec elle que notre
+  -- serveur ira lui demander « ce versement a-t-il abouti ? ». Elle est
+  -- donc la clé de tout l'encaissement FeexPay.
+  fournisseur_ref text not null default '',
+  -- Vide quand c'est l'agrégateur qui a confirmé (le cas normal) ; sinon
   -- l'adresse du superadministrateur qui s'est porté garant à la main.
   confirme_par text not null default '',
   remarque     text not null default '',       -- « reçu 5 000 sur 12 000 attendus »
@@ -1190,12 +1213,21 @@ create table if not exists public.commandes (
 alter table public.commandes
   add column if not exists transaction_annoncee text not null default '';
 
+-- Sur une base déjà en service, le corps du « create table » n'est pas
+-- relu : la colonne doit être répétée ici pour y arriver.
+alter table public.commandes
+  add column if not exists fournisseur_ref text not null default '';
+
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
--- Une transaction KkiaPay ne vaut que pour une commande : c'est ce qui
--- rend le paiement rejouable sans danger (KkiaPay réessaie 5 fois tant
--- qu'il n'a pas reçu un 200).
+-- Une transaction ne vaut que pour une commande : c'est ce qui rend le
+-- paiement rejouable sans danger (KkiaPay réessaie 5 fois tant qu'il n'a
+-- pas reçu un 200 ; côté FeexPay, c'est nous qui redemandons le statut).
 create unique index if not exists commandes_transaction
   on public.commandes(transaction_id) where transaction_id <> '';
+-- Et une référence d'agrégateur ne désigne qu'une commande : sans cela,
+-- deux commandes pourraient se disputer le même versement.
+create unique index if not exists commandes_fournisseur_ref
+  on public.commandes(fournisseur_ref) where fournisseur_ref <> '';
 
 -- Une ligne par produit commandé. Le nom, la référence et le prix
 -- y sont FIGÉS : c'est ce qui a été vendu ce jour-là.
@@ -1333,7 +1365,7 @@ begin
     return new;
   end if;
   if coalesce(current_setting('bizzoo.paiement', true), '') = 'oui' then
-    return new;   -- KkiaPay, ou l'enseigne qui se porte garante
+    return new;   -- l'agrégateur, ou l'enseigne qui se porte garante
   end if;
 
   if not public.est_equipe() then
@@ -1347,6 +1379,10 @@ begin
   or new.client_adresse is distinct from old.client_adresse
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
+  -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui
+  -- demander si le versement a abouti. La laisser réécrire, c'est
+  -- laisser désigner quel versement répond pour quelle commande.
+  or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
@@ -1354,7 +1390,7 @@ begin
 
   -- Et surtout : elle n'invente pas un encaissement.
   if new.etat = 'payee' and old.etat <> 'payee' then
-    raise exception 'Seul KkiaPay déclare un paiement';
+    raise exception 'Seul l''agrégateur de paiement déclare un paiement';
   end if;
   if old.etat = 'payee' and new.etat not in ('payee', 'annulee') then
     raise exception 'Une commande payée ne peut être qu''annulée';
@@ -1639,7 +1675,71 @@ end $$;
 revoke all on function public.marquer_payee(text, text, int)
   from public, anon, authenticated;
 
--- Le filet de l'enseigne : si la notification de KkiaPay se perd et
+-- ---------- La référence que l'agrégateur donne à une tentative ----------
+-- FeexPay ne signe aucune notification. Notre Edge Function ouvre donc
+-- le paiement elle-même, reçoit une référence, et la range ICI — c'est
+-- avec elle qu'elle ira ensuite demander à FeexPay si le versement a
+-- abouti.
+--
+-- Réservée au « service_role », comme « marquer_payee » : si un
+-- téléphone pouvait poser cette référence, il désignerait lui-même le
+-- versement censé répondre pour sa commande, et n'importe quel paiement
+-- de 100 francs réglerait n'importe quelle commande.
+create or replace function public.noter_reference(cible text, reference text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  net text := left(regexp_replace(coalesce(reference, ''), '[^A-Za-z0-9_-]', '', 'g'), 96);
+  c   public.commandes%rowtype;
+begin
+  if net = '' then return false; end if;
+  select * into c from public.commandes where id = coalesce(cible, '');
+  if not found or c.etat <> 'a_payer' then return false; end if;
+
+  -- Déjà prise par une autre commande : on ne la vole pas.
+  if exists (select 1 from public.commandes a
+              where a.fournisseur_ref = net and a.id <> c.id) then
+    return false;
+  end if;
+
+  perform set_config('bizzoo.paiement', 'oui', true);
+  -- Une commande non payée peut être retentée avec un autre numéro :
+  -- la nouvelle tentative remplace alors l'ancienne référence.
+  update public.commandes set fournisseur_ref = net where id = c.id;
+  return true;
+end $$;
+
+revoke all on function public.noter_reference(text, text)
+  from public, anon, authenticated;
+
+-- ---------- Ce que l'Edge Function a besoin de savoir ----------
+-- Le MONTANT vient d'ici, jamais de la requête : c'est tout l'intérêt.
+-- Un téléphone qui annoncerait le montant à encaisser paierait 100
+-- francs une commande de 100 000.
+--
+-- Le numéro de téléphone du client fait office de mot de passe, comme
+-- pour « suivre_commande » : sans lui, n'importe qui ferait sonner le
+-- téléphone d'un inconnu avec une demande de paiement.
+create or replace function public.commande_pour_paiement(cible text, tel text)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare c public.commandes%rowtype;
+begin
+  select * into c from public.commandes
+   where id = coalesce(cible, '')
+     and client_tel = regexp_replace(coalesce(tel, ''), '\D', '', 'g');
+  if not found then return null; end if;
+  return jsonb_build_object(
+    'id', c.id, 'numero', c.numero, 'etat', c.etat,
+    'total', c.total, 'devise', c.devise,
+    'nom', c.client_nom, 'tel', c.client_tel,
+    'reference', c.fournisseur_ref);
+end $$;
+
+revoke all on function public.commande_pour_paiement(text, text)
+  from public, anon, authenticated;
+
+-- Le filet de l'enseigne : si la notification de l'agrégateur se perd et
 -- que le client a bien été débité, le superadministrateur vérifie dans
 -- son tableau de bord KkiaPay et se porte garant. La commande porte
 -- alors son nom — on voit d'un coup d'œil qu'elle n'a pas été
