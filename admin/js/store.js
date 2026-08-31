@@ -1149,22 +1149,29 @@ const Store = (() => {
     const l = (lignes || [])[0] || {};
     return {
       actif: l.actif === true,
+      /* Base d'avant les deux agrégateurs : c'était KkiaPay. */
+      fournisseur: l.fournisseur || "kkiapay",
       clePublique: l.cle_publique || "",
       bacASable: l.bac_a_sable !== false,
     };
   }
 
   async function majPaiement(maj) {
+    const fournisseur = maj.fournisseur === "kkiapay" ? "kkiapay" : "feexpay";
     await Supabase.requete("PATCH", "paiement?id=eq.1", {
       actif: !!maj.actif,
+      fournisseur,
       cle_publique: (maj.clePublique || "").trim(),
       bac_a_sable: !!maj.bacASable,
       maj_le: new Date().toISOString(),
     });
+    /* Changer d'agrégateur engage l'argent de toute l'enseigne : le
+       journal doit dire LEQUEL, pas seulement « modifié ». */
+    const nom = fournisseur === "feexpay" ? "FeexPay" : "KkiaPay";
     journaliser("boutique", "modification",
-      "Paiement en ligne " + (maj.actif ? "activé" : "désactivé") +
-      (maj.bacASable ? " (mode essai)" : " (production)"),
-      "KkiaPay", undefined, null);
+      "Paiement en ligne " + (maj.actif ? "ouvert" : "fermé") + " — " + nom +
+      (fournisseur === "kkiapay" && maj.bacASable ? " (mode essai)" : ""),
+      nom, undefined, null);
   }
 
   /* ---------- Ce que chaque boutique rapporte ----------

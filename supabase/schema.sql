@@ -1142,9 +1142,10 @@ grant execute on function public.refuser_demande(text, text) to authenticated;
 create table if not exists public.paiement (
   id           int primary key default 1 check (id = 1),
   actif        boolean not null default false,  -- tant que faux : commande sans paiement en ligne
-  -- Quel agrégateur encaisse. L'enseigne en change dans ses réglages,
-  -- sans qu'on reconstruise ni republie quoi que ce soit.
-  fournisseur  text not null default 'kkiapay',
+  -- Quel agrégateur encaisse. Le SUPERADMINISTRATEUR en change dans ses
+  -- réglages, et cela vaut pour toutes les boutiques de BIZZOO — la
+  -- politique d'écriture plus bas ne laisse personne d'autre y toucher.
+  fournisseur  text not null default 'feexpay',
   -- KkiaPay seulement, et c'est la clé PUBLIQUE : elle est faite pour
   -- partir dans l'application. FeexPay, lui, exige un jeton porteur —
   -- un secret, qui reste donc dans les secrets Supabase et ne descend
@@ -1155,7 +1156,8 @@ create table if not exists public.paiement (
 );
 -- Sur une base déjà en service, le corps ci-dessus n'est jamais relu.
 alter table public.paiement
-  add column if not exists fournisseur text not null default 'kkiapay';
+  add column if not exists fournisseur text not null default 'feexpay';
+alter table public.paiement alter column fournisseur set default 'feexpay';
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'paiement_fournisseur_connu') then

@@ -490,28 +490,55 @@ const VueReglages = (() => {
          serveur — jamais dans un téléphone. */
       (surEnseigne && Supabase.estSuper()
         ? '<div class="carte" id="section-paiement">' +
-            '<div class="carte-titre">' + UI.icone("energie", "ic-sm") + " Paiement en ligne " +
-              '<span class="aide-inline">(KkiaPay)</span></div>' +
-            '<p class="aide" style="margin:0 0 12px">Quand c\'est ouvert, les clients paient ' +
-              "leur panier par Mobile Money ou par carte, et la commande arrive dans le compte " +
-              "de chaque boutique concernée. Tant que c\'est fermé, le panier existe toujours " +
-              "mais la commande part sur WhatsApp, comme avant.</p>" +
-            UI.champTexte({ id: "pay-cle", label: "Clé publique KkiaPay",
-              valeur: "", placeholder: "d1a2b3c4-…",
-              aide: "Tableau de bord KkiaPay → API KEYS. Cette clé est faite pour être publique ; " +
-                    "ne saisissez JAMAIS la clé privée ici." }) +
-            UI.interrupteur({ id: "pay-essai", label: "Mode essai (bac à sable)",
-              actif: true,
-              aide: "En essai, aucun argent n\'est prélevé et seuls les numéros de test " +
-                    "passent (MTN 97000000, Moov 95000000). Attention : essai et production " +
-                    "ont chacun leur clé ET leur webhook — les deux se changent ensemble." }) +
+            '<div class="carte-titre">' + UI.icone("energie", "ic-sm") + " Paiement en ligne</div>" +
+            '<p class="aide" style="margin:0 0 12px">Ce réglage vaut pour <strong>toutes les ' +
+              "boutiques de BIZZOO</strong>, et vous seul y touchez. Quand c'est ouvert, les " +
+              "clients paient leur panier et la commande arrive dans le compte de chaque " +
+              "boutique concernée. Tant que c'est fermé, le panier existe toujours mais la " +
+              "commande part sur WhatsApp, comme avant.</p>" +
+
+            '<div class="champ"><label>Qui encaisse</label>' +
+              '<div class="st-filtres" id="pay-fournisseurs">' +
+                '<button type="button" class="puce active" data-fournisseur="feexpay">FeexPay</button>' +
+                '<button type="button" class="puce" data-fournisseur="kkiapay">KkiaPay</button>' +
+              "</div></div>" +
+
+            /* ---- FeexPay ----
+               Son jeton est un SECRET porteur : il n'a rien à faire dans
+               une table que les clients lisent, ni dans un APK où il se
+               lirait en clair. Il vit dans les secrets Supabase, posés
+               une fois depuis un ordinateur. Il n'y a donc rien à saisir
+               ici — et c'est voulu. */
+            '<div id="pay-bloc-feexpay">' +
+              '<div class="note-attente" style="margin:0 0 12px">' + UI.icone("alerte", "ic-sm") +
+                " Rien à saisir ici : le jeton FeexPay est un secret, posé une fois sur un " +
+                "ordinateur (<code>supabase secrets set FEEXPAY_TOKEN</code>) avec l'identifiant " +
+                "de boutique. Voir README.md, section « Paiement en ligne ».</div>" +
+              '<p class="aide" style="margin:0 0 12px"><strong>FeexPay n\'a pas de mode essai.</strong> ' +
+                "Son bac à sable annonce un succès sans rien encaisser — s'y fier laisserait " +
+                "n'importe qui se déclarer payé. Éprouvez avec un petit montant réel. " +
+                "Frais au Bénin : 1,7 % en Mobile Money, 4,5 % par carte.</p>" +
+            "</div>" +
+
+            /* ---- KkiaPay ---- */
+            '<div id="pay-bloc-kkiapay" hidden>' +
+              UI.champTexte({ id: "pay-cle", label: "Clé publique KkiaPay",
+                valeur: "", placeholder: "d1a2b3c4-…",
+                aide: "Tableau de bord KkiaPay → API KEYS. Cette clé est faite pour être publique ; " +
+                      "ne saisissez JAMAIS la clé privée ici." }) +
+              UI.interrupteur({ id: "pay-essai", label: "Mode essai (bac à sable)",
+                actif: true,
+                aide: "En essai, aucun argent n\'est prélevé et seuls les numéros de test " +
+                      "passent (MTN 97000000, Moov 95000000). Attention : essai et production " +
+                      "ont chacun leur clé ET leur webhook — les deux se changent ensemble." }) +
+              '<div class="note-attente" style="margin:12px 0">' + UI.icone("alerte", "ic-sm") +
+                " Le webhook doit être déclaré côté KkiaPay. Sans lui, l\'argent arrive mais " +
+                "les commandes restent « en attente ».</div>" +
+            "</div>" +
+
             UI.interrupteur({ id: "pay-actif", label: "Ouvrir le paiement aux clients",
               actif: false,
-              aide: "À n\'ouvrir qu\'une fois un paiement d\'essai réussi de bout en bout." }) +
-            '<div class="note-attente" style="margin:12px 0">' + UI.icone("alerte", "ic-sm") +
-              " Il reste une étape à faire une seule fois, sur un ordinateur : déployer la " +
-              "fonction qui reçoit les paiements. Sans elle, l\'argent arrive chez KkiaPay " +
-              "mais les commandes restent « en attente ». Voir README.md, section « Paiement ».</div>" +
+              aide: "À n\'ouvrir qu\'une fois un paiement réussi de bout en bout." }) +
             '<button type="button" class="btn" id="pay-enregistrer">' + UI.icone("check") +
               "Enregistrer le paiement</button>" +
           "</div>"
@@ -587,6 +614,27 @@ const VueReglages = (() => {
       /* La carte est déjà à l'écran ; ses valeurs arrivent ensuite. Faire
          attendre TOUT l'écran pour une lecture secondaire le remplacerait
          sous les doigts de qui a commencé à saisir ailleurs. */
+      /* Un seul agrégateur à la fois : montrer les réglages des deux
+         laisserait croire qu'on saisit pour celui qui n'encaisse pas. */
+      const puces = UI.$$("#pay-fournisseurs .puce");
+      const montrer = (quel) => {
+        for (const puce of puces) {
+          puce.classList.toggle("active", puce.dataset.fournisseur === quel);
+        }
+        const bf = UI.$("#pay-bloc-feexpay");
+        const bk = UI.$("#pay-bloc-kkiapay");
+        if (bf) bf.hidden = quel !== "feexpay";
+        if (bk) bk.hidden = quel !== "kkiapay";
+      };
+      const choisi = () => {
+        const actif = UI.$("#pay-fournisseurs .puce.active");
+        return actif ? actif.dataset.fournisseur : "feexpay";
+      };
+      for (const puce of puces) puce.onclick = () => montrer(puce.dataset.fournisseur);
+
+      /* La carte est déjà à l'écran ; ses valeurs arrivent ensuite. Faire
+         attendre TOUT l'écran pour une lecture secondaire le remplacerait
+         sous les doigts de qui a commencé à saisir ailleurs. */
       Store.lirePaiement().then((p) => {
         if (moi !== generation) return;   // un autre écran a pris la main
         const cle = UI.$("#pay-cle");
@@ -594,14 +642,18 @@ const VueReglages = (() => {
         cle.value = p.clePublique;
         UI.$("#pay-essai").checked = p.bacASable;
         UI.$("#pay-actif").checked = p.actif;
+        montrer(p.fournisseur || "feexpay");
       }).catch(() => { /* base d'avant les achats intégrés : carte vide */ });
 
       boutonPaiement.onclick = async () => {
+        const fournisseur = choisi();
         const cle = UI.$("#pay-cle").value.trim();
         const actif = UI.$("#pay-actif").checked;
-        /* Ouvrir sans clé afficherait un bouton « Payer » qui ne ferait
-           rien : le client croirait à une panne de son téléphone. */
-        if (actif && !cle) {
+        /* Ouvrir KkiaPay sans clé afficherait un bouton « Payer » qui ne
+           ferait rien : le client croirait à une panne de son téléphone.
+           FeexPay, lui, n'a rien à saisir ici — c'est l'Edge Function qui
+           dira si son jeton est en place. */
+        if (actif && fournisseur === "kkiapay" && !cle) {
           UI.toast("Saisissez d'abord la clé publique KkiaPay", "err");
           UI.$("#pay-cle").focus();
           return;
@@ -609,10 +661,13 @@ const VueReglages = (() => {
         boutonPaiement.disabled = true;
         try {
           await Store.majPaiement({
-            actif, clePublique: cle, bacASable: UI.$("#pay-essai").checked,
+            actif, fournisseur, clePublique: cle,
+            bacASable: UI.$("#pay-essai").checked,
           });
+          const nom = fournisseur === "feexpay" ? "FeexPay" : "KkiaPay";
           UI.toast(actif
-            ? "Paiement en ligne ouvert" + (UI.$("#pay-essai").checked ? " (mode essai)" : "")
+            ? "Paiement ouvert par " + nom
+              + (fournisseur === "kkiapay" && UI.$("#pay-essai").checked ? " (mode essai)" : "")
             : "Paiement en ligne fermé", "ok");
         } catch (err) {
           UI.toast(err.message, "err");

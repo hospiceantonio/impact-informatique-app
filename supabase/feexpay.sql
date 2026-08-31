@@ -39,7 +39,16 @@
 -- 1. Qui encaisse
 -- ---------------------------------------------------------
 alter table public.paiement
-  add column if not exists fournisseur text not null default 'kkiapay';
+  add column if not exists fournisseur text not null default 'feexpay';
+alter table public.paiement alter column fournisseur set default 'feexpay';
+
+-- FeexPay devient l'agrégateur de BIZZOO. Mais on ne bascule PAS un
+-- paiement déjà ouvert : le faire couperait les encaissements en cours
+-- le temps que le jeton FeexPay soit posé, et personne ne comprendrait
+-- pourquoi les commandes cessent d'aboutir. Tant que le paiement est
+-- fermé, en revanche, il n'y a rien à casser.
+update public.paiement set fournisseur = 'feexpay'
+ where id = 1 and not actif;
 
 do $$
 begin

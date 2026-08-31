@@ -23,9 +23,48 @@ const Paiement = (() => {
   const ATTENTE_MAX = 90000;    // 1 min 30 : le bac à sable prend son temps
   const INTERVALLE = 3000;
 
-  let reglages = null;          // { actif, clePublique, bacASable }
+  let reglages = null;          // { actif, fournisseur, clePublique, bacASable }
   let widgetCharge = null;      // promesse de chargement du script
   let enCours = null;           // la promesse du paiement ouvert
+
+  /* ---------- Les opérateurs du Bénin ----------
+     Les préfixes viennent des tables du SDK officiel de FeexPay. On ne
+     s'en sert que pour PROPOSER l'opérateur : le client garde la main,
+     un numéro porté d'un réseau à l'autre ne se devine pas. */
+  const PREFIXES_10 = {
+    MTN: ["0142", "0146", "0150", "0151", "0152", "0153", "0154", "0156", "0157",
+          "0159", "0161", "0162", "0166", "0167", "0169", "0190", "0191", "0192",
+          "0193", "0196", "0197"],
+    MOOV: ["0145", "0155", "0158", "0160", "0163", "0164", "0165", "0168",
+           "0194", "0195", "0198", "0199"],
+    CELTIIS: ["0140", "0141", "0143", "0144", "0147"],
+  };
+  /* L'ancien format à huit chiffres, encore dicté par beaucoup de monde. */
+  const PREFIXES_8 = {
+    MTN: ["04", "05", "06", "44", "45", "46", "54", "55", "56", "64", "65", "66",
+          "74", "75", "76", "84", "85", "86", "94", "95", "96"],
+    MOOV: ["01", "02", "03", "40", "41", "42", "43", "50", "51", "52", "53",
+           "70", "71", "72", "73", "80", "81", "82", "83", "90", "91", "92", "93"],
+  };
+
+  /** L'opérateur que suggère un numéro, ou "" si on ne sait pas. */
+  function operateurDuNumero(tel) {
+    const n = String(tel || "").replace(/\D/g, "").replace(/^229/, "");
+    if (n.length >= 10 && n.startsWith("01")) {
+      const p = n.slice(0, 4);
+      for (const [nom, liste] of Object.entries(PREFIXES_10)) {
+        if (liste.includes(p)) return nom;
+      }
+      return "";
+    }
+    if (n.length >= 8) {
+      const p = n.slice(0, 2);
+      for (const [nom, liste] of Object.entries(PREFIXES_8)) {
+        if (liste.includes(p)) return nom;
+      }
+    }
+    return "";
+  }
 
   /* ---------- Dialogue avec la base ---------- */
 
@@ -65,19 +104,34 @@ const Paiement = (() => {
       const ligne = (await reponse.json())[0] || {};
       reglages = {
         actif: ligne.actif === true,
+        /* Base d'avant les deux agrégateurs : c'était KkiaPay. */
+        fournisseur: String(ligne.fournisseur || "kkiapay").trim(),
         clePublique: String(ligne.cle_publique || "").trim(),
         bacASable: ligne.bac_a_sable !== false,
       };
     } catch (_) {
       /* Base d'avant le paiement, ou hors connexion : la boutique
          fonctionne comme avant, commande par WhatsApp. */
-      reglages = { actif: false, clePublique: "", bacASable: true };
+      reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true };
     }
     return reglages;
   }
 
-  /** Le paiement en ligne est-il ouvert ? Faux tant qu'aucune clé n'est posée. */
-  const disponible = () => !!(reglages && reglages.actif && reglages.clePublique);
+  const fournisseur = () => (reglages && reglages.fournisseur) || "kkiapay";
+
+  /**
+   * Le paiement en ligne est-il ouvert ?
+   *
+   * KkiaPay a besoin de sa clé publique dans l'application. FeexPay,
+   * non : c'est notre serveur qui ouvre le paiement, et son jeton ne
+   * descend jamais jusqu'ici. Il n'y a donc rien à vérifier de ce
+   * côté-là — l'Edge Function dira elle-même si elle est configurée.
+   */
+  const disponible = () => {
+    if (!reglages || !reglages.actif) return false;
+    if (reglages.fournisseur === "feexpay") return true;
+    return !!reglages.clePublique;
+  };
   const bacASable = () => !!(reglages && reglages.bacASable);
   const connu = () => reglages !== null;
 
@@ -181,6 +235,44 @@ const Paiement = (() => {
     });
   }
 
+  /* ---------- FeexPay : notre serveur ouvre, et notre serveur vérifie ----------
+
+     Rien de ce qui suit ne décide d'un paiement. « ouvrir » demande à
+     notre Edge Function de lancer la demande chez FeexPay ; « verifier »
+     lui demande d'aller voir où elle en est. C'est elle qui interroge
+     FeexPay, avec un jeton qui ne descend jamais jusqu'ici — et c'est la
+     réponse de FeexPay qui fait passer la commande à « payée », jamais
+     ce fichier.
+  */
+
+  async function edgeFeexpay(corps) {
+    const c = Catalogue.configuration();
+    if (!c) throw new Error("L'application n'est pas reliée à la base.");
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/functions/v1/feexpay", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Content-Type": "application/json" },
+        body: JSON.stringify(corps),
+      });
+    } catch (_) {
+      throw new Error("Impossible de joindre le paiement. Vérifiez votre connexion internet.");
+    }
+    const donnees = await reponse.json().catch(() => ({}));
+    if (!reponse.ok) {
+      throw new Error(donnees.erreur || "Le paiement n'a pas pu s'ouvrir.");
+    }
+    return donnees;
+  }
+
+  /** Lance la demande de paiement. Le client valide ensuite sur son téléphone. */
+  const ouvrirFeexpay = ({ commande, tel, numero, reseau }) =>
+    edgeFeexpay({ action: "payer", commande, tel, numero, reseau });
+
+  /** « Où en est ce versement ? » — la question est posée à FeexPay. */
+  const verifierFeexpay = (commande, tel) =>
+    edgeFeexpay({ action: "verifier", commande, tel });
+
   /* ---------- Commander ---------- */
 
   /**
@@ -202,18 +294,34 @@ const Paiement = (() => {
   const suivre = (id, tel) => rpc("suivre_commande", { cible: id, tel });
 
   /**
-   * Attend que la base confirme le paiement. Quelques secondes passent
-   * entre la validation chez KkiaPay et l'arrivée de sa notification :
-   * on patiente au lieu d'annoncer.
+   * Attend que la base confirme le paiement. On patiente au lieu
+   * d'annoncer : quelques secondes passent entre le moment où le client
+   * valide sur son téléphone et celui où l'encaissement est constaté.
+   *
+   * Les deux agrégateurs s'attendent différemment :
+   *
+   *   KkiaPay  sa notification signée arrive toute seule chez nous. Il
+   *            n'y a qu'à relire l'état de la commande.
+   *
+   *   FeexPay  personne ne nous préviendra. À chaque tour, on demande à
+   *            notre serveur d'aller INTERROGER FeexPay. Le tour de
+   *            boucle ne décide de rien : il ne fait que poser la
+   *            question, et c'est la réponse de FeexPay qui tranche.
    *
    * Renvoie l'état atteint. « a_payer » au bout du compte ne veut pas
    * dire « échoué » — seulement « pas encore confirmé ».
    */
   async function attendreConfirmation(id, tel, pendant) {
     const limite = Date.now() + (pendant || ATTENTE_MAX);
+    const parFeexpay = fournisseur() === "feexpay";
     let dernier = null;
     while (Date.now() < limite) {
       await new Promise((r) => setTimeout(r, INTERVALLE));
+      if (parFeexpay) {
+        /* Une vérification qui échoue n'interrompt pas l'attente : le
+           versement peut très bien aboutir au tour suivant. */
+        try { await verifierFeexpay(id, tel); } catch (_) { /* on redemandera */ }
+      }
       try {
         dernier = await suivre(id, tel);
       } catch (_) {
@@ -226,7 +334,8 @@ const Paiement = (() => {
   }
 
   return {
-    charger, disponible, bacASable, connu,
-    creerCommande, payer, signalerTransaction, suivre, attendreConfirmation,
+    charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
+    creerCommande, payer, ouvrirFeexpay, verifierFeexpay,
+    signalerTransaction, suivre, attendreConfirmation,
   };
 })();

@@ -200,6 +200,10 @@ const VuePanier = (() => {
     const c = coordonnees();
     const devise = Panier.devise();
     const enLigne = Paiement.disponible();
+    /* FeexPay ne s'ouvre pas dans une fenêtre à lui : c'est notre serveur
+       qui lance la demande, et le client la valide sur son téléphone. Il
+       faut donc lui demander ici l'opérateur et le numéro qui paie. */
+    const parFeexpay = enLigne && Paiement.fournisseur() === "feexpay";
 
     UI.entete({ titre: "Votre commande", retour: true });
 
@@ -230,15 +234,22 @@ const VuePanier = (() => {
         '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
         (enLigne
-          ? (Paiement.bacASable()
-              ? '<div class="pa-essai">' + UI.icone("alerte", "ic-sm") +
-                "<div><strong>Paiement en mode essai.</strong> Aucun argent ne sera prélevé, " +
-                "et seuls les numéros de test sont acceptés (MTN 97000000, Moov 95000000).</div></div>"
-              : "") +
+          ? (parFeexpay
+              ? blocMobileMoney(c)
+              : Paiement.bacASable()
+                ? '<div class="pa-essai">' + UI.icone("alerte", "ic-sm") +
+                  "<div><strong>Paiement en mode essai.</strong> Aucun argent ne sera prélevé, " +
+                  "et seuls les numéros de test sont acceptés (MTN 97000000, Moov 95000000).</div></div>"
+                : "") +
             '<button type="button" class="btn" id="co-payer">' + UI.icone("energie") +
               "Payer " + Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</button>" +
-            '<p class="aide" style="margin:10px 0 0">Paiement Mobile Money ou carte, par KkiaPay. ' +
-              "Votre commande n'est transmise aux boutiques qu'une fois le paiement confirmé.</p>"
+            '<p class="aide" style="margin:10px 0 0">' +
+              (parFeexpay
+                ? "Vous recevrez une demande de paiement sur ce numéro : validez-la avec votre " +
+                  "code Mobile Money."
+                : "Paiement Mobile Money ou carte, par KkiaPay.") +
+              " Votre commande n'est transmise aux boutiques qu'une fois le paiement " +
+              "confirmé.</p>"
           : '<button type="button" class="btn btn-wa" id="co-whatsapp">' + UI.icone("whatsapp") +
               "Envoyer la commande sur WhatsApp</button>" +
             '<p class="aide" style="margin:10px 0 0">Le paiement en ligne n\'est pas encore ouvert : ' +
@@ -254,6 +265,19 @@ const VuePanier = (() => {
       adresse: UI.$("#co-adresse").value.trim(),
       note: UI.$("#co-note").value.trim(),
     });
+
+    /* Le numéro qui paie, et l'opérateur choisi. Ils ne sont là qu'avec
+       FeexPay ; ailleurs on renvoie de quoi ne rien casser. */
+    const lirePaiement = () => {
+      const champ = UI.$("#co-mm-tel");
+      const actif = UI.$("#co-operateurs .puce.active");
+      return {
+        numero: champ ? champ.value.trim() : "",
+        reseau: actif ? actif.dataset.reseau : "",
+      };
+    };
+
+    if (parFeexpay) brancherMobileMoney();
 
     function verifier(client) {
       if (!/\d{6}/.test(Utils.normaliserTel(client.tel))) {
@@ -283,7 +307,62 @@ const VuePanier = (() => {
     }
 
     const boutonPayer = UI.$("#co-payer");
-    if (boutonPayer) boutonPayer.onclick = () => lancerPaiement(boutonPayer, lire, verifier);
+    if (boutonPayer) {
+      boutonPayer.onclick = () =>
+        lancerPaiement(boutonPayer, lire, verifier, parFeexpay ? lirePaiement : null);
+    }
+  }
+
+  /* =====================================================
+     Mobile Money : l'opérateur et le numéro qui paie
+     =====================================================
+     Avec FeexPay il n'y a pas de fenêtre de paiement à ouvrir : la
+     demande part vers un numéro, et c'est sur son téléphone que le
+     client la valide. Il faut donc savoir chez qui l'envoyer. */
+  const OPERATEURS = [
+    { cle: "MTN", nom: "MTN" },
+    { cle: "MOOV", nom: "Moov" },
+    { cle: "CELTIIS", nom: "Celtiis" },
+  ];
+
+  function blocMobileMoney(c) {
+    const suggere = Paiement.operateurDuNumero(c.tel);
+    return (
+      '<div class="co-mm">' +
+        '<div class="carte-titre" style="margin-top:4px">Payer par Mobile Money</div>' +
+        '<div class="champ"><label>Opérateur</label>' +
+          '<div class="puces puces-pliees" id="co-operateurs">' +
+            OPERATEURS.map((o) =>
+              '<button type="button" class="puce' + (o.cle === suggere ? " active" : "") +
+                '" data-reseau="' + o.cle + '">' + Utils.echapper(o.nom) + "</button>").join("") +
+          "</div></div>" +
+        '<div class="champ"><label for="co-mm-tel">Numéro qui paie</label>' +
+          '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
+            Utils.echapper(c.tel) + '">' +
+          '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
+            "celui d'un proche qui règle pour vous.</p></div>" +
+      "</div>"
+    );
+  }
+
+  /** L'opérateur se met à jour pendant qu'on tape, sans jamais forcer. */
+  function brancherMobileMoney() {
+    const puces = UI.$$("#co-operateurs .puce");
+    for (const puce of puces) {
+      puce.onclick = () => {
+        for (const autre of puces) autre.classList.remove("active");
+        puce.classList.add("active");
+      };
+    }
+    const champ = UI.$("#co-mm-tel");
+    if (!champ) return;
+    champ.oninput = () => {
+      const devine = Paiement.operateurDuNumero(champ.value);
+      if (!devine) return;   // porté d'un réseau à l'autre : on ne devine pas
+      for (const puce of puces) {
+        puce.classList.toggle("active", puce.dataset.reseau === devine);
+      }
+    };
   }
 
   /**
@@ -292,9 +371,27 @@ const VuePanier = (() => {
    * téléphone n'engage personne, seule la notification de KkiaPay
    * compte.
    */
-  async function lancerPaiement(bouton, lire, verifier) {
+  async function lancerPaiement(bouton, lire, verifier, lirePaiement) {
     const client = lire();
     if (!verifier(client)) return;
+
+    /* Avec FeexPay, on vérifie AVANT de créer la commande : rien ne sert
+       d'enregistrer un panier qu'on ne saura pas où faire payer. */
+    let mm = null;
+    if (lirePaiement) {
+      mm = lirePaiement();
+      if (!mm.reseau) {
+        UI.toast("Choisissez votre opérateur Mobile Money", "err");
+        return;
+      }
+      if (!/\d{6}/.test(Utils.normaliserTel(mm.numero))) {
+        UI.toast("Indiquez le numéro qui va payer", "err");
+        const champ = UI.$("#co-mm-tel");
+        if (champ) champ.focus();
+        return;
+      }
+    }
+
     garderCoordonnees(client);
 
     const libelle = bouton.innerHTML;
@@ -322,11 +419,22 @@ const VuePanier = (() => {
     bouton.innerHTML = '<span class="chargement-rond"></span>Paiement…';
     let transaction = "";
     try {
-      const reponse = await Paiement.payer({
-        montant: commande.total, commande: commande.id,
-        nom: client.nom, tel: client.indicatif + client.tel,
-      });
-      transaction = reponse.transactionId || "";
+      if (mm) {
+        /* FeexPay : notre serveur ouvre la demande. Ce qu'il nous rend
+           n'est PAS une preuve de paiement — juste « c'est parti,
+           regardez votre téléphone ». */
+        await Paiement.ouvrirFeexpay({
+          commande: commande.id, tel: client.tel,
+          numero: mm.numero, reseau: mm.reseau,
+        });
+        UI.toast("Validez la demande sur votre téléphone");
+      } else {
+        const reponse = await Paiement.payer({
+          montant: commande.total, commande: commande.id,
+          nom: client.nom, tel: client.indicatif + client.tel,
+        });
+        transaction = reponse.transactionId || "";
+      }
     } catch (err) {
       bouton.disabled = false;
       bouton.innerHTML = libelle;
@@ -337,7 +445,7 @@ const VuePanier = (() => {
       return;
     }
 
-    await Paiement.signalerTransaction(commande.id, transaction);
+    if (transaction) await Paiement.signalerTransaction(commande.id, transaction);
     Panier.majEtat(commande.id, "a_payer", { transaction });
     Panier.vider();
     location.hash = "#/commande/" + commande.id;
@@ -367,9 +475,13 @@ const VuePanier = (() => {
 
     dessinerRecu(vue, commande);
 
-    /* Quelques secondes passent entre la validation chez KkiaPay et
-       l'arrivée de sa notification : on patiente, on n'annonce pas. */
-    if (commande.etat === "a_payer" && commande.transaction) {
+    /* Quelques secondes passent entre le moment où le client valide et
+       celui où l'encaissement est constaté : on patiente, on n'annonce
+       pas. Avec KkiaPay, une transaction a été rendue au téléphone ;
+       avec FeexPay il n'y en a aucune — c'est notre serveur qui ira
+       demander, alors on attend dès que la commande est à payer. */
+    if (commande.etat === "a_payer"
+        && (commande.transaction || Paiement.fournisseur() === "feexpay")) {
       const etat = await Paiement.attendreConfirmation(commande.id, commande.client.tel);
       if (etat && (etat.etat !== commande.etat || etat.remarque)) {
         const maj = Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
