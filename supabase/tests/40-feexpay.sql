@@ -129,10 +129,20 @@ select essai.egal(
   public.commande_pour_paiement(:'b', '96000000') ->> 'reference',
   '', 'la seconde commande n''a rien attrapé');
 
--- Une commande non payée peut être retentée avec un autre numéro :
--- la nouvelle tentative remplace la précédente.
+-- Chaque tentative fait sonner un téléphone. Deux coup sur coup, non :
+-- sans ce frein, on harcèlerait n'importe quel numéro de demandes de
+-- paiement venues de l'enseigne.
+select essai.verifie(not public.noter_reference(:'a', 'ref_feex_002'),
+  'une seconde tentative dans la foulée — refusée');
+
+select essai.egal(
+  public.commande_pour_paiement(:'a', '97000000') ->> 'reference',
+  'ref_feex_001', 'la première tient toujours');
+
+-- Passé le délai, on peut se reprendre : on s'est trompé de numéro.
+select essai.reculer_tentative(:'a', 60);
 select essai.verifie(public.noter_reference(:'a', 'ref_feex_002'),
-  'une seconde tentative sur la même commande remplace la première');
+  'passé le délai, une nouvelle tentative remplace la première');
 
 -- ---------------------------------------------------------
 select essai.titre('L''équipe ne réécrit pas la référence');

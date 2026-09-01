@@ -127,6 +127,23 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
   const montant = Number(commande["total"] ?? 0);
   if (!(montant > 0)) return repondre({ erreur: "Commande sans montant." }, 400);
 
+  /* LE FREIN, AVANT d'appeler FeexPay. Chaque demande fait sonner un
+     téléphone : le vérifier après coup laisserait la sonnerie partir, et
+     on ne s'en apercevrait qu'en rangeant la référence. La base garde le
+     même frein de son côté — celui-ci n'est qu'une politesse pour
+     répondre clairement. */
+  const derniere = commande["tentative_le"];
+  if (derniere) {
+    const depuis = Date.now() - new Date(String(derniere)).getTime();
+    if (depuis >= 0 && depuis < 30000) {
+      return repondre({
+        erreur: "Une demande de paiement vient de partir sur ce numéro. " +
+                "Regardez votre téléphone, ou patientez un instant avant de réessayer.",
+        patienter: Math.ceil((30000 - depuis) / 1000),
+      }, 429);
+    }
+  }
+
   let reponse: Response;
   try {
     reponse = await fetch(FEEX + "/requesttopay/integration", {

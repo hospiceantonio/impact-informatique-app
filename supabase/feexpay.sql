@@ -66,6 +66,12 @@ end $$;
 -- serveur ne saurait pas quel versement interroger.
 alter table public.commandes
   add column if not exists fournisseur_ref text not null default '';
+-- Quand la dernière demande de paiement est partie. Chaque appel fait
+-- sonner un téléphone : sans ce repère, on pourrait harceler n'importe
+-- quel numéro de demandes venues de l'enseigne, et c'est le compte
+-- marchand de BIZZOO qui en répondrait.
+alter table public.commandes
+  add column if not exists tentative_le timestamptz;
 
 -- Une référence ne désigne qu'une commande : sans cela, deux commandes
 -- pourraient se disputer le même versement.
@@ -106,6 +112,7 @@ begin
   -- demander si le versement a abouti. La laisser réécrire, c'est
   -- laisser désigner quel versement répond pour quelle commande.
   or new.fournisseur_ref is distinct from old.fournisseur_ref
+  or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
@@ -146,10 +153,21 @@ begin
     return false;
   end if;
 
+  -- UN FREIN. Chaque appel fait sonner un téléphone : sans lui, on
+  -- pourrait harceler n'importe quel numéro de demandes de paiement
+  -- venues de l'enseigne — et c'est le compte marchand de BIZZOO qui
+  -- en répondrait. Trente secondes laissent le temps de voir la
+  -- demande arriver, et de se tromper de numéro sans être bloqué.
+  if c.tentative_le is not null and c.tentative_le > now() - interval '30 seconds' then
+    return false;
+  end if;
+
   perform set_config('bizzoo.paiement', 'oui', true);
   -- Une commande non payée peut être retentée avec un autre numéro :
   -- la nouvelle tentative remplace alors l'ancienne référence.
-  update public.commandes set fournisseur_ref = net where id = c.id;
+  update public.commandes
+     set fournisseur_ref = net, tentative_le = now()
+   where id = c.id;
   return true;
 end $$;
 
@@ -172,7 +190,11 @@ begin
     'id', c.id, 'numero', c.numero, 'etat', c.etat,
     'total', c.total, 'devise', c.devise,
     'nom', c.client_nom, 'tel', c.client_tel,
-    'reference', c.fournisseur_ref);
+    'reference', c.fournisseur_ref,
+    -- Pour que l'Edge Function refuse une relance AVANT d'appeler
+    -- l'agrégateur : sinon le téléphone sonnerait quand même, et c'est
+    -- seulement en rangeant la référence qu'on s'apercevrait du frein.
+    'tentative_le', c.tentative_le);
 end $$;
 
 revoke all on function public.commande_pour_paiement(text, text)

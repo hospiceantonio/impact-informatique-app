@@ -173,3 +173,17 @@ begin
   raise notice '';
   raise notice '== %', quoi;
 end $$;
+
+
+-- Reculer la dernière tentative de paiement d'une commande, pour
+-- éprouver le frein des trente secondes sans attendre trente secondes.
+-- Le drapeau « bizzoo.paiement » et l'écriture doivent tenir dans la
+-- MÊME transaction : d'où la fonction plutôt que deux instructions.
+create or replace function essai.reculer_tentative(cible text, secondes int)
+returns void language plpgsql as $$
+begin
+  perform set_config('bizzoo.paiement', 'oui', true);
+  update public.commandes
+     set tentative_le = now() - (secondes || ' seconds')::interval
+   where id = cible;
+end $$;

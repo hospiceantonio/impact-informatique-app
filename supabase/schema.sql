@@ -1200,6 +1200,9 @@ create table if not exists public.commandes (
   -- serveur ira lui demander « ce versement a-t-il abouti ? ». Elle est
   -- donc la clé de tout l'encaissement FeexPay.
   fournisseur_ref text not null default '',
+  -- Quand la dernière demande de paiement est partie. Sert de frein :
+  -- sans lui, on pourrait faire sonner un téléphone en boucle.
+  tentative_le timestamptz,
   -- Vide quand c'est l'agrégateur qui a confirmé (le cas normal) ; sinon
   -- l'adresse du superadministrateur qui s'est porté garant à la main.
   confirme_par text not null default '',
@@ -1219,6 +1222,8 @@ alter table public.commandes
 -- relu : la colonne doit être répétée ici pour y arriver.
 alter table public.commandes
   add column if not exists fournisseur_ref text not null default '';
+alter table public.commandes
+  add column if not exists tentative_le timestamptz;
 
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction ne vaut que pour une commande : c'est ce qui rend le
@@ -1385,6 +1390,7 @@ begin
   -- demander si le versement a abouti. La laisser réécrire, c'est
   -- laisser désigner quel versement répond pour quelle commande.
   or new.fournisseur_ref is distinct from old.fournisseur_ref
+  or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
@@ -1704,10 +1710,21 @@ begin
     return false;
   end if;
 
+  -- UN FREIN. Chaque appel fait sonner un téléphone : sans lui, on
+  -- pourrait harceler n'importe quel numéro de demandes de paiement
+  -- venues de l'enseigne — et c'est le compte marchand de BIZZOO qui
+  -- en répondrait. Trente secondes laissent le temps de voir la
+  -- demande arriver, et de se tromper de numéro sans être bloqué.
+  if c.tentative_le is not null and c.tentative_le > now() - interval '30 seconds' then
+    return false;
+  end if;
+
   perform set_config('bizzoo.paiement', 'oui', true);
   -- Une commande non payée peut être retentée avec un autre numéro :
   -- la nouvelle tentative remplace alors l'ancienne référence.
-  update public.commandes set fournisseur_ref = net where id = c.id;
+  update public.commandes
+     set fournisseur_ref = net, tentative_le = now()
+   where id = c.id;
   return true;
 end $$;
 
@@ -1735,7 +1752,11 @@ begin
     'id', c.id, 'numero', c.numero, 'etat', c.etat,
     'total', c.total, 'devise', c.devise,
     'nom', c.client_nom, 'tel', c.client_tel,
-    'reference', c.fournisseur_ref);
+    'reference', c.fournisseur_ref,
+    -- Pour que l'Edge Function refuse une relance AVANT d'appeler
+    -- l'agrégateur : sinon le téléphone sonnerait quand même, et c'est
+    -- seulement en rangeant la référence qu'on s'apercevrait du frein.
+    'tentative_le', c.tentative_le);
 end $$;
 
 revoke all on function public.commande_pour_paiement(text, text)

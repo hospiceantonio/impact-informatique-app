@@ -254,6 +254,7 @@ begin
   -- demander si le versement a abouti. La laisser réécrire, c'est
   -- laisser désigner quel versement répond pour quelle commande.
   or new.fournisseur_ref is distinct from old.fournisseur_ref
+  or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
