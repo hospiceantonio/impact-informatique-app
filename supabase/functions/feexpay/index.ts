@@ -152,13 +152,20 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
         "Content-Type": "application/json",
         "Authorization": "Bearer " + JETON,
       },
+      /* Les champs sont ceux de LEUR SDK serveur (feexpay-sdk-php) :
+         phoneNumber, amount, reseau, token, shop, first_name, email.
+         Rien de plus — un champ inconnu de leur API n'apporte que le
+         risque d'être refusé.
+
+         « email » n'est ajouté que s'il porte quelque chose : une chaîne
+         vide dans un champ facultatif se comporte moins bien qu'un champ
+         absent, c'est un piège connu chez leur concurrent. */
       body: JSON.stringify({
         phoneNumber: numero,
         amount: montant,
         reseau: reseauFeex,
         shop: BOUTIQUE,
         token: JETON,
-        payment_interface: "BIZZOO",
         currency: "XOF",
         /* Notre référence part des deux côtés : FeexPay nous la rendra,
            et elle nous permet de recoller le versement à la commande. */
@@ -166,7 +173,6 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
         callback_info: { commande: String(commande["id"] ?? "") },
         description: "Commande " + String(commande["numero"] ?? ""),
         first_name: String(commande["nom"] ?? ""),
-        email: "",
       }),
     });
   } catch (_) {
@@ -177,6 +183,17 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
   const resultat = await reponse.json().catch(() => ({})) as Record<string, unknown>;
   if (!reponse.ok) {
     return repondre({ erreur: "FeexPay a refusé la demande.", details: champ(resultat, ["message", "reason"]) }, 502);
+  }
+
+  /* FeexPay répond 200 même quand il refuse : c'est « status: FAILED »
+     qui le dit. Leur propre SDK traduit ce cas par « le numéro entré est
+     incorrect » — c'est de loin la cause la plus fréquente, et le client
+     doit l'entendre plutôt que de rester devant un écran qui attend. */
+  if (champ(resultat, ["status", "state"]).toUpperCase() === "FAILED") {
+    return repondre({
+      erreur: "Ce numéro n'a pas été accepté. Vérifiez-le, et qu'il " +
+              "correspond bien à l'opérateur choisi.",
+    }, 400);
   }
 
   const reference = champ(resultat, ["reference", "transaction_id", "id"]);
