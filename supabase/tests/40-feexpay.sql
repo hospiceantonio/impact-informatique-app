@@ -145,6 +145,42 @@ select essai.verifie(public.noter_reference(:'a', 'ref_feex_002'),
   'passé le délai, une nouvelle tentative remplace la première');
 
 -- ---------------------------------------------------------
+select essai.titre('La notification : une clé de recherche, pas une preuve');
+-- ---------------------------------------------------------
+-- FeexPay poste sa notification SANS signature : n'importe qui
+-- connaissant l'adresse peut en fabriquer une. On ne lui demande donc
+-- qu'une chose — retrouver la commande. Le reste (statut, montant) est
+-- ignoré, et c'est notre serveur qui redemande à FeexPay.
+select essai.egal(
+  public.commande_par_reference('ref_feex_002') ->> 'id', :'a',
+  'la référence de FeexPay retrouve la commande');
+
+select essai.verifie(
+  public.commande_par_reference('ref_inventee') is null,
+  'une référence inventée ne donne rien');
+
+select essai.verifie(
+  public.commande_par_reference('') is null,
+  'une référence vide non plus');
+
+-- Et surtout : personne d'autre que le serveur ne peut l'interroger.
+-- Sinon, qui devine une référence lirait l'état et le montant d'une
+-- commande qui ne le regarde pas.
+set role anon;
+select essai.refuse(
+  $$select public.commande_par_reference('ref_feex_002')$$,
+  'un visiteur retrouve une commande par sa référence');
+reset role;
+
+select essai.devenir(:CHEF::uuid);
+set role authenticated;
+select essai.refuse(
+  $$select public.commande_par_reference('ref_feex_002')$$,
+  'une boutique retrouve une commande par sa référence');
+reset role;
+select essai.personne();
+
+-- ---------------------------------------------------------
 select essai.titre('L''équipe ne réécrit pas la référence');
 -- ---------------------------------------------------------
 select essai.devenir(:ENSEIGNE::uuid);

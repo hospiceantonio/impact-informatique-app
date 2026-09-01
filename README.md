@@ -371,13 +371,35 @@ lui demander si le versement a abouti. La réponse de FeexPay décide.
 > exactement la porte que tout le reste du projet ferme. Éprouvez avec un
 > petit montant réel.
 
+#### La notification de FeexPay n'est pas signée
+
+FeexPay poste bien une notification sur une adresse qu'on lui donne. Mais
+le payload est un simple JSON : **ni secret, ni signature, ni en-tête
+d'authentification**. Rien n'y prouve qu'il vient d'eux — n'importe qui
+connaissant l'adresse peut poster `{"reference":"…","status":"SUCCESSFUL"}`
+et se faire livrer sans payer.
+
+`feexpay-webhook` ne la croit donc pas. Il n'en retient **que la
+référence**, comme clé de recherche, puis redemande à FeexPay sur son API
+si le versement a abouti — et c'est cette réponse-là qui décide, montant
+compris.
+
+Pourquoi la brancher quand même : l'application interroge 90 secondes
+après le paiement. Un client qui ferme l'application, ou qui met plus
+longtemps à taper son code, laissait sa commande « à payer » **pour
+toujours**. La notification bouche ce trou.
+
 Mise en route de FeexPay, une fois :
 
 ```bash
 supabase secrets set FEEXPAY_TOKEN='fp_votre_jeton'
 supabase secrets set FEEXPAY_SHOP='identifiant-de-boutique'
 supabase functions deploy feexpay --no-verify-jwt
+supabase functions deploy feexpay-webhook --no-verify-jwt
 ```
+
+Puis, dans le tableau de bord FeexPay → menu **Webhook**, déclarer :
+`https://<projet>.supabase.co/functions/v1/feexpay-webhook`
 
 Puis `supabase/feexpay.sql` dans l'éditeur SQL, et l'agrégateur se
 choisit dans Admin → Réglages → BIZZOO.
@@ -556,7 +578,8 @@ impact-informatique-app/
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
 │   ├── functions/kkiapay-webhook/   # KkiaPay : sa notification signée
-│   └── functions/feexpay/           # FeexPay : notre serveur ouvre, puis vérifie
+│   ├── functions/feexpay/           # FeexPay : notre serveur ouvre, puis vérifie
+│   └── functions/feexpay-webhook/   # Sa notification — non signée, donc jamais crue
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)

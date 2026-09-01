@@ -1762,6 +1762,32 @@ end $$;
 revoke all on function public.commande_pour_paiement(text, text)
   from public, anon, authenticated;
 
+-- ---------- Retrouver une commande par la référence de l'agrégateur ----------
+-- Le webhook de FeexPay ne connaît pas nos numéros de commande : il nous
+-- rend SA référence, celle qu'on a rangée en ouvrant le paiement. C'est
+-- par elle qu'on recolle le versement à la commande.
+--
+-- Réservée au « service_role ». La rendre lisible ailleurs donnerait, à
+-- qui devine une référence, l'état et le montant d'une commande qui ne
+-- le regarde pas.
+create or replace function public.commande_par_reference(reference text)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  net text := left(regexp_replace(coalesce(reference, ''), '[^A-Za-z0-9_-]', '', 'g'), 96);
+  c   public.commandes%rowtype;
+begin
+  if net = '' then return null; end if;
+  select * into c from public.commandes where fournisseur_ref = net;
+  if not found then return null; end if;
+  return jsonb_build_object(
+    'id', c.id, 'numero', c.numero, 'etat', c.etat,
+    'total', c.total, 'reference', c.fournisseur_ref);
+end $$;
+
+revoke all on function public.commande_par_reference(text)
+  from public, anon, authenticated;
+
 -- Le filet de l'enseigne : si la notification de l'agrégateur se perd et
 -- que le client a bien été débité, le superadministrateur vérifie dans
 -- son tableau de bord KkiaPay et se porte garant. La commande porte

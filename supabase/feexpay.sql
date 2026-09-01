@@ -200,6 +200,29 @@ end $$;
 revoke all on function public.commande_pour_paiement(text, text)
   from public, anon, authenticated;
 
+-- ---------------------------------------------------------
+-- 6. Retrouver une commande par la référence de l'agrégateur
+-- ---------------------------------------------------------
+-- Le webhook de FeexPay ne connaît pas nos numéros de commande : il nous
+-- rend SA référence. C'est par elle qu'on recolle le versement.
+create or replace function public.commande_par_reference(reference text)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  net text := left(regexp_replace(coalesce(reference, ''), '[^A-Za-z0-9_-]', '', 'g'), 96);
+  c   public.commandes%rowtype;
+begin
+  if net = '' then return null; end if;
+  select * into c from public.commandes where fournisseur_ref = net;
+  if not found then return null; end if;
+  return jsonb_build_object(
+    'id', c.id, 'numero', c.numero, 'etat', c.etat,
+    'total', c.total, 'reference', c.fournisseur_ref);
+end $$;
+
+revoke all on function public.commande_par_reference(text)
+  from public, anon, authenticated;
+
 -- ---------- Vérification ----------
 -- Aucune requête ne passe par une fonction réservée : l'éditeur SQL
 -- n'est connecté à aucun compte, et un seul refus annulerait TOUT le
