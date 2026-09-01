@@ -53,7 +53,20 @@ if (-not $url -or -not $cle) { Rouge "Adresse Supabase illisible dans client/con
 # ---------- La liste, telle que la requete l'a etablie ----------
 if (-not (Test-Path $Csv)) { Rouge "Fichier introuvable : $Csv"; exit 2 }
 $lignes = Import-Csv -Path $Csv -Encoding UTF8
-$orphelins = @($lignes | Where-Object { $_.section -eq "ORPHELINS" } | ForEach-Object { $_.quoi })
+$tous = @($lignes | Where-Object { $_.section -eq "ORPHELINS" } | ForEach-Object { $_.quoi })
+
+# Un chemin de stockage ecrit par l'application ne contient que des
+# lettres, des chiffres, un point, un tiret, un souligne et des barres.
+# Tout le reste est ecarte plutot qu'echappe : mal echapper un guillemet
+# ou un antislash, c'est envoyer un chemin different de celui qu'on a
+# lu — et supprimer autre chose que ce qu'on croyait.
+$orphelins = @($tous | Where-Object { $_ -match '^[A-Za-z0-9_./-]+$' })
+$ecartes = @($tous | Where-Object { $_ -notmatch '^[A-Za-z0-9_./-]+$' })
+if ($ecartes.Count -gt 0) {
+  Rouge "$($ecartes.Count) chemin(s) au format inattendu, ECARTES par prudence :"
+  foreach ($x in $ecartes) { Write-Host "   $x" }
+  Write-Host ""
+}
 
 if ($orphelins.Count -eq 0) {
   Vert "Aucun orphelin dans ce fichier : le stockage est deja propre."
@@ -107,10 +120,14 @@ $refuses = @()
 # Par paquets de 50 : une seule requete de 200 chemins serait refusee.
 for ($i = 0; $i -lt $orphelins.Count; $i += 50) {
   $paquet = @($orphelins[$i..([Math]::Min($i + 49, $orphelins.Count - 1))])
+  # Le corps est ecrit a la main : « ConvertTo-Json » deballe un tableau
+  # d'un seul element et enverrait une chaine la ou Supabase attend une
+  # liste. Le dernier paquet peut n'en contenir qu'un.
+  $corps = '{"prefixes":[' +
+    (($paquet | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']}'
   try {
     $r = Invoke-RestMethod -Method Delete -Uri "$url/storage/v1/object/$seau" `
-      -Headers $entetes -ContentType "application/json" `
-      -Body (@{ prefixes = $paquet } | ConvertTo-Json)
+      -Headers $entetes -ContentType "application/json" -Body $corps
     # Supabase renvoie la liste de ce qu'il a REELLEMENT supprime : un
     # fichier que les regles refusent est absent, sans message d'erreur.
     $noms = @($r | ForEach-Object { $_.name })
