@@ -79,6 +79,15 @@ create trigger produits_code
 -- ---------------------------------------------------------
 -- Figé sur la ligne, comme le nom et le prix : c'est ce qui a été vendu.
 alter table public.commande_lignes add column if not exists code text not null default '';
+-- La règle d'écriture réinstallée plus bas remplit aussi ces deux-là. Un
+-- fichier qui pose une fonction pose toutes les colonnes qu'elle écrit,
+-- même celles d'un autre fichier : PostgreSQL ne relit le corps d'une
+-- fonction qu'à l'exécution, et l'oubli ne se voit qu'à la première
+-- commande, sur « record "new" has no field … ».
+alter table public.commande_lignes
+  add column if not exists prix_bizzoo int not null default 0;
+alter table public.commande_lignes
+  add column if not exists taux_marge numeric;
 
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$

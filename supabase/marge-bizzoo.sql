@@ -79,6 +79,13 @@ end $$;
 -- ---------------------------------------------------------
 -- 2. Ce qui a été vendu garde ses chiffres
 -- ---------------------------------------------------------
+-- Un fichier qui installe une règle d'écriture installe AUSSI toutes les
+-- colonnes que cette règle remplit — même celles qu'il n'a pas inventées.
+-- PostgreSQL ne relit le corps d'une fonction qu'à l'exécution : sans ces
+-- lignes, le fichier passe sans broncher et la base s'arrête à la
+-- première commande, sur « record "new" has no field … ».
+alter table public.commande_lignes
+  add column if not exists code text not null default '';
 alter table public.commande_lignes
   add column if not exists prix_bizzoo int not null default 0;
 alter table public.commande_lignes

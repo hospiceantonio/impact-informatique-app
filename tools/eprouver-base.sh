@@ -25,6 +25,15 @@ rouge() { printf '\033[31m%s\033[0m\n' "$*"; }
 vert()  { printf '\033[32m%s\033[0m\n' "$*"; }
 gris()  { printf '\033[90m%s\033[0m\n' "$*"; }
 
+# ---------- Chaque fichier se suffit-il ? ----------
+# Avant même de monter un PostgreSQL : un fichier qui pose une règle
+# d'écriture doit poser les colonnes qu'elle remplit. Sur une base neuve
+# elles sont toujours là, donc rien ici ne le verrait ; chez le gérant,
+# non — et le fichier passe quand même, pour casser à la première
+# commande. Ce contrôle-là se fait à la lecture, pas à l'exécution.
+bash "$RACINE/tools/fichiers-autonomes.sh"
+echo
+
 # ---------- Trouver PostgreSQL ----------
 if command -v initdb >/dev/null 2>&1; then
   BIN=""

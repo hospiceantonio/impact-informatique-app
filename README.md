@@ -147,7 +147,7 @@ Ils valident l'écran, jamais les **déclencheurs** — ceux-ci ne
 s'exécutent que pour de vrai. Six défauts leur avaient échappé, dont un
 qui ne se serait manifesté qu'au premier vrai paiement.
 
-Trois règles pour que ce banc garde sa valeur :
+Cinq règles pour que ce banc garde sa valeur :
 
 - **On simule le décor, jamais la serrure.** RLS, déclencheurs et
   fonctions viennent tels quels de `schema.sql`. Le jour où l'on
@@ -179,6 +179,20 @@ Trois règles pour que ce banc garde sa valeur :
   `alter table … add column if not exists`. Le banc refait son chemin
   (l'ancien `schema.sql`, puis les fichiers envoyés) et compare colonne
   par colonne à une base neuve : il nomme celles qui manqueraient.
+- **Un fichier qui pose une fonction pose aussi les colonnes qu'elle
+  remplit — même celles qu'il n'a pas inventées.** PostgreSQL ne relit le
+  corps d'une fonction qu'au moment de l'*exécuter* : un fichier peut donc
+  installer une règle d'écriture qui remplit une colonne absente, passer
+  sans un mot, et arrêter la boutique à la commande suivante. C'est arrivé
+  en production — `marge-bizzoo.sql` posait la règle qui fige le code du
+  produit vendu sans poser la colonne qui le reçoit, et la base répondait
+  `record "new" has no field "code"` à chaque panier validé.
+  `tools/fichiers-autonomes.sh` relit chaque fichier et nomme la fonction,
+  la colonne et la ligne à ajouter ; il tournait sur quatre fichiers et y
+  a trouvé quinze trous du même genre. Et
+  [`supabase/tests/50-reparation.sql`](supabase/tests/50-reparation.sql)
+  refait la panne pour de vrai — colonne retirée, base à l'arrêt — puis
+  colle le fichier de réparation et vérifie qu'elle repart.
 
 Le même banc tourne à chaque poussée touchant `supabase/`
 (`.github/workflows/base.yml`).

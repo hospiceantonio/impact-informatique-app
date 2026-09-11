@@ -10,6 +10,7 @@ on:
     paths:
       - "supabase/**"
       - "tools/eprouver-base.sh"
+      - "tools/fichiers-autonomes.sh"
       - ".github/workflows/base.yml"
   pull_request:
     paths:

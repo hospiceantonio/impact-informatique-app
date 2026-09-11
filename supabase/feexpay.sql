@@ -72,6 +72,13 @@ alter table public.commandes
 -- marchand de BIZZOO qui en répondrait.
 alter table public.commandes
   add column if not exists tentative_le timestamptz;
+-- Ce que le téléphone affirme : le verrou réinstallé plus bas le garde
+-- lui aussi. Un fichier qui pose une fonction pose toutes les colonnes
+-- qu'elle lit ou écrit, même celles d'un autre fichier — PostgreSQL ne
+-- relit le corps d'une fonction qu'à l'exécution, et l'oubli ne se voit
+-- qu'au premier passage.
+alter table public.commandes
+  add column if not exists transaction_annoncee text not null default '';
 
 -- Une référence ne désigne qu'une commande : sans cela, deux commandes
 -- pourraient se disputer le même versement.

@@ -101,6 +101,15 @@ create table if not exists public.commandes (
 -- autre pour bloquer son encaissement.
 alter table public.commandes
   add column if not exists transaction_annoncee text not null default '';
+-- Le verrou réinstallé plus bas garde aussi ces deux colonnes-là. Un
+-- fichier qui pose une fonction pose toutes les colonnes qu'elle lit ou
+-- écrit, même celles d'un autre fichier : PostgreSQL ne relit le corps
+-- d'une fonction qu'à l'exécution, et l'oubli ne se voit qu'au premier
+-- passage, sur « record "new" has no field … ».
+alter table public.commandes
+  add column if not exists fournisseur_ref text not null default '';
+alter table public.commandes
+  add column if not exists tentative_le timestamptz;
 
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction KkiaPay ne vaut que pour une commande : c'est ce qui
@@ -125,6 +134,16 @@ create table if not exists public.commande_lignes (
               check (etat in ('nouvelle', 'vue', 'preparee', 'remise', 'annulee')),
   cree_le     timestamptz not null default now()
 );
+-- Le code du produit, ce que la boutique touche, et la marge du jour :
+-- figés avec le nom et le prix. La règle d'écriture posée plus bas les
+-- remplit — elle a donc besoin qu'ils existent.
+alter table public.commande_lignes
+  add column if not exists code text not null default '';
+alter table public.commande_lignes
+  add column if not exists prix_bizzoo int not null default 0;
+alter table public.commande_lignes
+  add column if not exists taux_marge numeric;
+
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
 
