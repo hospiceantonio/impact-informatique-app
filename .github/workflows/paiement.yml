@@ -1,0 +1,34 @@
+# Éprouve les deux fonctions de paiement à chaque modification.
+# FeexPay y est une doublure : aucun appel ne sort, et le banc ne
+# rougit donc jamais parce que leur serveur tousse ce matin-là.
+name: Éprouver le paiement
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "supabase/functions/**"
+      - "tools/eprouver-paiement.sh"
+      - ".github/workflows/paiement.yml"
+  pull_request:
+    paths:
+      - "supabase/functions/**"
+
+concurrency:
+  group: paiement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eprouver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Forcer les portes du paiement
+        run: bash tools/eprouver-paiement.sh

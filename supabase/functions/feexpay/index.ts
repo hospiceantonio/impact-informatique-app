@@ -154,9 +154,13 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
      Or nos commandes s'appellent « BZ-000005 ». Le tiret suffisait à
      faire refuser la demande, et FeexPay ne disait pas pourquoi. On
      nettoie pour tous les opérateurs : un libellé sans ponctuation ne
-     coûte rien, et ce qui vaut pour MTN vaut probablement ailleurs. */
+     coûte rien, et ce qui vaut pour MTN vaut probablement ailleurs.
+
+     Le tiret est RETIRÉ, pas remplacé par une espace, comme chez eux :
+     « Commande BZ000005 » se retrouve d'un bloc dans leur tableau de
+     bord, « Commande BZ 000005 » non. */
   const libelle = ("Commande " + String(commande["numero"] ?? ""))
-    .replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    .replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
 
   /* Les champs sont ceux de LEUR SDK (@feexpay/react-sdk 1.5.8), moins
      ceux qui n'ont de sens que dans un navigateur : merchant_domain,

@@ -197,6 +197,35 @@ Cinq règles pour que ce banc garde sa valeur :
 Le même banc tourne à chaque poussée touchant `supabase/`
 (`.github/workflows/base.yml`).
 
+### Éprouver le paiement sans FeexPay
+
+`tools/eprouver-paiement.sh` force les portes des deux fonctions Edge —
+celle qui ouvre un paiement, et celle qui reçoit la notification. Le banc
+de la base ne les voit pas : elles tournent chez Supabase, en Deno, et
+parlent à un service extérieur. C'est pourtant là qu'ont vécu les deux
+défauts de la première mise en service — un tiret dans le libellé que MTN
+refusait, et une panne 502 chez FeexPay affichée au client comme un
+refus.
+
+**FeexPay y est une doublure** qui répond ce qu'on lui dit de répondre et
+note ce qu'on lui a envoyé. Aucun appel ne sort. Un banc qui dépendrait
+de leur API rougirait les jours de panne et ne prouverait rien les autres
+jours. Deno n'étant pas installable partout, les fonctions sont chargées
+par Node avec une doublure de `Deno` : le code éprouvé est celui qui
+part en production, sans une ligne modifiée pour l'essai.
+
+Soixante constats, dont ceux qui tiennent tout le reste : le montant
+encaissé vient toujours de la réponse que FeexPay donne à **notre**
+question — jamais du payload d'une notification que **personne ne
+signe** ; un succès sans montant n'encaisse rien ; le frein de trente
+secondes est vérifié AVANT d'appeler FeexPay, sinon le téléphone sonne
+quand même ; et le jeton ne sort ni vers le client, ni dans le journal.
+Chacune de ces règles a été sabotée exprès pour vérifier que le banc
+rougit.
+
+Il tourne à chaque poussée touchant `supabase/functions/`
+(`.github/workflows/paiement.yml`).
+
 ### Savoir où en est la base
 
 [`supabase/etat-des-lieux.sql`](supabase/etat-des-lieux.sql) répond en
