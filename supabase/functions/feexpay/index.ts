@@ -212,12 +212,34 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
   try { resultat = JSON.parse(texte) as Record<string, unknown>; } catch (_) { /* tant pis */ }
 
   if (!reponse.ok) {
-    console.error("feexpay/payer ← refus", reponse.status, texte.slice(0, 600));
+    console.error("feexpay/payer ←", reponse.status, texte.slice(0, 600));
+    const details = champ(resultat, ["message", "reason", "error", "detail", "description"])
+                    || texte.slice(0, 200);
+
+    /* UNE PANNE CHEZ EUX N'EST PAS UN REFUS, et les confondre coûte cher.
+       Un refus dit « ce numéro ne va pas » : il appelle une correction.
+       Une panne n'appelle que de la patience. En affichant « FeexPay a
+       refusé la demande » sur un 502, on envoie le client vérifier un
+       numéro qui n'a rien, et la boutique douter d'identifiants qui sont
+       bons. Rien n'a été engagé dans un cas comme dans l'autre : la
+       référence n'est notée qu'après une réponse valable, donc le frein
+       des trente secondes n'est pas entamé et on peut réessayer tout de
+       suite. */
+    if (reponse.status >= 500) {
+      return repondre({
+        erreur: "FeexPay ne répond pas correctement en ce moment. Rien n'a été " +
+                "débité, et vous pouvez réessayer dans quelques minutes.",
+        details, statut: reponse.status,
+      }, 503);
+    }
+    if (reponse.status === 429) {
+      return repondre({
+        erreur: "FeexPay a reçu trop de demandes à la fois. Réessayez dans un instant.",
+        details, statut: reponse.status,
+      }, 429);
+    }
     return repondre({
-      erreur: "FeexPay a refusé la demande.",
-      details: champ(resultat, ["message", "reason", "error", "detail", "description"])
-               || texte.slice(0, 200),
-      statut: reponse.status,
+      erreur: "FeexPay a refusé la demande.", details, statut: reponse.status,
     }, 502);
   }
 
@@ -283,7 +305,14 @@ async function verifier(commande: Record<string, unknown>) {
     return repondre({ etat: "a_payer", attente: true, raison: "FeexPay injoignable" });
   }
 
-  if (!reponse.ok) return repondre({ etat: "a_payer", attente: true, raison: "statut illisible" });
+  if (!reponse.ok) {
+    /* On attend, on ne conclut pas : une panne chez eux ne dit rien du
+       versement, qui a peut-être abouti. Mais on la note — sans trace,
+       une commande qui reste « à payer » pendant que FeexPay tousse
+       ressemble à un client qui n'a pas payé. */
+    console.error("feexpay/verifier ←", reponse.status, reference);
+    return repondre({ etat: "a_payer", attente: true, raison: "statut illisible" });
+  }
   const statut = await reponse.json().catch(() => ({})) as Record<string, unknown>;
 
   const etatFeex = champ(statut, ["status", "state"]);
