@@ -155,7 +155,12 @@ lignes as (
   union all
   select 7, o.poids,
          'ORPHELINS',
-         o.name,
+         -- LE SEAU EN TÊTE DU CHEMIN. Sans lui, le script de ménage doit
+         -- deviner dans quel seau supprimer ; deux seaux peuvent porter
+         -- le même chemin, et il effacerait un fichier bien vivant en
+         -- croyant nettoyer l'autre. Une suppression ne se rattrape pas :
+         -- on ne laisse rien à deviner.
+         o.bucket_id || '/' || o.name,
          pg_size_pretty(o.poids),
          o.created_at::date::text,
          'plus référencé — supprimable'

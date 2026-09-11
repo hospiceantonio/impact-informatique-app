@@ -36,7 +36,6 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $racine = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$seau = "produits"
 
 function Rouge($t) { Write-Host $t -ForegroundColor Red }
 function Vert($t)  { Write-Host $t -ForegroundColor Green }
@@ -52,24 +51,59 @@ if (-not $url -or -not $cle) { Rouge "Adresse Supabase illisible dans client/con
 
 # ---------- La liste, telle que la requete l'a etablie ----------
 if (-not (Test-Path $Csv)) { Rouge "Fichier introuvable : $Csv"; exit 2 }
+
+# UN ORPHELIN D'HIER PEUT ETRE EN LIGNE AUJOURD'HUI. Une photo ajoutee
+# depuis l'export serait supprimee sans que rien ne le signale, et une
+# suppression ne se rattrape pas. Relancer la requete prend trente
+# secondes ; retrouver une photo perdue, non.
+$date = (Get-Item $Csv).LastWriteTime
+$age = (Get-Date) - $date
+if (-not $Simulation -and $age.TotalHours -gt 24) {
+  Rouge "Ce fichier date du $($date.ToString('dd/MM/yyyy a HH:mm')) - $([int]$age.TotalDays) jour(s)."
+  Rouge "Trop vieux pour servir de liste de suppression : ce qui etait"
+  Rouge "orphelin ce jour-la peut etre affiche dans la boutique aujourd'hui."
+  Write-Host ""
+  Gris "Relancez supabase/etat-du-stockage.sql, exportez un CSV frais,"
+  Gris "et rappelez ce script avec lui."
+  exit 2
+}
+Gris "Liste etablie le $($date.ToString('dd/MM/yyyy a HH:mm'))."
+
 $lignes = Import-Csv -Path $Csv -Encoding UTF8
 $tous = @($lignes | Where-Object { $_.section -eq "ORPHELINS" } | ForEach-Object { $_.quoi })
 
-# Un chemin de stockage ecrit par l'application ne contient que des
-# lettres, des chiffres, un point, un tiret, un souligne et des barres.
-# Tout le reste est ecarte plutot qu'echappe : mal echapper un guillemet
-# ou un antislash, c'est envoyer un chemin different de celui qu'on a
-# lu — et supprimer autre chose que ce qu'on croyait.
-$orphelins = @($tous | Where-Object { $_ -match '^[A-Za-z0-9_./-]+$' })
-$ecartes = @($tous | Where-Object { $_ -notmatch '^[A-Za-z0-9_./-]+$' })
+# La requete ecrit « seau/chemin ». Le seau ne se devine pas : deux seaux
+# peuvent porter le meme chemin, et supprimer dans le mauvais effacerait
+# un fichier bien vivant en laissant l'orphelin en place.
+#
+# Un chemin ecrit par l'application ne contient que des lettres, des
+# chiffres, un point, un tiret, un souligne et des barres. Tout le reste
+# est ECARTE plutot qu'echappe : mal echapper un guillemet ou un
+# antislash, c'est envoyer un chemin different de celui qu'on a lu - et
+# supprimer autre chose que ce qu'on croyait.
+$orphelins = @()
+$ecartes = @()
+foreach ($t in $tous) {
+  $m = [regex]::Match($t, '^([A-Za-z0-9_-]+)/(.+)$')
+  if ($m.Success -and $m.Groups[2].Value -match '^[A-Za-z0-9_./-]+$') {
+    $orphelins += [pscustomobject]@{
+      Seau = $m.Groups[1].Value; Chemin = $m.Groups[2].Value; Complet = $t
+    }
+  } else {
+    $ecartes += $t
+  }
+}
+
 if ($ecartes.Count -gt 0) {
-  Rouge "$($ecartes.Count) chemin(s) au format inattendu, ECARTES par prudence :"
+  Rouge "$($ecartes.Count) ligne(s) au format inattendu, ECARTEES par prudence :"
   foreach ($x in $ecartes) { Write-Host "   $x" }
+  Gris "  (Attendu : « seau/chemin ». Un CSV d'avant cette version n'a pas"
+  Gris "   le seau : relancez etat-du-stockage.sql pour en obtenir un bon.)"
   Write-Host ""
 }
 
 if ($orphelins.Count -eq 0) {
-  Vert "Aucun orphelin dans ce fichier : le stockage est deja propre."
+  Vert "Aucun orphelin exploitable dans ce fichier."
   Gris "  (Verifiez que le CSV vient bien de etat-du-stockage.sql.)"
   exit 0
 }
@@ -77,7 +111,10 @@ if ($orphelins.Count -eq 0) {
 Write-Host ""
 Write-Host "$($orphelins.Count) fichier(s) que plus aucune ligne de la base ne designe :" -ForegroundColor Cyan
 Write-Host ""
-foreach ($o in $orphelins) { Write-Host "   $o" }
+foreach ($groupe in ($orphelins | Group-Object Seau)) {
+  Write-Host "  seau « $($groupe.Name) » - $($groupe.Count) fichier(s)" -ForegroundColor Cyan
+  foreach ($o in $groupe.Group) { Write-Host "     $($o.Chemin)" }
+}
 Write-Host ""
 
 if ($Simulation) {
@@ -117,25 +154,33 @@ $entetes = @{ apikey = $cle; Authorization = "Bearer $($session.access_token)" }
 $partis = 0
 $refuses = @()
 
-# Par paquets de 50 : une seule requete de 200 chemins serait refusee.
-for ($i = 0; $i -lt $orphelins.Count; $i += 50) {
-  $paquet = @($orphelins[$i..([Math]::Min($i + 49, $orphelins.Count - 1))])
-  # Le corps est ecrit a la main : « ConvertTo-Json » deballe un tableau
-  # d'un seul element et enverrait une chaine la ou Supabase attend une
-  # liste. Le dernier paquet peut n'en contenir qu'un.
-  $corps = '{"prefixes":[' +
-    (($paquet | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']}'
-  try {
-    $r = Invoke-RestMethod -Method Delete -Uri "$url/storage/v1/object/$seau" `
-      -Headers $entetes -ContentType "application/json" -Body $corps
-    # Supabase renvoie la liste de ce qu'il a REELLEMENT supprime : un
-    # fichier que les regles refusent est absent, sans message d'erreur.
-    $noms = @($r | ForEach-Object { $_.name })
-    $partis += $noms.Count
-    $refuses += @($paquet | Where-Object { $noms -notcontains $_ })
-  } catch {
-    Rouge "Le paquet a partir de $($i + 1) a echoue : $($_.Exception.Message)"
-    $refuses += $paquet
+# Seau par seau : l'adresse de suppression porte le nom du seau, et un
+# chemin n'a de sens que dans le sien.
+foreach ($groupe in ($orphelins | Group-Object Seau)) {
+  $seau = $groupe.Name
+  $chemins = @($groupe.Group | ForEach-Object { $_.Chemin })
+
+  # Par paquets de 50 : une seule requete de 200 chemins serait refusee.
+  for ($i = 0; $i -lt $chemins.Count; $i += 50) {
+    $paquet = @($chemins[$i..([Math]::Min($i + 49, $chemins.Count - 1))])
+    # Le corps est ecrit a la main : « ConvertTo-Json » deballe un tableau
+    # d'un seul element et enverrait une chaine la ou Supabase attend une
+    # liste. Le dernier paquet peut n'en contenir qu'un.
+    $corps = '{"prefixes":[' +
+      (($paquet | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']}'
+    try {
+      $r = Invoke-RestMethod -Method Delete -Uri "$url/storage/v1/object/$seau" `
+        -Headers $entetes -ContentType "application/json" -Body $corps
+      # Supabase renvoie la liste de ce qu'il a REELLEMENT supprime : un
+      # fichier que les regles refusent est absent, sans message d'erreur.
+      $noms = @($r | ForEach-Object { $_.name })
+      $partis += $noms.Count
+      $refuses += @($paquet | Where-Object { $noms -notcontains $_ } |
+                    ForEach-Object { "$seau/$_" })
+    } catch {
+      Rouge "Un paquet du seau « $seau » a echoue : $($_.Exception.Message)"
+      $refuses += @($paquet | ForEach-Object { "$seau/$_" })
+    }
   }
 }
 

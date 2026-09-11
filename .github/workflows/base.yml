@@ -11,6 +11,8 @@ on:
       - "supabase/**"
       - "tools/eprouver-base.sh"
       - "tools/fichiers-autonomes.sh"
+      - "tools/eprouver-menage.sh"
+      - "tools/menage-stockage.ps1"
       - ".github/workflows/base.yml"
   pull_request:
     paths:
@@ -42,3 +44,9 @@ jobs:
 
       - name: Forcer les portes
         run: bash tools/eprouver-base.sh
+
+      # Ce script-là EFFACE des fichiers, et une suppression ne se
+      # rattrape pas : on lui donne un faux Supabase et on regarde ce
+      # qu'il lui envoie vraiment.
+      - name: Éprouver le ménage du stockage
+        run: bash tools/eprouver-menage.sh
