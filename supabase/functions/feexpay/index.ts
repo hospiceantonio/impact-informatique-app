@@ -144,6 +144,50 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
     }
   }
 
+  /* LE LIBELLÉ NE PORTE QUE DES LETTRES, DES CHIFFRES ET DES ESPACES.
+     Ce n'est pas une coquetterie : leur propre SDK le nettoie avant
+     d'appeler l'API, et pour MTN précisément —
+
+         if (network === "MTN")
+           description = description.replace(/[^a-zA-Z0-9 ]/g, "");
+
+     Or nos commandes s'appellent « BZ-000005 ». Le tiret suffisait à
+     faire refuser la demande, et FeexPay ne disait pas pourquoi. On
+     nettoie pour tous les opérateurs : un libellé sans ponctuation ne
+     coûte rien, et ce qui vaut pour MTN vaut probablement ailleurs. */
+  const libelle = ("Commande " + String(commande["numero"] ?? ""))
+    .replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+  /* Les champs sont ceux de LEUR SDK (@feexpay/react-sdk 1.5.8), moins
+     ceux qui n'ont de sens que dans un navigateur : merchant_domain,
+     merchant_ip, payment_interface. Un serveur n'a pas d'origine de page,
+     et déclarer « REACT » serait faux.
+
+     « email » n'est ajouté que s'il porte quelque chose : une chaîne vide
+     dans un champ facultatif se comporte moins bien qu'un champ absent,
+     c'est un piège connu chez leur concurrent. */
+  const charge: Record<string, unknown> = {
+    phoneNumber: numero,
+    amount: montant,
+    reseau: reseauFeex,
+    shop: BOUTIQUE,
+    token: JETON,
+    currency: "XOF",
+    /* Notre référence part des deux côtés : FeexPay nous la rendra,
+       et elle nous permet de recoller le versement à la commande. */
+    customId: String(commande["id"] ?? ""),
+    callback_info: { commande: String(commande["id"] ?? "") },
+    description: libelle,
+    /* Toujours porteur : leur SDK envoie ce champ à chaque appel, et une
+       commande BIZZOO n'exige qu'un numéro de téléphone. */
+    first_name: String(commande["nom"] ?? "").trim() || "Client",
+  };
+
+  /* Ce qu'on envoie, JETON RETIRÉ. Sans cette trace, un refus de FeexPay
+     n'est qu'un écran rouge : ni la boutique ni nous ne savons ce qui a
+     déplu, et il ne reste qu'à deviner. */
+  console.log("feexpay/payer →", JSON.stringify({ ...charge, token: "***" }));
+
   let reponse: Response;
   try {
     reponse = await fetch(FEEX + "/requesttopay/integration", {
@@ -152,37 +196,29 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
         "Content-Type": "application/json",
         "Authorization": "Bearer " + JETON,
       },
-      /* Les champs sont ceux de LEUR SDK serveur (feexpay-sdk-php) :
-         phoneNumber, amount, reseau, token, shop, first_name, email.
-         Rien de plus — un champ inconnu de leur API n'apporte que le
-         risque d'être refusé.
-
-         « email » n'est ajouté que s'il porte quelque chose : une chaîne
-         vide dans un champ facultatif se comporte moins bien qu'un champ
-         absent, c'est un piège connu chez leur concurrent. */
-      body: JSON.stringify({
-        phoneNumber: numero,
-        amount: montant,
-        reseau: reseauFeex,
-        shop: BOUTIQUE,
-        token: JETON,
-        currency: "XOF",
-        /* Notre référence part des deux côtés : FeexPay nous la rendra,
-           et elle nous permet de recoller le versement à la commande. */
-        customId: String(commande["id"] ?? ""),
-        callback_info: { commande: String(commande["id"] ?? "") },
-        description: "Commande " + String(commande["numero"] ?? ""),
-        first_name: String(commande["nom"] ?? ""),
-      }),
+      body: JSON.stringify(charge),
     });
   } catch (_) {
     /* Injoignable n'est pas « refusé ». Rien n'a été engagé. */
+    console.error("feexpay/payer : injoignable");
     return repondre({ erreur: "FeexPay est injoignable. Réessayez dans un instant." }, 503);
   }
 
-  const resultat = await reponse.json().catch(() => ({})) as Record<string, unknown>;
+  /* On lit le texte, pas le JSON : quand FeexPay refuse, il lui arrive de
+     répondre en clair, et un « .json() » raté effacerait justement la
+     phrase qui explique le refus. */
+  const texte = await reponse.text().catch(() => "");
+  let resultat: Record<string, unknown> = {};
+  try { resultat = JSON.parse(texte) as Record<string, unknown>; } catch (_) { /* tant pis */ }
+
   if (!reponse.ok) {
-    return repondre({ erreur: "FeexPay a refusé la demande.", details: champ(resultat, ["message", "reason"]) }, 502);
+    console.error("feexpay/payer ← refus", reponse.status, texte.slice(0, 600));
+    return repondre({
+      erreur: "FeexPay a refusé la demande.",
+      details: champ(resultat, ["message", "reason", "error", "detail", "description"])
+               || texte.slice(0, 200),
+      statut: reponse.status,
+    }, 502);
   }
 
   /* FeexPay répond 200 même quand il refuse : c'est « status: FAILED »
@@ -190,14 +226,20 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
      incorrect » — c'est de loin la cause la plus fréquente, et le client
      doit l'entendre plutôt que de rester devant un écran qui attend. */
   if (champ(resultat, ["status", "state"]).toUpperCase() === "FAILED") {
+    console.error("feexpay/payer ← FAILED", texte.slice(0, 600));
     return repondre({
       erreur: "Ce numéro n'a pas été accepté. Vérifiez-le, et qu'il " +
               "correspond bien à l'opérateur choisi.",
+      details: champ(resultat, ["message", "reason", "error", "detail"]),
     }, 400);
   }
 
   const reference = champ(resultat, ["reference", "transaction_id", "id"]);
-  if (!reference) return repondre({ erreur: "FeexPay n'a pas renvoyé de référence." }, 502);
+  if (!reference) {
+    console.error("feexpay/payer ← sans référence", texte.slice(0, 600));
+    return repondre({ erreur: "FeexPay n'a pas renvoyé de référence." }, 502);
+  }
+  console.log("feexpay/payer ← ouvert", reference);
 
   /* On range la référence AVANT de répondre : c'est elle qui permettra
      de vérifier. Si l'écriture échoue, le client ne doit pas croire que

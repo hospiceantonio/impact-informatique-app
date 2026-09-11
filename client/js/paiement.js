@@ -260,7 +260,14 @@ const Paiement = (() => {
     }
     const donnees = await reponse.json().catch(() => ({}));
     if (!reponse.ok) {
-      throw new Error(donnees.erreur || "Le paiement n'a pas pu s'ouvrir.");
+      /* Ce que l'agrégateur a répondu, quand il a répondu quelque chose.
+         « FeexPay a refusé la demande » tout seul n'apprend rien à
+         personne : ni au client devant son écran, ni à la boutique qu'il
+         va appeler. Sa phrase à lui, même maladroite, dit au moins où
+         chercher. */
+      const details = typeof donnees.details === "string" ? donnees.details.trim() : "";
+      throw new Error((donnees.erreur || "Le paiement n'a pas pu s'ouvrir.") +
+                      (details ? " — " + details : ""));
     }
     return donnees;
   }

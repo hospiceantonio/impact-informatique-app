@@ -491,9 +491,11 @@ const VuePanier = (() => {
         if (attente) {
           attente.innerHTML = UI.icone("horloge", "ic-sm") +
             "<div>La confirmation tarde. Si vous avez bien été débité, la boutique " +
-            "recevra votre commande dès que KkiaPay l'aura signalée — vous n'avez rien " +
-            "à refaire. Gardez le numéro <strong>" + Utils.echapper(commande.numero) +
-            "</strong>.</div>";
+            "recevra votre commande dès que " +
+            (Paiement.fournisseur() === "feexpay" ? "FeexPay aura confirmé le versement"
+                                                  : "KkiaPay l'aura signalée") +
+            " — vous n'avez rien à refaire. Gardez le numéro <strong>" +
+            Utils.echapper(commande.numero) + "</strong>.</div>";
         }
       }
     }
@@ -533,8 +535,11 @@ const VuePanier = (() => {
             " pour la remise.</div></div>"
         : '<div class="carte pa-avertissement" id="re-attente">' +
             '<span class="chargement-rond"></span>' +
-            "<div>Nous attendons la confirmation de KkiaPay. Cela prend quelques " +
-            "secondes — jusqu'à deux minutes en mode essai. Ne payez pas une seconde fois.</div>" +
+            "<div>" + (Paiement.fournisseur() === "feexpay"
+              ? "Validez la demande sur votre téléphone, avec votre code Mobile Money. " +
+                "Nous allons ensuite demander à FeexPay si le versement a abouti."
+              : "Nous attendons la confirmation de KkiaPay. Cela prend quelques secondes.") +
+            " Ne payez pas une seconde fois.</div>" +
           "</div>") +
 
       groupes.map((g) =>
