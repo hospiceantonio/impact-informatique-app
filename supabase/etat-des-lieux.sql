@@ -115,7 +115,46 @@ with controles(rang, element, ok) as (values
   (18, 'Les boutiques voient arriver leurs commandes en direct', exists (
       select 1 from pg_publication_tables
        where pubname = 'supabase_realtime' and schemaname = 'public'
-         and tablename = 'commandes'))
+         and tablename = 'commandes')),
+
+  -- ---------- Le code d'un produit ----------
+  -- Ces deux-là vont ENSEMBLE. Le déclencheur « ligne_a_l_ecriture »
+  -- écrit « new.code » sur chaque ligne de commande : si la colonne
+  -- manque, PostgreSQL refuse la commande entière avec « record "new"
+  -- has no field "code" », et plus personne ne peut commander.
+  (19, 'Code du produit (produits.code)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'produits' and column_name = 'code')),
+
+  (20, 'Code figé sur la ligne vendue (commande_lignes.code)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commande_lignes' and column_name = 'code')),
+
+  -- ---------- La marge de l'enseigne ----------
+  (21, 'Prix BIZZOO figé sur la ligne (commande_lignes.prix_bizzoo)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commande_lignes' and column_name = 'prix_bizzoo')),
+
+  -- ---------- FeexPay ----------
+  (22, 'Choix de l''agrégateur (paiement.fournisseur)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement' and column_name = 'fournisseur')),
+
+  (23, 'Référence de l''agrégateur (commandes.fournisseur_ref)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes' and column_name = 'fournisseur_ref')),
+
+  (24, 'Frein sur les demandes de paiement (commandes.tentative_le)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes' and column_name = 'tentative_le')),
+
+  (25, 'Le serveur seul pose une référence (noter_reference)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'noter_reference')),
+
+  (26, 'Retrouver une commande par sa référence (commande_par_reference)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'commande_par_reference'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
