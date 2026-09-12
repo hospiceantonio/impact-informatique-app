@@ -214,7 +214,7 @@ jours. Deno n'étant pas installable partout, les fonctions sont chargées
 par Node avec une doublure de `Deno` : le code éprouvé est celui qui
 part en production, sans une ligne modifiée pour l'essai.
 
-Soixante constats, dont ceux qui tiennent tout le reste : le montant
+Quatre-vingts constats, dont ceux qui tiennent tout le reste : le montant
 encaissé vient toujours de la réponse que FeexPay donne à **notre**
 question — jamais du payload d'une notification que **personne ne
 signe** ; un succès sans montant n'encaisse rien ; le frein de trente
@@ -222,6 +222,20 @@ secondes est vérifié AVANT d'appeler FeexPay, sinon le téléphone sonne
 quand même ; et le jeton ne sort ni vers le client, ni dans le journal.
 Chacune de ces règles a été sabotée exprès pour vérifier que le banc
 rougit.
+
+**L'API V2 de FeexPay**, depuis qu'ils ont retiré la V1 — leur 502 sur
+toutes leurs adresses n'était pas une panne. Elle renverse des choses
+qu'aucune relecture ne rattrape : le numéro porte désormais l'indicatif
+(`2290197444893`) là où la V1 le *retirait*, l'opérateur passe du corps à
+l'adresse (`…/requesttopay/mtn`), le jeton sort du corps pour ne vivre
+que dans l'en-tête, `callback_info` devient une chaîne, et le montant est
+borné à 100 – 2 000 000 FCFA. Chaque inversion a son constat.
+
+**Tant que `FEEXPAY_STATUT` n'est pas renseigné, le paiement reste
+fermé**, et c'est voulu : ouvrir un encaissement qu'on ne saura pas
+constater, c'est prendre l'argent d'un client dont la commande restera
+« à payer » pour toujours. Le banc l'éprouve en rechargeant les deux
+fonctions avec ce secret vide.
 
 Il tourne à chaque poussée touchant `supabase/functions/`
 (`.github/workflows/paiement.yml`).

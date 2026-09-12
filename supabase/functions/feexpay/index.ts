@@ -43,7 +43,12 @@
    ---------------------------------------------------------
      supabase secrets set FEEXPAY_TOKEN='fp_votre_jeton'
      supabase secrets set FEEXPAY_SHOP='identifiant-de-boutique'
+     supabase secrets set FEEXPAY_STATUT='https://api-v2.feexpay.me/…/'
      supabase functions deploy feexpay --no-verify-jwt
+
+   FEEXPAY_STATUT est l'adresse V2 qui dit ou en est un versement,
+   jusqu'a la barre finale. TANT QU'ELLE MANQUE, LE PAIEMENT RESTE
+   FERME — et c'est voulu : voir plus bas.
 
    « --no-verify-jwt » : le client d'une boutique n'est pas
    connecté à Supabase. Ce qui protège cet appel, c'est le
@@ -56,15 +61,55 @@ const BOUTIQUE = Deno.env.get("FEEXPAY_SHOP") ?? "";
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-const FEEX = "https://api.feexpay.me/api/transactions";
+/* ---------------------------------------------------------
+   API V2 — la V1 a été retirée
+   ---------------------------------------------------------
+   Le 502 que renvoyait « api.feexpay.me » sur TOUTES ses adresses,
+   y compris celle du logo, n'était pas une panne : c'est la V1 qu'ils
+   ferment. Leur réponse à l'enseigne : « migrez vers api-v2 ».
 
-/* Le nom que FeexPay donne à chaque opérateur. « CELTIIS BJ » avec son
-   espace n'est pas une coquette : c'est la valeur qu'attend leur API. */
+   Ce que la V2 change, et rien de tout cela ne se devinait :
+
+     1. LE NUMÉRO PORTE L'INDICATIF. « 2290197444893 » : 229 suivi du
+        numéro national à dix chiffres. La V1 voulait exactement
+        l'inverse — on lui RETIRAIT le 229 ;
+     2. LE RÉSEAU N'EST PLUS UN CHAMP mais le dernier segment de
+        l'adresse : …/requesttopay/mtn ;
+     3. LE JETON NE VOYAGE PLUS DANS LE CORPS, seulement dans l'en-tête
+        « Authorization ». C'est un progrès : un secret n'a rien à faire
+        dans des données ;
+     4. « callback_info » est une CHAÎNE, plus un objet ;
+     5. « currency », « customId » et « token » ont disparu du corps ;
+     6. le montant est borné : 100 minimum, 2 000 000 maximum.
+   --------------------------------------------------------- */
+const FEEX = "https://api-v2.feexpay.me/api/transactions/public";
+
+/* Le dernier segment de l'adresse, un par opérateur. */
 const RESEAUX: Record<string, string> = {
-  MTN: "MTN",
-  MOOV: "MOOV",
-  CELTIIS: "CELTIIS BJ",
+  MTN: "mtn",
+  // À CONFIRMER sur leur documentation : la page consultée ne donne que
+  // MTN. On ne devine pas une adresse d'encaissement.
+  // MOOV: "moov",
+  // CELTIIS: "celtiis",
 };
+
+/* Leur limite, annoncée en tête de la documentation V2. La vérifier ici
+   évite un refus obscur : « FeexPay a refusé » n'apprend rien à un
+   client dont le panier fait 80 francs. */
+const MONTANT_MIN = 100;
+const MONTANT_MAX = 2000000;
+
+/* L'adresse qui dit où en est un versement, jusqu'à la barre finale :
+   la référence s'y ajoute. Elle vit dans un secret plutôt que dans ce
+   fichier — le jour où FeexPay la déplace, l'enseigne la change en une
+   ligne dans son tableau de bord, sans redéploiement.
+
+   TANT QU'ELLE EST VIDE, ON N'OUVRE AUCUN PAIEMENT : encaisser sans
+   pouvoir constater, c'est prendre l'argent d'un client sans jamais lui
+   livrer sa commande. (V1 : /getrequesttopay/integration/ — retirée.)
+
+     supabase secrets set FEEXPAY_STATUT='https://api-v2.feexpay.me/…/' */
+const VERIFICATION = Deno.env.get("FEEXPAY_STATUT") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -113,19 +158,57 @@ function aAbouti(etat: string): boolean {
    Ouvrir le paiement
    ========================================================= */
 async function payer(commande: Record<string, unknown>, tel: string, reseau: string) {
+  /* ON N'OUVRE PAS UN PAIEMENT QU'ON NE SAURA PAS CONSTATER. Tant que
+     l'adresse de vérification n'est pas connue, le client serait débité
+     sans que sa commande passe jamais à « payée » : personne ne pourrait
+     aller demander à FeexPay si le versement a abouti. Mieux vaut un
+     paiement fermé qu'un paiement borgne. */
+  if (!VERIFICATION) {
+    console.error("feexpay/payer : adresse de vérification V2 inconnue");
+    return repondre({
+      erreur: "Le paiement en ligne est momentanément fermé, le temps de " +
+              "la migration chez notre opérateur. Commandez, la boutique " +
+              "vous rappellera pour le règlement.",
+    }, 503);
+  }
+
   const reseauFeex = RESEAUX[reseau.toUpperCase()];
   if (!reseauFeex) return repondre({ erreur: "Opérateur inconnu." }, 400);
 
-  /* Le numéro qui PAIE peut différer de celui de la commande : on paie
-     souvent avec le téléphone d'un proche. On le nettoie, sans plus. */
-  const numero = tel.replace(/\D/g, "").replace(/^229/, "");
-  if (numero.length < 8) return repondre({ erreur: "Numéro de paiement incomplet." }, 400);
+  /* LE NUMÉRO, AU FORMAT DE LA V2 : l'indicatif PUIS le national à dix
+     chiffres — « 2290197444893 ». La V1 voulait le contraire. On accepte
+     ce que le client tape, y compris l'ancien format à huit chiffres que
+     beaucoup dictent encore, et on le ramène à cette seule forme.
+
+     Le numéro qui PAIE peut différer de celui de la commande : on paie
+     souvent avec le téléphone d'un proche. */
+  let national = tel.replace(/\D/g, "").replace(/^229/, "");
+  if (national.length === 8) national = "01" + national;   // avant 2023
+  if (!/^01\d{8}$/.test(national)) {
+    return repondre({
+      erreur: "Ce numéro n'a pas la forme d'un numéro béninois : dix " +
+              "chiffres commençant par 01.",
+    }, 400);
+  }
+  const numero = "229" + national;
 
   /* LE MONTANT VIENT DE LA BASE. C'est tout l'intérêt de passer par ici :
      s'il venait de la requête, on paierait 100 francs une commande de
      100 000. */
   const montant = Number(commande["total"] ?? 0);
   if (!(montant > 0)) return repondre({ erreur: "Commande sans montant." }, 400);
+  if (montant < MONTANT_MIN) {
+    return repondre({
+      erreur: "FeexPay n'encaisse pas moins de " + MONTANT_MIN + " FCFA. " +
+              "Réglez cette commande directement à la boutique.",
+    }, 400);
+  }
+  if (montant > MONTANT_MAX) {
+    return repondre({
+      erreur: "FeexPay n'encaisse pas plus de " + MONTANT_MAX.toLocaleString("fr-FR") +
+              " FCFA en une fois. Voyez avec la boutique.",
+    }, 400);
+  }
 
   /* LE FREIN, AVANT d'appeler FeexPay. Chaque demande fait sonner un
      téléphone : le vérifier après coup laisserait la sonnerie partir, et
@@ -152,9 +235,9 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
            description = description.replace(/[^a-zA-Z0-9 ]/g, "");
 
      Or nos commandes s'appellent « BZ-000005 ». Le tiret suffisait à
-     faire refuser la demande, et FeexPay ne disait pas pourquoi. On
-     nettoie pour tous les opérateurs : un libellé sans ponctuation ne
-     coûte rien, et ce qui vaut pour MTN vaut probablement ailleurs.
+     faire refuser la demande, et FeexPay ne disait pas pourquoi. La
+     documentation V2 le dit maintenant pour TOUS les opérateurs, en
+     toutes lettres : « description — Sans caractères spéciaux ».
 
      Le tiret est RETIRÉ, pas remplacé par une espace, comme chez eux :
      « Commande BZ000005 » se retrouve d'un bloc dans leur tableau de
@@ -162,39 +245,35 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
   const libelle = ("Commande " + String(commande["numero"] ?? ""))
     .replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
 
-  /* Les champs sont ceux de LEUR SDK (@feexpay/react-sdk 1.5.8), moins
-     ceux qui n'ont de sens que dans un navigateur : merchant_domain,
-     merchant_ip, payment_interface. Un serveur n'a pas d'origine de page,
-     et déclarer « REACT » serait faux.
+  /* Les six champs de la V2, et RIEN d'autre. « token », « currency »,
+     « customId » et « reseau » ont disparu du corps : le jeton vit
+     désormais dans le seul en-tête — un secret n'a rien à faire dans des
+     données — et l'opérateur est dans l'adresse.
 
-     « email » n'est ajouté que s'il porte quelque chose : une chaîne vide
-     dans un champ facultatif se comporte moins bien qu'un champ absent,
-     c'est un piège connu chez leur concurrent. */
+     « callback_info » est une CHAÎNE en V2, plus un objet. C'est ce que
+     la notification nous rendra ; on y met l'identifiant de la commande,
+     mais on ne s'en servira jamais comme d'une preuve. */
   const charge: Record<string, unknown> = {
     phoneNumber: numero,
     amount: montant,
-    reseau: reseauFeex,
     shop: BOUTIQUE,
-    token: JETON,
-    currency: "XOF",
-    /* Notre référence part des deux côtés : FeexPay nous la rendra,
-       et elle nous permet de recoller le versement à la commande. */
-    customId: String(commande["id"] ?? ""),
-    callback_info: { commande: String(commande["id"] ?? "") },
     description: libelle,
-    /* Toujours porteur : leur SDK envoie ce champ à chaque appel, et une
-       commande BIZZOO n'exige qu'un numéro de téléphone. */
+    callback_info: String(commande["id"] ?? ""),
+    /* Leur exemple le donne toujours, et une commande BIZZOO n'exige
+       qu'un numéro de téléphone : une chaîne vide dans un champ attendu
+       se comporte moins bien qu'une valeur quelconque. */
     first_name: String(commande["nom"] ?? "").trim() || "Client",
   };
 
-  /* Ce qu'on envoie, JETON RETIRÉ. Sans cette trace, un refus de FeexPay
-     n'est qu'un écran rouge : ni la boutique ni nous ne savons ce qui a
-     déplu, et il ne reste qu'à deviner. */
-  console.log("feexpay/payer →", JSON.stringify({ ...charge, token: "***" }));
+  /* Ce qu'on envoie. Rien de secret n'y figure depuis la V2 — le jeton
+     est dans l'en-tête, et l'en-tête ne se journalise pas. Sans cette
+     trace, un refus de FeexPay n'est qu'un écran rouge : ni la boutique
+     ni nous ne savons ce qui a déplu. */
+  console.log("feexpay/payer →", reseauFeex, JSON.stringify(charge));
 
   let reponse: Response;
   try {
-    reponse = await fetch(FEEX + "/requesttopay/integration", {
+    reponse = await fetch(FEEX + "/requesttopay/" + reseauFeex, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -298,11 +377,17 @@ async function verifier(commande: Record<string, unknown>) {
   const reference = String(commande["reference"] ?? "");
   if (!reference) return repondre({ etat: "a_payer", attente: true, raison: "aucun paiement ouvert" });
 
+  /* Sans adresse de vérification, on ATTEND — on ne conclut rien. Une
+     commande ouverte avant la migration a un versement peut-être abouti :
+     la déclarer échouée effacerait un paiement réel. */
+  if (!VERIFICATION) {
+    console.error("feexpay/verifier : adresse de vérification V2 inconnue", reference);
+    return repondre({ etat: "a_payer", attente: true, raison: "vérification non configurée" });
+  }
+
   let reponse: Response;
   try {
-    /* Cette lecture ne demande aucune authentification chez FeexPay.
-       Tant mieux : notre serveur vérifie sans détenir de secret. */
-    reponse = await fetch(FEEX + "/getrequesttopay/integration/" + encodeURIComponent(reference));
+    reponse = await fetch(VERIFICATION + encodeURIComponent(reference));
   } catch (_) {
     /* Un délai dépassé n'est PAS un échec : le versement a peut-être
        abouti. On ne marque JAMAIS « échoué » sur une panne de réseau. */

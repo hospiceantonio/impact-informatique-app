@@ -2,7 +2,7 @@
    BIZZOO — le banc des deux fonctions de paiement
 
    Ces fonctions n'avaient AUCUN test, et c'est précisément là
-   qu'ont vécu les deux défauts de la première mise en service :
+   qu'ont vécu les défauts de la première mise en service :
 
      1. le libellé partait avec un tiret (« Commande BZ-000005 »)
         alors que MTN n'accepte que lettres, chiffres et espaces.
@@ -12,6 +12,13 @@
         refusé la demande » — y compris un 502 de leur serveur.
         On envoyait le client vérifier un numéro qui n'avait
         rien, et la boutique douter d'identifiants qui sont bons.
+
+   Puis FeexPay a RETIRÉ LA V1 — ce 502 sur toutes leurs adresses
+   n'était pas une panne. La V2 renverse des choses qu'aucune
+   relecture ne rattrape : le numéro porte désormais l'indicatif
+   (2290197444893) là où la V1 le RETIRAIT, l'opérateur passe du
+   corps à l'adresse, et le jeton sort du corps. Chacune de ces
+   inversions a son constat ici.
 
    Le banc ne touche JAMAIS l'API de FeexPay : il lui substitue
    une doublure qui répond ce qu'on lui dit de répondre, et note
@@ -46,6 +53,7 @@ const gris = (s) => "\x1b[90m" + s + "\x1b[0m";
 const SECRETS = {
   FEEXPAY_TOKEN: "fp_jeton_qui_ne_doit_jamais_sortir",
   FEEXPAY_SHOP: "boutique-d-essai",
+  FEEXPAY_STATUT: "https://api-v2.feexpay.me/api/transactions/public/status/",
   SUPABASE_URL: "https://base.essai",
   SUPABASE_SERVICE_ROLE_KEY: "cle-de-service",
 };
@@ -113,14 +121,18 @@ globalThis.fetch = async (url, options = {}) => {
   const adresse = String(url);
   const corps = options.body ? JSON.parse(options.body) : {};
 
-  if (adresse.includes("/requesttopay/integration")) {
+  if (adresse.includes("/requesttopay/")) {
     monde.feexAppels.push(corps);
+    monde.feexAdresses.push(adresse);
     monde.feexEntetes.push(options.headers || {});
     const r = monde.reponsePayer();
     if (r.injoignable) throw new Error("réseau");
     return faireReponse(r);
   }
-  if (adresse.includes("/getrequesttopay/integration/")) {
+  /* Un préfixe VIDE est le préfixe de toute adresse : sans ce garde, la
+     doublure détournerait jusqu'aux appels à la base le jour où l'on
+     éprouve une vérification non configurée. */
+  if (SECRETS.FEEXPAY_STATUT && adresse.startsWith(SECRETS.FEEXPAY_STATUT)) {
     monde.feexStatutAppels.push(decodeURIComponent(adresse.split("/").pop()));
     const r = monde.reponseStatut();
     if (r.injoignable) throw new Error("réseau");
@@ -138,6 +150,7 @@ globalThis.fetch = async (url, options = {}) => {
 function decor(modifications = {}) {
   monde.commandes = new Map();
   monde.feexAppels = [];
+  monde.feexAdresses = [];
   monde.feexEntetes = [];
   monde.feexStatutAppels = [];
   monde.rpcAppels = [];
@@ -211,11 +224,38 @@ verifie(/^[A-Za-z0-9 ]+$/.test(String(envoye.description || "")),
 verifie(String(envoye.description || "").includes("BZ000005"),
   "et il désigne bien la commande");
 
-egal(envoye.reseau, "MTN", "l'opérateur part sous le nom qu'attend FeexPay");
+/* V2 : L'OPÉRATEUR EST DANS L'ADRESSE, plus dans le corps. */
+egal(monde.feexAdresses[0],
+  "https://api-v2.feexpay.me/api/transactions/public/requesttopay/mtn",
+  "l'opérateur est le dernier segment de l'adresse");
+
+/* V2 : LE NUMÉRO PORTE L'INDICATIF. La V1 voulait exactement l'inverse —
+   on lui retirait le 229. C'est le genre de renversement qu'aucune
+   relecture ne rattrape : seul un constat le tient. */
+egal(envoye.phoneNumber, "2290197444893",
+  "le numéro part avec l'indicatif, suivi des dix chiffres nationaux");
+
 egal(envoye.shop, SECRETS.FEEXPAY_SHOP, "l'identifiant de boutique est celui des secrets");
-egal(envoye.currency, "XOF", "la monnaie est celle de la zone");
-egal(envoye.callback_info, { commande: "cmd_essai" },
-  "la notification saura de quelle commande elle parle");
+egal(envoye.callback_info, "cmd_essai",
+  "callback_info est une CHAÎNE en V2, et désigne la commande");
+verifie(!("currency" in envoye) && !("reseau" in envoye) && !("customId" in envoye),
+  "les champs que la V2 a retirés ne partent plus");
+
+/* L'ancien format à huit chiffres, que beaucoup dictent encore. */
+decor();
+await appeler(paiement, { ...PAYER, numero: "97444893" });
+egal(monde.feexAppels[0].phoneNumber, "2290197444893",
+  "un numéro à huit chiffres est ramené à la même forme");
+
+decor();
+await appeler(paiement, { ...PAYER, numero: "+229 01 97 44 48 93" });
+egal(monde.feexAppels[0].phoneNumber, "2290197444893",
+  "un numéro déjà international aussi, sans doubler l'indicatif");
+
+decor();
+const malFormé = await appeler(paiement, { ...PAYER, numero: "12345" });
+egal(malFormé.statut, 400, "un numéro qui n'est pas béninois est refusé ici");
+egal(monde.feexAppels.length, 0, "avant tout appel");
 
 /* LE MONTANT VIENT DE LA BASE. C'est toute la raison de passer par un
    serveur : s'il venait de la requête, on paierait 100 francs une
@@ -230,11 +270,29 @@ await appeler(paiement, PAYER);
 verifie(String(monde.feexAppels[0].first_name || "").trim() !== "",
   "le nom ne part jamais vide — leur SDK l'envoie toujours");
 
-for (const [demande, attendu] of [["MOOV", "MOOV"], ["CELTIIS", "CELTIIS BJ"]]) {
+/* MOOV et CELTIIS attendent leur adresse V2 : la documentation consultée
+   ne donne que MTN. On ne devine pas une adresse d'encaissement — mieux
+   vaut un opérateur fermé qu'un paiement envoyé n'importe où. */
+for (const inconnu of ["MOOV", "CELTIIS"]) {
   decor();
-  await appeler(paiement, { ...PAYER, reseau: demande });
-  egal(monde.feexAppels[0].reseau, attendu, demande + " part sous son nom FeexPay");
+  const r = await appeler(paiement, { ...PAYER, reseau: inconnu });
+  egal(r.statut, 400, inconnu + " reste fermé tant que son adresse V2 n'est pas connue");
+  egal(monde.feexAppels.length, 0, "et rien ne part au hasard");
 }
+
+/* ---------- Les limites annoncées par la V2 ---------- */
+titre("Les bornes de montant, vérifiées avant d'appeler");
+
+for (const [total, quoi] of [[80, "moins de 100 FCFA"], [3000000, "plus de 2 000 000"]]) {
+  decor({ total });
+  const r = await appeler(paiement, PAYER);
+  egal(r.statut, 400, quoi + " : refusé avec une phrase qui s'explique");
+  egal(monde.feexAppels.length, 0, "et FeexPay n'est pas dérangé pour rien");
+}
+
+decor({ total: 100 });
+await appeler(paiement, PAYER);
+egal(monde.feexAppels.length, 1, "le minimum exact passe");
 
 /* =========================================================
    Le jeton
@@ -245,16 +303,16 @@ decor();
 monde.reponsePayer = () => ({ statut: 400, corps: { message: "quelque chose ne va pas" } });
 const refus = await appeler(paiement, PAYER);
 
-egal(monde.feexAppels[0].token, SECRETS.FEEXPAY_TOKEN,
-  "il part bien chez FeexPay, qui l'exige");
+verifie(!("token" in monde.feexAppels[0]),
+  "la V2 l'a sorti du corps de la requête — un secret n'est pas une donnée");
 verifie(String(monde.feexEntetes[0].Authorization || "").includes(SECRETS.FEEXPAY_TOKEN),
-  "et dans l'en-tête d'autorisation");
+  "il ne voyage plus que dans l'en-tête d'autorisation");
 verifie(!refus.texte.includes(SECRETS.FEEXPAY_TOKEN),
   "mais JAMAIS dans ce qui redescend au téléphone");
 verifie(!journal.join(" ").includes(SECRETS.FEEXPAY_TOKEN),
   "ni dans le journal, que la boutique peut lire");
-verifie(journal.join(" ").includes("***"),
-  "le journal dit ce qu'on a envoyé, jeton retiré");
+verifie(journal.join(" ").includes("feexpay/payer"),
+  "le journal dit quand même ce qu'on a envoyé, pour diagnostiquer");
 
 /* =========================================================
    Une panne n'est pas un refus
@@ -451,6 +509,61 @@ decor({ reference: "ref_feex_essai", etat: "payee" });
 const encore = await appeler(notification, { reference: "ref_feex_essai" });
 verifie(encore.donnees.deja === true, "une commande déjà payée ne s'encaisse pas deux fois");
 egal(monde.feexStatutAppels.length, 0, "et n'interroge même pas FeexPay");
+
+/* =========================================================
+   Ce qu'on ne saura pas constater, on ne l'encaisse pas
+   =========================================================
+   La V1 est fermée et l'adresse de vérification V2 n'est pas encore
+   connue. Une fonction qui ouvrirait quand même un paiement prendrait
+   l'argent du client sans que personne, jamais, ne puisse aller demander
+   à FeexPay si le versement a abouti : la commande resterait « à payer »
+   pour toujours. Mieux vaut un paiement fermé qu'un paiement borgne.
+
+   On recharge donc les deux fonctions avec un secret vide — l'adresse
+   est lue au chargement, il faut un second exemplaire du module. */
+titre("Sans adresse de vérification, on n'ouvre rien");
+
+/* Un second exemplaire du module, sous un autre chemin : Node ne
+   réévalue pas un module déjà chargé, et un simple « ?variante » ne suffit
+   pas. On copie le fichier tel quel — pas une ligne n'est modifiée. */
+const { mkdtempSync, copyFileSync } = await import("node:fs");
+const { tmpdir } = await import("node:os");
+const { join } = await import("node:path");
+const { pathToFileURL } = await import("node:url");
+
+const copie = mkdtempSync(join(tmpdir(), "bizzoo-sans-verification-"));
+SECRETS.FEEXPAY_STATUT = "";
+portes.length = 0;
+for (const nom of ["feexpay", "feexpay-webhook"]) {
+  const vers = join(copie, nom + ".ts");
+  copyFileSync(new URL("../" + nom + "/index.ts", import.meta.url), vers);
+  await import(pathToFileURL(vers).href);
+}
+const [paiementAveugle, notificationAveugle] = portes;
+
+decor();
+const ferme = await appeler(paiementAveugle, PAYER);
+egal(ferme.statut, 503, "le paiement se referme au lieu de s'ouvrir");
+egal(monde.feexAppels.length, 0, "aucune demande ne part chez FeexPay");
+verifie(!monde.rpcAppels.some((a) => a.nom === "noter_reference"),
+  "et aucune référence n'est notée");
+verifie(!ferme.donnees.erreur.includes("refus"),
+  "le client n'est pas accusé d'avoir mal fait");
+
+decor({ reference: "ref_feex_essai" });
+const attente = await appeler(paiementAveugle, VERIFIER);
+egal(attente.donnees.etat, "a_payer", "une commande ouverte avant la migration ATTEND");
+verifie(attente.donnees.attente === true,
+  "on ne la déclare pas échouée : son versement a peut-être abouti");
+
+decor({ reference: "ref_feex_essai" });
+const rejeuAveugle = await appeler(notificationAveugle, {
+  reference: "ref_feex_essai", status: "SUCCESSFUL", amount: 12000,
+});
+egal(rejeuAveugle.statut, 503,
+  "la notification n'est pas acquittée : FeexPay la rejouera");
+verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
+  "et rien n'est encaissé sur sa seule parole");
 
 /* ========================================================= */
 dire("");

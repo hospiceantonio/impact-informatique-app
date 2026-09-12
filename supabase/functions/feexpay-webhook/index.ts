@@ -51,7 +51,12 @@
 
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const FEEX = "https://api.feexpay.me/api/transactions";
+/* L'adresse V2 qui dit où en est un versement. La V1 a été retirée — son
+   502 sur toutes ses adresses n'était pas une panne. TANT QU'ELLE EST
+   VIDE, on ne conclut rien : une notification qu'on ne peut pas vérifier
+   ne prouve toujours rien, et mieux vaut la laisser rejouer que
+   d'encaisser sur parole. */
+const VERIFICATION = Deno.env.get("FEEXPAY_STATUT") ?? "";
 
 /** Un appel à notre propre base, avec les droits du service. */
 async function rpc(nom: string, parametres: Record<string, unknown>): Promise<unknown> {
@@ -129,9 +134,18 @@ Deno.serve(async (requete: Request): Promise<Response> => {
      On redemande à FeexPay, sur son API. Cette lecture ne réclame
      aucune authentification : notre serveur vérifie sans détenir de
      secret, et surtout sans croire ce qu'on vient de lui poster. */
+  /* Pas d'adresse de vérification : on refuse le 200. FeexPay rejouera
+     la notification, et on l'encaissera quand on saura la vérifier. */
+  if (!VERIFICATION) {
+    console.error("feexpay-webhook : adresse de vérification V2 inconnue", reference);
+    return new Response(JSON.stringify({ erreur: "vérification non configurée" }), {
+      status: 503, headers: { "Content-Type": "application/json" },
+    });
+  }
+
   let reponse: Response;
   try {
-    reponse = await fetch(FEEX + "/getrequesttopay/integration/" + encodeURIComponent(reference));
+    reponse = await fetch(VERIFICATION + encodeURIComponent(reference));
   } catch (_) {
     /* Injoignable n'est pas « échoué ». On laisse FeexPay réessayer, et
        l'application redemandera de son côté. */
