@@ -214,7 +214,7 @@ jours. Deno n'étant pas installable partout, les fonctions sont chargées
 par Node avec une doublure de `Deno` : le code éprouvé est celui qui
 part en production, sans une ligne modifiée pour l'essai.
 
-Quatre-vingt-dix-neuf constats, dont ceux qui tiennent tout le reste : le montant
+Cent cinq constats, dont ceux qui tiennent tout le reste : le montant
 encaissé vient toujours de la réponse que FeexPay donne à **notre**
 question — jamais du payload d'une notification que **personne ne
 signe** ; un succès sans montant n'encaisse rien ; le frein de trente
@@ -249,7 +249,15 @@ ces cas n'encaisse quoi que ce soit : seule la vérification tranche.
 l'assume en renvoyant la charge au marchand : « c'est à vous de faire vos
 contrôles côté serveur ». C'est exactement ce que fait ce fichier.
 
-`FEEXPAY_STATUT` sert d'**interrupteur** : posé à la chaîne vide, il ferme
+`FEEXPAY_RESEAUX` referme **un seul réseau** sans redéployer —
+`'mtn,moov'` ferme Celtiis, effacer le réglage le rouvre. C'est arrivé
+deux jours après la migration : MTN et Moov passaient, Celtiis répondait
+« Celtiis BJ API Error » chez l'agrégateur. Laisser le réseau ouvert
+envoyait chaque client Celtiis dans le mur ; le retirer du code, c'était
+un déploiement pour une panne peut-être longue de deux heures. Un état
+temporaire appartient à la configuration.
+
+`FEEXPAY_STATUT` sert du même coup d'**interrupteur général** : posé à la chaîne vide, il ferme
 le paiement en ligne sans redéploiement — utile le jour où FeexPay
 retirera la V2 comme il a retiré la V1. Ouvrir un encaissement qu'on ne
 saura pas constater, c'est prendre l'argent d'un client dont la commande

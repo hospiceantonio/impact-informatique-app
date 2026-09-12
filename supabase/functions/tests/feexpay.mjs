@@ -198,6 +198,15 @@ async function appeler(porte, corps) {
   return { statut: r.status, donnees, texte };
 }
 
+/* Un second exemplaire d'un module, sous un autre chemin : Node ne
+   réévalue pas un module déjà chargé, et un simple « ?variante » ne suffit
+   pas. On copie le fichier tel quel — pas une ligne n'est modifiée pour
+   l'essai. */
+const { mkdtempSync, copyFileSync } = await import("node:fs");
+const { tmpdir } = await import("node:os");
+const { join } = await import("node:path");
+const { pathToFileURL } = await import("node:url");
+
 const PAYER = { action: "payer", commande: "cmd_essai", tel: "97444893",
                 numero: "0197444893", reseau: "MTN" };
 const VERIFIER = { action: "verifier", commande: "cmd_essai", tel: "97444893" };
@@ -623,6 +632,40 @@ verifie(encore.donnees.deja === true, "une commande déjà payée ne s'encaisse 
 egal(monde.feexStatutAppels.length, 0, "et n'interroge même pas FeexPay");
 
 /* =========================================================
+   Refermer un réseau sans redéployer
+   =========================================================
+   C'est arrivé : MTN et Moov passaient, Celtiis répondait « Celtiis BJ
+   API Error » — chez l'agrégateur, pas chez nous. Laisser le réseau
+   ouvert, c'est envoyer chaque client Celtiis dans le mur ; le retirer du
+   code, c'est un déploiement pour une panne qui durera peut-être deux
+   heures. Un état temporaire appartient à la configuration. */
+titre("Un réseau se referme par réglage, pas par déploiement");
+
+SECRETS.FEEXPAY_RESEAUX = "mtn,moov";
+portes.length = 0;
+{
+  const dossier = mkdtempSync(join(tmpdir(), "bizzoo-reseaux-"));
+  const vers = join(dossier, "feexpay.ts");
+  copyFileSync(new URL("../feexpay/index.ts", import.meta.url), vers);
+  await import(pathToFileURL(vers).href);
+}
+const paiementPartiel = portes[0];
+
+decor();
+const refermé = await appeler(paiementPartiel, { ...PAYER, reseau: "CELTIIS" });
+egal(refermé.statut, 503, "le réseau refermé se referme");
+egal(monde.feexAppels.length, 0, "et rien ne part chez FeexPay");
+verifie(!refermé.donnees.erreur.includes("refus"),
+  "le client n'est accusé de rien : ce n'est ni son numéro ni son solde");
+verifie(refermé.donnees.erreur.includes("MTN") && refermé.donnees.erreur.includes("MOOV"),
+  "on lui dit lesquels marchent");
+egal(refermé.donnees.reseaux, ["MTN", "MOOV"], "et l'application peut s'y fier");
+
+decor();
+await appeler(paiementPartiel, { ...PAYER, reseau: "MOOV" });
+egal(monde.feexAppels.length, 1, "les réseaux restés ouverts passent toujours");
+
+/* =========================================================
    Ce qu'on ne saura pas constater, on ne l'encaisse pas
    =========================================================
    La V1 est fermée et l'adresse de vérification V2 n'est pas encore
@@ -634,14 +677,6 @@ egal(monde.feexStatutAppels.length, 0, "et n'interroge même pas FeexPay");
    On recharge donc les deux fonctions avec un secret vide — l'adresse
    est lue au chargement, il faut un second exemplaire du module. */
 titre("Sans adresse de vérification, on n'ouvre rien");
-
-/* Un second exemplaire du module, sous un autre chemin : Node ne
-   réévalue pas un module déjà chargé, et un simple « ?variante » ne suffit
-   pas. On copie le fichier tel quel — pas une ligne n'est modifiée. */
-const { mkdtempSync, copyFileSync } = await import("node:fs");
-const { tmpdir } = await import("node:os");
-const { join } = await import("node:path");
-const { pathToFileURL } = await import("node:url");
 
 const copie = mkdtempSync(join(tmpdir(), "bizzoo-sans-verification-"));
 SECRETS.FEEXPAY_STATUT = "";

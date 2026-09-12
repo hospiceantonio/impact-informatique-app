@@ -46,6 +46,10 @@
      supabase secrets set FEEXPAY_STATUT='https://api-v2.feexpay.me/…/'
      supabase functions deploy feexpay --no-verify-jwt
 
+   FEEXPAY_RESEAUX, facultatif, referme un reseau sans redeploiement :
+     supabase secrets set FEEXPAY_RESEAUX='mtn,moov'   (Celtiis ferme)
+   Absent ou vide, les trois sont ouverts.
+
    FEEXPAY_STATUT est l'adresse V2 qui dit ou en est un versement,
    jusqu'a la barre finale. TANT QU'ELLE MANQUE, LE PAIEMENT RESTE
    FERME — et c'est voulu : voir plus bas.
@@ -93,6 +97,21 @@ const RESEAUX: Record<string, string> = {
      Celtiis sur une adresse qui n'existe pas. */
   CELTIIS: "celtiis_bj",
 };
+
+/* LES RÉSEAUX OUVERTS, en une liste séparée par des virgules. Vide ou
+   absent : les trois sont ouverts, et c'est le bon état par défaut.
+
+     supabase secrets set FEEXPAY_RESEAUX='mtn,moov'
+
+   Cela sert le jour — arrivé — où l'agrégateur casse UN opérateur et pas
+   les autres. On le referme en une ligne dans le tableau de bord, sans
+   redéploiement ni nouvelle version de l'application, et on le rouvre en
+   effaçant le réglage. Un état temporaire appartient à la configuration,
+   pas au code, où on l'oublierait. */
+const OUVERTS = (Deno.env.get("FEEXPAY_RESEAUX") ?? "")
+  .split(",").map((r) => r.trim().toUpperCase()).filter(Boolean);
+
+const ouvert = (reseau: string) => OUVERTS.length === 0 || OUVERTS.includes(reseau);
 
 /* Les préfixes béninois, tels que le SDK officiel de FeexPay les
    énumère. Ils ne servent PAS à interdire : un numéro porté d'un réseau
@@ -203,8 +222,27 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
     }, 503);
   }
 
-  const reseauFeex = RESEAUX[reseau.toUpperCase()];
+  const demande = reseau.toUpperCase();
+  const reseauFeex = RESEAUX[demande];
   if (!reseauFeex) return repondre({ erreur: "Opérateur inconnu." }, 400);
+
+  /* Un réseau refermé à la main. On ne le cache pas au client et on ne
+     lui laisse pas croire qu'il a mal fait : ce n'est ni son numéro ni
+     son solde, c'est notre agrégateur qui ne traite pas ce réseau en ce
+     moment. On lui dit lesquels marchent. */
+  if (!ouvert(demande)) {
+    console.error("feexpay/payer : réseau fermé à la main", demande);
+    const restants = Object.keys(RESEAUX).filter(ouvert);
+    return repondre({
+      erreur: "Le paiement par " + demande + " est momentanément fermé : " +
+              "notre opérateur de paiement ne traite pas ce réseau en ce moment." +
+              (restants.length
+                ? " Essayez " + restants.join(" ou ") + ", ou commandez et la " +
+                  "boutique vous rappellera."
+                : " Commandez, la boutique vous rappellera pour le règlement."),
+      reseaux: restants,
+    }, 503);
+  }
 
   /* LE NUMÉRO, AU FORMAT DE LA V2 : l'indicatif PUIS le national à dix
      chiffres — « 2290197444893 ». La V1 voulait le contraire. On accepte
@@ -339,9 +377,9 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
      On ne l'a pas empêché de choisir — la portabilité existe — mais on
      lui dit ce qu'on voit. */
   const suggere = operateurDuNumero(national);
-  const desaccord = suggere && suggere !== reseau.toUpperCase()
+  const desaccord = suggere && suggere !== demande
     ? " Ce numéro est un numéro " + suggere + ", alors que vous avez choisi " +
-      reseau.toUpperCase() + " : vérifiez l'opérateur."
+      demande + " : vérifiez l'opérateur."
     : "";
 
   if (!reponse.ok) {
