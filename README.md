@@ -214,7 +214,7 @@ jours. Deno n'étant pas installable partout, les fonctions sont chargées
 par Node avec une doublure de `Deno` : le code éprouvé est celui qui
 part en production, sans une ligne modifiée pour l'essai.
 
-Quatre-vingt-huit constats, dont ceux qui tiennent tout le reste : le montant
+Quatre-vingt-treize constats, dont ceux qui tiennent tout le reste : le montant
 encaissé vient toujours de la réponse que FeexPay donne à **notre**
 question — jamais du payload d'une notification que **personne ne
 signe** ; un succès sans montant n'encaisse rien ; le frein de trente
@@ -237,6 +237,13 @@ casserait rien de visible : les commandes resteraient simplement « à
 payer », et personne ne saurait pourquoi. Deux constats le tiennent, un
 par fonction. Et `FAILED` est désormais un verdict annoncé au client,
 plus un sablier de quatre-vingt-dix secondes sur un refus déjà prononcé.
+
+Les **trois opérateurs du Bénin** ont chacun leur adresse : `…/mtn`,
+`…/moov` et `…/celtiis_bj` — qui n'est pas `celtiis`, et que déduire des
+deux autres aurait envoyé les clients Celtiis nulle part. Moov peut
+répondre `FAILED` dès l'ouverture (solde insuffisant) ou `SUCCESSFUL` tout
+de suite ; Celtiis renvoie une enveloppe SOAP et un `PENDING`. Aucun de
+ces cas n'encaisse quoi que ce soit : seule la vérification tranche.
 
 **Le webhook V2 n'est toujours pas signé**, et leur documentation
 l'assume en renvoyant la charge au marchand : « c'est à vous de faire vos

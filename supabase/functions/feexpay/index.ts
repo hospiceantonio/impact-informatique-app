@@ -87,10 +87,11 @@ const FEEX = "https://api-v2.feexpay.me/api/transactions/public";
 /* Le dernier segment de l'adresse, un par opérateur. */
 const RESEAUX: Record<string, string> = {
   MTN: "mtn",
-  // À CONFIRMER sur leur documentation : la page consultée ne donne que
-  // MTN. On ne devine pas une adresse d'encaissement.
-  // MOOV: "moov",
-  // CELTIIS: "celtiis",
+  MOOV: "moov",
+  /* « celtiis_bj », et non « celtiis » : leur documentation le donne
+     ainsi. Le devinir d'après les deux autres aurait envoyé les clients
+     Celtiis sur une adresse qui n'existe pas. */
+  CELTIIS: "celtiis_bj",
 };
 
 /* Leur limite, annoncée en tête de la documentation V2. La vérifier ici
@@ -336,11 +337,19 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
      qui le dit. Leur propre SDK traduit ce cas par « le numéro entré est
      incorrect » — c'est de loin la cause la plus fréquente, et le client
      doit l'entendre plutôt que de rester devant un écran qui attend. */
-  if (champ(resultat, ["status", "state"]).toUpperCase() === "FAILED") {
-    console.error("feexpay/payer ← FAILED", texte.slice(0, 600));
+  /* UN 200 QUI DIT « FAILED » EST UN REFUS DÉGUISÉ, et chez Moov c'est
+     la règle plutôt que l'exception : leur documentation prévient que la
+     réponse « peut déjà contenir le statut final (par exemple FAILED en
+     cas de solde insuffisant), sans nécessité d'appeler l'API de
+     vérification ». On ne parle donc plus d'un numéro mal saisi, qui
+     enverrait le client corriger ce qui n'a rien : le solde vient
+     d'abord. */
+  const etatOuvert = champ(resultat, ["status", "state"]).toUpperCase();
+  if (etatOuvert === "FAILED") {
+    console.error("feexpay/payer ← FAILED", reseauFeex, texte.slice(0, 600));
     return repondre({
-      erreur: "Ce numéro n'a pas été accepté. Vérifiez-le, et qu'il " +
-              "correspond bien à l'opérateur choisi.",
+      erreur: "Le versement n'a pas pu être lancé. Vérifiez votre solde, " +
+              "et que le numéro correspond bien à l'opérateur choisi.",
       details: champ(resultat, ["message", "reason", "error", "detail"]),
     }, 400);
   }
@@ -370,7 +379,14 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
     reference,
     /* La page hébergée, quand FeexPay en renvoie une (carte bancaire). */
     page: champ(resultat, ["payment_url"]) || null,
-    message: "Validez la demande sur votre téléphone.",
+    /* Moov répond parfois SUCCESSFUL immédiatement — « si le client
+       confirme le code, la réponse sera directement SUCCESSFUL ». Lui
+       dire de valider sur son téléphone serait alors absurde. On
+       n'ENCAISSE toujours pas sur cette réponse : c'est la vérification,
+       et elle seule, qui fera passer la commande à « payée ». */
+    message: aAbouti(etatOuvert)
+      ? "Versement reçu. Nous confirmons votre commande."
+      : "Validez la demande sur votre téléphone.",
   });
 }
 

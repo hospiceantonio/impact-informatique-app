@@ -272,15 +272,61 @@ await appeler(paiement, PAYER);
 verifie(String(monde.feexAppels[0].first_name || "").trim() !== "",
   "le nom ne part jamais vide — leur SDK l'envoie toujours");
 
-/* MOOV et CELTIIS attendent leur adresse V2 : la documentation consultée
-   ne donne que MTN. On ne devine pas une adresse d'encaissement — mieux
-   vaut un opérateur fermé qu'un paiement envoyé n'importe où. */
-for (const inconnu of ["MOOV", "CELTIIS"]) {
+/* Les trois opérateurs du Bénin, chacun à SON adresse. « celtiis_bj »
+   n'est pas « celtiis » : le déduire des deux autres aurait envoyé les
+   clients Celtiis sur une adresse qui n'existe pas. */
+for (const [demande, segment] of [["MOOV", "moov"], ["CELTIIS", "celtiis_bj"]]) {
   decor();
-  const r = await appeler(paiement, { ...PAYER, reseau: inconnu });
-  egal(r.statut, 400, inconnu + " reste fermé tant que son adresse V2 n'est pas connue");
-  egal(monde.feexAppels.length, 0, "et rien ne part au hasard");
+  await appeler(paiement, { ...PAYER, reseau: demande });
+  egal(monde.feexAdresses[0],
+    "https://api-v2.feexpay.me/api/transactions/public/requesttopay/" + segment,
+    demande + " part à son adresse, telle que la documentation l'écrit");
 }
+
+decor();
+const inconnu = await appeler(paiement, { ...PAYER, reseau: "ORANGE" });
+egal(inconnu.statut, 400, "un opérateur qui n'existe pas au Bénin est refusé");
+egal(monde.feexAppels.length, 0, "et rien ne part au hasard");
+
+/* ---------- Ce que Moov et Celtiis font de particulier ---------- */
+titre("Moov répond parfois tout de suite, Celtiis jamais");
+
+/* « Pour Moov Bénin, la réponse peut déjà contenir le statut final (par
+   exemple FAILED en cas de solde insuffisant) ». Envoyer ce client
+   corriger son numéro, c'est le faire chercher ce qui n'a rien. */
+decor();
+monde.reponsePayer = () => ({ corps: {
+  reference: "32D6CC4C-8AA1-4DFF-80A2-84D34C1BD19F", status: "FAILED",
+  response_operator: { description: ["Balance is insufficient"] }, statusCode: "10" } });
+const soldeMoov = await appeler(paiement, { ...PAYER, reseau: "MOOV" });
+egal(soldeMoov.statut, 400, "un FAILED immédiat est un refus, pas une attente");
+verifie(soldeMoov.donnees.erreur.includes("solde"),
+  "et on parle d'abord du solde, comme le dit leur documentation");
+verifie(!monde.rpcAppels.some((a) => a.nom === "noter_reference"),
+  "aucune référence n'est notée sur un versement déjà refusé");
+
+/* « Si le client confirme le code, la réponse sera directement
+   SUCCESSFUL » — mais on n'encaisse toujours pas sur cette réponse-là. */
+decor();
+monde.reponsePayer = () => ({ corps: { status: "SUCCESSFUL", reference: "ref_moov_direct" } });
+const vite = await appeler(paiement, { ...PAYER, reseau: "MOOV" });
+verifie(vite.donnees.ouvert === true, "un SUCCESSFUL immédiat ouvre bien le paiement");
+verifie(!vite.donnees.message.includes("Validez"),
+  "on n'envoie pas valider un versement déjà validé");
+verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
+  "et SURTOUT on n'encaisse pas sur cette réponse : la vérification tranche");
+
+/* Celtiis renvoie une enveloppe SOAP et un statut PENDING : on ne garde
+   que la référence, et elle a sa forme à elle. */
+decor();
+monde.reponsePayer = () => ({ corps: {
+  reference: "AG_20251202_701033309a4e1387a99b", status: "PENDING",
+  message: "Accept the service request successfully.",
+  normal_response: "<?xml version=\"1.0\"?><soapenv:Envelope/>" } });
+await appeler(paiement, { ...PAYER, reseau: "CELTIIS" });
+egal(monde.rpcAppels.filter((a) => a.nom === "noter_reference")[0].parametres.reference,
+  "AG_20251202_701033309a4e1387a99b",
+  "la référence Celtiis est gardée telle quelle, SOAP ou pas");
 
 /* ---------- Les limites annoncées par la V2 ---------- */
 titre("Les bornes de montant, vérifiées avant d'appeler");
@@ -397,19 +443,14 @@ egal(monde.feexAppels.length, 1, "passé le délai, la demande repart");
 titre("Le numéro de la commande fait office de mot de passe");
 
 decor();
-const inconnu = await appeler(paiement, { ...PAYER, tel: "99999999" });
-egal(inconnu.statut, 404, "un mauvais numéro ne donne rien");
+const etranger = await appeler(paiement, { ...PAYER, tel: "99999999" });
+egal(etranger.statut, 404, "un mauvais numéro ne donne rien");
 egal(monde.feexAppels.length, 0,
   "et ne fait sonner aucun téléphone — on ne harcèle personne");
 
 decor();
 await appeler(paiement, { ...PAYER, commande: "cmd_qui_n_existe_pas" });
 egal(monde.feexAppels.length, 0, "une commande inventée non plus");
-
-decor();
-const reseauFaux = await appeler(paiement, { ...PAYER, reseau: "ORANGE" });
-egal(reseauFaux.statut, 400, "un opérateur qu'on ne connaît pas est refusé ici");
-egal(monde.feexAppels.length, 0, "avant tout appel");
 
 decor({ etat: "payee" });
 const deja = await appeler(paiement, PAYER);
