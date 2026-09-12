@@ -94,6 +94,30 @@ const RESEAUX: Record<string, string> = {
   CELTIIS: "celtiis_bj",
 };
 
+/* Les préfixes béninois, tels que le SDK officiel de FeexPay les
+   énumère. Ils ne servent PAS à interdire : un numéro porté d'un réseau
+   à l'autre garde son préfixe d'origine, et c'est au client de savoir
+   chez qui est son compte. Ils servent à EXPLIQUER un refus — « Celtiis
+   BJ API Error » ne dit rien à personne, « ce numéro est un numéro
+   MTN » se corrige en deux secondes. */
+const PREFIXES: Record<string, string[]> = {
+  MTN: ["0142", "0146", "0150", "0151", "0152", "0153", "0154", "0156", "0157",
+        "0159", "0161", "0162", "0166", "0167", "0169", "0190", "0191", "0192",
+        "0193", "0196", "0197"],
+  MOOV: ["0145", "0155", "0158", "0160", "0163", "0164", "0165", "0168",
+         "0194", "0195", "0198", "0199"],
+  CELTIIS: ["0140", "0141", "0143", "0144", "0147"],
+};
+
+/** L'opérateur que suggère un numéro national, ou "" si on ne sait pas. */
+function operateurDuNumero(national: string): string {
+  const p = national.slice(0, 4);
+  for (const nom of Object.keys(PREFIXES)) {
+    if (PREFIXES[nom].includes(p)) return nom;
+  }
+  return "";
+}
+
 /* Leur limite, annoncée en tête de la documentation V2. La vérifier ici
    évite un refus obscur : « FeexPay a refusé » n'apprend rien à un
    client dont le panier fait 80 francs. */
@@ -301,8 +325,20 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
   let resultat: Record<string, unknown> = {};
   try { resultat = JSON.parse(texte) as Record<string, unknown>; } catch (_) { /* tant pis */ }
 
+  /* Le refus le plus fréquent, et le plus opaque : l'opérateur choisi
+     n'est pas celui du numéro. FeexPay répond alors « Celtiis BJ API
+     Error », ou l'équivalent, et le client n'a aucun moyen de deviner.
+     On ne l'a pas empêché de choisir — la portabilité existe — mais on
+     lui dit ce qu'on voit. */
+  const suggere = operateurDuNumero(national);
+  const desaccord = suggere && suggere !== reseau.toUpperCase()
+    ? " Ce numéro est un numéro " + suggere + ", alors que vous avez choisi " +
+      reseau.toUpperCase() + " : vérifiez l'opérateur."
+    : "";
+
   if (!reponse.ok) {
-    console.error("feexpay/payer ←", reponse.status, texte.slice(0, 600));
+    console.error("feexpay/payer ←", reponse.status, reseauFeex,
+      desaccord ? "(opérateur en désaccord avec le numéro)" : "", texte.slice(0, 600));
     const details = champ(resultat, ["message", "reason", "error", "detail", "description"])
                     || texte.slice(0, 200);
 
@@ -329,7 +365,8 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
       }, 429);
     }
     return repondre({
-      erreur: "FeexPay a refusé la demande.", details, statut: reponse.status,
+      erreur: "FeexPay a refusé la demande." + desaccord,
+      details, statut: reponse.status,
     }, 502);
   }
 
@@ -349,7 +386,7 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
     console.error("feexpay/payer ← FAILED", reseauFeex, texte.slice(0, 600));
     return repondre({
       erreur: "Le versement n'a pas pu être lancé. Vérifiez votre solde, " +
-              "et que le numéro correspond bien à l'opérateur choisi.",
+              "et que le numéro correspond bien à l'opérateur choisi." + desaccord,
       details: champ(resultat, ["message", "reason", "error", "detail"]),
     }, 400);
   }

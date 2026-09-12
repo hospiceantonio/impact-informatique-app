@@ -316,6 +316,35 @@ verifie(!vite.donnees.message.includes("Validez"),
 verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
   "et SURTOUT on n'encaisse pas sur cette réponse : la vérification tranche");
 
+/* LE REFUS LE PLUS FRÉQUENT, ET LE PLUS OPAQUE : l'opérateur choisi
+   n'est pas celui du numéro. FeexPay répond « Celtiis BJ API Error » —
+   une phrase qui ne dit rien à personne. On ne l'empêche pas de choisir,
+   la portabilité existe ; on lui dit ce qu'on voit. */
+decor();
+monde.reponsePayer = () => ({ statut: 400, corps: { message: "Celtiis BJ API Error" } });
+const desaccord = await appeler(paiement, { ...PAYER, numero: "0197444893", reseau: "CELTIIS" });
+verifie(desaccord.donnees.erreur.includes("MTN"),
+  "un numéro MTN envoyé chez Celtiis : on le dit au client");
+verifie(desaccord.donnees.erreur.includes("CELTIIS"),
+  "et on lui rappelle ce qu'il a choisi");
+egal(desaccord.donnees.details, "Celtiis BJ API Error",
+  "la phrase de FeexPay reste, elle, telle quelle");
+
+/* Mais on ne l'invente pas quand il n'y a pas de désaccord : accuser un
+   numéro juste enverrait le client corriger ce qui n'a rien. */
+decor();
+monde.reponsePayer = () => ({ statut: 400, corps: { message: "Something failed" } });
+const accord = await appeler(paiement, { ...PAYER, numero: "0140000000", reseau: "CELTIIS" });
+verifie(!accord.donnees.erreur.includes("vérifiez l'opérateur"),
+  "un numéro Celtiis chez Celtiis : aucun reproche inventé");
+
+/* Un préfixe qu'on ne connaît pas ne permet aucune conclusion. */
+decor();
+monde.reponsePayer = () => ({ statut: 400, corps: { message: "Erreur" } });
+const muetPrefixe = await appeler(paiement, { ...PAYER, numero: "0100000000", reseau: "MTN" });
+verifie(!muetPrefixe.donnees.erreur.includes("vérifiez l'opérateur"),
+  "un préfixe inconnu ne fait accuser personne");
+
 /* Celtiis renvoie une enveloppe SOAP et un statut PENDING : on ne garde
    que la référence, et elle a sa forme à elle. */
 decor();

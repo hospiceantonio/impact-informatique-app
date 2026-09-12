@@ -214,7 +214,7 @@ jours. Deno n'étant pas installable partout, les fonctions sont chargées
 par Node avec une doublure de `Deno` : le code éprouvé est celui qui
 part en production, sans une ligne modifiée pour l'essai.
 
-Quatre-vingt-treize constats, dont ceux qui tiennent tout le reste : le montant
+Quatre-vingt-dix-huit constats, dont ceux qui tiennent tout le reste : le montant
 encaissé vient toujours de la réponse que FeexPay donne à **notre**
 question — jamais du payload d'une notification que **personne ne
 signe** ; un succès sans montant n'encaisse rien ; le frein de trente
