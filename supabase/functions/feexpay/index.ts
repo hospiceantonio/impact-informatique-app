@@ -292,8 +292,16 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
     callback_info: String(commande["id"] ?? ""),
     /* Leur exemple le donne toujours, et une commande BIZZOO n'exige
        qu'un numéro de téléphone : une chaîne vide dans un champ attendu
-       se comporte moins bien qu'une valeur quelconque. */
-    first_name: String(commande["nom"] ?? "").trim() || "Client",
+       se comporte moins bien qu'une valeur quelconque.
+
+       NETTOYÉ COMME LE LIBELLÉ, par précaution. Leur documentation ne
+       l'exige que pour « description », mais la passerelle Celtiis parle
+       SOAP — leur réponse d'exemple est une enveloppe XML Huawei — et une
+       apostrophe dans « N'Dah » n'a rien à faire dans du XML assemblé à
+       la main. Un prénom écorné ne coûte rien : il ne sert qu'à
+       l'affichage chez eux. */
+    first_name: String(commande["nom"] ?? "")
+      .replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim() || "Client",
   };
 
   /* Ce qu'on envoie. Rien de secret n'y figure depuis la V2 — le jeton

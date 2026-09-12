@@ -272,6 +272,13 @@ await appeler(paiement, PAYER);
 verifie(String(monde.feexAppels[0].first_name || "").trim() !== "",
   "le nom ne part jamais vide — leur SDK l'envoie toujours");
 
+/* La passerelle Celtiis parle SOAP : une apostrophe n'a rien à faire
+   dans du XML assemblé à la main. Un prénom écorné ne coûte rien. */
+decor({ nom: "N'Dah Soètonvê" });
+await appeler(paiement, PAYER);
+verifie(/^[A-Za-z0-9 ]+$/.test(monde.feexAppels[0].first_name),
+  "le nom part sans apostrophe ni accent, comme le libellé");
+
 /* Les trois opérateurs du Bénin, chacun à SON adresse. « celtiis_bj »
    n'est pas « celtiis » : le déduire des deux autres aurait envoyé les
    clients Celtiis sur une adresse qui n'existe pas. */
