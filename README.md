@@ -214,7 +214,7 @@ jours. Deno n'étant pas installable partout, les fonctions sont chargées
 par Node avec une doublure de `Deno` : le code éprouvé est celui qui
 part en production, sans une ligne modifiée pour l'essai.
 
-Quatre-vingts constats, dont ceux qui tiennent tout le reste : le montant
+Quatre-vingt-huit constats, dont ceux qui tiennent tout le reste : le montant
 encaissé vient toujours de la réponse que FeexPay donne à **notre**
 question — jamais du payload d'une notification que **personne ne
 signe** ; un succès sans montant n'encaisse rien ; le frein de trente
@@ -231,11 +231,23 @@ l'adresse (`…/requesttopay/mtn`), le jeton sort du corps pour ne vivre
 que dans l'en-tête, `callback_info` devient une chaîne, et le montant est
 borné à 100 – 2 000 000 FCFA. Chaque inversion a son constat.
 
-**Tant que `FEEXPAY_STATUT` n'est pas renseigné, le paiement reste
-fermé**, et c'est voulu : ouvrir un encaissement qu'on ne saura pas
-constater, c'est prendre l'argent d'un client dont la commande restera
-« à payer » pour toujours. Le banc l'éprouve en rechargeant les deux
-fonctions avec ce secret vide.
+La vérification V2 (`…/public/single/status/<ref>`) **exige le jeton**,
+là où la V1 ne demandait rien — on s'en félicitait même. L'oublier ne
+casserait rien de visible : les commandes resteraient simplement « à
+payer », et personne ne saurait pourquoi. Deux constats le tiennent, un
+par fonction. Et `FAILED` est désormais un verdict annoncé au client,
+plus un sablier de quatre-vingt-dix secondes sur un refus déjà prononcé.
+
+**Le webhook V2 n'est toujours pas signé**, et leur documentation
+l'assume en renvoyant la charge au marchand : « c'est à vous de faire vos
+contrôles côté serveur ». C'est exactement ce que fait ce fichier.
+
+`FEEXPAY_STATUT` sert d'**interrupteur** : posé à la chaîne vide, il ferme
+le paiement en ligne sans redéploiement — utile le jour où FeexPay
+retirera la V2 comme il a retiré la V1. Ouvrir un encaissement qu'on ne
+saura pas constater, c'est prendre l'argent d'un client dont la commande
+restera « à payer » pour toujours ; le banc l'éprouve en rechargeant les
+deux fonctions avec ce secret vide.
 
 Il tourne à chaque poussée touchant `supabase/functions/`
 (`.github/workflows/paiement.yml`).

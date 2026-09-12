@@ -3,11 +3,15 @@
 
    ATTENTION, ET C'EST TOUT LE SUJET DE CE FICHIER :
 
-   LA NOTIFICATION DE FEEXPAY N'EST PAS SIGNÉE. Leur
-   documentation le dit sans le dire — le payload est un
-   simple JSON posté sur une adresse, sans secret, sans
-   signature, sans en-tête d'authentification. Rien n'y prouve
-   qu'il vient d'eux.
+   LA NOTIFICATION DE FEEXPAY N'EST PAS SIGNÉE — et la V2 n'y
+   a rien changé. Le payload est un simple JSON posté sur une
+   adresse, sans secret, sans signature, sans en-tête
+   d'authentification. Rien n'y prouve qu'il vient d'eux.
+
+   Leur documentation V2 l'assume, et renvoie la charge au
+   marchand : « C'est à vous d'écouter ces requêtes, de les
+   récupérer et de les traiter pour faire VOS CONTRÔLES CÔTÉ
+   SERVEUR. » C'est exactement ce que fait ce fichier.
 
    Autrement dit : n'importe qui connaissant cette adresse
    peut poster
@@ -56,7 +60,14 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
    VIDE, on ne conclut rien : une notification qu'on ne peut pas vérifier
    ne prouve toujours rien, et mieux vaut la laisser rejouer que
    d'encaisser sur parole. */
-const VERIFICATION = Deno.env.get("FEEXPAY_STATUT") ?? "";
+const VERIFICATION = Deno.env.get("FEEXPAY_STATUT")
+  ?? "https://api-v2.feexpay.me/api/transactions/public/single/status/";
+
+/* EN V2, LA LECTURE DU STATUT EXIGE LE JETON. La V1 ne demandait rien, et
+   cette fonction n'avait donc aucun secret à détenir. Ce n'est plus vrai :
+   sans lui, elle ne pourrait plus rien vérifier — et comme elle ne croit
+   jamais le payload, elle n'encaisserait tout simplement plus rien. */
+const JETON = Deno.env.get("FEEXPAY_TOKEN") ?? "";
 
 /** Un appel à notre propre base, avec les droits du service. */
 async function rpc(nom: string, parametres: Record<string, unknown>): Promise<unknown> {
@@ -107,9 +118,11 @@ Deno.serve(async (requete: Request): Promise<Response> => {
   const reference = champ(corps, ["reference", "order_id", "transaction_id"]);
   if (!reference) return ok({ ignore: "reference absente" });
 
-  if (!BASE || !SERVICE) {
+  if (!BASE || !SERVICE || !JETON) {
     /* Mal configurée : surtout pas 200, sinon FeexPay considère la
-       notification délivrée et ne la rejouera jamais. */
+       notification délivrée et ne la rejouera jamais. Le jeton en fait
+       partie depuis la V2 : sans lui, cette fonction ne peut plus rien
+       vérifier, donc plus rien encaisser — en silence. */
     return new Response(JSON.stringify({ erreur: "fonction mal configurée" }), {
       status: 500, headers: { "Content-Type": "application/json" },
     });
@@ -131,10 +144,12 @@ Deno.serve(async (requete: Request): Promise<Response> => {
   if (commande["etat"] === "payee") return ok({ deja: true });
 
   /* ---------- LA VÉRIFICATION, qui seule fait foi ----------
-     On redemande à FeexPay, sur son API. Cette lecture ne réclame
-     aucune authentification : notre serveur vérifie sans détenir de
-     secret, et surtout sans croire ce qu'on vient de lui poster. */
-  /* Pas d'adresse de vérification : on refuse le 200. FeexPay rejouera
+     On redemande à FeexPay, sur son API, sans croire un mot de ce qu'on
+     vient de nous poster. En V2 cette lecture réclame le jeton : la V1
+     ne demandait rien, et cette fonction n'avait alors aucun secret à
+     détenir.
+
+     Pas d'adresse de vérification : on refuse le 200. FeexPay rejouera
      la notification, et on l'encaissera quand on saura la vérifier. */
   if (!VERIFICATION) {
     console.error("feexpay-webhook : adresse de vérification V2 inconnue", reference);
@@ -145,7 +160,9 @@ Deno.serve(async (requete: Request): Promise<Response> => {
 
   let reponse: Response;
   try {
-    reponse = await fetch(VERIFICATION + encodeURIComponent(reference));
+    reponse = await fetch(VERIFICATION + encodeURIComponent(reference), {
+      headers: { "Authorization": "Bearer " + JETON },
+    });
   } catch (_) {
     /* Injoignable n'est pas « échoué ». On laisse FeexPay réessayer, et
        l'application redemandera de son côté. */

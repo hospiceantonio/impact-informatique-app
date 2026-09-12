@@ -134,6 +134,7 @@ globalThis.fetch = async (url, options = {}) => {
      éprouve une vérification non configurée. */
   if (SECRETS.FEEXPAY_STATUT && adresse.startsWith(SECRETS.FEEXPAY_STATUT)) {
     monde.feexStatutAppels.push(decodeURIComponent(adresse.split("/").pop()));
+    monde.feexStatutEntetes.push(options.headers || {});
     const r = monde.reponseStatut();
     if (r.injoignable) throw new Error("réseau");
     return faireReponse(r);
@@ -153,6 +154,7 @@ function decor(modifications = {}) {
   monde.feexAdresses = [];
   monde.feexEntetes = [];
   monde.feexStatutAppels = [];
+  monde.feexStatutEntetes = [];
   monde.rpcAppels = [];
   monde.reponsePayer = () => ({ corps: { status: "PENDING", reference: "ref_feex_essai" } });
   monde.reponseStatut = () => ({ corps: { status: "PENDING" } });
@@ -436,6 +438,33 @@ egal(sansMontant.donnees.etat, "a_payer", "un succès SANS montant n'encaisse ri
 verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
   "la base n'est même pas sollicitée");
 
+/* V2 : LA LECTURE DU STATUT EXIGE LE JETON. La V1 ne demandait rien —
+   l'oublier ne casserait rien de visible : les commandes resteraient
+   simplement « à payer », et personne ne saurait pourquoi. */
+verifie(String(monde.feexStatutEntetes[0].Authorization || "").includes(SECRETS.FEEXPAY_TOKEN),
+  "la vérification porte le jeton, que la V2 exige");
+
+/* FAILED est un verdict, pas une attente : le sablier ne doit pas tourner
+   quatre-vingt-dix secondes sur un refus déjà prononcé. */
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ corps: {
+  status: "FAILED", amount: 12000,
+  reason: "LOW_BALANCE_OR_PAYEE_LIMIT_REACHED_OR_NOT_ALLOWED" } });
+const rate = await appeler(paiement, VERIFIER);
+verifie(rate.donnees.echoue === true, "un FAILED est annoncé au client, pas subi");
+egal(rate.donnees.etat, "a_payer", "et la commande reste à payer : il peut réessayer");
+verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
+  "rien n'est encaissé, malgré le montant qui accompagne le refus");
+verifie(journal.join(" ").includes("LOW_BALANCE"),
+  "la raison de FeexPay est notée pour la boutique");
+
+/* « IN PENDING STATE » : leur documentation le nomme à côté de PENDING. */
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ corps: { status: "IN PENDING STATE" } });
+const encours = await appeler(paiement, VERIFIER);
+verifie(encours.donnees.attente === true, "« IN PENDING STATE » est une attente, pas un échec");
+verifie(!encours.donnees.echoue, "et surtout pas un verdict");
+
 decor({ reference: "ref_feex_essai" });
 monde.reponseStatut = () => ({ corps: { status: "SUCCESSFUL", amount: 5000 } });
 await appeler(paiement, VERIFIER);
@@ -483,6 +512,12 @@ await appeler(notification, {
 });
 egal(monde.rpcAppels.filter((a) => a.nom === "marquer_payee")[0].parametres.montant,
   12000, "le montant encaissé est celui de FeexPay, pas celui du payload");
+
+/* La notification est le chemin qui confirme quand le client a fermé
+   l'application. Si elle perdait le jeton, plus rien ne se confirmerait
+   par là — et personne ne le verrait, puisqu'elle répond 200. */
+verifie(String(monde.feexStatutEntetes[0].Authorization || "").includes(SECRETS.FEEXPAY_TOKEN),
+  "et elle a vérifié EN PORTANT LE JETON, que la V2 exige");
 
 decor({ reference: "ref_feex_essai" });
 monde.reponseStatut = () => ({ corps: { status: "SUCCESSFUL" } });

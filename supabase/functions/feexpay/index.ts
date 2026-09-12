@@ -108,8 +108,14 @@ const MONTANT_MAX = 2000000;
    pouvoir constater, c'est prendre l'argent d'un client sans jamais lui
    livrer sa commande. (V1 : /getrequesttopay/integration/ — retirée.)
 
-     supabase secrets set FEEXPAY_STATUT='https://api-v2.feexpay.me/…/' */
-const VERIFICATION = Deno.env.get("FEEXPAY_STATUT") ?? "";
+     supabase secrets set FEEXPAY_STATUT='https://api-v2.feexpay.me/…/'
+
+   Le réglage sert aussi d'INTERRUPTEUR : posé à la chaîne vide, il
+   ferme le paiement en ligne sans redéploiement ni modification de
+   code — utile le jour où FeexPay retirera la V2 comme il a retiré
+   la V1. */
+const VERIFICATION = Deno.env.get("FEEXPAY_STATUT")
+  ?? "https://api-v2.feexpay.me/api/transactions/public/single/status/";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -387,7 +393,14 @@ async function verifier(commande: Record<string, unknown>) {
 
   let reponse: Response;
   try {
-    reponse = await fetch(VERIFICATION + encodeURIComponent(reference));
+    /* EN V2, CETTE LECTURE EXIGE LE JETON. En V1 elle ne demandait rien —
+       on s'en félicitait même : « notre serveur vérifie sans détenir de
+       secret ». Ce n'est plus vrai, et l'oublier rendrait toute
+       vérification impossible sans qu'aucun paiement n'en souffre
+       visiblement : les commandes resteraient simplement « à payer ». */
+    reponse = await fetch(VERIFICATION + encodeURIComponent(reference), {
+      headers: { "Authorization": "Bearer " + JETON },
+    });
   } catch (_) {
     /* Un délai dépassé n'est PAS un échec : le versement a peut-être
        abouti. On ne marque JAMAIS « échoué » sur une panne de réseau. */
@@ -405,6 +418,26 @@ async function verifier(commande: Record<string, unknown>) {
   const statut = await reponse.json().catch(() => ({})) as Record<string, unknown>;
 
   const etatFeex = champ(statut, ["status", "state"]);
+
+  /* FAILED est un verdict, pas une attente. La documentation V2 nomme les
+     trois états : PENDING, SUCCESSFUL, FAILED. Laisser tourner le sablier
+     quatre-vingt-dix secondes sur un refus déjà prononcé, c'est faire
+     croire au client que ça peut encore aboutir. La commande, elle, ne
+     bouge pas : elle reste « à payer », et il peut réessayer.
+
+     « reason » dit souvent pourquoi — LOW_BALANCE… — mais c'est leur
+     vocabulaire, pas celui d'un client : on le garde pour la boutique. */
+  if (etatFeex.toUpperCase() === "FAILED") {
+    console.error("feexpay/verifier ← FAILED", reference,
+      champ(statut, ["reason", "responsemsg"]));
+    return repondre({
+      etat: "a_payer", echoue: true,
+      erreur: "Le versement n'a pas abouti. Vérifiez votre solde, puis " +
+              "réessayez — rien n'a été débité.",
+      raison: champ(statut, ["reason", "responsemsg"]),
+    });
+  }
+
   if (!aAbouti(etatFeex)) {
     return repondre({ etat: "a_payer", attente: true, statut: etatFeex || "PENDING" });
   }
