@@ -473,6 +473,16 @@ const VuePanier = (() => {
       return;
     }
 
+    /* LES RÉGLAGES D'ABORD, L'ÉCRAN ENSUITE. Tout ce qui suit dépend de
+       l'agrégateur, et « Paiement.charger() » est lancé sans être attendu
+       au démarrage : un client qui rouvre l'application directement sur
+       son reçu — depuis un lien, ou après l'avoir fermée — arriverait ici
+       avant la réponse. On retomberait alors sur l'agrégateur par défaut,
+       donc sur le mauvais texte ET sur une attente jamais lancée : sa
+       commande resterait « en attente de confirmation » pour toujours,
+       alors que son versement, lui, est bien passé. */
+    if (!Paiement.connu()) await Paiement.charger();
+
     dessinerRecu(vue, commande);
 
     /* Quelques secondes passent entre le moment où le client valide et
