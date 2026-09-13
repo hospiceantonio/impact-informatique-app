@@ -128,6 +128,16 @@ leur tableau de bord, `Commande BZ 000005` non.
 La même prudence vaut pour `first_name` : la passerelle Celtiis parle SOAP, et
 une apostrophe dans « N'Dah » n'a rien à faire dans du XML assemblé à la main.
 
+Un détail qui compte en Afrique de l'Ouest : **ramenez les accents à leur
+lettre avant de nettoyer**, ne les supprimez pas. Un `[^a-zA-Z0-9 ]` appliqué
+seul transforme « Soètonvê » en « Sotonv » — un prénom écorné passe, un prénom
+amputé inquiète le client qui le lit sur son téléphone.
+
+```js
+texte.normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // é → e
+     .replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+```
+
 ### 3. `celtiis_bj`, et non `celtiis`
 
 Le dernier segment de l'adresse ne se déduit pas des deux autres :

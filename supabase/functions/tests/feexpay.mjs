@@ -287,6 +287,10 @@ decor({ nom: "N'Dah Soètonvê" });
 await appeler(paiement, PAYER);
 verifie(/^[A-Za-z0-9 ]+$/.test(monde.feexAppels[0].first_name),
   "le nom part sans apostrophe ni accent, comme le libellé");
+/* Ramené, pas amputé : un prénom écorné passe, un prénom tronqué inquiète
+   le client qui le lit sur son téléphone. */
+egal(monde.feexAppels[0].first_name, "NDah Soetonve",
+  "l'accent est ramené à sa lettre, la lettre n'est pas supprimée");
 
 /* Les trois opérateurs du Bénin, chacun à SON adresse. « celtiis_bj »
    n'est pas « celtiis » : le déduire des deux autres aurait envoyé les

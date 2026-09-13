@@ -198,6 +198,21 @@ function champ(objet: Record<string, unknown>, noms: string[]): string {
   return "";
 }
 
+/**
+ * Ce qui peut traverser leurs passerelles : lettres, chiffres, espaces.
+ *
+ * Les accents sont d'abord RAMENÉS à leur lettre plutôt que supprimés.
+ * « Éric » deviendrait sinon « ric », et « Soètonvê » se réduirait à
+ * « Sotonv » — un prénom écorné passe, un prénom amputé inquiète le client
+ * qui le lit sur son téléphone.
+ */
+function sansFioriture(texte: string): string {
+  return texte
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9 ]/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
 /** Le versement a-t-il abouti ? FeexPay dit SUCCESSFUL, parfois SUCCESS. */
 function aAbouti(etat: string): boolean {
   const e = etat.toUpperCase();
@@ -311,8 +326,7 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
      Le tiret est RETIRÉ, pas remplacé par une espace, comme chez eux :
      « Commande BZ000005 » se retrouve d'un bloc dans leur tableau de
      bord, « Commande BZ 000005 » non. */
-  const libelle = ("Commande " + String(commande["numero"] ?? ""))
-    .replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const libelle = sansFioriture("Commande " + String(commande["numero"] ?? ""));
 
   /* Les six champs de la V2, et RIEN d'autre. « token », « currency »,
      « customId » et « reseau » ont disparu du corps : le jeton vit
@@ -338,8 +352,7 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
        apostrophe dans « N'Dah » n'a rien à faire dans du XML assemblé à
        la main. Un prénom écorné ne coûte rien : il ne sert qu'à
        l'affichage chez eux. */
-    first_name: String(commande["nom"] ?? "")
-      .replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim() || "Client",
+    first_name: sansFioriture(String(commande["nom"] ?? "")) || "Client",
   };
 
   /* Ce qu'on envoie. Rien de secret n'y figure depuis la V2 — le jeton
