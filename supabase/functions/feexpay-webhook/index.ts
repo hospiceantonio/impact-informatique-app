@@ -170,7 +170,22 @@ Deno.serve(async (requete: Request): Promise<Response> => {
       status: 503, headers: { "Content-Type": "application/json" },
     });
   }
-  if (!reponse.ok) return ok({ ignore: "statut illisible" });
+  /* RÉPONDRE 200 ICI BRÛLE LA NOTIFICATION. FeexPay la considère alors
+     délivrée et ne la rejouera jamais — or un 401 ou un 403 ne dit rien
+     du versement : il dit que NOTRE jeton ne va pas. On perdrait un
+     encaissement réel sur une faute de configuration, en silence, et la
+     commande resterait « à payer » pour toujours.
+
+     On n'acquitte donc que ce qui est sans retour : un 404, c'est une
+     référence que FeexPay ne connaît pas, il n'y a rien à réessayer.
+     Tout le reste demande à revenir. */
+  if (!reponse.ok) {
+    console.error("feexpay-webhook ← statut", reponse.status, reference);
+    if (reponse.status === 404) return ok({ ignore: "référence inconnue de FeexPay" });
+    return new Response(JSON.stringify({ erreur: "statut illisible", statut: reponse.status }), {
+      status: 503, headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const statut = await reponse.json().catch(() => ({})) as Record<string, unknown>;
   const etat = champ(statut, ["status", "state"]).toUpperCase();

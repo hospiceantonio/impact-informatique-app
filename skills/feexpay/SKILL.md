@@ -175,6 +175,14 @@ Elle sert quand même : un client qui ferme l'application, ou qui met trop
 longtemps à taper son code, laisserait sa commande « à payer » pour toujours
 puisque plus personne ne redemande. La notification bouche ce trou.
 
+Corollaire moins évident : **n'acquittez pas ce que vous n'avez pas pu
+vérifier.** Répondre 200 quand la lecture du statut échoue — un 401 sur un
+jeton mal posé, par exemple — fait considérer la notification comme délivrée,
+et elle ne reviendra jamais. Un encaissement réel se perd alors sur une faute
+de configuration, sans le moindre message. N'acquittez que ce qui est sans
+retour (un 404 : FeexPay ne connaît pas cette référence) ; pour tout le reste,
+répondez 503 et laissez-la revenir.
+
 ### 6. Il n'y a pas de bac à sable utilisable
 
 Le mode `SANDBOX` de leur SDK **n'appelle pas leur API** : il renvoie un succès

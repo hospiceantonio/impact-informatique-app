@@ -612,6 +612,24 @@ await appeler(notification, { reference: "ref_feex_essai", status: "SUCCESSFUL" 
 verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
   "un succès sans montant n'encaisse rien ici non plus");
 
+/* Un 401 sur la lecture du statut dit que NOTRE jeton ne va pas, pas que
+   le versement a échoué. L'acquitter, c'est perdre un encaissement réel
+   sur une faute de configuration — en silence, et sans retour possible. */
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ statut: 401, corps: { message: "Unauthorized" } });
+const jetonFaux = await appeler(notification, { reference: "ref_feex_essai" });
+egal(jetonFaux.statut, 503,
+  "un 401 à la vérification n'est PAS acquitté : FeexPay rejouera");
+verifie(!monde.rpcAppels.some((a) => a.nom === "marquer_payee"),
+  "et rien n'est encaissé entre-temps");
+
+/* Un 404, en revanche, est sans retour : FeexPay ne connaît pas cette
+   référence, la rejouer ne changerait rien. */
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ statut: 404, corps: { message: "Not found" } });
+egal((await appeler(notification, { reference: "ref_feex_essai" })).statut, 200,
+  "un 404 est acquitté : il n'y a rien à réessayer");
+
 decor();
 const orpheline = await appeler(notification, { reference: "ref_inventee" });
 egal(orpheline.statut, 200, "une référence qu'on ne connaît pas n'est pas une erreur");
