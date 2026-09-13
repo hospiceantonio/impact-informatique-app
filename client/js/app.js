@@ -21,6 +21,12 @@ const App = { evenementInstallation: null };
     { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v) },
     { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]) },
     { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v) },
+    /* Le compte traverse les boutiques, comme le panier : aucun onglet
+       ne s'allume, on y entre par la barre du haut. */
+    { motif: /^\/connexion$/, vue: (v) => VueCompte.connexion(v) },
+    { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v) },
+    { motif: /^\/mot-de-passe$/, vue: (v) => VueCompte.motDePasse(v) },
+    { motif: /^\/compte$/, vue: (v) => VueCompte.monCompte(v) },
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
   ];
 

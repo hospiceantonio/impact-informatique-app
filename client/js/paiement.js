@@ -73,9 +73,20 @@ const Paiement = (() => {
     if (!c) throw new Error("L'application n'est pas reliée à la base.");
     let reponse;
     try {
+      /* LA SESSION PART AVEC L'APPEL, quand il y en a une. C'est elle qui
+         permet à « creer_commande » de rattacher la commande à son compte :
+         sans ce jeton, la base ne voit personne et la commande naît
+         orpheline — le client ne la retrouverait pas sur un autre
+         téléphone. Un visiteur sans compte commande toujours : la base
+         accepte les deux. */
+      const t = typeof Compte !== "undefined" ? await Compte.jeton() : "";
       reponse = await fetch(c.url + "/rest/v1/rpc/" + nom, {
         method: "POST",
-        headers: { "apikey": c.cle, "Content-Type": "application/json" },
+        headers: {
+          "apikey": c.cle,
+          "Content-Type": "application/json",
+          ...(t ? { "Authorization": "Bearer " + t } : {}),
+        },
         body: JSON.stringify(parametres || {}),
       });
     } catch (_) {

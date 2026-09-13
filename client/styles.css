@@ -226,6 +226,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 
 .aide{font-size:12.5px;color:var(--encre-tres-douce);line-height:1.5}
+/* « a{color:inherit} » rend les liens invisibles dans un texte d'aide :
+   « Se connecter » y ressemblait à du gris ordinaire, et personne ne
+   pensait à appuyer dessus. Un lien doit se voir. */
+.aide a{color:var(--bleu);font-weight:600;text-decoration:underline;
+  text-underline-offset:2px}
 
 .note-hors-ligne{
   display:flex;align-items:center;gap:8px;

@@ -17,12 +17,18 @@ const VuePanier = (() => {
   /* ---------- Les coordonnées, retenues d'une fois sur l'autre ---------- */
 
   function coordonnees() {
+    /* Le compte passe devant le téléphone. C'est tout l'intérêt d'en avoir
+       un : on ne retape pas ses coordonnées sur un appareil neuf. Ce qui
+       manque au compte est complété par ce que ce téléphone-ci avait
+       gardé. */
+    const moi = (typeof Compte !== "undefined" && Compte.moi()) || null;
     try {
       const c = JSON.parse(localStorage.getItem(CLE_COORDONNEES) || "{}");
       return {
-        nom: c.nom || "", tel: c.tel || "",
-        indicatif: c.indicatif || Catalogue.boutique().indicatif || "229",
-        adresse: c.adresse || "",
+        nom: (moi && moi.nom) || c.nom || "",
+        tel: (moi && moi.tel) || c.tel || "",
+        indicatif: (moi && moi.indicatif) || c.indicatif || Catalogue.boutique().indicatif || "229",
+        adresse: (moi && moi.adresse) || c.adresse || "",
       };
     } catch (_) {
       return { nom: "", tel: "", indicatif: "229", adresse: "" };
@@ -196,6 +202,11 @@ const VuePanier = (() => {
       return;
     }
     if (!Paiement.connu()) await Paiement.charger();
+    /* La fiche du compte avant de dessiner : sinon les champs s'affichent
+       vides puis se remplissent sous les doigts du client. */
+    if (typeof Compte !== "undefined" && Compte.connecte()) {
+      try { await Compte.charger(); } catch (_) { /* on commandera sans */ }
+    }
 
     const c = coordonnees();
     const devise = Panier.devise();
@@ -208,6 +219,15 @@ const VuePanier = (() => {
     UI.entete({ titre: "Votre commande", retour: true });
 
     vue.innerHTML =
+      (typeof Compte !== "undefined" && !Compte.connecte()
+        ? '<div class="carte">' +
+            '<p class="aide" style="margin:0 0 10px">Vous avez un compte BIZZOO ? ' +
+              "Connectez-vous pour retrouver vos coordonnées et suivre cette " +
+              "commande depuis n'importe quel téléphone.</p>" +
+            '<a class="btn btn-clair" href="#/connexion" id="co-connexion">' +
+              UI.icone("compte") + "Se connecter</a>" +
+          "</div>"
+        : "") +
       '<div class="carte">' +
         '<div class="carte-titre">Où vous joindre</div>' +
         '<div class="champ"><label for="co-nom">Votre nom</label>' +
@@ -257,6 +277,11 @@ const VuePanier = (() => {
               "le règlement et la livraison.</p>") +
       "</div>" +
       '<div id="co-liens"></div>';
+
+    /* Un client qu'on envoie se connecter depuis son panier doit revenir
+       à son panier, pas à l'accueil : il était en train d'acheter. */
+    const lien = UI.$("#co-connexion");
+    if (lien) lien.addEventListener("click", () => VueCompte.revenirVers("#/commande"));
 
     const lire = () => ({
       nom: UI.$("#co-nom").value.trim(),

@@ -44,6 +44,18 @@ const UI = (() => {
      écrans du panier lui-même — y renvoyer depuis là ne mènerait nulle
      part. */
 
+  /* Le compte vit à côté du panier, dans la barre du haut : une icône qui
+     mène à « Mon compte » quand on est connecté, à la connexion sinon. Pas
+     d'onglet en bas — la barre est déjà pleine, et le compte n'est pas un
+     rayon du magasin. */
+  function boutonCompte() {
+    if (/^#\/(connexion|inscription|mot-de-passe|compte)/.test(location.hash)) return "";
+    const dedans = typeof Compte !== "undefined" && Compte.connecte();
+    return '<a class="btn-ic" href="#/' + (dedans ? "compte" : "connexion") +
+      '" aria-label="' + (dedans ? "Mon compte" : "Se connecter") + '">' +
+      icone("compte") + "</a>";
+  }
+
   function boutonPanier() {
     if (/^#\/(panier|commande|mes-commandes)/.test(location.hash)) return "";
     const combien = Panier.nombre();
@@ -75,7 +87,7 @@ const UI = (() => {
    */
   function entete({ titre, sous, retour, accueil, actions, vignette }) {
     const zone = $("#topbar");
-    actions = (actions || "") + boutonPanier();
+    actions = (actions || "") + boutonCompte() + boutonPanier();
     zone.innerHTML =
       '<div class="topbar-ligne">' +
         (retour
