@@ -657,6 +657,8 @@ impact-informatique-app/
 │   ├── commandes-paiement.sql       # Les commandes seules, pour une base déjà en place
 │   ├── code-produit.sql             # Le code d'un produit, pour une base déjà en place
 │   ├── marge-bizzoo.sql             # La marge de l'enseigne et les statistiques de ventes
+│   ├── comptes-clients.sql          # L'identité du client : compte, numéro vérifié, ses commandes
+│   ├── comptes-revendeurs.sql       # Client ou revendeur : qui achète au prix BIZZOO
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
@@ -669,7 +671,8 @@ impact-informatique-app/
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
 │   └── js/
-│       ├── catalogue.js      # Lecture de la base + copie hors connexion
+│       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
+│       ├── compte.js         # Le compte du client : session, fiche, demande de revendeur
 │       ├── panier.js         # Le panier : des identifiants, jamais des prix
 │       ├── paiement.js       # Commander, ouvrir KkiaPay, attendre la base
 │       ├── ui.js             # Logo, cartes produit, prix, badges
@@ -681,7 +684,8 @@ impact-informatique-app/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
-│                             #   commandes, statistiques, validations, réglages
+│                             #   commandes, statistiques, validations, revendeurs,
+│                             #   réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

@@ -509,11 +509,18 @@ const UI = (() => {
        recherche peut venir d'une boutique qui compte autrement. */
     const devise = Catalogue.deviseDe(p);
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    /* Un revendeur voit ce qu'il gagne : son prix, et celui de la
+       vitrine barré à côté. Ce n'est pas une promotion — c'est son
+       tarif, et il ne s'arrêtera pas dimanche soir. */
+    const vitrine = p.prixRevendeur && p.prixPublic > p.prix ? p.prixPublic : null;
     return (
       '<span class="prix' + (o.grand ? " prix-grand" : "") + '">' +
         '<span class="prix-actuel">' + e(Utils.fmtMontant(p.prix, devise)) + "</span>" +
         (remise !== null
           ? ' <s class="prix-ancien">' + e(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>"
+          : "") +
+        (vitrine !== null
+          ? ' <s class="prix-ancien">' + e(Utils.fmtMontant(vitrine, devise)) + "</s>"
           : "") +
       "</span>"
     );
@@ -522,6 +529,10 @@ const UI = (() => {
   function badgesProduit(p) {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
+    if (p.prixRevendeur) {
+      html += '<span class="badge badge-revendeur">' + icone("magasin", "ic-sm") +
+        "Prix revendeur</span>";
+    }
     if (Catalogue.enVenteFlash(p)) {
       html += '<span class="badge badge-flash">' + icone("energie", "ic-sm") + "Flash</span>";
     }

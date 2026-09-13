@@ -172,7 +172,25 @@ with controles(rang, element, ok) as (values
          and tr.tgname = 'clients_verrous')),
   (30, 'Retrouver ses commandes d''avant (rattacher_mes_commandes)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'rattacher_mes_commandes'))
+       where n.nspname = 'public' and p.proname = 'rattacher_mes_commandes')),
+
+  -- ---------- Les comptes revendeurs ----------
+  (31, 'Client ou revendeur (clients.revendeur_etat)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'clients'
+         and column_name = 'revendeur_etat')),
+  (32, 'La commande porte son régime de prix (commandes.revendeur)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes'
+         and column_name = 'revendeur')),
+  (33, 'Les prix d''un revendeur validé (mes_prix)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'mes_prix')),
+  -- Sans elle, le statut s'écrirait depuis l'application : chacun
+  -- s'offrirait le catalogue au prix d'achat de la boutique.
+  (34, 'Seul BIZZOO valide un revendeur (valider_revendeur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'valider_revendeur'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

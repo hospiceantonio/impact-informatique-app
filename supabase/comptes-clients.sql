@@ -50,6 +50,19 @@ alter table public.clients add column if not exists tel_verifie boolean not null
 alter table public.clients add column if not exists adresse text not null default '';
 alter table public.clients add column if not exists indicatif text not null default '229';
 
+-- Client ordinaire, ou revendeur : ces colonnes appartiennent à
+-- « comptes-revendeurs.sql ». Elles sont répétées ici parce que les
+-- règles d'écriture posées plus bas les remplissent — un fichier qui
+-- pose une fonction pose aussi les colonnes qu'elle touche.
+alter table public.clients add column if not exists type_compte text not null default 'client';
+alter table public.clients add column if not exists revendeur_etat text not null default 'aucune';
+alter table public.clients add column if not exists revendeur_message text not null default '';
+alter table public.clients add column if not exists revendeur_demande_le timestamptz;
+alter table public.clients add column if not exists revendeur_decide_par text not null default '';
+alter table public.clients add column if not exists revendeur_decide_le timestamptz;
+alter table public.clients add column if not exists revendeur_motif text not null default '';
+alter table public.commandes add column if not exists revendeur boolean not null default false;
+
 -- Un numéro vérifié ne désigne qu'un compte. Deux comptes qui
 -- revendiquent le même numéro se disputeraient les mêmes commandes.
 create unique index if not exists clients_tel_verifie
@@ -118,7 +131,40 @@ grant execute on function public.est_client() to authenticated;
 -- le numéro : on ne peut pas faire vérifier un numéro puis en changer.
 create or replace function public.client_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare
+  decision boolean := coalesce(current_setting('bizzoo.revendeur', true), '') = 'oui';
 begin
+  if not decision then
+    if new.revendeur_etat       is distinct from old.revendeur_etat
+    or new.revendeur_decide_par is distinct from old.revendeur_decide_par
+    or new.revendeur_decide_le  is distinct from old.revendeur_decide_le
+    or new.revendeur_motif      is distinct from old.revendeur_motif then
+      raise exception 'Un compte revendeur se valide chez BIZZOO, il ne se déclare pas';
+    end if;
+    if new.type_compte is distinct from old.type_compte then
+      if new.type_compte = 'revendeur' then
+        -- Déjà validé : on ne redemande pas ce qu'on a.
+        if old.revendeur_etat <> 'validee' then
+          new.revendeur_etat       := 'en_attente';
+          new.revendeur_demande_le := now();
+          new.revendeur_decide_par := '';
+          new.revendeur_decide_le  := null;
+          new.revendeur_motif      := '';
+        end if;
+      else
+        -- Redevenir client ordinaire rend le statut : le reprendre
+        -- demandera une nouvelle décision.
+        new.revendeur_etat       := 'aucune';
+        new.revendeur_demande_le := null;
+        new.revendeur_decide_par := '';
+        new.revendeur_decide_le  := null;
+        new.revendeur_motif      := '';
+      end if;
+    end if;
+  end if;
+
+  new.revendeur_message := left(coalesce(new.revendeur_message, ''), 300);
+
   if coalesce(current_setting('bizzoo.verification', true), '') = 'oui' then
     return new;   -- la vérification par SMS, et elle seule
   end if;
@@ -144,6 +190,18 @@ begin
     new.tel_verifie := false;
   end if;
   new.tel := left(regexp_replace(coalesce(new.tel, ''), '\D', '', 'g'), 20);
+  if coalesce(new.type_compte, '') <> 'revendeur' then
+    new.type_compte          := 'client';
+    new.revendeur_etat       := 'aucune';
+    new.revendeur_demande_le := null;
+  else
+    new.revendeur_etat       := 'en_attente';
+    new.revendeur_demande_le := now();
+  end if;
+  new.revendeur_message    := left(coalesce(new.revendeur_message, ''), 300);
+  new.revendeur_decide_par := '';
+  new.revendeur_decide_le  := null;
+  new.revendeur_motif      := '';
   return new;
 end $$;
 
@@ -230,6 +288,9 @@ begin
   -- À qui appartient cette commande. La réattribuer, c'est offrir à
   -- quelqu'un l'historique, les avis et le SAV d'un autre.
   or new.client_id is distinct from old.client_id
+  -- Et sous quel régime de prix elle est partie : la basculer après
+  -- coup, c'est réécrire ce que la boutique a touché.
+  or new.revendeur is distinct from old.revendeur
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
   -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui

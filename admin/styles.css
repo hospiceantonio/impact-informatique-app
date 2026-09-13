@@ -402,6 +402,9 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    sans alarmer comme le rouge de la rupture. */
 .badge-approvisionnement{background:var(--ambre-clair);color:var(--orange-fonce)}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
+/* Une commande partie au prix revendeur : BIZZOO y laisse sa marge,
+   la boutique touche autant. Le dire évite de croire à une erreur. */
+.badge-revendeur{background:var(--vert-clair);color:var(--vert)}
 
 .prix{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .prix-actuel{font-size:14.5px;font-weight:800;color:var(--orange-fonce)}
@@ -1117,4 +1120,18 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   /* Les compteurs gardent leurs trois colonnes : à six, ils se
      tasseraient à gauche en laissant la moitié de la carte vide. */
   .photos-zone{grid-template-columns:repeat(6,1fr)}
+}
+
+/* ---------- Comptes revendeurs ----------
+   Trois choses pour trancher : qui demande, comment le joindre, et ce
+   qu'il dit de son commerce. Le reste est du décor. */
+.rv-contact{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 10px}
+.rv-contact a{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:12.5px;font-weight:600;color:var(--bleu);
+}
+.rv-message{
+  margin:0 0 10px;padding:10px 12px;border-radius:var(--r-sm);
+  background:var(--bleu-50);border:1px solid var(--bleu-100);
+  font-size:13px;line-height:1.5;white-space:pre-wrap;
 }

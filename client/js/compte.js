@@ -140,13 +140,21 @@ const Compte = (() => {
 
   /* ---------- Entrer, sortir ---------- */
 
-  async function inscrire(email, motDePasse, nom) {
+  async function inscrire(email, motDePasse, nom, type, message) {
     /* « compte: client » part dans les métadonnées du compte. C'est ce que
-       la base lit pour NE PAS fabriquer une fiche d'équipe en attente. */
+       la base lit pour NE PAS fabriquer une fiche d'équipe en attente.
+       « type » et « revendeur » les rejoignent : ils portent le choix du
+       formulaire jusqu'à la première connexion, confirmation par e-mail
+       comprise. Une demande, rien de plus — c'est BIZZOO qui valide. */
     const d = await appelAuth("signup", {
       email: String(email || "").trim(),
       password: motDePasse,
-      data: { compte: "client", nom: String(nom || "").trim() },
+      data: {
+        compte: "client",
+        nom: String(nom || "").trim(),
+        type: type === "revendeur" ? "revendeur" : "client",
+        revendeur: type === "revendeur" ? String(message || "").trim().slice(0, 300) : "",
+      },
     });
 
     /* Confirmation par e-mail activée : pas de session, rien à écrire
@@ -155,7 +163,7 @@ const Compte = (() => {
     if (!depuisReponse(d, email)) return { confirmation: true };
 
     await assurerFiche(nom);
-    return { confirmation: false };
+    return { confirmation: false, revendeur: estRevendeurEnAttente() };
   }
 
   async function connecter(email, motDePasse) {
@@ -164,12 +172,16 @@ const Compte = (() => {
     });
     depuisReponse(d, email);
     await assurerFiche("");
+    await chargerPrix();
     return courriel();
   }
 
   async function deconnecter() {
     try { await appelAuth("logout", {}, true); } catch (_) { /* déjà expirée */ }
     garder(null);
+    /* Le catalogue redevient celui de tout le monde, séance tenante :
+       les prix revendeur ne restent pas à l'écran une fois sorti. */
+    if (typeof Catalogue !== "undefined") Catalogue.definirPrixCompte(null);
   }
 
   /** Renvoyer le courriel de réinitialisation. */
@@ -222,9 +234,17 @@ const Compte = (() => {
 
     const id = identifiant();
     if (!id) return null;
+    /* Le choix fait au formulaire, retrouvé dans les métadonnées : c'est
+       le seul endroit où il ait survécu à la confirmation par e-mail. */
+    const demande = demandeDeLInscription();
     try {
       const cree = await rest("POST", "clients",
-        { id, nom: String(nom || "").trim() },
+        {
+          id,
+          nom: String(nom || "").trim() || demande.nom,
+          type_compte: demande.type,
+          revendeur_message: demande.message,
+        },
         { "Prefer": "return=representation,resolution=ignore-duplicates" });
       fiche = (cree && cree[0]) || null;
     } catch (_) {
@@ -237,25 +257,60 @@ const Compte = (() => {
     return fiche;
   }
 
-  /** L'identifiant du compte, lu dans le jeton lui-même (champ « sub »). */
-  function identifiant() {
+  /** Le contenu du jeton lui-même : identifiant, et métadonnées du compte. */
+  function contenuDuJeton() {
     if (!session || !session.access_token) return null;
     try {
       let charge = session.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
       charge += "===".slice((charge.length + 3) % 4);
       const brut = atob(charge);
       const octets = Uint8Array.from(brut, (c) => c.charCodeAt(0));
-      return JSON.parse(new TextDecoder().decode(octets)).sub || null;
+      return JSON.parse(new TextDecoder().decode(octets));
     } catch (_) {
       return null;
     }
   }
 
+  /** L'identifiant du compte, lu dans le jeton lui-même (champ « sub »). */
+  function identifiant() {
+    const c = contenuDuJeton();
+    return (c && c.sub) || null;
+  }
+
+  /**
+   * Ce que le compte a demandé à l'inscription, retrouvé dans ses
+   * métadonnées.
+   *
+   * Pourquoi passer par là plutôt que d'écrire la fiche tout de suite ?
+   * Parce qu'avec la confirmation par e-mail, l'inscription ne rend
+   * aucune session : la fiche ne se pose qu'à la première connexion,
+   * des heures plus tard. Le choix « revendeur » doit survivre à ce
+   * trajet, et les métadonnées du compte le portent.
+   *
+   * Ces métadonnées viennent du téléphone, donc ne valent RIEN de plus
+   * qu'une demande — la base ne leur accorde que « en_attente ».
+   */
+  function demandeDeLInscription() {
+    const c = contenuDuJeton() || {};
+    const m = c.user_metadata || c.raw_user_meta_data || {};
+    return {
+      type: m.type === "revendeur" ? "revendeur" : "client",
+      nom: String(m.nom || "").trim(),
+      message: String(m.revendeur || "").trim(),
+    };
+  }
+
   const moi = () => fiche;
 
-  async function charger() {
+  /**
+   * La fiche du compte. Avec « relire », on repasse par la base :
+   * c'est ainsi qu'un revendeur apprend que BIZZOO l'a validé, sans
+   * avoir à fermer et rouvrir l'application.
+   */
+  async function charger(relire) {
     if (!session) return null;
-    if (fiche) return fiche;
+    if (fiche && !relire) return fiche;
+    if (relire) fiche = null;
     return await assurerFiche("");
   }
 
@@ -286,9 +341,79 @@ const Compte = (() => {
     return fiche;
   }
 
+  /* ---------- Client ordinaire, ou revendeur ----------
+
+     Un revendeur achète pour revendre : validé par BIZZOO, il paie le
+     PRIX BIZZOO — celui que la boutique a annoncé à la création du
+     produit.
+
+     Ce module ne fait que DEMANDER. « revendeur_etat » n'est jamais
+     envoyé d'ici, et la base le refuserait : il n'y a pas deux façons
+     d'obtenir le statut, il y a la décision de BIZZOO. */
+
+  const ETATS = { aucune: "", en_attente: "en_attente", validee: "validee", refusee: "refusee" };
+
+  const etatRevendeur = () =>
+    (fiche && ETATS[fiche.revendeur_etat] !== undefined ? fiche.revendeur_etat : "aucune");
+  const estRevendeur = () => etatRevendeur() === "validee";
+  const estRevendeurEnAttente = () => etatRevendeur() === "en_attente";
+  const motifRevendeur = () => (fiche && fiche.revendeur_motif) || "";
+
+  /** Demander à devenir revendeur. Renvoie la fiche mise à jour. */
+  async function demanderRevendeur(message) {
+    const id = identifiant();
+    if (!id) throw new Error("Vous n'êtes pas connecté.");
+    const maj = await rest("PATCH", "clients?id=eq." + encodeURIComponent(id),
+      {
+        type_compte: "revendeur",
+        revendeur_message: String(message || "").trim().slice(0, 300),
+        maj_le: new Date().toISOString(),
+      },
+      { "Prefer": "return=representation" });
+    fiche = (maj && maj[0]) || fiche;
+    await chargerPrix();
+    return fiche;
+  }
+
+  /** Y renoncer, et redevenir un client ordinaire. */
+  async function annulerRevendeur() {
+    const id = identifiant();
+    if (!id) throw new Error("Vous n'êtes pas connecté.");
+    const maj = await rest("PATCH", "clients?id=eq." + encodeURIComponent(id),
+      { type_compte: "client", maj_le: new Date().toISOString() },
+      { "Prefer": "return=representation" });
+    fiche = (maj && maj[0]) || fiche;
+    await chargerPrix();
+    return fiche;
+  }
+
+  /**
+   * Aller chercher les prix de ce compte-ci et les poser sur le
+   * catalogue.
+   *
+   * La base répond zéro ligne à qui n'est pas revendeur validé : c'est
+   * le même appel pour tout le monde, et l'application n'a donc pas à
+   * savoir d'avance qui elle sert. Hors connexion, on ne touche à
+   * rien — le catalogue local reste consultable.
+   */
+  async function chargerPrix() {
+    if (typeof Catalogue === "undefined") return false;
+    if (!session) return Catalogue.definirPrixCompte(null);
+    try {
+      const prix = await rest("POST", "rpc/mes_prix", {});
+      return Catalogue.definirPrixCompte(Array.isArray(prix) ? prix : null);
+    } catch (_) {
+      /* Base injoignable ou fonction pas encore installée : on garde ce
+         qui est affiché. Mieux vaut un prix public qu'un écran vide. */
+      return false;
+    }
+  }
+
   return {
     connecte, courriel, identifiant, moi, charger,
     inscrire, connecter, deconnecter, motDePasseOublie,
     enregistrer, assurerSession, jeton, surChangement,
+    etatRevendeur, estRevendeur, estRevendeurEnAttente, motifRevendeur,
+    demanderRevendeur, annulerRevendeur, chargerPrix,
   };
 })();

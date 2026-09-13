@@ -428,6 +428,9 @@ video.slide-img{background:#000}
 .badge-avant{background:var(--ambre-clair);color:var(--orange-fonce)}
 .badge-promo{background:var(--orange);color:var(--bleu-900)}
 .badge-flash{background:var(--ambre);color:var(--bleu-900)}
+/* Le prix d'un revendeur n'est pas une promotion : il ne crie pas comme
+   une affiche de soldes, il dit simplement à qui ce prix appartient. */
+.badge-revendeur{background:var(--vert-clair);color:var(--vert)}
 .flash-echeance{
   display:flex;align-items:center;gap:7px;
   margin:10px 0 2px;padding:9px 12px;border-radius:var(--r-sm);
@@ -1022,4 +1025,40 @@ a.pub-carte:active{transform:scale(.98)}
      trois cartes deviennent des affiches. */
   .p-grille{grid-template-columns:repeat(4,1fr)}
   .cat-grille{grid-template-columns:repeat(6,1fr)}
+}
+
+/* ---------- Compte : client ordinaire ou revendeur ----------
+   Le choix se fait à l'inscription, sur deux cartes que le pouce
+   atteint sans viser. Une liste déroulante aurait tenu moins de place,
+   mais personne ne l'aurait ouverte — et un revendeur qui s'inscrit
+   comme client paie le prix de la vitrine sans le savoir. */
+.cp-choix{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.cp-carte{
+  display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  text-align:left;padding:12px;border-radius:var(--r-sm);
+  background:var(--bleu-50);border:2px solid transparent;
+  color:var(--encre);cursor:pointer;
+}
+.cp-carte .ic{color:var(--bleu);width:22px;height:22px}
+.cp-carte strong{font-size:14px;font-weight:800}
+.cp-carte small{font-size:11.5px;color:var(--encre-tres-douce);line-height:1.4}
+.cp-carte.cp-choisi{
+  border-color:var(--bleu);background:var(--bleu-100);
+  box-shadow:0 0 0 3px var(--bleu-50);
+}
+
+.cp-revendeur-ok{border:1px solid var(--vert);background:var(--vert-clair)}
+.cp-revendeur-ok .carte-titre .ic{color:var(--vert)}
+/* Le motif d'un refus se lit : sans lui, le client redemande à
+   l'identique et se fait refuser une seconde fois. */
+.cp-rv-motif{
+  margin:0 0 10px;padding:10px 12px;border-radius:var(--r-sm);
+  background:#FFF6E5;border:1px solid #F5DEB0;color:#8A5B00;
+  font-size:12.5px;font-weight:600;line-height:1.5;
+}
+.fiche-revendeur{
+  display:inline-flex;align-items:center;gap:5px;margin-top:8px;
+  padding:5px 10px;border-radius:999px;
+  background:var(--vert-clair);color:var(--vert);
+  font-size:12px;font-weight:800;
 }

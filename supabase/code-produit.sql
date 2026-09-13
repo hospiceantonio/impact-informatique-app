@@ -92,9 +92,10 @@ alter table public.commande_lignes
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p    public.produits%rowtype;
-  achat int;
-  taux  numeric;
+  p         public.produits%rowtype;
+  achat     int;
+  taux      numeric;
+  revendeur boolean;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
@@ -104,12 +105,19 @@ begin
     from public.produits_prive where produit_id = p.id;
   select coalesce(taux_marge, 0) into taux
     from public.boutiques where id = p.boutique_id;
+  -- Le régime de prix est celui de la commande, posé par la base à son
+  -- ouverture. Le panier n'a pas voix au chapitre.
+  select coalesce(c.revendeur, false) into revendeur
+    from public.commandes c where c.id = new.commande_id;
 
   new.boutique_id := p.boutique_id;
   new.nom         := p.nom;
   new.code        := coalesce(p.code, '');
   new.reference   := coalesce(p.reference, '');
-  new.prix        := coalesce(p.prix, 0)::int;
+  new.prix        := case when coalesce(revendeur, false)
+                          then public.prix_revendeur(coalesce(p.prix, 0)::int,
+                                                     coalesce(achat, 0))
+                          else coalesce(p.prix, 0)::int end;
   -- Ce que la boutique touche, et la marge du jour : figés avec le
   -- reste. Les comptes d'hier ne se réécrivent pas.
   new.prix_bizzoo := coalesce(achat, 0);

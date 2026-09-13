@@ -283,6 +283,14 @@ const VueReglages = (() => {
             "</div>" +
             '<a class="btn btn-clair" href="#/boutiques" style="margin-top:12px">' + UI.icone("magasin") +
               "Gérer les boutiques</a>" +
+            /* Les portes permanentes. L'accueil ne parle de ces deux
+               écrans que lorsqu'une demande attend : sans ces boutons,
+               retirer un statut accordé par erreur serait impossible, et
+               les décisions passées irrelisables. */
+            '<a class="btn btn-clair" href="#/revendeurs" style="margin-top:10px">' +
+              UI.icone("personne") + "Comptes revendeurs</a>" +
+            '<a class="btn btn-clair" href="#/validations" style="margin-top:10px">' +
+              UI.icone("check") + "Demandes des boutiques</a>" +
           "</div>"
         : "") +
 

@@ -15,7 +15,17 @@ const Catalogue = (() => {
   const CLE_CONFIG = "impact-config";   // configuration saisie dans l'app (page Infos)
   const NB_EN_AVANT = 5;               // produits qui défilent après les images
 
-  let donnees = null;       // catalogue courant
+  /* Deux catalogues, et il faut les tenir séparés.
+       « brutes »  — ce qui arrive de la base : les prix de la vitrine.
+                     C'est LUI qu'on garde sur le téléphone.
+       « donnees » — le même, aux prix du compte connecté. Un revendeur
+                     validé y voit le prix BIZZOO.
+     Sans cette séparation, la copie locale garderait les prix
+     revendeur : se déconnecter ne les rendrait pas, et le téléphone
+     montrerait ces prix à qui l'emprunte. */
+  let brutes = null;        // le catalogue tel qu'il arrive
+  let donnees = null;       // le même, aux prix du compte connecté
+  let prixCompte = null;    // id de produit → prix, pour ce compte-ci
   let source = "aucune";    // "aucune" | "cache" | "reseau" | "demo"
 
   /* ---------- Configuration Supabase ---------- */
@@ -68,6 +78,61 @@ const Catalogue = (() => {
       localStorage.setItem(CLE_CACHE, JSON.stringify(d));
     } catch (_) { /* stockage plein : on garde juste la version en mémoire */ }
   }
+
+  /* ---------- Les prix du compte connecté ----------
+
+     Un revendeur validé par BIZZOO achète au prix BIZZOO. La base lui
+     sert ses prix par « mes_prix() » — et c'est la MÊME règle qui
+     facture la commande, sinon il verrait un montant et en paierait
+     un autre.
+
+     Ce qui n'a pas de prix revendeur garde le prix de la vitrine : un
+     produit dont la boutique n'a pas renseigné son prix BIZZOO ne
+     devient gratuit pour personne. */
+
+  function appliquerPrix() {
+    if (!brutes) { donnees = null; return; }
+    if (!prixCompte || !prixCompte.size) { donnees = brutes; return; }
+    donnees = Object.assign({}, brutes, {
+      produits: (brutes.produits || []).map((p) => {
+        const prix = prixCompte.get(p.id);
+        if (prix === undefined || prix === p.prix) return p;
+        /* Un prix revendeur n'est pas une promotion : pas de prix barré,
+           sinon tout le catalogue se retrouverait en « bonnes affaires ».
+           On garde le prix public à part, pour pouvoir le montrer. */
+        return Object.assign({}, p, {
+          prix, ancienPrix: null, prixPublic: p.prix, prixRevendeur: true,
+        });
+      }),
+    });
+  }
+
+  /**
+   * Poser (ou retirer) les prix du compte connecté. Appelée à la
+   * connexion, à la déconnexion, et quand la validation d'un revendeur
+   * arrive. Redessine l'écran si quelque chose a bougé.
+   */
+  function definirPrixCompte(liste) {
+    const avant = prixCompte;
+    prixCompte = null;
+    if (Array.isArray(liste) && liste.length) {
+      prixCompte = new Map();
+      for (const l of liste) {
+        const prix = Number(l && (l.prix !== undefined ? l.prix : l.p));
+        const id = l && (l.produit_id || l.id);
+        if (id && isFinite(prix) && prix >= 0) prixCompte.set(String(id), Math.round(prix));
+      }
+      if (!prixCompte.size) prixCompte = null;
+    }
+    const change = (avant ? avant.size : 0) !== (prixCompte ? prixCompte.size : 0)
+      || (prixCompte && [...prixCompte].some(([id, prix]) => !avant || avant.get(id) !== prix));
+    appliquerPrix();
+    if (change && donnees) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    return change;
+  }
+
+  /** Ce compte voit-il des prix qui lui sont propres ? */
+  const auxPrixRevendeur = () => !!(prixCompte && prixCompte.size);
 
   /* ---------- Lecture de la base Supabase ---------- */
 
@@ -276,15 +341,18 @@ const Catalogue = (() => {
     const c = configuration();
     const enCache = c ? lireCache() : null;
     if (enCache) {
-      donnees = enCache;
+      brutes = enCache;
+      appliquerPrix();
       source = "cache";
     }
 
     try {
       const frais = c ? await telechargerDepuisBase(c) : await telechargerDemo();
-      const changement = donnees && JSON.stringify(frais) !== JSON.stringify(donnees);
-      donnees = frais;
+      const changement = brutes && JSON.stringify(frais) !== JSON.stringify(brutes);
+      brutes = frais;
+      appliquerPrix();
       source = c ? "reseau" : "demo";
+      /* On garde les prix de la vitrine, jamais ceux du compte. */
       if (c) ecrireCache(frais);
       signalerAndroid();
       if (changement && enCache) {
@@ -310,8 +378,9 @@ const Catalogue = (() => {
     } catch (_) {
       return false; // hors connexion : on garde l'affichage actuel
     }
-    const change = JSON.stringify(frais) !== JSON.stringify(donnees);
-    donnees = frais;
+    const change = JSON.stringify(frais) !== JSON.stringify(brutes);
+    brutes = frais;
+    appliquerPrix();
     source = "reseau";
     ecrireCache(frais);
     signalerAndroid();
@@ -793,6 +862,7 @@ const Catalogue = (() => {
 
   return {
     charger, rafraichir, pret, depuisCache, modeDemo,
+    definirPrixCompte, auxPrixRevendeur,
     estConfigure, majConfiguration, configuration,
     boutique, enseigne, versionPubliee,
     boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,

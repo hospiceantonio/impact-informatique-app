@@ -15,7 +15,7 @@ const VueAccueil = (() => {
       : '<a class="btn-ic" href="#/commandes" aria-label="Commandes">' + UI.icone("boite") + "</a>" +
         '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
-    const [stats, slides, produits, demandes, commandes] = await Promise.all([
+    const [stats, slides, produits, demandes, commandes, revendeurs] = await Promise.all([
       Store.statistiques(),
       admin ? Store.listerSlides().catch(() => []) : Promise.resolve([]),
       Store.listerProduits(),
@@ -26,6 +26,12 @@ const VueAccueil = (() => {
       /* Les commandes payées qui attendent d'être préparées. Même
          prudence : une base d'avant les achats intégrés n'a pas la table. */
       Store.commandesEnAttente().catch(() => 0),
+      /* Les commerçants qui demandent à acheter au prix BIZZOO. Eux
+         aussi attendent une réponse, et cette réponse n'appartient
+         qu'à l'enseigne. */
+      Supabase.estSuper()
+        ? Store.listerRevendeurs("en_attente").catch(() => [])
+        : Promise.resolve([]),
     ]);
     const enAttente = demandes.filter((d) => d.etat === "en_attente");
 
@@ -62,6 +68,23 @@ const VueAccueil = (() => {
         : '<div class="note-attente">' + UI.icone("horloge", "ic-sm") + " " +
             combien + " en attente de validation par BIZZOO : " +
             Utils.echapper(enAttente.map((d) => d.objet).join(" · ")) + "</div>";
+    }
+
+    /* ---- Les commerçants qui veulent le prix BIZZOO ----
+       Une demande de compte revendeur n'attend pas une boutique : elle
+       attend l'enseigne, et personne d'autre ne la verra. */
+    if (revendeurs.length) {
+      const combien = revendeurs.length + " demande" + (revendeurs.length > 1 ? "s" : "");
+      html +=
+        '<a class="carte carte-publier" href="#/revendeurs">' +
+          '<div class="carte-titre">' + UI.icone("personne", "ic-sm") + " " +
+            combien + " de compte revendeur</div>" +
+          '<p class="aide" style="margin:0">' +
+            Utils.echapper(revendeurs.slice(0, 3).map((r) => r.nom || r.email)
+              .filter(Boolean).join(" · ")) +
+            (revendeurs.length > 3 ? " …" : "") +
+            " — un compte validé achète au prix BIZZOO. Touchez pour trancher.</p>" +
+        "</a>";
     }
 
     /* ---- La boutique sur laquelle on travaille ----

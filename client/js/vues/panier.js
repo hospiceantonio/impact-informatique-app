@@ -131,6 +131,13 @@ const VuePanier = (() => {
       '<div class="carte pa-total">' +
         '<div class="pa-total-ligne"><span>Total</span><strong>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
+        /* Dire au revendeur que ce total est déjà le sien : sans cela,
+           il attend une remise à la caisse qui ne viendra pas — elle est
+           déjà dans le chiffre qu'il lit. */
+        (Catalogue.auxPrixRevendeur()
+          ? '<div class="fiche-revendeur" style="margin:0 0 10px">' +
+            UI.icone("magasin", "ic-sm") + "Total à vos prix revendeur</div>"
+          : "") +
         '<p class="aide" style="margin:0 0 12px">Livraison et retrait se conviennent avec la ' +
           "boutique après la commande.</p>" +
         '<button type="button" class="btn" id="pa-commander"' +

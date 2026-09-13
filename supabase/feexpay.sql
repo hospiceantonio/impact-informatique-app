@@ -86,6 +86,12 @@ alter table public.commandes
 -- « comptes-clients.sql », seul fichier où la table des clients existe.
 alter table public.commandes add column if not exists client_id uuid;
 
+-- Sous quel régime de prix cette commande est partie : prix public, ou
+-- prix BIZZOO pour un revendeur validé. Le verrou plus bas l'empêche de
+-- basculer après coup. Posée par « comptes-revendeurs.sql », répétée
+-- ici : la règle d'écriture ci-dessous la lit.
+alter table public.commandes add column if not exists revendeur boolean not null default false;
+
 -- Une référence ne désigne qu'une commande : sans cela, deux commandes
 -- pourraient se disputer le même versement.
 create unique index if not exists commandes_fournisseur_ref
@@ -122,6 +128,9 @@ begin
   -- À qui appartient cette commande. La réattribuer, c'est offrir à
   -- quelqu'un l'historique, les avis et le SAV d'un autre.
   or new.client_id is distinct from old.client_id
+  -- Et sous quel régime de prix elle est partie : la basculer après
+  -- coup, c'est réécrire ce que la boutique a touché.
+  or new.revendeur is distinct from old.revendeur
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
   -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui

@@ -390,6 +390,16 @@ const App = { evenementInstallation: null };
     window.addEventListener("hashchange", () => naviguer());
     naviguer();
 
+    /* Les prix de ce compte-ci. Un revendeur validé achète au prix
+       BIZZOO : la base les lui sert, et l'écran se redessine tout seul
+       quand ils arrivent. Personne d'autre n'en reçoit — la base répond
+       zéro ligne à tous les autres comptes. */
+    if (typeof Compte !== "undefined" && Compte.connecte()) {
+      Compte.charger(true)
+        .then(() => Compte.chargerPrix())
+        .catch(() => { /* hors connexion : le catalogue local suffit */ });
+    }
+
     /* Les réglages du paiement : la clé publique de KkiaPay vit en base,
        pour qu'on puisse passer des essais à la production sans
        reconstruire l'application. Sans réponse, le panier reste ouvert

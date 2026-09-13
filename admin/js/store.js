@@ -1020,6 +1020,52 @@ const Store = (() => {
   const retirerDemande = (id) =>
     Supabase.requete("DELETE", "demandes?id=eq." + encodeURIComponent(id));
 
+  /* ---------- Les comptes revendeurs ----------
+
+     Un revendeur validé achète au PRIX BIZZOO, sur tout le catalogue et
+     dans toutes les boutiques. La décision engage l'enseigne entière :
+     la base ne la laisse qu'au superadministrateur, et ces fonctions ne
+     font que la lui présenter.
+
+     Tout passe par la base. La liste, parce que l'adresse e-mail vit
+     dans « auth.users », que personne ne lit directement. La décision,
+     parce qu'écrire « validé » depuis un écran rouvrirait la porte que
+     la validation vient de fermer. */
+
+  function revendeurDepuisLigne(l) {
+    return {
+      id: l.id,
+      nom: l.nom || "",
+      email: l.email || "",
+      tel: l.tel || "",
+      indicatif: l.indicatif || "229",
+      message: l.message || "",
+      etat: l.etat || "en_attente",
+      demandeLe: versMs(l.demande_le),
+      decidePar: l.decide_par || "",
+      decideLe: l.decide_le ? Date.parse(l.decide_le) || 0 : 0,
+      motif: l.motif || "",
+    };
+  }
+
+  /** Les demandes de compte revendeur. Sans état précisé, toutes. */
+  async function listerRevendeurs(etat) {
+    const lignes = await Supabase.rpcLecture("revendeurs", { filtre: etat || "" });
+    return (lignes || []).map(revendeurDepuisLigne);
+  }
+
+  /** Valider, ou refuser avec un motif que le demandeur lira. */
+  async function deciderRevendeur(compte, accord, motif) {
+    await Supabase.rpcLecture("valider_revendeur",
+      { cible: compte.id, accord: !!accord, raison: motif || "" });
+    /* Au journal de l'enseigne, pas à celui d'une boutique : la remise
+       vaut partout. */
+    journaliser("compte", accord ? "validation" : "refus",
+      (accord ? "Compte revendeur validé" : "Compte revendeur refusé") +
+      (motif ? " : " + motif : ""),
+      compte.email || compte.nom || compte.id, undefined, null);
+  }
+
   /* =====================================================
      Les commandes des clients
 
@@ -1070,6 +1116,11 @@ const Store = (() => {
       montant: lignes.reduce((somme, x) => somme + x.prix * x.quantite, 0),
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
+      /* Partie au prix revendeur ? La boutique touche la même chose
+         qu'à l'ordinaire — c'est BIZZOO qui laisse sa marge. Mais un
+         montant deux fois plus bas que d'habitude s'explique mieux
+         écrit que deviné. */
+      revendeur: !!l.revendeur,
       /* Ce que KkiaPay a PROUVÉ, et ce que le téléphone du client a
          seulement AFFIRMÉ : deux choses différentes, deux colonnes. */
       transactionId: l.transaction_id || "",
@@ -2228,6 +2279,7 @@ const Store = (() => {
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
+    listerRevendeurs, deciderRevendeur,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
     statistiquesVentes,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement,

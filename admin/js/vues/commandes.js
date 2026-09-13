@@ -73,7 +73,15 @@ const VueCommandes = (() => {
     return (
       '<div class="carte cmd-carte' + (soldee ? " cmd-soldee" : "") + '">' +
         '<div class="cmd-entete">' +
-          "<div><div class=\"cmd-numero\">" + Utils.echapper(c.numero) + "</div>" +
+          "<div><div class=\"cmd-numero\">" + Utils.echapper(c.numero) +
+            /* Une commande partie au prix revendeur le dit : c'est ce
+               qui explique un montant plus bas que d'habitude pour la
+               même marchandise. La boutique, elle, touche autant — c'est
+               BIZZOO qui laisse sa marge. */
+            (c.revendeur
+              ? ' <span class="badge badge-revendeur">' + UI.icone("personne", "ic-sm") +
+                "Revendeur</span>"
+              : "") + "</div>" +
             '<div class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</div></div>" +
           '<div style="text-align:right">' +
             '<div class="cmd-montant">' +

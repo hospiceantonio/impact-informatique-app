@@ -117,6 +117,12 @@ alter table public.commandes
 -- « comptes-clients.sql », seul fichier où la table des clients existe.
 alter table public.commandes add column if not exists client_id uuid;
 
+-- Sous quel régime de prix cette commande est partie : prix public, ou
+-- prix BIZZOO pour un revendeur validé. Le verrou plus bas l'empêche de
+-- basculer après coup. Posée par « comptes-revendeurs.sql », répétée
+-- ici : la règle d'écriture ci-dessous la lit.
+alter table public.commandes add column if not exists revendeur boolean not null default false;
+
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction KkiaPay ne vaut que pour une commande : c'est ce qui
 -- rend le paiement rejouable sans danger (KkiaPay réessaie 5 fois tant
@@ -172,6 +178,7 @@ begin
   new.remarque := '';
   new.annonce_le := null;
   new.paye_le := null;
+  new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
   end if;
@@ -188,9 +195,10 @@ create trigger commandes_a_l_ecriture
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p    public.produits%rowtype;
-  achat int;
-  taux  numeric;
+  p         public.produits%rowtype;
+  achat     int;
+  taux      numeric;
+  revendeur boolean;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
@@ -200,12 +208,19 @@ begin
     from public.produits_prive where produit_id = p.id;
   select coalesce(taux_marge, 0) into taux
     from public.boutiques where id = p.boutique_id;
+  -- Le régime de prix est celui de la commande, posé par la base à son
+  -- ouverture. Le panier n'a pas voix au chapitre.
+  select coalesce(c.revendeur, false) into revendeur
+    from public.commandes c where c.id = new.commande_id;
 
   new.boutique_id := p.boutique_id;
   new.nom         := p.nom;
   new.code        := coalesce(p.code, '');
   new.reference   := coalesce(p.reference, '');
-  new.prix        := coalesce(p.prix, 0)::int;
+  new.prix        := case when coalesce(revendeur, false)
+                          then public.prix_revendeur(coalesce(p.prix, 0)::int,
+                                                     coalesce(achat, 0))
+                          else coalesce(p.prix, 0)::int end;
   -- Ce que la boutique touche, et la marge du jour : figés avec le
   -- reste. Les comptes d'hier ne se réécrivent pas.
   new.prix_bizzoo := coalesce(achat, 0);
@@ -276,6 +291,9 @@ begin
   -- À qui appartient cette commande. La réattribuer, c'est offrir à
   -- quelqu'un l'historique, les avis et le SAV d'un autre.
   or new.client_id is distinct from old.client_id
+  -- Et sous quel régime de prix elle est partie : la basculer après
+  -- coup, c'est réécrire ce que la boutique a touché.
+  or new.revendeur is distinct from old.revendeur
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
   -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui

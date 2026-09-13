@@ -165,6 +165,13 @@ const VueProduit = (() => {
             "</div>"
           : "") +
         UI.prixHtml(p, { grand: true }) +
+        /* Un prix barré ressemble à une promotion, et une promotion
+           s'arrête. Ici il faut dire ce que c'est : le prix de ce
+           compte-ci, qui ne s'arrêtera pas dimanche soir. */
+        (p.prixRevendeur
+          ? '<div class="fiche-revendeur">' + UI.icone("magasin", "ic-sm") +
+            "Votre prix revendeur</div>"
+          : "") +
         (cat
           ? '<div class="fiche-chemin">' +
               '<a class="puce" href="#/categorie/' + Utils.echapper(cat.id) + '">' + Utils.echapper(cat.nom) + "</a>" +
