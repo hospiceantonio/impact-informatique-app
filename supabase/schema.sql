@@ -442,6 +442,14 @@ grant execute on function public.administre(text) to authenticated;
 create or replace function public.profil_nouveau_compte() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  /* UN CLIENT N'EST PAS UN COMPTE D'ÉQUIPE EN ATTENTE. L'application
+     cliente s'inscrit en posant « compte: client » ; sans ce test, chaque
+     acheteur apparaîtrait dans la liste des comptes de l'enseigne, et il
+     suffirait d'un clic distrait pour donner à un client les droits d'un
+     modérateur sur une boutique. */
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' then
+    return new;
+  end if;
   insert into public.profils (id, email, role, actif)
   values (new.id, coalesce(new.email, ''), 'moderateur', false)
   on conflict (id) do nothing;
@@ -566,6 +574,151 @@ grant execute on function public.changer_mot_de_passe(uuid, text) to authenticat
 
 -- ---------- Journal des actions de l'application admin ----------
 -- Qui a fait quoi, et quand. Lisible uniquement par l'administrateur.
+-- ---------- Les comptes clients ----------
+-- ---------------------------------------------------------
+-- 1. Qui est le client
+-- ---------------------------------------------------------
+create table if not exists public.clients (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  nom         text not null default '',
+  -- Le numéro national, chiffres seulement — la même forme que
+  -- « commandes.client_tel », sans quoi on ne pourrait pas les rapprocher.
+  tel         text not null default '',
+  indicatif   text not null default '229',
+  -- Posé UNIQUEMENT par la vérification par SMS. Voir le verrou plus bas.
+  tel_verifie boolean not null default false,
+  adresse     text not null default '',
+  cree_le     timestamptz not null default now(),
+  maj_le      timestamptz not null default now()
+);
+
+-- Sur une base déjà en service, le corps du « create table » n'est pas relu.
+alter table public.clients add column if not exists tel_verifie boolean not null default false;
+alter table public.clients add column if not exists adresse text not null default '';
+alter table public.clients add column if not exists indicatif text not null default '229';
+
+-- Un numéro vérifié ne désigne qu'un compte. Deux comptes qui
+-- revendiquent le même numéro se disputeraient les mêmes commandes.
+create unique index if not exists clients_tel_verifie
+  on public.clients(tel) where tel_verifie and tel <> '';
+
+alter table public.clients enable row level security;
+
+-- ---------------------------------------------------------
+-- 2. Un compte est de l'équipe OU d'un client, jamais les deux
+-- ---------------------------------------------------------
+-- Le gérant d'une boutique qui veut acheter ailleurs crée un second
+-- compte, avec une autre adresse. C'est un petit inconfort contre une
+-- grande clarté : sans cette règle, chaque droit écrit pour l'équipe
+-- devrait être relu en se demandant « et si c'était aussi un client ? ».
+create or replace function public.compte_unique() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'clients' then
+    /* Un profil EN ATTENTE ne vaut aucun droit : personne n'a encore
+       décidé quoi que ce soit de ce compte. Les comptes créés hors de
+       l'application cliente — dans le tableau de bord Supabase, par
+       exemple — en reçoivent un ; devenir client l'efface, et rien n'est
+       perdu. Un profil ACTIF, lui, porte de vrais droits sur une
+       boutique : on ne le mélange pas avec un compte d'acheteur. */
+    delete from public.profils p
+     where p.id = new.id and not p.actif and p.role = 'moderateur';
+    if exists (select 1 from public.profils p where p.id = new.id) then
+      raise exception 'Ce compte est déjà un compte de l''équipe : un compte client demande une autre adresse';
+    end if;
+  else
+    if exists (select 1 from public.clients c where c.id = new.id) then
+      raise exception 'Ce compte est déjà un compte client : un compte d''équipe demande une autre adresse';
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists clients_pas_equipe on public.clients;
+create trigger clients_pas_equipe
+  before insert or update on public.clients
+  for each row execute function public.compte_unique();
+
+drop trigger if exists profils_pas_client on public.profils;
+create trigger profils_pas_client
+  before insert or update on public.profils
+  for each row execute function public.compte_unique();
+
+-- Le compte connecté est-il un client ? « security definer » : la fonction
+-- lit la table sans repasser par RLS, sinon les règles s'appelleraient
+-- elles-mêmes.
+create or replace function public.est_client() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.clients c where c.id = auth.uid());
+$$;
+grant execute on function public.est_client() to authenticated;
+
+-- ---------------------------------------------------------
+-- 3. Le client ne se déclare pas vérifié lui-même
+-- ---------------------------------------------------------
+-- C'est LE point de sécurité de ce fichier. Le drapeau « tel_verifie »
+-- ouvrira l'accès aux commandes passées avec ce numéro : s'il s'écrivait
+-- depuis l'application, il suffirait de taper le numéro d'un autre pour
+-- lire ses commandes, ses adresses et ses achats.
+--
+-- Seule une fonction du serveur peut le poser, et elle pose du même coup
+-- le numéro : on ne peut pas faire vérifier un numéro puis en changer.
+create or replace function public.client_verrous() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(current_setting('bizzoo.verification', true), '') = 'oui' then
+    return new;   -- la vérification par SMS, et elle seule
+  end if;
+  if new.tel_verifie is distinct from old.tel_verifie then
+    raise exception 'Un numéro se vérifie par SMS, il ne se déclare pas';
+  end if;
+  if old.tel_verifie and new.tel is distinct from old.tel then
+    raise exception 'Un numéro vérifié ne se change pas : refaites une vérification';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists clients_verrous on public.clients;
+create trigger clients_verrous
+  before update on public.clients
+  for each row execute function public.client_verrous();
+
+-- Un compte client naît toujours non vérifié, quoi qu'en dise l'insertion.
+create or replace function public.client_a_l_ecriture() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(current_setting('bizzoo.verification', true), '') <> 'oui' then
+    new.tel_verifie := false;
+  end if;
+  new.tel := left(regexp_replace(coalesce(new.tel, ''), '\D', '', 'g'), 20);
+  return new;
+end $$;
+
+drop trigger if exists clients_ecriture on public.clients;
+create trigger clients_ecriture
+  before insert on public.clients
+  for each row execute function public.client_a_l_ecriture();
+
+-- ---------------------------------------------------------
+-- 4. Ce qu'un client voit de lui-même
+-- ---------------------------------------------------------
+drop policy if exists "clients lecture" on public.clients;
+create policy "clients lecture" on public.clients
+  for select to authenticated
+  using (id = auth.uid() or public.est_super());
+
+drop policy if exists "clients creation" on public.clients;
+create policy "clients creation" on public.clients
+  for insert to authenticated with check (id = auth.uid());
+
+drop policy if exists "clients modification" on public.clients;
+create policy "clients modification" on public.clients
+  for update to authenticated
+  using (id = auth.uid()) with check (id = auth.uid());
+
+-- L'enseigne ne modifie pas un compte client : elle le voit, c'est tout.
+-- Un compte se supprime depuis le compte lui-même, ou avec auth.users.
+
 create table if not exists public.journal (
   id          bigint generated always as identity primary key,
   fait_le     timestamptz not null default now(),
@@ -1225,6 +1378,24 @@ alter table public.commandes
 alter table public.commandes
   add column if not exists tentative_le timestamptz;
 
+-- À qui appartient cette commande. « on delete set null » et non
+-- « cascade » : un client qui ferme son compte n'efface pas les ventes de
+-- la boutique. Les comptes d'hier ne se réécrivent pas.
+alter table public.commandes add column if not exists client_id uuid;
+
+-- La clé étrangère à part : les fichiers de paiement posent la colonne
+-- sans connaître la table des clients, et une contrainte ne s'ajoute pas
+-- deux fois.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'commandes_client_fk') then
+    alter table public.commandes
+      add constraint commandes_client_fk foreign key (client_id)
+      references public.clients(id) on delete set null;
+  end if;
+end $$;
+create index if not exists commandes_client on public.commandes(client_id, cree_le desc);
+
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction ne vaut que pour une commande : c'est ce qui rend le
 -- paiement rejouable sans danger (KkiaPay réessaie 5 fois tant qu'il n'a
@@ -1384,6 +1555,9 @@ begin
   or new.client_nom is distinct from old.client_nom
   or new.client_tel is distinct from old.client_tel
   or new.client_adresse is distinct from old.client_adresse
+  -- À qui appartient cette commande. La réattribuer, c'est offrir à
+  -- quelqu'un l'historique, les avis et le SAV d'un autre.
+  or new.client_id is distinct from old.client_id
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
   -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui
@@ -1471,6 +1645,31 @@ create policy "lignes suivi" on public.commande_lignes
   using (public.peut_agir_sur(boutique_id))
   with check (public.peut_agir_sur(boutique_id));
 -- Annuler une commande entière : l'enseigne.
+drop policy if exists "commandes lecture client" on public.commandes;
+create policy "commandes lecture client" on public.commandes
+  for select to authenticated
+  using (client_id is not null and client_id = auth.uid());
+
+-- « security definer » : la fonction lit la table SANS repasser par RLS.
+-- Sans cela, la règle des lignes interrogerait les commandes, dont la règle
+-- interroge les lignes — PostgreSQL s'arrête sur « infinite recursion
+-- detected in policy ». Une règle ne doit jamais dépendre d'une règle qui
+-- dépend d'elle.
+create or replace function public.ma_commande(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.commandes c
+     where c.id = cible
+       and c.client_id is not null
+       and c.client_id = auth.uid());
+$$;
+grant execute on function public.ma_commande(text) to authenticated;
+
+drop policy if exists "lignes lecture client" on public.commande_lignes;
+create policy "lignes lecture client" on public.commande_lignes
+  for select to authenticated
+  using (public.ma_commande(commande_id));
+
 create policy "commandes suivi" on public.commandes
   for update to authenticated
   using (public.est_super()) with check (public.est_super());
@@ -1490,6 +1689,7 @@ declare
   p        public.produits%rowtype;
   devises  text[];
   sortie   jsonb;
+  moi      uuid := auth.uid();
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -1502,12 +1702,19 @@ begin
     raise exception 'Un numéro de téléphone est nécessaire pour vous joindre.';
   end if;
 
+  -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
+  -- avec les droits d'une boutique sur une commande qui lui appartient.
+  if moi is not null and not exists (select 1 from public.clients c where c.id = moi) then
+    moi := null;
+  end if;
+
   perform set_config('bizzoo.interne', 'oui', true);
 
   insert into public.commandes
-    (id, client_nom, client_tel, client_indicatif, client_adresse, note)
+    (id, client_id, client_nom, client_tel, client_indicatif, client_adresse, note)
   values (
     nouvelle,
+    moi,
     left(coalesce(trim(client ->> 'nom'), ''), 120),
     left(regexp_replace(coalesce(client ->> 'tel', ''), '\D', '', 'g'), 20),
     left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
@@ -1559,7 +1766,6 @@ begin
   return sortie;
 end $$;
 
--- Un client n'est pas connecté : c'est bien à lui que la fonction sert.
 revoke all on function public.creer_commande(jsonb, jsonb) from public;
 grant execute on function public.creer_commande(jsonb, jsonb) to anon, authenticated;
 
@@ -1947,6 +2153,34 @@ create policy "photos maj connectee" on storage.objects
 create policy "photos suppression connectee" on storage.objects
   for delete to authenticated
   using (bucket_id = 'produits' and public.peut_deposer(name));
+
+-- ---------------------------------------------------------
+-- 8. Retrouver ses commandes d'avant le compte
+-- ---------------------------------------------------------
+-- LE NUMÉRO DOIT ÊTRE VÉRIFIÉ. C'est toute la question : sans cela, il
+-- suffirait de taper le numéro d'un voisin pour hériter de ses commandes,
+-- de ses adresses et de ce qu'il achète.
+create or replace function public.rattacher_mes_commandes() returns int
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid(); mien public.clients%rowtype; combien int;
+begin
+  if moi is null then return 0; end if;
+  select * into mien from public.clients where id = moi;
+  if not found or not mien.tel_verifie or coalesce(mien.tel, '') = '' then
+    raise exception 'Vérifiez votre numéro pour retrouver vos commandes';
+  end if;
+
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes
+     set client_id = moi
+   where client_id is null
+     and client_tel = mien.tel;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+
+revoke all on function public.rattacher_mes_commandes() from public, anon;
+grant execute on function public.rattacher_mes_commandes() to authenticated;
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
 insert into public.categories (id, boutique_id, nom, ordre) values

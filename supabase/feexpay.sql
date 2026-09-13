@@ -80,6 +80,12 @@ alter table public.commandes
 alter table public.commandes
   add column if not exists transaction_annoncee text not null default '';
 
+-- À qui appartient cette commande. Le verrou posé plus bas la garde :
+-- réattribuer une commande, c'est offrir à quelqu'un l'historique, les
+-- avis et le SAV d'un autre. La clé étrangère, elle, est posée par
+-- « comptes-clients.sql », seul fichier où la table des clients existe.
+alter table public.commandes add column if not exists client_id uuid;
+
 -- Une référence ne désigne qu'une commande : sans cela, deux commandes
 -- pourraient se disputer le même versement.
 create unique index if not exists commandes_fournisseur_ref
@@ -113,6 +119,9 @@ begin
   or new.client_nom is distinct from old.client_nom
   or new.client_tel is distinct from old.client_tel
   or new.client_adresse is distinct from old.client_adresse
+  -- À qui appartient cette commande. La réattribuer, c'est offrir à
+  -- quelqu'un l'historique, les avis et le SAV d'un autre.
+  or new.client_id is distinct from old.client_id
   or new.transaction_id is distinct from old.transaction_id
   or new.transaction_annoncee is distinct from old.transaction_annoncee
   -- La référence de l'agrégateur est ce avec quoi notre serveur ira lui

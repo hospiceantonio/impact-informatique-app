@@ -148,6 +148,7 @@ declare
   p        public.produits%rowtype;
   devises  text[];
   sortie   jsonb;
+  moi      uuid := auth.uid();
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -160,12 +161,19 @@ begin
     raise exception 'Un numéro de téléphone est nécessaire pour vous joindre.';
   end if;
 
+  -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
+  -- avec les droits d'une boutique sur une commande qui lui appartient.
+  if moi is not null and not exists (select 1 from public.clients c where c.id = moi) then
+    moi := null;
+  end if;
+
   perform set_config('bizzoo.interne', 'oui', true);
 
   insert into public.commandes
-    (id, client_nom, client_tel, client_indicatif, client_adresse, note)
+    (id, client_id, client_nom, client_tel, client_indicatif, client_adresse, note)
   values (
     nouvelle,
+    moi,
     left(coalesce(trim(client ->> 'nom'), ''), 120),
     left(regexp_replace(coalesce(client ->> 'tel', ''), '\D', '', 'g'), 20),
     left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),

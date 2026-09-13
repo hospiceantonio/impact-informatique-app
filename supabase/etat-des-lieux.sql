@@ -154,7 +154,25 @@ with controles(rang, element, ok) as (values
 
   (26, 'Retrouver une commande par sa référence (commande_par_reference)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'commande_par_reference'))
+       where n.nspname = 'public' and p.proname = 'commande_par_reference')),
+
+  -- ---------- Les comptes clients ----------
+  (27, 'Les comptes clients (table clients)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'clients')),
+  (28, 'La commande porte son compte (commandes.client_id)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes'
+         and column_name = 'client_id')),
+  -- Sans ce verrou, un client pourrait se déclarer vérifié lui-même et
+  -- réclamer les commandes passées avec le numéro d'un autre.
+  (29, 'Le numéro vérifié ne se déclare pas (client_verrous)', exists (
+      select 1 from pg_trigger tr join pg_class c on c.oid = tr.tgrelid
+       where not tr.tgisinternal and c.relname = 'clients'
+         and tr.tgname = 'clients_verrous')),
+  (30, 'Retrouver ses commandes d''avant (rattacher_mes_commandes)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'rattacher_mes_commandes'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

@@ -36,8 +36,14 @@ create table if not exists auth.users (
   id                 uuid primary key default gen_random_uuid(),
   email              text,
   encrypted_password text,
+  -- Ce que l'inscription joint au compte. Supabase l'a ; le décor doit
+  -- l'avoir aussi, sinon un déclencheur qui le lit passe ici et casse en
+  -- production — on simule le décor, jamais la serrure.
+  raw_user_meta_data jsonb not null default '{}'::jsonb,
   cree_le            timestamptz not null default now()
 );
+alter table auth.users
+  add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
 
 -- Le compte connecté, tel que PostgREST le pose sur la session.
 create or replace function auth.uid() returns uuid
