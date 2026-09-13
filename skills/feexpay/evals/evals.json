@@ -1,0 +1,53 @@
+{
+  "skill_name": "feexpay",
+  "evals": [
+    {
+      "id": 0,
+      "name": "integration-mtn",
+      "prompt": "J'encaisse des paiements Mobile Money au Bénin pour ma boutique, base Supabase. J'ai un compte FeexPay, mon shop id et un token qui commence par fp_. Écris-moi la fonction Edge qui lance une demande de paiement MTN et qui vérifie ensuite que le versement a bien abouti.",
+      "expected_output": "Une fonction Edge qui appelle l'API V2 avec le bon format de numéro, le bon segment d'adresse, le jeton dans l'en-tête seulement, un libellé nettoyé, le montant lu en base, et une vérification authentifiée.",
+      "files": [],
+      "assertions": [
+        "Utilise api-v2.feexpay.me, pas api.feexpay.me",
+        "L'adresse d'encaissement se termine par /requesttopay/mtn",
+        "Le numéro part au format 229 + dix chiffres nationaux (ex. 2290197444893)",
+        "Le jeton fp_ est envoyé dans l'en-tête Authorization: Bearer",
+        "Le jeton n'est PAS placé dans le corps de la requête",
+        "La description est nettoyée de tout caractère non alphanumérique",
+        "La vérification appelle /public/single/status/ AVEC l'en-tête Authorization",
+        "Le montant encaissé vient de la base ou de la réponse de FeexPay, jamais de la requête du client",
+        "Le jeton ne descend jamais jusqu'à l'application cliente"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "diagnostic-celtiis",
+      "prompt": "mon paiement feexpay marche très bien pour MTN et Moov mais avec celtiis j'ai « Celtiis BJ API Error ». Le numero que j'utilise est 0144483333 et celtiis est bien activé sur mon compte marchand. c'est quoi le problème ?",
+      "expected_output": "Un diagnostic qui vérifie d'abord le segment d'adresse celtiis_bj, reconnaît que 0144 est un préfixe Celtiis valide, et conclut — puisque MTN et Moov passent avec les mêmes identifiants — que le corps envoyé n'est pas en cause.",
+      "files": [],
+      "assertions": [
+        "Mentionne que le segment d'adresse correct est celtiis_bj et non celtiis",
+        "Reconnaît que 0144 est un préfixe Celtiis valide, donc que le numéro n'est pas en cause",
+        "Raisonne sur le fait que MTN et Moov passent avec la même boutique et le même jeton",
+        "Conclut que le corps envoyé n'est probablement pas en cause",
+        "Propose de regarder le code HTTP dans les journaux pour trancher",
+        "Ne fait pas perdre de temps sur des pistes déjà éliminées par l'énoncé"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "commande-bloquee",
+      "prompt": "Un client me dit qu'il a bien été débité par Mobile Money mais sa commande est restée « en attente de confirmation » depuis hier. J'utilise feexpay avec le webhook branché. Qu'est-ce qui peut clocher, et est-ce que je risque de me faire avoir par quelqu'un qui poste un faux paiement sur l'adresse du webhook ?",
+      "expected_output": "Identifie que la vérification V2 exige le jeton (et échoue en silence sans lui), et confirme que la notification FeexPay n'est pas signée — donc qu'il ne faut jamais la croire.",
+      "files": [],
+      "assertions": [
+        "Signale que la lecture du statut en V2 exige l'en-tête Authorization",
+        "Explique que son absence échoue en silence : la commande reste « à payer » sans erreur visible",
+        "Affirme clairement que la notification FeexPay n'est PAS signée",
+        "Recommande de ne garder que la référence du payload et de redemander à FeexPay",
+        "Précise que le montant encaissé doit venir de la réponse de FeexPay, pas du payload",
+        "Mentionne l'idempotence ou le risque d'encaisser deux fois"
+      ]
+    }
+  ]
+}
