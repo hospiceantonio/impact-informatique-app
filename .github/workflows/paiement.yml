@@ -1,7 +1,9 @@
-# Éprouve les deux fonctions de paiement à chaque modification.
-# FeexPay y est une doublure : aucun appel ne sort, et le banc ne
-# rougit donc jamais parce que leur serveur tousse ce matin-là.
-name: Éprouver le paiement
+# Éprouve les fonctions Edge à chaque modification : le paiement, et
+# le transport SMS. Les services extérieurs — FeexPay, CREATISINTER —
+# y sont des doublures : aucun appel ne sort, aucun SMS n'est facturé,
+# et le banc ne rougit donc jamais parce qu'un serveur tousse ce
+# matin-là.
+name: Éprouver les fonctions
 
 on:
   workflow_dispatch:
@@ -9,6 +11,7 @@ on:
     paths:
       - "supabase/functions/**"
       - "tools/eprouver-paiement.sh"
+      - "tools/eprouver-sms.sh"
       - ".github/workflows/paiement.yml"
   pull_request:
     paths:
@@ -32,3 +35,10 @@ jobs:
 
       - name: Forcer les portes du paiement
         run: bash tools/eprouver-paiement.sh
+
+      # Deux portes ici, et aucune ne se voit à la relecture : la
+      # passerelle répond « 200 » en portant l'échec dans le corps, et le
+      # hook de connexion se déploie sans jeton — sa signature est le
+      # seul contrôle entre l'Internet et le crédit SMS de l'enseigne.
+      - name: Forcer les portes du SMS
+        run: bash tools/eprouver-sms.sh

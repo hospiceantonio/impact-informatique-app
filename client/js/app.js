@@ -24,6 +24,9 @@ const App = { evenementInstallation: null };
     /* Le compte traverse les boutiques, comme le panier : aucun onglet
        ne s'allume, on y entre par la barre du haut. */
     { motif: /^\/connexion$/, vue: (v) => VueCompte.connexion(v) },
+    /* Entrer par son numéro : au Bénin, beaucoup de clients ont un
+       téléphone et pas d'adresse e-mail. */
+    { motif: /^\/connexion-tel$/, vue: (v) => VueCompte.connexionTel(v) },
     { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v) },
     { motif: /^\/mot-de-passe$/, vue: (v) => VueCompte.motDePasse(v) },
     { motif: /^\/compte$/, vue: (v) => VueCompte.monCompte(v) },

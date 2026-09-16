@@ -1062,3 +1062,24 @@ a.pub-carte:active{transform:scale(.98)}
   background:var(--vert-clair);color:var(--vert);
   font-size:12px;font-weight:800;
 }
+
+/* ---------- Entrer par son numéro ----------
+   L'indicatif est fixe et collé au champ : le taper serait une faute de
+   plus à faire, et « +229 » devant la saisie dit d'un coup d'œil quelle
+   forme on attend. */
+.cp-tel-ligne{display:flex;align-items:stretch}
+.cp-indicatif{
+  display:flex;align-items:center;padding:0 12px;
+  background:var(--bleu-50);border:1px solid var(--trait);border-right:0;
+  border-radius:var(--r-sm) 0 0 var(--r-sm);
+  font-weight:800;color:var(--bleu-700);
+}
+.cp-tel-ligne input{border-radius:0 var(--r-sm) var(--r-sm) 0;flex:1;min-width:0}
+
+/* Six chiffres qu'on recopie d'un SMS : gros, espacés, au centre. */
+.cp-code{
+  font-size:26px;font-weight:800;letter-spacing:.35em;text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+.cp-verifie{display:flex;align-items:center;gap:5px;color:var(--vert);font-weight:700}
+.cp-verifie .ic{color:var(--vert)}

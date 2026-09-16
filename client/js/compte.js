@@ -87,8 +87,24 @@ const Compte = (() => {
       if (code === "weak_password" || /password/i.test(texte) && /least|court/i.test(texte)) {
         throw new Error("Mot de passe trop court : six caractères au minimum.");
       }
-      if (code === "over_email_send_rate_limit" || reponse.status === 429) {
+      if (code === "over_email_send_rate_limit"
+          || code === "over_sms_send_rate_limit" || reponse.status === 429) {
         throw new Error("Trop de tentatives. Patientez une minute.");
+      }
+      /* Les refus propres au SMS. Le premier est le plus important : un
+         code expiré ou mal tapé ne doit pas se lire « identifiants
+         invalides », sinon le client va chercher son mot de passe. */
+      if (code === "otp_expired" || /token has expired|otp/i.test(texte)) {
+        throw new Error("Code incorrect ou expiré. Demandez-en un nouveau.");
+      }
+      if (code === "sms_send_failed" || /sms/i.test(code)) {
+        /* Le message vient de notre propre fonction de livraison : elle
+           sait dire « crédit épuisé » ou « numéro refusé ». Le rendre tel
+           quel vaut mieux que de le remplacer par une généralité. */
+        throw new Error(texte || "L'envoi du SMS a échoué. Réessayez dans un instant.");
+      }
+      if (code === "phone_exists" || /phone.*already/i.test(texte)) {
+        throw new Error("Ce numéro est déjà utilisé par un autre compte.");
       }
       throw new Error(texte || "La connexion a échoué (" + reponse.status + ").");
     }
@@ -102,6 +118,11 @@ const Compte = (() => {
       refresh_token: d.refresh_token,
       expire_a: d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000,
       email: (d.user && d.user.email) || email || "",
+      /* Un compte créé par SMS n'a PAS d'adresse e-mail — et Supabase y
+         met une chaîne VIDE, pas « null ». Sans le numéro gardé ici, la
+         page « Mon compte » d'un tel client afficherait un identifiant
+         vide, et l'on chercherait du côté des droits de lecture. */
+      tel: (d.user && d.user.phone) || "",
     });
     return session;
   }
@@ -137,6 +158,67 @@ const Compte = (() => {
 
   const connecte = () => !!session;
   const courriel = () => (session ? session.email : "");
+
+  /* ---------- Le numéro, dans les trois formes qu'il prend ----------
+
+     Il en a trois, et les confondre coûte cher :
+
+       « 0197121596 »     — ce que le client tape, et ce que BIZZOO range
+                            dans « clients.tel » et « commandes.client_tel ».
+       « +2290197121596 » — ce que GoTrue EXIGE en entrée. Sans le « + »,
+                            il refuse.
+       « 2290197121596 »  — ce que GoTrue RANGE, sans le « + ». Relire
+                            « user.phone » et le renvoyer tel quel à la
+                            vérification échoue, toujours.
+
+     D'où la normalisation systématique à l'entrée : on ne fait jamais
+     confiance à la forme qu'on vient de lire. */
+
+  const INDICATIF = "229";
+
+  function telInternational(brut, indicatif) {
+    const ind = indicatif || INDICATIF;
+    let chiffres = String(brut || "").replace(/\D/g, "");
+    if (!chiffres) return "";
+    if (chiffres.startsWith("00")) chiffres = chiffres.slice(2);
+    if (!chiffres.startsWith(ind)) chiffres = ind + chiffres;
+    return "+" + chiffres;
+  }
+
+  /** La partie nationale : la forme que BIZZOO range. */
+  function telNational(brut, indicatif) {
+    const ind = indicatif || INDICATIF;
+    let chiffres = String(brut || "").replace(/\D/g, "");
+    if (chiffres.startsWith("00")) chiffres = chiffres.slice(2);
+    if (chiffres.startsWith(ind) && chiffres.length > ind.length) {
+      chiffres = chiffres.slice(ind.length);
+    }
+    return chiffres;
+  }
+
+  /** « +229 01 97 12 15 96 » : un numéro se dicte par groupes de deux. */
+  function telAffichage(brut, indicatif) {
+    const national = telNational(brut, indicatif);
+    if (!national) return "";
+    return "+" + (indicatif || INDICATIF) + " " +
+      (national.match(/.{1,2}/g) || []).join(" ");
+  }
+
+  /**
+   * Ce qu'on écrit en haut de « Mon compte ».
+   *
+   * LE PIÈGE : sur un compte créé par SMS, Supabase met une chaîne VIDE
+   * dans « email », pas « null ». Un « email || tel » fonctionne, mais un
+   * « email ?? tel » — le réflexe — donnerait la chaîne vide, et l'écran
+   * n'afficherait aucun identifiant. Le compte marcherait, les commandes
+   * s'afficheraient, et l'on chercherait du côté des droits de lecture.
+   */
+  function identite() {
+    if (!session) return "";
+    const adresse = session.email || "";
+    if (adresse) return adresse;
+    return telAffichage(session.tel || (fiche && fiche.tel) || "");
+  }
 
   /* ---------- Entrer, sortir ---------- */
 
@@ -187,6 +269,96 @@ const Compte = (() => {
   /** Renvoyer le courriel de réinitialisation. */
   async function motDePasseOublie(email) {
     await appelAuth("recover", { email: String(email || "").trim() });
+  }
+
+  /* ---------- Entrer, ou se vérifier, par SMS ----------
+
+     NOUS N'ÉCRIVONS AUCUN CODE. Ni table, ni hachage, ni expiration, ni
+     compteur de tentatives : Supabase Auth sait déjà tout cela, et le
+     fait dans un schéma que cette application ne peut pas toucher. Notre
+     part se limite à LIVRER le SMS, et c'est une fonction du serveur qui
+     s'en charge — jamais celle-ci.
+
+     Deux portes, un seul mécanisme :
+
+       — sans compte, le numéro EST l'identifiant. Le premier code
+         validé crée le compte ;
+       — avec un compte e-mail, le numéro se CONFIRME. Le code validé
+         pose « phone_confirmed_at », et la base en tire « tel_verifie ».
+
+     Dans les deux cas, c'est GoTrue qui écrit la vérité. L'application
+     ne fait que demander. */
+
+  /** Porte 1 — demander un code pour entrer par son numéro. */
+  async function demanderCodeConnexion(tel, nom) {
+    const numero = telInternational(tel);
+    if (numero.length < 9) throw new Error("Numéro incomplet.");
+    await appelAuth("otp", {
+      phone: numero,
+      create_user: true,
+      /* « compte: client » suit la même règle que l'inscription par
+         e-mail : sans lui, la base fabriquerait pour ce compte une fiche
+         d'équipe en attente, et l'acheteur se retrouverait dans la liste
+         des comptes de l'enseigne. */
+      data: { compte: "client", nom: String(nom || "").trim() },
+    });
+    return numero;
+  }
+
+  /** Porte 1 — valider le code, et entrer. */
+  async function confirmerCodeConnexion(tel, code) {
+    const numero = telInternational(tel);
+    const d = await appelAuth("verify", {
+      type: "sms", phone: numero, token: String(code || "").trim(),
+    });
+    if (!depuisReponse(d, "")) throw new Error("Code incorrect ou expiré.");
+    await assurerFiche("");
+    await chargerPrix();
+    return session;
+  }
+
+  /** Porte 2 — demander un code pour vérifier son numéro, déjà connecté. */
+  async function demanderCodeNumero(tel) {
+    const numero = telInternational(tel);
+    if (numero.length < 9) throw new Error("Numéro incomplet.");
+    /* « PUT /user » enregistre le numéro en attente et fait partir le
+       code. Le numéro n'est PAS encore celui du compte : il ne le
+       devient qu'au code validé. */
+    await appelAuth("user", { phone: numero }, true, "PUT");
+    return numero;
+  }
+
+  /**
+   * Porte 2 — valider le code.
+   *
+   * Le drapeau « tel_verifie » n'est jamais envoyé d'ici : c'est un
+   * déclencheur de la base qui le pose, en lisant ce que GoTrue vient
+   * d'écrire. Le renvoi de la fiche dit donc la vérité — y compris
+   * lorsqu'elle est décevante : si le numéro est déjà vérifié sur un
+   * autre compte, la base refuse de le transférer, et « tel_verifie »
+   * reste faux.
+   */
+  async function confirmerCodeNumero(tel, code) {
+    const numero = telInternational(tel);
+    const d = await appelAuth("verify", {
+      type: "phone_change", phone: numero, token: String(code || "").trim(),
+    });
+    /* La vérification rend une nouvelle session : on la garde, sinon le
+       jeton en main ignorerait le numéro tout juste confirmé. */
+    if (d && d.access_token) depuisReponse(d, session ? session.email : "");
+    const a_jour = await charger(true);
+    if (a_jour && !a_jour.tel_verifie) {
+      throw new Error(
+        "Ce numéro est déjà vérifié sur un autre compte BIZZOO. " +
+        "Utilisez ce compte-là, ou un autre numéro.");
+    }
+    return a_jour;
+  }
+
+  /** Retrouver les commandes passées avec ce numéro, avant le compte. */
+  async function rattacherMesCommandes() {
+    const combien = await rest("POST", "rpc/rattacher_mes_commandes", {});
+    return Number(combien) || 0;
   }
 
   /* ---------- La fiche client ---------- */
@@ -410,10 +582,13 @@ const Compte = (() => {
   }
 
   return {
-    connecte, courriel, identifiant, moi, charger,
+    connecte, courriel, identite, identifiant, moi, charger,
     inscrire, connecter, deconnecter, motDePasseOublie,
     enregistrer, assurerSession, jeton, surChangement,
     etatRevendeur, estRevendeur, estRevendeurEnAttente, motifRevendeur,
     demanderRevendeur, annulerRevendeur, chargerPrix,
+    telInternational, telNational, telAffichage,
+    demanderCodeConnexion, confirmerCodeConnexion,
+    demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
   };
 })();

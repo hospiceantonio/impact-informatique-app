@@ -1135,3 +1135,21 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   background:var(--bleu-50);border:1px solid var(--bleu-100);
   font-size:13px;line-height:1.5;white-space:pre-wrap;
 }
+
+/* ---------- L'essai de la passerelle SMS ----------
+   Le verdict en clair, et la réponse brute repliée en dessous :
+   inutile au quotidien, indispensable le jour où rien ne marche. */
+.sms-verdict{
+  display:flex;gap:8px;align-items:flex-start;
+  margin-top:12px;padding:12px;border-radius:var(--r-sm);
+  font-size:13px;line-height:1.5;
+}
+.sms-verdict .ic{flex:none;margin-top:2px}
+.sms-ok{background:var(--vert-clair);color:#0B6E3E}
+.sms-ko{background:var(--rouge-clair);color:var(--rouge-fonce)}
+.sms-brut{margin-top:8px;font-size:12px;color:var(--encre-tres-douce)}
+.sms-brut summary{cursor:pointer;font-weight:600}
+.sms-brut pre{
+  margin:8px 0 0;padding:10px;border-radius:var(--r-sm);
+  background:var(--fond);overflow-x:auto;font-size:11.5px;line-height:1.45;
+}

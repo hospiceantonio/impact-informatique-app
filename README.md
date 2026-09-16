@@ -659,13 +659,17 @@ impact-informatique-app/
 │   ├── marge-bizzoo.sql             # La marge de l'enseigne et les statistiques de ventes
 │   ├── comptes-clients.sql          # L'identité du client : compte, numéro vérifié, ses commandes
 │   ├── comptes-revendeurs.sql       # Client ou revendeur : qui achète au prix BIZZOO
+│   ├── verification-telephone.sql   # Le numéro vérifié par SMS, ancré sur GoTrue
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
 │   ├── functions/kkiapay-webhook/   # KkiaPay : sa notification signée
 │   ├── functions/feexpay/           # FeexPay : notre serveur ouvre, puis vérifie
-│   └── functions/feexpay-webhook/   # Sa notification — non signée, donc jamais crue
+│   ├── functions/feexpay-webhook/   # Sa notification — non signée, donc jamais crue
+│   ├── functions/_partage/sms.ts    # Le transport SMS : un 200 n'est pas un succès
+│   ├── functions/hook-sms-auth/     # Livrer le code de connexion — la signature est le seul contrôle
+│   └── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)

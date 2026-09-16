@@ -204,6 +204,16 @@ for fichier in "$RACINE"/supabase/tests/[1-9]*.sql; do
   echo "── $(basename "$fichier")"
   if lancer "$PSQL -f '$fichier'" >"$SORTIE" 2>&1; then
     sed -n 's/^psql:.*: NOTICE:  //p' "$SORTIE"
+    # Un fichier MUET passait pour vert. C'est arrivé : un
+    # « set client_min_messages = warning » de trop, et les trente-huit
+    # constats d'un fichier disparaissaient — le banc annonçait quand
+    # même que tout tenait. Un essai qui ne constate rien ne prouve
+    # rien : on le compte pour un échec.
+    if ! grep -q '  ok    ' "$SORTIE"; then
+      echo
+      rouge "  Aucun constat dans ce fichier : il s'est exécuté sans rien éprouver."
+      ECHECS=$((ECHECS + 1))
+    fi
   else
     sed -n 's/^psql:.*: NOTICE:  //p' "$SORTIE"
     echo

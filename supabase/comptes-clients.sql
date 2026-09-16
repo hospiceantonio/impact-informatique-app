@@ -462,7 +462,8 @@ begin
   update public.commandes
      set client_id = moi
    where client_id is null
-     and client_tel = mien.tel;
+     and client_tel = mien.tel
+     and cree_le > now() - interval '18 months';
   get diagnostics combien = row_count;
   return combien;
 end $$;

@@ -450,6 +450,12 @@ begin
   if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' then
     return new;
   end if;
+  /* Et l'équipe n'entre pas par SMS : elle a des adresses e-mail. Un
+     compte qui n'a qu'un numéro est un acheteur, même si les
+     métadonnées manquent — elles viennent du téléphone, après tout. */
+  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> '' then
+    return new;
+  end if;
   insert into public.profils (id, email, role, actif)
   values (new.id, coalesce(new.email, ''), 'moderateur', false)
   on conflict (id) do nothing;
@@ -2399,13 +2405,150 @@ begin
   update public.commandes
      set client_id = moi
    where client_id is null
-     and client_tel = mien.tel;
+     and client_tel = mien.tel
+     and cree_le > now() - interval '18 months';
   get diagnostics combien = row_count;
   return combien;
 end $$;
 
 revoke all on function public.rattacher_mes_commandes() from public, anon;
 grant execute on function public.rattacher_mes_commandes() to authenticated;
+
+-- ---------- Vérifier son numéro par SMS ----------
+-- Un client entre chez BIZZOO par son NUMÉRO plutôt que par une adresse
+-- e-mail, ou confirme le sien après s'être inscrit par e-mail. Dans les
+-- deux cas c'est Supabase Auth qui envoie le code, le fait expirer et le
+-- vérifie ; notre seul travail est de LIVRER le SMS (fonction Edge
+-- « hook-sms-auth ») et d'en tirer les conséquences ici.
+--
+-- NOUS N'ÉCRIVONS AUCUN CODE : ni table, ni hachage, ni expiration, ni
+-- compteur de tentatives. GoTrue sait déjà tout cela, et le fait dans un
+-- schéma que l'application ne peut pas toucher. « clients.tel_verifie »
+-- n'est que le reflet de « auth.users.phone_confirmed_at » — il n'existe
+-- donc aucun chemin par lequel l'application pourrait se déclarer
+-- vérifiée.
+
+create or replace function public.tel_national(complet text, indicatif text default '229')
+returns text
+language sql immutable as $$
+  select case
+           when chiffres like indicatif || '%'
+                and length(chiffres) > length(indicatif)
+             then substr(chiffres, length(indicatif) + 1)
+           else chiffres
+         end
+    from (select regexp_replace(coalesce(complet, ''), '\D', '', 'g') as chiffres) x;
+$$;
+revoke all on function public.tel_national(text, text) from public, anon, authenticated;
+
+-- ---------- Quand GoTrue confirme un numéro ----------
+-- LE POINT DÉLICAT : ce déclencheur tourne DANS la transaction de
+-- « verify ». S'il lève quoi que ce soit, la vérification échoue alors
+-- que le numéro vient d'être confirmé — et le client, qui a bien reçu
+-- son SMS et bien tapé son code, voit une panne. Il avale donc tout.
+--
+-- Le prix de ce silence : une vérification peut aboutir chez GoTrue sans
+-- que « clients » l'apprenne. D'où reconcilier_numeros_verifies(), plus
+-- bas, qui rattrape.
+create or replace function public.au_numero_confirme() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  national text;
+begin
+  -- Rien de neuf : ni une confirmation, ni un changement de numéro
+  -- confirmé. On sort sans rien faire.
+  if new.phone_confirmed_at is null then return new; end if;
+  if tg_op = 'UPDATE'
+     and old.phone_confirmed_at is not null
+     and coalesce(old.phone, '') = coalesce(new.phone, '') then
+    return new;
+  end if;
+
+  national := public.tel_national(new.phone, '229');
+  if coalesce(national, '') = '' then return new; end if;
+
+  -- Un compte de l'équipe qui confirme son numéro reste un compte
+  -- d'équipe : lui poser une fiche client ferait de lui les deux à la
+  -- fois, ce que « compte_unique » refuse — et à raison.
+  if exists (select 1 from public.profils p where p.id = new.id and p.actif) then
+    return new;
+  end if;
+
+  -- Ce numéro est déjà vérifié ailleurs : on ne le vole pas. Le compte
+  -- reste non vérifié, et l'application le dira en clair — mieux vaut un
+  -- message qu'une contrainte violée au visage du client.
+  if exists (select 1 from public.clients c
+              where c.tel = national and c.tel_verifie and c.id <> new.id) then
+    raise notice 'BIZZOO : le numéro % est déjà vérifié sur un autre compte', national;
+    return new;
+  end if;
+
+  -- « bizzoo.verification » est ce qui distingue cette écriture d'une
+  -- requête ordinaire : sans lui, le verrou de « clients » la refuserait.
+  perform set_config('bizzoo.verification', 'oui', true);
+  insert into public.clients (id, tel, indicatif, tel_verifie, nom)
+  values (new.id, national, '229', true,
+          left(coalesce(new.raw_user_meta_data ->> 'nom', ''), 120))
+  on conflict (id) do update
+    set tel = excluded.tel,
+        indicatif = excluded.indicatif,
+        tel_verifie = true,
+        maj_le = now();
+  perform set_config('bizzoo.verification', '', true);
+  return new;
+exception when others then
+  /* On ne fait PAS échouer « verify » pour autant : le numéro est
+     confirmé chez GoTrue, c'est ce qui compte. La réconciliation
+     rattrapera. */
+  raise notice 'BIZZOO : numéro confirmé mais fiche non mise à jour (%)', sqlerrm;
+  return new;
+end $$;
+
+drop trigger if exists numero_confirme on auth.users;
+create trigger numero_confirme
+  after insert or update of phone, phone_confirmed_at on auth.users
+  for each row execute function public.au_numero_confirme();
+
+-- ---------- Rattraper ce que le silence aurait manqué ----------
+-- Le déclencheur ci-dessus avale ses erreurs — il le faut. Cette
+-- fonction rejoue le rapprochement pour tous les comptes dont GoTrue dit
+-- le numéro confirmé et dont la fiche l'ignore. Réservée à l'enseigne,
+-- relançable sans dommage.
+create or replace function public.reconcilier_numeros_verifies() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  u        record;
+  national text;
+  combien  int := 0;
+begin
+  if not public.est_super() then
+    raise exception 'Réservé à BIZZOO';
+  end if;
+  perform set_config('bizzoo.verification', 'oui', true);
+  for u in
+    select au.id, au.phone, au.raw_user_meta_data
+      from auth.users au
+      join public.clients c on c.id = au.id
+     where au.phone_confirmed_at is not null
+       and (not c.tel_verifie
+            or c.tel is distinct from public.tel_national(au.phone, '229'))
+  loop
+    national := public.tel_national(u.phone, '229');
+    continue when coalesce(national, '') = '';
+    continue when exists (select 1 from public.clients c
+                           where c.tel = national and c.tel_verifie and c.id <> u.id);
+    update public.clients
+       set tel = national, indicatif = '229', tel_verifie = true, maj_le = now()
+     where id = u.id;
+    combien := combien + 1;
+  end loop;
+  perform set_config('bizzoo.verification', '', true);
+  return combien;
+end $$;
+
+revoke all on function public.reconcilier_numeros_verifies()
+  from public, anon, authenticated;
+grant execute on function public.reconcilier_numeros_verifies() to authenticated;
 
 -- ---------- Rayons de départ d'une boutique informatique ----------
 insert into public.categories (id, boutique_id, nom, ordre) values

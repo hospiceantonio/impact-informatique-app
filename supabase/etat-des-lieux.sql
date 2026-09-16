@@ -190,7 +190,24 @@ with controles(rang, element, ok) as (values
   -- s'offrirait le catalogue au prix d'achat de la boutique.
   (34, 'Seul BIZZOO valide un revendeur (valider_revendeur)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'valider_revendeur'))
+       where n.nspname = 'public' and p.proname = 'valider_revendeur')),
+
+  -- ---------- Vérifier son numéro par SMS ----------
+  -- Le drapeau « tel_verifie » n'est plus posé à la main : il suit
+  -- « auth.users.phone_confirmed_at », que GoTrue écrit. Sans ce
+  -- déclencheur, un numéro confirmé chez GoTrue resterait ignoré de
+  -- BIZZOO, et le client ne retrouverait jamais ses commandes.
+  (35, 'Le numéro confirmé arrive jusqu''à la fiche (numero_confirme)', exists (
+      select 1 from pg_trigger tr join pg_class c on c.oid = tr.tgrelid
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'auth' and c.relname = 'users'
+         and tr.tgname = 'numero_confirme')),
+  (36, 'Le numéro national se calcule (tel_national)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'tel_national')),
+  (37, 'Rattraper une confirmation manquée (reconcilier_numeros_verifies)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'reconcilier_numeros_verifies'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

@@ -412,6 +412,45 @@ const Supabase = (() => {
     return requete("POST", "rpc/" + nom, parametres || {}, { avecSession: true });
   }
 
+  /**
+   * Appelle une fonction Edge — du code à nous, qui tourne sur le
+   * serveur de Supabase. Ce n'est ni PostgREST ni la base : d'où ce
+   * chemin à part.
+   *
+   * Le jeton du gérant part avec, et la fonction s'en sert pour demander
+   * à LA BASE qui appelle. Un rôle qu'on lui enverrait dans le corps de
+   * la requête ne vaudrait rien — il viendrait de cet écran.
+   *
+   * On rend la réponse même quand elle refuse : une fonction qui
+   * explique pourquoi vaut mieux qu'un code HTTP tout seul.
+   */
+  async function fonctionEdge(nom, corps) {
+    const c = configuration();
+    if (!c) throw new Error("L'application n'est pas encore reliée à la base (voir réglages).");
+    const s = await assurerSession();
+    if (!s) throw new Error("Votre session a expiré : reconnectez-vous.");
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/functions/v1/" + nom, {
+        method: "POST",
+        headers: {
+          "apikey": c.cle,
+          "Authorization": "Bearer " + s.access_token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(corps || {}),
+      });
+    } catch (_) {
+      throw new Error("Serveur injoignable. Vérifiez votre connexion internet.");
+    }
+    const d = await reponse.json().catch(() => null);
+    if (d === null) {
+      throw new Error("La fonction « " + nom + " » n'a rien répondu (" +
+        reponse.status + "). Est-elle déployée ?");
+    }
+    return d;
+  }
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -424,7 +463,7 @@ const Supabase = (() => {
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     compteActif, rolesActifs,
-    creerCompte, changerMotDePasse, rpc, rpcLecture,
+    creerCompte, changerMotDePasse, rpc, rpcLecture, fonctionEdge,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

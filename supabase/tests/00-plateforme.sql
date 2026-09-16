@@ -40,10 +40,21 @@ create table if not exists auth.users (
   -- l'avoir aussi, sinon un déclencheur qui le lit passe ici et casse en
   -- production — on simule le décor, jamais la serrure.
   raw_user_meta_data jsonb not null default '{}'::jsonb,
+  -- Le numéro, et la date à laquelle GoTrue l'a confirmé. C'est CETTE
+  -- colonne-là qui fait foi : elle est écrite par GoTrue, dans un schéma
+  -- que l'application ne peut pas toucher. Le décor doit l'avoir, sinon
+  -- le déclencheur qui s'y accroche ne se pose même pas — et l'on ne
+  -- s'en apercevrait qu'en production.
+  --
+  -- Supabase range le numéro complet et SANS « + » : « 2290197121596 ».
+  phone              text,
+  phone_confirmed_at timestamptz,
   cree_le            timestamptz not null default now()
 );
 alter table auth.users
   add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
+alter table auth.users add column if not exists phone text;
+alter table auth.users add column if not exists phone_confirmed_at timestamptz;
 
 -- Le compte connecté, tel que PostgREST le pose sur la session.
 create or replace function auth.uid() returns uuid

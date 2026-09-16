@@ -40,6 +40,17 @@ const VueCompte = (() => {
         '<p class="aide" style="margin:10px 0 0">' +
           '<a href="#/mot-de-passe">Mot de passe oublié ?</a></p>' +
       "</div>" +
+      /* Sans mot de passe à retenir, et sans adresse e-mail à avoir : au
+         Bénin, beaucoup de clients ont un numéro et pas de courriel.
+         Fermer la porte à ceux-là, c'est fermer la boutique. */
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
+          " Sans mot de passe</div>" +
+        '<p class="aide" style="margin:0 0 10px">Recevez un code par SMS sur ' +
+          "votre téléphone. Pas d'adresse e-mail à retenir.</p>" +
+        '<a class="btn btn-clair" href="#/connexion-tel">' + UI.icone("telephone") +
+          "Entrer avec mon numéro</a>" +
+      "</div>" +
       '<div class="carte">' +
         '<div class="carte-titre">Pas encore de compte ?</div>' +
         '<p class="aide" style="margin:0 0 10px">Avec un compte, vous retrouvez vos ' +
@@ -162,6 +173,113 @@ const VueCompte = (() => {
     });
   }
 
+  /* ---------- Entrer par son numéro ----------
+
+     Deux temps sur un seul écran : le numéro, puis le code. Les séparer
+     en deux adresses ferait perdre le numéro à qui touche « retour »
+     pendant qu'il cherche le SMS — et c'est exactement ce qu'on fait,
+     tous, en attendant un code. */
+
+  function connexionTel(vue) {
+    UI.entete({ titre: "Entrer avec mon numéro", retour: true });
+
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<p class="aide" style="margin:0 0 10px">Nous vous envoyons un code par ' +
+          "SMS. Pas de mot de passe à retenir.</p>" +
+        '<div class="champ"><label for="cp-tel">Votre numéro</label>' +
+          '<div class="cp-tel-ligne"><span class="cp-indicatif">+229</span>' +
+            '<input id="cp-tel" type="tel" inputmode="tel" autocomplete="tel-national" ' +
+              'placeholder="01 97 12 15 96"></div></div>' +
+        '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("telephone") +
+          "Recevoir mon code</button>" +
+      "</div>" +
+      '<div class="carte">' +
+        '<p class="aide" style="margin:0">Vous avez une adresse e-mail ? ' +
+          '<a href="#/connexion">Se connecter autrement</a></p>' +
+      "</div>";
+
+    UI.$("#cp-envoyer").addEventListener("click", async () => {
+      const tel = UI.$("#cp-tel").value;
+      const bouton = UI.$("#cp-envoyer");
+      bouton.disabled = true;
+      try {
+        await Compte.demanderCodeConnexion(tel, "");
+        ecranCode(vue, {
+          tel,
+          titre: "Entrer avec mon numéro",
+          renvoyer: () => Compte.demanderCodeConnexion(tel, ""),
+          valider: (code) => Compte.confirmerCodeConnexion(tel, code),
+          apres: () => { UI.toast("Bonjour !"); repartir(); },
+        });
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+        bouton.disabled = false;
+      }
+    });
+  }
+
+  /**
+   * L'écran du code, partagé par les deux portes : entrer par son
+   * numéro, et vérifier son numéro depuis son compte. Un seul écran pour
+   * les deux — le client ne voit aucune différence, et il n'y en a
+   * aucune de son côté.
+   */
+  function ecranCode(vue, o) {
+    UI.entete({ titre: o.titre, retour: true });
+
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<p class="aide" style="margin:0 0 12px">Un code à six chiffres part vers le ' +
+          "<strong>" + Utils.echapper(Compte.telAffichage(o.tel)) + "</strong>. " +
+          "Il expire dans quelques minutes.</p>" +
+        '<div class="champ"><label for="cp-code">Votre code</label>' +
+          '<input id="cp-code" class="cp-code" type="text" inputmode="numeric" ' +
+            'autocomplete="one-time-code" maxlength="6" placeholder="000000"></div>' +
+        '<button type="button" class="btn" id="cp-valider">' + UI.icone("check") +
+          "Valider</button>" +
+        '<p class="aide" style="margin:12px 0 0">Rien reçu ? ' +
+          '<a href="#" id="cp-renvoyer">Renvoyer le code</a></p>' +
+      "</div>";
+
+    const champ = UI.$("#cp-code");
+    champ.focus();
+
+    const valider = async () => {
+      const code = champ.value.replace(/\D/g, "");
+      if (code.length < 4) return UI.toast("Tapez le code reçu par SMS.", "alerte");
+      const bouton = UI.$("#cp-valider");
+      bouton.disabled = true;
+      try {
+        await o.valider(code);
+        o.apres();
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+        bouton.disabled = false;
+        champ.select();
+      }
+    };
+
+    UI.$("#cp-valider").addEventListener("click", valider);
+    champ.addEventListener("keydown", (e) => { if (e.key === "Enter") valider(); });
+    /* Six chiffres tapés : on valide sans attendre qu'on cherche le
+       bouton. Le code n'a qu'une seule forme possible. */
+    champ.addEventListener("input", () => {
+      champ.value = champ.value.replace(/\D/g, "").slice(0, 6);
+      if (champ.value.length === 6) valider();
+    });
+
+    UI.$("#cp-renvoyer").addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        await o.renvoyer();
+        UI.toast("Nouveau code envoyé.");
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+      }
+    });
+  }
+
   /** Une des deux cartes du choix « pour moi / pour revendre ». */
   function choixCompte(valeur, icone, titre, aide) {
     return (
@@ -230,7 +348,7 @@ const VueCompte = (() => {
 
     vue.innerHTML =
       '<div class="carte">' +
-        '<div class="carte-titre">' + Utils.echapper(Compte.courriel()) + "</div>" +
+        '<div class="carte-titre">' + Utils.echapper(Compte.identite()) + "</div>" +
         '<div class="champ"><label for="cp-nom">Votre nom</label>' +
           '<input id="cp-nom" type="text" autocomplete="name" value="' +
             Utils.echapper(moi.nom || "") + '"></div>' +
@@ -238,10 +356,13 @@ const VueCompte = (() => {
           '<input id="cp-tel" type="tel" inputmode="tel" autocomplete="tel" value="' +
             Utils.echapper(moi.tel || "") + '"' + (moi.tel_verifie ? " disabled" : "") + ">" +
           (moi.tel_verifie
-            ? '<p class="aide" style="margin:6px 0 0">' + UI.icone("check", "ic-sm") +
+            ? '<p class="aide cp-verifie" style="margin:6px 0 0">' + UI.icone("check", "ic-sm") +
               " Numéro vérifié. Il sert à retrouver vos commandes.</p>"
-            : '<p class="aide" style="margin:6px 0 0">Vérifiez-le pour retrouver ' +
-              "les commandes passées avec ce numéro.</p>") +
+            : '<p class="aide" style="margin:6px 0 0">Un numéro vérifié vous rend les ' +
+              "commandes passées avec lui, avant même d'avoir un compte.</p>" +
+              '<button type="button" class="btn btn-clair" id="cp-verifier" ' +
+                'style="margin-top:8px">' + UI.icone("telephone") +
+                "Vérifier par SMS</button>") +
         "</div>" +
         '<div class="champ"><label for="cp-adresse">Adresse de livraison</label>' +
           '<input id="cp-adresse" type="text" autocomplete="street-address" value="' +
@@ -253,6 +374,11 @@ const VueCompte = (() => {
       '<div class="carte">' +
         '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
           "Mes commandes</a>" +
+        (moi.tel_verifie
+          ? '<button type="button" class="btn btn-clair" id="cp-reprendre" ' +
+            'style="margin-top:10px">' + UI.icone("actualiser") +
+            "Retrouver mes commandes d'avant</button>"
+          : "") +
       "</div>" +
       '<div class="carte">' +
         '<button type="button" class="btn btn-clair" id="cp-sortir">' + UI.icone("retour") +
@@ -260,6 +386,7 @@ const VueCompte = (() => {
       "</div>";
 
     brancherRevendeur(vue);
+    brancherVerification(vue, moi);
 
     UI.$("#cp-enregistrer").addEventListener("click", async () => {
       const bouton = UI.$("#cp-enregistrer");
@@ -377,5 +504,75 @@ const VueCompte = (() => {
     }
   }
 
-  return { connexion, inscription, motDePasse, monCompte, revenirVers };
+  /* ---------- Vérifier son numéro depuis son compte ----------
+
+     Ce que cela ouvre : les commandes passées avec ce numéro AVANT
+     d'avoir un compte. C'est pour cela que le drapeau ne s'écrit pas
+     depuis l'application — il suffirait sinon de taper le numéro d'un
+     voisin pour lire ses achats et son adresse. */
+
+  function brancherVerification(vue, moi) {
+    const bouton = UI.$("#cp-verifier", vue);
+    if (bouton) {
+      bouton.addEventListener("click", async () => {
+        const tel = UI.$("#cp-tel", vue).value;
+        if (Compte.telNational(tel).length < 8) {
+          return UI.toast("Tapez votre numéro avant de le vérifier.", "alerte");
+        }
+        bouton.disabled = true;
+        try {
+          await Compte.demanderCodeNumero(tel);
+          ecranCode(vue, {
+            tel,
+            titre: "Vérifier mon numéro",
+            renvoyer: () => Compte.demanderCodeNumero(tel),
+            valider: (code) => Compte.confirmerCodeNumero(tel, code),
+            apres: async () => {
+              UI.toast("Numéro vérifié.");
+              await proposerRattachement(vue);
+            },
+          });
+        } catch (err) {
+          UI.toast(err.message, "alerte");
+          bouton.disabled = false;
+        }
+      });
+    }
+
+    /* Un numéro vérifié dont les commandes d'avant n'ont pas encore été
+       réclamées : on le propose, plutôt que de le laisser deviner. */
+    const reprendre = UI.$("#cp-reprendre", vue);
+    if (reprendre) {
+      reprendre.addEventListener("click", () => proposerRattachement(vue));
+    }
+    return moi;
+  }
+
+  /**
+   * Retrouver ses commandes d'avant le compte.
+   *
+   * La base ne remonte pas au-delà de dix-huit mois : les opérateurs
+   * recyclent les numéros, et hériter d'une ligne ne doit pas faire
+   * hériter du passé de son ancien titulaire. On le dit quand il n'y a
+   * rien à reprendre, sinon l'absence de résultat passerait pour une
+   * panne.
+   */
+  async function proposerRattachement(vue) {
+    try {
+      const combien = await Compte.rattacherMesCommandes();
+      if (combien > 0) {
+        UI.toast(combien + " commande" + (combien > 1 ? "s" : "") + " retrouvée" +
+          (combien > 1 ? "s" : "") + ".");
+      } else {
+        UI.toast("Aucune commande à reprendre sur ce numéro.");
+      }
+    } catch (err) {
+      UI.toast(err.message, "alerte");
+    }
+    monCompte(vue);
+  }
+
+  return {
+    connexion, connexionTel, inscription, motDePasse, monCompte, revenirVers,
+  };
 })();

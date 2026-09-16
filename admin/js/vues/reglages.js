@@ -291,6 +291,29 @@ const VueReglages = (() => {
               UI.icone("personne") + "Comptes revendeurs</a>" +
             '<a class="btn btn-clair" href="#/validations" style="margin-top:10px">' +
               UI.icone("check") + "Demandes des boutiques</a>" +
+          "</div>" +
+
+          /* ---------- La passerelle SMS ----------
+             Tant qu'aucun SMS n'est parti pour de bon, on ne sait rien :
+             ni si la clé est bonne, ni si le nom d'expéditeur a été
+             validé chez CREATISINTER. Ce bouton envoie un VRAI SMS par
+             le chemin exact de la production. */
+          '<div class="carte">' +
+            '<div class="carte-titre">' + UI.icone("tel", "ic-sm") +
+              " Passerelle SMS</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">C\'est par elle que partent les ' +
+              "codes de connexion des clients. Envoyez-vous un SMS d'essai : c'est le " +
+              "seul moyen de savoir que la clé et le nom d'expéditeur sont bons avant " +
+              "de les confier aux clients.</p>" +
+            '<div class="champ"><label for="sms-numero">Numéro d\'essai</label>' +
+              '<input id="sms-numero" type="tel" inputmode="tel" placeholder="01 97 12 15 96"' +
+                ' value="' + Utils.echapper((courante || {}).tel || "") + '"></div>' +
+            '<button type="button" class="btn btn-clair" id="sms-essayer">' +
+              UI.icone("tel") + "Envoyer un SMS d'essai</button>" +
+            '<div id="sms-resultat"></div>' +
+            '<p class="aide" style="margin:12px 0 0">La clé vit dans les secrets ' +
+              "Supabase, jamais en base : elle n'est donc pas modifiable d'ici, et " +
+              "n'apparaît dans aucune sauvegarde.</p>" +
           "</div>"
         : "") +
 
@@ -991,6 +1014,49 @@ const VueReglages = (() => {
       bouton.onclick = () => {
         cible = bouton.dataset.cible;
         afficher(vue, params);
+      };
+    }
+
+    /* ---------- L'essai de la passerelle SMS ----------
+       On montre la réponse ENTIÈRE de CREATISINTER, pas seulement notre
+       verdict : un code « INVALID_SENDERID » ou « MISSING_PARAMETERS_TO »
+       nomme lui-même ce qui manque, là où « l'envoi a échoué » ferait
+       chercher partout. */
+    const essaiSms = UI.$("#sms-essayer", vue);
+    if (essaiSms) {
+      essaiSms.onclick = async () => {
+        const numero = UI.$("#sms-numero", vue).value;
+        const zone = UI.$("#sms-resultat", vue);
+        if (numero.replace(/\D/g, "").length < 8) {
+          return UI.toast("Tapez le numéro qui doit recevoir l'essai.", "err");
+        }
+        essaiSms.disabled = true;
+        zone.innerHTML = '<div class="aide" style="margin-top:12px">' +
+          '<span class="chargement-rond"></span> Envoi en cours…</div>';
+        try {
+          const r = await Supabase.fonctionEdge("tester-sms", { numero });
+          zone.innerHTML =
+            '<div class="sms-verdict ' + (r.ok ? "sms-ok" : "sms-ko") + '">' +
+              UI.icone(r.ok ? "check" : "alerte", "ic-sm") +
+              "<div><strong>" + Utils.echapper(r.ok ? "SMS accepté" : "Envoi refusé") +
+                "</strong><br>" + Utils.echapper(r.message || "") +
+                (r.code ? "<br><small>Code : " + Utils.echapper(r.code) + "</small>" : "") +
+                (r.expediteur
+                  ? "<br><small>Expéditeur : " + Utils.echapper(r.expediteur) + "</small>"
+                  : "") +
+              "</div></div>" +
+            /* La réponse brute, repliée : inutile au quotidien,
+               indispensable le jour où rien ne marche. */
+            '<details class="sms-brut"><summary>Réponse de la passerelle</summary>' +
+              "<pre>" + Utils.echapper(JSON.stringify(r.reponse_passerelle, null, 2)) +
+            "</pre></details>";
+          UI.toast(r.ok ? "SMS envoyé — regardez le téléphone" : "Envoi refusé", r.ok ? "ok" : "err");
+        } catch (err) {
+          zone.innerHTML = '<div class="sms-verdict sms-ko">' + UI.icone("alerte", "ic-sm") +
+            "<div>" + Utils.echapper(err.message) + "</div></div>";
+          UI.toast(err.message, "err");
+        }
+        essaiSms.disabled = false;
       };
     }
 
