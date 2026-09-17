@@ -660,6 +660,7 @@ impact-informatique-app/
 │   ├── comptes-clients.sql          # L'identité du client : compte, numéro vérifié, ses commandes
 │   ├── comptes-revendeurs.sql       # Client ou revendeur : qui achète au prix BIZZOO
 │   ├── verification-telephone.sql   # Le numéro vérifié par SMS, ancré sur GoTrue
+│   ├── mes-commandes.sql            # Droits par colonne : l'acheteur ne lit pas la marge
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

@@ -487,20 +487,46 @@ const VuePanier = (() => {
      Écran 3 — le reçu
      ===================================================== */
 
+  /* Deux libellés par état, et ce n'est pas une coquetterie : sur le
+     reçu, la phrase entière rassure — le client vient de payer et veut
+     savoir où il en est. Dans la LISTE, elle déborde de sa colonne et
+     passe à la ligne au milieu d'un mot. Le mot court y suffit : la
+     phrase entière l'attend en ouvrant la commande. */
   const ETATS = {
-    a_payer: { nom: "En attente de confirmation", classe: "badge-commande" },
-    payee: { nom: "Payée", classe: "badge-disponible" },
-    echouee: { nom: "Paiement non abouti", classe: "badge-rupture" },
-    annulee: { nom: "Annulée", classe: "badge-rupture" },
+    a_payer: { nom: "En attente de confirmation", court: "En attente", classe: "badge-commande" },
+    payee: { nom: "Payée", court: "Payée", classe: "badge-disponible" },
+    echouee: { nom: "Paiement non abouti", court: "Non abouti", classe: "badge-rupture" },
+    annulee: { nom: "Annulée", court: "Annulée", classe: "badge-rupture" },
   };
 
   async function recu(vue, id) {
-    const commande = Panier.commande(id);
+    /* Le téléphone d'abord : c'est instantané, et cela marche hors
+       connexion. Un client qui rouvre le reçu qu'il vient de recevoir
+       ne doit pas attendre un aller-retour réseau. */
+    let commande = Panier.commande(id);
     UI.entete({ titre: "Commande", retour: true, sous: commande ? commande.numero : "" });
+
+    /* Rien ici ? La commande a peut-être été passée depuis un AUTRE
+       téléphone. C'est exactement ce que le compte doit rattraper : on
+       va la demander à la base. Les règles de la base décident — un
+       identifiant de commande qui n'est pas le sien ne rend rien. */
+    if (!commande && typeof Compte !== "undefined" && Compte.connecte()) {
+      vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
+        "Lecture de la commande…</div>";
+      try {
+        commande = await Compte.commande(id);
+      } catch (_) { /* hors connexion, ou commande d'un autre */ }
+      if (commande) {
+        UI.entete({ titre: "Commande", retour: true, sous: commande.numero });
+      }
+    }
 
     if (!commande) {
       vue.innerHTML = UI.vide("alerte", "Commande introuvable",
-        "Elle a peut-être été passée depuis un autre téléphone.",
+        typeof Compte !== "undefined" && Compte.connecte()
+          ? "Elle n'appartient pas à ce compte, ou la connexion manque."
+          : "Elle a peut-être été passée depuis un autre téléphone. " +
+            "Connectez-vous pour retrouver vos commandes.",
         '<a class="btn btn-clair" href="#/">Retour à l\'accueil</a>');
       return;
     }
@@ -526,8 +552,15 @@ const VuePanier = (() => {
         && (commande.transaction || Paiement.fournisseur() === "feexpay")) {
       const etat = await Paiement.attendreConfirmation(commande.id, commande.client.tel);
       if (etat && (etat.etat !== commande.etat || etat.remarque)) {
-        const maj = Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
-        if (location.hash === "#/commande/" + id) dessinerRecu(vue, maj);
+        /* « majEtat » ne sait noter que ce que CE téléphone garde : une
+           commande lue dans la base n'y figure pas, et il rend null. On
+           met donc à jour l'objet qu'on a en main, et le téléphone en
+           plus quand il la connaît. Sans cela, un reçu ouvert depuis un
+           autre appareil se vidait à la confirmation du paiement. */
+        commande.etat = etat.etat;
+        commande.remarque = etat.remarque || "";
+        Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
+        if (location.hash === "#/commande/" + id) dessinerRecu(vue, commande);
       } else if (location.hash === "#/commande/" + id) {
         const attente = UI.$("#re-attente");
         if (attente) {
@@ -623,29 +656,121 @@ const VuePanier = (() => {
      Écran 4 — mes commandes
      ===================================================== */
 
+  /** Une commande, en résumé, dans la liste. */
+  function resumeHtml(c) {
+    const etat = ETATS[c.etat] || ETATS.a_payer;
+    return '<a class="carte re-resume" href="#/commande/' + Utils.echapper(c.id) + '">' +
+      "<div><div class=\"re-resume-numero\">" + Utils.echapper(c.numero) +
+        /* Une commande que la base ne connaît pas encore : elle ne vit
+           que sur ce téléphone. Le dire permet de comprendre ce qu'un
+           numéro vérifié irait rechercher. */
+        (c.depuisLaBase ? "" :
+          ' <span class="badge badge-local">' + UI.icone("telephone", "ic-sm") +
+          "Ce téléphone</span>") +
+      "</div>" +
+      '<div class="re-resume-date">' +
+        Utils.echapper(Utils.fmtDateHeure(new Date(c.gardeeLe || Date.now()).toISOString())) +
+      "</div></div>" +
+      '<div style="text-align:right">' +
+        "<div><strong>" + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</strong></div>" +
+        '<span class="badge ' + etat.classe + '">' +
+          Utils.echapper(etat.court || etat.nom) + "</span>" +
+      "</div></a>";
+  }
+
+  /**
+   * Mes commandes.
+   *
+   * DEUX SOURCES, ET IL FAUT LES DEUX. La base porte l'historique du
+   * COMPTE : il suit le client d'un téléphone à l'autre, et c'est tout
+   * l'intérêt d'avoir un compte. Le téléphone, lui, garde ce qu'il a vu
+   * passer — y compris les commandes faites sans compte, que la base
+   * n'attribue à personne tant que le numéro n'est pas vérifié.
+   *
+   * On montre donc les deux, la base d'abord. Et hors connexion, on
+   * garde ce qu'on a : un écran vide ferait croire à un historique
+   * perdu.
+   */
   async function mesCommandes(vue) {
-    const liste = Panier.mesCommandes();
     UI.entete({ titre: "Mes commandes", retour: true });
+
+    const local = Panier.mesCommandes();
+    const connecte = typeof Compte !== "undefined" && Compte.connecte();
+
+    if (connecte) {
+      vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
+        "Lecture de vos commandes…</div>";
+    }
+
+    let base = [];
+    let injoignable = false;
+    if (connecte) {
+      try {
+        base = await Compte.mesCommandes();
+      } catch (_) {
+        injoignable = true;
+      }
+    }
+
+    /* La base gagne sur le téléphone : son état est le vrai. Une
+       commande payée il y a une heure peut être marquée « en attente »
+       dans une copie locale qui n'a pas été rouverte depuis. */
+    const vues = new Set(base.map((c) => c.id));
+    const liste = base.concat(local.filter((c) => !vues.has(c.id)))
+      .sort((a, b) => (b.gardeeLe || 0) - (a.gardeeLe || 0));
 
     if (!liste.length) {
       vue.innerHTML = UI.vide("boite", "Aucune commande",
-        "Les commandes que vous passerez depuis ce téléphone s'afficheront ici.",
-        '<a class="btn" href="#/">Parcourir les boutiques</a>');
+        connecte
+          ? "Vos commandes s'afficheront ici, sur tous vos téléphones."
+          : "Les commandes passées depuis ce téléphone s'afficheront ici.",
+        '<a class="btn" href="#/">Parcourir les boutiques</a>') +
+        invitation(connecte, local);
       return;
     }
 
-    vue.innerHTML = liste.map((c) => {
-      const etat = ETATS[c.etat] || ETATS.a_payer;
-      return '<a class="carte re-resume" href="#/commande/' + Utils.echapper(c.id) + '">' +
-        "<div><div class=\"re-resume-numero\">" + Utils.echapper(c.numero) + "</div>" +
-        '<div class="re-resume-date">' +
-          Utils.echapper(Utils.fmtDateHeure(new Date(c.gardeeLe || Date.now()).toISOString())) +
-        "</div></div>" +
-        '<div style="text-align:right">' +
-          "<div><strong>" + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</strong></div>" +
-          '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.nom) + "</span>" +
-        "</div></a>";
-    }).join("");
+    vue.innerHTML =
+      (injoignable
+        ? '<div class="note-hors-ligne">' + UI.icone("wifi", "ic-sm") +
+          "Hors connexion : voici ce que garde ce téléphone. Vos autres commandes " +
+          "reviendront dès que la connexion revient.</div>"
+        : "") +
+      liste.map(resumeHtml).join("") +
+      invitation(connecte, local.filter((c) => !vues.has(c.id)));
+  }
+
+  /**
+   * L'invitation qui va avec la situation du client, et rien d'autre.
+   *
+   * Sans compte : en créer un. Avec un compte mais un numéro non
+   * vérifié, et des commandes qui ne vivent que sur ce téléphone : les
+   * rattacher. Et quand il n'y a rien à proposer, on ne propose rien —
+   * une invitation qui revient sans raison devient du décor.
+   */
+  function invitation(connecte, orphelines) {
+    if (!connecte) {
+      return '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("compte", "ic-sm") +
+          " Retrouvez-les partout</div>" +
+        '<p class="aide" style="margin:0 0 10px">Sans compte, cet historique vit sur ce ' +
+          "téléphone seulement : changez d'appareil, et il disparaît.</p>" +
+        '<a class="btn btn-clair" href="#/connexion">' + UI.icone("compte") +
+          "Créer mon compte</a>" +
+      "</div>";
+    }
+    if (!orphelines.length) return "";
+    const moi = Compte.moi();
+    if (moi && moi.tel_verifie) return "";
+    return '<div class="carte">' +
+      '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
+        " " + orphelines.length + " commande" + (orphelines.length > 1 ? "s" : "") +
+        " sur ce téléphone seulement</div>" +
+      '<p class="aide" style="margin:0 0 10px">Vérifiez votre numéro : les commandes ' +
+        "passées avec lui rejoindront votre compte, et vous les retrouverez sur " +
+        "n'importe quel téléphone.</p>" +
+      '<a class="btn btn-clair" href="#/compte">' + UI.icone("telephone") +
+        "Vérifier mon numéro</a>" +
+    "</div>";
   }
 
   return { afficher, commander, recu, mesCommandes };

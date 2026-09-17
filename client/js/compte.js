@@ -361,6 +361,107 @@ const Compte = (() => {
     return Number(combien) || 0;
   }
 
+  /* ---------- L'historique, celui qui suit le client ----------
+
+     Jusqu'ici « Mes commandes » lisait le téléphone. Changez d'appareil,
+     perdez-le, videz son stockage — et l'historique disparaissait. C'est
+     précisément ce que le compte devait résoudre.
+
+     Ce que la base rend ici, c'est ce que les RÈGLES de la base laissent
+     lire : « commandes lecture client » ne montre qu'une commande dont
+     « client_id » est le compte connecté. Il n'y a donc rien à filtrer
+     de ce côté-ci, et rien à vérifier : demander les commandes d'un
+     autre ne rend aucune ligne.
+
+     Les commandes rentrent dans la forme que les écrans attendent déjà —
+     celle que « creer_commande » rend au moment de commander. Un reçu
+     lu depuis la base et un reçu gardé sur le téléphone s'affichent donc
+     par le même code. */
+
+  /** Le nom d'une boutique, tel que le catalogue le connaît. */
+  function boutiqueDe(id) {
+    if (typeof Catalogue === "undefined") return null;
+    return (Catalogue.boutiques() || []).find((b) => b.id === id) || null;
+  }
+
+  /**
+   * Une ligne de « commandes » remise dans la forme des écrans.
+   *
+   * Les lignes sont regroupées par boutique, comme au moment de
+   * commander : une commande peut traverser plusieurs boutiques de
+   * l'enseigne, et le client veut savoir qui prépare quoi.
+   */
+  function commandeDepuisBase(l) {
+    const parBoutique = new Map();
+    for (const x of (l.commande_lignes || [])) {
+      const cle = x.boutique_id || "";
+      if (!parBoutique.has(cle)) {
+        const b = boutiqueDe(cle);
+        parBoutique.set(cle, {
+          id: cle,
+          nom: (b && b.nom) || "Boutique",
+          whatsapp: (b && b.whatsapp) || "",
+          indicatif: (b && b.indicatif) || "229",
+          montant: 0,
+          lignes: [],
+        });
+      }
+      const groupe = parBoutique.get(cle);
+      const prix = Number(x.prix) || 0;
+      const quantite = Number(x.quantite) || 1;
+      groupe.montant += prix * quantite;
+      groupe.lignes.push({
+        nom: x.nom || "", code: x.code || "", reference: x.reference || "",
+        prix, quantite,
+      });
+    }
+
+    return {
+      id: l.id,
+      numero: l.numero || "",
+      total: Number(l.total) || 0,
+      devise: l.devise || "FCFA",
+      etat: l.etat || "a_payer",
+      remarque: l.remarque || "",
+      client: {
+        nom: l.client_nom || "", tel: l.client_tel || "",
+        indicatif: l.client_indicatif || "229",
+        adresse: l.client_adresse || "", note: l.note || "",
+      },
+      boutiques: [...parBoutique.values()].sort((a, b) => b.montant - a.montant),
+      /* La date de la BASE, pas celle du téléphone : c'est la même pour
+         tous les appareils du client, et c'est la seule qui ait un sens
+         pour une commande qu'il n'a pas passée d'ici. */
+      gardeeLe: Date.parse(l.cree_le || "") || 0,
+      revendeur: !!l.revendeur,
+      /* Ce qui vient de la base ne se réécrit pas sur le téléphone. */
+      depuisLaBase: true,
+    };
+  }
+
+  const CHAMPS_COMMANDE =
+    "id,numero,total,devise,etat,remarque,note,cree_le,revendeur," +
+    "client_nom,client_tel,client_indicatif,client_adresse," +
+    "commande_lignes(boutique_id,nom,code,reference,prix,quantite)";
+
+  /** Les commandes de ce compte, les plus récentes d'abord. */
+  async function mesCommandes(combien) {
+    if (!session) return [];
+    const lignes = await rest("GET",
+      "commandes?select=" + CHAMPS_COMMANDE +
+      "&order=cree_le.desc&limit=" + (Number(combien) || 50));
+    return (lignes || []).map(commandeDepuisBase);
+  }
+
+  /** Une commande précise — pour un reçu que ce téléphone n'a pas gardé. */
+  async function commande(id) {
+    if (!session || !id) return null;
+    const lignes = await rest("GET",
+      "commandes?select=" + CHAMPS_COMMANDE +
+      "&id=eq." + encodeURIComponent(id) + "&limit=1");
+    return lignes && lignes.length ? commandeDepuisBase(lignes[0]) : null;
+  }
+
   /* ---------- La fiche client ---------- */
 
   async function rest(methode, chemin, corps, entetesEnPlus) {
@@ -590,5 +691,6 @@ const Compte = (() => {
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
+    mesCommandes, commande,
   };
 })();

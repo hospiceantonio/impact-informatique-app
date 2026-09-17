@@ -1144,7 +1144,15 @@ const Store = (() => {
    */
   async function listerCommandes(options) {
     const o = options || {};
-    let chemin = "commandes?select=*,commande_lignes(*)&order=cree_le.desc" +
+    /* Les colonnes sont NOMMÉES, pas prises en bloc. La base ne laisse
+       plus « commande_lignes(*) » à un compte connecté : le prix d'achat
+       de la boutique et la marge de l'enseigne y vivent, et un acheteur
+       connecté lit ses propres lignes depuis que les comptes clients
+       existent. Ces deux chiffres-là arrivent par
+       « statistiques_ventes() », qui vérifie qui appelle. */
+    let chemin = "commandes?select=*,commande_lignes(" +
+      "id,boutique_id,produit_id,nom,code,reference,prix,quantite,etat" +
+      ")&order=cree_le.desc" +
       "&limit=" + (o.combien || 100);
     if (o.etat) chemin += "&etat=eq." + encodeURIComponent(o.etat);
     const lignes = await Supabase.requete("GET", chemin, undefined, { avecSession: true });

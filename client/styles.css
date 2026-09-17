@@ -194,7 +194,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:16px;
   box-shadow:var(--ombre);
 }
-.carte-titre{font-size:15px;font-weight:700;margin-bottom:12px}
+/* Les icônes sont des « svg », donc des blocs : sans cette ligne, une
+   icône en tête de titre se posait SEULE au-dessus du texte. */
+.carte-titre{
+  display:flex;align-items:center;gap:6px;
+  font-size:15px;font-weight:700;margin-bottom:12px;
+}
 
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
@@ -932,6 +937,10 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .re-resume-numero{font-size:14px;font-weight:800}
 .re-resume-date{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
+/* La colonne de droite ne se laisse pas écraser par un long numéro de
+   commande : le montant et l'état tiennent sur une ligne chacun. */
+.re-resume > div:last-child{flex:none;white-space:nowrap}
+.re-resume > div:first-child{min-width:0}
 
 /* ---------- Formulaire (coordonnées de commande) ---------- */
 .champ{margin-bottom:14px}
@@ -1083,3 +1092,10 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .cp-verifie{display:flex;align-items:center;gap:5px;color:var(--vert);font-weight:700}
 .cp-verifie .ic{color:var(--vert)}
+
+/* Une commande que la base ne connaît pas : elle ne vit que sur ce
+   téléphone. Discret — c'est une information, pas un avertissement. */
+.badge-local{
+  background:var(--fond);color:var(--encre-tres-douce);
+  font-weight:700;margin-left:6px;vertical-align:middle;
+}

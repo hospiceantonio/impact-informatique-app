@@ -207,7 +207,18 @@ with controles(rang, element, ok) as (values
        where n.nspname = 'public' and p.proname = 'tel_national')),
   (37, 'Rattraper une confirmation manquée (reconcilier_numeros_verifies)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'reconcilier_numeros_verifies'))
+       where n.nspname = 'public' and p.proname = 'reconcilier_numeros_verifies')),
+
+  -- ---------- Mes commandes ----------
+  -- Depuis que le client se connecte, il lit ses propres lignes de
+  -- commande. Une règle RLS décide des LIGNES qu'il voit, jamais des
+  -- COLONNES : sans droits par colonne, il lit aussi ce que la boutique
+  -- a payé sa marchandise. Ce contrôle-ci doit être VRAI.
+  (38, 'Le prix d''achat de la boutique reste fermé à l''acheteur', not exists (
+      select 1 from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'commande_lignes'
+         and grantee = 'authenticated' and privilege_type = 'SELECT'
+         and column_name in ('prix_bizzoo', 'taux_marge')))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

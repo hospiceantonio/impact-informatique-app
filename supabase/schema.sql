@@ -1901,6 +1901,30 @@ create policy "lignes lecture client" on public.commande_lignes
   for select to authenticated
   using (public.ma_commande(commande_id));
 
+-- ---------- Et une règle ne ferme pas une COLONNE ----------
+-- La règle ci-dessus décide quelles LIGNES un client voit. Elle les
+-- rend alors ENTIÈRES — prix d'achat de la boutique compris. Or
+-- « prix_bizzoo » est ce que la boutique a touché, et « taux_marge »
+-- la part de l'enseigne : montrer l'un ou l'autre à l'acheteur, c'est
+-- lui donner la marge faite sur ce qu'il vient de payer.
+--
+-- Avant les comptes clients, personne hors de l'équipe ne lisait cette
+-- table et la question ne se posait pas. Depuis, il faut des droits par
+-- colonne — le banc l'a trouvé en éprouvant l'historique.
+--
+-- L'enseigne ne perd rien : ses chiffres passent par
+-- « statistiques_ventes() », qui s'exécute avec les droits de son
+-- propriétaire et ignore ces restrictions.
+revoke select on public.commande_lignes from authenticated;
+grant select (
+  id, commande_id, boutique_id, produit_id,
+  nom, code, reference, prix, quantite, etat, cree_le
+) on public.commande_lignes to authenticated;
+revoke all on public.commande_lignes from anon;
+-- L'équipe avance l'état de sa ligne, et rien d'autre : « ligne_verrous »
+-- refuse déjà le reste, ceci le refuse une seconde fois.
+grant update (etat) on public.commande_lignes to authenticated;
+
 create policy "commandes suivi" on public.commandes
   for update to authenticated
   using (public.est_super()) with check (public.est_super());
