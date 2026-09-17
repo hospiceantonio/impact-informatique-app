@@ -324,7 +324,27 @@ with controles(rang, element, ok) as (values
   (57, 'Changer la marge recalcule les prix (boutiques_prix_a_jour)', exists (
       select 1 from pg_trigger tr join pg_class c on c.oid = tr.tgrelid
        where not tr.tgisinternal and c.relname = 'boutiques'
-         and tr.tgname = 'boutiques_prix_a_jour'))
+         and tr.tgname = 'boutiques_prix_a_jour')),
+
+  -- ---------- Chaque boutique voit ce qu'elle vend ----------
+  (58, 'Une boutique lit ses propres ventes (statistiques_boutique)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'statistiques_boutique')),
+  -- Et elle ne lit QUE les siennes : deux paramètres, deux dates. Si un
+  -- troisième apparaissait, ce serait un paramètre « boutique » — donc
+  -- la possibilité de viser la voisine.
+  (59, 'Et seulement les siennes : la boutique ne se choisit pas', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'statistiques_boutique'
+         and p.pronargs = 2)),
+  -- Les chiffres de l'enseigne ne sont pas dans le résultat. Pas
+  -- « masqués à l'écran » : absents.
+  (60, 'Ni la marge ni le bénéfice n''en sortent', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'statistiques_boutique'
+         and pg_get_function_result(p.oid) not like '%taux_marge%'
+         and pg_get_function_result(p.oid) not like '%benefice%'
+         and pg_get_function_result(p.oid) not like '%prix_vente%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

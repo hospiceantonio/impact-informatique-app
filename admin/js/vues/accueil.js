@@ -158,19 +158,26 @@ const VueAccueil = (() => {
         "</a>";
     }
 
-    /* ---- Ce que les boutiques rapportent ----
-       La question que se pose l'enseigne en ouvrant l'application : les
-       ventes encaissées, et ce qu'elle en garde. Réservée à elle. */
-    if (Supabase.estSuper()) {
-      html +=
-        '<a class="carte carte-benefice" href="#/statistiques">' +
+    /* ---- Les ventes encaissées ----
+       La question qu'on se pose en ouvrant l'application. Mais pas la
+       même selon qui ouvre : l'enseigne veut savoir ce qu'elle garde,
+       une boutique ce qui lui revient. Deux écrans, deux fonctions en
+       base — ici on n'annonce à chacun que le sien. */
+    html += Supabase.estSuper()
+      ? '<a class="carte carte-benefice" href="#/statistiques">' +
           '<div class="carte-titre">' + UI.icone("promo", "ic-sm") +
             " Ce que rapportent les boutiques</div>" +
           '<p class="aide" style="margin:0">Les ventes encaissées, produit par produit : ' +
             "prix BIZZOO, marge, prix de vente et bénéfice. Filtrable par boutique et par " +
             "période.</p>" +
+        "</a>"
+      : '<a class="carte carte-benefice" href="#/statistiques">' +
+          '<div class="carte-titre">' + UI.icone("promo", "ic-sm") +
+            " Ce que vend votre boutique</div>" +
+          '<p class="aide" style="margin:0">Vos ventes encaissées, produit par produit, ' +
+            "et ce qui vous revient au prix BIZZOO. Sur 7 jours, 30 jours, le mois ou " +
+            "depuis le début.</p>" +
         "</a>";
-    }
 
     /* ---- Chiffres clés ---- */
     html +=

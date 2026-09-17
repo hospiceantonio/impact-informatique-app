@@ -1008,6 +1008,9 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
   margin-top:16px;padding-top:14px;border-top:1px solid var(--trait);
 }
+/* L'écran d'une boutique n'a que deux chiffres à mettre là : sans cela,
+   ils resteraient calés à gauche avec un vide à droite. */
+.st-resume-detail.deux{grid-template-columns:repeat(2,1fr)}
 .st-resume-detail small{display:block;font-size:11px;color:var(--encre-tres-douce)}
 .st-resume-detail span{font-size:14px;font-weight:800}
 

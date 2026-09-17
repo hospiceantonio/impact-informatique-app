@@ -29,7 +29,12 @@
        montre à chacun que ce qui la concerne. Trancher un recours
        reste à l'enseigne, et le bouton ne s'affiche que pour elle. */
     { motif: /^\/sav$/, vue: (v) => VueSAV.afficher(v) },
-    { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v), super: true },
+    /* Les chiffres : toute l'équipe y entre, mais pas sur le même écran.
+       L'enseigne voit les marges et les bénéfices de toutes les
+       boutiques ; une boutique ne voit que ce qu'elle a vendu et ce qui
+       lui revient. Ce sont deux fonctions différentes en base, et c'est
+       la base qui refuse la première aux boutiques. */
+    { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v) },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },

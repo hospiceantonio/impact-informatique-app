@@ -1490,6 +1490,32 @@ const Store = (() => {
     }));
   }
 
+  /* ---------- Ce que MA boutique a vendu ----------
+     Une seconde fonction en base, volontairement plus pauvre : ce que la
+     boutique a vendu et ce qui lui revient. Pas le prix payé par le
+     client, pas la marge, pas le bénéfice de l'enseigne — ces colonnes
+     ne sont pas masquées ici, elles ne sortent pas de la base.
+
+     Et pas de paramètre « boutique » non plus : la base prend toujours
+     celle du compte connecté. On ne peut donc pas viser la voisine, même
+     en modifiant l'application. */
+
+  async function statistiquesBoutique({ depuis, jusqu } = {}) {
+    const lignes = await Supabase.rpcLecture("statistiques_boutique", {
+      depuis: depuis || null,
+      jusqu: jusqu || null,
+    });
+    return (lignes || []).map((l) => ({
+      produitId: l.produit_id || "",
+      code: l.code || "",
+      nom: l.nom || "",
+      quantite: Number(l.quantite) || 0,
+      nbVentes: Number(l.nb_ventes) || 0,
+      prixBizzoo: Number(l.prix_bizzoo) || 0,
+      totalBizzoo: Number(l.total_bizzoo) || 0,
+    }));
+  }
+
   /** Le filtre « seulement ma boutique », ajouté à chaque lecture. */
   const filtreBoutique = () =>
     (boutiqueId ? "boutique_id=eq." + encodeURIComponent(boutiqueId) : "");
@@ -2551,6 +2577,7 @@ const Store = (() => {
     repondreReclamation, trancherReclamation,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
     statistiquesVentes,
+    statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,

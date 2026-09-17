@@ -410,6 +410,36 @@ commission prise sur ses voisins. Un produit vendu à deux tarifs
 différents fait deux lignes, et non une moyenne qui ne correspondrait à
 aucune vente réelle.
 
+### Ce que vend votre boutique
+
+Une boutique, elle, ouvre le **même écran** et voit le sien : ce qu'elle
+a vendu, et ce qui lui revient au prix BIZZOO. Ni le prix payé par le
+client, ni le taux de marge, ni le bénéfice de l'enseigne.
+
+Ce sont deux fonctions distinctes, et la seconde est délibérément plus
+pauvre :
+
+| | `statistiques_ventes()` | `statistiques_boutique()` |
+|---|---|---|
+| Qui | l'enseigne | toute l'équipe |
+| Portée | toutes les boutiques | celle du compte, toujours |
+| Paramètres | dates **+ boutique** | dates seulement |
+| Colonnes | prix de vente, marge, bénéfice | prix BIZZOO et total |
+
+Les colonnes de l'enseigne ne sont pas *masquées à l'écran* : elles ne
+sont pas dans le résultat. Une colonne qu'on se contente de cacher se
+relit avec n'importe quel outil — c'est le défaut qui laissait autrefois
+l'acheteur lire la marge sur sa propre commande.
+
+Et il n'y a **pas de paramètre `boutique`** : c'est toujours celle du
+compte connecté. Un paramètre serait une invitation à viser la voisine,
+et il faudrait le défendre à chaque appel. Choisir l'écran selon le rang
+n'est donc qu'une politesse ; la serrure est dans la base, et
+`tests/99b-statistiques-boutique.sql` la force à chaque livraison —
+deux boutiques dans **une même commande**, et chacune n'y lit que sa
+part. Ni un panier abandonné ni une ligne que la boutique a annulée n'y
+entrent.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
@@ -918,6 +948,7 @@ impact-informatique-app/
 │   ├── marge-revendeur.sql          # Ce que rapporte une vente à un revendeur
 │   ├── position-revendeur.sql       # Où se trouve le commerce d'un revendeur
 │   ├── marge-appliquee.sql          # La marge change, les prix de la vitrine suivent
+│   ├── statistiques-boutique.sql    # Chaque boutique voit ses ventes, et rien de l'enseigne
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

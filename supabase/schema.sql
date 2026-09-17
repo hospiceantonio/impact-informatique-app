@@ -2694,6 +2694,81 @@ end $$;
 revoke all on function public.statistiques_ventes(date, date, text) from public, anon;
 grant execute on function public.statistiques_ventes(date, date, text) to authenticated;
 
+-- ---------- Et ce que la BOUTIQUE, elle, a vendu ----------
+-- La fonction ci-dessus est celle de l'enseigne : elle porte le prix de
+-- vente, le taux de marge et le bénéfice de BIZZOO, sur toutes les
+-- boutiques. Une boutique n'a rien à y lire — ni chez elle, ni surtout
+-- chez les autres.
+--
+-- Mais une boutique a besoin de savoir ce qu'elle vend. Celle-ci lui
+-- rend SES chiffres, et rien d'autre :
+--
+--   CE QU'ELLE A VENDU — quels articles, combien d'unités, sur combien
+--     de commandes ;
+--   CE QU'ELLE TOUCHE — le prix BIZZOO, celui qu'elle a elle-même
+--     annoncé en créant le produit, et le total qui lui revient.
+--
+-- CE QU'ELLE NE REND PAS, et c'est délibéré : le prix payé par le
+-- client, le taux de marge, le bénéfice de l'enseigne. Ce sont les
+-- chiffres de BIZZOO. Les colonnes ne sont pas seulement cachées à
+-- l'écran — elles ne sortent pas de la base.
+--
+-- LA BOUTIQUE NE SE CHOISIT PAS. Il n'y a pas de paramètre « boutique »
+-- ici, contrairement à la fonction de l'enseigne : c'est toujours celle
+-- du compte connecté. Un paramètre serait une invitation à viser la
+-- boutique d'à côté, et il faudrait alors le défendre à chaque appel.
+create or replace function public.statistiques_boutique(
+  depuis date default null,
+  jusqu  date default null)
+returns table (
+  produit_id   text,
+  code         text,
+  nom          text,
+  quantite     bigint,
+  nb_ventes    bigint,
+  prix_bizzoo  bigint,
+  total_bizzoo bigint
+)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  cible text := public.boutique_du_compte();
+begin
+  -- Un compte sans boutique — un client, ou un profil désactivé — n'a
+  -- aucun chiffre à lire. On rend zéro ligne plutôt qu'une erreur : le
+  -- même appel sert à tout le monde, et l'écran n'a pas à savoir
+  -- d'avance qui il sert.
+  --
+  -- Ce qui garde la porte ici, c'est « cible » : elle vient de
+  -- boutique_du_compte(), qui exige un profil ACTIF. Sans profil, elle
+  -- est nulle, et plus bas « l.boutique_id = cible » ne rend rien de
+  -- toute façon. Le est_equipe() est une ceinture par-dessus les
+  -- bretelles : il lit la même ligne, sous la même condition.
+  if not public.est_equipe() or coalesce(cible, '') = '' then
+    return;
+  end if;
+
+  return query
+    select l.produit_id,
+           l.code,
+           l.nom,
+           sum(l.quantite)::bigint,
+           count(distinct l.commande_id)::bigint,
+           l.prix_bizzoo::bigint,
+           (sum(l.quantite) * l.prix_bizzoo)::bigint
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+     -- Payée, et la ligne pas annulée : c'est cela, une vente.
+     where c.etat = 'payee'
+       and l.etat <> 'annulee'
+       and l.boutique_id = cible
+       and (depuis is null or c.paye_le >= depuis::timestamptz)
+       and (jusqu  is null or c.paye_le <  (jusqu + 1)::timestamptz)
+     group by l.produit_id, l.code, l.nom, l.prix_bizzoo
+     order by sum(l.quantite) * l.prix_bizzoo desc;
+end $$;
+revoke all on function public.statistiques_boutique(date, date) from public, anon;
+grant execute on function public.statistiques_boutique(date, date) to authenticated;
+
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,
 -- sans avoir à être fermée et rouverte. Sans risque à ré-exécuter.
