@@ -703,6 +703,53 @@ Deux pièges qui coûtent des heures :
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
   `user.phone` et le renvoyer tel quel échoue, toujours.
 
+## La marge sur les ventes aux revendeurs
+
+Un revendeur validé n'achète pas au prix public. Jusqu'à la version 3.23
+il achetait au **prix BIZZOO exact** — ce que la boutique veut toucher —
+et cela posait deux problèmes : **l'enseigne ne gagnait rien** sur ces
+ventes, et le revendeur **lisait article par article le prix BIZZOO**,
+que `produits_prive` existe précisément pour cacher.
+
+Il paie désormais un prix calculé, de l'une des deux façons. **Chaque
+boutique choisit la sienne**, dans sa fiche (Boutiques → Modifier) :
+
+| Mode | Calcul | Arrondi |
+|---|---|---|
+| `bizzoo` | prix BIZZOO **+** N % | aux 5 F **supérieurs** — la marge n'est jamais rabotée |
+| `public` | prix public **−** N % | aux 5 F **inférieurs** — la remise annoncée est tenue |
+
+Le taux part à **10 %** et se règle boutique par boutique. Un article
+négocié à part peut avoir **son propre taux**, depuis sa fiche : laissé
+vide, c'est celui de la boutique qui s'applique — la règle que
+`taux_marge` suit déjà.
+
+**Deux bornes, quel que soit le mode et quel que soit le taux saisi :**
+
+- **jamais sous le prix BIZZOO.** Une remise de 60 % sur un article dont
+  la marge est de 20 % ferait vendre à perte, et personne ne s'en
+  apercevrait avant les comptes ;
+- **jamais au-dessus du prix public.** Un revendeur qui paierait plus
+  cher qu'un client de passage n'aurait aucune raison de rester.
+
+Quand le prix public est *déjà* sous le prix BIZZOO — une fin de série
+soldée — les deux bornes se contredisent : **le plafond l'emporte**, la
+perte étant déjà consentie en vitrine.
+
+**Le taux appartient à l'enseigne.** `boutique_verrous` refuse à une
+boutique de changer son mode ou son taux, exactement comme pour
+`taux_marge` : une boutique qui pourrait le ramener à zéro revendrait au
+prix BIZZOO, et tout ceci n'aurait servi à rien. Le taux d'*un article*,
+lui, reste à la boutique — elle seule connaît ses négociations.
+
+**L'écran et la caisse calculent le même prix**, et c'est le constat
+principal de [`supabase/tests/98-marge-revendeur.sql`](supabase/tests/98-marge-revendeur.sql) :
+`mes_prix()` affiche, `ligne_a_l_ecriture()` facture, et les deux
+appellent `prix_revendeur()`. L'application admin en tient un aperçu en
+JavaScript (`Store.prixRevendeur`) pour montrer le résultat pendant la
+saisie — **c'est un aperçu, pas la règle** : les onze mêmes cas sont
+éprouvés des deux côtés, et si vous touchez à l'un, touchez à l'autre.
+
 ## Un compte pour commander
 
 Par défaut, **on commande sans compte** : un nom, un numéro, et la
@@ -769,6 +816,7 @@ impact-informatique-app/
 │   ├── avis.sql                     # Les avis, réservés à qui a payé ; la boutique répond
 │   ├── sav.sql                      # Le SAV : la boutique d'abord, BIZZOO en recours
 │   ├── compte-obligatoire.sql       # L'interrupteur « un compte pour commander » (éteint)
+│   ├── marge-revendeur.sql          # Ce que rapporte une vente à un revendeur
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

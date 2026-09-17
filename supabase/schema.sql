@@ -99,6 +99,12 @@ create table if not exists public.boutiques (
   adresses    jsonb not null default '[]'::jsonb,
   video       text not null default '',      -- vidéo de présentation
   taux_marge  numeric(6,2) not null default 20,
+  -- Ce que paie un revendeur validé. « bizzoo » : prix BIZZOO + N %.
+  -- « public » : prix public − N %. Chaque boutique choisit sa façon de
+  -- faire ; le taux, lui, se raffine produit par produit.
+  revendeur_mode  text not null default 'bizzoo'
+                  check (revendeur_mode in ('bizzoo', 'public')),
+  taux_revendeur  numeric(6,2) not null default 10,
   cree_le     timestamptz not null default now(),
   maj_le      timestamptz not null default now()
 );
@@ -109,6 +115,21 @@ alter table public.boutiques add column if not exists video text not null defaul
 -- sans elle, aucun prix de vente ne se calcule.
 alter table public.boutiques
   add column if not exists taux_marge numeric(6,2) not null default 20;
+-- La marge revendeur, pour la même raison. Une base d'avant vendait au
+-- prix BIZZOO exact ; ces deux colonnes-ci posent 10 % de marge sur le
+-- prix BIZZOO, que chaque boutique ajuste ensuite dans ses réglages.
+alter table public.boutiques
+  add column if not exists revendeur_mode text not null default 'bizzoo';
+alter table public.boutiques
+  add column if not exists taux_revendeur numeric(6,2) not null default 10;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'boutiques_revendeur_mode') then
+    alter table public.boutiques
+      add constraint boutiques_revendeur_mode
+      check (revendeur_mode in ('bizzoo', 'public'));
+  end if;
+end $$;
 -- La charte a changé : une boutique sans couleur choisie prend le bleu
 -- BIZZOO. Celles déjà enregistrées gardent la leur.
 alter table public.boutiques alter column couleur set default '#0B5CF5';
@@ -282,12 +303,21 @@ create index if not exists produits_en_avant on public.produits(en_avant) where 
 -- affiché aux clients reste « produits.prix », calculé à partir d'ici.
 --   prix public = prix_grossiste + taux %
 --   taux_marge à null : c'est le taux de la boutique qui s'applique.
+--
+-- « taux_revendeur » suit exactement la même règle, pour le prix des
+-- revendeurs validés : à null, c'est le taux de la boutique. Il est ici
+-- et non sur « produits » parce qu'il se déduit du prix BIZZOO, et que
+-- le prix BIZZOO ne descend jamais dans l'application cliente.
 create table if not exists public.produits_prive (
   produit_id     text primary key references public.produits(id) on delete cascade,
   prix_grossiste bigint not null default 0 check (prix_grossiste >= 0),
   taux_marge     numeric(6,2),
+  taux_revendeur numeric(6,2),
   maj_le         timestamptz not null default now()
 );
+-- Sur une base déjà en service, le corps ci-dessus n'est jamais relu.
+alter table public.produits_prive
+  add column if not exists taux_revendeur numeric(6,2);
 
 -- ---------- Slider de l'application client ----------
 -- Ce qui défile en haut de l'écran : des photos et des vidéos choisies
@@ -837,14 +867,79 @@ create policy "clients modification" on public.clients
 --
 -- Prix BIZZOO à zéro : la boutique ne l'a pas renseigné. Le produit
 -- reste alors au prix public — pour personne il ne devient gratuit.
-create or replace function public.prix_revendeur(prix_public int, prix_bizzoo int)
+--
+-- LA MARGE REVENDEUR. Vendre au prix BIZZOO exact ne rapportait rien à
+-- L'ENSEIGNE : la boutique touchait bien ce qu'elle voulait toucher, et
+-- BIZZOO ne prenait pas un franc au passage. Pire, le revendeur lisait
+-- article par article ce que la boutique touche — ce que
+-- « produits_prive » existe précisément pour cacher.
+--
+-- Le revendeur paie donc un prix CALCULÉ, de l'une des deux façons —
+-- chaque boutique choisit la sienne, dans ses réglages :
+--
+--   'bizzoo'  prix BIZZOO + N %. L'enseigne gagne sur chaque vente, et
+--             ce que la boutique touche cesse d'être lisible.
+--   'public'  prix public − N %. C'est ainsi qu'un revendeur raisonne :
+--             « j'ai N % de remise ».
+--
+-- Deux bornes, quel que soit le mode et quel que soit le taux saisi :
+--
+--   JAMAIS SOUS LE PRIX BIZZOO. Une remise de 60 % sur un produit dont
+--   la marge est de 20 % ferait vendre à perte, sans que personne ne
+--   s'en aperçoive avant les comptes.
+--   JAMAIS AU-DESSUS DU PRIX PUBLIC. Un revendeur qui paierait plus cher
+--   qu'un client de passage n'aurait aucune raison de rester.
+--
+-- Si le prix public est DÉJÀ sous le prix BIZZOO — une fin de série que
+-- la boutique solde — les deux bornes se contredisent. C'est le plafond
+-- qui l'emporte : la perte est déjà consentie en vitrine, et le
+-- revendeur paie le prix public.
+--
+-- Arrondi à 5 FCFA, la plus petite pièce qui circule. Vers le HAUT en
+-- mode « bizzoo » pour que la marge ne soit jamais rabotée, vers le BAS
+-- en mode « public » pour que la remise annoncée soit toujours tenue.
+--
+-- L'ancienne règle ne prenait que deux arguments. La laisser en place
+-- rendrait tout appel à deux arguments AMBIGU — PostgreSQL refuserait
+-- alors « function is not unique », et plus aucune commande ne
+-- passerait. On la retire donc avant de poser celle-ci.
+drop function if exists public.prix_revendeur(int, int);
+create or replace function public.prix_revendeur(
+  prix_public int,
+  prix_bizzoo int,
+  taux        numeric default 0,
+  mode        text    default 'bizzoo')
 returns int
 language sql immutable as $$
-  select case when coalesce(prix_bizzoo, 0) > 0
-              then prix_bizzoo
-              else coalesce(prix_public, 0) end;
+  with borne as (
+    select greatest(0, coalesce(prix_public, 0))::numeric as public,
+           greatest(0, coalesce(prix_bizzoo, 0))::numeric as achat,
+           -- Un taux hors de [0, 100] est une faute de saisie, pas une
+           -- intention : on le ramène, on ne refuse pas la vente.
+           greatest(0, least(100, coalesce(taux, 0)))      as t,
+           case when mode = 'public' then 'public' else 'bizzoo' end as m
+  ),
+  brut as (
+    select public, achat, m,
+           case when m = 'public' then public * (1 - t / 100)
+                                  else achat  * (1 + t / 100) end as p
+      from borne
+  ),
+  arrondi as (
+    select public, achat,
+           case when m = 'public' then floor(p / 5) * 5
+                                  else ceil (p / 5) * 5 end as p
+      from brut
+  )
+  select case when achat <= 0 then public::int
+              -- plancher au prix BIZZOO, PUIS plafond au prix public :
+              -- dans cet ordre, le plafond l'emporte quand les deux se
+              -- contredisent.
+              else least(public, greatest(p, achat))::int end
+    from arrondi;
 $$;
-revoke all on function public.prix_revendeur(int, int) from public, anon, authenticated;
+revoke all on function public.prix_revendeur(int, int, numeric, text)
+  from public, anon, authenticated;
 
 -- Le compte connecté est-il un revendeur VALIDÉ ? Demander ne suffit
 -- pas : seul « validee » ouvre les prix.
@@ -870,9 +965,16 @@ language sql stable security definer set search_path = public as $$
   select p.id,
          public.prix_revendeur(
            coalesce(p.prix, 0)::int,
-           greatest(0, coalesce(pv.prix_grossiste, 0))::int)
+           greatest(0, coalesce(pv.prix_grossiste, 0))::int,
+           -- Le taux du produit l'emporte sur celui de la boutique ; à
+           -- null, c'est celui de la boutique. Le mode, lui, reste une
+           -- décision de boutique : une seule façon de faire par enseigne
+           -- de quartier, sinon plus personne ne sait à quoi s'attendre.
+           coalesce(pv.taux_revendeur, b.taux_revendeur, 0),
+           coalesce(b.revendeur_mode, 'bizzoo'))
     from public.produits p
     left join public.produits_prive pv on pv.produit_id = p.id
+    left join public.boutiques b on b.id = p.boutique_id
    where public.est_revendeur();
 $$;
 revoke all on function public.mes_prix() from public, anon, authenticated;
@@ -1246,6 +1348,15 @@ begin
   -- la boutique reviendrait à lui laisser fixer sa propre commission.
   if new.taux_marge is distinct from old.taux_marge then
     raise exception 'La marge de BIZZOO est fixée par l''enseigne à la création de la boutique';
+  end if;
+  -- La marge revendeur est de la même nature : elle fixe ce que rapporte
+  -- une vente à un revendeur validé. La laisser à la boutique lui
+  -- permettrait de la ramener à zéro et de revendre au prix BIZZOO.
+  -- Le taux d'UN produit, lui, reste à la boutique — comme pour la marge
+  -- ordinaire, elle seule connaît ses articles.
+  if new.taux_revendeur is distinct from old.taux_revendeur
+  or new.revendeur_mode is distinct from old.revendeur_mode then
+    raise exception 'Le prix des revendeurs est fixé par l''enseigne';
   end if;
 
   -- Ce qui représente la boutique auprès des clients passe par une
@@ -1717,18 +1828,26 @@ create trigger commandes_a_l_ecriture
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p         public.produits%rowtype;
-  achat     int;
-  taux      numeric;
-  revendeur boolean;
+  p          public.produits%rowtype;
+  achat      int;
+  taux       numeric;
+  taux_rev   numeric;   -- le taux propre à CE produit, s'il en a un
+  mode_rev   text;
+  revendeur  boolean;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
     raise exception 'Produit introuvable : %', coalesce(new.produit_id, '(aucun)');
   end if;
-  select greatest(0, coalesce(prix_grossiste, 0))::int into achat
+  select greatest(0, coalesce(prix_grossiste, 0))::int, taux_revendeur
+    into achat, taux_rev
     from public.produits_prive where produit_id = p.id;
-  select coalesce(taux_marge, 0) into taux
+  -- Le taux du produit l'emporte ; à null, celui de la boutique. Le mode
+  -- est celui de la boutique, toujours.
+  select coalesce(taux_marge, 0),
+         coalesce(taux_rev, taux_revendeur, 0),
+         coalesce(revendeur_mode, 'bizzoo')
+    into taux, taux_rev, mode_rev
     from public.boutiques where id = p.boutique_id;
   -- Le régime de prix est celui de la commande, posé par la base à son
   -- ouverture. Le panier n'a pas voix au chapitre.
@@ -1741,7 +1860,9 @@ begin
   new.reference   := coalesce(p.reference, '');
   new.prix        := case when coalesce(revendeur, false)
                           then public.prix_revendeur(coalesce(p.prix, 0)::int,
-                                                     coalesce(achat, 0))
+                                                     coalesce(achat, 0),
+                                                     coalesce(taux_rev, 0),
+                                                     coalesce(mode_rev, 'bizzoo'))
                           else coalesce(p.prix, 0)::int end;
   -- Ce que la boutique touche, et la marge du jour : figés avec le
   -- reste. Les comptes d'hier ne se réécrivent pas.

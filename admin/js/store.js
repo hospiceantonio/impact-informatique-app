@@ -78,6 +78,11 @@ const Store = (() => {
     telephones: [],  // autres numéros : { libelle, numero, whatsapp }
     adresses: [],    // autres adresses : { libelle, texte, latitude, longitude }
     tauxMarge: 20,   // marge appliquée par défaut au prix grossiste
+    /* Ce que paie un revendeur validé. « bizzoo » : prix BIZZOO + N %.
+       « public » : prix public − N %. Le taux se raffine ensuite produit
+       par produit ; le mode, lui, vaut pour toute la boutique. */
+    revendeurMode: "bizzoo",
+    tauxRevendeur: 10,
   };
 
   const TAUX_MAX = 1000;   // au-delà, c'est une faute de frappe
@@ -135,6 +140,37 @@ const Store = (() => {
     const achat = Math.max(0, Math.round(Number(prixGrossiste) || 0));
     if (!achat) return 0;
     return Math.round(achat * (1 + tauxApplique(taux) / 100));
+  }
+
+  /**
+   * Ce que paiera un revendeur validé.
+   *
+   * C'EST UN APERÇU, PAS LA RÈGLE. La règle vit dans la base —
+   * « prix_revendeur() » — et c'est elle qui facture. Ceci n'existe que
+   * pour montrer le résultat pendant la saisie, sans aller-retour avec
+   * le serveur. Les deux doivent donner le même chiffre : si vous
+   * touchez à l'une, touchez à l'autre.
+   *
+   *   'bizzoo'  prix BIZZOO + N %, arrondi aux 5 francs SUPÉRIEURS pour
+   *             que la marge ne soit jamais rabotée ;
+   *   'public'  prix public − N %, arrondi aux 5 francs INFÉRIEURS pour
+   *             que la remise annoncée soit tenue.
+   *
+   * Puis deux bornes : jamais sous le prix BIZZOO, jamais au-dessus du
+   * prix public — et c'est le plafond qui l'emporte quand les deux se
+   * contredisent, sur une fin de série soldée sous son prix BIZZOO.
+   */
+  function prixRevendeur(prixVente, prixGrossiste, taux, mode) {
+    const vente = Math.max(0, Math.round(Number(prixVente) || 0));
+    const achat = Math.max(0, Math.round(Number(prixGrossiste) || 0));
+    /* Sans prix BIZZOO, il n'y a rien à calculer : le prix public. */
+    if (!achat) return vente;
+    const t = Math.max(0, Math.min(100, Number(taux) || 0));
+    const brut = mode === "public" ? vente * (1 - t / 100) : achat * (1 + t / 100);
+    const arrondi = mode === "public"
+      ? Math.floor(brut / 5) * 5
+      : Math.ceil(brut / 5) * 5;
+    return Math.min(vente, Math.max(arrondi, achat));
   }
 
   /** Le chemin inverse : quel taux mène de ce prix grossiste à ce prix public ? */
@@ -226,10 +262,14 @@ const Store = (() => {
    */
   function priveDepuisLigne(l) {
     const p = Array.isArray(l.produits_prive) ? l.produits_prive[0] : l.produits_prive;
-    if (!p) return { prixGrossiste: 0, tauxMarge: null };
+    if (!p) return { prixGrossiste: 0, tauxMarge: null, tauxRevendeur: null };
     return {
       prixGrossiste: Math.max(0, Math.round(Number(p.prix_grossiste) || 0)),
       tauxMarge: p.taux_marge === null || p.taux_marge === undefined ? null : Number(p.taux_marge),
+      /* À null, c'est le taux de la boutique qui s'applique — la même
+         règle que « tauxMarge » juste au-dessus. */
+      tauxRevendeur: p.taux_revendeur === null || p.taux_revendeur === undefined
+        ? null : Number(p.taux_revendeur),
     };
   }
 
@@ -248,6 +288,7 @@ const Store = (() => {
       prix: Number(l.prix) || 0,
       prixGrossiste: prive.prixGrossiste,
       tauxMarge: prive.tauxMarge,
+      tauxRevendeur: prive.tauxRevendeur,
       ancienPrix: l.ancien_prix === null || l.ancien_prix === undefined ? null : Number(l.ancien_prix),
       categorieId: l.categorie_id,
       sousCategorieId: l.sous_categorie_id || "",
@@ -358,6 +399,11 @@ const Store = (() => {
       video: l.video || "",
       tauxMarge: l.taux_marge === null || l.taux_marge === undefined
         ? BOUTIQUE_DEFAUT.tauxMarge : Number(l.taux_marge),
+      /* Colonnes absentes d'une base pas encore mise à jour : on retombe
+         sur les valeurs de départ, qui sont celles que la base pose. */
+      revendeurMode: l.revendeur_mode === "public" ? "public" : BOUTIQUE_DEFAUT.revendeurMode,
+      tauxRevendeur: l.taux_revendeur === null || l.taux_revendeur === undefined
+        ? BOUTIQUE_DEFAUT.tauxRevendeur : Number(l.taux_revendeur),
     };
   }
 
@@ -443,6 +489,9 @@ const Store = (() => {
       adresses: b.adresses || [],
       video: b.video || "",
       taux_marge: b.tauxMarge === undefined ? 20 : b.tauxMarge,
+      revendeur_mode: b.revendeurMode === "public" ? "public" : "bizzoo",
+      taux_revendeur: b.tauxRevendeur === undefined
+        ? BOUTIQUE_DEFAUT.tauxRevendeur : b.tauxRevendeur,
       maj_le: new Date().toISOString(),
     };
   }
@@ -469,11 +518,25 @@ const Store = (() => {
       ? (existante ? existante.tauxMarge : BOUTIQUE_DEFAUT.tauxMarge)
       : marge;
 
+    /* La marge sur les ventes aux revendeurs, de la même façon : un
+       champ vide garde celle d'avant, et non zéro — sans quoi une
+       modification de l'adresse remettrait la boutique à vendre au prix
+       BIZZOO nu, sans que personne ne le demande. */
+    const margeRev = lireTaux(donnees.tauxRevendeur);
+    const tauxRevendeur = margeRev === null
+      ? (existante ? existante.tauxRevendeur : BOUTIQUE_DEFAUT.tauxRevendeur)
+      : margeRev;
+    const revendeurMode = donnees.revendeurMode === "public" ? "public"
+      : donnees.revendeurMode === "bizzoo" ? "bizzoo"
+      : (existante ? existante.revendeurMode : BOUTIQUE_DEFAUT.revendeurMode);
+
     const boutique = {
       ...(existante || { ...BOUTIQUE_DEFAUT, actif: true }),
       ...donnees,
       logo,
       tauxMarge,
+      tauxRevendeur,
+      revendeurMode,
       nomBoutique: nom,
       id: existante ? existante.id : Utils.uid("bou"),
       ordre: existante ? existante.ordre
@@ -1439,6 +1502,23 @@ const Store = (() => {
         if (taux === null) throw new Error("Le taux doit être un nombre entre 0 et " + TAUX_MAX + " %.");
         propre.tauxMarge = taux;
       }
+      /* La marge revendeur appartient à l'enseigne, comme la marge
+         ordinaire : le verrou « boutique_verrous » refuse les deux à
+         qui n'est pas superadministrateur. On ne les envoie donc que
+         dans ce cas, pour éviter un refus que l'administrateur d'une
+         boutique ne comprendrait pas. */
+      if (maj.tauxRevendeur !== undefined && Supabase.estSuper()) {
+        const taux = lireTaux(maj.tauxRevendeur);
+        if (taux === null) throw new Error("Le taux revendeur doit être un nombre entre 0 et " + TAUX_MAX + " %.");
+        propre.tauxRevendeur = taux;
+      } else {
+        delete propre.tauxRevendeur;
+      }
+      if (maj.revendeurMode !== undefined && Supabase.estSuper()) {
+        propre.revendeurMode = maj.revendeurMode === "public" ? "public" : "bizzoo";
+      } else {
+        delete propre.revendeurMode;
+      }
 
       /* Un logo neuf part d'abord au stockage : ce qui circule ensuite —
          et ce qui part en demande — n'est qu'un chemin, pas une image. */
@@ -1844,6 +1924,14 @@ const Store = (() => {
       throw new Error("Indiquez le prix BIZZOO : le prix de vente s'en déduit.");
     }
     const tauxMarge = null;   // la marge est celle de la boutique, jamais du produit
+    /* Le taux REVENDEUR, lui, peut être propre à l'article. Un champ vide
+       vaut « null » : c'est le taux de la boutique qui s'appliquera. */
+    const tauxRevendeur = String(donnees.tauxRevendeur === undefined
+      ? "" : donnees.tauxRevendeur).trim() === "" ? null : lireTaux(donnees.tauxRevendeur);
+    if (donnees.tauxRevendeur !== undefined
+        && String(donnees.tauxRevendeur).trim() !== "" && tauxRevendeur === null) {
+      throw new Error("Le taux revendeur doit être un nombre entre 0 et " + TAUX_MAX + " %.");
+    }
     const prix = prixPublic(prixGrossiste, null);
     if (prix <= 0) {
       throw new Error("Le prix de vente est vide : vérifiez le prix BIZZOO.");
@@ -1957,9 +2045,9 @@ const Store = (() => {
         produit.reference || produit.nom,
         aAnnuler("produits", [], [produit.id]));
     }
-    await sauverPrixAchat(produit.id, prixGrossiste, tauxMarge);
+    await sauverPrixAchat(produit.id, prixGrossiste, tauxMarge, tauxRevendeur);
     const enregistre = produitDepuisLigne(Array.isArray(lignes) ? lignes[0] : ligne);
-    return { ...enregistre, prixGrossiste, tauxMarge };
+    return { ...enregistre, prixGrossiste, tauxMarge, tauxRevendeur };
   }
 
   /**
@@ -1967,13 +2055,16 @@ const Store = (() => {
    * temps que lui. Une base pas encore mise à jour n'en a pas la table —
    * le produit s'enregistre quand même, sans son prix d'achat.
    */
-  async function sauverPrixAchat(id, prixGrossiste, tauxMarge) {
+  async function sauverPrixAchat(id, prixGrossiste, tauxMarge, tauxRevendeur) {
     if (!prixAchatEnBase) return;
     try {
       await Supabase.requete("POST", "produits_prive?on_conflict=produit_id", {
         produit_id: id,
         prix_grossiste: prixGrossiste,
         taux_marge: tauxMarge,
+        /* À null, c'est le taux de la boutique qui s'applique. C'est le
+           cas de tous les produits tant qu'on n'en décide pas autrement. */
+        taux_revendeur: tauxRevendeur === undefined ? null : tauxRevendeur,
         maj_le: new Date().toISOString(),
       }, { upsert: true });
     } catch (err) {
@@ -2408,7 +2499,9 @@ const Store = (() => {
       /* Le prix d'achat suit le produit, s'il figurait dans la sauvegarde. */
       if (p.prixGrossiste) {
         await sauverPrixAchat(p.id, Math.max(0, Math.round(Number(p.prixGrossiste) || 0)),
-          lireTaux(p.tauxMarge));
+          lireTaux(p.tauxMarge),
+          p.tauxRevendeur === null || p.tauxRevendeur === undefined
+            ? null : lireTaux(p.tauxRevendeur));
       }
     }
 
@@ -2435,7 +2528,7 @@ const Store = (() => {
   return {
     MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
     MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte,
-    prixPublic, tauxDepuisPrix, tauxApplique, lireTaux,
+    prixPublic, prixRevendeur, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     lireEnseigne, majEnseigne, videoBoutique, sauverVideoBoutique,
     listerBoutiques, lireBoutique, boutiqueCourante, choisirBoutique,

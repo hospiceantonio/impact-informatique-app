@@ -29,16 +29,69 @@
 -- passe sans broncher et la base s'arrête à la première commande. On les
 -- repose donc ici, à l'identique — les reposer ne coûte rien.
 
--- Le prix d'un revendeur validé : le prix BIZZOO quand il existe, le
--- prix public sinon. « ligne_a_l_ecriture », plus bas, l'appelle.
-create or replace function public.prix_revendeur(prix_public int, prix_bizzoo int)
+-- Le prix d'un revendeur validé : le prix d'achat plus une marge, ou le
+-- prix public moins une remise — au choix de chaque boutique, jamais
+-- sous le prix d'achat ni au-dessus du prix public.
+-- « ligne_a_l_ecriture », plus bas, l'appelle.
+-- L'ancienne règle ne prenait que DEUX arguments. La laisser en place
+-- rendrait tout appel à deux arguments ambigu — PostgreSQL refuserait
+-- « function is not unique », et plus aucune commande ne passerait.
+drop function if exists public.prix_revendeur(int, int);
+-- Les colonnes que cette règle lit. Une base d'avant la marge revendeur
+-- ne les a pas, et PostgreSQL ne relit le corps d'une fonction qu'au
+-- moment de l'exécuter : sans elles, le fichier passerait sans broncher
+-- pour s'arrêter à la première vente.
+alter table public.boutiques
+  add column if not exists revendeur_mode text not null default 'bizzoo';
+alter table public.boutiques
+  add column if not exists taux_revendeur numeric(6,2) not null default 10;
+alter table public.produits_prive
+  add column if not exists taux_revendeur numeric(6,2);
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'boutiques_revendeur_mode') then
+    alter table public.boutiques
+      add constraint boutiques_revendeur_mode
+      check (revendeur_mode in ('bizzoo', 'public'));
+  end if;
+end $$;
+
+create or replace function public.prix_revendeur(
+  prix_public int,
+  prix_bizzoo int,
+  taux        numeric default 0,
+  mode        text    default 'bizzoo')
 returns int
 language sql immutable as $$
-  select case when coalesce(prix_bizzoo, 0) > 0
-              then prix_bizzoo
-              else coalesce(prix_public, 0) end;
+  with borne as (
+    select greatest(0, coalesce(prix_public, 0))::numeric as public,
+           greatest(0, coalesce(prix_bizzoo, 0))::numeric as achat,
+           -- Un taux hors de [0, 100] est une faute de saisie, pas une
+           -- intention : on le ramène, on ne refuse pas la vente.
+           greatest(0, least(100, coalesce(taux, 0)))      as t,
+           case when mode = 'public' then 'public' else 'bizzoo' end as m
+  ),
+  brut as (
+    select public, achat, m,
+           case when m = 'public' then public * (1 - t / 100)
+                                  else achat  * (1 + t / 100) end as p
+      from borne
+  ),
+  arrondi as (
+    select public, achat,
+           case when m = 'public' then floor(p / 5) * 5
+                                  else ceil (p / 5) * 5 end as p
+      from brut
+  )
+  select case when achat <= 0 then public::int
+              -- plancher au prix BIZZOO, PUIS plafond au prix public :
+              -- dans cet ordre, le plafond l'emporte quand les deux se
+              -- contredisent.
+              else least(public, greatest(p, achat))::int end
+    from arrondi;
 $$;
-revoke all on function public.prix_revendeur(int, int) from public, anon, authenticated;
+revoke all on function public.prix_revendeur(int, int, numeric, text)
+  from public, anon, authenticated;
 
 -- La règle « faut-il un compte pour commander ? », que « creer_commande »
 -- consulte plus bas. Elle arrive ÉTEINTE et se bascule depuis
@@ -168,18 +221,26 @@ alter table public.commande_lignes
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  p         public.produits%rowtype;
-  achat     int;
-  taux      numeric;
-  revendeur boolean;
+  p          public.produits%rowtype;
+  achat      int;
+  taux       numeric;
+  taux_rev   numeric;   -- le taux propre à CE produit, s'il en a un
+  mode_rev   text;
+  revendeur  boolean;
 begin
   select * into p from public.produits where id = new.produit_id;
   if not found then
     raise exception 'Produit introuvable : %', coalesce(new.produit_id, '(aucun)');
   end if;
-  select greatest(0, coalesce(prix_grossiste, 0))::int into achat
+  select greatest(0, coalesce(prix_grossiste, 0))::int, taux_revendeur
+    into achat, taux_rev
     from public.produits_prive where produit_id = p.id;
-  select coalesce(taux_marge, 0) into taux
+  -- Le taux du produit l'emporte ; à null, celui de la boutique. Le mode
+  -- est celui de la boutique, toujours.
+  select coalesce(taux_marge, 0),
+         coalesce(taux_rev, taux_revendeur, 0),
+         coalesce(revendeur_mode, 'bizzoo')
+    into taux, taux_rev, mode_rev
     from public.boutiques where id = p.boutique_id;
   -- Le régime de prix est celui de la commande, posé par la base à son
   -- ouverture. Le panier n'a pas voix au chapitre.
@@ -192,7 +253,9 @@ begin
   new.reference   := coalesce(p.reference, '');
   new.prix        := case when coalesce(revendeur, false)
                           then public.prix_revendeur(coalesce(p.prix, 0)::int,
-                                                     coalesce(achat, 0))
+                                                     coalesce(achat, 0),
+                                                     coalesce(taux_rev, 0),
+                                                     coalesce(mode_rev, 'bizzoo'))
                           else coalesce(p.prix, 0)::int end;
   -- Ce que la boutique touche, et la marge du jour : figés avec le
   -- reste. Les comptes d'hier ne se réécrivent pas.

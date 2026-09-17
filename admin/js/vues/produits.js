@@ -442,6 +442,8 @@ const VueProduits = (() => {
       : 3;
 
     const tauxBoutique = Store.lireReglages().tauxMarge;
+    const tauxRevBoutique = Store.lireReglages().tauxRevendeur;
+    const modeRevBoutique = Store.lireReglages().revendeurMode;
 
     const boutiques = Store.listerBoutiques();
     const laBoutique = Store.boutiqueCourante();
@@ -526,6 +528,23 @@ const VueProduits = (() => {
             "vos clients ; il se calcule tout seul et ne se modifie pas.</div>" +
         "</div>" +
         '<div id="p-marge"></div>' +
+        /* Le taux revendeur de CET article. Vide — et c'est le cas de
+           presque tous — le taux de la boutique s'applique. On ne le
+           saisit que pour un article négocié à part. */
+        '<div class="champ">' +
+          '<label for="p-taux-revendeur">Taux revendeur de cet article ' +
+            "<small>(optionnel)</small></label>" +
+          '<div class="champ-montant">' +
+            '<input id="p-taux-revendeur" inputmode="decimal" autocomplete="off"' +
+              ' placeholder="' + Utils.echapper(Utils.fmtTaux(tauxRevBoutique)) + '"' +
+              ' value="' + Utils.echapper(
+                existant && existant.tauxRevendeur !== null && existant.tauxRevendeur !== undefined
+                  ? Utils.fmtTaux(existant.tauxRevendeur) : "") + '">' +
+            '<span class="devise">%</span>' +
+          "</div>" +
+          '<div class="aide">Laissez vide pour suivre la boutique (' +
+            Utils.echapper(Utils.fmtTaux(tauxRevBoutique)) + " %).</div>" +
+        "</div>" +
         UI.champMontant({ id: "p-ancien", label: "Prix barré (optionnel)",
           valeur: existant && existant.ancienPrix ? existant.ancienPrix : "",
           aide: "L'ancien prix, pour afficher une promotion (« -15 % »)." }) +
@@ -650,6 +669,15 @@ const VueProduits = (() => {
       const bizzoo = lireGrossiste();
       const vente = bizzoo ? Store.prixPublic(bizzoo, tauxBoutique) : 0;
       champPrix.value = vente ? Utils.fmtNombre(vente) : "";
+      /* Ce que paierait un revendeur validé, au taux de l'article s'il
+         en a un, à celui de la boutique sinon. Un aperçu : c'est la base
+         qui facture, et elle applique exactement la même règle. */
+      const champTauxRev = UI.$("#p-taux-revendeur");
+      const saisi = champTauxRev ? Utils.lireNombre(champTauxRev.value) : null;
+      const tauxRev = saisi === null || saisi === undefined || champTauxRev.value.trim() === ""
+        ? tauxRevBoutique : saisi;
+      const revendeur = bizzoo ? Store.prixRevendeur(vente, bizzoo, tauxRev, modeRevBoutique) : 0;
+
       zoneMarge.innerHTML = bizzoo
         ? '<div class="note-marge">' + UI.icone("promo", "ic-sm") +
             "<span>La boutique touche <strong>" +
@@ -657,12 +685,25 @@ const VueProduits = (() => {
               "BIZZOO garde <strong>" +
               Utils.echapper(Utils.fmtMontant(vente - bizzoo, devise)) + "</strong> " +
               "(" + Utils.echapper(Utils.fmtTaux(tauxBoutique)) + " %) par pièce.</span>" +
+          "</div>" +
+          '<div class="note-marge">' + UI.icone("personne", "ic-sm") +
+            "<span>Un revendeur validé paie <strong>" +
+              Utils.echapper(Utils.fmtMontant(revendeur, devise)) + "</strong> — " +
+              "BIZZOO y garde <strong>" +
+              Utils.echapper(Utils.fmtMontant(Math.max(0, revendeur - bizzoo), devise)) +
+              "</strong>.</span>" +
           "</div>"
         : '<div class="aide" style="margin:-6px 0 14px">Indiquez le prix BIZZOO : ' +
             "le prix de vente s'en déduit.</div>";
     }
 
     champGrossiste.addEventListener("input", Utils.tempo(recalculerPrix, 350));
+    /* Le taux revendeur change l'aperçu, pas le prix de vente — mais on
+       repasse par le même calcul : il n'y a qu'un endroit où il se fait. */
+    const champTauxRevendeur = UI.$("#p-taux-revendeur");
+    if (champTauxRevendeur) {
+      champTauxRevendeur.addEventListener("input", Utils.tempo(recalculerPrix, 350));
+    }
     recalculerPrix();
 
     UI.$("#p-enregistrer").onclick = async () => {
@@ -673,8 +714,11 @@ const VueProduits = (() => {
           reference: UI.$("#p-reference").value,
           description: UI.$("#p-description").value,
           prixGrossiste: champGrossiste.value,
-          /* Ni taux ni prix de vente : ils découlent de la marge de
-             l'enseigne, que la boutique ne choisit pas. */
+          /* Ni taux de marge ni prix de vente : ils découlent de la marge
+             de l'enseigne, que la boutique ne choisit pas. Le taux
+             REVENDEUR, lui, se règle article par article — vide, c'est
+             celui de la boutique qui s'applique. */
+          tauxRevendeur: champTauxRevendeur ? champTauxRevendeur.value : "",
           ancienPrix: UI.$("#p-ancien").value.trim(),
           categorieId: UI.$("#p-categorie").value,
           sousCategorieId: UI.$("#p-souscategorie").value,

@@ -117,6 +117,30 @@ const VueBoutiques = (() => {
           "devient le prix de vente. Elle ne peut pas le modifier.</div>" +
       "</div>" +
 
+      /* La marge sur les ventes aux REVENDEURS. Sans elle, un revendeur
+         validé achèterait au prix BIZZOO exact : la boutique toucherait
+         bien son dû, mais BIZZOO ne gagnerait rien, et le revendeur
+         lirait article par article ce que la boutique touche. */
+      '<div class="champ">' +
+        "<label>Prix des revendeurs</label>" +
+        '<div class="st-filtres" id="bq-revendeur-mode">' +
+          '<button type="button" class="puce' +
+            ((b && b.revendeurMode === "public") ? "" : " active") +
+            '" data-mode="bizzoo">Prix BIZZOO + marge</button>' +
+          '<button type="button" class="puce' +
+            ((b && b.revendeurMode === "public") ? " active" : "") +
+            '" data-mode="public">Prix public − remise</button>' +
+        "</div>" +
+        '<div class="champ-montant" style="margin-top:10px">' +
+          '<input id="bq-marge-revendeur" inputmode="decimal" autocomplete="off" placeholder="10"' +
+            ' value="' + Utils.echapper(b ? Utils.fmtTaux(b.tauxRevendeur) : "10") + '">' +
+          '<span class="devise">%</span>' +
+        "</div>" +
+        '<div class="aide">Ce que paie un revendeur validé. Quel que soit le taux, ' +
+          "il ne descend jamais sous le prix BIZZOO et ne dépasse jamais le prix " +
+          "public. Un article peut avoir son propre taux, depuis sa fiche.</div>" +
+      "</div>" +
+
       '<div class="champ">' +
         "<label>Icône</label>" +
         '<div class="choix-icones" id="bq-icones">' +
@@ -200,7 +224,25 @@ const VueBoutiques = (() => {
         for (const x of UI.$$("#bq-couleurs [data-couleur]", base)) x.classList.toggle("actif", x === bouton);
       };
     }
+    /* ATTENTION, deux conventions cohabitent dans cette application :
+       les icônes et les couleurs s'allument avec « actif », les PUCES
+       avec « active » — c'est ce que la feuille de style connaît. Les
+       mélanger donne un bouton qui a l'air choisi et qu'on ne lit pas. */
+    for (const bouton of UI.$$("#bq-revendeur-mode [data-mode]", base)) {
+      bouton.onclick = () => {
+        for (const x of UI.$$("#bq-revendeur-mode [data-mode]", base)) {
+          x.classList.toggle("active", x === bouton);
+        }
+      };
+    }
   }
+
+  /* Les puces s'allument avec « active », pas « actif » : « choisi »
+     ci-dessous ne saurait pas les lire. */
+  const modeRevendeur = (base) => {
+    const actif = UI.$("#bq-revendeur-mode .active", base);
+    return actif && actif.dataset.mode === "public" ? "public" : "bizzoo";
+  };
 
   const choisi = (base, selecteur, attribut, defaut) => {
     const actif = UI.$(selecteur + " .actif", base);
@@ -247,6 +289,8 @@ const VueBoutiques = (() => {
           icone: choisi(corps, "#bq-icones", "icone", "magasin"),
           couleur: choisi(corps, "#bq-couleurs", "couleur", "#0B5CF5"),
           tauxMarge: UI.$("#bq-marge", corps).value,
+          revendeurMode: modeRevendeur(corps),
+          tauxRevendeur: UI.$("#bq-marge-revendeur", corps).value,
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
         });

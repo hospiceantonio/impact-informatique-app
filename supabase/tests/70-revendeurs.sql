@@ -2,9 +2,11 @@
 -- Les comptes revendeurs : qui décide, et qui paie quoi.
 --
 -- Un revendeur validé achète au PRIX BIZZOO — celui que la
--- boutique a annoncé à la création du produit. C'est donc une
--- remise permanente, accordée compte par compte. Deux portes à
--- forcer, et tout le reste en découle :
+-- boutique a annoncé à la création du produit — AUGMENTÉ DE LA
+-- MARGE DE L'ENSEIGNE. C'est donc une remise permanente, accordée
+-- compte par compte, mais qui rapporte toujours à BIZZOO. Le calcul
+-- lui-même est éprouvé ailleurs (98-marge-revendeur.sql) ; ici on
+-- force les deux portes dont tout le reste découle :
 --
 --   1. LE STATUT NE S'ACCORDE PAS SOI-MÊME. Demander est libre ;
 --      valider ne l'est pas. Si un client pouvait écrire
@@ -36,7 +38,8 @@ set client_min_messages = notice;
 select essai.titre('Le décor : un produit à prix BIZZOO, un autre sans');
 
 -- « prod_marge » vient du banc de la marge : vendu 10 000, la boutique
--- en touche 8 000. C'est exactement l'écart qu'un revendeur reçoit.
+-- en touche 8 000. Au taux de départ — 10 % sur le prix BIZZOO — un
+-- revendeur le paie donc 8 800, et l'enseigne garde 800.
 insert into public.produits
   (id, boutique_id, nom, prix, categorie_id, stock, disponible)
 values ('prod_marge', 'bou_informatique', 'Article à marge', 10000,
@@ -188,7 +191,7 @@ set role authenticated;
 select essai.egal(public.est_revendeur(), true, 'elle est revendeuse');
 select essai.egal(
   (select prix::int from public.mes_prix() where produit_id = 'prod_marge'),
-  8000, 'le prix BIZZOO lui est servi');
+  8800, 'le prix BIZZOO majoré de la marge lui est servi');
 -- Le produit sans prix BIZZOO reste au prix public : rien n'est gratuit.
 select essai.egal(
   (select prix::int from public.mes_prix() where produit_id = 'prod_sans_bizzoo'),
@@ -220,11 +223,15 @@ select essai.personne();
 select essai.egal((select revendeur from public.commandes where id = :'vente'),
   true, 'la commande porte le régime revendeur');
 select essai.egal((select prix from public.commande_lignes where commande_id = :'vente'),
-  8000, 'la ligne est facturée au prix BIZZOO, pas au prix envoyé');
+  8800, 'la ligne est facturée au prix revendeur, pas au prix envoyé');
 select essai.egal((select prix_bizzoo from public.commande_lignes where commande_id = :'vente'),
   8000, 'et ce que la boutique touche n''a pas bougé');
 select essai.egal((select total from public.commandes where id = :'vente'),
-  16000, 'le total suit : deux articles à 8 000');
+  17600, 'le total suit : deux articles à 8 800');
+-- Et l'enseigne y gagne : c'est tout l'objet de la marge revendeur.
+select essai.verifie((select prix > prix_bizzoo from public.commande_lignes
+                       where commande_id = :'vente'),
+  'l''enseigne gagne sur cette vente, elle ne vend pas à prix coûtant');
 
 -- Un produit sans prix BIZZOO ne part pas pour rien.
 select essai.devenir(:AWA::uuid);
@@ -284,7 +291,7 @@ select essai.refuse(
 reset role;
 select essai.personne();
 select essai.egal((select prix from public.commande_lignes where commande_id = :'vente'),
-  8000, 'la ligne tient');
+  8800, 'la ligne tient');
 
 -- ---------------------------------------------------------
 select essai.titre('Retirer le statut ne réécrit pas le passé');
@@ -298,7 +305,7 @@ reset role;
 select essai.personne();
 
 select essai.egal((select prix from public.commande_lignes where commande_id = :'vente'),
-  8000, 'la commande d''hier garde son prix');
+  8800, 'la commande d''hier garde son prix');
 select essai.egal((select revendeur from public.commandes where id = :'vente'),
   true, 'et son régime');
 

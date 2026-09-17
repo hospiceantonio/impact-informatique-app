@@ -191,11 +191,18 @@ EMPRUNTS=0
 for fichier in "$RACINE"/supabase/*.sql; do
   nom="$(basename "$fichier")"
   [ "$nom" = "schema.sql" ] && continue
+  # On lit le CODE, pas les commentaires : « etat-des-lieux.sql » propose
+  # des requêtes toutes prêtes en commentaire, et une fonction nommée là
+  # n'est jamais exécutée. Sans ce filtre, le contrôle réclamerait de
+  # poser une fonction dont le fichier ne se sert pas.
+  #
   # « || true » : un fichier sans aucune fonction n'est pas une erreur,
   # et « grep » qui ne trouve rien sort en 1 — que « pipefail » propage.
-  posees="$( { grep -o 'create or replace function public\.[a-z_]*' "$fichier" || true; } \
+  code="$(sed 's/--.*$//' "$fichier")"
+  posees="$( { printf '%s\n' "$code" \
+               | grep -o 'create or replace function public\.[a-z_]*' || true; } \
              | sed 's/.*public\.//' | sort -u)"
-  appels="$( { grep -o 'public\.[a-z_]*(' "$fichier" || true; } \
+  appels="$( { printf '%s\n' "$code" | grep -o 'public\.[a-z_]*(' || true; } \
              | sed 's/public\.//; s/(//' | sort -u)"
   for appelee in $appels; do
     # Née dans le socle : elle est là chez tout le monde depuis toujours.

@@ -265,7 +265,32 @@ with controles(rang, element, ok) as (values
       select pg_get_functiondef(p.oid) like '%compte_exige%'
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-       limit 1), false))
+       limit 1), false)),
+
+  -- ---------- La marge sur les ventes aux revendeurs ----------
+  -- Sans elle, un revendeur validé achèterait au prix BIZZOO exact :
+  -- l'enseigne ne gagnerait rien, et il lirait article par article ce
+  -- que la boutique touche.
+  (48, 'La marge revendeur de chaque boutique (boutiques.taux_revendeur)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques'
+         and column_name = 'taux_revendeur')),
+  (49, 'Et sa façon de compter (boutiques.revendeur_mode)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques'
+         and column_name = 'revendeur_mode')),
+  -- Un article négocié à part a son propre taux ; à null, celui de la
+  -- boutique s'applique.
+  (50, 'Le taux propre à un article (produits_prive.taux_revendeur)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'produits_prive'
+         and column_name = 'taux_revendeur')),
+  -- La règle à quatre arguments : l'ancienne n'en prenait que deux et
+  -- rendait le prix BIZZOO nu.
+  (51, 'La règle de prix porte la marge (prix_revendeur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'prix_revendeur'
+         and p.pronargs = 4))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
@@ -294,3 +319,21 @@ select rang                                            as "#",
 --               else 'éteint — on commande sans compte' end as "Un compte pour commander",
 --          maj_le                                           as "Dernier changement"
 --     from public.reglages where id = 1;
+
+-- ---------- Facultatif : ce que paierait un revendeur ----------
+-- Trois articles pris au hasard. « Prix revendeur » doit tomber ENTRE
+-- le prix BIZZOO et le prix public — jamais en dessous, jamais au-dessus.
+--
+--   select b.nom as "Boutique",
+--          case b.revendeur_mode when 'public' then 'prix public − ' || b.taux_revendeur || ' %'
+--                                else 'prix BIZZOO + ' || b.taux_revendeur || ' %' end as "Règle",
+--          p.nom as "Article", p.prix as "Prix public",
+--          coalesce(pv.prix_grossiste, 0) as "Prix BIZZOO",
+--          public.prix_revendeur(coalesce(p.prix, 0)::int,
+--            greatest(0, coalesce(pv.prix_grossiste, 0))::int,
+--            coalesce(pv.taux_revendeur, b.taux_revendeur, 0),
+--            coalesce(b.revendeur_mode, 'bizzoo')) as "Prix revendeur"
+--     from public.produits p
+--     join public.boutiques b on b.id = p.boutique_id
+--     left join public.produits_prive pv on pv.produit_id = p.id
+--    order by b.nom, p.nom limit 3;
