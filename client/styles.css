@@ -927,6 +927,16 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .pa-compte-requis .ic{margin-top:1px;color:var(--bleu)}
 
+/* Où se trouve le commerce d'un revendeur, tel qu'il l'a déclaré. On le
+   montre AVANT le formulaire : qui a déjà donné son adresse n'a pas à
+   retomber sur trois champs à chaque visite. */
+.cp-ou-actuel{
+  margin:0 0 12px;padding:10px 12px;border-radius:var(--r-sm);
+  background:var(--bleu-50);border:1px solid var(--bleu-100);
+  font-size:13px;line-height:1.5;
+}
+.cp-ou-actuel a{color:var(--bleu);font-weight:600;text-decoration:underline}
+
 /* Le reçu : le numéro d'abord, c'est ce qu'on dicte au téléphone. */
 .re-entete{text-align:center}
 .re-numero{

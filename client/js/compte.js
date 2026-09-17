@@ -800,6 +800,33 @@ const Compte = (() => {
     return fiche;
   }
 
+  /**
+   * Corriger où se trouve son commerce, SANS toucher au reste.
+   *
+   * C'est ce qui la distingue de « demanderRevendeur » : celle-ci
+   * écrit aussi « type_compte », et changer « type_compte » remet la
+   * décision de BIZZOO à zéro. Un revendeur validé qui vient
+   * simplement préciser son adresse ne doit pas y perdre son statut.
+   */
+  async function enregistrerPosition(position) {
+    const id = identifiant();
+    if (!id) throw new Error("Vous n'êtes pas connecté.");
+    const maj = await rest("PATCH", "clients?id=eq." + encodeURIComponent(id),
+      {
+        /* Les trois ensemble, même vides : retirer une position doit
+           pouvoir se faire, sinon une adresse fausse resterait. */
+        revendeur_adresse: String((position && position.adresse) || "").trim().slice(0, 200),
+        revendeur_latitude: position && position.latitude != null
+          ? Number(position.latitude) : null,
+        revendeur_longitude: position && position.longitude != null
+          ? Number(position.longitude) : null,
+        maj_le: new Date().toISOString(),
+      },
+      { "Prefer": "return=representation" });
+    fiche = (maj && maj[0]) || fiche;
+    return fiche;
+  }
+
   /** Y renoncer, et redevenir un client ordinaire. */
   async function annulerRevendeur() {
     const id = identifiant();
@@ -839,7 +866,7 @@ const Compte = (() => {
     inscrire, connecter, deconnecter, motDePasseOublie,
     enregistrer, assurerSession, jeton, surChangement,
     etatRevendeur, estRevendeur, estRevendeurEnAttente, motifRevendeur,
-    demanderRevendeur, annulerRevendeur, chargerPrix,
+    demanderRevendeur, annulerRevendeur, enregistrerPosition, chargerPrix,
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,

@@ -477,6 +477,7 @@ const VueCompte = (() => {
           "Enregistrer</button>" +
       "</div>" +
       carteRevendeur() +
+      carteOuRevendeur() +
       '<div class="carte">' +
         '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
           "Mes commandes</a>" +
@@ -496,6 +497,7 @@ const VueCompte = (() => {
       "</div>";
 
     brancherRevendeur(vue);
+    brancherOuRevendeur(vue);
     brancherVerification(vue, moi);
 
     UI.$("#cp-enregistrer").addEventListener("click", async () => {
@@ -526,6 +528,88 @@ const VueCompte = (() => {
      Quatre états, quatre écrans. Le client doit toujours savoir où il en
      est : une demande qui disparaît sans réponse est pire que pas de
      demande du tout. */
+
+  /* ---------- Où se trouve mon commerce ----------
+
+     Une demande déposée sans position n'est pas perdue : on peut la
+     compléter après coup, et sans redemander quoi que ce soit à BIZZOO.
+
+     C'est important pour un revendeur DÉJÀ VALIDÉ : refaire une demande
+     pour corriger une adresse lui ferait perdre son statut le temps
+     qu'on la regarde — et ses prix avec. « enregistrerPosition » ne
+     touche que ces trois champs, et la décision de l'enseigne tient.
+
+     L'écran montre d'abord ce qui est enregistré, et n'ouvre le
+     formulaire que si on le demande : quelqu'un qui a déjà donné son
+     adresse n'a pas à retomber sur trois champs à chaque visite. */
+
+  function carteOuRevendeur() {
+    const etat = Compte.etatRevendeur();
+    /* En « aucune » et « refusee », le formulaire de demande porte déjà
+       le bloc : une deuxième carte ferait doublon. */
+    if (etat !== "validee" && etat !== "en_attente") return "";
+
+    const pos = Compte.positionRevendeur();
+    const situe = pos.latitude !== null && pos.longitude !== null;
+    const rien = !pos.adresse && !situe;
+    const carte = situe
+      ? "https://www.google.com/maps/search/?api=1&query=" + pos.latitude + "," + pos.longitude
+      : "";
+
+    return (
+      '<div class="carte" id="cp-ou">' +
+        '<div class="carte-titre">' + UI.icone("itineraire", "ic-sm") +
+          " Où se trouve votre commerce</div>" +
+        (rien
+          ? '<p class="aide" style="margin:0 0 12px">Vous ne l\'avez pas encore dit. ' +
+            "C'est ce qui permet à BIZZOO de vous trouver, et de vous livrer.</p>"
+          : '<div class="cp-ou-actuel">' +
+              (pos.adresse
+                ? Utils.echapper(pos.adresse)
+                : "Position relevée, sans adresse écrite") +
+              (situe
+                ? '<div><a href="' + Utils.echapper(carte) + '" target="_blank" ' +
+                  'rel="noopener">Voir sur la carte</a></div>'
+                : "") +
+            "</div>") +
+        '<button type="button" class="btn btn-clair" id="cp-ou-ouvrir">' +
+          UI.icone("carte") + (rien ? "Ajouter ma position" : "Modifier") + "</button>" +
+        '<div id="cp-ou-edition" hidden style="margin-top:14px">' +
+          blocPosition("cp-ou-pos", pos) +
+          '<button type="button" class="btn" id="cp-ou-enregistrer" style="margin-top:12px">' +
+            UI.icone("check") + "Enregistrer</button>" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  function brancherOuRevendeur(vue) {
+    const ouvrir = UI.$("#cp-ou-ouvrir", vue);
+    const edition = UI.$("#cp-ou-edition", vue);
+    if (!ouvrir || !edition) return;
+
+    const lirePosition = brancherPosition(vue, "cp-ou-pos", Compte.positionRevendeur());
+    /* Le formulaire s'ouvre, le bouton s'efface : deux façons d'appeler
+       la même chose côte à côte n'aident personne. */
+    ouvrir.addEventListener("click", () => {
+      edition.hidden = false;
+      ouvrir.hidden = true;
+    });
+
+    const enregistrer = UI.$("#cp-ou-enregistrer", vue);
+    if (!enregistrer) return;
+    enregistrer.addEventListener("click", async () => {
+      enregistrer.disabled = true;
+      try {
+        await Compte.enregistrerPosition(lirePosition());
+        UI.toast("C'est enregistré.");
+        monCompte(vue);
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+        enregistrer.disabled = false;
+      }
+    });
+  }
 
   function carteRevendeur() {
     const etat = Compte.etatRevendeur();

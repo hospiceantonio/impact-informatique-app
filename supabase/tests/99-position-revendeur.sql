@@ -216,6 +216,65 @@ reset role;
 select essai.personne();
 
 -- ---------------------------------------------------------
+select essai.titre('Un revendeur validé corrige son adresse sans rien perdre');
+-- ---------------------------------------------------------
+-- Une demande déposée sans position n'est pas perdue : on la complète
+-- après coup. C'est ce qui rend la chose utilisable — on ne relève pas
+-- toujours sa position au moment où on ouvre un compte.
+--
+-- ET CELA NE DOIT RIEN COÛTER À QUI EST DÉJÀ VALIDÉ. Refaire une
+-- demande pour corriger une adresse ferait repasser le compte en
+-- attente, et ses prix avec, le temps que BIZZOO la regarde. Écrire la
+-- seule position ne touche pas « type_compte », et la décision tient.
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+update public.clients
+   set revendeur_adresse   = 'Déménagé : Sainte-Rita, rue 12',
+       revendeur_latitude  = 6.3610,
+       revendeur_longitude = 2.3900
+ where id = :AWA::uuid;
+reset role;
+select essai.personne();
+
+select essai.egal((select revendeur_etat from public.clients where id = :AWA::uuid),
+  'validee', 'elle est TOUJOURS validée');
+select essai.egal((select revendeur_adresse from public.clients where id = :AWA::uuid),
+  'Déménagé : Sainte-Rita, rue 12', 'et sa nouvelle adresse est prise');
+select essai.egal((select revendeur_latitude from public.clients where id = :AWA::uuid),
+  6.3610::double precision, 'avec sa nouvelle position');
+
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+select essai.egal(public.est_revendeur(), true, 'elle achète toujours au prix revendeur');
+reset role;
+select essai.personne();
+
+-- Une position peut aussi se RETIRER : une adresse fausse est pire
+-- qu'une adresse absente, on se déplace pour rien.
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+update public.clients
+   set revendeur_adresse = '', revendeur_latitude = null, revendeur_longitude = null
+ where id = :AWA::uuid;
+reset role;
+select essai.personne();
+select essai.egal((select revendeur_latitude from public.clients where id = :AWA::uuid),
+  null::double precision, 'la position se retire');
+select essai.egal((select revendeur_etat from public.clients where id = :AWA::uuid),
+  'validee', 'et le statut tient encore');
+
+-- On la remet pour la suite du banc.
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+update public.clients
+   set revendeur_adresse   = 'Dantokpa, allée des tissus, face à la mosquée',
+       revendeur_latitude  = 6.3702,
+       revendeur_longitude = 2.4289
+ where id = :AWA::uuid;
+reset role;
+select essai.personne();
+
+-- ---------------------------------------------------------
 select essai.titre('L''adresse d''un commerce ne regarde pas les autres');
 -- ---------------------------------------------------------
 -- C'est l'adresse d'une personne. Kofi est un client ordinaire : il ne

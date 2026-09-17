@@ -807,6 +807,15 @@ La position **survit à la validation** — l'enseigne doit pouvoir
 retrouver ce sur quoi elle s'est décidée — et ne se lit **que par
 l'enseigne** : l'adresse d'un commerce est celle d'une personne.
 
+**Elle se complète après coup.** Une demande déposée sans position n'est
+pas perdue : la carte *Où se trouve votre commerce*, dans Mon compte,
+permet de l'ajouter ou de la corriger. Pour un revendeur **déjà
+validé**, c'est indispensable — refaire une demande pour rectifier une
+adresse le ferait repasser en attente, et ses prix avec, le temps qu'on
+la regarde. `Compte.enregistrerPosition()` n'écrit que ces trois champs
+et ne touche pas `type_compte` ; c'est `type_compte` qui remet la
+décision à zéro, et lui seul. Le banc l'éprouve.
+
 ## Un compte pour commander
 
 Par défaut, **on commande sans compte** : un nom, un numéro, et la
