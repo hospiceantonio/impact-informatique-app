@@ -290,7 +290,29 @@ with controles(rang, element, ok) as (values
   (51, 'La règle de prix porte la marge (prix_revendeur)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'prix_revendeur'
-         and p.pronargs = 4))
+         and p.pronargs = 4)),
+
+  -- ---------- Où se trouve le commerce d'un revendeur ----------
+  -- Valider, c'est accorder une remise permanente sur tout le
+  -- catalogue : l'enseigne décide mieux en sachant où c'est.
+  (52, 'La position du commerce (clients.revendeur_latitude)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'clients'
+         and column_name = 'revendeur_latitude')),
+  (53, 'Et son adresse écrite (clients.revendeur_adresse)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'clients'
+         and column_name = 'revendeur_adresse')),
+  -- Un point FAUX sur une carte est pire que pas de point du tout :
+  -- on se déplace pour rien.
+  (54, 'Ce qui n''est pas une coordonnée est écarté (coord_valable)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'coord_valable')),
+  (55, 'La liste du superadministrateur la rend (revendeurs)', coalesce((
+      select pg_get_function_result(p.oid) like '%latitude%'
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'revendeurs'
+       limit 1), false))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

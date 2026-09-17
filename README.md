@@ -750,6 +750,32 @@ JavaScript (`Store.prixRevendeur`) pour montrer le résultat pendant la
 saisie — **c'est un aperçu, pas la règle** : les onze mêmes cas sont
 éprouvés des deux côtés, et si vous touchez à l'un, touchez à l'autre.
 
+### Où se trouve le commerce
+
+Valider une demande de compte revendeur, c'est accorder une **remise
+permanente sur tout le catalogue**. Pour décider, l'enseigne n'avait
+qu'un nom, une adresse e-mail et une phrase. La demande porte désormais
+**où se trouve le commerce**, sous deux formes complémentaires — et
+aucune n'est obligatoire :
+
+- **l'adresse écrite** : au Bénin, c'est elle qui permet de trouver. Un
+  point GPS ne se dicte pas à un taximan ;
+- **les coordonnées** : relevées par le téléphone d'un geste, ou tirées
+  d'un **lien de carte collé**. Elles ouvrent l'itinéraire depuis l'app
+  admin.
+
+**C'est une déclaration, pas une preuve.** Personne n'a vérifié que le
+point posé est bien une boutique : elle sert à décider en sachant de
+quoi l'on parle. La base se contente d'écarter ce qui n'est *pas* une
+position — hors bornes, `NaN`, une latitude sans longitude, et le
+fameux **`0, 0`** qu'un téléphone rend quand il n'a rien trouvé, et qui
+tombe au large du Ghana. Un point faux sur une carte est pire que pas
+de point du tout : on se déplace pour rien.
+
+La position **survit à la validation** — l'enseigne doit pouvoir
+retrouver ce sur quoi elle s'est décidée — et ne se lit **que par
+l'enseigne** : l'adresse d'un commerce est celle d'une personne.
+
 ## Un compte pour commander
 
 Par défaut, **on commande sans compte** : un nom, un numéro, et la
@@ -817,6 +843,7 @@ impact-informatique-app/
 │   ├── sav.sql                      # Le SAV : la boutique d'abord, BIZZOO en recours
 │   ├── compte-obligatoire.sql       # L'interrupteur « un compte pour commander » (éteint)
 │   ├── marge-revendeur.sql          # Ce que rapporte une vente à un revendeur
+│   ├── position-revendeur.sql       # Où se trouve le commerce d'un revendeur
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

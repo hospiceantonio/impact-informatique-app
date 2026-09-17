@@ -81,6 +81,103 @@ const VueCompte = (() => {
 
   /* ---------- Inscription ---------- */
 
+  /* ---------- Où se trouve le commerce ----------
+
+     Le même bloc sert deux fois : à l'inscription, et quand un client
+     déjà là demande à devenir revendeur. On le fabrique donc une fois,
+     avec un préfixe d'identifiants, plutôt que de le recopier — deux
+     copies finissent toujours par diverger.
+
+     TROIS FAÇONS DE RÉPONDRE, et aucune n'est obligatoire :
+       l'adresse écrite, qui est ce qui permet vraiment de trouver au
+         Bénin — un quartier, un repère ;
+       le bouton, qui relève la position du téléphone ;
+       un lien de carte collé, pour qui a déjà épinglé sa boutique.
+
+     Un revendeur qui refuse la localisation n'est pas bloqué : BIZZOO
+     décidera sur ce qu'il aura bien voulu donner. */
+
+  function blocPosition(p, valeurs) {
+    const v = valeurs || {};
+    return (
+      '<div class="champ"><label for="' + p + '-adresse">Où se trouve votre commerce</label>' +
+        '<input id="' + p + '-adresse" type="text" maxlength="200" ' +
+          'placeholder="Quartier, repère… ex. Dantokpa, face à la pharmacie" value="' +
+          Utils.echapper(v.adresse || "") + '">' +
+        '<p class="aide" style="margin:6px 0 0">C\'est ce qui permet de vous trouver.</p>' +
+      "</div>" +
+      '<button type="button" class="btn btn-clair" id="' + p + '-relever">' +
+        UI.icone("itineraire") + "Utiliser ma position</button>" +
+      '<div id="' + p + '-etat"></div>' +
+      '<div class="champ" style="margin-top:12px">' +
+        '<label for="' + p + '-lien">…ou collez un lien de carte <small>(facultatif)</small></label>' +
+        '<input id="' + p + '-lien" type="text" inputmode="url" ' +
+          'placeholder="https://maps.app.goo.gl/…"></div>'
+    );
+  }
+
+  /**
+   * Branche le bloc, et rend une fonction qui lit ce qu'il contient.
+   * Les coordonnées vivent ici, dans cette fermeture : les poser dans
+   * des champs cachés reviendrait à les laisser retaper à la main, et
+   * une position tapée à la main n'en est pas une.
+   */
+  function brancherPosition(vue, p, valeurs) {
+    let latitude = (valeurs && valeurs.latitude) || null;
+    let longitude = (valeurs && valeurs.longitude) || null;
+
+    const zone = UI.$("#" + p + "-etat", vue);
+    const dire = (texte, type) => {
+      if (!zone) return;
+      zone.innerHTML = texte
+        ? '<p class="aide" style="margin:8px 0 0' +
+            (type === "err" ? ";color:var(--rouge)" : "") + '">' +
+            Utils.echapper(texte) + "</p>"
+        : "";
+    };
+    const direPosee = (precision) => dire(
+      "Position enregistrée" +
+      (precision ? " (à environ " + precision + " m près)" : "") + ".");
+
+    if (latitude !== null && longitude !== null) direPosee(0);
+
+    const bouton = UI.$("#" + p + "-relever", vue);
+    if (bouton) {
+      bouton.addEventListener("click", async () => {
+        bouton.disabled = true;
+        dire("Relevé de la position…");
+        try {
+          const pos = await Compte.positionActuelle();
+          latitude = pos.latitude;
+          longitude = pos.longitude;
+          direPosee(pos.precision);
+        } catch (err) {
+          dire(err.message, "err");
+        }
+        bouton.disabled = false;
+      });
+    }
+
+    const lien = UI.$("#" + p + "-lien", vue);
+    if (lien) {
+      lien.addEventListener("input", () => {
+        const pos = Compte.positionDuLien(lien.value);
+        if (!pos) return;
+        latitude = pos.latitude;
+        longitude = pos.longitude;
+        dire("Position lue dans le lien.");
+      });
+    }
+
+    return () => {
+      const champ = UI.$("#" + p + "-adresse", vue);
+      return {
+        adresse: champ ? champ.value.trim() : "",
+        latitude, longitude,
+      };
+    };
+  }
+
   function inscription(vue) {
     UI.entete({ titre: "Créer mon compte", retour: true });
 
@@ -97,11 +194,12 @@ const VueCompte = (() => {
           choixCompte("revendeur", "magasin", "Pour revendre",
             "Le prix BIZZOO, après validation.") +
         "</div>" +
-        '<div id="cp-revendeur" class="champ" hidden>' +
-          '<label for="cp-message">Votre commerce</label>' +
-          '<textarea id="cp-message" rows="2" maxlength="300" ' +
-            'placeholder="Nom de votre boutique et où elle se trouve"></textarea>' +
-          '<p class="aide" style="margin:6px 0 0">BIZZOO regarde votre demande et ' +
+        '<div id="cp-revendeur" hidden>' +
+          '<div class="champ"><label for="cp-message">Votre commerce</label>' +
+            '<textarea id="cp-message" rows="2" maxlength="300" ' +
+              'placeholder="Nom de votre boutique et ce que vous revendez"></textarea></div>' +
+          blocPosition("cp-pos") +
+          '<p class="aide" style="margin:10px 0 0">BIZZOO regarde votre demande et ' +
             "vous répond. En attendant, vous commandez au prix habituel.</p>" +
         "</div>" +
       "</div>" +
@@ -135,6 +233,11 @@ const VueCompte = (() => {
     }
     marquer();
 
+    /* Le bloc de position est dessiné même quand il est caché : le
+       brancher une fois suffit, et ce qu'il a relevé survit à un
+       aller-retour entre les deux sortes de comptes. */
+    const lirePosition = brancherPosition(vue, "cp-pos");
+
     UI.$("#cp-creer").addEventListener("click", async () => {
       const nom = UI.$("#cp-nom").value.trim();
       const email = UI.$("#cp-email").value.trim();
@@ -148,7 +251,8 @@ const VueCompte = (() => {
       const bouton = UI.$("#cp-creer");
       bouton.disabled = true;
       try {
-        const r = await Compte.inscrire(email, mdp, nom, type, message);
+        const r = await Compte.inscrire(email, mdp, nom, type, message,
+          type === "revendeur" ? lirePosition() : null);
         if (r.confirmation) {
           /* BIZZOO demande une confirmation par e-mail : il n'y a pas de
              session, donc rien à afficher d'autre que la marche à suivre. */
@@ -469,7 +573,8 @@ const VueCompte = (() => {
         "</p>" +
         '<div class="champ"><label for="cp-rv-message">Votre commerce</label>' +
           '<textarea id="cp-rv-message" rows="2" maxlength="300" ' +
-            'placeholder="Nom de votre boutique et où elle se trouve"></textarea></div>' +
+            'placeholder="Nom de votre boutique et ce que vous revendez"></textarea></div>' +
+        blocPosition("cp-rv-pos", Compte.positionRevendeur()) +
         '<button type="button" class="btn" id="cp-rv-demander">' + UI.icone("check") +
           (refus ? "Refaire ma demande" : "Demander un compte revendeur") + "</button>" +
       "</div>"
@@ -479,12 +584,13 @@ const VueCompte = (() => {
   function brancherRevendeur(vue) {
     const demander = UI.$("#cp-rv-demander", vue);
     if (demander) {
+      const lirePosition = brancherPosition(vue, "cp-rv-pos", Compte.positionRevendeur());
       demander.addEventListener("click", async () => {
         const message = UI.$("#cp-rv-message", vue).value.trim();
         if (!message) return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
         demander.disabled = true;
         try {
-          await Compte.demanderRevendeur(message);
+          await Compte.demanderRevendeur(message, lirePosition());
           UI.toast("Demande envoyée à BIZZOO.");
           monCompte(vue);
         } catch (err) {

@@ -99,6 +99,9 @@ alter table public.clients add column if not exists indicatif text not null defa
 alter table public.clients add column if not exists type_compte text not null default 'client';
 alter table public.clients add column if not exists revendeur_etat text not null default 'aucune';
 alter table public.clients add column if not exists revendeur_message text not null default '';
+alter table public.clients add column if not exists revendeur_adresse text not null default '';
+alter table public.clients add column if not exists revendeur_latitude double precision;
+alter table public.clients add column if not exists revendeur_longitude double precision;
 alter table public.clients add column if not exists revendeur_demande_le timestamptz;
 alter table public.clients add column if not exists revendeur_decide_par text not null default '';
 alter table public.clients add column if not exists revendeur_decide_le timestamptz;
@@ -171,6 +174,23 @@ grant execute on function public.est_client() to authenticated;
 --
 -- Seule une fonction du serveur peut le poser, et elle pose du même coup
 -- le numéro : on ne peut pas faire vérifier un numéro puis en changer.
+-- Ce qui n'est pas une coordonnée. Les deux règles d'écriture ci-dessous
+-- l'appellent pour remettre d'aplomb la position du commerce d'un
+-- revendeur ; elle naît dans « position-revendeur.sql », plus récent que
+-- ce fichier. Reposée ici à l'identique — la reposer ne coûte rien.
+create or replace function public.coord_valable(valeur double precision, borne double precision)
+returns double precision
+language sql immutable as $$
+  select case when valeur is null
+                or valeur <> valeur              -- « NaN » ne s'égale pas lui-même
+                or valeur < -borne or valeur > borne
+              then null else valeur end;
+$$;
+revoke all on function public.coord_valable(double precision, double precision)
+  from public, anon, authenticated;
+grant execute on function public.coord_valable(double precision, double precision)
+  to anon, authenticated;
+
 create or replace function public.client_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
@@ -206,6 +226,20 @@ begin
   end if;
 
   new.revendeur_message := left(coalesce(new.revendeur_message, ''), 300);
+  -- La position du commerce, remise d'aplomb. Elle s'écrit librement —
+  -- c'est la DÉCLARATION du demandeur, comme son message — mais elle ne
+  -- part pas n'importe où : hors bornes, elle disparaît.
+  new.revendeur_latitude  := public.coord_valable(new.revendeur_latitude, 90);
+  new.revendeur_longitude := public.coord_valable(new.revendeur_longitude, 180);
+  -- Une latitude sans longitude ne désigne rien. Et « 0, 0 » est un
+  -- point au large du Ghana : c'est ce que rend un téléphone qui n'a
+  -- rien trouvé, jamais une boutique de Cotonou.
+  if new.revendeur_latitude is null or new.revendeur_longitude is null
+     or (new.revendeur_latitude = 0 and new.revendeur_longitude = 0) then
+    new.revendeur_latitude  := null;
+    new.revendeur_longitude := null;
+  end if;
+  new.revendeur_adresse := left(coalesce(new.revendeur_adresse, ''), 200);
 
   if coalesce(current_setting('bizzoo.verification', true), '') = 'oui' then
     return new;   -- la vérification par SMS, et elle seule
@@ -241,6 +275,20 @@ begin
     new.revendeur_demande_le := now();
   end if;
   new.revendeur_message    := left(coalesce(new.revendeur_message, ''), 300);
+  -- La position du commerce, remise d'aplomb. Elle s'écrit librement —
+  -- c'est la DÉCLARATION du demandeur, comme son message — mais elle ne
+  -- part pas n'importe où : hors bornes, elle disparaît.
+  new.revendeur_latitude  := public.coord_valable(new.revendeur_latitude, 90);
+  new.revendeur_longitude := public.coord_valable(new.revendeur_longitude, 180);
+  -- Une latitude sans longitude ne désigne rien. Et « 0, 0 » est un
+  -- point au large du Ghana : c'est ce que rend un téléphone qui n'a
+  -- rien trouvé, jamais une boutique de Cotonou.
+  if new.revendeur_latitude is null or new.revendeur_longitude is null
+     or (new.revendeur_latitude = 0 and new.revendeur_longitude = 0) then
+    new.revendeur_latitude  := null;
+    new.revendeur_longitude := null;
+  end if;
+  new.revendeur_adresse := left(coalesce(new.revendeur_adresse, ''), 200);
   new.revendeur_decide_par := '';
   new.revendeur_decide_le  := null;
   new.revendeur_motif      := '';

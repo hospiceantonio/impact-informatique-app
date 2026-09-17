@@ -674,6 +674,21 @@ alter table public.clients add column if not exists revendeur_etat text not null
 -- Ce que le demandeur dit de son commerce : sans quoi valider
 -- reviendrait à signer un nom et une adresse e-mail.
 alter table public.clients add column if not exists revendeur_message text not null default '';
+-- OÙ SE TROUVE CE COMMERCE. Un nom et une phrase ne suffisent pas à
+-- décider : l'enseigne veut savoir si elle a affaire à une boutique de
+-- Dantokpa ou à quelqu'un qui revend depuis son salon.
+--
+-- Les deux formes se complètent, et aucune n'est obligatoire :
+--   l'ADRESSE ÉCRITE — au Bénin, c'est elle qui permet de trouver : un
+--     quartier, un repère, « derrière la pharmacie » ;
+--   les COORDONNÉES — relevées par le téléphone ou tirées d'un lien de
+--     carte. Elles ouvrent l'itinéraire d'un seul geste.
+--
+-- Ce n'est PAS l'adresse de livraison du client (« adresse », plus
+-- haut) : on peut se faire livrer chez soi et tenir boutique ailleurs.
+alter table public.clients add column if not exists revendeur_adresse text not null default '';
+alter table public.clients add column if not exists revendeur_latitude double precision;
+alter table public.clients add column if not exists revendeur_longitude double precision;
 alter table public.clients add column if not exists revendeur_demande_le timestamptz;
 alter table public.clients add column if not exists revendeur_decide_par text not null default '';
 alter table public.clients add column if not exists revendeur_decide_le timestamptz;
@@ -754,6 +769,23 @@ grant execute on function public.est_client() to authenticated;
 -- raison : demander reste libre — c'est le sens de « type_compte » —
 -- mais la demande remet la décision à zéro. On ne se refait pas valider
 -- en se déclarant client puis revendeur.
+-- Une coordonnée hors de ses bornes n'est pas une coordonnée : c'est une
+-- faute de frappe, un lien mal recopié, ou un « NaN » qu'un téléphone a
+-- rendu sans le dire. On l'efface plutôt que de la garder — un point
+-- faux sur une carte est pire que pas de point du tout.
+create or replace function public.coord_valable(valeur double precision, borne double precision)
+returns double precision
+language sql immutable as $$
+  select case when valeur is null
+                or valeur <> valeur              -- « NaN » ne s'égale pas lui-même
+                or valeur < -borne or valeur > borne
+              then null else valeur end;
+$$;
+revoke all on function public.coord_valable(double precision, double precision)
+  from public, anon, authenticated;
+grant execute on function public.coord_valable(double precision, double precision)
+  to anon, authenticated;
+
 create or replace function public.client_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
@@ -789,6 +821,20 @@ begin
   end if;
 
   new.revendeur_message := left(coalesce(new.revendeur_message, ''), 300);
+  -- La position du commerce, remise d'aplomb. Elle s'écrit librement —
+  -- c'est la DÉCLARATION du demandeur, comme son message — mais elle ne
+  -- part pas n'importe où : hors bornes, elle disparaît.
+  new.revendeur_latitude  := public.coord_valable(new.revendeur_latitude, 90);
+  new.revendeur_longitude := public.coord_valable(new.revendeur_longitude, 180);
+  -- Une latitude sans longitude ne désigne rien. Et « 0, 0 » est un
+  -- point au large du Ghana : c'est ce que rend un téléphone qui n'a
+  -- rien trouvé, jamais une boutique de Cotonou.
+  if new.revendeur_latitude is null or new.revendeur_longitude is null
+     or (new.revendeur_latitude = 0 and new.revendeur_longitude = 0) then
+    new.revendeur_latitude  := null;
+    new.revendeur_longitude := null;
+  end if;
+  new.revendeur_adresse := left(coalesce(new.revendeur_adresse, ''), 200);
 
   if coalesce(current_setting('bizzoo.verification', true), '') = 'oui' then
     return new;   -- la vérification par SMS, et elle seule
@@ -826,6 +872,20 @@ begin
     new.revendeur_demande_le := now();
   end if;
   new.revendeur_message    := left(coalesce(new.revendeur_message, ''), 300);
+  -- La position du commerce, remise d'aplomb. Elle s'écrit librement —
+  -- c'est la DÉCLARATION du demandeur, comme son message — mais elle ne
+  -- part pas n'importe où : hors bornes, elle disparaît.
+  new.revendeur_latitude  := public.coord_valable(new.revendeur_latitude, 90);
+  new.revendeur_longitude := public.coord_valable(new.revendeur_longitude, 180);
+  -- Une latitude sans longitude ne désigne rien. Et « 0, 0 » est un
+  -- point au large du Ghana : c'est ce que rend un téléphone qui n'a
+  -- rien trouvé, jamais une boutique de Cotonou.
+  if new.revendeur_latitude is null or new.revendeur_longitude is null
+     or (new.revendeur_latitude = 0 and new.revendeur_longitude = 0) then
+    new.revendeur_latitude  := null;
+    new.revendeur_longitude := null;
+  end if;
+  new.revendeur_adresse := left(coalesce(new.revendeur_adresse, ''), 200);
   new.revendeur_decide_par := '';
   new.revendeur_decide_le  := null;
   new.revendeur_motif      := '';
@@ -986,15 +1046,27 @@ grant execute on function public.mes_prix() to authenticated;
 -- La liste que voit le superadministrateur. L'adresse e-mail vient de
 -- « auth.users », que personne ne lit directement : c'est la fonction
 -- qui va la chercher, après avoir vérifié qui appelle.
+--
+-- Elle rend aussi OÙ SE TROUVE le commerce : adresse écrite et
+-- coordonnées. Décider sans savoir où revient à signer un nom et une
+-- adresse e-mail.
+--
+-- « drop » avant « create » : ajouter une colonne au résultat d'une
+-- fonction change son type de retour, et PostgreSQL refuse de le
+-- changer sur place — « cannot change return type of existing
+-- function ». Sans ce retrait, le fichier échouerait en entier.
+drop function if exists public.revendeurs(text);
 create or replace function public.revendeurs(filtre text default 'en_attente')
 returns table (
   id uuid, nom text, email text, tel text, indicatif text,
   message text, etat text, demande_le timestamptz,
-  decide_par text, decide_le timestamptz, motif text)
+  decide_par text, decide_le timestamptz, motif text,
+  adresse text, latitude double precision, longitude double precision)
 language sql stable security definer set search_path = public as $$
   select c.id, c.nom, coalesce(u.email, '')::text, c.tel, c.indicatif,
          c.revendeur_message, c.revendeur_etat, c.revendeur_demande_le,
-         c.revendeur_decide_par, c.revendeur_decide_le, c.revendeur_motif
+         c.revendeur_decide_par, c.revendeur_decide_le, c.revendeur_motif,
+         c.revendeur_adresse, c.revendeur_latitude, c.revendeur_longitude
     from public.clients c
     left join auth.users u on u.id = c.id
    where public.est_super()

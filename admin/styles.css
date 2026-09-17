@@ -1135,6 +1135,16 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   background:var(--bleu-50);border:1px solid var(--bleu-100);
   font-size:13px;line-height:1.5;white-space:pre-wrap;
 }
+/* Où se trouve le commerce. Le flex garde l'icône À CÔTÉ du texte :
+   posée dans le fil de la phrase, elle se retrouve seule sur sa ligne
+   dès que l'adresse est longue — et une adresse de Cotonou l'est. */
+.rv-ou{
+  display:flex;align-items:flex-start;gap:8px;
+  margin:0 0 10px;font-size:13px;line-height:1.5;
+  color:var(--encre-douce);
+}
+.rv-ou .ic{margin-top:2px;color:var(--bleu)}
+.rv-ou a{color:var(--bleu);font-weight:600;text-decoration:underline}
 
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :

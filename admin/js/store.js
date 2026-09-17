@@ -1058,6 +1058,11 @@ const Store = (() => {
       decidePar: l.decide_par || "",
       decideLe: l.decide_le ? Date.parse(l.decide_le) || 0 : 0,
       motif: l.motif || "",
+      /* Où le demandeur dit tenir son commerce. La base a déjà écarté ce
+         qui n'était pas une position : ici, c'est vrai ou c'est vide. */
+      adresse: l.adresse || "",
+      latitude: l.latitude === null || l.latitude === undefined ? null : Number(l.latitude),
+      longitude: l.longitude === null || l.longitude === undefined ? null : Number(l.longitude),
     };
   }
 

@@ -19,6 +19,36 @@ const VueRevendeurs = (() => {
     refusee: { mot: "Refusé", icone: "fermer" },
   };
 
+  /**
+   * Où se trouve le commerce, tel que le demandeur l'a déclaré.
+   *
+   * C'est une DÉCLARATION, pas une preuve : personne n'a vérifié que le
+   * point posé est bien une boutique. Elle sert à décider en sachant de
+   * quoi l'on parle, pas à certifier quoi que ce soit.
+   */
+  function blocOu(r) {
+    const situe = r.latitude !== null && r.longitude !== null;
+    if (!r.adresse && !situe) {
+      return '<div class="aide" style="margin:0 0 10px">' +
+        "Aucune adresse ni position donnée.</div>";
+    }
+    const carte = situe
+      ? "https://www.google.com/maps/search/?api=1&query=" + r.latitude + "," + r.longitude
+      : "";
+    return (
+      '<div class="rv-ou">' +
+        UI.icone("carte", "ic-sm") +
+        "<div>" +
+          (r.adresse ? Utils.echapper(r.adresse) : "Position relevée, sans adresse écrite") +
+          (situe
+            ? '<div><a href="' + Utils.echapper(carte) + '" target="_blank" ' +
+                'rel="noopener">Ouvrir la carte</a></div>'
+            : "") +
+        "</div>" +
+      "</div>"
+    );
+  }
+
   function htmlDemande(r) {
     const etat = ETATS[r.etat] || ETATS.en_attente;
     const tel = r.tel ? "+" + r.indicatif + " " + r.tel : "";
@@ -39,6 +69,12 @@ const VueRevendeurs = (() => {
           ? '<div class="rv-message">' + Utils.echapper(r.message) + "</div>"
           : '<div class="aide" style="margin:0 0 10px">Aucune précision donnée ' +
             "sur le commerce.</div>") +
+        /* OÙ C'EST. Valider, c'est accorder une remise permanente sur
+           tout le catalogue : on ne signe pas cela sans savoir à qui on
+           a affaire. L'adresse écrite se lit, les coordonnées s'ouvrent
+           d'un geste — et si le demandeur n'a rien donné, on le dit
+           plutôt que de laisser un blanc qu'on interprète mal. */
+        blocOu(r) +
         (r.etat === "en_attente"
           ? '<div class="btn-rangee" style="margin-top:12px">' +
               '<button type="button" class="btn" data-valider="' + Utils.echapper(r.id) + '">' +

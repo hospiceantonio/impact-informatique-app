@@ -113,6 +113,48 @@ const Compte = (() => {
   const surChangement = (f) => { ecouteurs.push(f); };
   const prevenir = () => ecouteurs.forEach((f) => { try { f(); } catch (_) { /* rien */ } });
 
+  /* ---------- Où se trouve le commerce ----------
+
+     Une position n'est utile que si elle est VRAIE. On la relève donc
+     par le téléphone plutôt que de la faire taper, et on accepte aussi
+     un lien de carte collé — c'est ce que les gens ont sous la main.
+
+     Rien n'est obligatoire : un revendeur qui refuse la localisation
+     donne son adresse en toutes lettres, et c'est très bien. Au Bénin,
+     c'est d'ailleurs l'adresse écrite qui permet de trouver. */
+
+  /** Ce que le téléphone sait de sa position. Rejette au lieu de traîner. */
+  function positionActuelle() {
+    return new Promise((resoudre, rejeter) => {
+      if (!navigator.geolocation) {
+        rejeter(new Error("Ce téléphone ne sait pas donner sa position."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (p) => resoudre({
+          latitude: Number(p.coords.latitude.toFixed(6)),
+          longitude: Number(p.coords.longitude.toFixed(6)),
+          precision: Math.round(p.coords.accuracy || 0),
+        }),
+        (err) => rejeter(new Error(err && err.code === 1
+          ? "Autorisation refusée : activez la localisation pour BIZZOO."
+          : "Position introuvable : sortez à l'air libre puis réessayez.")),
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    });
+  }
+
+  /**
+   * Les coordonnées cachées dans un lien de carte. Google Maps, OSM et
+   * les autres les écrivent tous sous la forme « 6.3702,2.4289 »,
+   * précédées d'un « @ », d'un « = » ou d'une barre oblique.
+   */
+  function positionDuLien(texte) {
+    const t = String(texte || "");
+    const trouve = t.match(/(-?\d{1,3}\.\d{3,})[,\s/@]+(-?\d{1,3}\.\d{3,})/);
+    if (!trouve) return null;
+    return { latitude: Number(trouve[1]), longitude: Number(trouve[2]) };
+  }
+
   /* ---------- Dialogue avec l'authentification ---------- */
 
   async function appelAuth(chemin, corps, avecSession, methode) {
@@ -284,7 +326,7 @@ const Compte = (() => {
 
   /* ---------- Entrer, sortir ---------- */
 
-  async function inscrire(email, motDePasse, nom, type, message) {
+  async function inscrire(email, motDePasse, nom, type, message, position) {
     /* « compte: client » part dans les métadonnées du compte. C'est ce que
        la base lit pour NE PAS fabriquer une fiche d'équipe en attente.
        « type » et « revendeur » les rejoignent : ils portent le choix du
@@ -298,6 +340,16 @@ const Compte = (() => {
         nom: String(nom || "").trim(),
         type: type === "revendeur" ? "revendeur" : "client",
         revendeur: type === "revendeur" ? String(message || "").trim().slice(0, 300) : "",
+        /* La position voyage avec le reste de la demande : sans cela,
+           elle serait perdue par la confirmation par e-mail, qui peut
+           s'ouvrir sur un autre appareil — et un autre appareil, c'est
+           un autre endroit. */
+        revendeur_adresse: type === "revendeur"
+          ? String((position && position.adresse) || "").trim().slice(0, 200) : "",
+        revendeur_lat: type === "revendeur" && position && position.latitude != null
+          ? Number(position.latitude) : null,
+        revendeur_lng: type === "revendeur" && position && position.longitude != null
+          ? Number(position.longitude) : null,
       },
     });
 
@@ -592,6 +644,9 @@ const Compte = (() => {
           nom: String(nom || "").trim() || demande.nom,
           type_compte: demande.type,
           revendeur_message: demande.message,
+          revendeur_adresse: demande.adresse,
+          revendeur_latitude: demande.latitude,
+          revendeur_longitude: demande.longitude,
         },
         { "Prefer": "return=representation,resolution=ignore-duplicates" });
       fiche = (cree && cree[0]) || null;
@@ -645,6 +700,11 @@ const Compte = (() => {
       type: m.type === "revendeur" ? "revendeur" : "client",
       nom: String(m.nom || "").trim(),
       message: String(m.revendeur || "").trim(),
+      adresse: String(m.revendeur_adresse || "").trim(),
+      /* La base écartera ce qui n'est pas une position : ici on se
+         contente de ne pas inventer de zéro là où il n'y a rien. */
+      latitude: typeof m.revendeur_lat === "number" ? m.revendeur_lat : null,
+      longitude: typeof m.revendeur_lng === "number" ? m.revendeur_lng : null,
     };
   }
 
@@ -707,14 +767,31 @@ const Compte = (() => {
   const estRevendeurEnAttente = () => etatRevendeur() === "en_attente";
   const motifRevendeur = () => (fiche && fiche.revendeur_motif) || "";
 
+  /** Où le compte a dit tenir son commerce. Vide tant qu'il n'a rien dit. */
+  const positionRevendeur = () => ({
+    adresse: (fiche && fiche.revendeur_adresse) || "",
+    latitude: fiche && fiche.revendeur_latitude != null
+      ? Number(fiche.revendeur_latitude) : null,
+    longitude: fiche && fiche.revendeur_longitude != null
+      ? Number(fiche.revendeur_longitude) : null,
+  });
+
   /** Demander à devenir revendeur. Renvoie la fiche mise à jour. */
-  async function demanderRevendeur(message) {
+  async function demanderRevendeur(message, position) {
     const id = identifiant();
     if (!id) throw new Error("Vous n'êtes pas connecté.");
     const maj = await rest("PATCH", "clients?id=eq." + encodeURIComponent(id),
       {
         type_compte: "revendeur",
         revendeur_message: String(message || "").trim().slice(0, 300),
+        /* Les trois champs partent ENSEMBLE, même vides : une demande
+           refaite sans position doit effacer l'ancienne, sinon on
+           déciderait sur une adresse qui n'est plus la bonne. */
+        revendeur_adresse: String((position && position.adresse) || "").trim().slice(0, 200),
+        revendeur_latitude: position && position.latitude != null
+          ? Number(position.latitude) : null,
+        revendeur_longitude: position && position.longitude != null
+          ? Number(position.longitude) : null,
         maj_le: new Date().toISOString(),
       },
       { "Prefer": "return=representation" });
@@ -768,5 +845,6 @@ const Compte = (() => {
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
     mesCommandes, commande, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
+    positionActuelle, positionDuLien, positionRevendeur,
   };
 })();
