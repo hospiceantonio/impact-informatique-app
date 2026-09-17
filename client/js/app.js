@@ -21,6 +21,10 @@ const App = { evenementInstallation: null };
     { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v) },
     { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]) },
     { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v) },
+    /* Le SAV : on y arrive depuis le reçu d'une commande payée, c'est
+       là que le client est quand il constate le problème. */
+    { motif: /^\/reclamations$/, vue: (v) => VueSAV.mesReclamations(v) },
+    { motif: /^\/reclamation\/([^/]+)$/, vue: (v, m) => VueSAV.fil(v, m[1]) },
     /* Le compte traverse les boutiques, comme le panier : aucun onglet
        ne s'allume, on y entre par la barre du haut. */
     { motif: /^\/connexion$/, vue: (v) => VueCompte.connexion(v) },

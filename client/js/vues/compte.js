@@ -379,6 +379,10 @@ const VueCompte = (() => {
             'style="margin-top:10px">' + UI.icone("actualiser") +
             "Retrouver mes commandes d'avant</button>"
           : "") +
+        /* Le SAV a sa propre porte : une réclamation ouverte il y a une
+           semaine ne se retrouve pas en fouillant ses commandes. */
+        '<a class="btn btn-clair" href="#/reclamations" style="margin-top:10px">' +
+          UI.icone("alerte") + "Mes réclamations</a>" +
       "</div>" +
       '<div class="carte">' +
         '<button type="button" class="btn btn-clair" id="cp-sortir">' + UI.icone("retour") +

@@ -17,9 +17,10 @@ const VueAccueil = (() => {
            l'enseigne : sans cette icône, il n'aurait aucun chemin vers
            les avis de sa boutique une fois la file vide. */
         '<a class="btn-ic" href="#/avis" aria-label="Avis des clients">' + UI.icone("etoile") + "</a>" +
+        '<a class="btn-ic" href="#/sav" aria-label="Réclamations">' + UI.icone("alerte") + "</a>" +
         '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
-    const [stats, slides, produits, demandes, commandes, revendeurs, avis] = await Promise.all([
+    const [stats, slides, produits, demandes, commandes, revendeurs, avis, sav] = await Promise.all([
       Store.statistiques(),
       admin ? Store.listerSlides().catch(() => []) : Promise.resolve([]),
       Store.listerProduits(),
@@ -39,6 +40,9 @@ const VueAccueil = (() => {
       /* Les avis des clients. Un avis sans réponse est un client qui
          attend, et c'est ce que liront les clients suivants. */
       Store.listerAvis(100).catch(() => []),
+      /* Les réclamations. Un client qui attend une réponse depuis deux
+         jours peut déjà saisir BIZZOO : rien ne doit passer avant. */
+      Store.listerReclamations(100).catch(() => []),
     ]);
     const enAttente = demandes.filter((d) => d.etat === "en_attente");
 
@@ -91,6 +95,29 @@ const VueAccueil = (() => {
               .filter(Boolean).join(" · ")) +
             (revendeurs.length > 3 ? " …" : "") +
             " — un compte validé achète au prix BIZZOO. Touchez pour trancher.</p>" +
+        "</a>";
+    }
+
+    /* ---- Les réclamations qui attendent ----
+       Avant les avis, avant tout le reste après les commandes : un
+       client qui réclame a déjà payé, et il attend. Passé 48 heures
+       sans réponse, il peut saisir BIZZOO. */
+    const savOuverts = sav.filter((r) => r.etat === "ouverte");
+    const savRecours = sav.filter((r) => r.etat === "escaladee");
+    if (savOuverts.length || savRecours.length) {
+      html +=
+        '<a class="carte carte-publier" href="#/sav">' +
+          '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") + " " +
+            (savRecours.length
+              ? savRecours.length + " recours chez BIZZOO"
+              : savOuverts.length + " réclamation" +
+                (savOuverts.length > 1 ? "s" : "") + " sans réponse") + "</div>" +
+          '<p class="aide" style="margin:0">' +
+            (savRecours.length && savOuverts.length
+              ? "Et " + savOuverts.length + " sans réponse. "
+              : "") +
+            "Répondez sous 48 heures : passé ce délai, le client peut demander " +
+            "à BIZZOO de trancher.</p>" +
         "</a>";
     }
 

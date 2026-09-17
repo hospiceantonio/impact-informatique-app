@@ -411,6 +411,9 @@ const Compte = (() => {
       const quantite = Number(x.quantite) || 1;
       groupe.montant += prix * quantite;
       groupe.lignes.push({
+        /* L'identifiant sert au SAV : désigner « l'imprimante » plutôt
+           que « toute la commande » change tout pour la boutique. */
+        produitId: x.produit_id || "",
         nom: x.nom || "", code: x.code || "", reference: x.reference || "",
         prix, quantite,
       });
@@ -442,7 +445,7 @@ const Compte = (() => {
   const CHAMPS_COMMANDE =
     "id,numero,total,devise,etat,remarque,note,cree_le,revendeur," +
     "client_nom,client_tel,client_indicatif,client_adresse," +
-    "commande_lignes(boutique_id,nom,code,reference,prix,quantite)";
+    "commande_lignes(boutique_id,produit_id,nom,code,reference,prix,quantite)";
 
   /** Les commandes de ce compte, les plus récentes d'abord. */
   async function mesCommandes(combien) {
@@ -701,6 +704,6 @@ const Compte = (() => {
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
-    mesCommandes, commande, rpc,
+    mesCommandes, commande, rpc, rest,
   };
 })();

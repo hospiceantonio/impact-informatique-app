@@ -1054,6 +1054,77 @@ const Store = (() => {
     return (lignes || []).map(revendeurDepuisLigne);
   }
 
+  /* ---------- Le service après-vente ----------
+
+     LA BOUTIQUE D'ABORD, BIZZOO EN RECOURS. La boutique répond à ce
+     qui la concerne ; elle ne CLÔT pas — c'est le client qui dit que
+     son problème est réglé, ou l'enseigne qui tranche. Une boutique
+     capable de fermer une réclamation fermerait toutes celles qui la
+     gênent, et le SAV ne serait plus qu'un formulaire.
+
+     L'enseigne, elle, voit tout : c'est elle le recours. Mais elle ne
+     tranche que ce qui lui a été REMONTÉ — retirer un dossier des
+     mains d'une boutique sans qu'on le lui demande n'est pas un
+     recours, c'est une mise sous tutelle. La base le vérifie. */
+
+  const SUJETS_SAV = {
+    non_recu: "Rien reçu",
+    abime: "Article abîmé",
+    pas_conforme: "Pas conforme",
+    incomplet: "Commande incomplète",
+    autre: "Autre problème",
+  };
+
+  function reclamationDepuisLigne(l) {
+    return {
+      id: l.id,
+      commandeId: l.commande_id || "",
+      boutiqueId: l.boutique_id || "",
+      nomBoutique: (lireBoutique(l.boutique_id) || {}).nomBoutique || "",
+      produitId: l.produit_id || "",
+      sujet: l.sujet || "autre",
+      etat: l.etat || "ouverte",
+      escaladeLe: l.escalade_le ? Date.parse(l.escalade_le) || 0 : 0,
+      escaladeMotif: l.escalade_motif || "",
+      decision: l.decision || "",
+      decidePar: l.decide_par || "",
+      reponduLe: l.repondu_le ? Date.parse(l.repondu_le) || 0 : 0,
+      creeLe: versMs(l.cree_le),
+      majLe: versMs(l.maj_le),
+    };
+  }
+
+  /** Les réclamations visibles : celles de sa boutique, ou toutes. */
+  async function listerReclamations(combien) {
+    const lignes = await Supabase.requete("GET",
+      "reclamations?select=*&order=cree_le.desc&limit=" + (Number(combien) || 100),
+      undefined, { avecSession: true });
+    return (lignes || []).map(reclamationDepuisLigne);
+  }
+
+  /** Le fil : ce qui a été dit, dans l'ordre. */
+  async function messagesReclamation(id) {
+    const lignes = await Supabase.requete("GET",
+      "reclamation_messages?select=id,auteur_role,auteur_nom,texte,cree_le" +
+      "&reclamation_id=eq." + encodeURIComponent(id) + "&order=cree_le.asc",
+      undefined, { avecSession: true });
+    return (lignes || []).map((m) => ({
+      id: m.id, role: m.auteur_role || "client", nom: m.auteur_nom || "",
+      texte: m.texte || "", quand: versMs(m.cree_le),
+    }));
+  }
+
+  async function repondreReclamation(id, texte) {
+    await Supabase.rpcLecture("repondre_reclamation", { cible: id, message: texte || "" });
+    journaliser("boutique", "sav", "Réponse à une réclamation client", id);
+  }
+
+  /** Trancher un recours. Réservé à l'enseigne — la base le vérifie. */
+  async function trancherReclamation(id, verdict) {
+    await Supabase.rpcLecture("trancher_reclamation", { cible: id, verdict: verdict || "" });
+    journaliser("boutique", "sav", "Recours tranché : " + (verdict || ""), id, undefined, null);
+  }
+
   /* ---------- Les avis des clients ----------
 
      La boutique RÉPOND, elle n'efface pas. C'est la règle qui donne sa
@@ -2345,6 +2416,8 @@ const Store = (() => {
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
     listerRevendeurs, deciderRevendeur,
     listerAvis, repondreAvis, masquerAvis,
+    SUJETS_SAV, listerReclamations, messagesReclamation,
+    repondreReclamation, trancherReclamation,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
     statistiquesVentes,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement,

@@ -543,6 +543,16 @@ const VuePanier = (() => {
 
     dessinerRecu(vue, commande);
 
+    /* Le SAV, sous le reçu : c'est ici que le client est quand il
+       constate un problème, et c'est cette commande-là qui prouve son
+       achat. Le bloc ne s'ajoute qu'à une commande PAYÉE — avant, il
+       n'y a rien à réclamer. */
+    const sav = VueSAV.blocReçu(commande);
+    if (sav) {
+      vue.insertAdjacentHTML("beforeend", sav);
+      VueSAV.remplirReçu(commande);
+    }
+
     /* Quelques secondes passent entre le moment où le client valide et
        celui où l'encaissement est constaté : on patiente, on n'annonce
        pas. Avec KkiaPay, une transaction a été rendue au téléphone ;

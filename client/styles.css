@@ -1169,3 +1169,40 @@ a.pub-carte:active{transform:scale(.98)}
 .av-etoile:active{transform:scale(.9)}
 .av-fermee{display:flex;align-items:flex-start;gap:6px}
 .av-fermee .ic{flex:none;margin-top:2px;color:var(--vert)}
+
+/* ---------- Le service après-vente ----------
+   La boutique d'abord, BIZZOO en recours : les états se lisent d'un
+   coup d'œil, et le recours porte sa couleur à lui. */
+.sav-resume{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:12px 0;border-top:1px solid var(--trait);color:inherit;
+}
+.sav-resume:first-of-type{border-top:0}
+.carte.sav-resume{border-top:0;padding:16px}
+.sav-quand{font-size:11.5px;color:var(--encre-tres-douce);margin-top:3px}
+.sav-entete{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+.badge.sav-attente{background:var(--ambre-clair);color:var(--orange-fonce)}
+.badge.sav-repondue{background:var(--bleu-50);color:var(--bleu-700)}
+.badge.sav-resolue{background:var(--vert-clair);color:var(--vert)}
+/* Le recours se voit : c'est le moment où l'enseigne entre en jeu. */
+.badge.sav-recours{background:var(--orange);color:var(--bleu-900)}
+.badge.sav-tranchee{background:var(--bleu-900);color:#fff}
+
+/* Le fil : qui parle se lit avant ce qui est dit. */
+.sav-message{padding:12px 0;border-top:1px solid var(--trait)}
+.sav-message:first-of-type{border-top:0;padding-top:0}
+.sav-message-qui{display:flex;align-items:center;gap:6px;font-size:13px}
+.sav-message-qui .ic{color:var(--encre-tres-douce)}
+.sav-message-qui .sav-quand{margin:0 0 0 auto}
+.sav-message-texte{margin:6px 0 0;font-size:13.5px;line-height:1.55;white-space:pre-wrap}
+.sav-de-boutique .sav-message-qui .ic{color:var(--bleu)}
+/* Ce que dit BIZZOO tranche : cela doit se distinguer du reste. */
+.sav-de-enseigne{
+  background:var(--bleu-50);border:1px solid var(--bleu-100);
+  border-radius:var(--r-sm);padding:12px;margin-top:12px;
+}
+.sav-de-enseigne .sav-message-qui .ic{color:var(--bleu-700)}
+.sav-recours-btn{color:var(--orange-fonce);border-color:var(--ambre-clair)}
+.sav-close{display:flex;gap:8px;align-items:flex-start}
+.sav-close .ic{flex:none;margin-top:2px;color:var(--vert)}

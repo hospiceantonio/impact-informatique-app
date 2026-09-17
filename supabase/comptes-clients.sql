@@ -430,6 +430,11 @@ begin
                      sum(l.prix * l.quantite) as montant,
                      jsonb_agg(jsonb_build_object('nom', l.nom, 'code', l.code,
                        'reference', l.reference, 'prix', l.prix,
+                       /* L'identifiant du produit voyage avec la ligne :
+                          c'est par lui que le SAV désignera l'article
+                          qui pose problème. Le prix BIZZOO, lui, ne sort
+                          toujours pas. */
+                       'produit_id', l.produit_id,
                        'quantite', l.quantite) order by l.nom) as lignes
                 from public.commande_lignes l
                where l.commande_id = c.id

@@ -1184,3 +1184,43 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   background:var(--ambre-clair);color:var(--orange-fonce);
   font-size:12px;font-weight:700;
 }
+
+/* ---------- Réclamations ----------
+   La boutique répond, elle ne ferme pas. Un recours se voit de loin :
+   c'est le seul cas où l'enseigne entre dans le dossier. */
+.sav-ligne{display:flex;align-items:center;gap:10px;margin:0 0 10px;flex-wrap:wrap}
+.sav-ou{font-size:12px;font-weight:600;color:var(--encre-tres-douce)}
+.badge.sav-a-repondre{background:var(--ambre-clair);color:var(--orange-fonce)}
+.badge.sav-repondu{background:var(--bleu-50);color:var(--bleu-700)}
+.badge.sav-regle{background:var(--vert-clair);color:var(--vert)}
+.badge.sav-recours{background:var(--orange);color:var(--bleu-900)}
+.badge.sav-tranche{background:var(--bleu-900);color:#fff}
+/* Un dossier remonté à BIZZOO ne se confond pas avec les autres. */
+.sav-en-recours{border:1px solid var(--orange)}
+.sav-tarde{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:11.5px;font-weight:700;color:var(--orange-fonce);
+}
+.sav-motif{
+  display:flex;gap:8px;margin:0 0 10px;padding:10px 12px;border-radius:var(--r-sm);
+  background:var(--ambre-clair);color:var(--orange-fonce);
+  font-size:12.5px;line-height:1.5;
+}
+.sav-motif .ic{flex:none;margin-top:1px}
+.sav-fil{border-top:1px solid var(--trait);margin-top:4px}
+.sav-msg{padding:10px 0;border-bottom:1px solid var(--trait)}
+.sav-msg:last-child{border-bottom:0}
+.sav-msg-qui{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.sav-msg-qui .ic{color:var(--encre-tres-douce)}
+.sav-msg-quand{margin-left:auto;font-size:11px;color:var(--encre-tres-douce)}
+.sav-msg-texte{margin:4px 0 0;font-size:13px;line-height:1.55;white-space:pre-wrap}
+.sav-msg-boutique .sav-msg-qui .ic{color:var(--bleu)}
+/* Ce que dit BIZZOO s'impose : cela doit se distinguer du reste du fil. */
+.sav-msg-enseigne{
+  background:var(--bleu-50);border-radius:var(--r-sm);padding:10px 12px;margin:8px 0;
+}
+.sav-msg-enseigne .sav-msg-qui .ic{color:var(--bleu-700)}
+.sav-clos{
+  display:flex;align-items:center;gap:6px;margin-top:12px;
+  font-size:12.5px;font-weight:700;color:var(--vert);
+}

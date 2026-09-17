@@ -25,6 +25,10 @@
        la base ne montre à chacun que les siens. Masquer reste à
        l'enseigne, et le bouton ne s'affiche que pour elle. */
     { motif: /^\/avis$/, vue: (v) => VueAvis.afficher(v) },
+    /* Le SAV : toute l'équipe répond pour SA boutique — la base ne
+       montre à chacun que ce qui la concerne. Trancher un recours
+       reste à l'enseigne, et le bouton ne s'affiche que pour elle. */
+    { motif: /^\/sav$/, vue: (v) => VueSAV.afficher(v) },
     { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v), super: true },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },

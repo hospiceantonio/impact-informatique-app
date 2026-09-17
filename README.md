@@ -662,6 +662,7 @@ impact-informatique-app/
 │   ├── verification-telephone.sql   # Le numéro vérifié par SMS, ancré sur GoTrue
 │   ├── mes-commandes.sql            # Droits par colonne : l'acheteur ne lit pas la marge
 │   ├── avis.sql                     # Les avis, réservés à qui a payé ; la boutique répond
+│   ├── sav.sql                      # Le SAV : la boutique d'abord, BIZZOO en recours
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
@@ -680,6 +681,7 @@ impact-informatique-app/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
 │       ├── compte.js         # Le compte du client : session, fiche, demande de revendeur
 │       ├── avis.js           # Lire les avis sans compte, en donner un si l'on a payé
+│       ├── sav.js            # Réclamations : la boutique d'abord, BIZZOO en recours
 │       ├── panier.js         # Le panier : des identifiants, jamais des prix
 │       ├── paiement.js       # Commander, ouvrir KkiaPay, attendre la base
 │       ├── ui.js             # Logo, cartes produit, prix, badges

@@ -236,7 +236,20 @@ with controles(rang, element, ok) as (values
   -- Une boutique qui efface ce qui la gêne rend ses bons avis suspects.
   (42, 'La boutique répond, elle n''efface pas (repondre_avis)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'repondre_avis'))
+       where n.nspname = 'public' and p.proname = 'repondre_avis')),
+
+  -- ---------- Le service après-vente ----------
+  (43, 'Les réclamations (table reclamations)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'reclamations')),
+  -- Sans elle, « la boutique d'abord » n'est qu'une phrase : chacun
+  -- appellerait l'enseigne à la seconde même.
+  (44, 'BIZZOO n''entre qu''en recours (recours_possible)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'recours_possible')),
+  (45, 'Et elle tranche ce qui lui est remonté (trancher_reclamation)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'trancher_reclamation'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
