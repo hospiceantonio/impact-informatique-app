@@ -312,7 +312,19 @@ with controles(rang, element, ok) as (values
       select pg_get_function_result(p.oid) like '%latitude%'
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'revendeurs'
-       limit 1), false))
+       limit 1), false)),
+
+  -- ---------- La marge change, les prix suivent ----------
+  -- Sans ce déclencheur, changer la marge d'une boutique ne touche
+  -- AUCUN prix : il faut rouvrir chaque article un par un. En pratique,
+  -- la marge annoncée et la marge pratiquée divergent en silence.
+  (56, 'Le prix de vente se calcule en base (prix_public)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'prix_public')),
+  (57, 'Changer la marge recalcule les prix (boutiques_prix_a_jour)', exists (
+      select 1 from pg_trigger tr join pg_class c on c.oid = tr.tgrelid
+       where not tr.tgisinternal and c.relname = 'boutiques'
+         and tr.tgname = 'boutiques_prix_a_jour'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

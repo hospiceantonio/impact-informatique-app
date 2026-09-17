@@ -14,7 +14,12 @@ const Live = (() => {
 
   const INTERVALLE_DEFAUT = 45000;   // vérification de fond
   const BATTEMENT = 25000;           // le serveur ferme au-delà de 60 s
-  const TABLES = ["produits", "categories", "sous_categories", "boutique"];
+  /* « boutiques » en fait partie depuis que la marge revendeur y vit :
+     la changer ne touche aucun produit, et sans cette ligne un revendeur
+     connecté garderait ses anciens prix jusqu'à la prochaine ouverture
+     de l'application. */
+  const TABLES = ["produits", "categories", "sous_categories",
+                  "boutique", "boutiques"];
 
   let intervalle = INTERVALLE_DEFAUT;
   let socket = null;
@@ -33,7 +38,22 @@ const Live = (() => {
     if (enCoursDeVerification || !Catalogue.estConfigure()) return false;
     enCoursDeVerification = true;
     try {
-      return await Catalogue.rafraichir();
+      const change = await Catalogue.rafraichir();
+      /* ET LES PRIX DU COMPTE, À CHAQUE FOIS.
+     
+         On ne peut pas déduire du catalogue qu'ils ont bougé : changer
+         le taux revendeur d'une boutique ne déplace aucun prix public,
+         et le taux d'un article vit dans une table que le client ne lit
+         pas. La seule réponse sûre est de la redemander à la base, qui
+         la calcule avec les valeurs du moment.
+     
+         C'est une petite requête, et elle ne part que pour un compte
+         connecté. Elle rend au passage un service : un revendeur qui
+         vient d'être validé voit ses prix arriver sans se reconnecter. */
+      if (typeof Compte !== "undefined" && Compte.connecte()) {
+        try { await Compte.chargerPrix(); } catch (_) { /* on garde l'affichage */ }
+      }
+      return change;
     } finally {
       enCoursDeVerification = false;
     }

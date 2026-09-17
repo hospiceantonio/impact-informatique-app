@@ -1455,6 +1455,62 @@ create trigger boutiques_verrous
   before update on public.boutiques
   for each row execute function public.boutique_verrous();
 
+-- ---------- La marge change, les prix suivent ----------
+-- Le modèle est « prix de vente = prix BIZZOO + marge ». Mais le prix de
+-- vente était CALCULÉ PAR L'APPLICATION au moment d'enregistrer le
+-- produit, puis figé dans la table. Changer la marge d'une boutique ne
+-- touchait donc rien : il fallait rouvrir et réenregistrer chaque
+-- article, un par un, pour que la nouvelle marge s'applique.
+--
+-- Personne ne fait cela sur deux cents articles. En pratique, la marge
+-- affichée dans les réglages et celle réellement pratiquée divergeaient
+-- en silence — et les comptes de l'enseigne avec elles.
+--
+-- La base s'en charge donc elle-même. Un article qui a SON PROPRE taux
+-- n'est pas touché par celui de la boutique : c'est déjà la règle que
+-- « produits_prive.taux_marge » suit partout ailleurs.
+--
+-- On ne touche PAS « modifie_le ». C'est lui qui déclenche la
+-- notification « catalogue mis à jour » sur les téléphones : un
+-- changement de marge doit rafraîchir les écrans ouverts, pas réveiller
+-- toute la ville.
+create or replace function public.prix_public(prix_bizzoo bigint, taux numeric)
+returns int
+language sql immutable as $$
+  -- Le même calcul, au franc près, que celui de l'application admin.
+  -- Les deux doivent donner le même chiffre : sinon réenregistrer un
+  -- produit déplacerait son prix sans que personne ne l'ait demandé.
+  select case when coalesce(prix_bizzoo, 0) <= 0 then 0
+              else round(prix_bizzoo * (1 + greatest(0, coalesce(taux, 0)) / 100))::int
+         end;
+$$;
+revoke all on function public.prix_public(bigint, numeric) from public, anon, authenticated;
+grant execute on function public.prix_public(bigint, numeric) to authenticated;
+
+create or replace function public.boutique_prix_a_jour() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.taux_marge is not distinct from old.taux_marge then return new; end if;
+
+  update public.produits p
+     set prix = public.prix_public(pp.prix_grossiste,
+                                   coalesce(pp.taux_marge, new.taux_marge))
+    from public.produits_prive pp
+   where pp.produit_id = p.id
+     and p.boutique_id = new.id
+     and coalesce(pp.prix_grossiste, 0) > 0
+     -- N'écrire que ce qui change vraiment : un article dont le prix
+     -- tombe juste n'a pas à passer par les déclencheurs pour rien.
+     and p.prix is distinct from public.prix_public(pp.prix_grossiste,
+                                   coalesce(pp.taux_marge, new.taux_marge));
+  return new;
+end $$;
+
+drop trigger if exists boutiques_prix_a_jour on public.boutiques;
+create trigger boutiques_prix_a_jour
+  after update of taux_marge on public.boutiques
+  for each row execute function public.boutique_prix_a_jour();
+
 drop policy if exists "lecture publique"  on public.slides;
 drop policy if exists "ecriture connectee" on public.slides;
 -- Une vitrine se compose par celui à qui elle appartient, et tout le

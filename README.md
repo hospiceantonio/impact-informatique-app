@@ -703,6 +703,37 @@ Deux pièges qui coûtent des heures :
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
   `user.phone` et le renvoyer tel quel échoue, toujours.
 
+## La marge change, les prix suivent
+
+Le modèle est `prix de vente = prix BIZZOO + marge`. Mais jusqu'à la
+version 3.25, le prix de vente était calculé **par l'application** au
+moment d'enregistrer le produit, puis figé dans la table. Changer la
+marge d'une boutique ne touchait donc **rien** : il fallait rouvrir et
+réenregistrer chaque article, un par un. Personne ne fait cela sur deux
+cents articles — la marge affichée dans les réglages et celle réellement
+pratiquée divergeaient en silence.
+
+La base s'en charge désormais : changer `boutiques.taux_marge` recalcule
+le prix de vente de tous les articles de cette boutique, à l'instant.
+Deux choses restent intactes — **un article qui a son propre
+`taux_marge`**, recalculé avec le sien ; et **ce qui a été vendu**, la
+ligne de commande gardant le prix et le taux du jour de la vente.
+
+Le déclencheur ne touche pas `modifie_le` : c'est lui qui déclenche la
+notification « catalogue mis à jour » sur les téléphones. Un changement
+de marge doit rafraîchir les écrans ouverts, pas réveiller toute la
+ville.
+
+**Côté client, un revendeur connecté suit sans se reconnecter.**
+`Live` surveille désormais `boutiques` — changer un taux revendeur ne
+déplace aucun prix public, donc rien d'autre ne le signalerait — et
+**redemande `mes_prix()` à chaque vérification** pour un compte
+connecté. On ne peut pas déduire du catalogue que les prix du compte ont
+bougé : le taux d'un article vit dans une table que le client ne lit
+pas. La seule réponse sûre est de la redemander à la base. Effet de
+bord heureux : un revendeur qui vient d'être validé voit ses prix
+arriver sans quitter l'application.
+
 ## La marge sur les ventes aux revendeurs
 
 Un revendeur validé n'achète pas au prix public. Jusqu'à la version 3.23
@@ -844,6 +875,7 @@ impact-informatique-app/
 │   ├── compte-obligatoire.sql       # L'interrupteur « un compte pour commander » (éteint)
 │   ├── marge-revendeur.sql          # Ce que rapporte une vente à un revendeur
 │   ├── position-revendeur.sql       # Où se trouve le commerce d'un revendeur
+│   ├── marge-appliquee.sql          # La marge change, les prix de la vitrine suivent
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

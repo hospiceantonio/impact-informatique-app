@@ -104,6 +104,68 @@ select essai.refuse(
   'réécrire le prix BIZZOO d''une ligne vendue');
 
 -- ---------------------------------------------------------
+select essai.titre('La marge change, les prix de la vitrine suivent');
+-- ---------------------------------------------------------
+-- C'est le pendant exact de la ligne ci-dessus. Ce qui est VENDU ne
+-- bouge plus ; ce qui est EN VITRINE, si.
+--
+-- Le prix de vente était calculé par l'application au moment
+-- d'enregistrer le produit, puis figé dans la table. Changer la marge
+-- d'une boutique ne touchait donc rien : il fallait rouvrir et
+-- réenregistrer chaque article, un par un. Personne ne fait cela sur
+-- deux cents articles — et la marge annoncée dans les réglages
+-- divergeait en silence de celle réellement pratiquée.
+select essai.egal((select prix from public.produits where id = 'prod_marge')::int,
+  12800, 'la marge passée à 60 % déplace le prix : 8 000 + 60 %');
+
+-- Deux articles pour éprouver ce que le recalcul ne doit PAS toucher.
+insert into public.produits
+  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+values ('prod_taux_propre', 'bou_informatique', 'Article à taux propre', 9999,
+        'cat_accessoires', 5, true),
+       ('prod_sans_achat', 'bou_informatique', 'Article sans prix BIZZOO', 7000,
+        'cat_accessoires', 5, true)
+on conflict (id) do update set prix = excluded.prix, stock = 5, disponible = true;
+insert into public.produits_prive (produit_id, prix_grossiste, taux_marge)
+values ('prod_taux_propre', 5000, 10)
+on conflict (produit_id) do update set prix_grossiste = 5000, taux_marge = 10;
+delete from public.produits_prive where produit_id = 'prod_sans_achat';
+
+select essai.devenir(:ENSEIGNE::uuid);
+set role authenticated;
+update public.boutiques set taux_marge = 30 where id = 'bou_informatique';
+reset role;
+select essai.personne();
+
+select essai.egal((select prix from public.produits where id = 'prod_marge')::int,
+  10400, 'et le suit encore : 8 000 + 30 %');
+-- Un article qui a SON taux ne dépend pas de celui de la boutique.
+-- C'est déjà la règle que « produits_prive.taux_marge » suit partout.
+--
+-- Son prix de départ est VOLONTAIREMENT faux (9 999) : ainsi la ligne
+-- est forcément reprise, et c'est le CALCUL — et lui seul — qui décide
+-- du résultat. Avec un prix déjà juste, un calcul cassé passerait
+-- inaperçu, la ligne étant écartée avant même d'être recalculée. Le
+-- banc l'a montré : sabotage posé, tout restait vert.
+select essai.egal((select prix from public.produits where id = 'prod_taux_propre')::int,
+  5500, 'un article à taux propre est recalculé au SIEN : 5 000 + 10 %');
+-- Et sans prix BIZZOO, il n'y a rien à calculer : on n'invente pas.
+select essai.egal((select prix from public.produits where id = 'prod_sans_achat')::int,
+  7000, 'un article sans prix BIZZOO n''est pas touché');
+
+-- Ce qui a été vendu, lui, n'a toujours pas bougé.
+select essai.egal((select taux_marge from public.commande_lignes where commande_id = :'vente'),
+  25::numeric, 'après deux changements de marge, la vente d''hier tient encore');
+
+-- Et le calcul de la base est celui de l'application, au franc près :
+-- s'ils divergeaient, réenregistrer un produit déplacerait son prix
+-- sans que personne ne l'ait demandé.
+select essai.egal(public.prix_public(8000, 30), 10400, '8 000 + 30 %');
+select essai.egal(public.prix_public(7777, 20), 9332, '7 777 + 20 % = 9 332,4 → 9 332');
+select essai.egal(public.prix_public(0, 30), 0, 'sans prix BIZZOO, zéro — et non un prix inventé');
+select essai.egal(public.prix_public(5000, 0), 5000, 'sans marge, le prix BIZZOO nu');
+
+-- ---------------------------------------------------------
 select essai.titre('Ce que la boutique rapporte');
 -- ---------------------------------------------------------
 set role anon;
