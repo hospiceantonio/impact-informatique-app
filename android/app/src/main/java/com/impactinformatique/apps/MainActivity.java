@@ -62,6 +62,13 @@ public class MainActivity extends Activity {
 
     private static final String ORIGINE = "https://appassets.androidx.dev";
     private static final String PAGE_ACCUEIL = ORIGINE + "/assets/www/index.html";
+    /* L'application vendeur, quand on veut y sauter depuis celle-ci.
+       Sur Android 11 et au-delà, une application ne VOIT pas les autres
+       sans les avoir déclarées dans « queries » : sans cette
+       déclaration, le système répond que rien n'est installé, même
+       quand l'app est là. C'est dans AndroidManifest.xml. */
+    private static final String PAQUET_ADMIN = "com.impactinformatique.admin";
+
     private static final int CODE_CHOIX_FICHIER = 41;
     private static final int CODE_POSITION = 42;
     private static final int CODE_NOTIFICATIONS = 43;
@@ -521,6 +528,47 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 annoncer("Enregistrement impossible : " + e.getMessage());
             }
+        }
+
+        /**
+         * L'application BIZZOO Admin est-elle installée sur ce
+         * téléphone ? La page s'en sert pour proposer de l'OUVRIR plutôt
+         * que de promettre un bouton qui ne mènerait nulle part.
+         */
+        @JavascriptInterface
+        public boolean espaceVendeurPresent() {
+            try {
+                return getPackageManager()
+                        .getLaunchIntentForPackage(PAQUET_ADMIN) != null;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
+         * Passer à l'application vendeur.
+         *
+         * Elle ne donne aucun droit : elle demande de s'identifier, et
+         * c'est la base qui décide ensuite de ce que ce compte peut
+         * faire. Ce pont ne fait qu'éviter de sortir de l'application
+         * pour aller chercher une icône sur l'écran d'accueil.
+         */
+        @JavascriptInterface
+        public void ouvrirEspaceVendeur() {
+            runOnUiThread(() -> {
+                try {
+                    Intent vers = getPackageManager()
+                            .getLaunchIntentForPackage(PAQUET_ADMIN);
+                    if (vers != null) {
+                        vers.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(vers);
+                        return;
+                    }
+                    annoncer("BIZZOO Admin n'est pas installée sur ce téléphone.");
+                } catch (Exception e) {
+                    annoncer("Impossible d'ouvrir l'espace vendeur : " + e.getMessage());
+                }
+            });
         }
 
         /**

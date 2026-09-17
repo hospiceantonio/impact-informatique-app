@@ -11,6 +11,16 @@
          (application client ; demandée au premier lancement sur Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Android 11 et au-delà cachent les autres applications installées :
+         sans cette déclaration, « getLaunchIntentForPackage » répond
+         toujours « rien », même quand l'application est bien là. On
+         déclare les deux, dans les deux sens : le même manifeste sert
+         aux deux variantes. -->
+    <queries>
+        <package android:name="com.impactinformatique.admin" />
+        <package android:name="com.impactinformatique.client" />
+    </queries>
+
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"

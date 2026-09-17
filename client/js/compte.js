@@ -105,13 +105,49 @@ const Compte = (() => {
       if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
       else localStorage.removeItem(CLE_SESSION);
     } catch (_) { /* navigation privée : la session vivra le temps de l'onglet */ }
-    if (!s) fiche = null;
+    if (!s) { fiche = null; equipe = null; }
     prevenir();
   }
 
   /** Prévenir l'application qu'on vient d'entrer ou de sortir. */
   const surChangement = (f) => { ecouteurs.push(f); };
   const prevenir = () => ecouteurs.forEach((f) => { try { f(); } catch (_) { /* rien */ } });
+
+  /* ---------- Un compte de l'équipe ----------
+
+     Un vendeur ouvre parfois BIZZOO comme tout le monde. Il n'a pas de
+     fiche client — la base refuse qu'un compte soit les deux à la fois —
+     et l'écran « Mon compte » n'a donc pas grand-chose à lui dire. On lui
+     propose plutôt de passer à son application à lui.
+
+     COMMENT ON LE SAIT : la table « profils » ne se lit que pour SOI —
+     la règle RLS dit « id = auth.uid() ». Un client ordinaire qui pose
+     la même question reçoit zéro ligne. Il n'y a donc rien à cacher
+     dans cette lecture, et rien à deviner non plus.
+
+     Et cela n'ouvre AUCUNE porte : l'application vendeur redemande de
+     s'identifier, et c'est la base qui décide de ce que ce compte peut
+     faire. Le bouton ne fait qu'éviter d'aller chercher une icône sur
+     l'écran d'accueil. */
+
+  let equipe = null;    // null = pas encore demandé
+
+  const estEquipe = () => equipe === true;
+
+  /** Ce compte est-il dans l'équipe ? Une lecture, et on la retient. */
+  async function chargerEquipe() {
+    if (!session) { equipe = false; return false; }
+    if (equipe !== null) return equipe;
+    try {
+      const lignes = await rest("GET", "profils?select=id&limit=1");
+      equipe = Array.isArray(lignes) && lignes.length > 0;
+    } catch (_) {
+      /* Hors connexion, ou table fermée : on ne propose rien plutôt que
+         de proposer à tort. */
+      equipe = false;
+    }
+    return equipe;
+  }
 
   /* ---------- Où se trouve le commerce ----------
 
@@ -873,5 +909,6 @@ const Compte = (() => {
     mesCommandes, commande, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,
+    chargerEquipe, estEquipe,
   };
 })();

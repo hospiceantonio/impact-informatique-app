@@ -937,6 +937,11 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .cp-ou-actuel a{color:var(--bleu);font-weight:600;text-decoration:underline}
 
+/* L'espace vendeur. Il se distingue du reste de l'écran sans crier :
+   c'est une passerelle, pas une alerte. */
+.cp-vendeur{border:1px solid var(--bleu-100);background:var(--bleu-50)}
+.cp-vendeur .carte-titre .ic{color:var(--bleu)}
+
 /* Le reçu : le numéro d'abord, c'est ce qu'on dicte au téléphone. */
 .re-entete{text-align:center}
 .re-numero{

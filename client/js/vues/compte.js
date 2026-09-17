@@ -450,9 +450,16 @@ const VueCompte = (() => {
       moi = await Compte.charger(true);
       await Compte.chargerPrix();
     } catch (_) { /* on affichera vide */ }
+    /* À PART, et surtout pas dans le « try » ci-dessus : un compte de
+       l'équipe n'a PAS de fiche client — la base refuse qu'un compte
+       soit les deux — et « charger » peut donc échouer. Dans la même
+       parenthèse, la question ne serait jamais posée, et la carte
+       n'apparaîtrait pas pour ceux-là mêmes à qui elle s'adresse. */
+    try { await Compte.chargerEquipe(); } catch (_) { /* on ne propose rien */ }
     moi = moi || { nom: "", tel: "", adresse: "", tel_verifie: false };
 
     vue.innerHTML =
+      carteEspaceVendeur() +
       '<div class="carte">' +
         '<div class="carte-titre">' + Utils.echapper(Compte.identite()) + "</div>" +
         '<div class="champ"><label for="cp-nom">Votre nom</label>' +
@@ -497,6 +504,7 @@ const VueCompte = (() => {
       "</div>";
 
     brancherRevendeur(vue);
+    brancherEspaceVendeur(vue);
     brancherOuRevendeur(vue);
     brancherVerification(vue, moi);
 
@@ -528,6 +536,64 @@ const VueCompte = (() => {
      Quatre états, quatre écrans. Le client doit toujours savoir où il en
      est : une demande qui disparaît sans réponse est pire que pas de
      demande du tout. */
+
+  /* ---------- L'espace vendeur ----------
+
+     Deux applications, et c'est voulu : l'écran des marges ne doit pas
+     être à deux touches de celui que le client regarde par-dessus
+     l'épaule du vendeur. Mais un vendeur qui a ouvert BIZZOO ne devrait
+     pas avoir à ressortir chercher une icône sur l'écran d'accueil.
+
+     Cette carte n'apparaît QUE pour un compte de l'équipe, et elle
+     n'ouvre aucune porte : BIZZOO Admin redemande de s'identifier, et
+     c'est la base qui décide ensuite. Elle épargne un geste, rien de
+     plus. */
+
+  const pontAndroid = () =>
+    (typeof AndroidPont !== "undefined" && AndroidPont) || null;
+
+  function carteEspaceVendeur() {
+    if (typeof Compte === "undefined" || !Compte.estEquipe()) return "";
+    const pont = pontAndroid();
+    /* Sur le téléphone, on sait si l'application est installée. Sur le
+       web, il n'y a pas de pont : on ouvre la version en ligne à côté. */
+    const installee = pont && typeof pont.espaceVendeurPresent === "function"
+      ? (() => { try { return pont.espaceVendeurPresent(); } catch (_) { return false; } })()
+      : true;
+
+    return (
+      '<div class="carte cp-vendeur">' +
+        '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") +
+          " Espace vendeur</div>" +
+        '<p class="aide" style="margin:0 0 12px">' +
+          (installee
+            ? "Ce compte est un compte de l'équipe BIZZOO. Vos produits, vos " +
+              "commandes et vos réglages sont dans l'application vendeur."
+            : "Ce compte est un compte de l'équipe BIZZOO, mais l'application " +
+              "vendeur n'est pas installée sur ce téléphone.") +
+        "</p>" +
+        (installee
+          ? '<button type="button" class="btn" id="cp-vendeur-ouvrir">' +
+              UI.icone("partager") + "Ouvrir l\'espace vendeur</button>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  function brancherEspaceVendeur(vue) {
+    const bouton = UI.$("#cp-vendeur-ouvrir", vue);
+    if (!bouton) return;
+    bouton.addEventListener("click", () => {
+      const pont = pontAndroid();
+      if (pont && typeof pont.ouvrirEspaceVendeur === "function") {
+        try { pont.ouvrirEspaceVendeur(); return; } catch (_) { /* on essaiera le web */ }
+      }
+      /* Hors du téléphone : les deux applications sont servies côte à
+         côte, et l'admin est le dossier voisin. */
+      try { window.open("../admin/", "_blank", "noopener"); }
+      catch (_) { UI.toast("Ouvrez l'application BIZZOO Admin.", "alerte"); }
+    });
+  }
 
   /* ---------- Où se trouve mon commerce ----------
 
@@ -612,6 +678,11 @@ const VueCompte = (() => {
   }
 
   function carteRevendeur() {
+    /* Un compte de l'équipe ne devient pas revendeur : la base refuse
+       qu'un compte soit des deux côtés à la fois. Lui proposer le
+       formulaire l'enverrait le remplir pour se faire refuser. */
+    if (typeof Compte !== "undefined" && Compte.estEquipe()) return "";
+
     const etat = Compte.etatRevendeur();
 
     if (etat === "validee") {

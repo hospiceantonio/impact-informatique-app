@@ -703,6 +703,39 @@ Deux pièges qui coûtent des heures :
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
   `user.phone` et le renvoyer tel quel échoue, toujours.
 
+## Deux applications, un seul point d'entrée
+
+Les deux applications restent **séparées**, et c'est délibéré :
+l'écran des marges ne doit pas se trouver à deux touches de celui que le
+client regarde par-dessus l'épaule du vendeur. Une fausse manœuvre y
+montrerait le prix BIZZOO de l'article qu'on est en train de lui vendre.
+
+Mais un vendeur qui a ouvert BIZZOO n'a plus à ressortir chercher une
+icône : **Mon compte → Espace vendeur** passe la main à BIZZOO Admin.
+
+La carte n'apparaît **que pour un compte de l'équipe**. On le sait en
+lisant `profils`, dont la règle RLS dit `id = auth.uid()` — un client
+ordinaire qui pose la même question reçoit zéro ligne. Rien n'est caché
+dans cette lecture, et rien n'est deviné.
+
+**Elle n'ouvre aucune porte.** BIZZOO Admin redemande de s'identifier,
+et c'est la base qui décide ensuite de ce que ce compte peut faire. Le
+bouton épargne un geste, il n'accorde rien.
+
+Sur Android, le passage se fait par le pont `AndroidPont` :
+`espaceVendeurPresent()` dit si l'application est là — sinon la carte le
+dit franchement plutôt que de promettre un bouton qui ne mènerait nulle
+part — et `ouvrirEspaceVendeur()` la lance. **Android 11 et au-delà
+cachent les applications installées** : sans la déclaration `<queries>`
+dans `AndroidManifest.xml`, le système répond toujours « rien », même
+quand l'application est bien là. Sur le web, où il n'y a pas de pont,
+le bouton ouvre simplement le dossier voisin.
+
+Au passage : un compte de l'équipe ne voit plus le formulaire « Vous
+achetez pour revendre ? ». La base refuse qu'un compte soit des deux
+côtés à la fois (`compte_unique()`), et le lui proposer l'envoyait le
+remplir pour se faire refuser.
+
 ## La marge change, les prix suivent
 
 Le modèle est `prix de vente = prix BIZZOO + marge`. Mais jusqu'à la
