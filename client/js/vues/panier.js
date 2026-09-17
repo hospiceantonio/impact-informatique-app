@@ -293,8 +293,11 @@ const VuePanier = (() => {
        droit de servir. L'inverse ne coûte rien : la base refusera, et
        son refus s'affiche.
 
+       Et jamais pour un client CONNECTÉ : la règle ne le concerne pas,
+       et lui imposer une attente au moment de payer serait absurde.
+
        Sans réponse, on garde la dernière règle connue. */
-    if (typeof Compte !== "undefined"
+    if (typeof Compte !== "undefined" && !Compte.connecte()
         && (!Compte.reglesConnues() || Compte.compteExige())) {
       try { await Compte.chargerRegles(); } catch (_) { /* la dernière connue */ }
     }
