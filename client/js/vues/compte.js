@@ -165,7 +165,9 @@ const VueCompte = (() => {
           return;
         }
         UI.toast(r.revendeur ? "Bienvenue ! Votre demande est partie." : "Bienvenue !");
-        location.hash = "#/compte";
+        /* Comme après une connexion : on revient d'où l'on venait. Un
+           client envoyé ici depuis son panier le retrouve, plein. */
+        repartir();
       } catch (err) {
         UI.toast(err.message, "alerte");
         bouton.disabled = false;

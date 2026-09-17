@@ -1360,6 +1360,39 @@ const Store = (() => {
       nom, undefined, null);
   }
 
+  /* ---------- La règle de la maison ----------
+     Une seule pour l'instant : faut-il un compte pour commander ? Elle
+     vaut pour toutes les boutiques de BIZZOO, et la base ne laisse que
+     le superadministrateur y toucher. L'écran cache l'interrupteur aux
+     autres ; c'est la règle de la base qui ferme vraiment la porte.
+
+     Une base d'avant cette règle ne répond rien : on lit « éteint », ce
+     qui est exactement l'état d'avant. */
+
+  async function lireRegles() {
+    const lignes = await Supabase.requete(
+      "GET", "reglages?select=compte_obligatoire,maj_le&id=eq.1");
+    const l = (lignes || [])[0] || {};
+    return {
+      compteObligatoire: l.compte_obligatoire === true,
+      majLe: l.maj_le || "",
+    };
+  }
+
+  async function majRegles(maj) {
+    await Supabase.requete("PATCH", "reglages?id=eq.1", {
+      compte_obligatoire: !!maj.compteObligatoire,
+      maj_le: new Date().toISOString(),
+    });
+    /* Fermer la caisse à qui n'a pas de compte se voit tout de suite
+       dans les ventes : le journal doit dire quand on l'a décidé. */
+    journaliser("boutique", "modification",
+      maj.compteObligatoire
+        ? "Un compte est désormais exigé pour commander"
+        : "La commande sans compte est de nouveau permise",
+      "Règles de la maison", undefined, null);
+  }
+
   /* ---------- Ce que chaque boutique rapporte ----------
      Les ventes réellement encaissées, produit par produit, avec le prix
      BIZZOO et la marge FIGÉS le jour de la vente. C'est la base qui
@@ -2420,7 +2453,7 @@ const Store = (() => {
     repondreReclamation, trancherReclamation,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
     statistiquesVentes,
-    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement,
+    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
     annulerAction,

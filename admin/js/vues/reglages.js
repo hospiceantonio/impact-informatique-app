@@ -579,6 +579,40 @@ const VueReglages = (() => {
           "</div>"
         : "") +
 
+      /* ---------- Un compte pour commander ----------
+         Le seul réglage de l'application qui puisse FERMER la caisse.
+         Il mérite donc son avertissement : tant qu'aucune porte
+         d'inscription n'est réellement ouverte — la confirmation par
+         e-mail qui part, ou le SMS qui arrive — l'allumer reviendrait
+         à renvoyer un client qui n'a aucun moyen d'ouvrir un compte.
+
+         Comme ailleurs : l'écran cache l'interrupteur aux autres, mais
+         c'est la règle de la base qui ferme vraiment la porte. */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte" id="section-regles">' +
+            '<div class="carte-titre">' + UI.icone("personne", "ic-sm") +
+              " Un compte pour commander</div>" +
+            '<p class="aide" style="margin:0 0 12px">Ce réglage vaut pour <strong>toutes les ' +
+              "boutiques de BIZZOO</strong>, et vous seul y touchez. Fermé, on commande avec " +
+              "un simple numéro, comme depuis le premier jour. Ouvert, plus une commande sans " +
+              "compte — le client ouvre le sien avant de valider son panier.</p>" +
+            '<p class="aide" style="margin:0 0 12px">Ce qu\'un compte apporte : la commande se ' +
+              "retrouve d'un téléphone à l'autre, l'avis n'est donné que par qui a payé, et la " +
+              "réclamation a un interlocuteur. Le catalogue, lui, reste ouvert à tous : " +
+              "<strong>on ferme la caisse, pas le magasin</strong>.</p>" +
+            '<div class="note-attente" style="margin:0 0 12px">' + UI.icone("alerte", "ic-sm") +
+              " À n'ouvrir qu'une fois une porte d'inscription éprouvée de bout en bout : " +
+              "un e-mail de confirmation qui arrive vraiment, ou le SMS branché " +
+              "(README.md, section « Vérification du numéro »). Sans cela, vous renverriez " +
+              "un client qui n'a aucun moyen d'ouvrir un compte.</div>" +
+            UI.interrupteur({ id: "reg-compte-obligatoire",
+              label: "Exiger un compte pour commander", actif: false,
+              aide: "Le refus est posé dans la base, pas seulement à l\'écran." }) +
+            '<button type="button" class="btn" id="reg-regles-enregistrer">' + UI.icone("check") +
+              "Enregistrer la règle</button>" +
+          "</div>"
+        : "") +
+
       /* ---------- Vidéo de présentation ---------- */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation " +
@@ -709,6 +743,53 @@ const VueReglages = (() => {
         }
         boutonPaiement.disabled = false;
       };
+    }
+
+    /* ---------- Un compte pour commander ---------- */
+    const boutonRegles = UI.$("#reg-regles-enregistrer");
+    if (boutonRegles) {
+      /* Même façon de faire que le paiement : la carte est déjà à
+         l'écran, sa valeur arrive ensuite. */
+      Store.lireRegles().then((r) => {
+        if (moi !== generation) return;   // un autre écran a pris la main
+        const interrupteur = UI.$("#reg-compte-obligatoire");
+        if (!interrupteur) return;
+        interrupteur.checked = r.compteObligatoire;
+      }).catch(() => { /* base d'avant cette règle : interrupteur éteint */ });
+
+      boutonRegles.onclick = async () => {
+        const exige = UI.$("#reg-compte-obligatoire").checked;
+        /* Fermer la caisse mérite qu'on redemande : c'est le seul
+           réglage de cette application qui puisse arrêter une vente. */
+        if (exige && !await UI.confirmer({
+          titre: "Exiger un compte pour commander ?",
+          texte: "À partir de maintenant, un client sans compte ne pourra plus " +
+                 "valider son panier : il devra d'abord en ouvrir un. " +
+                 "Assurez-vous qu'une inscription aboutit vraiment — e-mail de " +
+                 "confirmation reçu, ou SMS branché.",
+          bouton: "Exiger un compte", danger: true,
+        })) {
+          /* On renonce : l'interrupteur revient où il était, sinon
+             l'écran montrerait une règle qui n'a pas été enregistrée. */
+          UI.$("#reg-compte-obligatoire").checked = false;
+          return;
+        }
+        boutonRegles.disabled = true;
+        try {
+          await Store.majRegles({ compteObligatoire: exige });
+          UI.toast(exige
+            ? "Un compte est désormais exigé pour commander"
+            : "La commande sans compte est de nouveau permise", "ok");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        boutonRegles.disabled = false;
+      };
+    }
+
+    if (params && params.section === "regles") {
+      const section = UI.$("#section-regles");
+      if (section) setTimeout(() => section.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     }
 
     if (params && params.section === "compte") {

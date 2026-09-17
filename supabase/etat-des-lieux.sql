@@ -249,7 +249,23 @@ with controles(rang, element, ok) as (values
        where n.nspname = 'public' and p.proname = 'recours_possible')),
   (45, 'Et elle tranche ce qui lui est remonté (trancher_reclamation)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'trancher_reclamation'))
+       where n.nspname = 'public' and p.proname = 'trancher_reclamation')),
+
+  -- ---------- Le compte pour commander ----------
+  -- « En place » veut dire que l'INTERRUPTEUR existe, pas qu'il est
+  -- allumé : il arrive éteint, et c'est l'application admin qui le
+  -- bascule. La requête facultative en bas de ce fichier dit, elle, où
+  -- il en est aujourd'hui.
+  (46, 'L''interrupteur du compte obligatoire (table reglages)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'reglages')),
+  -- Le refus tient dans la base, pas à l'écran : un écran qui cache un
+  -- bouton ne ferme rien, il suffit d'appeler la fonction directement.
+  (47, 'La commande consulte la règle (creer_commande)', coalesce((
+      select pg_get_functiondef(p.oid) like '%compte_exige%'
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+       limit 1), false))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
@@ -258,7 +274,7 @@ select rang                                            as "#",
   from controles
  order by rang;
 
--- ---------- Facultatif : où en est le paiement KkiaPay ----------
+-- ---------- Facultatif : où en est le paiement ----------
 -- À lancer séparément (la requête ci-dessus n'en dépend pas, pour
 -- pouvoir répondre même sur une base où les commandes manquent encore).
 --
@@ -267,3 +283,14 @@ select rang                                            as "#",
 --          case when coalesce(cle_publique, '') = '' then 'aucune'
 --               else left(cle_publique, 8) || '…' end as "Clé publique"
 --     from public.paiement;
+
+-- ---------- Facultatif : l'interrupteur est-il allumé ? ----------
+-- Le contrôle 46 dit que l'interrupteur EXISTE. Celui-ci dit dans quelle
+-- position il se trouve. Il arrive éteint, et se bascule depuis
+-- l'application admin — Réglages → « Un compte pour commander ».
+--
+--   select case when compte_obligatoire
+--               then 'ALLUMÉ — plus de commande sans compte'
+--               else 'éteint — on commande sans compte' end as "Un compte pour commander",
+--          maj_le                                           as "Dernier changement"
+--     from public.reglages where id = 1;

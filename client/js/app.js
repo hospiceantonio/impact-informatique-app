@@ -413,6 +413,15 @@ const App = { evenementInstallation: null };
        et la commande part sur WhatsApp comme avant. */
     Paiement.charger();
 
+    /* Et la règle de la maison : faut-il un compte pour commander ?
+       Elle vit en base pour la même raison — l'enseigne la bascule
+       depuis son application, sans qu'on republie celle-ci. On la lit
+       dès l'ouverture, pour que l'écran de commande soit le bon du
+       premier coup et non après un aller-retour sous les doigts. */
+    if (typeof Compte !== "undefined") {
+      Compte.chargerRegles().catch(() => { /* hors connexion : la dernière connue */ });
+    }
+
     /* Le catalogue se met à jour tout seul (temps réel + vérifications). */
     Live.demarrer();
 

@@ -153,3 +153,67 @@ if [ "$MANQUES" -gt 0 ]; then
   exit 1
 fi
 vert "Chaque fichier pose les colonnes que ses fonctions remplissent ✔"
+
+# =========================================================
+# Deuxième règle : une fonction appelée est une fonction posée
+#
+# Le même piège, un cran plus loin. Une fonction n'appelle pas
+# que des colonnes : elle appelle d'autres fonctions. Et une
+# fonction née APRÈS la base du gérant manque chez lui, alors
+# qu'elle est là chez nous.
+#
+# C'est exactement ce qui s'est passé quand « creer_commande »
+# s'est mise à demander « compte_exige() » : trois fichiers
+# portaient l'appelante, aucun ne portait l'appelée. Collé seul
+# sur une base d'avant, chacun d'eux passait sans broncher —
+# pour refuser toute commande à la première vente.
+#
+# La règle : si un fichier NOMME « public.f( » et que « f » est
+# née dans un fichier de migration (donc plus tard que le socle),
+# ce fichier doit la poser lui-même. Les fonctions qui ne vivent
+# que dans schema.sql sont le socle : elles sont là depuis
+# toujours, chez tout le monde.
+# =========================================================
+echo
+NEES="$(for f in "$RACINE"/supabase/*.sql; do
+  [ "$(basename "$f")" = "schema.sql" ] && continue
+  grep -o 'create or replace function public\.[a-z_]*' "$f" || true
+done | sed 's/.*public\.//' | sort -u)"
+
+NB_NEES="$(printf '%s\n' "$NEES" | grep -c . || true)"
+gris "migrations : $NB_NEES fonction(s) nées après le socle."
+if [ "$NB_NEES" = "0" ]; then
+  rouge "Aucune fonction reconnue dans les migrations : ce contrôle ne contrôle plus rien."
+  exit 2
+fi
+
+EMPRUNTS=0
+for fichier in "$RACINE"/supabase/*.sql; do
+  nom="$(basename "$fichier")"
+  [ "$nom" = "schema.sql" ] && continue
+  # « || true » : un fichier sans aucune fonction n'est pas une erreur,
+  # et « grep » qui ne trouve rien sort en 1 — que « pipefail » propage.
+  posees="$( { grep -o 'create or replace function public\.[a-z_]*' "$fichier" || true; } \
+             | sed 's/.*public\.//' | sort -u)"
+  appels="$( { grep -o 'public\.[a-z_]*(' "$fichier" || true; } \
+             | sed 's/public\.//; s/(//' | sort -u)"
+  for appelee in $appels; do
+    # Née dans le socle : elle est là chez tout le monde depuis toujours.
+    if ! printf '%s\n' "$NEES" | grep -qx "$appelee"; then continue; fi
+    # Le fichier la pose lui-même : il se suffit.
+    if printf '%s\n' "$posees" | grep -qx "$appelee"; then continue; fi
+    if [ "$EMPRUNTS" = "0" ]; then echo; fi
+    rouge "$nom emprunte public.$appelee() sans la poser."
+    echo "  Sur une base d'avant, ce fichier passerait sans erreur et"
+    echo "  s'arrêterait à l'usage. Recopiez-y la fonction telle quelle :"
+    echo "      create or replace function public.$appelee(…) …"
+    EMPRUNTS=$((EMPRUNTS + 1))
+  done
+done
+
+echo
+if [ "$EMPRUNTS" -gt 0 ]; then
+  rouge "$EMPRUNTS emprunt(s) non posé(s)."
+  exit 1
+fi
+vert "Chaque fichier pose les fonctions qu'il appelle ✔"

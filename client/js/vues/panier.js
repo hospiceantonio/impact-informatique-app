@@ -14,6 +14,20 @@ const VuePanier = (() => {
 
   const CLE_COORDONNEES = "bizzoo-coordonnees";
 
+  /* ---------- Faut-il un compte pour aller plus loin ? ----------
+
+     L'enseigne décide, et sa décision vit en base. Ici on ne fait que
+     la lire pour dessiner le bon écran : le VRAI refus est dans
+     « creer_commande », qui ne laisse rien passer même si l'on
+     l'appelait sans passer par nos écrans.
+
+     Deux conditions, pas une : la règle est allumée ET le client n'est
+     pas connecté. Connecté, il ne voit aucune différence. */
+  function compteRequis() {
+    if (typeof Compte === "undefined") return false;
+    return Compte.compteExige() && !Compte.connecte();
+  }
+
   /* ---------- Les coordonnées, retenues d'une fois sur l'autre ---------- */
 
   function coordonnees() {
@@ -140,6 +154,15 @@ const VuePanier = (() => {
           : "") +
         '<p class="aide" style="margin:0 0 12px">Livraison et retrait se conviennent avec la ' +
           "boutique après la commande.</p>" +
+        /* Le prévenir ICI, pas au bout du formulaire. Découvrir qu'il
+           faut un compte après avoir tapé son nom, son numéro et son
+           adresse, c'est le meilleur moyen de faire abandonner un
+           panier plein. */
+        (compteRequis()
+          ? '<div class="pa-compte-requis">' + UI.icone("compte", "ic-sm") +
+            "<div>Un compte BIZZOO est nécessaire pour commander. " +
+            "L'étape suivante vous le proposera.</div></div>"
+          : "") +
         '<button type="button" class="btn" id="pa-commander"' +
           (Panier.monnaiesMelangees() ? " disabled" : "") + ">" +
           UI.icone("check") + "Commander</button>" +
@@ -200,6 +223,57 @@ const VuePanier = (() => {
   }
 
   /* =====================================================
+     Écran 2 bis — « il faut un compte »
+
+     Ce n'est pas une porte close, c'est une porte à ouvrir : on
+     dit pourquoi, on rassure sur le panier, et on donne les trois
+     façons d'entrer — dont celle par SMS, qui ne demande ni
+     adresse e-mail ni mot de passe à retenir.
+
+     Les trois mènent au même endroit : « revenirVers » pose le
+     retour, et l'écran de commande revient de lui-même une fois
+     le compte ouvert.
+     ===================================================== */
+
+  function inviterAuCompte(vue) {
+    UI.entete({ titre: "Votre commande", retour: true });
+
+    const devise = Panier.devise();
+
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("compte") + "Un compte pour commander</div>" +
+        '<p class="aide" style="margin:0 0 4px">BIZZOO demande désormais un compte ' +
+          "avant de valider une commande. C'est lui qui vous permet de suivre " +
+          "votre commande, de la retrouver depuis n'importe quel téléphone, de " +
+          "donner votre avis et d'ouvrir une réclamation si quelque chose ne va pas.</p>" +
+        '<p class="aide" style="margin:10px 0 0">Votre panier vous attend : ' +
+          "<strong>" + Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) +
+          "</strong>. Rien n'en sera perdu.</p>" +
+      "</div>" +
+
+      '<div class="carte">' +
+        '<a class="btn" href="#/inscription" data-vers-compte>' +
+          UI.icone("compte") + "Créer mon compte</a>" +
+        '<a class="btn btn-clair" href="#/connexion-tel" data-vers-compte ' +
+          'style="margin-top:10px">' + UI.icone("telephone") +
+          "Entrer avec mon numéro</a>" +
+        '<p class="aide" style="margin:12px 0 0">Vous avez déjà un compte ? ' +
+          '<a href="#/connexion" data-vers-compte>Se connecter</a></p>' +
+      "</div>" +
+
+      '<div class="carte">' +
+        '<p class="aide" style="margin:0"><a href="#/panier">Revenir au panier</a> ' +
+          "pour modifier ce que vous avez choisi.</p>" +
+      "</div>";
+
+    /* Quelle que soit la porte prise, on revient ici une fois entré. */
+    for (const lien of UI.$$("[data-vers-compte]", vue)) {
+      lien.addEventListener("click", () => VueCompte.revenirVers("#/commande"));
+    }
+  }
+
+  /* =====================================================
      Écran 2 — les coordonnées, puis le paiement
      ===================================================== */
 
@@ -209,10 +283,24 @@ const VuePanier = (() => {
       return;
     }
     if (!Paiement.connu()) await Paiement.charger();
+    /* La règle avant de dessiner, comme la fiche : on ne veut pas d'un
+       formulaire qui s'affiche puis se remplace sous les doigts. Si la
+       base ne répond pas, on garde la dernière règle connue. */
+    if (typeof Compte !== "undefined" && !Compte.reglesConnues()) {
+      try { await Compte.chargerRegles(); } catch (_) { /* la dernière connue */ }
+    }
     /* La fiche du compte avant de dessiner : sinon les champs s'affichent
        vides puis se remplissent sous les doigts du client. */
     if (typeof Compte !== "undefined" && Compte.connecte()) {
       try { await Compte.charger(); } catch (_) { /* on commandera sans */ }
+    }
+
+    /* L'enseigne exige un compte, et ce client n'en a pas : on s'arrête
+       là. Le panier n'est pas touché — il l'attendra au retour, et c'est
+       bien tout ce qui compte à ce moment-là. */
+    if (compteRequis()) {
+      inviterAuCompte(vue);
+      return;
     }
 
     const c = coordonnees();

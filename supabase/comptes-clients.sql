@@ -29,6 +29,48 @@
 -- =========================================================
 
 -- ---------------------------------------------------------
+-- 0. Les briques empruntées
+-- ---------------------------------------------------------
+-- Les fonctions de ce fichier en appellent d'autres, nées plus tard et
+-- rangées dans d'autres fichiers. Or PostgreSQL ne relit le corps d'une
+-- fonction qu'au moment de l'EXÉCUTER : si l'une manque, ce fichier
+-- passe sans broncher et la base s'arrête à la première commande. On les
+-- repose donc ici, à l'identique — les reposer ne coûte rien.
+
+-- La règle « faut-il un compte pour commander ? », que « creer_commande »
+-- consulte plus bas. Elle arrive ÉTEINTE et se bascule depuis
+-- l'application admin ; la reposer ici ne la change pas.
+create table if not exists public.reglages (
+  id                 int primary key default 1 check (id = 1),
+  compte_obligatoire boolean not null default false,
+  maj_le             timestamptz not null default now()
+);
+alter table public.reglages
+  add column if not exists compte_obligatoire boolean not null default false;
+alter table public.reglages
+  add column if not exists maj_le timestamptz not null default now();
+insert into public.reglages (id) values (1) on conflict (id) do nothing;
+
+alter table public.reglages enable row level security;
+drop policy if exists "reglages lecture"  on public.reglages;
+drop policy if exists "reglages ecriture" on public.reglages;
+create policy "reglages lecture" on public.reglages
+  for select to anon, authenticated using (true);
+create policy "reglages ecriture" on public.reglages
+  for update to authenticated
+  using (public.est_super()) with check (public.est_super());
+revoke all on public.reglages from anon, authenticated;
+grant select on public.reglages to anon, authenticated;
+grant update (compte_obligatoire, maj_le) on public.reglages to authenticated;
+
+create or replace function public.compte_exige() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select r.compte_obligatoire from public.reglages r where r.id = 1), false);
+$$;
+revoke all on function public.compte_exige() from public, anon, authenticated;
+grant execute on function public.compte_exige() to anon, authenticated;
+
+-- ---------------------------------------------------------
 -- 1. Qui est le client
 -- ---------------------------------------------------------
 create table if not exists public.clients (
@@ -363,6 +405,7 @@ declare
   devises  text[];
   sortie   jsonb;
   moi      uuid := auth.uid();
+  equipe   boolean := false;   -- connecté, mais pas avec un compte client
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -378,7 +421,26 @@ begin
   -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
   -- avec les droits d'une boutique sur une commande qui lui appartient.
   if moi is not null and not exists (select 1 from public.clients c where c.id = moi) then
-    moi := null;
+    moi    := null;
+    equipe := true;
+  end if;
+
+  -- ---------- Le compte, quand l'enseigne l'exige ----------
+  -- Tant que l'interrupteur est éteint, rien ne change : on commande sans
+  -- compte, comme depuis le premier jour. Allumé, c'est ICI que la porte
+  -- se ferme — dans la base, pas à l'écran. Un écran qui cache un bouton
+  -- ne ferme rien : il suffit d'appeler la fonction directement.
+  --
+  -- Deux refus, parce que ce ne sont pas deux mêmes situations. Le
+  -- visiteur n'a pas de compte : on lui dit d'en ouvrir un. Le vendeur en
+  -- a un — mais c'est un compte de l'équipe, et on vient de le ramener à
+  -- « personne » deux lignes plus haut. Lui répondre « connectez-vous »
+  -- alors qu'il EST connecté lui ferait chercher longtemps.
+  if moi is null and public.compte_exige() then
+    if equipe then
+      raise exception 'Ce compte est un compte de l''équipe BIZZOO, pas un compte client. Pour commander, ouvrez un compte client et connectez-vous avec.';
+    end if;
+    raise exception 'Il faut un compte BIZZOO pour commander. Sa création prend une minute, et c''est lui qui vous rendra cette commande depuis n''importe quel téléphone.';
   end if;
 
   perform set_config('bizzoo.interne', 'oui', true);

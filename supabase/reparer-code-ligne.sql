@@ -26,6 +26,14 @@
 alter table public.commande_lignes
   add column if not exists code text not null default '';
 
+-- Le verrou reposé plus bas lit aussi ces deux-là. Elles viennent de
+-- « marge-bizzoo.sql », qui est le fichier fautif que celui-ci répare :
+-- autant ne rien supposer de ce qu'il a réussi à poser.
+alter table public.commande_lignes
+  add column if not exists prix_bizzoo int not null default 0;
+alter table public.commande_lignes
+  add column if not exists taux_marge numeric;
+
 -- ---------------------------------------------------------
 -- 2. Les commandes déjà passées reçoivent le leur
 -- ---------------------------------------------------------
@@ -45,6 +53,27 @@ update public.commande_lignes l
  where p.id = l.produit_id
    and coalesce(l.code, '') = ''
    and coalesce(p.code, '') <> '';
+
+-- Le verrou lui-même, reposé à l'identique avant d'être rebranché : un
+-- « create trigger » qui désigne une fonction absente échoue, et tout le
+-- fichier serait annulé — l'éditeur SQL de Supabase exécute d'un bloc.
+create or replace function public.ligne_verrous() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.commande_id is distinct from old.commande_id
+  or new.boutique_id is distinct from old.boutique_id
+  or new.produit_id  is distinct from old.produit_id
+  or new.nom         is distinct from old.nom
+  or new.code        is distinct from old.code
+  or new.reference   is distinct from old.reference
+  or new.prix        is distinct from old.prix
+  or new.prix_bizzoo is distinct from old.prix_bizzoo
+  or new.taux_marge  is distinct from old.taux_marge
+  or new.quantite    is distinct from old.quantite then
+    raise exception 'Une ligne de commande ne change que d''état : ce qui a été vendu est vendu';
+  end if;
+  return new;
+end $$;
 
 create trigger lignes_verrous
   before update on public.commande_lignes

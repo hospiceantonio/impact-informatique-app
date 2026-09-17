@@ -147,7 +147,7 @@ Ils valident l'écran, jamais les **déclencheurs** — ceux-ci ne
 s'exécutent que pour de vrai. Six défauts leur avaient échappé, dont un
 qui ne se serait manifesté qu'au premier vrai paiement.
 
-Cinq règles pour que ce banc garde sa valeur :
+Six règles pour que ce banc garde sa valeur :
 
 - **On simule le décor, jamais la serrure.** RLS, déclencheurs et
   fonctions viennent tels quels de `schema.sql`. Le jour où l'on
@@ -193,6 +193,18 @@ Cinq règles pour que ce banc garde sa valeur :
   [`supabase/tests/50-reparation.sql`](supabase/tests/50-reparation.sql)
   refait la panne pour de vrai — colonne retirée, base à l'arrêt — puis
   colle le fichier de réparation et vérifie qu'elle repart.
+- **Un fichier qui appelle une fonction la pose aussi.** Le même piège,
+  un cran plus loin : une fonction n'appelle pas que des colonnes, elle
+  appelle d'autres fonctions. Et une fonction née *après* la base du
+  gérant manque chez lui alors qu'elle est là chez nous. C'est arrivé
+  quand `creer_commande` s'est mise à demander `compte_exige()` : trois
+  fichiers portaient l'appelante, aucun ne portait l'appelée — collé seul
+  sur une base d'avant, chacun passait sans broncher pour refuser toute
+  commande à la première vente. `tools/fichiers-autonomes.sh` le contrôle
+  aussi : si un fichier nomme `public.f(` et que `f` naît dans une
+  migration, ce fichier doit la poser lui-même. La règle a trouvé six
+  emprunts du même genre le jour où on l'a écrite, dont deux qui
+  dataient des comptes revendeurs.
 
 Le même banc tourne à chaque poussée touchant `supabase/`
 (`.github/workflows/base.yml`).
@@ -633,6 +645,99 @@ pas été confirmée par la banque.
   boutique » — le message part alors du WhatsApp du client, avec le
   détail déjà écrit.
 
+## Vérification du numéro (entrer par SMS)
+
+Au Bénin, beaucoup d'acheteurs n'ont pas d'adresse e-mail mais tous ont
+un numéro. L'application propose donc **deux portes** pour ouvrir un
+compte : e-mail + mot de passe, ou **numéro + code reçu par SMS**.
+
+Rien n'est fabriqué à la main : le code est **celui de GoTrue**, et
+`auth.users.phone_confirmed_at` est le seul ancrage. Un déclencheur
+recopie le numéro confirmé dans la fiche client, et refuse de lui voler
+un numéro déjà vérifié ailleurs.
+
+**La porte SMS ne fonctionne qu'une fois branchée.** Quatre gestes,
+depuis un ordinateur :
+
+1. **Les secrets**, jamais dans le dépôt ni dans un APK :
+
+   ```bash
+   supabase secrets set SMS_CLE=…          # la clé CREATISINTER
+   supabase secrets set SMS_EXPEDITEUR=…   # 11 caractères maximum
+   supabase secrets set SMS_HOOK_SECRET=…  # celui que Supabase affiche à l'étape 3
+   ```
+
+2. **Les deux fonctions** :
+
+   ```bash
+   supabase functions deploy hook-sms-auth --no-verify-jwt
+   supabase functions deploy tester-sms
+   ```
+
+   `--no-verify-jwt` est indispensable : c'est Supabase lui-même qui
+   appelle ce point d'entrée, sans jeton d'utilisateur. Ce qui le protège
+   n'est pas un jeton mais **la signature** — l'en-tête Standard Webhooks,
+   vérifiée octet pour octet sur le corps brut, avec une fenêtre de cinq
+   minutes contre le rejeu. Sans `SMS_HOOK_SECRET`, la fonction refuse de
+   démarrer plutôt que de laisser passer.
+
+3. **Dashboard → Authentication → Providers → Phone** : activer, puis
+   **Send SMS hook** → `https://<projet>.supabase.co/functions/v1/hook-sms-auth`.
+   Supabase affiche alors le secret `whsec_…` : c'est lui qui va dans
+   `SMS_HOOK_SECRET`.
+
+4. **Éprouver pour de vrai**, depuis l'app admin : Réglages → *Essayer la
+   passerelle SMS*. L'écran rend **la réponse brute de la passerelle** —
+   c'est voulu : si un champ ne porte pas le nom attendu, la réponse le
+   dit elle-même.
+
+Deux pièges qui coûtent des heures :
+
+- **Un `HTTP 200` de CREATISINTER ne veut pas dire « envoyé ».** La
+  réponse porte un `status` et un code d'état ; seuls
+  `SUBMITTED`, `SENT`, `DELIVERED` et `PROGRAMMED` valent succès. Le
+  transport (`functions/_partage/sms.ts`) le vérifie, et 64 assertions
+  (`tools/eprouver-sms.sh`) l'éprouvent.
+- **Le numéro a trois formes.** `0197121596` est ce que le client tape et
+  ce que la base range ; `+2290197121596` est ce que GoTrue **exige** en
+  entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
+  `user.phone` et le renvoyer tel quel échoue, toujours.
+
+## Un compte pour commander
+
+Par défaut, **on commande sans compte** : un nom, un numéro, et la
+commande part. C'est ainsi depuis le premier jour, et l'application est
+livrée comme cela.
+
+L'enseigne peut changer d'avis : **Réglages → Un compte pour commander**,
+réservé au superadministrateur. Ce qu'un compte apporte au client — la
+commande retrouvée d'un téléphone à l'autre, l'avis réservé à qui a payé,
+la réclamation qui a un interlocuteur — n'existe que s'il en a un.
+
+Trois choses à savoir avant de pousser l'interrupteur :
+
+- **Le refus est dans la base, pas à l'écran.** `creer_commande()`
+  consulte `compte_exige()` et refuse une commande sans compte. Cacher un
+  bouton ne fermerait rien : il suffirait d'appeler la fonction
+  directement. L'écran, lui, prévient **avant** le formulaire — découvrir
+  qu'il faut un compte après avoir tapé son nom, son numéro et son
+  adresse fait abandonner un panier plein.
+- **On ferme la caisse, pas le magasin.** Le catalogue, la recherche et
+  le panier restent ouverts à tous. On ne demande rien tant que le client
+  n'a pas décidé d'acheter, et son panier l'attend intact pendant qu'il
+  ouvre son compte.
+- **N'allumez qu'une fois une inscription éprouvée de bout en bout.** Un
+  e-mail de confirmation qui arrive vraiment, ou la porte SMS branchée
+  (section ci-dessus). Sans cela, vous renverriez un client qui n'a aucun
+  moyen d'ouvrir un compte. L'application redemande confirmation avant
+  d'allumer, et le journal garde la date de la décision.
+
+Si la ligne de réglage venait à disparaître — restauration, migration,
+réparation à la main — la réponse est **« non »** et la caisse rouvre.
+C'est délibéré : cette règle force une inscription, elle ne protège rien.
+Un accident doit laisser la boutique vendre, pas verrouiller la caisse un
+samedi soir sans personne pour la rouvrir.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -663,6 +768,7 @@ impact-informatique-app/
 │   ├── mes-commandes.sql            # Droits par colonne : l'acheteur ne lit pas la marge
 │   ├── avis.sql                     # Les avis, réservés à qui a payé ; la boutique répond
 │   ├── sav.sql                      # Le SAV : la boutique d'abord, BIZZOO en recours
+│   ├── compte-obligatoire.sql       # L'interrupteur « un compte pour commander » (éteint)
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

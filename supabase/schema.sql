@@ -1956,6 +1956,65 @@ create policy "commandes suivi" on public.commandes
   for update to authenticated
   using (public.est_super()) with check (public.est_super());
 
+-- ---------- Les règles de la maison ----------
+-- Une seule ligne, comme « paiement » : ce que l'enseigne décide et qui
+-- vaut pour toutes ses boutiques. Pour l'instant une seule règle y vit,
+-- mais elle a sa table plutôt qu'une colonne de plus chez « paiement » :
+-- exiger un compte n'a rien à voir avec l'argent, et le jour où une
+-- deuxième règle arrive, elle saura où se poser.
+create table if not exists public.reglages (
+  id                 int primary key default 1 check (id = 1),
+  -- Faux = on commande sans compte, comme depuis le premier jour.
+  -- Vrai = plus une commande sans compte. LE JOUR OÙ ON LE MET, il faut
+  -- qu'une porte d'inscription soit ouverte pour de bon — sinon on ferme
+  -- la caisse à qui n'a aucun moyen d'entrer.
+  compte_obligatoire boolean not null default false,
+  maj_le             timestamptz not null default now()
+);
+-- Sur une base déjà en service, le corps ci-dessus n'est jamais relu.
+alter table public.reglages
+  add column if not exists compte_obligatoire boolean not null default false;
+alter table public.reglages
+  add column if not exists maj_le timestamptz not null default now();
+insert into public.reglages (id) values (1) on conflict (id) do nothing;
+
+alter table public.reglages enable row level security;
+drop policy if exists "reglages lecture"  on public.reglages;
+drop policy if exists "reglages ecriture" on public.reglages;
+
+-- L'application doit CONNAÎTRE la règle avant de dessiner son bouton :
+-- elle se lit donc sans compte. Il n'y a rien de secret là-dedans.
+create policy "reglages lecture" on public.reglages
+  for select to anon, authenticated using (true);
+-- La changer ferme ou rouvre la caisse de toute l'enseigne : vous seul.
+create policy "reglages ecriture" on public.reglages
+  for update to authenticated
+  using (public.est_super()) with check (public.est_super());
+
+-- Ni « insert » ni « delete » pour personne : la ligne est unique et ne
+-- doit pas pouvoir disparaître. Une table sans ligne répondrait « pas de
+-- règle », et la porte se rouvrirait toute seule.
+revoke all on public.reglages from anon, authenticated;
+grant select on public.reglages to anon, authenticated;
+-- « revoke all » puis « grant » par colonne, dans cet ordre : un droit
+-- par colonne posé sur un droit de table déjà accordé ne retire rien.
+grant update (compte_obligatoire, maj_le) on public.reglages to authenticated;
+
+-- La règle, lue par la base elle-même. « security definer » parce que
+-- « creer_commande » l'appelle pour un visiteur sans compte, et qu'on
+-- préfère ne dépendre d'aucun droit de lecture au moment de décider.
+--
+-- Si la ligne manquait malgré tout, la réponse est « non ». Ce choix est
+-- délibéré : la règle force une inscription, elle ne protège rien. Un
+-- accident doit laisser la boutique vendre, pas verrouiller la caisse un
+-- samedi soir sans personne pour la rouvrir.
+create or replace function public.compte_exige() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select r.compte_obligatoire from public.reglages r where r.id = 1), false);
+$$;
+revoke all on function public.compte_exige() from public, anon, authenticated;
+grant execute on function public.compte_exige() to anon, authenticated;
+
 -- ---------- Passer commande ----------
 -- Le téléphone envoie ses coordonnées et une liste
 -- { produit_id, quantite }. Rien d'autre n'est écouté : ni prix,
@@ -1972,6 +2031,7 @@ declare
   devises  text[];
   sortie   jsonb;
   moi      uuid := auth.uid();
+  equipe   boolean := false;   -- connecté, mais pas avec un compte client
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -1987,7 +2047,26 @@ begin
   -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
   -- avec les droits d'une boutique sur une commande qui lui appartient.
   if moi is not null and not exists (select 1 from public.clients c where c.id = moi) then
-    moi := null;
+    moi    := null;
+    equipe := true;
+  end if;
+
+  -- ---------- Le compte, quand l'enseigne l'exige ----------
+  -- Tant que l'interrupteur est éteint, rien ne change : on commande sans
+  -- compte, comme depuis le premier jour. Allumé, c'est ICI que la porte
+  -- se ferme — dans la base, pas à l'écran. Un écran qui cache un bouton
+  -- ne ferme rien : il suffit d'appeler la fonction directement.
+  --
+  -- Deux refus, parce que ce ne sont pas deux mêmes situations. Le
+  -- visiteur n'a pas de compte : on lui dit d'en ouvrir un. Le vendeur en
+  -- a un — mais c'est un compte de l'équipe, et on vient de le ramener à
+  -- « personne » deux lignes plus haut. Lui répondre « connectez-vous »
+  -- alors qu'il EST connecté lui ferait chercher longtemps.
+  if moi is null and public.compte_exige() then
+    if equipe then
+      raise exception 'Ce compte est un compte de l''équipe BIZZOO, pas un compte client. Pour commander, ouvrez un compte client et connectez-vous avec.';
+    end if;
+    raise exception 'Il faut un compte BIZZOO pour commander. Sa création prend une minute, et c''est lui qui vous rendra cette commande depuis n''importe quel téléphone.';
   end if;
 
   perform set_config('bizzoo.interne', 'oui', true);

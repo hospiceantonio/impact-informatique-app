@@ -915,6 +915,18 @@ a.pub-carte:active{transform:scale(.98)}
 .pa-avertissement .ic,.pa-essai .ic,.pa-confirme .ic{flex:none;margin-top:1px}
 .pa-confirme strong,.pa-avertissement strong{color:inherit}
 
+/* « Un compte est nécessaire » : un avis, pas une alarme — on le dit
+   dans le ton de l'aide, sans fond coloré. Le flex sert seulement à
+   garder l'icône À CÔTÉ du texte : posée dans le fil de la phrase, elle
+   se retrouve seule sur sa ligne dès que la phrase dépasse la largeur —
+   ce qui arrive toujours sur un téléphone. */
+.pa-compte-requis{
+  display:flex;align-items:flex-start;gap:7px;
+  margin:0 0 12px;font-size:12.5px;line-height:1.5;
+  color:var(--encre-tres-douce);
+}
+.pa-compte-requis .ic{margin-top:1px;color:var(--bleu)}
+
 /* Le reçu : le numéro d'abord, c'est ce qu'on dicte au téléphone. */
 .re-entete{text-align:center}
 .re-numero{

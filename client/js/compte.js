@@ -37,6 +37,57 @@ const Compte = (() => {
   let fiche = null;     // la ligne « clients », une fois lue
   const ecouteurs = [];
 
+  /* ---------- La règle de la maison ----------
+
+     « Faut-il un compte pour commander ? » est une décision de
+     l'enseigne, rangée en base, et qui peut changer sans qu'on
+     republie l'application. On la lit donc, on ne la devine pas.
+
+     Elle se garde dans le téléphone entre deux ouvertures, pour que
+     l'écran de commande ne s'affiche pas d'abord d'une façon puis de
+     l'autre sous les doigts du client.
+
+     TANT QU'ON NE SAIT PAS, ON LAISSE PASSER. La base est le vrai
+     verrou — elle refusera, et son refus s'affiche. Ce qui est ici ne
+     sert qu'à prévenir le client AVANT qu'il ne remplisse un
+     formulaire pour rien. */
+  const CLE_REGLES = "bizzoo-regles";
+  let regles = { compteObligatoire: false, connues: false };
+  try {
+    const gardees = JSON.parse(localStorage.getItem(CLE_REGLES) || "null");
+    if (gardees) regles = { compteObligatoire: !!gardees.compteObligatoire, connues: true };
+  } catch (_) { /* navigation privée : on redemandera */ }
+
+  const compteExige = () => regles.compteObligatoire === true;
+  const reglesConnues = () => regles.connues === true;
+
+  /**
+   * Aller lire la règle. Sans compte : la table se lit par tout le
+   * monde, justement pour que l'application sache quoi dessiner avant
+   * de connaître qui que ce soit.
+   */
+  async function chargerRegles() {
+    const c = Catalogue.configuration();
+    if (!c) return compteExige();
+    try {
+      const reponse = await fetch(
+        c.url + "/rest/v1/reglages?select=compte_obligatoire&id=eq.1",
+        { headers: { "apikey": c.cle } });
+      if (!reponse.ok) throw new Error("indisponible");
+      const ligne = (await reponse.json())[0];
+      /* Table absente ou ligne vide : on garde ce qu'on savait. Une
+         base d'avant cette règle répond « rien », et « rien » ne veut
+         pas dire « fermé ». */
+      if (!ligne) return compteExige();
+      regles = { compteObligatoire: ligne.compte_obligatoire === true, connues: true };
+      try { localStorage.setItem(CLE_REGLES, JSON.stringify({ compteObligatoire: regles.compteObligatoire })); }
+      catch (_) { /* tant pis, on redemandera */ }
+    } catch (_) {
+      /* Hors connexion : on garde la dernière règle connue. */
+    }
+    return compteExige();
+  }
+
   function garder(s) {
     session = s;
     try {
@@ -705,5 +756,6 @@ const Compte = (() => {
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
     mesCommandes, commande, rpc, rest,
+    chargerRegles, compteExige, reglesConnues,
   };
 })();

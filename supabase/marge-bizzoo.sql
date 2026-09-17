@@ -120,6 +120,21 @@ update public.commande_lignes l
   from public.produits_prive pp
  where pp.produit_id = l.produit_id and l.prix_bizzoo = 0;
 
+-- Une brique empruntée : le prix d'un revendeur validé, né plus tard et
+-- rangé dans « comptes-revendeurs.sql ». La règle d'écriture ci-dessous
+-- l'appelle, et PostgreSQL ne relit le corps d'une fonction qu'au moment
+-- de l'EXÉCUTER : sans elle, ce fichier passerait sans broncher et la
+-- base s'arrêterait à la première vente. On la repose donc à
+-- l'identique — la reposer ne coûte rien.
+create or replace function public.prix_revendeur(prix_public int, prix_bizzoo int)
+returns int
+language sql immutable as $$
+  select case when coalesce(prix_bizzoo, 0) > 0
+              then prix_bizzoo
+              else coalesce(prix_public, 0) end;
+$$;
+revoke all on function public.prix_revendeur(int, int) from public, anon, authenticated;
+
 create or replace function public.ligne_a_l_ecriture() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
