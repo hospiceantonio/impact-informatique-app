@@ -13,6 +13,9 @@ on:
       - "tools/fichiers-autonomes.sh"
       - "tools/eprouver-menage.sh"
       - "tools/menage-stockage.ps1"
+      - "tools/coquille-complete.sh"
+      - "client/**"
+      - "admin/**"
       - ".github/workflows/base.yml"
   pull_request:
     paths:
@@ -50,3 +53,10 @@ jobs:
       # qu'il lui envoie vraiment.
       - name: Éprouver le ménage du stockage
         run: bash tools/eprouver-menage.sh
+
+      # Une liste de fichiers tenue à la main finit par mentir :
+      # « compte.js » a vécu deux étapes hors de la coquille hors
+      # connexion. En ligne rien ne se voyait ; hors connexion
+      # l'application s'ouvrait cassée.
+      - name: La coquille hors connexion est-elle complète ?
+        run: bash tools/coquille-complete.sh

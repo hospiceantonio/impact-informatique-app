@@ -1099,3 +1099,73 @@ a.pub-carte:active{transform:scale(.98)}
   background:var(--fond);color:var(--encre-tres-douce);
   font-weight:700;margin-left:6px;vertical-align:middle;
 }
+
+/* ---------- Les avis ----------
+   Les étoiles vides restent visibles mais effacées : cinq étoiles
+   grises se lisent « mal noté », alors que trois pleines sur cinq
+   grises se lisent « trois sur cinq ». */
+.etoiles{display:inline-flex;align-items:center;gap:1px;margin:4px 0}
+.etoiles .et{color:var(--trait);display:inline-flex}
+/* Les icônes du projet sont dessinées au trait (« fill:none »). Une
+   étoile pleine doit être PLEINE : sans ce remplissage, « pleine » et
+   « vide » ne se distinguaient que par la couleur — et sur un écran au
+   soleil, ou pour un œil qui confond l'ambre et le gris, elles se
+   lisaient toutes pareilles. */
+.etoiles .et-pleine{color:var(--ambre)}
+.etoiles .et-pleine .ic{fill:currentColor}
+.etoiles-grand .ic{width:20px;height:20px}
+.etoiles-note{
+  margin-left:6px;font-size:12.5px;font-weight:800;color:var(--encre-douce);
+  font-variant-numeric:tabular-nums;
+}
+.etoiles-grand .etoiles-note{font-size:15px}
+.etoiles-combien{margin-left:4px;font-size:11.5px;color:var(--encre-tres-douce)}
+
+.fiche-note{display:inline-block;margin-top:6px}
+.boutique-note{margin:6px 0 10px}
+
+.av-un{padding:14px 0;border-top:1px solid var(--trait)}
+.av-un:first-child{border-top:0;padding-top:0}
+.av-mien{
+  background:var(--bleu-50);border:1px solid var(--bleu-100);
+  border-radius:var(--r-sm);padding:12px;margin-bottom:12px;
+}
+.av-entete{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.av-auteur{font-size:14px;font-weight:800}
+.av-vous{
+  margin-left:6px;padding:2px 7px;border-radius:999px;
+  background:var(--bleu-100);color:var(--bleu-700);
+  font-size:10.5px;font-weight:800;
+}
+.av-quand{font-size:11.5px;color:var(--encre-tres-douce);margin-top:2px}
+.av-texte{margin:8px 0 0;font-size:13.5px;line-height:1.55;white-space:pre-wrap}
+/* La réponse de la boutique est une conversation, pas un second avis :
+   décalée, et marquée de son icône. */
+.av-reponse{
+  display:flex;gap:8px;margin:10px 0 0 12px;padding:10px 12px;
+  border-left:3px solid var(--bleu-100);border-radius:0 var(--r-sm) var(--r-sm) 0;
+  background:var(--fond);font-size:12.5px;line-height:1.5;
+}
+.av-reponse .ic{flex:none;color:var(--bleu);margin-top:1px}
+.av-actions{flex-direction:row;gap:8px;margin-top:10px}
+.btn-mini{
+  padding:6px 12px;border:1px solid var(--trait);border-radius:999px;
+  background:var(--blanc);font-size:12px;font-weight:700;color:var(--encre-douce);
+}
+.av-retirer{color:var(--rouge-fonce);border-color:var(--rouge-clair)}
+
+.av-formulaire{margin-top:14px;padding-top:14px;border-top:1px solid var(--trait)}
+.av-question{font-size:14px;font-weight:800;margin-bottom:8px}
+/* Des étoiles qu'on touche : assez grandes pour le pouce, et espacées
+   pour qu'on ne vise pas la voisine. */
+.av-etoiles{display:flex;gap:4px;margin-bottom:12px}
+.av-etoile{
+  border:0;background:none;padding:6px;color:var(--trait);
+  display:inline-flex;
+}
+.av-etoile .ic{width:30px;height:30px}
+.av-etoile.av-choisie{color:var(--ambre)}
+.av-etoile.av-choisie .ic{fill:currentColor}
+.av-etoile:active{transform:scale(.9)}
+.av-fermee{display:flex;align-items:flex-start;gap:6px}
+.av-fermee .ic{flex:none;margin-top:2px;color:var(--vert)}

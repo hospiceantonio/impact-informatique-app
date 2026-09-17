@@ -1054,6 +1054,62 @@ const Store = (() => {
     return (lignes || []).map(revendeurDepuisLigne);
   }
 
+  /* ---------- Les avis des clients ----------
+
+     La boutique RÉPOND, elle n'efface pas. C'est la règle qui donne sa
+     valeur à tout le reste : une boutique qui peut faire disparaître ce
+     qui la gêne rend ses bons avis suspects par la même occasion.
+
+     Masquer existe, mais pour ce qui n'a pas sa place — insultes,
+     numéro de téléphone, règlement de comptes — et c'est l'enseigne
+     seule qui en décide. La base le vérifie ; cet écran ne fait que ne
+     pas proposer le bouton. */
+
+  function avisDepuisLigne(l) {
+    return {
+      id: l.id,
+      produitId: l.produit_id || "",
+      /* Le nom du produit ne vient PAS d'ici : « lireProduit » va le
+         chercher en base, et cette fonction-ci doit rester synchrone.
+         L'écran l'affiche à partir de la liste qu'il a déjà — un avis
+         sans produit est un avis sur la boutique, et c'est tout ce qu'il
+         faut savoir pour le ranger. */
+      boutiqueId: l.boutique_id || "",
+      nomBoutique: (lireBoutique(l.boutique_id) || {}).nomBoutique || "",
+      note: Number(l.note) || 0,
+      texte: l.texte || "",
+      auteur: l.auteur || "",
+      reponse: l.reponse || "",
+      reponseLe: l.reponse_le ? Date.parse(l.reponse_le) || 0 : 0,
+      masque: !!l.masque,
+      motifMasque: l.motif_masque || "",
+      creeLe: versMs(l.cree_le),
+    };
+  }
+
+  /** Les avis visibles par ce compte : les siens, ou tous pour l'enseigne. */
+  async function listerAvis(combien) {
+    const lignes = await Supabase.requete("GET",
+      "avis?select=*&order=cree_le.desc&limit=" + (Number(combien) || 100),
+      undefined, { avecSession: true });
+    return (lignes || []).map(avisDepuisLigne);
+  }
+
+  /** Répondre — ou effacer sa réponse, en envoyant un texte vide. */
+  async function repondreAvis(id, texte) {
+    await Supabase.rpcLecture("repondre_avis", { cible: id, texte: texte || "" });
+    journaliser("boutique", "reponse", "Réponse publiée sur un avis client", id);
+  }
+
+  /** Masquer, ou rendre. Réservé à l'enseigne — la base le vérifie. */
+  async function masquerAvis(id, cacher, motif) {
+    await Supabase.rpcLecture("masquer_avis",
+      { cible: id, cacher: !!cacher, raison: motif || "" });
+    journaliser("boutique", cacher ? "masquage" : "demasquage",
+      (cacher ? "Avis masqué" : "Avis rendu public") + (motif ? " : " + motif : ""),
+      id, undefined, null);
+  }
+
   /** Valider, ou refuser avec un motif que le demandeur lira. */
   async function deciderRevendeur(compte, accord, motif) {
     await Supabase.rpcLecture("valider_revendeur",
@@ -2288,6 +2344,7 @@ const Store = (() => {
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
     listerRevendeurs, deciderRevendeur,
+    listerAvis, repondreAvis, masquerAvis,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
     statistiquesVentes,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement,

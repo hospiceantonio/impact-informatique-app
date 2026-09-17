@@ -453,6 +453,16 @@ const Compte = (() => {
     return (lignes || []).map(commandeDepuisBase);
   }
 
+  /**
+   * Appeler une fonction de la base avec la session du compte.
+   *
+   * C'est par là que passe tout ce qui demande « qui appelle ? » :
+   * déposer un avis, vérifier qu'on a acheté, retirer le sien. Le
+   * jeton part avec, et c'est la BASE qui décide — jamais cet écran.
+   */
+  const rpc = (nom, parametres) =>
+    rest("POST", "rpc/" + nom, parametres || {});
+
   /** Une commande précise — pour un reçu que ce téléphone n'a pas gardé. */
   async function commande(id) {
     if (!session || !id) return null;
@@ -691,6 +701,6 @@ const Compte = (() => {
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
-    mesCommandes, commande,
+    mesCommandes, commande, rpc,
   };
 })();

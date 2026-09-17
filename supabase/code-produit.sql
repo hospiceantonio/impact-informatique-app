@@ -55,6 +55,13 @@ create unique index if not exists produits_code_unique
 -- ---------------------------------------------------------
 -- 3. Le code ne se choisit pas, et ne se change plus
 -- ---------------------------------------------------------
+-- Les notes, tenues par « avis_recalcule() » et refusées à tout le
+-- reste par la règle d'écriture ci-dessous. Posées par « avis.sql »,
+-- répétées ici : un fichier qui pose une fonction pose aussi les
+-- colonnes qu'elle touche.
+alter table public.produits add column if not exists note_moyenne numeric(3,2);
+alter table public.produits add column if not exists nb_avis int not null default 0;
+
 create or replace function public.produit_code() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -62,10 +69,26 @@ begin
     -- Ce que l'application envoie dans « code » n'est jamais écouté :
     -- la base le donne elle-même.
     new.code := nextval('public.produits_code')::text;
+    -- Un produit neuf n'a pas d'avis, quoi qu'en dise l'insertion.
+    new.note_moyenne := null;
+    new.nb_avis := 0;
   else
     -- Et il ne bouge plus, quel que soit le rang de qui écrit. Un repère
     -- qu'on peut corriger n'est plus un repère.
     new.code := old.code;
+    -- LA NOTE NE SE DÉCLARE PAS. Elle est calculée à partir des avis,
+    -- par « avis_recalcule() », qui pose ce drapeau le temps de son
+    -- écriture. Sans ce verrou, une boutique s'écrivait cinq étoiles et
+    -- neuf cent quatre-vingt-dix-neuf avis — le règlement RLS lui laisse
+    -- modifier ses propres produits, et ces deux colonnes en font
+    -- partie. Le superadministrateur non plus : une note inventée par
+    -- l'enseigne ne vaudrait pas mieux.
+    if coalesce(current_setting('bizzoo.avis', true), '') <> 'oui' then
+      if new.note_moyenne is distinct from old.note_moyenne
+      or new.nb_avis      is distinct from old.nb_avis then
+        raise exception 'La note d''un produit vient de ses avis, elle ne s''écrit pas';
+      end if;
+    end if;
   end if;
   return new;
 end $$;

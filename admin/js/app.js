@@ -21,6 +21,10 @@
     /* Valider un revendeur, c'est lui ouvrir le prix BIZZOO dans TOUTES
        les boutiques : la décision appartient à l'enseigne seule. */
     { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), super: true },
+    /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
+       la base ne montre à chacun que les siens. Masquer reste à
+       l'enseigne, et le bouton ne s'affiche que pour elle. */
+    { motif: /^\/avis$/, vue: (v) => VueAvis.afficher(v) },
     { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v), super: true },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },

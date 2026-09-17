@@ -237,6 +237,13 @@ const Catalogue = (() => {
           telephones: autresNumeros(b2.telephones),
           adresses: autresAdresses(b2.adresses),
           video: b2.video ? urlImagePublique(b2.video) : "",
+          /* La note et le nombre d'avis viennent de la base, tenus par
+             elle : l'écran les lit, il ne les additionne pas. Sans cela,
+             dessiner une carte demanderait de charger tous les avis de
+             tous les produits. */
+          note: b2.note_moyenne === null || b2.note_moyenne === undefined
+            ? null : Number(b2.note_moyenne),
+          nbAvis: Number(b2.nb_avis) || 0,
         })),
         categories: (categories || []).map((cat) => ({
           id: cat.id,
@@ -271,6 +278,11 @@ const Catalogue = (() => {
           creeLe: Date.parse(p.cree_le || "") || 0,
           modifieLe: Date.parse(p.modifie_le || "") || 0,
           modifieLeBrut: p.modifie_le || "",   // tel quel : sert de repère aux notifications
+          /* Idem pour un produit : la note est calculée par la base à
+             chaque avis, et voyage avec le catalogue. */
+          note: p.note_moyenne === null || p.note_moyenne === undefined
+            ? null : Number(p.note_moyenne),
+          nbAvis: Number(p.nb_avis) || 0,
         })),
         slides: (slides || []).map((s) => ({
           id: s.id,
@@ -471,6 +483,13 @@ const Catalogue = (() => {
       telephones: autresNumeros(b.telephones),
       adresses: autresAdresses(b.adresses),
       video: b.video || "",
+      /* La note que les acheteurs lui ont donnée À ELLE : la livraison,
+         l'accueil, le sérieux. Pas la moyenne de ses produits — ce sont
+         deux questions différentes, et les mélanger rendrait les deux
+         illisibles. L'enseigne, elle, ne se note pas : on note des
+         boutiques, pas une galerie marchande. */
+      note: choisie && typeof choisie.note === "number" ? choisie.note : null,
+      nbAvis: choisie ? (choisie.nbAvis || 0) : 0,
       /* Vrai quand on parle de l'enseigne et non d'une boutique. */
       estEnseigne: !choisie,
     };

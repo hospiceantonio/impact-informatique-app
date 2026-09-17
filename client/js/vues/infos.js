@@ -19,6 +19,12 @@ const VueInfos = (() => {
         (enseigne
           ? UI.logo()
           : '<h2 class="boutique-nom">' + Utils.echapper(b.nom) + "</h2>") +
+        /* La note que les acheteurs lui ont donnée À ELLE : la
+           livraison, l'accueil, le sérieux. L'enseigne, elle, ne se
+           note pas — on note des boutiques, pas une galerie. */
+        (!enseigne && b.nbAvis
+          ? '<div class="boutique-note">' + UI.noteHtml(b, { grand: true }) + "</div>"
+          : "") +
         (b.description ? '<p class="boutique-desc">' + Utils.echapper(b.description) + "</p>" : "") +
         (b.slogan ? '<span class="chip-slogan">' + Utils.echapper(b.slogan) + "</span>" : "") +
       "</div>";
@@ -216,6 +222,14 @@ const VueInfos = (() => {
       "</div>";
 
     vue.innerHTML = html;
+
+    /* Les avis de la boutique : ce que les acheteurs disent d'ELLE. Sur
+       l'écran de l'enseigne il n'y a rien à noter — BIZZOO ne vend pas,
+       ce sont ses boutiques qui vendent. */
+    if (!enseigne && b.id) {
+      UI.$("#vue").insertAdjacentHTML("beforeend", VueAvis.bloc("Avis sur cette boutique"));
+      VueAvis.remplir({ boutique: b.id }, async () => { await Catalogue.rafraichir(); });
+    }
 
     const serieBoutique = (b.photos || []).map((src) => ({ src }));
     for (const img of UI.$$("[data-photo-boutique]", vue)) {

@@ -13,9 +13,13 @@ const VueAccueil = (() => {
         '<a class="btn-ic" href="#/comptes" aria-label="Comptes">' + UI.icone("equipe") + "</a>" +
         '<a class="btn-ic" href="#/reglages" aria-label="Réglages">' + UI.icone("reglages") + "</a>"
       : '<a class="btn-ic" href="#/commandes" aria-label="Commandes">' + UI.icone("boite") + "</a>" +
+        /* Le modérateur n'a ni les réglages ni la carte d'accueil de
+           l'enseigne : sans cette icône, il n'aurait aucun chemin vers
+           les avis de sa boutique une fois la file vide. */
+        '<a class="btn-ic" href="#/avis" aria-label="Avis des clients">' + UI.icone("etoile") + "</a>" +
         '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' + UI.icone("personne") + "</a>" });
 
-    const [stats, slides, produits, demandes, commandes, revendeurs] = await Promise.all([
+    const [stats, slides, produits, demandes, commandes, revendeurs, avis] = await Promise.all([
       Store.statistiques(),
       admin ? Store.listerSlides().catch(() => []) : Promise.resolve([]),
       Store.listerProduits(),
@@ -32,6 +36,9 @@ const VueAccueil = (() => {
       Supabase.estSuper()
         ? Store.listerRevendeurs("en_attente").catch(() => [])
         : Promise.resolve([]),
+      /* Les avis des clients. Un avis sans réponse est un client qui
+         attend, et c'est ce que liront les clients suivants. */
+      Store.listerAvis(100).catch(() => []),
     ]);
     const enAttente = demandes.filter((d) => d.etat === "en_attente");
 
@@ -84,6 +91,23 @@ const VueAccueil = (() => {
               .filter(Boolean).join(" · ")) +
             (revendeurs.length > 3 ? " …" : "") +
             " — un compte validé achète au prix BIZZOO. Touchez pour trancher.</p>" +
+        "</a>";
+    }
+
+    /* ---- Les avis auxquels personne n'a répondu ----
+       Répondre, même à un mauvais avis, se voit : c'est ce que lisent
+       les clients suivants. Un avis laissé sans réponse aussi. */
+    const sansReponse = avis.filter((a) => !a.reponse && !a.masque);
+    if (sansReponse.length) {
+      html +=
+        '<a class="carte carte-publier" href="#/avis">' +
+          '<div class="carte-titre">' + UI.icone("etoile", "ic-sm") + " " +
+            sansReponse.length + " avis sans réponse</div>" +
+          '<p class="aide" style="margin:0">' +
+            Utils.echapper(sansReponse.slice(0, 2)
+              .map((a) => (a.auteur || "Un client") + " : " + a.note + "/5").join(" · ")) +
+            (sansReponse.length > 2 ? " …" : "") +
+            " — votre réponse s'affiche sous l'avis, pour tout le monde.</p>" +
         "</a>";
     }
 

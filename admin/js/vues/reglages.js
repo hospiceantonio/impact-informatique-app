@@ -291,6 +291,8 @@ const VueReglages = (() => {
               UI.icone("personne") + "Comptes revendeurs</a>" +
             '<a class="btn btn-clair" href="#/validations" style="margin-top:10px">' +
               UI.icone("check") + "Demandes des boutiques</a>" +
+            '<a class="btn btn-clair" href="#/avis" style="margin-top:10px">' +
+              UI.icone("etoile") + "Avis des clients</a>" +
           "</div>" +
 
           /* ---------- La passerelle SMS ----------

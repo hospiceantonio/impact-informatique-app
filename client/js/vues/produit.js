@@ -172,6 +172,12 @@ const VueProduit = (() => {
           ? '<div class="fiche-revendeur">' + UI.icone("magasin", "ic-sm") +
             "Votre prix revendeur</div>"
           : "") +
+        /* La note, avec son chiffre : ici on compare, on ne survole
+           plus. Elle mène au bloc des avis, plus bas. */
+        (p.nbAvis
+          ? '<a class="fiche-note" href="#av-bloc">' +
+            UI.noteHtml(p, { grand: true }) + "</a>"
+          : "") +
         (cat
           ? '<div class="fiche-chemin">' +
               '<a class="puce" href="#/categorie/' + Utils.echapper(cat.id) + '">' + Utils.echapper(cat.nom) + "</a>" +
@@ -260,6 +266,11 @@ const VueProduit = (() => {
         "</div>";
     }
 
+    /* Les avis avant les produits voisins : on décide d'acheter CET
+       article-là, pas un autre. Le bloc se pose vide et se remplit
+       après — la fiche ne doit pas attendre le réseau pour s'afficher. */
+    html += VueAvis.bloc("Avis sur ce produit");
+
     if (similaires.length) {
       html += UI.titreSection("Dans le même rayon");
       html += UI.rangeeProduits(similaires);
@@ -268,6 +279,12 @@ const VueProduit = (() => {
     vue.innerHTML = html;
     activerCarrousel();
     brancherPanier(vue, p);
+
+    /* Un avis déposé change la note du produit : on redemande le
+       catalogue, et la fiche se redessine avec ses nouvelles étoiles. */
+    VueAvis.remplir({ produit: p.id }, async () => {
+      await Catalogue.rafraichir();
+    });
 
     /* Toute la série est ouverte d'un coup : le client fait défiler. */
     const serie = p.images.map(Catalogue.urlImage)

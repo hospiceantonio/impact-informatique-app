@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v55";
+const VERSION = "impact-client-v56";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -17,6 +17,13 @@ const FICHIERS = [
   "./demo-catalogue.json",
   "./js/utils.js",
   "./js/catalogue.js",
+  /* « compte.js » et « vues/compte.js » manquaient à cette liste depuis
+     qu'ils existent : hors connexion, l'application se chargeait sans
+     eux et « Compte » n'était pas défini. Une liste de fichiers à tenir
+     à la main finit toujours par mentir — voir la note en fin de
+     fichier. */
+  "./js/compte.js",
+  "./js/avis.js",
   "./js/panier.js",
   "./js/paiement.js",
   "./js/live.js",
@@ -28,6 +35,8 @@ const FICHIERS = [
   "./js/vues/panier.js",
   "./js/vues/recherche.js",
   "./js/vues/infos.js",
+  "./js/vues/compte.js",
+  "./js/vues/avis.js",
   "./js/app.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -91,3 +100,17 @@ self.addEventListener("fetch", (ev) => {
     })
   );
 });
+
+/* =========================================================
+   UNE LISTE À TENIR À LA MAIN FINIT PAR MENTIR.
+
+   « compte.js » et « vues/compte.js » ont vécu deux étapes hors
+   de cette liste : l'application les chargeait par le réseau
+   sans jamais les mettre en cache, et hors connexion
+   « Compte » n'était pas défini.
+
+   Le contrôle « tools/coquille-complete.sh » compare désormais
+   les balises « script » de index.html à cette liste, et
+   s'arrête sur le premier écart. Un oubli ne dépend plus de qui
+   relit.
+   ========================================================= */

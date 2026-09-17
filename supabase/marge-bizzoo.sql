@@ -39,9 +39,27 @@
 alter table public.boutiques
   add column if not exists taux_marge numeric(6,2) not null default 20;
 
+-- Les notes, tenues par « avis_recalcule() » et refusées à tout le
+-- reste par la règle d'écriture ci-dessous. Posées par « avis.sql »,
+-- répétées ici : un fichier qui pose une fonction pose aussi les
+-- colonnes qu'elle touche.
+alter table public.boutiques add column if not exists note_moyenne numeric(3,2);
+alter table public.boutiques add column if not exists nb_avis int not null default 0;
+
 create or replace function public.boutique_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  -- LA NOTE NE SE DÉCLARE PAS, et ceci passe AVANT la sortie du
+  -- superadministrateur : une note inventée par l'enseigne ne vaudrait
+  -- pas mieux qu'une note inventée par la boutique. Seule
+  -- « avis_recalcule() » l'écrit, et elle pose ce drapeau pour le dire.
+  if coalesce(current_setting('bizzoo.avis', true), '') <> 'oui' then
+    if new.note_moyenne is distinct from old.note_moyenne
+    or new.nb_avis      is distinct from old.nb_avis then
+      raise exception 'La note d''une boutique vient de ses avis, elle ne s''écrit pas';
+    end if;
+  end if;
+
   -- L'enseigne fait ce qu'elle veut : c'est elle qui approuve.
   if public.est_super() then return new; end if;
 

@@ -526,6 +526,41 @@ const UI = (() => {
     );
   }
 
+  /* ---------- Les étoiles ----------
+
+     Cinq étoiles, pleines jusqu'à la note. On ARRONDIT au demi le plus
+     proche pour le dessin, mais le chiffre écrit à côté reste le vrai :
+     une note de 4,2 ne doit pas se lire « 4 » — c'est le chiffre qu'on
+     compare d'un produit à l'autre, pas le dessin. */
+
+  function etoiles(note, options) {
+    const o = options || {};
+    const n = Number(note);
+    if (!isFinite(n) || n <= 0) return "";
+    const pleines = Math.round(n);
+    let dessin = "";
+    for (let i = 1; i <= 5; i++) {
+      dessin += '<span class="et' + (i <= pleines ? " et-pleine" : "") + '">' +
+        icone("etoile", "ic-sm") + "</span>";
+    }
+    return (
+      '<span class="etoiles' + (o.grand ? " etoiles-grand" : "") + '">' +
+        dessin +
+        (o.chiffre === false ? "" :
+          '<span class="etoiles-note">' + e(n.toFixed(1).replace(".", ",")) + "</span>") +
+        (o.combien
+          ? '<span class="etoiles-combien">(' + o.combien + ")</span>"
+          : "") +
+      "</span>"
+    );
+  }
+
+  /** La note d'un produit ou d'une boutique, ou rien du tout. */
+  function noteHtml(cible, options) {
+    if (!cible || !cible.nbAvis) return "";
+    return etoiles(cible.note, Object.assign({ combien: cible.nbAvis }, options || {}));
+  }
+
   function badgesProduit(p) {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
@@ -588,6 +623,11 @@ const UI = (() => {
           /* Le code, sous le nom et avant le prix : c'est par lui qu'un
              client désigne un article sans se tromper. */
           (p.code ? '<span class="p-carte-code">Code ' + e(p.code) + "</span>" : "") +
+          /* Les étoiles sans le chiffre : sur une carte, le dessin suffit
+             à comparer d'un coup d'œil, et le chiffre exact attend sur la
+             fiche. Un produit sans avis n'affiche rien — mieux vaut rien
+             que cinq étoiles vides, qui se lisent « mal noté ». */
+          noteHtml(p, { chiffre: false }) +
           prixHtml(p) +
           '<span class="p-carte-cat">' + e(sc ? sc.nom : (cat ? cat.nom : "")) + "</span>" +
         "</span>" +
@@ -611,6 +651,7 @@ const UI = (() => {
         "</span>" +
         '<span class="p-mini-nom">' + e(p.nom) + "</span>" +
         (p.code ? '<span class="p-carte-code">Code ' + e(p.code) + "</span>" : "") +
+        noteHtml(p, { chiffre: false }) +
         prixHtml(p) +
       "</a>"
     );
@@ -710,7 +751,7 @@ const UI = (() => {
     $, $$, entete, icone, marque, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
-    iconeCategorie, prixHtml, badgesProduit, pastilleVideo, imageProduit,
+    iconeCategorie, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide,
   };

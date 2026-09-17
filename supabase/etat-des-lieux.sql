@@ -218,7 +218,25 @@ with controles(rang, element, ok) as (values
       select 1 from information_schema.column_privileges
        where table_schema = 'public' and table_name = 'commande_lignes'
          and grantee = 'authenticated' and privilege_type = 'SELECT'
-         and column_name in ('prix_bizzoo', 'taux_marge')))
+         and column_name in ('prix_bizzoo', 'taux_marge'))),
+
+  -- ---------- Les avis ----------
+  (39, 'Les avis des clients (table avis)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'avis')),
+  -- Sans elle, n'importe qui noterait n'importe quoi, et les avis
+  -- honnêtes se noieraient avec les autres.
+  (40, 'Seul qui a PAYÉ donne son avis (a_achete)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'a_achete')),
+  (41, 'La note suit ses avis (avis_moyennes)', exists (
+      select 1 from pg_trigger tr join pg_class c on c.oid = tr.tgrelid
+       where not tr.tgisinternal and c.relname = 'avis'
+         and tr.tgname = 'avis_moyennes')),
+  -- Une boutique qui efface ce qui la gêne rend ses bons avis suspects.
+  (42, 'La boutique répond, elle n''efface pas (repondre_avis)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'repondre_avis'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
