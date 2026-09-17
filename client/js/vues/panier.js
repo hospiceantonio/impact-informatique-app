@@ -284,9 +284,18 @@ const VuePanier = (() => {
     }
     if (!Paiement.connu()) await Paiement.charger();
     /* La règle avant de dessiner, comme la fiche : on ne veut pas d'un
-       formulaire qui s'affiche puis se remplace sous les doigts. Si la
-       base ne répond pas, on garde la dernière règle connue. */
-    if (typeof Compte !== "undefined" && !Compte.reglesConnues()) {
+       formulaire qui s'affiche puis se remplace sous les doigts.
+
+       On la redemande dans deux cas seulement. Si on ne la connaît pas,
+       évidemment. Et si elle dit « il faut un compte » — parce que
+       c'est le seul cas où se tromper COÛTE : une règle éteinte depuis,
+       gardée dans le téléphone, renverrait un client qu'on avait le
+       droit de servir. L'inverse ne coûte rien : la base refusera, et
+       son refus s'affiche.
+
+       Sans réponse, on garde la dernière règle connue. */
+    if (typeof Compte !== "undefined"
+        && (!Compte.reglesConnues() || Compte.compteExige())) {
       try { await Compte.chargerRegles(); } catch (_) { /* la dernière connue */ }
     }
     /* La fiche du compte avant de dessiner : sinon les champs s'affichent

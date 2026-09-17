@@ -66,13 +66,22 @@ const Compte = (() => {
    * monde, justement pour que l'application sache quoi dessiner avant
    * de connaître qui que ce soit.
    */
+  const DELAI_REGLES = 4000;   // au-delà, on se contente de ce qu'on sait
+
   async function chargerRegles() {
     const c = Catalogue.configuration();
     if (!c) return compteExige();
+    /* UN ÉCRAN NE S'ARRÊTE PAS SUR UNE LECTURE SECONDAIRE. L'écran de
+       commande attend cette réponse avant de se dessiner : sur un réseau
+       qui traîne, sans cette limite, le client resterait devant un
+       chargement au moment précis où il sort son argent. Passé le délai,
+       on garde la dernière règle connue — et la base, elle, tranchera. */
+    const arret = new AbortController();
+    const minuteur = setTimeout(() => arret.abort(), DELAI_REGLES);
     try {
       const reponse = await fetch(
         c.url + "/rest/v1/reglages?select=compte_obligatoire&id=eq.1",
-        { headers: { "apikey": c.cle } });
+        { headers: { "apikey": c.cle }, signal: arret.signal });
       if (!reponse.ok) throw new Error("indisponible");
       const ligne = (await reponse.json())[0];
       /* Table absente ou ligne vide : on garde ce qu'on savait. Une
@@ -83,7 +92,9 @@ const Compte = (() => {
       try { localStorage.setItem(CLE_REGLES, JSON.stringify({ compteObligatoire: regles.compteObligatoire })); }
       catch (_) { /* tant pis, on redemandera */ }
     } catch (_) {
-      /* Hors connexion : on garde la dernière règle connue. */
+      /* Hors connexion, ou délai dépassé : on garde ce qu'on savait. */
+    } finally {
+      clearTimeout(minuteur);
     }
     return compteExige();
   }
