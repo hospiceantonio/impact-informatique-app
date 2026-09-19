@@ -149,9 +149,17 @@ const VueStatistiques = (() => {
     }
 
     const corps = UI.$("#st-corps", vue);
-    let lignes;
+    let lignes, remises;
     try {
-      lignes = await Store.statistiquesVentes({ ...bornes(), boutique: boutiqueChoisie });
+      /* LES REMISES SE LISENT À PART, et il le faut : le bénéfice se
+         calcule LIGNE PAR LIGNE, alors qu'un code promo s'applique à la
+         COMMANDE. Sans cette seconde lecture, le bénéfice affiché serait
+         surévalué de toutes les remises accordées — et personne ne s'en
+         apercevrait avant de faire les comptes. */
+      [lignes, remises] = await Promise.all([
+        Store.statistiquesVentes({ ...bornes(), boutique: boutiqueChoisie }),
+        Store.remisesPeriode({ ...bornes(), boutique: boutiqueChoisie }).catch(() => []),
+      ]);
     } catch (err) {
       corps.innerHTML =
         '<div class="carte"><div class="carte-titre">Chiffres indisponibles</div>' +
@@ -170,16 +178,30 @@ const VueStatistiques = (() => {
 
     /* Le total d'abord : c'est la question qu'on se pose en ouvrant
        l'écran. Le détail vient ensuite. */
+    /* Ce que les codes promo ont retiré sur la période. C'est de VOTRE
+       marge que cela sort : la boutique a touché son prix BIZZOO en
+       entier. */
+    const remis = (remises || []).reduce((s, r) => s + r.remise, 0);
+    const brut = total(lignes, "benefice");
+
     corps.innerHTML =
       '<div class="carte carte-publier st-resume">' +
         '<div class="st-resume-grand">' +
           "<small>Bénéfice de BIZZOO</small>" +
-          "<strong>" + Utils.echapper(Utils.fmtMontant(total(lignes, "benefice"), devise)) +
+          "<strong>" + Utils.echapper(Utils.fmtMontant(brut - remis, devise)) +
           "</strong>" +
+          /* Le brut et la remise se lisent sous le net, et pas l'inverse :
+             c'est le net qu'on vient chercher. */
+          (remis
+            ? '<div class="aide" style="margin-top:6px">' +
+              Utils.echapper(Utils.fmtMontant(brut, devise)) + " de marge, moins " +
+              Utils.echapper(Utils.fmtMontant(remis, devise)) + " de codes promo</div>"
+            : "") +
         "</div>" +
         '<div class="st-resume-detail">' +
           "<div><small>Encaissé</small><span>" +
-            Utils.echapper(Utils.fmtMontant(total(lignes, "totalVente"), devise)) + "</span></div>" +
+            Utils.echapper(Utils.fmtMontant(total(lignes, "totalVente") - remis, devise)) +
+            "</span></div>" +
           "<div><small>Reversé aux boutiques</small><span>" +
             Utils.echapper(Utils.fmtMontant(total(lignes, "totalBizzoo"), devise)) + "</span></div>" +
           "<div><small>Articles vendus</small><span>" +

@@ -277,7 +277,16 @@ const VuePanier = (() => {
      Écran 2 — les coordonnées, puis le paiement
      ===================================================== */
 
+  /* Le code promo appliqué, et ce qu'il retire. C'EST UN APERÇU : la
+     base recalculera tout au moment de commander, et c'est son montant
+     qui fait foi. On le garde ici seulement pour l'afficher.
+
+     Il se vide dès qu'on quitte l'écran : un code appliqué sur un panier
+     qu'on a ensuite modifié ne vaut plus rien. */
+  let promo = { code: "", remise: 0 };
+
   async function commander(vue) {
+    promo = { code: "", remise: 0 };
     if (Panier.vide()) {
       location.hash = "#/panier";
       return;
@@ -357,9 +366,36 @@ const VuePanier = (() => {
           '<textarea id="co-note" rows="2" placeholder="Précisions sur la couleur, la taille…"></textarea></div>' +
       "</div>" +
 
+      /* LE CODE PROMO N'A DE SENS QUE SI BIZZOO ENCAISSE. Quand le
+         paiement en ligne est fermé, la commande part directement chez
+         chaque boutique par WhatsApp : aucune commande n'est créée en
+         base, BIZZOO ne touche rien, et il n'y a donc aucune marge sur
+         laquelle prendre une remise.
+
+         Montrer le champ quand même serait pire que de ne rien offrir :
+         le client verrait 18 000 à l'écran puis enverrait un message
+         disant 20 000. C'est exactement l'écart que tout ce travail
+         cherche à rendre impossible. */
+      (enLigne
+        ? '<div class="carte" id="co-promo">' +
+        '<div class="champ" style="margin:0">' +
+          '<label for="co-code">Code promo <small>(si vous en avez un)</small></label>' +
+          '<div class="co-code-ligne">' +
+            '<input id="co-code" type="text" autocomplete="off" ' +
+              'autocapitalize="characters" placeholder="Votre code">' +
+            '<button type="button" class="btn btn-clair" id="co-code-appliquer">' +
+              "Appliquer</button>" +
+          "</div>" +
+          '<div id="co-code-reponse"></div>' +
+        "</div>" +
+      "</div>"
+        : "") +
+
       '<div class="carte pa-total">' +
-        '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
-          Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
+        '<div id="co-lignes-total">' +
+          '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
+            Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
+        "</div>" +
         (enLigne
           ? (parFeexpay
               ? blocMobileMoney(c)
@@ -443,6 +479,98 @@ const VuePanier = (() => {
       boutonPayer.onclick = () =>
         lancerPaiement(boutonPayer, lire, verifier, parFeexpay ? lirePaiement : null);
     }
+
+    brancherCode(vue, devise, boutonPayer);
+  }
+
+  /* -----------------------------------------------------
+     Le code promo
+     -----------------------------------------------------
+     L'application ne calcule RIEN : elle demande à la base, qui répond
+     avec la fonction que la caisse appellera ensuite. C'est la même
+     règle des deux côtés — sans quoi le client verrait un montant et en
+     paierait un autre. */
+
+  /** Ce que le client paiera, remise déduite. Aperçu : la base tranche. */
+  const aRegler = () => Math.max(0, Panier.total() - (promo.remise || 0));
+
+  /** Redessine le total et le bouton après un code appliqué ou retiré. */
+  function rafraichirTotal(vue, devise, boutonPayer) {
+    const bloc = UI.$("#co-lignes-total", vue);
+    if (bloc) {
+      bloc.innerHTML = promo.remise > 0
+        ? '<div class="pa-total-ligne"><span>Sous-total</span><span>' +
+            Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
+          '<div class="pa-total-ligne co-remise"><span>Code ' +
+            Utils.echapper(promo.code) + "</span><span>− " +
+            Utils.echapper(Utils.fmtMontant(promo.remise, devise)) + "</span></div>" +
+          '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
+            Utils.echapper(Utils.fmtMontant(aRegler(), devise)) + "</strong></div>"
+        : '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
+            Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>";
+    }
+    if (boutonPayer) {
+      boutonPayer.innerHTML = UI.icone("energie") +
+        "Payer " + Utils.echapper(Utils.fmtMontant(aRegler(), devise));
+    }
+  }
+
+  function brancherCode(vue, devise, boutonPayer) {
+    const champ = UI.$("#co-code", vue);
+    const bouton = UI.$("#co-code-appliquer", vue);
+    const reponse = UI.$("#co-code-reponse", vue);
+    if (!champ || !bouton || !reponse) return;
+
+    const dire = (classe, texte) => {
+      reponse.innerHTML = '<div class="' + classe + '">' + Utils.echapper(texte) + "</div>";
+    };
+
+    async function appliquer() {
+      const saisi = champ.value.trim();
+      if (!saisi) {
+        /* Champ vidé : on retire la remise. Laisser l'ancienne en place
+           afficherait un montant que la caisse ne retiendrait pas. */
+        promo = { code: "", remise: 0 };
+        reponse.innerHTML = "";
+        rafraichirTotal(vue, devise, boutonPayer);
+        return;
+      }
+      bouton.disabled = true;
+      bouton.textContent = "…";
+      try {
+        const r = await Paiement.verifierCode(saisi, Panier.articles());
+        if (r && r.ok) {
+          promo = { code: saisi.toUpperCase(), remise: Number(r.remise) || 0 };
+          dire("co-code-ok",
+            "Code accepté : " + Utils.fmtMontant(promo.remise, devise) + " de moins.");
+        } else {
+          promo = { code: "", remise: 0 };
+          dire("co-code-non", (r && r.raison) || "Ce code n'est pas valable.");
+        }
+      } catch (err) {
+        /* La base injoignable n'est pas un code refusé : on le dit
+           autrement, et on ne retire rien. */
+        promo = { code: "", remise: 0 };
+        dire("co-code-non", "Impossible de vérifier ce code pour l'instant.");
+      }
+      bouton.disabled = false;
+      bouton.textContent = "Appliquer";
+      rafraichirTotal(vue, devise, boutonPayer);
+    }
+
+    bouton.onclick = appliquer;
+    champ.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); appliquer(); }
+    });
+    /* Modifier le code sans réappliquer ne doit pas laisser croire que
+       l'ancienne remise tient encore. */
+    champ.addEventListener("input", () => {
+      if (promo.code && champ.value.trim().toUpperCase() !== promo.code) {
+        promo = { code: "", remise: 0 };
+        reponse.innerHTML = "";
+        rafraichirTotal(vue, devise, boutonPayer);
+      }
+    });
   }
 
   /* =====================================================
@@ -532,7 +660,11 @@ const VuePanier = (() => {
 
     let commande;
     try {
-      commande = await Paiement.creerCommande(client, Panier.articles());
+      /* Le code part avec la commande. S'il ne vaut plus rien — expiré
+         entre-temps, quota atteint — la base passe la commande SANS lui
+         plutôt que de la refuser : le panier est bon, c'est le code qui
+         ne l'est plus. Le récapitulatif dira ce qui a été retenu. */
+      commande = await Paiement.creerCommande(client, Panier.articles(), promo.code);
     } catch (err) {
       bouton.disabled = false;
       bouton.innerHTML = libelle;

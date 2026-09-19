@@ -285,7 +285,177 @@ end $$;
 
 -- Le récapitulatif renvoyé au client porte le code, pour que le message
 -- WhatsApp et le reçu désignent le produit sans ambiguïté.
-create or replace function public.creer_commande(client jsonb, articles jsonb)
+-- ---------------------------------------------------------
+-- Ce dont les codes promo ont besoin, recopié ici
+-- ---------------------------------------------------------
+-- « creer_commande » applique désormais un code promo. Un fichier
+-- qui pose une fonction pose aussi les fonctions qu'elle appelle :
+-- collé seul sur une base d'avant les codes, celui-ci passerait sans
+-- broncher et s'arrêterait à la première commande.
+-- Sur une base qui les a déjà, ce bloc ne fait rien.
+
+alter table public.commandes add column if not exists code_promo text not null default '';
+alter table public.commandes add column if not exists remise bigint not null default 0;
+
+create table if not exists public.codes_promo (
+  code     text primary key,
+  libelle  text not null default '',
+  mode     text not null default 'pourcent'
+           check (mode in ('pourcent', 'montant')),
+  valeur   numeric(10,2) not null default 0,
+  -- Montant minimum de commande. Sans lui, « 20 % » s'applique aussi à
+  -- un panier de 500 francs.
+  minimum  bigint not null default 0,
+  -- 0 = sans limite. Voir « utilisations » plus bas : ce sont les
+  -- commandes PAYÉES qui comptent, pas les paniers abandonnés.
+  maximum  int not null default 0,
+  une_par_client boolean not null default true,
+  fin      date,
+  actif    boolean not null default true,
+  cree_le  timestamptz not null default now(),
+  cree_par text not null default ''
+);
+
+alter table public.codes_promo enable row level security;
+drop policy if exists "codes lecture" on public.codes_promo;
+-- L'enseigne seule voit la liste. Un client ne doit PAS pouvoir lire la
+-- table : il y trouverait tous les codes en cours, y compris ceux qui
+-- ne lui étaient pas destinés. Il passe par « verifier_code », qui
+-- répond sur un code qu'il connaît déjà et ne révèle rien d'autre.
+create policy "codes lecture" on public.codes_promo
+  for select to authenticated using (public.est_super());
+revoke all on public.codes_promo from anon, authenticated;
+grant select on public.codes_promo to authenticated;
+
+-- Un code se tape à la main, sur un téléphone : « rentree2026 »,
+-- « Rentrée 2026 », « RENTREE-2026 » doivent désigner le même code.
+create or replace function public.code_normalise(brut text) returns text
+language sql immutable as $$
+  select left(regexp_replace(upper(coalesce(brut, '')), '[^A-Z0-9]', '', 'g'), 24);
+$$;
+
+-- ---------- Ce que vaut une commande ----------
+-- Le total, c'est la somme de ses lignes MOINS la remise d'un code
+-- promo. La règle vit ici, en un seul endroit : le déclencheur des
+-- lignes l'appelle, et l'application d'un code aussi. Deux endroits
+-- finiraient par diverger, et un client paierait un montant que la
+-- base n'aurait pas calculé.
+create or replace function public.commande_total(cible text) returns void
+language plpgsql security definer set search_path = public as $$
+declare avant text := coalesce(current_setting('bizzoo.interne', true), '');
+begin
+  -- C'est la base qui écrit ce total, pas un client : le verrou de la
+  -- section suivante doit le laisser passer. Le drapeau est ensuite
+  -- rendu tel qu'il était, pour ne pas ouvrir la porte au reste de
+  -- l'appel.
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes c
+     set total = greatest(0,
+           coalesce((select sum(l.prix * l.quantite)
+                       from public.commande_lignes l
+                      where l.commande_id = cible), 0)
+           - greatest(0, coalesce(c.remise, 0)))
+   where c.id = cible;
+  perform set_config('bizzoo.interne', avant, true);
+end $$;
+revoke all on function public.commande_total(text) from public, anon, authenticated;
+
+-- LA RÈGLE, EN UN SEUL ENDROIT. L'écran du panier l'appelle pour
+-- annoncer la remise ; la caisse l'appelle pour l'appliquer. Deux
+-- calculs séparés finiraient par diverger, et le client verrait un
+-- montant puis en paierait un autre — c'est déjà la règle que suivent
+-- « mes_prix » et « ligne_a_l_ecriture » pour les prix revendeur.
+--
+-- Rend un objet : { ok, remise, raison }. « raison » est écrite pour
+-- être montrée telle quelle au client.
+create or replace function public.remise_du_code(
+  brut text, sous_total bigint, marge bigint,
+  qui uuid default null, tel text default '')
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c       public.codes_promo%rowtype;
+  cle     text := public.code_normalise(brut);
+  brute   bigint;
+  plafond bigint := greatest(0, coalesce(marge, 0));
+  combien int;
+  -- PAS « numero » : « commandes » a une colonne de ce nom, et
+  -- PostgreSQL refuserait la requête plus bas — « column reference
+  -- numero is ambiguous ».
+  tel_net text := left(regexp_replace(coalesce(tel, ''), '\D', '', 'g'), 20);
+  refus   constant text := 'Ce code n''existe pas, ou n''est plus valable.';
+begin
+  if cle = '' then
+    return jsonb_build_object('ok', false, 'remise', 0, 'raison', refus);
+  end if;
+  select * into c from public.codes_promo where code = cle;
+  -- MÊME RÉPONSE pour « inconnu » et « fermé ». Distinguer les deux
+  -- dirait à qui essaie des codes au hasard lesquels ont existé.
+  if not found or not c.actif then
+    return jsonb_build_object('ok', false, 'remise', 0, 'raison', refus);
+  end if;
+  if c.fin is not null and c.fin < current_date then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'Ce code a expiré le ' || to_char(c.fin, 'DD/MM/YYYY') || '.');
+  end if;
+  if coalesce(sous_total, 0) < c.minimum then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'Ce code s''applique à partir de ' || c.minimum::text || '.');
+  end if;
+
+  -- LES UTILISATIONS SE COMPTENT SUR LES COMMANDES PAYÉES. Compter les
+  -- paniers déposés laisserait des commandes jamais réglées manger le
+  -- quota, et refuserait le code à de vrais clients. Le risque inverse
+  -- — quelques remises de plus si beaucoup paient en même temps — coûte
+  -- bien moins cher qu'un client refusé à tort.
+  if c.maximum > 0 then
+    select count(*) into combien from public.commandes o
+     where o.code_promo = cle and o.etat = 'payee';
+    if combien >= c.maximum then
+      return jsonb_build_object('ok', false, 'remise', 0,
+        'raison', 'Ce code a atteint son nombre d''utilisations.');
+    end if;
+  end if;
+
+  -- « Une seule fois par client ». Un compte se reconnaît à son
+  -- identifiant ; un visiteur sans compte, à son seul numéro — on le dit
+  -- franchement plutôt que de laisser croire à une identification qui
+  -- n'existe pas.
+  if c.une_par_client and (qui is not null or tel_net <> '') then
+    if exists (select 1 from public.commandes o
+                where o.code_promo = cle and o.etat = 'payee'
+                  and ((qui is not null and o.client_id = qui)
+                       or (tel_net <> '' and o.client_tel = tel_net))) then
+      return jsonb_build_object('ok', false, 'remise', 0,
+        'raison', 'Vous avez déjà utilisé ce code.');
+    end if;
+  end if;
+
+  brute := case when c.mode = 'montant' then round(c.valeur)::bigint
+                else round(coalesce(sous_total, 0) * least(100, greatest(0, c.valeur)) / 100)::bigint end;
+  brute := greatest(0, least(brute, greatest(0, coalesce(sous_total, 0))));
+
+  -- LE PLAFOND. La boutique touche son prix BIZZOO en entier : la
+  -- remise ne peut pas dépasser ce que l'enseigne gagne sur cette
+  -- commande. On rabote sans rien dire de plus que le montant obtenu —
+  -- la marge de l'enseigne ne regarde pas le client.
+  if brute > plafond then brute := plafond; end if;
+
+  if brute <= 0 then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'Ce code ne s''applique pas à ce panier.');
+  end if;
+  return jsonb_build_object('ok', true, 'remise', brute, 'raison', '');
+end $$;
+revoke all on function public.remise_du_code(text, bigint, bigint, uuid, text)
+  from public, anon, authenticated;
+
+-- « drop » avant « create » : cette fonction a gagné un paramètre — le
+-- code promo. Un paramètre par défaut n'en remplace pas une, il en crée
+-- une seconde, et l'appel devient ambigu : « function is not unique ».
+drop function if exists public.creer_commande(jsonb, jsonb);
+create or replace function public.creer_commande(
+  client jsonb, articles jsonb, code text default '')
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -297,6 +467,9 @@ declare
   sortie   jsonb;
   moi      uuid := auth.uid();
   equipe   boolean := false;   -- connecté, mais pas avec un compte client
+  sous_total bigint;
+  marge    bigint;
+  verdict  jsonb;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -368,9 +541,44 @@ begin
   end if;
   update public.commandes set devise = coalesce(devises[1], 'FCFA') where id = nouvelle;
 
+  -- ---------- Le code promo ----------
+  -- APRÈS les lignes, et c'est obligatoire : la remise est bornée par la
+  -- marge de l'enseigne, qui ne se connaît qu'une fois les prix et les
+  -- prix BIZZOO figés sur les lignes. La calculer avant reviendrait à la
+  -- deviner.
+  --
+  -- Un code refusé ne fait PAS échouer la commande : le panier est bon,
+  -- c'est le code qui ne vaut rien. Refuser la vente parce qu'une
+  -- promotion a expiré serait perdre un client pour une ristourne.
+  if coalesce(trim(code), '') <> '' then
+    select coalesce(sum(l.prix * l.quantite), 0),
+           coalesce(sum(greatest(0, l.prix - l.prix_bizzoo) * l.quantite), 0)
+      into sous_total, marge
+      from public.commande_lignes l where l.commande_id = nouvelle;
+
+    verdict := public.remise_du_code(code, sous_total, marge, moi,
+      left(regexp_replace(coalesce(client ->> 'tel', ''), '\D', '', 'g'), 20));
+
+    if (verdict ->> 'ok')::boolean then
+      perform set_config('bizzoo.interne', 'oui', true);
+      update public.commandes
+         set code_promo = public.code_normalise(code),
+             remise = (verdict ->> 'remise')::bigint
+       where id = nouvelle;
+      perform set_config('bizzoo.interne', '', true);
+      -- Le total suit la remise. Même fonction que le déclencheur des
+      -- lignes : une seule règle, un seul endroit.
+      perform public.commande_total(nouvelle);
+    end if;
+  end if;
+
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'etat', c.etat,
+    /* Ce que le code a retiré, et lequel. Le récapitulatif doit pouvoir
+       le dire : un client qui a tapé un code et ne le voit nulle part
+       croit qu'il n'a pas été pris. */
+    'code_promo', c.code_promo, 'remise', c.remise,
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -397,8 +605,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb) from public;
-grant execute on function public.creer_commande(jsonb, jsonb) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
 
 -- ---------- Vérification ----------
 -- 1. Tous les produits ont un code, et aucun ne le partage.

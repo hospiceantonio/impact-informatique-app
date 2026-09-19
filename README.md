@@ -523,6 +523,51 @@ la provoque exprès pour vérifier que le banc rougit.
 peut pas l'être après coup. Il commence le jour où le fichier est
 exécuté.
 
+### Les codes promo
+
+**Une remise sort de la marge de l'enseigne, jamais de la poche d'une
+boutique.** La boutique touche son prix BIZZOO en entier, comme si le
+code n'existait pas : elle n'a pas décidé cette promotion, elle n'a pas
+à la payer. C'est pour cela que la remise se pose sur la **commande** et
+jamais sur les lignes — dont le prix et le prix BIZZOO restent figés.
+
+**Et c'est pour cela qu'il y a un plafond.** Une remise ne descend jamais
+en dessous de ce que les boutiques doivent toucher. Un code de 80 % sur
+un article qui ne laisse que 40 % de marge est ramené à 40 %. Sans lui,
+l'enseigne paierait la différence de sa poche, à chaque vente, sans s'en
+apercevoir avant de faire les comptes.
+
+Un code porte une remise en **pourcentage** ou en **montant**, et peut
+exiger un montant minimum, un nombre total d'utilisations, une seule
+fois par client, et une date de fin. **Les utilisations se comptent sur
+les commandes payées** : un panier abandonné n'a rien coûté à personne,
+et ne doit pas manger le quota d'un vrai client.
+
+**Une seule règle, lue par les deux côtés.** `verifier_code()` annonce la
+remise au panier, `creer_commande()` l'applique — et toutes deux
+appellent `remise_du_code()`. C'est la même discipline que `mes_prix()`
+et `ligne_a_l_ecriture()` pour les prix revendeur : deux calculs séparés
+finiraient par diverger, et le client paierait autre chose que ce qu'on
+lui a montré. Le banc le prouve en divisant le sous-total d'un seul côté.
+
+**Un code refusé ne tue pas la commande** : le panier est bon, c'est le
+code qui ne vaut rien. La commande passe à plein tarif plutôt que de
+perdre un client pour une ristourne. Et **« fermé » se refuse comme
+« inconnu », mot pour mot** — distinguer les deux dirait à qui essaie des
+codes au hasard lesquels ont existé.
+
+**Le champ n'apparaît pas quand le paiement en ligne est fermé.** La
+commande part alors directement chez chaque boutique par WhatsApp :
+aucune commande n'est créée, BIZZOO n'encaisse rien, il n'y a pas de
+marge sur laquelle prendre une remise. Offrir le champ ferait voir
+18 000 au client, qui enverrait ensuite un message disant 20 000.
+
+**Un piège fermé au passage.** Le bénéfice se calcule *ligne par ligne*,
+alors qu'un code s'applique à la *commande* : sans correction, le
+bénéfice affiché serait surévalué de toutes les remises accordées.
+`remises_periode()` les répartit au prorata de ce que chaque boutique
+pèse dans la commande, et l'écran les retranche.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
@@ -1034,6 +1079,7 @@ impact-informatique-app/
 │   ├── statistiques-boutique.sql    # Chaque boutique voit ses ventes, et rien de l'enseigne
 │   ├── fiche-client.sql             # Retrouver un client et ses commandes — l'enseigne seule
 │   ├── journal-versements.sql       # Une ligne par tentative de paiement, jamais retouchée
+│   ├── codes-promo.sql              # Une remise sort de la marge de l'enseigne, jamais de la boutique
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
@@ -1065,7 +1111,7 @@ impact-informatique-app/
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
 │                             #   commandes, statistiques, validations, revendeurs,
-│                             #   clients, versements, avis, SAV, réglages
+│                             #   clients, versements, codes, avis, SAV, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

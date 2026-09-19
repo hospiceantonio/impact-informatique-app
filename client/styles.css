@@ -902,6 +902,22 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .pa-total-ligne strong{font-size:22px;font-weight:800;color:var(--bleu-700)}
 
+/* ---------- Le code promo ----------
+   Le champ et son bouton sur une même ligne : on tape un code court,
+   on appuie, on voit le total bouger juste en dessous. */
+.co-code-ligne{display:flex;gap:8px;align-items:stretch}
+.co-code-ligne input{flex:1;min-width:0;text-transform:uppercase}
+.co-code-ligne .btn{width:auto;flex:none;padding-left:18px;padding-right:18px}
+.co-code-ok,.co-code-non{
+  margin-top:10px;padding:9px 11px;border-radius:10px;
+  font-size:13px;line-height:1.5;
+}
+.co-code-ok{background:var(--vert-clair);color:var(--vert)}
+.co-code-non{background:var(--rouge-clair);color:var(--rouge-fonce)}
+/* La remise dans le récapitulatif : en vert, et signée, pour qu'on la
+   lise comme un retrait et pas comme une ligne de plus à payer. */
+.pa-total-ligne.co-remise{color:var(--vert);font-weight:700}
+
 .pa-avertissement,.pa-essai,.pa-confirme{
   display:flex;align-items:flex-start;gap:10px;
   font-size:13px;line-height:1.5;

@@ -298,7 +298,22 @@ const Paiement = (() => {
    * d'identifiants ; la base répond avec le montant à payer —
    * et c'est CE montant-là qui part chez KkiaPay.
    */
-  const creerCommande = (client, articles) => rpc("creer_commande", { client, articles });
+  const creerCommande = (client, articles, code) =>
+    rpc("creer_commande", { client, articles, code: code || "" });
+
+  /**
+   * « Ce code vaut-il quelque chose sur ce panier-ci ? »
+   *
+   * C'est la BASE qui répond, avec la même fonction que la caisse
+   * appellera au moment de commander. L'application ne calcule aucune
+   * remise elle-même : deux calculs finiraient par diverger, et le
+   * client verrait un montant puis en paierait un autre.
+   *
+   * Rend { ok, remise, raison } — « raison » est écrite pour être
+   * montrée telle quelle.
+   */
+  const verifierCode = (code, articles) =>
+    rpc("verifier_code", { brut: code || "", articles });
 
   /** « KkiaPay m'a répondu ceci » : un indice noté pour la boutique. */
   async function signalerTransaction(id, transaction) {
@@ -353,7 +368,7 @@ const Paiement = (() => {
 
   return {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
-    creerCommande, payer, ouvrirFeexpay, verifierFeexpay,
+    creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, attendreConfirmation,
   };
 })();

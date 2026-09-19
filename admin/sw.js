@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v55";
+const VERSION = "impact-admin-v56";
 
 const FICHIERS = [
   "./",
@@ -26,6 +26,7 @@ const FICHIERS = [
   "./js/vues/revendeurs.js",
   "./js/vues/clients.js",
   "./js/vues/versements.js",
+  "./js/vues/codes.js",
   "./js/vues/avis.js",
   "./js/vues/sav.js",
   "./js/vues/commandes.js",

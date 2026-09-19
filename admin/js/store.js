@@ -1122,6 +1122,68 @@ const Store = (() => {
     return (lignes || []).map(revendeurDepuisLigne);
   }
 
+  /* ---------- Les codes promo ----------
+     UNE REMISE SORT DE LA MARGE DE L'ENSEIGNE : la boutique touche son
+     prix BIZZOO en entier. C'est pour cela que seule l'enseigne pose un
+     code — on ne laisse pas quelqu'un d'autre engager sa marge.
+
+     « utilisations » et « coute » se comptent sur les commandes PAYÉES :
+     un panier abandonné n'a rien coûté à personne. */
+
+  function codeDepuisLigne(l) {
+    return {
+      code: l.code || "",
+      libelle: l.libelle || "",
+      mode: l.mode || "pourcent",
+      valeur: Number(l.valeur) || 0,
+      minimum: Number(l.minimum) || 0,
+      maximum: Number(l.maximum) || 0,
+      uneParClient: l.une_par_client !== false,
+      fin: l.fin || "",
+      actif: l.actif !== false,
+      creeLe: l.cree_le || "",
+      creePar: l.cree_par || "",
+      utilisations: Number(l.utilisations) || 0,
+      coute: Number(l.coute) || 0,
+    };
+  }
+
+  async function listerCodes() {
+    const lignes = await Supabase.rpcLecture("codes_promo_liste", {});
+    return (lignes || []).map(codeDepuisLigne);
+  }
+
+  async function enregistrerCode(c) {
+    const cle = await Supabase.rpc("enregistrer_code", {
+      brut: c.code || "",
+      libelle: c.libelle || "",
+      mode: c.mode || "pourcent",
+      valeur: Number(c.valeur) || 0,
+      minimum: Number(c.minimum) || 0,
+      maximum: Number(c.maximum) || 0,
+      une_par_client: c.uneParClient !== false,
+      fin: c.fin || null,
+      actif: c.actif !== false,
+    });
+    /* Au journal de l'enseigne : un code engage sa marge, on doit
+       pouvoir dire qui l'a posé et quand. */
+    journaliser("boutique", "modification",
+      (c.actif === false ? "Code promo fermé : " : "Code promo posé : ") +
+        (c.code || ""),
+      "Codes promo", undefined, null);
+    return cle;
+  }
+
+  /** Ce que les remises ont coûté sur la période, par boutique. */
+  async function remisesPeriode({ depuis, jusqu, boutique } = {}) {
+    const lignes = await Supabase.rpcLecture("remises_periode", {
+      depuis: depuis || null, jusqu: jusqu || null, boutique: boutique || null });
+    return (lignes || []).map((l) => ({
+      boutiqueId: l.boutique_id || "",
+      remise: Number(l.remise) || 0,
+    }));
+  }
+
   /* ---------- Le journal des versements ----------
      Une ligne par TENTATIVE, jamais modifiée ensuite : c'est ce qui
      permet de répondre à « combien d'échecs cette semaine » et « chez
@@ -2702,6 +2764,7 @@ const Store = (() => {
     listerRevendeurs, deciderRevendeur,
     listerClients, lireClient, commandesDuClient,
     VERDICTS, journalVersements, resumeVersements,
+    listerCodes, enregistrerCode, remisesPeriode,
     listerAvis, repondreAvis, masquerAvis,
     SUJETS_SAV, listerReclamations, messagesReclamation,
     repondreReclamation, trancherReclamation,

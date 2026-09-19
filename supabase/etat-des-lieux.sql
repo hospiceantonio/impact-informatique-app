@@ -387,7 +387,43 @@ with controles(rang, element, ok) as (values
          and p.pronargs = 4)),
   (69, 'Le journal se lit par l''enseigne (versements_liste)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'versements_liste'))
+       where n.nspname = 'public' and p.proname = 'versements_liste')),
+
+  -- ---------- Les codes promo ----------
+  (70, 'Les codes promo (table codes_promo)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'codes_promo')),
+  (71, 'La remise se pose sur la COMMANDE (commandes.remise)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes'
+         and column_name = 'remise')),
+  -- LA règle, et elle est UNE : l'écran du panier et la caisse appellent
+  -- la même. Deux calculs finiraient par diverger, et le client paierait
+  -- autre chose que ce qu'on lui a montré.
+  (72, 'Une seule règle de remise (remise_du_code)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remise_du_code')),
+  (73, 'Le panier peut l''interroger avant de commander (verifier_code)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'verifier_code')),
+  -- La caisse doit savoir recevoir un code : sans ce troisième
+  -- paramètre, le client taperait un code que la commande ignorerait.
+  (74, 'La caisse reçoit le code (creer_commande à 3 paramètres)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.pronargs = 3)),
+  -- Sans celle-ci, le bénéfice affiché serait surévalué de toutes les
+  -- remises accordées : il se calcule sur les lignes, où la remise
+  -- n'apparaît pas.
+  (75, 'Les remises se retranchent de vos comptes (remises_periode)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remises_periode')),
+  -- Un client ne doit pas pouvoir lire la table : il y trouverait tous
+  -- les codes en cours, y compris ceux qui ne lui étaient pas destinés.
+  (76, 'Un client ne lit pas la liste des codes', not exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'codes_promo'
+         and cmd <> 'SELECT'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

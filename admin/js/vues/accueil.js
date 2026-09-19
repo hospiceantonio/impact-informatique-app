@@ -196,6 +196,13 @@ const VueAccueil = (() => {
             " Journal des versements</div>" +
           '<p class="aide" style="margin:0">Ce qui est réellement entré, par ' +
             "opérateur, et les tentatives qui ont raté — une ligne par essai.</p>" +
+        "</a>" +
+        '<a class="carte" href="#/codes">' +
+          '<div class="carte-titre">' + UI.icone("cadeau", "ic-sm") +
+            " Codes promo</div>" +
+          '<p class="aide" style="margin:0">Une remise sort de votre marge : la ' +
+            "boutique touche son prix BIZZOO en entier. Voyez ce que chaque code " +
+            "vous coûte.</p>" +
         "</a>";
     }
 

@@ -1221,6 +1221,26 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .vs-canal-total{font-size:15px;font-weight:800;color:var(--orange-fonce)}
 
+/* ---------- Les codes promo ----------
+   Le code en gros : c'est ce qu'on dicte au téléphone. Ce qu'il retire
+   juste en dessous, et ce qu'il a coûté tout en bas. */
+.cd-carte{margin-bottom:10px}
+.cd-haut{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.cd-code{
+  font-size:17px;font-weight:800;letter-spacing:.06em;
+  color:var(--encre);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.cd-remise{margin-top:8px;font-size:20px;font-weight:800;color:var(--orange-fonce)}
+.cd-chiffres{
+  display:flex;align-items:center;gap:10px;
+  margin-top:10px;padding-top:10px;border-top:1px solid var(--trait);
+  font-size:12.5px;color:var(--encre-tres-douce);
+}
+.cd-chiffres strong{margin-left:auto;font-size:14px;color:var(--encre)}
+/* Un code fermé reste lisible, mais se distingue d'un coup d'œil : on
+   ne doit pas le dicter à un client par erreur. */
+.cd-ferme{opacity:.62}
+
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :
    inutile au quotidien, indispensable le jour où rien ne marche. */
