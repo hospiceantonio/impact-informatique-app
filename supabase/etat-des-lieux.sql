@@ -344,7 +344,22 @@ with controles(rang, element, ok) as (values
        where n.nspname = 'public' and p.proname = 'statistiques_boutique'
          and pg_get_function_result(p.oid) not like '%taux_marge%'
          and pg_get_function_result(p.oid) not like '%benefice%'
-         and pg_get_function_result(p.oid) not like '%prix_vente%'))
+         and pg_get_function_result(p.oid) not like '%prix_vente%')),
+
+  -- ---------- Retrouver un client, et ses commandes ----------
+  (61, 'Les fiches clients (clients_liste)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'clients_liste')),
+  (62, 'Et ses commandes, celles d''avant comprises (client_commandes)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'client_commandes')),
+  -- Les deux sont des LECTURES. Si l'une d'elles écrivait, elle ne
+  -- pourrait pas être déclarée « stable » : PostgreSQL le refuse.
+  (63, 'Elles regardent le fichier, elles ne l''écrivent pas', not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and p.proname in ('clients_liste', 'client_commandes')
+         and p.provolatile = 'v'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

@@ -440,6 +440,40 @@ deux boutiques dans **une même commande**, et chacune n'y lit que sa
 part. Ni un panier abandonné ni une ligne que la boutique a annulée n'y
 entrent.
 
+### Retrouver un client
+
+Un client appelle : « j'ai commandé mardi, rien n'est arrivé ». **Fiches
+clients** le retrouve par son **nom** ou son **numéro** — avec ou sans
+espaces, avec ou sans indicatif : c'est la base qui les rapproche, en
+retirant l'indicatif *de ce compte-là* plutôt qu'une longueur devinée.
+
+Sa fiche porte ce qu'il a commandé, ce qu'il a réellement payé, et
+chaque commande une par une.
+
+**Rien ne s'y modifie.** Un nom, un numéro, une adresse se corrigent
+depuis le compte du client — la base refuse de toute façon à l'enseigne
+de les écrire. L'écran sert à appeler et à trancher un litige avec les
+commandes sous les yeux, pas à tenir un fichier.
+
+**Réservé à l'enseigne.** Une boutique voit déjà le nom et le numéro sur
+*ses* commandes ; lui ouvrir la liste entière, ce serait lui remettre le
+fichier clients de toutes les autres.
+
+Deux pièges évités, et tous deux éprouvés dans
+[`tests/99c-fiche-client.sql`](supabase/tests/99c-fiche-client.sql) :
+
+- **La recherche ne déverse pas la liste.** Le filtre du numéro est un
+  « ou ». Sans garde, chercher un nom sans chiffre le réduirait à
+  `like '%%'` — vrai pour tout le monde — et une recherche par nom
+  rendrait le fichier entier. Le banc le prouve en retirant la garde :
+  chercher « brice » rend alors tous les comptes.
+- **Un numéro non vérifié ne désigne personne.** Les commandes passées
+  *avant* le compte ne remontent que sur un numéro **vérifié par SMS**,
+  et de moins de dix-huit mois : exactement la règle de
+  `rattacher_mes_commandes`, pas une règle voisine. Deux clients peuvent
+  taper le même numéro ; l'un lirait sinon les achats de l'autre. Sur la
+  fiche, une commande pas encore rattachée le dit.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
@@ -949,6 +983,7 @@ impact-informatique-app/
 │   ├── position-revendeur.sql       # Où se trouve le commerce d'un revendeur
 │   ├── marge-appliquee.sql          # La marge change, les prix de la vitrine suivent
 │   ├── statistiques-boutique.sql    # Chaque boutique voit ses ventes, et rien de l'enseigne
+│   ├── fiche-client.sql             # Retrouver un client et ses commandes — l'enseigne seule
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
@@ -980,7 +1015,7 @@ impact-informatique-app/
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
 │                             #   commandes, statistiques, validations, revendeurs,
-│                             #   réglages
+│                             #   clients, avis, SAV, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

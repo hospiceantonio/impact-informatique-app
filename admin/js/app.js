@@ -21,6 +21,12 @@
     /* Valider un revendeur, c'est lui ouvrir le prix BIZZOO dans TOUTES
        les boutiques : la décision appartient à l'enseigne seule. */
     { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), super: true },
+    /* Les fiches clients : l'enseigne seule. Une boutique voit déjà le
+       nom et le numéro sur SES commandes ; lui ouvrir le fichier entier,
+       ce serait lui remettre celui de toutes les autres. La base rend
+       zéro ligne à qui n'y a pas droit — ceci n'est que la politesse. */
+    { motif: /^\/clients$/, vue: (v) => VueClients.afficher(v), super: true },
+    { motif: /^\/client\/([^/]+)$/, vue: (v, m) => VueClients.fiche(v, m[1]), super: true },
     /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
        la base ne montre à chacun que les siens. Masquer reste à
        l'enseigne, et le bouton ne s'affiche que pour elle. */

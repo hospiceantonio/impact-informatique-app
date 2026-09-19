@@ -1122,6 +1122,72 @@ const Store = (() => {
     return (lignes || []).map(revendeurDepuisLigne);
   }
 
+  /* ---------- Les fiches clients ----------
+     Un client appelle pour un litige : il faut le retrouver, et voir ce
+     qu'il a commandé. La recherche accepte un nom ou un numéro, avec ou
+     sans espaces, avec ou sans indicatif — c'est la base qui les
+     rapproche, pas l'écran.
+
+     Réservé à l'enseigne : une boutique voit déjà le nom et le numéro
+     sur SES commandes, mais le fichier entier ne la regarde pas. La
+     base rend zéro ligne à qui n'y a pas droit. */
+
+  function clientDepuisLigne(l) {
+    return {
+      id: l.id,
+      nom: l.nom || "",
+      email: l.email || "",
+      tel: l.tel || "",
+      indicatif: l.indicatif || "229",
+      telVerifie: l.tel_verifie === true,
+      adresse: l.adresse || "",
+      creeLe: l.cree_le || "",
+      typeCompte: l.type_compte || "client",
+      revendeurEtat: l.revendeur_etat || "aucune",
+      revendeurAdresse: l.revendeur_adresse || "",
+      revendeurLatitude: l.revendeur_latitude === null || l.revendeur_latitude === undefined
+        ? null : Number(l.revendeur_latitude),
+      revendeurLongitude: l.revendeur_longitude === null || l.revendeur_longitude === undefined
+        ? null : Number(l.revendeur_longitude),
+      commandes: Number(l.commandes) || 0,
+      payees: Number(l.payees) || 0,
+      totalPaye: Number(l.total_paye) || 0,
+      derniere: l.derniere || "",
+    };
+  }
+
+  async function listerClients(recherche) {
+    const lignes = await Supabase.rpcLecture("clients_liste", {
+      filtre: recherche || "", cible: null });
+    return (lignes || []).map(clientDepuisLigne);
+  }
+
+  async function lireClient(id) {
+    const lignes = await Supabase.rpcLecture("clients_liste", {
+      filtre: "", cible: id });
+    return (lignes || []).map(clientDepuisLigne)[0] || null;
+  }
+
+  /** Les commandes d'un client, celles de son compte et celles d'avant. */
+  async function commandesDuClient(id) {
+    const lignes = await Supabase.rpcLecture("client_commandes", { client: id });
+    return (lignes || []).map((l) => ({
+      id: l.id,
+      numero: l.numero || "",
+      creeLe: l.cree_le || "",
+      payeLe: l.paye_le || "",
+      etat: l.etat || "a_payer",
+      total: Number(l.total) || 0,
+      revendeur: l.revendeur === true,
+      articles: Number(l.articles) || 0,
+      boutiques: l.boutiques || "",
+      /* Faux = la commande date d'avant le compte. La base la reconnaît
+         au numéro vérifié ; elle se rattachera au prochain passage du
+         client dans « Mes commandes ». */
+      rattachee: l.rattachee === true,
+    }));
+  }
+
   /* ---------- Le service après-vente ----------
 
      LA BOUTIQUE D'ABORD, BIZZOO EN RECOURS. La boutique répond à ce
@@ -2572,6 +2638,7 @@ const Store = (() => {
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
     listerRevendeurs, deciderRevendeur,
+    listerClients, lireClient, commandesDuClient,
     listerAvis, repondreAvis, masquerAvis,
     SUJETS_SAV, listerReclamations, messagesReclamation,
     repondreReclamation, trancherReclamation,

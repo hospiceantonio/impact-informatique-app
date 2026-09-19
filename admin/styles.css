@@ -1149,6 +1149,48 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .rv-ou .ic{margin-top:2px;color:var(--bleu)}
 .rv-ou a{color:var(--bleu);font-weight:600;text-decoration:underline}
 
+/* ---------- Les fiches clients ----------
+   Une liste qu'on parcourt en cherchant quelqu'un au téléphone : le nom
+   d'abord, le numéro juste dessous, et ce que le compte a dépensé au
+   bout. Trois lignes, lisibles d'un coup d'œil. */
+.cl-ligne{display:block;margin-bottom:10px}
+.cl-ligne-haut{display:flex;align-items:center;gap:6px}
+.cl-nom{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:15px;font-weight:700;color:var(--encre);
+}
+.cl-verifie{display:inline-flex;color:var(--vert)}
+.cl-ligne-bas{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;
+  margin-top:4px;font-size:13px;color:var(--encre-douce);
+}
+.cl-mention{
+  display:inline-block;padding:2px 8px;border-radius:999px;
+  background:var(--bleu-50);color:var(--bleu-700);
+  font-size:11.5px;font-weight:700;
+}
+.cl-chiffres{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;
+  margin-top:10px;padding-top:10px;border-top:1px solid var(--trait);
+  font-size:12.5px;color:var(--encre-tres-douce);
+}
+.cl-chiffres strong{margin-left:auto;font-size:14px;color:var(--orange-fonce)}
+
+.cl-fiche .cl-mention{margin:0 0 10px}
+.cl-contact{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 10px}
+.cl-contact a{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:12.5px;font-weight:600;color:var(--bleu);
+}
+.cl-cmd{margin-bottom:10px}
+.cl-cmd-haut{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.cl-cmd-bas{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;
+  margin-top:10px;padding-top:10px;border-top:1px solid var(--trait);
+  font-size:12.5px;color:var(--encre-tres-douce);
+}
+.cl-cmd-bas strong{margin-left:auto;font-size:14px;color:var(--encre)}
+
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :
    inutile au quotidien, indispensable le jour où rien ne marche. */

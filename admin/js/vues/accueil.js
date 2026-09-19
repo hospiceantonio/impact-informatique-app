@@ -179,6 +179,19 @@ const VueAccueil = (() => {
             "depuis le début.</p>" +
         "</a>";
 
+    /* ---- Retrouver un client ----
+       Le geste du jour où quelqu'un appelle. Réservé à l'enseigne : une
+       boutique voit déjà ses propres acheteurs sur ses commandes. */
+    if (Supabase.estSuper()) {
+      html +=
+        '<a class="carte" href="#/clients">' +
+          '<div class="carte-titre">' + UI.icone("personne", "ic-sm") +
+            " Fiches clients</div>" +
+          '<p class="aide" style="margin:0">Retrouver quelqu\'un par son nom ou son ' +
+            "numéro, et voir ses commandes — celles de son compte, et celles d'avant.</p>" +
+        "</a>";
+    }
+
     /* ---- Chiffres clés ---- */
     html +=
       '<div class="stats">' +
