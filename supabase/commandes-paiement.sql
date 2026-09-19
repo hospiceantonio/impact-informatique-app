@@ -685,6 +685,124 @@ grant execute on function public.signaler_transaction(text, text) to anon, authe
 -- ---------------------------------------------------------
 -- 7. Encaisser — réservé au serveur
 -- ---------------------------------------------------------
+-- ---------------------------------------------------------
+-- Le journal des versements, recopié ici
+-- ---------------------------------------------------------
+-- Les fonctions de paiement ci-dessous y écrivent. Un fichier qui
+-- pose une fonction pose aussi les fonctions qu'elle appelle :
+-- collé seul sur une base d'avant le journal, ce fichier passerait
+-- sans broncher et s'arrêterait au premier encaissement.
+-- Sur une base qui l'a déjà, ce bloc ne fait rien.
+
+-- ---------- Le journal des versements ----------
+-- La commande ne garde que son ÉTAT ACTUEL : payée ou non. Ce qui s'est
+-- passé en route — une demande partie sur un mauvais numéro, un versement
+-- incomplet, un client qui s'y reprend à trois fois — n'était noté nulle
+-- part. Pire : « marquer_payee » efface la remarque en réussissant, si
+-- bien qu'un encaissement effaçait la trace de ses propres échecs.
+--
+-- D'où ce journal. UNE LIGNE PAR TENTATIVE, jamais modifiée ensuite :
+-- c'est ce qui permet de répondre à « combien d'échecs cette semaine »
+-- et « chez quel opérateur ». Un journal qu'on met à jour ne garde que
+-- la fin de l'histoire, et la fin de l'histoire est déjà sur la commande.
+--
+-- PAS DE CLÉ ÉTRANGÈRE vers « commandes », et c'est voulu : effacer une
+-- commande ne doit pas effacer la trace de l'argent. Le numéro est donc
+-- recopié ici, figé, pour que la ligne se lise encore toute seule.
+create table if not exists public.versements (
+  id          bigint generated always as identity primary key,
+  commande_id text,
+  numero      text not null default '',
+  -- Qui a encaissé : « feexpay », « kkiapay », ou « main » quand
+  -- l'enseigne s'est portée garante elle-même. Figé au moment du fait :
+  -- changer d'agrégateur demain ne réécrit pas les versements d'hier.
+  fournisseur text not null default '',
+  -- L'opérateur du client : MTN, MOOV, CELTIIS, CARTE. Connu seulement
+  -- à l'ouverture de la demande — c'est le client qui l'a choisi.
+  reseau      text not null default '',
+  reference   text not null default '',
+  transaction_id text not null default '',
+  attendu     bigint not null default 0,
+  recu        bigint not null default 0,
+  verdict     text not null default 'ouverte'
+              check (verdict in ('ouverte', 'payee', 'incomplete',
+                                 'conflit', 'refusee', 'inconnue')),
+  detail      text not null default '',
+  cree_le     timestamptz not null default now()
+);
+create index if not exists versements_quand on public.versements(cree_le desc);
+create index if not exists versements_commande on public.versements(commande_id);
+
+alter table public.versements enable row level security;
+drop policy if exists "versements lecture" on public.versements;
+-- L'enseigne lit, personne n'écrit. AUCUNE règle d'écriture n'est posée
+-- ici : les seules écritures viennent des fonctions « security definer »
+-- ci-dessous, qui s'exécutent avec les droits du propriétaire et passent
+-- donc au-dessus de RLS. Une règle d'écriture, même étroite, ouvrirait
+-- au journal une porte par PostgREST.
+create policy "versements lecture" on public.versements
+  for select to authenticated using (public.est_super());
+revoke all on public.versements from anon, authenticated;
+grant select on public.versements to authenticated;
+
+-- Poser une ligne. Appelée UNIQUEMENT par les fonctions du serveur —
+-- jamais depuis une application, d'où la révocation qui suit.
+create or replace function public.noter_versement(
+  cible text, quoi text, qui text default '', ou text default '',
+  ref text default '', trans text default '',
+  du bigint default 0, recu bigint default 0, pourquoi text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  num     text := '';
+  agregat text := left(regexp_replace(lower(coalesce(qui, '')), '[^a-z]', '', 'g'), 16);
+  reseau  text := left(regexp_replace(upper(coalesce(ou,  '')), '[^A-Z]', '', 'g'), 16);
+begin
+  select c.numero into num from public.commandes c where c.id = cible;
+
+  -- L'AGRÉGATEUR ET L'OPÉRATEUR NE SONT CONNUS QU'À L'OUVERTURE. Ni la
+  -- notification ni la vérification ne les rappellent : elles n'ont
+  -- qu'une référence. On les reprend donc sur la dernière ligne de la
+  -- même commande qui les portait.
+  --
+  -- La règle vit ICI plutôt que chez chaque appelant : posée à trois
+  -- endroits, elle finirait par diverger, et le journal dirait « MTN »
+  -- d'un côté et rien de l'autre pour un même versement.
+  if coalesce(cible, '') <> '' then
+    if agregat = '' then
+      select v.fournisseur into agregat from public.versements v
+       where v.commande_id = cible and v.fournisseur <> ''
+       order by v.cree_le desc, v.id desc limit 1;
+    end if;
+    if reseau = '' then
+      select v.reseau into reseau from public.versements v
+       where v.commande_id = cible and v.reseau <> ''
+       order by v.cree_le desc, v.id desc limit 1;
+    end if;
+  end if;
+
+  insert into public.versements
+    (commande_id, numero, fournisseur, reseau, reference, transaction_id,
+     attendu, recu, verdict, detail)
+  values (
+    nullif(coalesce(cible, ''), ''),
+    coalesce(num, ''),
+    coalesce(agregat, ''),
+    coalesce(reseau, ''),
+    left(regexp_replace(coalesce(ref, ''), '[^A-Za-z0-9_-]', '', 'g'), 96),
+    left(regexp_replace(coalesce(trans, ''), '[^A-Za-z0-9_-]', '', 'g'), 64),
+    greatest(0, coalesce(du, 0)),
+    greatest(0, coalesce(recu, 0)),
+    -- Un verdict inconnu ne fait pas échouer l'encaissement : il se range
+    -- en « inconnue ». Le journal ne doit jamais empêcher l'argent
+    -- d'entrer.
+    case when quoi in ('ouverte', 'payee', 'incomplete', 'conflit',
+                       'refusee', 'inconnue') then quoi else 'inconnue' end,
+    left(coalesce(pourquoi, ''), 300));
+end $$;
+revoke all on function public.noter_versement(text, text, text, text, text, text, bigint, bigint, text)
+  from public, anon, authenticated;
+
 -- Appelée UNIQUEMENT par la fonction Edge « kkiapay-webhook », qui
 -- vérifie d'abord la signature de KkiaPay et se sert de la clé
 -- service_role. Aucune application ne peut l'appeler : voir la
@@ -692,8 +810,14 @@ grant execute on function public.signaler_transaction(text, text) to anon, authe
 --
 -- Idempotente : KkiaPay réessaie cinq fois tant qu'il n'a pas reçu un
 -- 200. Rejouer la même transaction ne fait rien de plus.
+-- « drop » avant « create » : cette fonction a gagné un paramètre —
+-- l'agrégateur qui notifie — pour le journal des versements. Un
+-- paramètre par défaut ne remplace pas l'ancienne signature, il en crée
+-- une seconde, et l'appel devient ambigu : « function is not unique ».
+-- Sans ce retrait, chaque encaissement échouerait.
+drop function if exists public.marquer_payee(text, text, int);
 create or replace function public.marquer_payee(
-  reference text, transaction text, montant int)
+  reference text, transaction text, montant int, qui text default '')
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -711,7 +835,12 @@ begin
   -- yeux la transaction annoncée.
   select * into c from public.commandes where id = coalesce(reference, '');
   if not found then
-    -- Un paiement qui ne nous concerne pas n'est pas une erreur.
+    -- Un paiement qui ne nous concerne pas n'est pas une erreur. Mais il
+    -- se note : un versement qui ne trouve pas sa commande est
+    -- exactement ce qu'on veut voir au journal.
+    perform public.noter_versement(null, 'inconnue', qui, '', coalesce(reference, ''),
+      net, 0, coalesce(montant, 0),
+      'Versement reçu pour une commande introuvable.');
     return jsonb_build_object('ok', true, 'raison', 'commande inconnue');
   end if;
 
@@ -729,6 +858,11 @@ begin
     update public.commandes
        set remarque = 'Transaction ' || net || ' déjà rattachée à une autre commande.'
      where id = c.id;
+    -- L'agrégateur et l'opérateur se reprennent tout seuls sur la ligne
+    -- d'ouverture : c'est « noter_versement » qui s'en charge.
+    perform public.noter_versement(c.id, 'conflit', qui, '',
+      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
+      'Transaction déjà rattachée à une autre commande.');
     return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
   end if;
 
@@ -742,6 +876,9 @@ begin
                       || ' reçus sur ' || c.total::text || ' attendus'
                       || ' (transaction ' || net || ').'
      where id = c.id;
+    perform public.noter_versement(c.id, 'incomplete', qui, '',
+      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
+      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || c.total::text || ' attendus.');
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
 
@@ -749,6 +886,10 @@ begin
      set etat = 'payee', paye_le = now(), transaction_id = net,
          confirme_par = '', remarque = ''
    where id = c.id;
+  -- La remarque vient d'être effacée sur la commande : c'est le journal,
+  -- désormais, qui garde ce qui s'est passé avant cette réussite.
+  perform public.noter_versement(c.id, 'payee', qui, '',
+    c.fournisseur_ref, net, c.total, coalesce(montant, 0), 'Versement encaissé.');
   return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total);
 end $$;
 
@@ -757,7 +898,7 @@ end $$;
 -- « authenticated » sur toute fonction du schéma public. Sans ces deux
 -- lignes, quiconque extrait la clé publiable de l'APK — et elle y est,
 -- par construction — validerait ses commandes sans payer.
-revoke all on function public.marquer_payee(text, text, int)
+revoke all on function public.marquer_payee(text, text, int, text)
   from public, anon, authenticated;
 
 -- Le filet de l'enseigne : si la notification de KkiaPay se perd et
@@ -768,7 +909,9 @@ revoke all on function public.marquer_payee(text, text, int)
 create or replace function public.confirmer_paiement(cible text)
 returns void
 language plpgsql security definer set search_path = public as $$
-declare qui text;
+declare
+  qui    text;
+  montant bigint;
 begin
   if not public.est_super() then
     raise exception 'Seule l''enseigne peut confirmer un paiement à la main';
@@ -777,7 +920,21 @@ begin
   perform set_config('bizzoo.paiement', 'oui', true);
   update public.commandes
      set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne')
-   where id = cible and etat <> 'payee';
+   where id = cible and etat <> 'payee'
+  returning total into montant;
+
+  -- Au journal, et NOMMÉMENT « main ». Un encaissement à la main n'est
+  -- pas un versement comme un autre : personne ne l'a vérifié chez
+  -- l'agrégateur, quelqu'un s'en est porté garant. Des mois plus tard,
+  -- c'est la première chose qu'on veut pouvoir distinguer.
+  --
+  -- « montant » ne vaut quelque chose que si la mise à jour a porté :
+  -- une commande déjà payée ne se re-note pas.
+  if montant is not null then
+    perform public.noter_versement(cible, 'payee', 'main', '', '', '',
+      montant, montant,
+      'Confirmé à la main par ' || coalesce(nullif(qui, ''), 'l''enseigne') || '.');
+  end if;
 end $$;
 revoke all on function public.confirmer_paiement(text) from public, anon;
 grant execute on function public.confirmer_paiement(text) to authenticated;

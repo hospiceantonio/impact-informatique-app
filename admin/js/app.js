@@ -26,6 +26,10 @@
        ce serait lui remettre celui de toutes les autres. La base rend
        zéro ligne à qui n'y a pas droit — ceci n'est que la politesse. */
     { motif: /^\/clients$/, vue: (v) => VueClients.afficher(v), super: true },
+    /* Le journal des versements : l'enseigne seule. C'est l'argent de
+       BIZZOO qui transite, pas celui d'une boutique — laquelle voit ses
+       ventes encaissées dans « Ce que vend votre boutique ». */
+    { motif: /^\/versements$/, vue: (v) => VueVersements.afficher(v), super: true },
     { motif: /^\/client\/([^/]+)$/, vue: (v, m) => VueClients.fiche(v, m[1]), super: true },
     /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
        la base ne montre à chacun que les siens. Masquer reste à

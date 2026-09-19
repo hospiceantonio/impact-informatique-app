@@ -359,7 +359,35 @@ with controles(rang, element, ok) as (values
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public'
          and p.proname in ('clients_liste', 'client_commandes')
-         and p.provolatile = 'v'))
+         and p.provolatile = 'v')),
+
+  -- ---------- Le journal des versements ----------
+  (64, 'Le journal des versements (table versements)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'versements')),
+  (65, 'Une ligne s''y écrit par le serveur seul (noter_versement)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'noter_versement')),
+  -- LE contrôle qui compte. Une seule règle sur cette table, et elle ne
+  -- porte que sur la lecture : personne n'écrit le journal à la main,
+  -- pas même l'enseigne. Un journal retouchable ne prouve rien.
+  (66, 'Et personne ne l''écrit à la main, pas même l''enseigne', not exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'versements'
+         and cmd <> 'SELECT')),
+  -- Le paiement dit QUI a encaissé et chez quel opérateur : sans ce
+  -- paramètre, le journal resterait muet sur la question qu'on lui pose.
+  (67, 'Le paiement note l''agrégateur (marquer_payee à 4 paramètres)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'marquer_payee'
+         and p.pronargs = 4)),
+  (68, 'Et l''ouverture note l''opérateur (noter_reference à 4)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'noter_reference'
+         and p.pronargs = 4)),
+  (69, 'Le journal se lit par l''enseigne (versements_liste)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'versements_liste'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

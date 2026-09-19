@@ -462,7 +462,13 @@ async function payer(commande: Record<string, unknown>, tel: string, reseau: str
      le paiement est en cours — il le serait sans qu'on puisse le
      constater. */
   try {
-    const note = await rpc("noter_reference", { cible: commande["id"], reference });
+    /* « qui » et « ou » ne servent qu'au journal des versements. C'est
+       ICI, et nulle part ailleurs, qu'on sait chez quel opérateur la
+       demande est partie : la notification et la vérification n'ont
+       qu'une référence. Sans eux, le journal ne saurait jamais répondre
+       à « combien d'échecs chez Moov cette semaine ». */
+    const note = await rpc("noter_reference", {
+      cible: commande["id"], reference, qui: "feexpay", ou: demande });
     if (note !== true) {
       return repondre({ erreur: "Référence de paiement non enregistrée. Ne payez pas, réessayez." }, 500);
     }
@@ -572,6 +578,7 @@ async function verifier(commande: Record<string, unknown>) {
     reference: commande["id"],
     transaction: reference,
     montant: Math.round(Number(brut)),
+    qui: "feexpay",
   }) as Record<string, unknown>;
 
   return repondre({ etat: resultat?.["deja"] || resultat?.["numero"] ? "payee" : "a_payer",

@@ -1122,6 +1122,68 @@ const Store = (() => {
     return (lignes || []).map(revendeurDepuisLigne);
   }
 
+  /* ---------- Le journal des versements ----------
+     Une ligne par TENTATIVE, jamais modifiée ensuite : c'est ce qui
+     permet de répondre à « combien d'échecs cette semaine » et « chez
+     quel opérateur ». La commande, elle, ne garde que son état actuel.
+
+     Réservé à l'enseigne : c'est l'argent de BIZZOO qui transite. */
+
+  /* « entre » : la ligne compte-t-elle dans l'argent réellement entré ?
+     « montre » : lequel des deux montants l'écran affiche en gros.
+
+     Les deux ne se confondent pas. Un versement arrivé pour une commande
+     introuvable n'entre PAS dans le chiffre d'affaires — mais l'argent,
+     lui, est bien arrivé : afficher l'attendu (zéro, puisqu'il n'y a pas
+     de commande) donnerait « 0 FCFA » sur la ligne qui mérite le plus
+     qu'on la regarde. Même chose pour un conflit. À l'inverse, une
+     demande envoyée n'a encore rien reçu : c'est l'attendu qui la décrit. */
+  const VERDICTS = {
+    payee: { mot: "Encaissé", classe: "badge-ok", entre: true, montre: "recu" },
+    ouverte: { mot: "Demande envoyée", classe: "badge-commande", entre: false, montre: "attendu" },
+    /* L'incomplet montre l'attendu en gros, et le détail juste en
+       dessous dit ce qui manque : voir « 12 000 » seul ferait croire la
+       commande réglée. */
+    incomplete: { mot: "Incomplet", classe: "badge-rupture", entre: false, montre: "attendu" },
+    conflit: { mot: "Conflit", classe: "badge-rupture", entre: false, montre: "recu" },
+    refusee: { mot: "Refusé", classe: "badge-annulee", entre: false, montre: "attendu" },
+    inconnue: { mot: "Commande introuvable", classe: "badge-rupture", entre: false, montre: "recu" },
+  };
+
+  async function journalVersements({ depuis, jusqu, verdict } = {}) {
+    const lignes = await Supabase.rpcLecture("versements_liste", {
+      depuis: depuis || null, jusqu: jusqu || null, filtre: verdict || "" });
+    return (lignes || []).map((l) => ({
+      id: Number(l.id) || 0,
+      commandeId: l.commande_id || "",
+      numero: l.numero || "",
+      fournisseur: l.fournisseur || "",
+      reseau: l.reseau || "",
+      reference: l.reference || "",
+      transactionId: l.transaction_id || "",
+      attendu: Number(l.attendu) || 0,
+      recu: Number(l.recu) || 0,
+      verdict: l.verdict || "inconnue",
+      detail: l.detail || "",
+      creeLe: l.cree_le || "",
+    }));
+  }
+
+  /* Le résumé compte sur TOUTES les lignes de la période, pas sur les
+     trois cents que la liste rend : « ce qui est entré cette semaine »
+     ne peut pas dépendre de la longueur d'un écran. */
+  async function resumeVersements({ depuis, jusqu } = {}) {
+    const lignes = await Supabase.rpcLecture("versements_resume", {
+      depuis: depuis || null, jusqu: jusqu || null });
+    return (lignes || []).map((l) => ({
+      fournisseur: l.fournisseur || "",
+      reseau: l.reseau || "",
+      verdict: l.verdict || "inconnue",
+      combien: Number(l.combien) || 0,
+      total: Number(l.total) || 0,
+    }));
+  }
+
   /* ---------- Les fiches clients ----------
      Un client appelle pour un litige : il faut le retrouver, et voir ce
      qu'il a commandé. La recherche accepte un nom ou un numéro, avec ou
@@ -2639,6 +2701,7 @@ const Store = (() => {
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
     listerRevendeurs, deciderRevendeur,
     listerClients, lireClient, commandesDuClient,
+    VERDICTS, journalVersements, resumeVersements,
     listerAvis, repondreAvis, masquerAvis,
     SUJETS_SAV, listerReclamations, messagesReclamation,
     repondreReclamation, trancherReclamation,

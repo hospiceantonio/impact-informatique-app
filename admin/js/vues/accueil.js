@@ -179,9 +179,10 @@ const VueAccueil = (() => {
             "depuis le début.</p>" +
         "</a>";
 
-    /* ---- Retrouver un client ----
-       Le geste du jour où quelqu'un appelle. Réservé à l'enseigne : une
-       boutique voit déjà ses propres acheteurs sur ses commandes. */
+    /* ---- Retrouver un client, et suivre l'argent ----
+       Deux écrans de l'enseigne seule : une boutique voit déjà ses
+       propres acheteurs sur ses commandes, et ses ventes encaissées
+       dans « Ce que vend votre boutique ». */
     if (Supabase.estSuper()) {
       html +=
         '<a class="carte" href="#/clients">' +
@@ -189,6 +190,12 @@ const VueAccueil = (() => {
             " Fiches clients</div>" +
           '<p class="aide" style="margin:0">Retrouver quelqu\'un par son nom ou son ' +
             "numéro, et voir ses commandes — celles de son compte, et celles d'avant.</p>" +
+        "</a>" +
+        '<a class="carte" href="#/versements">' +
+          '<div class="carte-titre">' + UI.icone("energie", "ic-sm") +
+            " Journal des versements</div>" +
+          '<p class="aide" style="margin:0">Ce qui est réellement entré, par ' +
+            "opérateur, et les tentatives qui ont raté — une ligne par essai.</p>" +
         "</a>";
     }
 

@@ -162,7 +162,12 @@ Six règles pour que ce banc garde sa valeur :
   redéfinit** : les fichiers se rejouent après le schéma, si bien qu'une
   faille ouverte d'un seul côté est refermée par l'autre, et le banc
   reste vert pour une raison qui n'a rien à voir avec ce qu'on croit
-  éprouver.
+  éprouver. L'aligneur n'y change rien : il recopie les **corps de
+  fonctions**, pas les `grant`, les `policy` ni les `drop`. Un `grant`
+  répété dans deux migrations reste donc à corriger — et à saboter — en
+  autant d'endroits. Ouvrir l'écriture du journal des versements dans le
+  seul `schema.sql` n'a rien cassé : les deux migrations la refermaient
+  juste après, et l'essai n'était jamais éprouvé.
 - **Un fichier envoyé au gérant doit passer sans compte connecté, et ne
   jamais porter une fonction périmée.** L'éditeur SQL de Supabase exécute
   tout d'un bloc et **annule tout à la première erreur** : une simple
@@ -473,6 +478,50 @@ Deux pièges évités, et tous deux éprouvés dans
   `rattacher_mes_commandes`, pas une règle voisine. Deux clients peuvent
   taper le même numéro ; l'un lirait sinon les achats de l'autre. Sur la
   fiche, une commande pas encore rattachée le dit.
+
+### Le journal des versements
+
+Une commande ne garde que son **état actuel** : payée, ou non. Ce qui
+s'est passé en route n'était nulle part — une demande partie sur un
+mauvais numéro, un versement incomplet, un client qui s'y reprend à trois
+fois, de l'argent arrivé pour une commande introuvable.
+
+Pire : en réussissant, `marquer_payee` **efface la remarque** de la
+commande. Un encaissement effaçait donc la trace de ses propres échecs.
+
+D'où `public.versements` : **une ligne par tentative**, jamais modifiée
+ensuite. C'est ce qui permet de répondre à « combien d'échecs cette
+semaine » et « chez quel opérateur ». Un journal qu'on met à jour ne
+garde que la fin de l'histoire — et la fin est déjà sur la commande.
+
+**Personne ne l'écrit à la main, pas même l'enseigne.** Aucune règle
+d'écriture n'est posée sur la table : les seules écritures viennent des
+fonctions `security definer` du serveur, qui passent au-dessus de RLS. Un
+journal qu'on peut retoucher ne prouve rien le jour où il faudrait qu'il
+prouve quelque chose.
+
+**Pas de clé étrangère vers `commandes`**, et c'est voulu : effacer une
+commande ne doit pas effacer la trace de l'argent. Le numéro est recopié
+dans le journal, figé, pour que la ligne se lise encore toute seule.
+
+**L'opérateur n'est connu qu'à l'ouverture** — c'est le client qui
+choisit MTN, Moov ou Celtiis, et ni la notification ni la vérification ne
+le rappellent. La fonction Edge le transmet donc à `noter_reference`, et
+les lignes suivantes de la même commande le reprennent d'elles-mêmes :
+la règle vit dans `noter_versement`, une seule fois, plutôt qu'à trois
+endroits où elle finirait par diverger.
+
+À l'écran, deux chiffres qui **ne se mélangent pas** : *entré* ne compte
+que les lignes encaissées, *échecs* se comptent sans s'additionner. Une
+demande encore ouverte n'est pas un échec. Additionner les tentatives
+ferait un chiffre d'affaires imaginaire — c'est exactement l'erreur qu'un
+journal doit empêcher, et
+[`tests/99d-journal-versements.sql`](supabase/tests/99d-journal-versements.sql)
+la provoque exprès pour vérifier que le banc rougit.
+
+**Le journal ne remonte pas le passé** : ce qui n'a jamais été noté ne
+peut pas l'être après coup. Il commence le jour où le fichier est
+exécuté.
 
 ## Ce que cherche la recherche
 
@@ -984,6 +1033,7 @@ impact-informatique-app/
 │   ├── marge-appliquee.sql          # La marge change, les prix de la vitrine suivent
 │   ├── statistiques-boutique.sql    # Chaque boutique voit ses ventes, et rien de l'enseigne
 │   ├── fiche-client.sql             # Retrouver un client et ses commandes — l'enseigne seule
+│   ├── journal-versements.sql       # Une ligne par tentative de paiement, jamais retouchée
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
@@ -1015,7 +1065,7 @@ impact-informatique-app/
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
 │                             #   commandes, statistiques, validations, revendeurs,
-│                             #   clients, avis, SAV, réglages
+│                             #   clients, versements, avis, SAV, réglages
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

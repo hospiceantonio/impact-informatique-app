@@ -159,9 +159,135 @@ create trigger commandes_verrous
   for each row execute function public.commande_verrous();
 
 -- ---------------------------------------------------------
+-- Le journal des versements, recopié ici
+-- ---------------------------------------------------------
+-- Les fonctions de paiement ci-dessous y écrivent. Un fichier qui
+-- pose une fonction pose aussi les fonctions qu'elle appelle :
+-- collé seul sur une base d'avant le journal, ce fichier passerait
+-- sans broncher et s'arrêterait au premier encaissement.
+-- Sur une base qui l'a déjà, ce bloc ne fait rien.
+
+-- ---------- Le journal des versements ----------
+-- La commande ne garde que son ÉTAT ACTUEL : payée ou non. Ce qui s'est
+-- passé en route — une demande partie sur un mauvais numéro, un versement
+-- incomplet, un client qui s'y reprend à trois fois — n'était noté nulle
+-- part. Pire : « marquer_payee » efface la remarque en réussissant, si
+-- bien qu'un encaissement effaçait la trace de ses propres échecs.
+--
+-- D'où ce journal. UNE LIGNE PAR TENTATIVE, jamais modifiée ensuite :
+-- c'est ce qui permet de répondre à « combien d'échecs cette semaine »
+-- et « chez quel opérateur ». Un journal qu'on met à jour ne garde que
+-- la fin de l'histoire, et la fin de l'histoire est déjà sur la commande.
+--
+-- PAS DE CLÉ ÉTRANGÈRE vers « commandes », et c'est voulu : effacer une
+-- commande ne doit pas effacer la trace de l'argent. Le numéro est donc
+-- recopié ici, figé, pour que la ligne se lise encore toute seule.
+create table if not exists public.versements (
+  id          bigint generated always as identity primary key,
+  commande_id text,
+  numero      text not null default '',
+  -- Qui a encaissé : « feexpay », « kkiapay », ou « main » quand
+  -- l'enseigne s'est portée garante elle-même. Figé au moment du fait :
+  -- changer d'agrégateur demain ne réécrit pas les versements d'hier.
+  fournisseur text not null default '',
+  -- L'opérateur du client : MTN, MOOV, CELTIIS, CARTE. Connu seulement
+  -- à l'ouverture de la demande — c'est le client qui l'a choisi.
+  reseau      text not null default '',
+  reference   text not null default '',
+  transaction_id text not null default '',
+  attendu     bigint not null default 0,
+  recu        bigint not null default 0,
+  verdict     text not null default 'ouverte'
+              check (verdict in ('ouverte', 'payee', 'incomplete',
+                                 'conflit', 'refusee', 'inconnue')),
+  detail      text not null default '',
+  cree_le     timestamptz not null default now()
+);
+create index if not exists versements_quand on public.versements(cree_le desc);
+create index if not exists versements_commande on public.versements(commande_id);
+
+alter table public.versements enable row level security;
+drop policy if exists "versements lecture" on public.versements;
+-- L'enseigne lit, personne n'écrit. AUCUNE règle d'écriture n'est posée
+-- ici : les seules écritures viennent des fonctions « security definer »
+-- ci-dessous, qui s'exécutent avec les droits du propriétaire et passent
+-- donc au-dessus de RLS. Une règle d'écriture, même étroite, ouvrirait
+-- au journal une porte par PostgREST.
+create policy "versements lecture" on public.versements
+  for select to authenticated using (public.est_super());
+revoke all on public.versements from anon, authenticated;
+grant select on public.versements to authenticated;
+
+-- Poser une ligne. Appelée UNIQUEMENT par les fonctions du serveur —
+-- jamais depuis une application, d'où la révocation qui suit.
+create or replace function public.noter_versement(
+  cible text, quoi text, qui text default '', ou text default '',
+  ref text default '', trans text default '',
+  du bigint default 0, recu bigint default 0, pourquoi text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  num     text := '';
+  agregat text := left(regexp_replace(lower(coalesce(qui, '')), '[^a-z]', '', 'g'), 16);
+  reseau  text := left(regexp_replace(upper(coalesce(ou,  '')), '[^A-Z]', '', 'g'), 16);
+begin
+  select c.numero into num from public.commandes c where c.id = cible;
+
+  -- L'AGRÉGATEUR ET L'OPÉRATEUR NE SONT CONNUS QU'À L'OUVERTURE. Ni la
+  -- notification ni la vérification ne les rappellent : elles n'ont
+  -- qu'une référence. On les reprend donc sur la dernière ligne de la
+  -- même commande qui les portait.
+  --
+  -- La règle vit ICI plutôt que chez chaque appelant : posée à trois
+  -- endroits, elle finirait par diverger, et le journal dirait « MTN »
+  -- d'un côté et rien de l'autre pour un même versement.
+  if coalesce(cible, '') <> '' then
+    if agregat = '' then
+      select v.fournisseur into agregat from public.versements v
+       where v.commande_id = cible and v.fournisseur <> ''
+       order by v.cree_le desc, v.id desc limit 1;
+    end if;
+    if reseau = '' then
+      select v.reseau into reseau from public.versements v
+       where v.commande_id = cible and v.reseau <> ''
+       order by v.cree_le desc, v.id desc limit 1;
+    end if;
+  end if;
+
+  insert into public.versements
+    (commande_id, numero, fournisseur, reseau, reference, transaction_id,
+     attendu, recu, verdict, detail)
+  values (
+    nullif(coalesce(cible, ''), ''),
+    coalesce(num, ''),
+    coalesce(agregat, ''),
+    coalesce(reseau, ''),
+    left(regexp_replace(coalesce(ref, ''), '[^A-Za-z0-9_-]', '', 'g'), 96),
+    left(regexp_replace(coalesce(trans, ''), '[^A-Za-z0-9_-]', '', 'g'), 64),
+    greatest(0, coalesce(du, 0)),
+    greatest(0, coalesce(recu, 0)),
+    -- Un verdict inconnu ne fait pas échouer l'encaissement : il se range
+    -- en « inconnue ». Le journal ne doit jamais empêcher l'argent
+    -- d'entrer.
+    case when quoi in ('ouverte', 'payee', 'incomplete', 'conflit',
+                       'refusee', 'inconnue') then quoi else 'inconnue' end,
+    left(coalesce(pourquoi, ''), 300));
+end $$;
+revoke all on function public.noter_versement(text, text, text, text, text, text, bigint, bigint, text)
+  from public, anon, authenticated;
+
+-- ---------------------------------------------------------
 -- 4. Enregistrer la référence donnée par l'agrégateur
 -- ---------------------------------------------------------
-create or replace function public.noter_reference(cible text, reference text)
+-- « drop » avant « create » : cette fonction a gagné deux paramètres —
+-- l'agrégateur et l'opérateur — pour le journal des versements. Ajouter
+-- des paramètres par défaut ne remplace pas l'ancienne signature, il en
+-- crée une seconde, et l'appel devient ambigu : « function is not
+-- unique ». Sans ce retrait, chaque paiement échouerait.
+drop function if exists public.noter_reference(text, text);
+create or replace function public.noter_reference(
+  cible text, reference text,
+  qui text default '', ou text default '')
 returns boolean
 language plpgsql security definer set search_path = public as $$
 declare
@@ -193,10 +319,16 @@ begin
   update public.commandes
      set fournisseur_ref = net, tentative_le = now()
    where id = c.id;
+
+  -- Au journal. C'est ICI, et nulle part ailleurs, qu'on sait chez quel
+  -- opérateur la demande est partie : ni la notification ni la
+  -- vérification ne le rappellent.
+  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '', c.total, 0,
+    'Demande de paiement envoyée.');
   return true;
 end $$;
 
-revoke all on function public.noter_reference(text, text)
+revoke all on function public.noter_reference(text, text, text, text)
   from public, anon, authenticated;
 
 -- ---------------------------------------------------------

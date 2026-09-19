@@ -144,7 +144,10 @@ Deno.serve(async (requete: Request): Promise<Response> => {
         "Authorization": "Bearer " + SERVICE,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reference, transaction, montant }),
+      /* « qui » ne sert qu'au journal des versements : il fige QUI a
+         encaissé, au moment du fait. Changer d'agrégateur demain ne
+         réécrira pas les versements d'hier. */
+      body: JSON.stringify({ reference, transaction, montant, qui: "kkiapay" }),
     });
   } catch (_) {
     /* Un délai dépassé n'est PAS un échec de paiement : la base a

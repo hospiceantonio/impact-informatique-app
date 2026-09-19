@@ -203,6 +203,9 @@ Deno.serve(async (requete: Request): Promise<Response> => {
     reference: commande["id"],
     transaction: reference,
     montant: Math.round(Number(brut)),
+    /* Pour le journal des versements : QUI a encaissé, figé au moment
+       du fait. Changer d'agrégateur demain ne réécrit pas hier. */
+    qui: "feexpay",
   });
 
   return ok({ commande: resultat });
