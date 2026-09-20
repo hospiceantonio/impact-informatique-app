@@ -139,15 +139,15 @@ et `authenticated`, schéma `auth`, stockage, temps réel), charge
 `schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
 qu'il se rejoue —, **rejoue ensuite chaque fichier de `supabase/` comme
 le fait l'éditeur SQL** (tout d'un bloc, sans compte connecté), puis
-essaie de forcer chaque porte. Environ 120 vérifications ; la sortie
-nomme celle qui cède.
+essaie de forcer chaque porte. Plus de 700 constats, plus les 91
+contrôles de l'état des lieux ; la sortie nomme celui qui cède.
 
 Pourquoi un vrai moteur : les tests des applications simulent la base.
 Ils valident l'écran, jamais les **déclencheurs** — ceux-ci ne
 s'exécutent que pour de vrai. Six défauts leur avaient échappé, dont un
 qui ne se serait manifesté qu'au premier vrai paiement.
 
-Six règles pour que ce banc garde sa valeur :
+Sept règles pour que ce banc garde sa valeur :
 
 - **On simule le décor, jamais la serrure.** RLS, déclencheurs et
   fonctions viennent tels quels de `schema.sql`. Le jour où l'on
@@ -210,6 +210,17 @@ Six règles pour que ce banc garde sa valeur :
   migration, ce fichier doit la poser lui-même. La règle a trouvé six
   emprunts du même genre le jour où on l'a écrite, dont deux qui
   dataient des comptes revendeurs.
+- **Un fichier qu'on envoie au gérant doit être LU, pas seulement
+  exécuté.** `etat-des-lieux.sql` passait depuis toujours dans le banc,
+  avec les autres fichiers — et cela ne prouvait rien : une requête de
+  *lecture* réussit même quand elle répond faux. Un de ses contrôles
+  cherchait la garde de l'accusé de réception dans les droits de colonne,
+  là où une base Supabase donne `grant all` d'office : il aurait répondu
+  « MANQUANT » sur une base parfaitement saine, et envoyé le gérant
+  réparer ce qui allait bien. Le banc rejoue donc l'état des lieux sur
+  une base où tout vient d'être posé, **où la réponse est connue
+  d'avance** : un seul « MANQUANT » y est un échec. Il l'a trouvé à sa
+  première exécution.
 
 Le même banc tourne à chaque poussée touchant `supabase/`
 (`.github/workflows/base.yml`).
@@ -598,8 +609,6 @@ Si l'un pouvait signer pour l'autre, la déclaration de la boutique
 n'aurait plus de contrepoids — et c'est justement elle qu'un litige vient
 interroger. La base l'empêche des deux côtés :
 
-- `grant update (etat)` et **rien d'autre** : la colonne n'est pas dans
-  le droit d'écriture de l'équipe ;
 - `ligne_verrous` lève sur tout changement de `confirme_le` hors du
   drapeau que seule `confirmer_reception()` pose ;
 - `confirmer_reception()` vérifie `ma_commande()` : l'enseigne elle-même
@@ -617,6 +626,103 @@ elle *filtre*. Une écriture qui ne trouve aucune ligne autorisée réussit
 en silence. Attendre un refus ferait échouer l'essai pour la mauvaise
 raison — on constate donc que **rien n'a bougé**. Le verrou, lui, est un
 déclencheur : il lève, et là `essai.refuse` est la bonne forme.
+
+### Ce n'est pas le droit d'écriture qui tient la porte
+
+`schema.sql` écrit `grant update (etat) on commande_lignes`, et on peut
+croire en le lisant que l'équipe n'a le droit d'écrire *que* cette
+colonne. **C'est faux, et il faut le savoir** : une base Supabase pose
+`alter default privileges in schema public grant all … to anon,
+authenticated, service_role`. Chaque table nouvelle naît donc avec
+`grant all` pour `authenticated` — un `grant` de colonne par-dessus
+n'enlève rien, il ajoute à un droit déjà entier.
+
+Ce qui tient réellement la porte, c'est le **déclencheur**
+`lignes_verrous`, qui refuse ligne par ligne toute écriture de
+`commande_id`, `boutique_id`, `produit_id`, `nom`, `code`, `reference`,
+`prix`, `prix_bizzoo`, `taux_marge`, `quantite`, `confirme_le` et
+`livreur_id`. Il ne reste d'écrivable que `etat` — et c'est exactement
+l'intention.
+
+**Un contrôle qui regardait le mauvais verrou.** L'état des lieux
+demandait autrefois qu'aucune colonne autre que `etat` ne soit dans le
+droit d'écriture de `authenticated` ; il aurait répondu « MANQUANT » sur
+une base parfaitement saine, et envoyé le gérant réparer ce qui allait
+bien. Le banc ne le voyait pas, parce qu'il *exécutait*
+`etat-des-lieux.sql` sans jamais **lire sa réponse** : une requête de
+lecture réussit même quand elle répond faux.
+
+`tools/eprouver-base.sh` rejoue donc maintenant l'état des lieux sur une
+base où tout vient d'être posé, où la réponse est connue d'avance — **un
+seul « MANQUANT » y est un échec du banc**. C'est ce contrôle qui a
+trouvé celui-ci, à sa première exécution.
+
+## Le livreur
+
+Un quatrième rôle, à côté de `superadministrateur`, `administrateur` et
+`moderateur` : **`livreur`**. Il se crée comme les autres, depuis
+Réglages → Comptes, et se rattache à une boutique.
+
+### Il n'a qu'un écran
+
+L'application admin, ouverte par un livreur, ne montre **que** « Mes
+courses ». Les autres écrans le renvoient là, et la barre du bas
+disparaît : la lui laisser reviendrait à lui offrir des boutons qui le
+repoussent. Son compte reste accessible par l'en-tête — il doit pouvoir
+changer son mot de passe.
+
+Sur chaque course : le numéro de commande, ce qu'il porte, le nom du
+client, son téléphone (appelable d'un doigt), l'adresse (qui ouvre la
+carte) et le mot laissé à la commande. **Deux gestes seulement** : « Je
+l'ai prise » et « Je l'ai remise ». Préparer reste à la boutique,
+annuler aussi, et c'est toujours le client qui confirme avoir reçu.
+
+### Il ne voit aucun montant
+
+Ni le prix payé, ni le prix BIZZOO, ni la marge — pas même une devise à
+l'écran. Ce n'est pas une politesse d'affichage : `mes_livraisons()`
+**ne rend aucune colonne d'argent**.
+
+C'est là qu'une distinction compte. Une règle RLS choisit les **lignes**
+et les rend *entières* : elle ne sait pas retenir une colonne. Donner au
+livreur une règle de lecture sur `commande_lignes` lui donnerait
+`prix_bizzoo` avec le reste. Seule une **fonction** peut choisir les
+colonnes — c'est pourquoi le livreur passe par `mes_livraisons()` et n'a
+aucun droit sur la table.
+
+### Ce que ce rôle a obligé à corriger
+
+`est_equipe()` disait « un rôle, n'importe lequel ». Elle ouvre neuf
+écrans, du catalogue aux statistiques : **le premier livreur créé serait
+entré partout.** Elle nomme désormais les trois rôles de la boutique.
+
+Et `peut_modifier_produits()` lisait la colonne du même nom, qui vaut
+**vrai par défaut** sur tout profil : un livreur fraîchement créé aurait
+pu modifier le catalogue, la colonne lui aurait dit oui. Elle commence
+maintenant par `est_equipe()`.
+
+Ce sont les deux corrections que le chantier a rendues nécessaires, et
+elles valent bien au-delà du livreur : tout rôle ajouté plus tard entre
+par ces deux portes.
+
+### Confier une course
+
+Sur une commande payée dont une ligne est `preparee`, la boutique voit
+« Confier à un livreur » et choisit dans la liste de **ses** livreurs.
+`assigner_livreur()` vérifie trois choses avant d'écrire : que celui qui
+confie tient la boutique, que celui à qui l'on confie est bien un livreur
+**de cette boutique**, et qu'il y a bien quelque chose à confier.
+
+`livreur_id` ne s'écrit pas à la main : `lignes_verrous` lève sur tout
+changement de cette colonne hors du drapeau que seule
+`assigner_livreur()` pose. Sans cela, n'importe quelle écriture sur la
+ligne pourrait se désigner porteuse de la marchandise.
+
+[`tests/99g-livreur.sql`](supabase/tests/99g-livreur.sql) force les
+portes en 42 constats. Trois sabotages les font tomber : rendre à
+`est_equipe()` son ancienne définition, ouvrir `mes_livraisons()` à
+toutes les courses, retirer le contrôle « livreur de ma boutique » de
+`assigner_livreur()`.
 
 ## Ce que cherche la recherche
 
@@ -1131,6 +1237,7 @@ impact-informatique-app/
 │   ├── journal-versements.sql       # Une ligne par tentative de paiement, jamais retouchée
 │   ├── codes-promo.sql              # Une remise sort de la marge de l'enseigne, jamais de la boutique
 │   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
+│   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, aucun montant
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
@@ -1162,7 +1269,8 @@ impact-informatique-app/
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
 │       └── vues/             # Connexion, accueil, boutiques, produits, catégories,
 │                             #   commandes, statistiques, validations, revendeurs,
-│                             #   clients, versements, codes, avis, SAV, réglages
+│                             #   clients, versements, codes, avis, SAV, réglages,
+│                             #   livraisons (le seul écran du livreur)
 ├── android/                  # Projet Android unique, deux variantes
 │   ├── app/src/main/java/... # MainActivity : WebView, photos, WhatsApp, retours
 │   ├── app/src/{client,admin}/  # Nom, couleurs, icônes de chaque application

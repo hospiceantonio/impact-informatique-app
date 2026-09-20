@@ -385,7 +385,8 @@ create table if not exists public.profils (
   id      uuid primary key references auth.users(id) on delete cascade,
   email   text not null default '',
   role    text not null default 'moderateur'
-          check (role in ('superadministrateur', 'administrateur', 'moderateur')),
+          check (role in ('superadministrateur', 'administrateur',
+                          'moderateur', 'livreur')),
   actif   boolean not null default true,
   -- Droit accordé au cas par cas : modifier un produit déjà au catalogue.
   -- Sans lui, le modérateur peut en ajouter de nouveaux, pas toucher aux autres.
@@ -403,7 +404,7 @@ alter table public.profils
 -- Le rôle accepte désormais « superadministrateur ».
 alter table public.profils drop constraint if exists profils_role_check;
 alter table public.profils add constraint profils_role_check
-  check (role in ('superadministrateur', 'administrateur', 'moderateur'));
+  check (role in ('superadministrateur', 'administrateur', 'moderateur', 'livreur'));
 
 -- Les administrateurs d'avant tenaient toute l'application : ils
 -- deviennent superadministrateurs, sans quoi ils se retrouveraient
@@ -432,17 +433,41 @@ language sql stable security definer set search_path = public as $$
   select coalesce(public.role_courant() in ('superadministrateur', 'administrateur'), false);
 $$;
 
--- Membre actif de l'équipe, quel que soit son rang.
+-- Membre de l'équipe qui TIENT la boutique : catalogue, commandes,
+-- avis, réclamations.
+--
+-- LE LIVREUR N'EN EST PAS, et c'est tout l'objet de cette liste. Il a un
+-- profil, donc « role_courant() » lui répond — mais il ne tient rien. La
+-- version d'avant disait « n'importe quel profil actif », et le jour où
+-- le rang « livreur » est arrivé, cela lui aurait ouvert d'un coup :
+-- les commandes de toute la boutique, le journal, les chiffres de
+-- vente, le dépôt de photos. Rien de tout cela n'est son travail.
+--
+-- Une seule fonction à corriger plutôt que neuf endroits : c'est
+-- justement pour cela qu'elle existe.
 create or replace function public.est_equipe() returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.role_courant() is not null;
+  select coalesce(public.role_courant() in
+    ('superadministrateur', 'administrateur', 'moderateur'), false);
+$$;
+
+-- Celui qui porte la marchandise, et rien d'autre.
+create or replace function public.est_livreur() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'livreur', false);
 $$;
 
 -- Peut-il retoucher un produit déjà au catalogue ? Les deux rangs
 -- d'administrateur toujours ; le modérateur seulement si on le lui accorde.
+--
+-- « est_equipe() » EN PREMIER, et ce n'est pas une précaution de style :
+-- « peut_modifier_produits » vaut VRAI par défaut sur tout profil. Sans
+-- cette condition, un livreur qu'on vient de créer pourrait modifier le
+-- catalogue — la colonne lui aurait dit oui.
 create or replace function public.peut_modifier_produits() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role in ('superadministrateur', 'administrateur')
+  select public.est_equipe()
+     and coalesce((select role in ('superadministrateur', 'administrateur')
                        or peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false);
 $$;
@@ -478,6 +503,8 @@ grant execute on function public.peut_modifier_produits() to authenticated;
 grant execute on function public.role_courant() to authenticated;
 grant execute on function public.est_admin() to authenticated;
 grant execute on function public.est_equipe() to authenticated;
+revoke all on function public.est_livreur() from public, anon, authenticated;
+grant execute on function public.est_livreur() to authenticated;
 grant execute on function public.boutique_du_compte() to authenticated;
 grant execute on function public.peut_agir_sur(text) to authenticated;
 grant execute on function public.est_super() to authenticated;
@@ -2028,6 +2055,14 @@ alter table public.commande_lignes add constraint commande_lignes_etat_check
 -- écrire la parole de l'autre — et la déclaration de la boutique n'a
 -- plus de valeur si elle peut aussi signer l'accusé de réception.
 alter table public.commande_lignes add column if not exists confirme_le timestamptz;
+
+-- ---------- À qui cette livraison est confiée ----------
+-- Sur la LIGNE, pas sur la commande : une commande peut traverser deux
+-- boutiques, qui livrent chacune la sienne, chacune par son livreur.
+alter table public.commande_lignes add column if not exists livreur_id uuid;
+create index if not exists lignes_livreur on public.commande_lignes(livreur_id)
+  where livreur_id is not null;
+
 -- Le code du produit, figé comme son nom et son prix : c'est ce qui a
 -- été vendu.
 alter table public.commande_lignes add column if not exists code text not null default '';
@@ -2256,6 +2291,16 @@ begin
     raise exception 'Un accusé de réception se pose depuis le compte du client';
   end if;
 
+  -- CONFIER UNE LIVRAISON passe par « assigner_livreur », qui pose ce
+  -- drapeau après avoir vérifié que celui qui confie tient bien la
+  -- boutique, et que celui à qui l'on confie est bien son livreur.
+  -- Sans lui, n'importe quelle écriture sur la ligne pourrait se
+  -- désigner porteuse de la marchandise.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.livreur_id is distinct from old.livreur_id then
+    raise exception 'Une livraison se confie depuis le compte de la boutique';
+  end if;
+
   if new.commande_id is distinct from old.commande_id
   or new.boutique_id is distinct from old.boutique_id
   or new.produit_id  is distinct from old.produit_id
@@ -2375,6 +2420,171 @@ begin
 end $$;
 revoke all on function public.confirmer_reception(text, text) from public, anon;
 grant execute on function public.confirmer_reception(text, text) to authenticated;
+-- =========================================================
+-- Le livreur
+-- =========================================================
+-- Il porte la marchandise, et c'est tout. Ce qu'il doit savoir : QUOI
+-- porter, À QUI, et OÙ. Ce qu'il ne doit pas savoir : ce que la
+-- boutique touche, ce que l'enseigne garde, ce que le client a payé.
+--
+-- D'OÙ UNE FONCTION, ET PAS UNE RÈGLE RLS. Une règle décide quelles
+-- LIGNES on voit ; elle les rend alors ENTIÈRES, prix BIZZOO compris.
+-- Seule une fonction « security definer » peut choisir les colonnes —
+-- c'est la même raison qui avait imposé des droits par colonne pour
+-- l'historique du client.
+
+-- Les livreurs de la boutique, pour que celle-ci puisse choisir.
+create or replace function public.livreurs_boutique()
+returns table (id uuid, email text, actif boolean)
+language plpgsql stable security definer set search_path = public as $$
+declare cible text := public.boutique_du_compte();
+begin
+  if not public.est_equipe() then return; end if;
+  return query
+    select p.id, coalesce(p.email, '')::text, p.actif
+      from public.profils p
+     where p.role = 'livreur'
+       -- L'enseigne les voit tous ; une boutique, les siens.
+       and (public.est_super() or (cible is not null and p.boutique_id = cible))
+     order by p.email;
+end $$;
+revoke all on function public.livreurs_boutique() from public, anon;
+grant execute on function public.livreurs_boutique() to authenticated;
+
+-- ---------- Confier une livraison ----------
+-- LA BOUTIQUE CONFIE, et seulement à SON livreur. Confier à celui de la
+-- boutique d'à côté reviendrait à lui remettre le nom, le numéro et
+-- l'adresse d'un client qui n'est pas le sien.
+--
+-- On ne confie que ce qui est PRÊT : une commande pas encore préparée
+-- n'a rien à donner à porter.
+create or replace function public.assigner_livreur(
+  commande text, boutique text, livreur uuid)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  combien int;
+  rang    text;
+begin
+  if not public.peut_agir_sur(boutique) then
+    raise exception 'Cette commande ne concerne pas votre boutique';
+  end if;
+
+  -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
+  -- reprendre une course confiée par erreur.
+  if livreur is not null then
+    select p.role into rang from public.profils p
+     where p.id = livreur and p.actif
+       and (public.est_super()
+            or p.boutique_id = public.boutique_du_compte());
+    if rang is distinct from 'livreur' then
+      raise exception 'Ce compte n''est pas un livreur de votre boutique';
+    end if;
+  end if;
+
+  perform set_config('bizzoo.livraison', 'oui', true);
+  update public.commande_lignes l
+     set livreur_id = livreur
+   where l.commande_id = commande
+     and l.boutique_id = boutique
+     and l.etat in ('preparee', 'en_livraison');
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
+
+  if combien = 0 then
+    raise exception 'Rien à confier ici : préparez d''abord la commande.';
+  end if;
+  return combien;
+end $$;
+revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
+grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;
+
+-- ---------- Ce que le livreur a à porter ----------
+-- SES courses, et rien que les siennes. Pas celles de son collègue, pas
+-- celles des autres boutiques — et AUCUN montant : ni le prix BIZZOO,
+-- ni le prix payé. Regardez la liste des colonnes rendues : elle est la
+-- réponse entière à « que voit un livreur ? ».
+create or replace function public.mes_livraisons()
+returns table (
+  commande_id text, numero text,
+  boutique_id text, nom_boutique text,
+  client_nom text, client_tel text, client_indicatif text,
+  client_adresse text, note text,
+  etat text, articles jsonb, paye_le timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then return; end if;
+  return query
+    select c.id, c.numero,
+           l.boutique_id,
+           coalesce((select b.nom from public.boutiques b where b.id = l.boutique_id), '')::text,
+           c.client_nom, c.client_tel, c.client_indicatif,
+           c.client_adresse, c.note,
+           -- L'étape la MOINS avancée de ses lignes : c'est elle qui dit
+           -- ce qu'il lui reste à faire.
+           min(l.etat)::text,
+           jsonb_agg(jsonb_build_object(
+             'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
+             order by l.nom),
+           c.paye_le
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+     where l.livreur_id = moi
+       and c.etat = 'payee'
+       and l.etat in ('preparee', 'en_livraison', 'remise')
+       -- Une course remise depuis plus de deux jours n'a plus à
+       -- encombrer sa liste.
+       and (l.etat <> 'remise' or c.paye_le > now() - interval '2 days')
+     group by c.id, c.numero, l.boutique_id, c.client_nom, c.client_tel,
+              c.client_indicatif, c.client_adresse, c.note, c.paye_le
+     order by c.paye_le;
+end $$;
+revoke all on function public.mes_livraisons() from public, anon;
+grant execute on function public.mes_livraisons() to authenticated;
+
+-- ---------- Le livreur avance sa course ----------
+-- DEUX ÉTAPES, ET PAS D'AUTRES : « je l'ai prise » et « je l'ai
+-- remise ». Préparer reste à la boutique ; annuler aussi.
+--
+-- Et seulement SES lignes. Un livreur qui pourrait avancer celles d'un
+-- collègue déclarerait remises des commandes qu'il n'a jamais portées.
+create or replace function public.avancer_livraison(
+  commande text, boutique text, vers text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  combien int;
+  depuis  text;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  if vers not in ('en_livraison', 'remise') then
+    raise exception 'Un livreur prend une course, ou la remet.';
+  end if;
+  -- On n'avance que dans le bon sens : « remise » ne se pose qu'après
+  -- « en livraison ». Sans cela, une course se déclarerait remise sans
+  -- jamais avoir été prise.
+  depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
+
+  update public.commande_lignes l
+     set etat = vers
+   where l.commande_id = commande
+     and l.boutique_id = boutique
+     and l.livreur_id = moi
+     and l.etat = depuis;
+  get diagnostics combien = row_count;
+
+  if combien = 0 then
+    raise exception 'Rien à avancer ici : cette course n''en est pas là.';
+  end if;
+  return combien;
+end $$;
+revoke all on function public.avancer_livraison(text, text, text) from public, anon;
+grant execute on function public.avancer_livraison(text, text, text) to authenticated;
+
 
 drop policy if exists "lignes lecture client" on public.commande_lignes;
 create policy "lignes lecture client" on public.commande_lignes

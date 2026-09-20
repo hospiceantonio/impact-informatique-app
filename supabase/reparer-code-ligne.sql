@@ -64,6 +64,12 @@ update public.commande_lignes l
 -- première ligne de commande avancée.
 alter table public.commande_lignes add column if not exists confirme_le timestamptz;
 
+-- À qui la livraison est confiée. « ligne_verrous » la protège : un
+-- fichier qui pose une fonction pose aussi les colonnes qu'elle
+-- touche, sinon la règle s'installe sans un mot et la base
+-- s'arrête à la première ligne avancée.
+alter table public.commande_lignes add column if not exists livreur_id uuid;
+
 create or replace function public.ligne_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -73,6 +79,16 @@ begin
   if coalesce(current_setting('bizzoo.reception', true), '') <> 'oui'
      and new.confirme_le is distinct from old.confirme_le then
     raise exception 'Un accusé de réception se pose depuis le compte du client';
+  end if;
+
+  -- CONFIER UNE LIVRAISON passe par « assigner_livreur », qui pose ce
+  -- drapeau après avoir vérifié que celui qui confie tient bien la
+  -- boutique, et que celui à qui l'on confie est bien son livreur.
+  -- Sans lui, n'importe quelle écriture sur la ligne pourrait se
+  -- désigner porteuse de la marchandise.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.livreur_id is distinct from old.livreur_id then
+    raise exception 'Une livraison se confie depuis le compte de la boutique';
   end if;
 
   if new.commande_id is distinct from old.commande_id

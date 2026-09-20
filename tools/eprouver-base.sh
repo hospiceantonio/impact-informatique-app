@@ -197,6 +197,33 @@ lancer "$PSQL_MUET -c \"insert into auth.users (id, email) values
   ('33333333-3333-3333-3333-333333333333', 'equipe@bizzoo.bj')
   on conflict do nothing;\"" >/dev/null 2>&1
 
+# ---------- L'état des lieux dit-il la vérité ? ----------
+# Ce fichier-là est le seul que le gérant lise vraiment : c'est lui qui
+# lui annonce « en place » ou « MANQUANT ». Il s'exécute déjà plus haut,
+# avec les autres — mais s'exécuter ne prouve rien : une requête de
+# lecture réussit même quand elle répond faux. Or sur CETTE base, qui
+# vient de recevoir schema.sql et tous les fichiers, la réponse est
+# connue d'avance : tout doit être en place. Un « MANQUANT » ici, et
+# c'est le contrôle qui se trompe, pas la base — le gérant chercherait
+# à réparer ce qui va bien.
+echo
+gris "L'état des lieux, sur une base où tout est là :"
+lancer "$PSQL -t -A -f '$RACINE/supabase/etat-des-lieux.sql'" > "$SORTIE" 2>&1
+if grep -q 'MANQUANT' "$SORTIE"; then
+  rouge "L'état des lieux annonce « MANQUANT » là où tout vient d'être posé :"
+  grep 'MANQUANT' "$SORTIE" | head -8
+  rouge "Ou bien le contrôle se trompe — et le gérant chercherait à réparer"
+  rouge "ce qui va bien ; ou bien schema.sql ne pose pas ce qu'il annonce."
+  exit 1
+fi
+CONTROLES="$(grep -c 'en place' "$SORTIE" || true)"
+if [ "${CONTROLES:-0}" -lt 1 ]; then
+  rouge "L'état des lieux n'a rien constaté du tout :"
+  head -5 "$SORTIE"
+  exit 1
+fi
+vert "  $CONTROLES contrôles, tous « en place » ✔"
+
 echo
 ECHECS=0
 for fichier in "$RACINE"/supabase/tests/[1-9]*.sql; do

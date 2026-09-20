@@ -104,6 +104,91 @@ alter table public.boutiques add column if not exists nb_avis int not null defau
 -- LE « payee » EST LA LIGNE À NE PAS RETIRER. Ouvrir une commande ne
 -- coûte rien : sans lui, on en ouvre une, on ne la paie jamais, et l'on
 -- écrit ce qu'on veut sur qui l'on veut.
+-- ---------------------------------------------------------
+-- Qui est qui, recopié ici
+-- ---------------------------------------------------------
+-- « est_equipe() » a CHANGÉ DE SENS avec l'arrivée du rang livreur :
+-- elle nomme désormais les trois rangs qui tiennent la boutique, et
+-- le livreur n'en est pas. Les règles de ce fichier s'appuient sur
+-- elle ; collé seul sur une base qui garde l'ancienne définition,
+-- il laisserait un livreur passer pour un membre de l'équipe.
+-- Sur une base déjà à jour, ce bloc ne fait rien.
+
+-- Membre de l'équipe qui TIENT la boutique : catalogue, commandes,
+-- avis, réclamations.
+--
+-- LE LIVREUR N'EN EST PAS, et c'est tout l'objet de cette liste. Il a un
+-- profil, donc « role_courant() » lui répond — mais il ne tient rien. La
+-- version d'avant disait « n'importe quel profil actif », et le jour où
+-- le rang « livreur » est arrivé, cela lui aurait ouvert d'un coup :
+-- les commandes de toute la boutique, le journal, les chiffres de
+-- vente, le dépôt de photos. Rien de tout cela n'est son travail.
+--
+-- Une seule fonction à corriger plutôt que neuf endroits : c'est
+-- justement pour cela qu'elle existe.
+create or replace function public.est_equipe() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() in
+    ('superadministrateur', 'administrateur', 'moderateur'), false);
+$$;
+
+-- Celui qui porte la marchandise, et rien d'autre.
+create or replace function public.est_livreur() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'livreur', false);
+$$;
+
+-- Peut-il retoucher un produit déjà au catalogue ? Les deux rangs
+-- d'administrateur toujours ; le modérateur seulement si on le lui accorde.
+--
+-- « est_equipe() » EN PREMIER, et ce n'est pas une précaution de style :
+-- « peut_modifier_produits » vaut VRAI par défaut sur tout profil. Sans
+-- cette condition, un livreur qu'on vient de créer pourrait modifier le
+-- catalogue — la colonne lui aurait dit oui.
+create or replace function public.peut_modifier_produits() returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_equipe()
+     and coalesce((select role in ('superadministrateur', 'administrateur')
+                       or peut_modifier_produits
+                     from public.profils where id = auth.uid() and actif), false);
+$$;
+
+-- La boutique à laquelle le compte est rattaché. Null pour un
+-- administrateur : il n'est enfermé nulle part.
+create or replace function public.boutique_du_compte() returns text
+language sql stable security definer set search_path = public as $$
+  select boutique_id from public.profils where id = auth.uid() and actif;
+$$;
+
+-- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
+-- Le superadministrateur partout ; les autres dans la leur seulement.
+create or replace function public.peut_agir_sur(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or (public.est_equipe() and cible is not null
+          and cible = public.boutique_du_compte());
+$$;
+
+-- Droits d'administration SUR cette boutique-là : le superadministrateur
+-- partout, l'administrateur uniquement chez lui.
+create or replace function public.administre(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or (public.est_admin() and cible is not null
+          and cible = public.boutique_du_compte());
+$$;
+
+-- Les règles de sécurité, y compris celles du stockage des photos,
+-- appellent ces fonctions au nom du compte connecté.
+grant execute on function public.peut_modifier_produits() to authenticated;
+grant execute on function public.role_courant() to authenticated;
+grant execute on function public.est_admin() to authenticated;
+grant execute on function public.est_equipe() to authenticated;
+revoke all on function public.est_livreur() from public, anon, authenticated;
+grant execute on function public.est_livreur() to authenticated;
+grant execute on function public.boutique_du_compte() to authenticated;
+grant execute on function public.peut_agir_sur(text) to authenticated;
+
 create or replace function public.a_achete(cible_produit text, cible_boutique text)
 returns boolean
 language sql stable security definer set search_path = public as $$

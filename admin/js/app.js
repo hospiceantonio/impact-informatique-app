@@ -33,6 +33,11 @@
     /* Les codes promo : l'enseigne seule. Une remise sort de SA marge —
        on ne laisse pas quelqu'un d'autre l'engager. */
     { motif: /^\/codes$/, vue: (v) => VueCodes.afficher(v), super: true },
+    /* L'écran du livreur, et le SEUL qu'il ait. « livreur: true » ne
+       l'ouvre pas à lui : il le lui RÉSERVE — un administrateur n'a
+       rien à faire ici, il confie les courses depuis les commandes. */
+    { motif: /^\/livraisons$/, vue: (v) => VueLivraisons.afficher(v),
+      livreur: true, onglet: "/livraisons" },
     { motif: /^\/client\/([^/]+)$/, vue: (v, m) => VueClients.fiche(v, m[1]), super: true },
     /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
        la base ne montre à chacun que les siens. Masquer reste à
@@ -59,6 +64,9 @@
      réglages, les comptes et l'historique restent à l'administrateur.
      Le tri se fait aussi dans la base (règles RLS) : masquer un écran
      n'est ici qu'une politesse, pas la serrure. */
+
+  /** Le compte connecté porte-t-il la marchandise, et rien d'autre ? */
+  const estLivreur = () => Supabase.role() === "livreur";
 
   function adapterAuRole() {
     const admin = Supabase.estAdmin();
@@ -142,6 +150,27 @@
 
     const route = ROUTES.find((r) => r.motif.test(chemin));
     if (!route) {
+      location.hash = estLivreur() ? "#/livraisons" : "#/";
+      return;
+    }
+
+    /* ---------- Le livreur ne va que chez lui ----------
+       Il porte la marchandise ; le catalogue, les commandes et les
+       chiffres ne sont pas son travail, et la base les lui refuse déjà.
+       Le renvoyer ici évite qu'il tombe sur des écrans vides et croie à
+       une panne. Son compte reste accessible : il doit pouvoir changer
+       son mot de passe.
+
+       Et l'inverse : cet écran est le SIEN. Un administrateur qui
+       l'ouvrirait n'y verrait rien — « mes_livraisons() » ne rend
+       quelque chose qu'à un livreur — et confie ses courses depuis les
+       commandes. */
+    if (estLivreur() && !route.livreur && chemin !== "/compte") {
+      location.hash = "#/livraisons";
+      return;
+    }
+    if (route.livreur && !estLivreur()) {
+      UI.toast("Cet écran est celui des livreurs.", "err");
       location.hash = "#/";
       return;
     }
@@ -155,6 +184,13 @@
       location.hash = "#/";
       return;
     }
+
+    /* LA BARRE DU BAS N'EST PAS LA SIENNE. Elle mène à l'accueil, aux
+       produits et aux catégories — trois écrans dont le livreur serait
+       renvoyé aussitôt. La lui laisser, c'est lui offrir des boutons qui
+       le repoussent : il n'a qu'un écran, et son compte est dans
+       l'en-tête. */
+    document.getElementById("tabbar").style.display = estLivreur() ? "none" : "";
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));

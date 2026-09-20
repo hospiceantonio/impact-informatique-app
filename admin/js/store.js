@@ -711,13 +711,74 @@ const Store = (() => {
       nom: "Modérateur",
       aide: "Les produits et les rayons de sa boutique, rien d'autre.",
     },
+    /* LE LIVREUR N'EST PAS « L'ÉQUIPE » au sens de la base : il porte la
+       marchandise, il ne tient rien. Ni catalogue, ni commandes, ni
+       chiffres — et aucun montant nulle part. La base le lui refuse ;
+       cette description n'est là que pour que celui qui nomme sache ce
+       qu'il accorde. */
+    livreur: {
+      nom: "Livreur",
+      aide: "Les courses qu'on lui confie, et rien d'autre : ce qu'il porte, " +
+            "à qui et où. Aucun prix ne lui est montré.",
+    },
   };
 
   /** Les rôles qu'un compte a le droit de distribuer. */
   function rolesAttribuables() {
-    if (Supabase.estSuper()) return ["superadministrateur", "administrateur", "moderateur"];
-    /* Un administrateur ne nomme que des modérateurs, et chez lui. */
-    return Supabase.estAdmin() ? ["moderateur"] : [];
+    if (Supabase.estSuper()) {
+      return ["superadministrateur", "administrateur", "moderateur", "livreur"];
+    }
+    /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
+    return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
+  }
+
+  /* ---------- Les livraisons ----------
+     Deux côtés qui ne se ressemblent pas : la BOUTIQUE confie une
+     course, le LIVREUR la porte. Chacun passe par sa fonction, et la
+     base décide — un livreur ne lit pas la table des commandes. */
+
+  /** Les livreurs que cette boutique peut choisir. */
+  async function listerLivreurs() {
+    const lignes = await Supabase.rpcLecture("livreurs_boutique", {});
+    return (lignes || []).map((l) => ({
+      id: l.id, email: l.email || "", actif: l.actif !== false,
+    }));
+  }
+
+  /** Confier la part d'une commande à un livreur — ou la reprendre. */
+  async function confierLivraison(commande, boutique, livreur) {
+    const combien = await Supabase.rpc("assigner_livreur", {
+      commande, boutique, livreur: livreur || null });
+    journaliser("commande", "modification",
+      livreur ? "Livraison confiée" : "Livraison reprise",
+      commande, undefined, boutique);
+    return Number(combien) || 0;
+  }
+
+  /** Ce que le livreur connecté a à porter. AUCUN montant n'en sort. */
+  async function mesLivraisons() {
+    const lignes = await Supabase.rpcLecture("mes_livraisons", {});
+    return (lignes || []).map((l) => ({
+      commandeId: l.commande_id,
+      numero: l.numero || "",
+      boutiqueId: l.boutique_id || "",
+      nomBoutique: l.nom_boutique || "",
+      client: {
+        nom: l.client_nom || "", tel: l.client_tel || "",
+        indicatif: l.client_indicatif || "229",
+        adresse: l.client_adresse || "", note: l.note || "",
+      },
+      etat: l.etat || "preparee",
+      articles: Array.isArray(l.articles) ? l.articles : [],
+      payeLe: l.paye_le || "",
+    }));
+  }
+
+  /** « Je l'ai prise » / « Je l'ai remise ». Deux gestes, pas plus. */
+  async function avancerLivraison(commande, boutique, vers) {
+    const combien = await Supabase.rpc("avancer_livraison",
+      { commande, boutique, vers });
+    return Number(combien) || 0;
   }
 
   /** Ce compte est-il sous ma responsabilité ? */
@@ -2780,6 +2841,7 @@ const Store = (() => {
     listerClients, lireClient, commandesDuClient,
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
+    listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
     listerAvis, repondreAvis, masquerAvis,
     SUJETS_SAV, listerReclamations, messagesReclamation,
     repondreReclamation, trancherReclamation,

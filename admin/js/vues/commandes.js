@@ -71,6 +71,70 @@ const VueCommandes = (() => {
     );
   }
 
+  /* -----------------------------------------------------
+     Confier une course
+     -----------------------------------------------------
+     La boutique confie, et seulement à SON livreur : la base refuse
+     celui de la boutique voisine — ce serait lui remettre le nom, le
+     numéro et l'adresse d'un client qui n'est pas le sien.
+
+     La liste se lit au moment de confier, pas à chaque ouverture de
+     l'écran des commandes : une boutique qui n'a pas de livreur n'a pas
+     à payer une lecture de plus à chaque fois. */
+  async function confier(vue, commandeId) {
+    const commande = (await Store.listerCommandes({ combien: 100 }))
+      .find((c) => c.id === commandeId);
+    if (!commande) return;
+    /* La boutique de CETTE commande, vue d'ici : un administrateur ne
+       confie que ses propres lignes, et la base le vérifie. */
+    const boutique = (commande.lignes.find((l) =>
+      l.etat === "preparee" || l.etat === "en_livraison") || {}).boutiqueId || "";
+
+    let livreurs = [];
+    try {
+      livreurs = (await Store.listerLivreurs()).filter((l) => l.actif);
+    } catch (err) {
+      UI.toast(err.message, "err");
+      return;
+    }
+
+    if (!livreurs.length) {
+      UI.ouvrirFeuille("Aucun livreur",
+        '<p class="aide" style="margin:0 0 14px">Votre boutique n\'a pas encore de ' +
+          "livreur. Créez-en un depuis <strong>Comptes</strong> : choisissez le rôle " +
+          "« Livreur ». Il ne verra que les courses qu'on lui confie — aucun prix " +
+          "ne lui est montré.</p>" +
+        '<a class="btn btn-clair" href="#/comptes">Ouvrir les comptes</a>');
+      return;
+    }
+
+    const corps = UI.ouvrirFeuille("Confier « " + (commande.numero || "") + " »",
+      '<p class="aide" style="margin:0 0 14px">Il verra ce qu\'il doit porter, le nom ' +
+        "du client, son numéro et son adresse. <strong>Aucun montant</strong> — ni ce " +
+        "que le client a payé, ni ce que vous touchez.</p>" +
+      livreurs.map((l) =>
+        '<button type="button" class="btn btn-clair" style="margin-bottom:8px" ' +
+          'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
+          Utils.echapper(l.email) + "</button>").join("") +
+      '<button type="button" class="btn btn-clair btn-danger-clair" ' +
+        'data-livreur="">' + UI.icone("fermer") + "Reprendre la course</button>");
+
+    for (const b of UI.$$("[data-livreur]", corps)) {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await Store.confierLivraison(commandeId, boutique, b.dataset.livreur || null);
+          UI.fermerFeuille();
+          UI.toast(b.dataset.livreur ? "Course confiée." : "Course reprise.");
+          await afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
+  }
+
   function htmlCommande(c) {
     const payee = c.etat === "payee";
     const attendue = c.etat === "a_payer";
@@ -137,6 +201,17 @@ const VueCommandes = (() => {
         "</div>" +
 
         '<div class="cmd-lignes">' + c.lignes.map((l) => htmlLigne(l, c.devise)).join("") + "</div>" +
+
+        /* CONFIER LA COURSE. Ne s'offre que sur une commande PRÊTE :
+           tant qu'elle n'est pas préparée, il n'y a rien à donner à
+           porter, et la base refuse d'ailleurs. Le bouton se remplit à
+           la demande — la liste des livreurs ne se lit qu'au moment où
+           l'on veut confier, pas à chaque ouverture de l'écran. */
+        (c.lignes.some((l) => l.etat === "preparee" || l.etat === "en_livraison")
+          ? '<button type="button" class="btn btn-clair" style="margin-top:12px" ' +
+            'data-confier="' + Utils.echapper(c.id) + '">' + UI.icone("voiture") +
+            "Confier à un livreur</button>"
+          : "") +
 
         '<div class="btn-rangee" style="margin-top:12px">' +
           '<a class="btn btn-wa" target="_blank" rel="noopener" href="' +
@@ -224,6 +299,10 @@ const VueCommandes = (() => {
           bouton.disabled = false;
         }
       };
+    }
+
+    for (const bouton of UI.$$("[data-confier]", vue)) {
+      bouton.onclick = () => confier(vue, bouton.dataset.confier);
     }
 
     for (const bouton of UI.$$("[data-confirmer]", vue)) {

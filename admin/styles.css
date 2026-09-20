@@ -1253,6 +1253,32 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   font-size:11.5px;color:var(--encre-tres-douce);
 }
 
+/* ---------- L'écran du livreur ----------
+   Ce qu'il porte en haut, à qui et où en dessous, et un seul bouton.
+   Rien d'autre : aucun montant n'existe dans ces données. */
+.lv-course{margin-bottom:12px}
+.lv-haut{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.lv-articles{
+  margin-top:10px;padding:10px 12px;border-radius:var(--r-sm);
+  background:var(--bleu-50);font-size:13.5px;line-height:1.7;
+}
+.lv-client{
+  margin-top:10px;padding-top:10px;border-top:1px solid var(--trait);
+  font-size:13px;line-height:1.6;
+}
+.lv-nom{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--encre)}
+.lv-tel,.lv-ou{
+  display:flex;align-items:flex-start;gap:6px;margin-top:6px;
+  color:var(--bleu);font-weight:600;
+}
+.lv-tel .ic,.lv-ou .ic{flex:none;margin-top:2px}
+.lv-note{
+  margin-top:8px;padding:8px 10px;border-radius:var(--r-sm);
+  background:var(--jaune-clair,#FFF7E6);color:var(--encre-douce);
+  font-size:12.5px;line-height:1.5;
+}
+.lv-avancer{margin-top:12px}
+
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :
    inutile au quotidien, indispensable le jour où rien ne marche. */

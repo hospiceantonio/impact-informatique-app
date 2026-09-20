@@ -438,22 +438,86 @@ with controles(rang, element, ok) as (values
   (79, 'Le client le pose lui-même (confirmer_reception)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'confirmer_reception')),
-  -- LE contrôle qui compte. L'équipe peut avancer l'état de SA ligne, et
-  -- rien d'autre : si « confirme_le » entrait dans ce droit, la boutique
-  -- signerait l'accusé de réception du client, et sa propre déclaration
-  -- « remise » n'aurait plus de contrepoids.
-  (80, 'Et la boutique ne peut pas le poser à sa place', not exists (
-      select 1 from information_schema.column_privileges
-       where table_schema = 'public' and table_name = 'commande_lignes'
-         and grantee = 'authenticated' and privilege_type = 'UPDATE'
-         and column_name <> 'etat')),
+  -- LE contrôle qui compte, et il ne regarde PAS les droits d'écriture :
+  -- sur une base Supabase, « authenticated » les reçoit d'office sur
+  -- toute table du schéma public. Chercher là un droit restreint, c'est
+  -- annoncer « MANQUANT » sur une base parfaitement saine. Ce qui tient
+  -- la porte, c'est le déclencheur « lignes_verrous » : il REFUSE toute
+  -- écriture de confirme_le qui ne vienne pas de confirmer_reception().
+  -- Sans lui, la boutique signerait l'accusé de réception du client, et
+  -- sa propre déclaration « remise » n'aurait plus de contrepoids.
+  (80, 'Et la boutique ne peut pas le poser à sa place', exists (
+      select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+       where t.tgrelid = 'public.commande_lignes'::regclass
+         and not t.tgisinternal and p.proname = 'ligne_verrous'
+         and pg_get_functiondef(p.oid) like '%confirme_le%')),
   -- Le client doit LIRE l'avancement : sans ce droit, son écran
   -- n'afficherait aucune étape.
   (81, 'Le client lit l''avancement de sa commande', exists (
       select 1 from information_schema.column_privileges
        where table_schema = 'public' and table_name = 'commande_lignes'
          and grantee = 'authenticated' and privilege_type = 'SELECT'
-         and column_name = 'confirme_le'))
+         and column_name = 'confirme_le')),
+
+  -- ---------- Le rôle livreur ----------
+  (82, 'Le rôle « livreur » est accepté', exists (
+      select 1 from pg_constraint
+       where conrelid = 'public.profils'::regclass
+         and conname = 'profils_role_check'
+         and pg_get_constraintdef(oid) like '%livreur%')),
+  (83, 'On sait à qui une ligne est confiée (commande_lignes.livreur_id)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commande_lignes'
+         and column_name = 'livreur_id')),
+  -- Et comme pour l'accusé de réception, c'est le déclencheur qui tient
+  -- la porte : sans lui, n'importe quelle écriture sur la ligne pourrait
+  -- se désigner porteuse de la marchandise.
+  (84, 'Et on ne se désigne pas porteur soi-même', exists (
+      select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+       where t.tgrelid = 'public.commande_lignes'::regclass
+         and not t.tgisinternal and p.proname = 'ligne_verrous'
+         and pg_get_functiondef(p.oid) like '%livreur_id%')),
+  -- LE contrôle de sécurité de tout ce chantier. « est_equipe() » ouvre
+  -- neuf écrans, du catalogue aux statistiques. Tant qu'elle disait
+  -- « un rôle, n'importe lequel », le premier livreur créé entrait
+  -- partout. On vérifie donc qu'elle NOMME les trois rôles de la
+  -- boutique — un « livreur absent » ne prouverait rien, l'ancienne
+  -- version ne le nommait pas non plus.
+  (85, 'L''équipe de la boutique est nommée, et le livreur n''en est pas', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'est_equipe'
+         and pg_get_functiondef(p.oid) like '%moderateur%'
+         and pg_get_functiondef(p.oid) not like '%''livreur''%')),
+  (86, 'On sait le reconnaître (est_livreur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'est_livreur')),
+  -- « peut_modifier_produits » vaut VRAI par défaut sur tout profil :
+  -- sans le est_equipe() en tête, la colonne dirait oui à un livreur
+  -- qu'on vient de créer, et le catalogue s'ouvrirait.
+  (87, 'Et il ne touche pas au catalogue', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'peut_modifier_produits'
+         and pg_get_functiondef(p.oid) like '%est_equipe%')),
+  (88, 'La boutique lui confie une course (assigner_livreur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'assigner_livreur')),
+  (89, 'Il voit les siennes (mes_livraisons)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'mes_livraisons')),
+  -- Le livreur porte la marchandise ; il n'a pas à savoir ce qu'elle
+  -- vaut. Une règle RLS choisit les LIGNES et les rend entières : seule
+  -- une fonction peut retenir des colonnes. On lit donc ce qu'elle
+  -- annonce rendre, et on y cherche de l'argent.
+  (90, 'Sans voir un seul montant', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'mes_livraisons'
+         and pg_get_function_result(p.oid) not like '%prix%'
+         and pg_get_function_result(p.oid) not like '%total%'
+         and pg_get_function_result(p.oid) not like '%montant%'
+         and pg_get_function_result(p.oid) not like '%remise%')),
+  (91, 'Et il avance lui-même sa course (avancer_livraison)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'avancer_livraison'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
