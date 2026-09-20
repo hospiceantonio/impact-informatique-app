@@ -511,6 +511,23 @@ const Compte = (() => {
     return Number(combien) || 0;
   }
 
+  /**
+   * « Je l'ai bien reçu », pour une boutique de cette commande.
+   *
+   * LE CLIENT SEUL PEUT LE DIRE, et la base y veille : la boutique
+   * déclare avoir remis, le client constate avoir reçu. Si l'un pouvait
+   * signer pour l'autre, la déclaration de la boutique n'aurait plus de
+   * contrepoids — et c'est justement elle qu'un litige vient interroger.
+   *
+   * La base refuse aussi de confirmer ce qui n'a pas été remis : son
+   * message se montre tel quel.
+   */
+  async function confirmerReception(commande, boutique) {
+    const combien = await rest("POST", "rpc/confirmer_reception",
+      { commande, boutique });
+    return Number(combien) || 0;
+  }
+
   /* ---------- L'historique, celui qui suit le client ----------
 
      Jusqu'ici « Mes commandes » lisait le téléphone. Changez d'appareil,
@@ -527,6 +544,27 @@ const Compte = (() => {
      celle que « creer_commande » rend au moment de commander. Un reçu
      lu depuis la base et un reçu gardé sur le téléphone s'affichent donc
      par le même code. */
+
+  /* ---------- Où en est la commande ----------
+     Les cinq étapes que la boutique fait avancer, dans l'ordre. L'ordre
+     compte : c'est lui qui dit laquelle est « la moins avancée ». */
+  const ETAPES = ["nouvelle", "vue", "preparee", "en_livraison", "remise"];
+
+  /**
+   * De deux étapes, la moins avancée.
+   *
+   * Une boutique peut avoir préparé un article et pas l'autre : ce que
+   * le client doit lire, c'est où en est le PLUS EN RETARD. Lui annoncer
+   * « remis » parce qu'un article sur trois l'est le ferait attendre
+   * chez lui une livraison déjà faite — ou réclamer une qui ne l'est pas.
+   *
+   * Une ligne annulée ne compte pas : elle ne retiendra jamais rien.
+   */
+  function ETAT_LE_MOINS_AVANCE(a, b) {
+    if (!a || a === "annulee") return b;
+    if (!b || b === "annulee") return a;
+    return ETAPES.indexOf(a) <= ETAPES.indexOf(b) ? a : b;
+  }
 
   /** Le nom d'une boutique, tel que le catalogue le connaît. */
   function boutiqueDe(id) {
@@ -566,7 +604,15 @@ const Compte = (() => {
         produitId: x.produit_id || "",
         nom: x.nom || "", code: x.code || "", reference: x.reference || "",
         prix, quantite,
+        etat: x.etat || "nouvelle",
+        confirmeLe: x.confirme_le || "",
       });
+      /* OÙ EN EST CETTE BOUTIQUE : l'étape la MOINS avancée de ses
+         lignes. Annoncer « remis » parce qu'un article sur trois l'est
+         ferait attendre le client pour rien. */
+      groupe.etat = ETAT_LE_MOINS_AVANCE(groupe.etat, x.etat || "nouvelle");
+      /* Confirmé seulement si TOUT l'est : on ne clôt pas à moitié. */
+      groupe.confirme = groupe.lignes.every((y) => y.confirmeLe);
     }
 
     return {
@@ -595,7 +641,7 @@ const Compte = (() => {
   const CHAMPS_COMMANDE =
     "id,numero,total,devise,etat,remarque,note,cree_le,revendeur," +
     "client_nom,client_tel,client_indicatif,client_adresse," +
-    "commande_lignes(boutique_id,produit_id,nom,code,reference,prix,quantite)";
+    "commande_lignes(boutique_id,produit_id,nom,code,reference,prix,quantite,etat,confirme_le)";
 
   /** Les commandes de ce compte, les plus récentes d'abord. */
   async function mesCommandes(combien) {
@@ -906,6 +952,7 @@ const Compte = (() => {
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
+    confirmerReception,
     mesCommandes, commande, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,

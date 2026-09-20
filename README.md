@@ -568,6 +568,56 @@ bénéfice affiché serait surévalué de toutes les remises accordées.
 `remises_periode()` les répartit au prorata de ce que chaque boutique
 pèse dans la commande, et l'écran les retranche.
 
+### Où en est ma commande
+
+Une boutique fait avancer sa ligne en **cinq** pas :
+
+```
+nouvelle → vue → préparée → en livraison → remise
+```
+
+`en_livraison` manquait : la marchandise passait du comptoir au client
+sans que rien ne dise qu'elle était partie, et personne ne pouvait
+répondre à « où en est ma commande ? » entre les deux.
+
+**Le client voit cet avancement**, boutique par boutique. Une commande
+qui traverse deux boutiques en montre deux — l'une peut avoir remis
+quand l'autre prépare encore. Pour une boutique donnée, l'étape affichée
+est celle de sa ligne **la moins avancée** : annoncer « remis » parce
+qu'un article sur trois l'est ferait attendre le client chez lui une
+livraison déjà faite.
+
+### Qui dit quoi
+
+`remise` est ce que la **boutique** déclare. `confirme_le` est ce que le
+**client** constate. Ce sont deux paroles différentes, et c'est pour cela
+que la confirmation est une **colonne à part** et non un sixième état
+dans la même chaîne.
+
+Si l'un pouvait signer pour l'autre, la déclaration de la boutique
+n'aurait plus de contrepoids — et c'est justement elle qu'un litige vient
+interroger. La base l'empêche des deux côtés :
+
+- `grant update (etat)` et **rien d'autre** : la colonne n'est pas dans
+  le droit d'écriture de l'équipe ;
+- `ligne_verrous` lève sur tout changement de `confirme_le` hors du
+  drapeau que seule `confirmer_reception()` pose ;
+- `confirmer_reception()` vérifie `ma_commande()` : l'enseigne elle-même
+  est refusée, ce n'est pas elle qui a reçu la marchandise ;
+- **on ne confirme que ce qui a été remis** — confirmer avant que la
+  boutique n'ait rien déclaré ne voudrait rien dire.
+
+[`tests/99f-cycle-commande.sql`](supabase/tests/99f-cycle-commande.sql)
+force les quatre portes. Trois sabotages les font tomber : retirer la
+garde du verrou, retirer la condition « remise », retirer le contrôle de
+propriété.
+
+**Une forme d'essai à ne pas confondre.** Une règle RLS ne *lève* pas :
+elle *filtre*. Une écriture qui ne trouve aucune ligne autorisée réussit
+en silence. Attendre un refus ferait échouer l'essai pour la mauvaise
+raison — on constate donc que **rien n'a bougé**. Le verrou, lui, est un
+déclencheur : il lève, et là `essai.refuse` est la bonne forme.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
@@ -1080,6 +1130,7 @@ impact-informatique-app/
 │   ├── fiche-client.sql             # Retrouver un client et ses commandes — l'enseigne seule
 │   ├── journal-versements.sql       # Une ligne par tentative de paiement, jamais retouchée
 │   ├── codes-promo.sql              # Une remise sort de la marge de l'enseigne, jamais de la boutique
+│   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

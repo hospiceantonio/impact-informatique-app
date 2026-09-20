@@ -2007,9 +2007,27 @@ create table if not exists public.commande_lignes (
   quantite    int  not null default 1 check (quantite > 0 and quantite <= 99),
   -- Le suivi côté boutique : elle avance sa propre ligne.
   etat        text not null default 'nouvelle'
-              check (etat in ('nouvelle', 'vue', 'preparee', 'remise', 'annulee')),
+              check (etat in ('nouvelle', 'vue', 'preparee',
+                              'en_livraison', 'remise', 'annulee')),
   cree_le     timestamptz not null default now()
 );
+
+-- « en_livraison » est arrivé après coup : sur une base déjà en service,
+-- le corps du « create table » n'est jamais relu, et la contrainte y
+-- refuserait encore ce nouvel état. On la repose donc explicitement.
+alter table public.commande_lignes drop constraint if exists commande_lignes_etat_check;
+alter table public.commande_lignes add constraint commande_lignes_etat_check
+  check (etat in ('nouvelle', 'vue', 'preparee', 'en_livraison', 'remise', 'annulee'));
+
+-- QUAND LE CLIENT A DIT « JE L'AI BIEN REÇU ».
+--
+-- Une colonne à part, et pas un état de plus dans la chaîne ci-dessus :
+-- ce ne sont pas les mêmes faits, ni les mêmes témoins. « remise » est
+-- ce que la BOUTIQUE déclare ; « confirme_le » est ce que le CLIENT
+-- constate. Les mêler dans une seule colonne reviendrait à laisser l'un
+-- écrire la parole de l'autre — et la déclaration de la boutique n'a
+-- plus de valeur si elle peut aussi signer l'accusé de réception.
+alter table public.commande_lignes add column if not exists confirme_le timestamptz;
 -- Le code du produit, figé comme son nom et son prix : c'est ce qui a
 -- été vendu.
 alter table public.commande_lignes add column if not exists code text not null default '';
@@ -2230,6 +2248,14 @@ create trigger commandes_verrous
 create or replace function public.ligne_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  -- LA CONFIRMATION DU CLIENT passe par « confirmer_reception », qui
+  -- pose ce drapeau. Sans lui, la colonne est aussi verrouillée que le
+  -- reste : ni la boutique ni le client ne peuvent l'écrire à la main.
+  if coalesce(current_setting('bizzoo.reception', true), '') <> 'oui'
+     and new.confirme_le is distinct from old.confirme_le then
+    raise exception 'Un accusé de réception se pose depuis le compte du client';
+  end if;
+
   if new.commande_id is distinct from old.commande_id
   or new.boutique_id is distinct from old.boutique_id
   or new.produit_id  is distinct from old.produit_id
@@ -2305,6 +2331,51 @@ language sql stable security definer set search_path = public as $$
 $$;
 grant execute on function public.ma_commande(text) to authenticated;
 
+-- ---------- « Je l'ai bien reçu » ----------
+-- LE CLIENT SEUL, et c'est tout l'intérêt. La boutique déclare avoir
+-- remis la marchandise ; le client constate l'avoir reçue. Si l'un
+-- pouvait signer pour l'autre, la déclaration de la boutique n'aurait
+-- plus de valeur — et c'est justement ce qu'un litige vient interroger.
+--
+-- PAR BOUTIQUE, pas par commande entière : une commande peut traverser
+-- deux boutiques qui livrent séparément, et le client ne peut pas
+-- confirmer ce qu'il n'a pas encore vu arriver.
+--
+-- ON NE CONFIRME QUE CE QUI A ÉTÉ REMIS. Confirmer avant que la
+-- boutique n'ait rien déclaré ne voudrait rien dire — et donnerait au
+-- client un moyen de clore une commande qui n'est pas partie.
+create or replace function public.confirmer_reception(commande text, boutique text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  combien int;
+begin
+  if moi is null then
+    raise exception 'Connectez-vous pour confirmer une réception';
+  end if;
+  if not public.ma_commande(commande) then
+    raise exception 'Cette commande n''est pas la vôtre';
+  end if;
+
+  perform set_config('bizzoo.reception', 'oui', true);
+  update public.commande_lignes l
+     set confirme_le = now()
+   where l.commande_id = commande
+     and l.boutique_id = boutique
+     and l.etat = 'remise'
+     and l.confirme_le is null;
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.reception', '', true);
+
+  if combien = 0 then
+    raise exception 'Rien à confirmer ici : la boutique n''a pas encore déclaré vous avoir remis cette commande.';
+  end if;
+  return combien;
+end $$;
+revoke all on function public.confirmer_reception(text, text) from public, anon;
+grant execute on function public.confirmer_reception(text, text) to authenticated;
+
 drop policy if exists "lignes lecture client" on public.commande_lignes;
 create policy "lignes lecture client" on public.commande_lignes
   for select to authenticated
@@ -2327,7 +2398,7 @@ create policy "lignes lecture client" on public.commande_lignes
 revoke select on public.commande_lignes from authenticated;
 grant select (
   id, commande_id, boutique_id, produit_id,
-  nom, code, reference, prix, quantite, etat, cree_le
+  nom, code, reference, prix, quantite, etat, cree_le, confirme_le
 ) on public.commande_lignes to authenticated;
 revoke all on public.commande_lignes from anon;
 -- L'équipe avance l'état de sa ligne, et rien d'autre : « ligne_verrous »

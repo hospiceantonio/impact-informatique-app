@@ -1468,12 +1468,22 @@ const Store = (() => {
   const ETATS_LIGNE = {
     nouvelle: { nom: "Nouvelle", classe: "badge-nouvelle", suivant: "Marquer vue" },
     vue: { nom: "Vue", classe: "badge-commande", suivant: "Marquer préparée" },
-    preparee: { nom: "Préparée", classe: "badge-approvisionnement", suivant: "Marquer remise" },
+    preparee: { nom: "Préparée", classe: "badge-approvisionnement",
+                suivant: "Marquer en livraison" },
+    /* L'étape qui manquait : entre le comptoir et le client, la
+       marchandise est QUELQUE PART. Sans elle, rien ne distinguait une
+       commande prête à partir d'une commande déjà partie — et personne
+       ne pouvait répondre à « où en est ma commande ? ». */
+    en_livraison: { nom: "En livraison", classe: "badge-commande",
+                    suivant: "Marquer remise" },
     remise: { nom: "Remise au client", classe: "badge-ok", suivant: "" },
     annulee: { nom: "Annulée", classe: "badge-annulee", suivant: "" },
   };
   /** Ce qui vient après, quand la boutique fait avancer une ligne. */
-  const SUITE_LIGNE = { nouvelle: "vue", vue: "preparee", preparee: "remise" };
+  const SUITE_LIGNE = {
+    nouvelle: "vue", vue: "preparee",
+    preparee: "en_livraison", en_livraison: "remise",
+  };
 
   function commandeDepuisLigne(l) {
     const lignes = (l.commande_lignes || []).map((x) => ({
@@ -1485,6 +1495,11 @@ const Store = (() => {
       prix: Number(x.prix) || 0,
       quantite: Number(x.quantite) || 1,
       etat: x.etat || "nouvelle",
+      /* Quand le CLIENT a confirmé avoir reçu. Vide tant qu'il ne l'a
+         pas dit — et la boutique ne peut pas le poser elle-même : la
+         base le lui refuse. C'est ce qui donne du poids à sa propre
+         déclaration « remise ». */
+      confirmeLe: x.confirme_le || "",
     }));
     return {
       id: l.id,
@@ -1536,7 +1551,7 @@ const Store = (() => {
        existent. Ces deux chiffres-là arrivent par
        « statistiques_ventes() », qui vérifie qui appelle. */
     let chemin = "commandes?select=*,commande_lignes(" +
-      "id,boutique_id,produit_id,nom,code,reference,prix,quantite,etat" +
+      "id,boutique_id,produit_id,nom,code,reference,prix,quantite,etat,confirme_le" +
       ")&order=cree_le.desc" +
       "&limit=" + (o.combien || 100);
     if (o.etat) chemin += "&etat=eq." + encodeURIComponent(o.etat);

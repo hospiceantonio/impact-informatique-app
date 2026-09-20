@@ -57,9 +57,24 @@ update public.commande_lignes l
 -- Le verrou lui-même, reposé à l'identique avant d'être rebranché : un
 -- « create trigger » qui désigne une fonction absente échoue, et tout le
 -- fichier serait annulé — l'éditeur SQL de Supabase exécute d'un bloc.
+-- La colonne que « ligne_verrous » protège : l'accusé de réception du
+-- client. Un fichier qui pose une fonction pose aussi les colonnes
+-- qu'elle touche — sans elle, la règle s'installerait sans un mot et
+-- la base s'arrêterait sur « record "new" has no field » à la
+-- première ligne de commande avancée.
+alter table public.commande_lignes add column if not exists confirme_le timestamptz;
+
 create or replace function public.ligne_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  -- LA CONFIRMATION DU CLIENT passe par « confirmer_reception », qui
+  -- pose ce drapeau. Sans lui, la colonne est aussi verrouillée que le
+  -- reste : ni la boutique ni le client ne peuvent l'écrire à la main.
+  if coalesce(current_setting('bizzoo.reception', true), '') <> 'oui'
+     and new.confirme_le is distinct from old.confirme_le then
+    raise exception 'Un accusé de réception se pose depuis le compte du client';
+  end if;
+
   if new.commande_id is distinct from old.commande_id
   or new.boutique_id is distinct from old.boutique_id
   or new.produit_id  is distinct from old.produit_id

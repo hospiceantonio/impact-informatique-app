@@ -1241,6 +1241,18 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    ne doit pas le dicter à un client par erreur. */
 .cd-ferme{opacity:.62}
 
+/* ---------- Ce que le client a confirmé ----------
+   Sous l'état de la ligne : votre déclaration d'un côté, la sienne de
+   l'autre. Les deux ensemble closent la commande. */
+.cmd-confirme{
+  display:inline-flex;align-items:center;gap:5px;
+  margin-top:6px;font-size:11.5px;font-weight:700;color:var(--vert);
+}
+.cmd-attente-client{
+  display:inline-block;margin-top:6px;
+  font-size:11.5px;color:var(--encre-tres-douce);
+}
+
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :
    inutile au quotidien, indispensable le jour où rien ne marche. */

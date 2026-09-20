@@ -774,6 +774,7 @@ const VuePanier = (() => {
     if (!Paiement.connu()) await Paiement.charger();
 
     dessinerRecu(vue, commande);
+    brancherSuivi(vue, commande);
 
     /* Le SAV, sous le reçu : c'est ici que le client est quand il
        constate un problème, et c'est cette commande-là qui prouve son
@@ -818,6 +819,78 @@ const VuePanier = (() => {
     }
   }
 
+  /* -----------------------------------------------------
+     Où en est ma commande
+     -----------------------------------------------------
+     Les cinq étapes que la boutique fait avancer, et — quand elle a
+     déclaré avoir remis — le bouton par lequel le CLIENT le confirme.
+
+     Ce bouton ne fait pas double emploi avec la déclaration de la
+     boutique : ce sont deux paroles différentes. La boutique dit « j'ai
+     remis » ; le client dit « j'ai reçu ». La base refuse à chacun de
+     signer pour l'autre, et c'est tout l'intérêt — le jour d'un litige,
+     il reste quelque chose à interroger. */
+  const ETAPES = [
+    { cle: "nouvelle", mot: "Commande reçue" },
+    { cle: "vue", mot: "Vue par la boutique" },
+    { cle: "preparee", mot: "Préparée" },
+    { cle: "en_livraison", mot: "En livraison" },
+    { cle: "remise", mot: "Remise" },
+  ];
+
+  function blocSuivi(commande, g) {
+    /* Une commande qui ne vient pas de la base n'a pas d'état de
+       préparation : on ne montre rien plutôt que d'inventer une étape.
+       Et avant le paiement, il n'y a rien à suivre. */
+    if (commande.etat !== "payee" || !g.etat) return "";
+    if (g.etat === "annulee") {
+      return '<div class="re-suivi re-suivi-annule">' + UI.icone("fermer", "ic-sm") +
+        "<span>Cette boutique a annulé sa part de la commande.</span></div>";
+    }
+    const rang = ETAPES.findIndex((e) => e.cle === g.etat);
+    const remise = g.etat === "remise";
+
+    return '<div class="re-suivi">' +
+      ETAPES.map((e, i) =>
+        '<div class="re-etape' + (i <= rang ? " faite" : "") + '">' +
+          '<span class="re-puce">' + (i <= rang ? UI.icone("check", "ic-sm") : "") + "</span>" +
+          "<span>" + Utils.echapper(e.mot) + "</span>" +
+        "</div>").join("") +
+      (remise && g.confirme
+        ? '<div class="re-recu">' + UI.icone("check", "ic-sm") +
+          "<span>Vous avez confirmé avoir reçu cette commande.</span></div>"
+        : remise
+          ? '<button type="button" class="btn btn-clair re-confirmer" ' +
+              'data-boutique="' + Utils.echapper(g.boutique.id || "") + '">' +
+              UI.icone("check") + "J'ai bien reçu</button>" +
+            '<p class="aide" style="margin:8px 0 0">La boutique a déclaré vous avoir ' +
+              "remis cette commande. Confirmez-le pour clore de votre côté — et " +
+              "n'hésitez pas à ouvrir une réclamation si ce n'est pas le cas.</p>"
+          : "") +
+    "</div>";
+  }
+
+  /** Brancher les boutons « J'ai bien reçu » du reçu. */
+  function brancherSuivi(vue, commande) {
+    for (const b of UI.$$(".re-confirmer", vue)) {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await Compte.confirmerReception(commande.id, b.dataset.boutique);
+          UI.toast("Merci, c'est noté.");
+          /* On relit la commande plutôt que de cocher à l'écran : ce
+             qui s'affiche doit venir de la base, comme le reste. */
+          location.reload();
+        } catch (err) {
+          /* La base explique pourquoi — « rien à confirmer ici » quand
+             la boutique n'a encore rien déclaré. On la cite. */
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
+  }
+
   function dessinerRecu(vue, commande) {
     const etat = ETATS[commande.etat] || ETATS.a_payer;
     const payee = commande.etat === "payee";
@@ -825,6 +898,12 @@ const VuePanier = (() => {
       boutique: Catalogue.boutiques().find((x) => x.id === b.id) ||
         { id: b.id, nom: b.nom, whatsapp: b.whatsapp, indicatif: b.indicatif, tel: "" },
       montant: b.montant,
+      /* Où en est CETTE boutique, et si le client a déjà confirmé. Les
+         deux viennent de la base ; une commande qui ne vit que sur le
+         téléphone n'en sait rien, et l'écran ne montre alors pas le
+         suivi plutôt que d'inventer une étape. */
+      etat: b.etat || "",
+      confirme: !!b.confirme,
       lignes: (b.lignes || []).map((l) => ({
         produit: { nom: l.nom, code: l.code || "", reference: l.reference, prix: l.prix },
         quantite: l.quantite,
@@ -873,6 +952,7 @@ const VuePanier = (() => {
             "</strong></div>").join("") +
           '<div class="pa-sous-total"><span>Sous-total</span><strong>' +
             Utils.echapper(Utils.fmtMontant(g.montant, commande.devise)) + "</strong></div>" +
+          blocSuivi(commande, g) +
         "</div>").join("") +
 
       (payee

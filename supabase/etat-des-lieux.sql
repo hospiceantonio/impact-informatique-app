@@ -423,7 +423,37 @@ with controles(rang, element, ok) as (values
   (76, 'Un client ne lit pas la liste des codes', not exists (
       select 1 from pg_policies
        where schemaname = 'public' and tablename = 'codes_promo'
-         and cmd <> 'SELECT'))
+         and cmd <> 'SELECT')),
+
+  -- ---------- Le cycle de vie d'une commande ----------
+  (77, 'L''étape « en livraison » existe', exists (
+      select 1 from pg_constraint
+       where conrelid = 'public.commande_lignes'::regclass
+         and conname = 'commande_lignes_etat_check'
+         and pg_get_constraintdef(oid) like '%en_livraison%')),
+  (78, 'L''accusé de réception du client (commande_lignes.confirme_le)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commande_lignes'
+         and column_name = 'confirme_le')),
+  (79, 'Le client le pose lui-même (confirmer_reception)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'confirmer_reception')),
+  -- LE contrôle qui compte. L'équipe peut avancer l'état de SA ligne, et
+  -- rien d'autre : si « confirme_le » entrait dans ce droit, la boutique
+  -- signerait l'accusé de réception du client, et sa propre déclaration
+  -- « remise » n'aurait plus de contrepoids.
+  (80, 'Et la boutique ne peut pas le poser à sa place', not exists (
+      select 1 from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'commande_lignes'
+         and grantee = 'authenticated' and privilege_type = 'UPDATE'
+         and column_name <> 'etat')),
+  -- Le client doit LIRE l'avancement : sans ce droit, son écran
+  -- n'afficherait aucune étape.
+  (81, 'Le client lit l''avancement de sa commande', exists (
+      select 1 from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'commande_lignes'
+         and grantee = 'authenticated' and privilege_type = 'SELECT'
+         and column_name = 'confirme_le'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

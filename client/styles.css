@@ -918,6 +918,38 @@ a.pub-carte:active{transform:scale(.98)}
    lise comme un retrait et pas comme une ligne de plus à payer. */
 .pa-total-ligne.co-remise{color:var(--vert);font-weight:700}
 
+/* ---------- Où en est ma commande ----------
+   Les cinq étapes, la faite en vert, les suivantes en gris. Le client
+   lit de haut en bas et sait où il en est sans lire une phrase. */
+.re-suivi{
+  margin-top:12px;padding-top:12px;border-top:1px solid var(--trait);
+}
+.re-etape{
+  display:flex;align-items:center;gap:8px;
+  padding:3px 0;font-size:13px;color:var(--encre-tres-douce);
+}
+.re-etape.faite{color:var(--encre);font-weight:600}
+.re-puce{
+  width:18px;height:18px;flex:none;border-radius:999px;
+  border:2px solid var(--trait);background:var(--blanc);
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.re-etape.faite .re-puce{background:var(--vert-clair);border-color:var(--vert);color:var(--vert)}
+.re-etape.faite .re-puce .ic{width:11px;height:11px}
+.re-confirmer{margin-top:12px}
+.re-recu{
+  display:flex;align-items:flex-start;gap:8px;
+  margin-top:12px;padding:9px 11px;border-radius:10px;
+  background:var(--vert-clair);color:var(--vert);
+  font-size:13px;line-height:1.5;
+}
+.re-recu .ic{flex:none;margin-top:2px}
+.re-suivi-annule{
+  display:flex;align-items:flex-start;gap:8px;
+  font-size:13px;line-height:1.5;color:var(--rouge-fonce);
+}
+.re-suivi-annule .ic{flex:none;margin-top:2px}
+
 .pa-avertissement,.pa-essai,.pa-confirme{
   display:flex;align-items:flex-start;gap:10px;
   font-size:13px;line-height:1.5;

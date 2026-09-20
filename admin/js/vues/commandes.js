@@ -55,6 +55,17 @@ const VueCommandes = (() => {
             ? '<button type="button" class="btn-mini" data-avancer="' + Utils.echapper(l.id) +
               '" data-etat="' + suite + '">' + Utils.echapper(etat.suivant) + "</button>"
             : "") +
+          /* CE QUE LE CLIENT A DIT, quand il l'a dit. « Remise » est
+             votre déclaration ; ceci est la sienne. Les deux ensemble
+             closent la commande — et le jour d'un litige, c'est cette
+             ligne-là qu'on regarde. La base vous interdit de la poser
+             vous-même, et c'est ce qui lui donne sa valeur. */
+          (l.confirmeLe
+            ? '<span class="cmd-confirme">' + UI.icone("check", "ic-sm") +
+              "Reçu confirmé " + Utils.echapper(Utils.fmtDateHeure(l.confirmeLe)) + "</span>"
+            : l.etat === "remise"
+              ? '<span class="cmd-attente-client">En attente de sa confirmation</span>'
+              : "") +
         "</div>" +
       "</div>"
     );

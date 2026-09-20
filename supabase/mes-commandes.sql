@@ -56,10 +56,14 @@ alter table public.commande_lignes
 -- pour un compte connecté. Les écrans nomment désormais ce qu'ils
 -- demandent — ce qui est de toute façon la bonne façon de lire une
 -- table dont toutes les colonnes ne les regardent pas.
+-- L'accusé de réception du client. Répété ici : ce fichier pose la
+-- liste des colonnes lisibles, et rejoué après le schéma il la
+-- REFERMERAIT s'il ne la citait pas.
+alter table public.commande_lignes add column if not exists confirme_le timestamptz;
 revoke select on public.commande_lignes from authenticated;
 grant select (
   id, commande_id, boutique_id, produit_id,
-  nom, code, reference, prix, quantite, etat, cree_le
+  nom, code, reference, prix, quantite, etat, cree_le, confirme_le
 ) on public.commande_lignes to authenticated;
 
 -- « anon » n'a jamais rien eu ici, et n'aura jamais rien : une
