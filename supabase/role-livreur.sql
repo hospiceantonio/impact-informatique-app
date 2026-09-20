@@ -205,6 +205,14 @@ create trigger lignes_verrous
   before update on public.commande_lignes
   for each row execute function public.ligne_verrous();
 
+-- ET LA SECONDE SERRURE. Le retrait d'abord, sans quoi la ligne
+-- suivante n'ajoute rien : chaque table du schéma public naît avec
+-- « grant all » pour « authenticated », et un droit de colonne posé
+-- par-dessus n'en retire aucun. L'équipe avance l'état de sa ligne,
+-- et rien d'autre.
+revoke update on public.commande_lignes from authenticated;
+grant update (etat) on public.commande_lignes to authenticated;
+
 -- Le livreur
 -- =========================================================
 -- Il porte la marchandise, et c'est tout. Ce qu'il doit savoir : QUOI

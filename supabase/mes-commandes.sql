@@ -74,6 +74,11 @@ revoke all on public.commande_lignes from anon;
 -- L'équipe garde ce qu'il lui faut pour préparer et suivre : écrire
 -- l'état d'une ligne. Le verrou « ligne_verrous » continue de refuser
 -- tout le reste — ce qui a été vendu est vendu.
+-- LE RETRAIT D'ABORD, sans quoi la ligne suivante n'ajoute rien du
+-- tout : une base Supabase donne « grant all » d'office à
+-- « authenticated » sur toute table du schéma public, et un droit de
+-- colonne posé par-dessus n'en retire aucun.
+revoke update on public.commande_lignes from authenticated;
 grant update (etat) on public.commande_lignes to authenticated;
 
 -- ---------- Vérification ----------

@@ -250,10 +250,19 @@ const VueCommandes = (() => {
       return;
     }
 
+    /* TROIS PILES, ET PAS DEUX. Le partage se faisait en « à préparer »
+       d'un côté, « déjà remises » de l'autre — si bien qu'une commande
+       préparée, ou partie avec le livreur, se rangeait sous un titre qui
+       annonçait le travail fini. C'est pourtant là que la boutique doit
+       la retrouver pour la confier, et là que le client demande où elle
+       en est. */
     const payees = commandes.filter((c) => c.etat === "payee");
     const aFaire = payees.filter((c) =>
       c.lignes.some((l) => l.etat === "nouvelle" || l.etat === "vue"));
-    const faites = payees.filter((c) => !aFaire.includes(c));
+    const enRoute = payees.filter((c) => !aFaire.includes(c)
+      && c.lignes.some((l) => l.etat === "preparee" || l.etat === "en_livraison"));
+    const faites = payees.filter((c) =>
+      !aFaire.includes(c) && !enRoute.includes(c));
     /* Les commandes non payées n'intéressent que l'enseigne : une
        boutique n'a pas à courir après un panier abandonné. */
     const attente = Supabase.estSuper()
@@ -279,6 +288,10 @@ const VueCommandes = (() => {
           "est vendu.</p>" +
       "</div>" +
       (aFaire.length ? aFaire.map(htmlCommande).join("") : "") +
+      (enRoute.length
+        ? '<div class="titre-section">À livrer</div>' +
+          enRoute.map(htmlCommande).join("")
+        : "") +
       (attente.length
         ? '<div class="titre-section">Paiements à vérifier</div>' +
           attente.map(htmlCommande).join("")

@@ -139,7 +139,7 @@ et `authenticated`, schéma `auth`, stockage, temps réel), charge
 `schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
 qu'il se rejoue —, **rejoue ensuite chaque fichier de `supabase/` comme
 le fait l'éditeur SQL** (tout d'un bloc, sans compte connecté), puis
-essaie de forcer chaque porte. Plus de 700 constats, plus les 91
+essaie de forcer chaque porte. Plus de 700 constats, plus les 92
 contrôles de l'état des lieux ; la sortie nomme celui qui cède.
 
 Pourquoi un vrai moteur : les tests des applications simulent la base.
@@ -627,35 +627,56 @@ en silence. Attendre un refus ferait échouer l'essai pour la mauvaise
 raison — on constate donc que **rien n'a bougé**. Le verrou, lui, est un
 déclencheur : il lève, et là `essai.refuse` est la bonne forme.
 
-### Ce n'est pas le droit d'écriture qui tient la porte
+### Un `grant` de colonne ne retire rien : il faut retirer d'abord
 
-`schema.sql` écrit `grant update (etat) on commande_lignes`, et on peut
-croire en le lisant que l'équipe n'a le droit d'écrire *que* cette
-colonne. **C'est faux, et il faut le savoir** : une base Supabase pose
-`alter default privileges in schema public grant all … to anon,
-authenticated, service_role`. Chaque table nouvelle naît donc avec
-`grant all` pour `authenticated` — un `grant` de colonne par-dessus
-n'enlève rien, il ajoute à un droit déjà entier.
+`schema.sql` écrivait `grant update (etat) on commande_lignes`, et le
+commentaire au-dessus affirmait que l'équipe n'écrivait *que* cette
+colonne. **C'était faux**, et c'est une chose à savoir une fois pour
+toutes : une base Supabase pose `alter default privileges in schema
+public grant all … to anon, authenticated, service_role`. Chaque table
+nouvelle naît donc avec `grant all` pour `authenticated` — un `grant` de
+colonne par-dessus n'enlève rien, il ajoute à un droit déjà entier.
 
-Ce qui tient réellement la porte, c'est le **déclencheur**
-`lignes_verrous`, qui refuse ligne par ligne toute écriture de
-`commande_id`, `boutique_id`, `produit_id`, `nom`, `code`, `reference`,
-`prix`, `prix_bizzoo`, `taux_marge`, `quantite`, `confirme_le` et
-`livreur_id`. Il ne reste d'écrivable que `etat` — et c'est exactement
-l'intention.
+Le même fichier faisait pourtant les choses correctement quelques lignes
+plus haut, pour la lecture : `revoke select … from authenticated`, puis
+`grant select (…)`. On l'avait vu pour la lecture, manqué pour
+l'écriture. Les deux vont désormais par paire :
+
+```sql
+revoke update on public.commande_lignes from authenticated;
+grant  update (etat) on public.commande_lignes to authenticated;
+```
+
+Il y a donc **deux serrures** sur une ligne vendue. Le droit d'écriture,
+qui ne porte plus que `etat` ; et le **déclencheur** `lignes_verrous`,
+qui refuse en plus, ligne par ligne, toute écriture de `commande_id`,
+`boutique_id`, `produit_id`, `nom`, `code`, `reference`, `prix`,
+`prix_bizzoo`, `taux_marge`, `quantite`, `confirme_le` et `livreur_id`.
+Le déclencheur a toujours tenu seul ; le retrait est ce qui rend vrai ce
+que le commentaire disait déjà.
+
+**Et un essai qui ne prouvait pas ce qu'il annonçait.** Les quatre
+refus posés sur ces colonnes depuis le compte du chef de boutique
+restaient verts *le retrait enlevé* : le déclencheur répondait à sa
+place. Ils prouvent que la porte tient, pas **laquelle** des deux
+serrures la tient. Un cinquième constat nomme la serrure — il lit le
+droit lui-même, et tombe dès que le retrait disparaît des trois
+fichiers.
 
 **Un contrôle qui regardait le mauvais verrou.** L'état des lieux
-demandait autrefois qu'aucune colonne autre que `etat` ne soit dans le
-droit d'écriture de `authenticated` ; il aurait répondu « MANQUANT » sur
-une base parfaitement saine, et envoyé le gérant réparer ce qui allait
-bien. Le banc ne le voyait pas, parce qu'il *exécutait*
-`etat-des-lieux.sql` sans jamais **lire sa réponse** : une requête de
-lecture réussit même quand elle répond faux.
+demandait qu'aucune colonne autre que `etat` ne soit dans le droit
+d'écriture de `authenticated` — vrai aujourd'hui, faux quand il a été
+écrit : il aurait répondu « MANQUANT » sur une base parfaitement saine,
+et envoyé le gérant réparer ce qui allait bien. Le banc ne le voyait
+pas, parce qu'il *exécutait* `etat-des-lieux.sql` sans jamais **lire sa
+réponse** : une requête de lecture réussit même quand elle répond faux.
 
 `tools/eprouver-base.sh` rejoue donc maintenant l'état des lieux sur une
 base où tout vient d'être posé, où la réponse est connue d'avance — **un
 seul « MANQUANT » y est un échec du banc**. C'est ce contrôle qui a
-trouvé celui-ci, à sa première exécution.
+trouvé celui-ci, à sa première exécution. Il y a aujourd'hui deux
+contrôles là où il n'y en avait qu'un : le 80 regarde le déclencheur, le
+92 regarde le droit.
 
 ## Le livreur
 
@@ -716,13 +737,31 @@ confie tient la boutique, que celui à qui l'on confie est bien un livreur
 `livreur_id` ne s'écrit pas à la main : `lignes_verrous` lève sur tout
 changement de cette colonne hors du drapeau que seule
 `assigner_livreur()` pose. Sans cela, n'importe quelle écriture sur la
-ligne pourrait se désigner porteuse de la marchandise.
+ligne pourrait se désigner porteuse de la marchandise — et recevoir du
+même coup le nom, le téléphone et l'adresse du client, fût-il d'une
+autre boutique.
+
+### Trois piles, et non deux
+
+L'écran des commandes rangeait tout en deux tas : « à préparer » d'un
+côté, « déjà remises » de l'autre. Une commande préparée — et *a
+fortiori* partie avec le livreur — tombait donc sous un titre qui
+annonçait le travail fini, sur l'écran même où la boutique doit la
+retrouver pour la confier, et qu'elle regarde quand le client demande
+où elle en est. Un troisième tas s'intercale : **« À livrer »**, ce qui
+est prêt et ce qui est en route. Seul ce qui est remis reste sous
+« Déjà remises ».
+
+Ce défaut-là ne s'est pas vu dans un constat, mais sur une **capture
+d'écran** : les treize constats de ce banc étaient verts, et le titre
+au-dessus de la commande disait le contraire de son état.
 
 [`tests/99g-livreur.sql`](supabase/tests/99g-livreur.sql) force les
-portes en 42 constats. Trois sabotages les font tomber : rendre à
+portes en 46 constats. Quatre sabotages les font tomber : rendre à
 `est_equipe()` son ancienne définition, ouvrir `mes_livraisons()` à
 toutes les courses, retirer le contrôle « livreur de ma boutique » de
-`assigner_livreur()`.
+`assigner_livreur()`, et retirer le `revoke update` des trois fichiers
+qui le posent.
 
 ## Ce que cherche la recherche
 

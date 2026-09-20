@@ -184,6 +184,11 @@ revoke all on public.commande_lignes from anon;
 -- L'équipe avance l'état de sa ligne, et RIEN d'autre. « confirme_le »
 -- n'est volontairement pas dans cette liste : il ne s'écrit que par la
 -- fonction ci-dessus.
+-- LE RETRAIT D'ABORD, sans quoi la ligne suivante n'ajoute rien du
+-- tout : une base Supabase donne « grant all » d'office à
+-- « authenticated » sur toute table du schéma public, et un droit de
+-- colonne posé par-dessus n'en retire aucun.
+revoke update on public.commande_lignes from authenticated;
 grant update (etat) on public.commande_lignes to authenticated;
 
 -- ---------- Vérification ----------

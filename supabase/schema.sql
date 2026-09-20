@@ -2613,6 +2613,15 @@ grant select (
 revoke all on public.commande_lignes from anon;
 -- L'équipe avance l'état de sa ligne, et rien d'autre : « ligne_verrous »
 -- refuse déjà le reste, ceci le refuse une seconde fois.
+--
+-- LE RETRAIT D'ABORD, sans quoi la ligne suivante n'ajoute rien du
+-- tout. Une base Supabase pose « alter default privileges … grant all
+-- … to anon, authenticated » : chaque table du schéma public naît avec
+-- TOUS les droits pour « authenticated », et un droit de colonne posé
+-- par-dessus n'en retire aucun. C'est la même raison qui a imposé le
+-- « revoke select » plus haut — on l'avait vue pour la lecture, on
+-- l'avait manquée pour l'écriture.
+revoke update on public.commande_lignes from authenticated;
 grant update (etat) on public.commande_lignes to authenticated;
 
 create policy "commandes suivi" on public.commandes

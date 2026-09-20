@@ -517,7 +517,20 @@ with controles(rang, element, ok) as (values
          and pg_get_function_result(p.oid) not like '%remise%')),
   (91, 'Et il avance lui-même sa course (avancer_livraison)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'avancer_livraison'))
+       where n.nspname = 'public' and p.proname = 'avancer_livraison')),
+
+  -- ---------- La seconde serrure des lignes de commande ----------
+  -- Le contrôle 80 regarde le déclencheur, qui est la serrure qui a
+  -- toujours tenu. Celui-ci regarde la seconde, posée depuis : le droit
+  -- d'écriture lui-même, RETIRÉ sur la table entière puis rendu sur la
+  -- seule colonne « etat ». Sans le retrait il n'y a pas de seconde
+  -- serrure — une base Supabase donne « grant all » d'office, et un
+  -- droit de colonne par-dessus n'en retire aucun.
+  (92, 'L''équipe n''écrit que « etat » sur une ligne vendue', not exists (
+      select 1 from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'commande_lignes'
+         and grantee = 'authenticated' and privilege_type = 'UPDATE'
+         and column_name <> 'etat'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

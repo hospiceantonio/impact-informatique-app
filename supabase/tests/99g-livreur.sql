@@ -129,6 +129,42 @@ select essai.refuse(
 update public.commande_lignes set etat = 'vue' where id = :'ligne';
 update public.commande_lignes set etat = 'preparee' where id = :'ligne';
 
+-- L'ÉTAT PASSE, ET RIEN D'AUTRE. Les deux lignes ci-dessus le montrent
+-- pour ce qui doit passer ; celles-ci, pour ce qui ne le doit pas — et
+-- depuis le compte qui a VRAIMENT la main sur cette ligne, celui que la
+-- règle RLS laisse donc entrer.
+--
+-- Deux serrures, et c'est la PREMIÈRE qui répond ici : le droit
+-- d'écriture, retiré sur la table entière puis rendu sur la seule
+-- colonne « etat ». Sans ce retrait il n'existerait pas — une base
+-- Supabase donne « grant all » d'office — et seul le déclencheur
+-- tiendrait la porte.
+select essai.refuse(
+  format($$update public.commande_lignes set prix = 1 where id = %L$$, :'ligne'),
+  'le chef de boutique réécrit le prix de SA ligne');
+select essai.refuse(
+  format($$update public.commande_lignes set prix_bizzoo = 1 where id = %L$$, :'ligne'),
+  'ou ce que l''enseigne y gagne');
+select essai.refuse(
+  format($$update public.commande_lignes set livreur_id = %L::uuid where id = %L$$,
+    :VOISIN, :'ligne'),
+  'ou se désigne un porteur à la main');
+select essai.refuse(
+  format($$update public.commande_lignes set confirme_le = now() where id = %L$$, :'ligne'),
+  'ou signe l''accusé de réception du client');
+
+-- LES QUATRE CONSTATS CI-DESSUS NE PROUVENT PAS LE RETRAIT, et le banc
+-- l'a montré : en l'enlevant des trois fichiers, ils restaient verts —
+-- le déclencheur répondait à sa place. Ils prouvent que la porte tient,
+-- pas laquelle des deux serrures la tient. Celui-ci nomme la serrure.
+select essai.verifie(
+  (select array_agg(column_name::text order by column_name::text)
+     from information_schema.column_privileges
+    where table_schema = 'public' and table_name = 'commande_lignes'
+      and grantee = 'authenticated' and privilege_type = 'UPDATE')
+  = array['etat'],
+  'et le droit d''écriture lui-même ne porte que « etat »');
+
 -- Le livreur de la boutique d'à côté : ce serait lui remettre le nom,
 -- le numéro et l'adresse d'un client qui n'est pas le sien.
 select essai.refuse(
