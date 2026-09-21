@@ -304,7 +304,7 @@ const VueAccueil = (() => {
       const categories = await Store.listerCategories();
       const nomCategorie = (p) => {
         const c = categories.find((x) => x.id === p.categorieId);
-        if (!c) return "Sans catégorie";
+        if (!c) return "À CLASSER";
         const sc = (c.sousCategories || []).find((x) => x.id === p.sousCategorieId);
         return sc ? c.nom + " · " + sc.nom : c.nom;
       };

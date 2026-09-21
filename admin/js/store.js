@@ -2312,14 +2312,27 @@ const Store = (() => {
       throw new Error("Le prix barré doit être supérieur au prix actuel (c'est l'ancien prix).");
     }
 
-    if (!donnees.categorieId) throw new Error("Choisissez une catégorie.");
-    const categorie = await lireCategorie(donnees.categorieId);
-    if (!categorie) throw new Error("Cette catégorie n'existe plus.");
-    let sousCategorieId = donnees.sousCategorieId || "";
-    if (categorie.sousCategories.length && !categorie.sousCategories.some((s) => s.id === sousCategorieId)) {
-      throw new Error("Choisissez une sous-catégorie.");
+    /* LE RAYON SEUL DÉCIDE, et il a déjà été exigé en tête de cette
+       fonction. La catégorie ne se demande plus : c'est le secteur de
+       la boutique, et la base la déduit du rayon. Ce contrôle-ci
+       réclamait encore une catégorie que le formulaire n'envoie plus —
+       aucun produit ne pouvait être enregistré.
+
+       On vérifie donc ce qui reste vrai : que le rayon existe, et qu'il
+       appartient bien au secteur de cette boutique. La base le refuse
+       aussi, mais elle répond d'une phrase de base de données : autant le dire ici, avec
+       les mots de l'écran. */
+    const sousCategorieId = (donnees.sousCategorieId || "").trim();
+    const secteurBoutique = await lireCategorie(
+      (boutiqueCourante() || {}).categorieId || "");
+    if (!secteurBoutique) {
+      throw new Error("Votre boutique n'a pas encore de secteur : demandez à " +
+        "l'enseigne de lui en attribuer un.");
     }
-    if (!categorie.sousCategories.length) sousCategorieId = "";
+    if (!secteurBoutique.sousCategories.some((s) => s.id === sousCategorieId)) {
+      throw new Error("Ce rayon n'appartient pas à votre secteur (" +
+        secteurBoutique.nom + "). Rouvrez la liste et choisissez-en un.");
+    }
 
     const enAvant = !!donnees.enAvant;
     let ordreAvant = existant ? existant.ordreAvant || 0 : 0;
@@ -2382,7 +2395,9 @@ const Store = (() => {
       prixGrossiste,
       tauxMarge,
       ancienPrix,
-      categorieId: donnees.categorieId,
+      /* Déduite du rayon, comme le fait la base : l'objet rendu à
+         l'écran doit dire la même chose qu'elle. */
+      categorieId: secteurBoutique.id,
       sousCategorieId,
       stock: surCommande || approLe ? 0 : stock,
       surCommande,

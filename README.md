@@ -828,6 +828,19 @@ Sur l'accueil, l'enseigne en met quelques-unes en avant ; les autres
 attendent derrière « Voir toutes les catégories ». Quinze lignes sur un
 premier écran, c'est n'en montrer aucune.
 
+**Un défaut que le banc a laissé passer, et pourquoi.** Enregistrer un
+produit était devenu impossible : une règle restée à l'ancien modèle
+réclamait toujours une catégorie, que le formulaire n'envoie plus. Le
+banc du navigateur regardait les **champs** du formulaire — le secteur
+affiché, les rayons proposés, le bon présélectionné — sans jamais
+**appuyer sur Enregistrer**. Tous ses constats étaient verts, et
+l'écran refusait la moindre modification.
+
+Un banc d'écran doit aller jusqu'à l'envoi : il vérifie maintenant ce
+qui **part vers la base** — le rayon choisi, et pas de catégorie,
+puisque c'est la base qui la déduit. Remettre le défaut en place fait
+tomber quatre constats.
+
 **Un défaut que seule la capture d'écran a montré.** L'onglet
 « Catégories » restait caché tant qu'on n'était pas entré dans une
 boutique — à bon droit, du temps où il aurait mélangé les classements de
