@@ -424,17 +424,21 @@ video.slide-img{background:#000}
 .bou-bandeau > span:not(.bou-rond){flex:1;min-width:0}
 .bou-bandeau > .ic{flex:none;color:var(--encre-tres-douce)}
 
-.cat-grille{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+/* QUATRE DE FRONT, donc les huit de l'accueil sur DEUX RANGÉES. À trois
+   colonnes elles en prenaient trois, dont une à moitié vide — et une
+   rangée incomplète se lit comme un oubli. L'écart passe à 8 px : à
+   390 px, quatre cartes et trois écarts doivent tenir dans 358. */
+.cat-grille{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .cat-carte{
-  display:flex;flex-direction:column;align-items:center;gap:7px;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
   background:var(--blanc);border-radius:var(--r);
-  padding:14px 8px 12px;text-align:center;
+  padding:11px 5px 10px;text-align:center;
   box-shadow:var(--ombre);
 }
 .cat-carte:active{transform:scale(.97)}
 .cat-rond{
   display:flex;align-items:center;justify-content:center;flex:none;
-  width:46px;height:46px;border-radius:16px;
+  width:38px;height:38px;border-radius:13px;
   background:linear-gradient(135deg,var(--bleu-50),var(--bleu-100));
   color:var(--bleu-700);
 }
@@ -442,10 +446,19 @@ video.slide-img{background:#000}
    l'enseigne a donnée au secteur. Le carré arrondi bleu ci-dessus sert
    ailleurs, sur les vignettes de l'accueil. */
 .cat-rond-couleur{border-radius:50%;background:var(--bleu-700);color:#fff}
-.cat-rond-couleur .ic{width:22px;height:22px;stroke-width:1.9}
-.cat-nom{font-size:12px;font-weight:700;line-height:1.25;
+.cat-rond-couleur .ic{width:18px;height:18px;stroke-width:2}
+/* Le trait s'épaissit à mesure que l'icône rétrécit : à 1,9 sur 18 px
+   elle devenait pâle, et une icône pâle sur une pastille de couleur
+   ne se lit plus au soleil. */
+/* DEUX LIGNES RÉSERVÉES, toujours. « Auto & Moto » tient sur une ligne,
+   « Mode & Vêtements » sur deux : sans hauteur fixe, le « à découvrir »
+   de l'un se posait plus haut que celui de l'autre, et la rangée
+   paraissait de travers. On réserve la place des deux lignes même
+   quand une suffit. */
+.cat-nom{font-size:11px;font-weight:700;line-height:1.2;
+  min-height:2.4em;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.cat-compte{font-size:10.5px;color:var(--encre-tres-douce);font-weight:600}
+.cat-compte{font-size:9.5px;color:var(--encre-tres-douce);font-weight:600}
 
 .cat-ligne{display:flex;align-items:center;gap:12px;color:inherit}
 .cat-ligne + .cat-ligne{margin-top:10px}
@@ -1116,7 +1129,15 @@ a.pub-carte:active{transform:scale(.98)}
 /* ---------- Écrans plus larges ---------- */
 @media (min-width:560px){
   .p-grille{grid-template-columns:repeat(3,1fr)}
-  .cat-grille{grid-template-columns:repeat(4,1fr)}
+  /* Les catégories restent à quatre : elles sont huit, et deux rangées
+     pleines valent mieux qu'une rangée et demie. Ce qui change avec la
+     place, c'est la taille des cartes, pas leur nombre par ligne. */
+  .cat-grille{gap:10px}
+  .cat-carte{padding:14px 8px 12px;gap:7px}
+  .cat-rond{width:44px;height:44px;border-radius:15px}
+  .cat-rond-couleur .ic{width:21px;height:21px;stroke-width:1.9}
+  .cat-nom{font-size:12.5px}
+  .cat-compte{font-size:10.5px}
 }
 
 /* =========================================================
@@ -1185,7 +1206,11 @@ a.pub-carte:active{transform:scale(.98)}
   /* Quatre produits de front plutôt que trois : à cette largeur,
      trois cartes deviennent des affiches. */
   .p-grille{grid-template-columns:repeat(4,1fr)}
-  .cat-grille{grid-template-columns:repeat(6,1fr)}
+  /* Toujours quatre, donc toujours deux rangées. À six colonnes, les
+     huit catégories donnaient six et deux — une seconde ligne presque
+     vide, qu'on lit comme un oubli. On borne plutôt la largeur : sur
+     1 180 px, quatre cartes étalées feraient des affiches. */
+  .cat-grille{max-width:720px}
 }
 
 /* ---------- Compte : client ordinaire ou revendeur ----------

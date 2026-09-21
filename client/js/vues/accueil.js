@@ -303,6 +303,28 @@ const VueAccueil = (() => {
     html += htmlEtatCatalogue();
     html += htmlOffreDuJour();
 
+    /* LES CATÉGORIES D'ABORD, et pas toutes : quinze lignes sur un
+       accueil, c'est n'en montrer aucune. L'enseigne en désigne huit,
+       qui tiennent sur deux rangées de quatre.
+
+       C'est par là qu'on cherche quand on ne sait pas encore chez qui
+       acheter — donc en tête. Les boutiques viennent juste après :
+       elles répondent à l'autre question, « qui vend ici ? », et on se
+       la pose en second. */
+    const misesEnAvant = Catalogue.categoriesEnAvant();
+    const toutes = Catalogue.categoriesBizzoo();
+    const vedettes = misesEnAvant.length ? misesEnAvant : toutes.slice(0, 8);
+    if (vedettes.length) {
+      /* « Tout voir » est dans le titre de section : un second bouton
+         « Voir toutes les catégories » sous la grille menait au même
+         écran, et deux portes côte à côte vers le même endroit font
+         hésiter au lieu d'aider. */
+      html += UI.titreSection("Catégories", "#/categories");
+      html += '<div class="cat-grille">' +
+        vedettes.map((r) => carteCategorie(r.categorie, r.compte)).join("") +
+      "</div>";
+    }
+
     html += UI.titreSection("Nos boutiques");
     html += boutiques.length
       ? '<div class="bou-grille">' +
@@ -319,24 +341,6 @@ const VueAccueil = (() => {
     if (publicites.length) {
       html += UI.titreSection("Publicité");
       html += htmlPublicite(publicites);
-    }
-
-    /* LES CATÉGORIES DE BIZZOO, et pas toutes : quinze lignes sur un
-       accueil, c'est n'en montrer aucune. L'enseigne en désigne
-       quelques-unes ; le reste attend derrière le bouton, sur l'écran
-       qui n'est fait que pour cela. */
-    const misesEnAvant = Catalogue.categoriesEnAvant();
-    const toutes = Catalogue.categoriesBizzoo();
-    const vedettes = misesEnAvant.length ? misesEnAvant : toutes.slice(0, 8);
-    if (vedettes.length) {
-      html += UI.titreSection("Catégories", "#/categories");
-      html += '<div class="cat-grille">' +
-        vedettes.map((r) => carteCategorie(r.categorie, r.compte)).join("") +
-      "</div>";
-      if (toutes.length > vedettes.length) {
-        html += '<a class="btn btn-clair" href="#/categories">' + UI.icone("categories") +
-          "Voir toutes les catégories (" + toutes.length + ")</a>";
-      }
     }
 
     vue.innerHTML = html;

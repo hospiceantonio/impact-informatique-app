@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v69";
+const VERSION = "impact-client-v70";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
