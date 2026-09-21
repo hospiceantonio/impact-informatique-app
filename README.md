@@ -878,6 +878,29 @@ continuerait de la promettre, et le client qui s'est déplacé ne la
 trouverait nulle part. Quand plus rien n'est remisé, le bandeau
 disparaît.
 
+### L'en-tête d'une boutique
+
+**Le nom sur une ligne, le slogan dessous, le logo à gauche.** Sur un
+téléphone de 390 px, une ligne unique portait le retour, le logo,
+quatre boutons et leurs écarts : il restait **cent vingt pixels** pour
+le nom. « IMPACT INFORMATIQUE » s'affichait « IMP… », et le slogan se
+pliait sur quatre lignes en dessous.
+
+Les boutons montent donc sur la ligne du retour, et l'enseigne prend
+toute la largeur suivante. Le nom dispose de **309 px** au lieu de 120,
+le slogan tient sur une ligne quelle que soit sa longueur — une
+description de boutique peut faire deux cents caractères —, et
+l'en-tête finit **plus court** qu'avant : 117 px contre 153.
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-entete.mjs
+```
+
+Vingt-trois constats, sur le nom et le slogan réels d'une boutique du
+gérant. Rendre au slogan le droit de se replier fait tomber deux
+constats et reproduit la capture d'origine à l'identique : trois
+lignes, 153 px.
+
 ### La publicité s'enchaîne
 
 Une vidéo finit, la rangée avance jusqu'à la suivante et la lance —

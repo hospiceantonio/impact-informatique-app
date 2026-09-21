@@ -103,20 +103,54 @@ const UI = (() => {
    */
   function entete({ titre, sous, retour, accueil, actions, vignette }) {
     const zone = $("#topbar");
+    const retourHtml = retour
+      ? '<button type="button" class="btn-ic" data-action="retour" aria-label="Retour">' +
+        icone("retour") + "</button>"
+      : "";
     actions = (actions || "") + boutonCompte() + boutonPanier();
+    const actionsHtml = '<div class="topbar-actions">' + (actions || "") + "</div>";
+
+    /* ---------- L'en-tête d'une boutique ----------
+
+       SUR SA PROPRE LIGNE, et c'est le seul moyen que son nom tienne.
+       Sur un téléphone de 390 px, une ligne unique porte le retour, le
+       logo, quatre boutons et leurs écarts : il restait cent vingt
+       pixels pour le nom, soit « IMP… », et le slogan se pliait sur
+       quatre lignes en dessous. Une enseigne réduite à trois lettres
+       ne dit plus chez qui l'on est.
+
+       Les boutons montent donc sur la ligne du retour, et l'enseigne
+       prend toute la largeur : logo à gauche, nom en entier, slogan
+       dessous. Trois lignes courtes, et l'en-tête finit PLUS BAS que
+       celui qu'il remplace. */
+    if (vignette && !accueil) {
+      zone.innerHTML =
+        '<div class="topbar-ligne topbar-ligne-outils">' +
+          retourHtml +
+          '<span class="topbar-vide"></span>' +
+          actionsHtml +
+        "</div>" +
+        '<div class="topbar-enseigne">' +
+          vignette +
+          '<div class="topbar-enseigne-mots">' +
+            "<h1>" + e(titre || "") + "</h1>" +
+            (sous ? '<div class="sous">' + e(sous) + "</div>" : "") +
+          "</div>" +
+        "</div>";
+      mesurerEntete();
+      return;
+    }
+
     zone.innerHTML =
       '<div class="topbar-ligne">' +
-        (retour
-          ? '<button type="button" class="btn-ic" data-action="retour" aria-label="Retour">' + icone("retour") + "</button>"
-          : "") +
+        retourHtml +
         (accueil
           ? '<div class="topbar-logo">' + logo() + "</div>"
-          : (vignette || "") +
-            "<div style='flex:1;min-width:0'>" +
+          : "<div style='flex:1;min-width:0'>" +
               "<h1>" + e(titre || "") + "</h1>" +
               (sous ? '<div class="sous">' + e(sous) + "</div>" : "") +
             "</div>") +
-        '<div class="topbar-actions">' + (actions || "") + "</div>" +
+        actionsHtml +
       "</div>" +
       (accueil && Catalogue.boutique().slogan
         ? '<div class="topbar-slogan">' + e(Catalogue.boutique().slogan) + "</div>"

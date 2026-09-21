@@ -116,6 +116,31 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .topbar-ligne{display:flex;align-items:center;gap:12px;min-height:40px}
 .topbar h1{font-size:18px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topbar .sous{font-size:12.5px;color:var(--encre-douce);margin-top:2px}
+
+/* ---------- L'en-tête d'une boutique, sur deux lignes ----------
+   La première ne porte que le retour et les boutons ; l'enseigne a
+   toute la seconde. Voir « entete » dans ui.js : sur une seule ligne,
+   il restait cent vingt pixels pour le nom. */
+.topbar-ligne-outils{gap:8px}
+.topbar-vide{flex:1;min-width:0}
+.topbar-enseigne{
+  display:flex;align-items:center;gap:11px;
+  margin-top:8px;min-width:0;
+}
+.topbar-enseigne-mots{flex:1;min-width:0}
+/* Le nom ne se coupe QUE s'il est vraiment trop long — et il a
+   désormais toute la largeur avant d'en arriver là. */
+.topbar-enseigne h1{
+  font-size:19px;line-height:1.2;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* Le slogan EN DESSOUS, sur une seule ligne. Sans « nowrap » il se
+   pliait sur quatre lignes et poussait tout l'écran vers le bas ;
+   une description de boutique peut faire deux cents caractères. */
+.topbar-enseigne .sous{
+  margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .topbar-actions{display:flex;gap:6px;align-items:center}
 .topbar-logo{flex:1;min-width:0}
 .topbar-slogan{
