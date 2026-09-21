@@ -14,13 +14,80 @@ const VueComptes = (() => {
     (Store.lireBoutique(id) || {}).nomBoutique || "boutique à choisir";
 
   /** Les choix de boutique proposés à un modérateur. */
-  function optionsBoutiques(selection) {
+  /**
+   * Les boutiques à confier — et, pour le superadministrateur seul,
+   * l'option « BIZZOO ».
+   *
+   * AUCUNE BOUTIQUE VEUT DIRE TOUTES. Choisir BIZZOO fait de ce compte
+   * un compte d'enseigne : il regarde par-dessus toutes les boutiques,
+   * dans la limite des interrupteurs qu'on lui laisse. C'est beaucoup,
+   * et c'est pour cela que seul le superadministrateur peut le donner.
+   */
+  function optionsBoutiques(selection, avecEnseigne) {
     const liste = Store.listerBoutiques();
     if (!liste.length) return "";
-    return '<option value="">Choisir…</option>' +
+    /* QUAND « BIZZOO » EST OFFERT, « Choisir… » DISPARAÎT. Garder les
+       deux, c'était offrir deux façons de ne pas choisir de boutique —
+       l'une volontaire, l'autre par distraction — qui auraient donné le
+       même compte d'enseigne. Une seule porte, nommée. */
+    const enseigne = avecEnseigne && Supabase.estSuper()
+      ? '<option value="__enseigne"' + (selection ? "" : " selected") +
+        ">BIZZOO — toutes les boutiques</option>"
+      : "";
+    return (selection || enseigne ? "" : '<option value="">Choisir…</option>') +
+      enseigne +
       liste.map((b) =>
         '<option value="' + Utils.echapper(b.id) + '"' + (selection === b.id ? " selected" : "") + ">" +
         Utils.echapper(b.nomBoutique) + (b.actif ? "" : " (fermée)") + "</option>").join("");
+  }
+
+  /* Les quatre interrupteurs d'un compte d'enseigne. Ils ne paraissent
+     que pour ces comptes-là : un compte de boutique est déjà borné par
+     sa boutique, le superadministrateur passe au-dessus. */
+  /* « defaut » dit ce que vaut l'interrupteur sur un compte neuf — et
+     sert aussi à le lire : allumé par défaut se lit « pas faux »,
+     éteint par défaut se lit « vrai ». Sans cette distinction, une
+     colonne absente d'une base pas encore à jour allumerait tout. */
+  const INTERRUPTEURS = [
+    { id: "cp-d-commandes", champ: "peutCommandes", defaut: true,
+      label: "Les commandes",
+      aide: "Voir et faire avancer les commandes de toutes les boutiques." },
+    { id: "cp-d-produits", champ: "peutModifier", defaut: true,
+      label: "Le catalogue",
+      aide: "Ajouter et retoucher les produits et les rayons de toutes les boutiques." },
+    { id: "cp-d-boutiques", champ: "peutBoutiques", defaut: false,
+      label: "Les boutiques",
+      aide: "Régler une boutique : slogan, horaires, contacts, marge." },
+    { id: "cp-d-finances", champ: "peutFinances", defaut: false,
+      label: "Les chiffres",
+      aide: "Le journal des versements et les statistiques de vente." },
+  ];
+
+  const lireInterrupteur = (compte, i) =>
+    (i.defaut ? compte[i.champ] !== false : compte[i.champ] === true);
+
+  const htmlInterrupteurs = (compte) =>
+    '<div id="cp-zone-enseigne" class="carte" style="box-shadow:none;padding:14px 0 0;' +
+      'margin-top:6px;border-top:1px solid var(--trait)"' +
+      (Store.estCompteEnseigne(compte) ? "" : " hidden") + ">" +
+      '<div class="carte-titre">' + UI.icone("bouclier", "ic-sm") +
+        " Ce qu'il touche chez BIZZOO</div>" +
+      '<p class="aide" style="margin:-6px 0 12px">Ce compte n\'est rattaché à aucune ' +
+        "boutique : il travaille sur toutes. Laissez éteint ce dont il n'a pas besoin. " +
+        "<strong>Il ne crée aucun compte</strong> — cela reste à vous seul.</p>" +
+      INTERRUPTEURS.map((i) => UI.interrupteur({ id: i.id, label: i.label,
+        aide: i.aide, actif: lireInterrupteur(compte, i) })).join("") +
+    "</div>";
+
+  /* Ce qu'un compte de BIZZOO touche, en trois mots, dans la liste : il
+     faut pouvoir répondre à « qui voit quoi ? » sans ouvrir six fiches.
+     Rien d'allumé se dit — un compte sans aucun droit n'est pas une
+     erreur d'affichage, c'est un compte qu'on a fermé. */
+  function droitsResumes(compte) {
+    const ouverts = INTERRUPTEURS
+      .filter((i) => lireInterrupteur(compte, i))
+      .map((i) => i.label.replace(/^Les? /, "").toLowerCase());
+    return ouverts.length ? " · " + ouverts.join(", ") : " · aucun droit";
   }
 
   const ICONE_ROLE = {
@@ -44,7 +111,8 @@ const VueComptes = (() => {
             (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
             (partout ? " · toutes les boutiques"
-                     : " · " + Utils.echapper(nomBoutique(compte.boutiqueId))) +
+              : Store.estCompteEnseigne(compte) ? " · BIZZOO" + droitsResumes(compte)
+              : " · " + Utils.echapper(nomBoutique(compte.boutiqueId))) +
             (compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
         "</span>" +
@@ -85,10 +153,17 @@ const VueComptes = (() => {
             (compte.role === "superadministrateur" ? " hidden" : "") + ">" +
             '<div class="champ">' +
               '<label for="cp-boutique">Boutique confiée</label>' +
-              '<select id="cp-boutique">' + optionsBoutiques(compte.boutiqueId) + "</select>" +
+              '<select id="cp-boutique">' +
+                optionsBoutiques(compte.boutiqueId, compte.role !== "livreur") + "</select>" +
               '<div class="aide">Ce compte ne verra et ne touchera que cette boutique. ' +
-                "Un super administrateur, lui, les gère toutes.</div>" +
+                "Choisir <strong>BIZZOO</strong> le met au-dessus de toutes, avec les " +
+                "droits que vous lui laissez juste en dessous.</div>" +
             "</div>" +
+            /* TOUJOURS RENDUS, simplement cachés. Les afficher seulement
+               quand le compte EST déjà d'enseigne, c'était les rendre
+               invisibles au moment précis où l'on en a besoin : celui
+               où l'on bascule le menu sur BIZZOO. */
+            htmlInterrupteurs(compte) +
           "</div>"
         : "") +
       /* Le droit de retoucher les produits ne concerne que le modérateur :
@@ -122,12 +197,30 @@ const VueComptes = (() => {
       "</div>");
 
     const selecteur = UI.$("#cp-role", corps);
-    selecteur.onchange = () => {
-      UI.$("#cp-role-aide", corps).textContent = Store.ROLES[selecteur.value].aide;
-      UI.$("#cp-zone-modif", corps).hidden = selecteur.value !== "moderateur";
+    const champBoutiqueMenu = UI.$("#cp-boutique", corps);
+    const zoneEnseigne = UI.$("#cp-zone-enseigne", corps);
+
+    /* Les deux menus décident ensemble de ce qu'on voit : un compte
+       d'enseigne, c'est un rang de l'équipe ET aucune boutique. */
+    const rafraichirZones = () => {
+      const rang = selecteur.value;
+      const surEnseigne = champBoutiqueMenu
+        ? champBoutiqueMenu.value === "__enseigne" : !compte.boutiqueId;
+      UI.$("#cp-role-aide", corps).textContent = Store.ROLES[rang].aide;
+      /* Le droit « produits » d'un compte d'enseigne vit dans SES
+         interrupteurs : l'afficher deux fois se contredirait. */
+      UI.$("#cp-zone-modif", corps).hidden =
+        rang !== "moderateur" || (surEnseigne && rang !== "superadministrateur");
       const zoneBoutique = UI.$("#cp-zone-boutique", corps);
-      if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "superadministrateur";
+      if (zoneBoutique) zoneBoutique.hidden = rang === "superadministrateur";
+      if (zoneEnseigne) {
+        zoneEnseigne.hidden = rang === "superadministrateur" ||
+          rang === "livreur" || !surEnseigne;
+      }
     };
+    selecteur.onchange = rafraichirZones;
+    if (champBoutiqueMenu) champBoutiqueMenu.onchange = rafraichirZones;
+    rafraichirZones();
 
     UI.$("#cp-mdp-changer", corps).onclick = async () => {
       const bouton = UI.$("#cp-mdp-changer", corps);
@@ -170,15 +263,30 @@ const VueComptes = (() => {
       const role = selecteur.value;
       const actif = UI.$("#cp-actif", corps).checked;
       /* Un administrateur garde toujours le droit de modifier : si le rôle
-         passe à « administrateur », on remet le droit à vrai. */
-      const peutModifier = role === "moderateur" ? UI.$("#cp-modifier", corps).checked : true;
+         passe à « administrateur », on remet le droit à vrai.
+         SAUF POUR UN COMPTE D'ENSEIGNE : là c'est son interrupteur qui
+         décide, quel que soit son rang — sinon le régler n'aurait
+         servi à rien, l'enregistrement l'aurait rallumé aussitôt. */
+      const zoneEns = UI.$("#cp-zone-enseigne", corps);
+      const surEnseigne = zoneEns && !zoneEns.hidden;
+      const peutModifier = surEnseigne
+        ? UI.$("#cp-d-produits", corps).checked
+        : (role === "moderateur" ? UI.$("#cp-modifier", corps).checked : true);
       const champBoutique = UI.$("#cp-boutique", corps);
-      /* Le super administrateur n'appartient à aucune boutique : il circule partout. */
-      const boutiqueId = role === "superadministrateur"
-        ? "" : (champBoutique ? champBoutique.value : compte.boutiqueId);
+      /* Le super administrateur n'appartient à aucune boutique : il circule partout.
+         « __enseigne » veut dire la même chose pour un compte de BIZZOO —
+         on l'écrit en clair dans le menu pour que « boutique vide » ne
+         se confonde pas avec « pas encore choisie ». */
+      const choix = champBoutique ? champBoutique.value : compte.boutiqueId;
+      const boutiqueId = role === "superadministrateur" || choix === "__enseigne"
+        ? "" : choix;
+      const versEnseigne = choix === "__enseigne" && role !== "superadministrateur";
       try {
-        if (role !== "superadministrateur" && champBoutique && !boutiqueId) {
+        if (role !== "superadministrateur" && champBoutique && !choix) {
           throw new Error("Choisissez la boutique confiée à ce compte.");
+        }
+        if (versEnseigne && role === "livreur") {
+          throw new Error("Un livreur porte pour une boutique : choisissez laquelle.");
         }
         /* Un enregistrement par changement plutôt qu'un seul : le journal
            raconte alors précisément ce qui a changé. */
@@ -189,6 +297,16 @@ const VueComptes = (() => {
         }
         if (peutModifier !== (compte.peutModifier !== false)) {
           await Store.majCompte(compte.id, { peutModifier });
+        }
+        /* Les interrupteurs d'enseigne, s'ils sont à l'écran. On
+           n'envoie que ce qui a bougé : le journal raconte alors
+           précisément quel droit a été donné ou retiré. */
+        for (const i of INTERRUPTEURS) {
+          const boite = UI.$("#" + i.id, corps);
+          if (!boite || i.champ === "peutModifier") continue;
+          if (boite.checked !== lireInterrupteur(compte, i)) {
+            await Store.majCompte(compte.id, { [i.champ]: boite.checked });
+          }
         }
         UI.fermerFeuille();
         UI.toast("Compte mis à jour", "ok");
@@ -232,9 +350,11 @@ const VueComptes = (() => {
         ? '<div class="champ" id="nc-zone-boutique">' +
             '<label for="nc-boutique">Boutique confiée <span class="obligatoire">*</span></label>' +
             '<select id="nc-boutique"' + (Supabase.estSuper() ? "" : " disabled") + ">" +
-              optionsBoutiques((Store.boutiqueCourante() || {}).id) + "</select>" +
+              optionsBoutiques((Store.boutiqueCourante() || {}).id, true) + "</select>" +
             '<div class="aide">' + (Supabase.estSuper()
-              ? "Ce compte ne s'occupera que de cette boutique-là."
+              ? "Ce compte ne s'occupera que de cette boutique-là. Choisir " +
+                "<strong>BIZZOO</strong> en fait un compte de l'enseigne, au-dessus de " +
+                "toutes — ses droits se règlent ensuite dans sa fiche."
               : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
         : "") +
@@ -257,6 +377,9 @@ const VueComptes = (() => {
       bouton.textContent = "Création…";
       try {
         const champBoutique = UI.$("#nc-boutique", corps);
+        /* On passe le choix TEL QUEL — « __enseigne » compris. C'est le
+           store qui le traduit en « aucune boutique », et lui seul :
+           traduire ici ferait d'un menu oublié un compte d'enseigne. */
         const compte = await Store.creerCompte(
           UI.$("#nc-email", corps).value, UI.$("#nc-mdp", corps).value, selecteur.value,
           champBoutique ? champBoutique.value : "");

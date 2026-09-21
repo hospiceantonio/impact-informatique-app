@@ -38,6 +38,45 @@
 -- ---------------------------------------------------------
 -- 1. Qui encaisse
 -- ---------------------------------------------------------
+-- ---------- Socle des comptes d'enseigne ----------
+-- Recopié de schema.sql : les fonctions de droits ci-dessous s'appuient
+-- dessus, et ce fichier doit pouvoir se coller seul sur une base d'avant.
+alter table public.profils add column if not exists nom text not null default '';
+alter table public.profils add column if not exists tel text not null default '';
+alter table public.profils
+  add column if not exists peut_commandes boolean not null default true;
+alter table public.profils
+  add column if not exists peut_boutiques boolean not null default false;
+alter table public.profils
+  add column if not exists peut_finances  boolean not null default false;
+
+create or replace function public.est_compte_enseigne() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false);
+$$;
+revoke all on function public.est_compte_enseigne() from public, anon;
+grant execute on function public.est_compte_enseigne() to authenticated;
+
+create or replace function public.droit_enseigne(lequel text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_compte_enseigne() and coalesce((
+    select case lequel
+             when 'commandes' then p.peut_commandes
+             when 'boutiques' then p.peut_boutiques
+             when 'finances'  then p.peut_finances
+             when 'produits'  then p.peut_modifier_produits
+             else false
+           end
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false);
+$$;
+revoke all on function public.droit_enseigne(text) from public, anon;
+grant execute on function public.droit_enseigne(text) to authenticated;
+
+
 alter table public.paiement
   add column if not exists fournisseur text not null default 'feexpay';
 alter table public.paiement alter column fournisseur set default 'feexpay';
@@ -146,10 +185,13 @@ $$;
 -- catalogue — la colonne lui aurait dit oui.
 create or replace function public.peut_modifier_produits() returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.est_equipe()
-     and coalesce((select role in ('superadministrateur', 'administrateur')
-                       or peut_modifier_produits
-                     from public.profils where id = auth.uid() and actif), false);
+  select case
+    when public.est_super() then true
+    when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    else public.est_equipe()
+     and coalesce((select role = 'administrateur' or peut_modifier_produits
+                     from public.profils where id = auth.uid() and actif), false)
+  end;
 $$;
 
 -- La boutique à laquelle le compte est rattaché. Null pour un
@@ -164,6 +206,7 @@ $$;
 create or replace function public.peut_agir_sur(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_super()
+      or public.est_compte_enseigne()
       or (public.est_equipe() and cible is not null
           and cible = public.boutique_du_compte());
 $$;
@@ -173,6 +216,7 @@ $$;
 create or replace function public.administre(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_super()
+      or public.droit_enseigne('boutiques')
       or (public.est_admin() and cible is not null
           and cible = public.boutique_du_compte());
 $$;

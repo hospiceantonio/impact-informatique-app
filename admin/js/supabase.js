@@ -160,10 +160,17 @@ const Supabase = (() => {
     if (l) {
       profil = {
         id: l.id, email: l.email || "", role: l.role, actif: l.actif !== false,
+        nom: l.nom || "", tel: l.tel || "",
         /* Colonne absente d'une base pas encore mise à jour : on n'enlève rien. */
         peutModifier: l.peut_modifier_produits !== false,
         /* Boutique du modérateur ; vide pour un administrateur. */
         boutiqueId: l.boutique_id || "",
+        /* Les interrupteurs d'un compte d'enseigne. Absents d'une base
+           pas encore mise à jour : on prend le défaut du schéma, et
+           « est_compte_enseigne() » restera faux de toute façon. */
+        peutCommandes: l.peut_commandes !== false,
+        peutBoutiques: l.peut_boutiques === true,
+        peutFinances: l.peut_finances === true,
       };
     }
     return profil;
@@ -174,13 +181,39 @@ const Supabase = (() => {
   const role = () => (profil ? profil.role : rolesEnBase ? null : "superadministrateur");
   /** Le superadministrateur : toute l'enseigne, boutiques comprises. */
   const estSuper = () => role() === "superadministrateur";
+  /**
+   * Un compte de BIZZOO : administrateur ou modérateur rattaché à
+   * AUCUNE boutique. Il travaille sur toutes, dans la limite de ses
+   * interrupteurs. Le miroir exact de « est_compte_enseigne() » en base
+   * — et c'est la base qui tranche, cette fonction ne sert qu'à
+   * l'écran.
+   */
+  const estCompteEnseigne = () => !!profil && !profil.boutiqueId &&
+    (profil.role === "administrateur" || profil.role === "moderateur");
+  /** Un interrupteur d'enseigne. Faux pour qui n'est pas de l'enseigne. */
+  const droitEnseigne = (lequel) => {
+    if (!estCompteEnseigne()) return false;
+    if (lequel === "commandes") return profil.peutCommandes !== false;
+    if (lequel === "boutiques") return profil.peutBoutiques === true;
+    if (lequel === "finances") return profil.peutFinances === true;
+    if (lequel === "produits") return profil.peutModifier !== false;
+    return false;
+  };
   /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique. */
   const estAdmin = () => estSuper() || role() === "administrateur";
   /** Retoucher un produit déjà au catalogue : les administrateurs toujours,
-      le modérateur si on le lui a accordé. */
-  const peutModifierProduits = () => estAdmin() || !!(profil && profil.peutModifier);
+      le modérateur si on le lui a accordé. Pour un compte d'enseigne,
+      c'est SON interrupteur qui décide, quel que soit son rang. */
+  const peutModifierProduits = () => estSuper() ||
+    (estCompteEnseigne() ? droitEnseigne("produits")
+                         : estAdmin() || !!(profil && profil.peutModifier));
+  /** Les commandes, et les chiffres : mêmes règles qu'en base. */
+  const peutVoirCommandes = () => estSuper() ||
+    (estCompteEnseigne() ? droitEnseigne("commandes") : !!profil);
+  const peutVoirFinances = () => estSuper() ||
+    (estCompteEnseigne() ? droitEnseigne("finances") : !!profil);
   /** La boutique confiée au compte. Vide pour un superadministrateur :
-      il les gère toutes. */
+      il les gère toutes. Vide aussi pour un compte d'enseigne. */
   const boutiqueDuCompte = () => (estSuper() ? "" : (profil && profil.boutiqueId) || "");
   /** Membre actif de l'équipe : sans fiche active, aucune écriture n'est permise. */
   const compteActif = () => !rolesEnBase || !!(profil && profil.actif);
@@ -477,6 +510,7 @@ const Supabase = (() => {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
+    estCompteEnseigne, droitEnseigne, peutVoirCommandes, peutVoirFinances,
     compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc, rpcLecture, fonctionEdge,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,

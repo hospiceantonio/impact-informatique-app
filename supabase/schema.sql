@@ -501,6 +501,24 @@ alter table public.profils
 alter table public.profils
   add column if not exists boutique_id text references public.boutiques(id) on delete set null;
 
+-- ---------- Ce qu'on sait d'une personne ----------
+-- « profils » ne portait qu'une adresse e-mail. Un livreur qu'on choisit
+-- dans une liste se reconnaît à son NOM, et se rattrape à son NUMÉRO
+-- quand le client n'est pas chez lui.
+alter table public.profils add column if not exists nom text not null default '';
+alter table public.profils add column if not exists tel text not null default '';
+
+-- ---------- Les interrupteurs des comptes d'enseigne ----------
+-- Ils ne servent QU'aux comptes d'enseigne — administrateur ou
+-- modérateur rattaché à aucune boutique. Un compte de boutique est déjà
+-- borné par sa boutique ; le superadministrateur passe au-dessus.
+alter table public.profils
+  add column if not exists peut_commandes boolean not null default true;
+alter table public.profils
+  add column if not exists peut_boutiques boolean not null default false;
+alter table public.profils
+  add column if not exists peut_finances  boolean not null default false;
+
 -- Le rôle accepte désormais « superadministrateur ».
 alter table public.profils drop constraint if exists profils_role_check;
 alter table public.profils add constraint profils_role_check
@@ -509,8 +527,38 @@ alter table public.profils add constraint profils_role_check
 -- Les administrateurs d'avant tenaient toute l'application : ils
 -- deviennent superadministrateurs, sans quoi ils se retrouveraient
 -- enfermés dans une boutique qu'ils n'ont pas.
-update public.profils set role = 'superadministrateur'
- where role = 'administrateur' and boutique_id is null;
+--
+-- SOUS CONDITION, ET C'EST INDISPENSABLE DEPUIS LES COMPTES
+-- D'ENSEIGNE. « administrateur sans boutique » ne veut plus dire « base
+-- d'avant » : c'est désormais un ADMINISTRATEUR DE BIZZOO, créé
+-- exprès, avec des droits volontairement limités. Sans le « if » qui
+-- suit, un simple rejeu de ce fichier l'aurait promu superadministrateur
+-- — il aurait gagné l'argent, les comptes et l'enseigne entière, en
+-- silence. On ne rattrape donc que les bases où PERSONNE ne tient
+-- encore l'enseigne, ce qui est exactement le cas qu'on visait.
+-- ELLE PORTE UN NOM, ET CE N'EST PAS DU CONFORT. Écrite en « do $$ »
+-- anonyme, cette garde ne s'éprouve pas : un banc ne peut que recopier
+-- la même logique à côté, et il éprouve alors SA copie — il reste vert
+-- pendant que le vrai fichier promeut tout le monde. Nommée, elle
+-- s'appelle, et le banc éprouve celle qui s'exécutera vraiment.
+create or replace function public.rattraper_anciens_admins() returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int := 0;
+begin
+  -- Quelqu'un tient déjà l'enseigne : il n'y a rien à rattraper, et
+  -- tout à perdre. On sort avant de toucher à quoi que ce soit.
+  if exists (select 1 from public.profils
+              where role = 'superadministrateur') then
+    return 0;
+  end if;
+  update public.profils set role = 'superadministrateur'
+   where role = 'administrateur' and boutique_id is null;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.rattraper_anciens_admins()
+  from public, anon, authenticated;
+select public.rattraper_anciens_admins();
 
 -- Rôle du compte connecté. « security definer » : la fonction lit la table
 -- sans repasser par les règles RLS — sinon les règles s'appelleraient elles-mêmes.
@@ -557,19 +605,80 @@ language sql stable security definer set search_path = public as $$
   select coalesce(public.role_courant() = 'livreur', false);
 $$;
 
--- Peut-il retoucher un produit déjà au catalogue ? Les deux rangs
--- d'administrateur toujours ; le modérateur seulement si on le lui accorde.
+-- ---------- Le compte d'enseigne ----------
+-- Un rang entre la boutique et le superadministrateur : administrateur
+-- ou modérateur rattaché à AUCUNE boutique, qui travaille au nom de
+-- BIZZOO. Ses droits ne viennent pas de son rang mais d'interrupteurs,
+-- réglés un par un par le superadministrateur.
+--
+-- LES QUATRE CONDITIONS COMPTENT. « de l'équipe » écarte le livreur,
+-- qui a lui aussi une boutique nulle quand on l'a créé sans en choisir
+-- une. « pas superadministrateur » parce que celui-là n'a pas besoin
+-- d'interrupteurs : lui en poser l'enfermerait dans sa propre maison.
+create or replace function public.est_compte_enseigne() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false);
+$$;
+
+-- Un interrupteur de l'enseigne, lu sur la fiche du compte. Il ne vaut
+-- VRAI que pour un compte d'enseigne : sur un compte de boutique la
+-- colonne existe aussi, et sans cette condition elle lui ouvrirait des
+-- portes que son rang ne lui donne pas.
+create or replace function public.droit_enseigne(lequel text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_compte_enseigne() and coalesce((
+    select case lequel
+             when 'commandes' then p.peut_commandes
+             when 'boutiques' then p.peut_boutiques
+             when 'finances'  then p.peut_finances
+             when 'produits'  then p.peut_modifier_produits
+             else false
+           end
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false);
+$$;
+
+-- Peut-il retoucher un produit déjà au catalogue ? L'administrateur
+-- d'une boutique toujours ; le modérateur seulement si on le lui
+-- accorde ; le compte d'enseigne selon SON interrupteur.
 --
 -- « est_equipe() » EN PREMIER, et ce n'est pas une précaution de style :
 -- « peut_modifier_produits » vaut VRAI par défaut sur tout profil. Sans
 -- cette condition, un livreur qu'on vient de créer pourrait modifier le
 -- catalogue — la colonne lui aurait dit oui.
+--
+-- POUR UN COMPTE D'ENSEIGNE, LA COLONNE FAIT FOI quel que soit son
+-- rang. La version d'avant disait « administrateur, donc oui » : un
+-- administrateur de BIZZOO à qui on aurait fermé le catalogue l'aurait
+-- gardé ouvert, et l'interrupteur n'aurait été qu'un dessin.
 create or replace function public.peut_modifier_produits() returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.est_equipe()
-     and coalesce((select role in ('superadministrateur', 'administrateur')
-                       or peut_modifier_produits
-                     from public.profils where id = auth.uid() and actif), false);
+  select case
+    when public.est_super() then true
+    when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    else public.est_equipe()
+     and coalesce((select role = 'administrateur' or peut_modifier_produits
+                     from public.profils where id = auth.uid() and actif), false)
+  end;
+$$;
+
+-- Qui a le droit de LIRE et de faire avancer les commandes.
+create or replace function public.peut_voir_commandes() returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or public.droit_enseigne('commandes')
+      or (public.est_equipe() and not public.est_compte_enseigne());
+$$;
+
+-- Le journal des versements et les chiffres de vente.
+create or replace function public.peut_voir_finances() returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or public.droit_enseigne('finances')
+      or (public.est_equipe() and not public.est_compte_enseigne());
 $$;
 
 -- La boutique à laquelle le compte est rattaché. Null pour un
@@ -580,19 +689,25 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
--- Le superadministrateur partout ; les autres dans la leur seulement.
+-- Le superadministrateur partout ; le compte d'enseigne partout aussi,
+-- mais les droits FINS se posent par-dessus, table par table — le
+-- catalogue par « peut_modifier_produits() », les commandes par
+-- « peut_voir_commandes() ». Les comptes de boutique, dans la leur.
 create or replace function public.peut_agir_sur(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_super()
+      or public.est_compte_enseigne()
       or (public.est_equipe() and cible is not null
           and cible = public.boutique_du_compte());
 $$;
 
 -- Droits d'administration SUR cette boutique-là : le superadministrateur
--- partout, l'administrateur uniquement chez lui.
+-- partout, le compte d'enseigne à qui on a donné l'interrupteur, et
+-- l'administrateur uniquement chez lui.
 create or replace function public.administre(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_super()
+      or public.droit_enseigne('boutiques')
       or (public.est_admin() and cible is not null
           and cible = public.boutique_du_compte());
 $$;
@@ -609,6 +724,14 @@ grant execute on function public.boutique_du_compte() to authenticated;
 grant execute on function public.peut_agir_sur(text) to authenticated;
 grant execute on function public.est_super() to authenticated;
 grant execute on function public.administre(text) to authenticated;
+revoke all on function public.est_compte_enseigne()  from public, anon;
+revoke all on function public.droit_enseigne(text)   from public, anon;
+revoke all on function public.peut_voir_commandes()  from public, anon;
+revoke all on function public.peut_voir_finances()   from public, anon;
+grant execute on function public.est_compte_enseigne() to authenticated;
+grant execute on function public.droit_enseigne(text)  to authenticated;
+grant execute on function public.peut_voir_commandes() to authenticated;
+grant execute on function public.peut_voir_finances()  to authenticated;
 
 -- Tout compte créé (par l'application ou dans le tableau de bord Supabase)
 -- reçoit une fiche en attente : l'administrateur l'active et lui donne son rôle.
@@ -2524,21 +2647,29 @@ drop policy if exists "lignes suivi"       on public.commande_lignes;
 
 -- L'enseigne voit tout ; une boutique voit les commandes qui la
 -- concernent, et seulement ses lignes à elle.
+--
+-- LE COMPTE D'ENSEIGNE PASSE PAR SON INTERRUPTEUR, et la condition est
+-- écrite deux fois exprès : « peut_agir_sur » lui répond déjà oui
+-- partout, alors sans « peut_voir_commandes() » l'interrupteur éteint
+-- n'aurait rien fermé. Un interrupteur qui ne ferme qu'à l'écran n'est
+-- pas un droit, c'est une décoration.
 create policy "commandes lecture" on public.commandes
   for select to authenticated using (
     public.est_super()
-    or (public.est_equipe() and exists (
+    or public.droit_enseigne('commandes')
+    or (public.est_equipe() and not public.est_compte_enseigne() and exists (
           select 1 from public.commande_lignes l
            where l.commande_id = commandes.id
              and l.boutique_id = public.boutique_du_compte())));
 create policy "lignes lecture" on public.commande_lignes
-  for select to authenticated using (public.peut_agir_sur(boutique_id));
+  for select to authenticated
+  using (public.peut_agir_sur(boutique_id) and public.peut_voir_commandes());
 
 -- Avancer une ligne — vue, préparée, remise — appartient à la boutique.
 create policy "lignes suivi" on public.commande_lignes
   for update to authenticated
-  using (public.peut_agir_sur(boutique_id))
-  with check (public.peut_agir_sur(boutique_id));
+  using  (public.peut_agir_sur(boutique_id) and public.peut_voir_commandes())
+  with check (public.peut_agir_sur(boutique_id) and public.peut_voir_commandes());
 -- Annuler une commande entière : l'enseigne.
 drop policy if exists "commandes lecture client" on public.commandes;
 create policy "commandes lecture client" on public.commandes

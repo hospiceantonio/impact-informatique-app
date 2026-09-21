@@ -757,6 +757,12 @@ const Store = (() => {
     if (Supabase.estSuper()) {
       return ["superadministrateur", "administrateur", "moderateur", "livreur"];
     }
+    /* UN COMPTE DE BIZZOO NE NOMME PERSONNE, quel que soit son rang. Ce
+       n'est pas une politesse d'écran : les règles de « profils »
+       exigent une boutique non nulle, et il n'en a pas — la base
+       refuserait. Lui proposer le bouton, c'était promettre un geste
+       qui échoue. */
+    if (Supabase.estCompteEnseigne()) return [];
     /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
     return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
   }
@@ -824,11 +830,33 @@ const Store = (() => {
       email: l.email || "",
       role: ROLES[l.role] ? l.role : "moderateur",
       actif: l.actif !== false,
+      nom: l.nom || "",
+      tel: l.tel || "",
       peutModifier: l.peut_modifier_produits !== false,
       boutiqueId: l.boutique_id || "",
+      /* Les interrupteurs d'un compte d'enseigne. Une base pas encore
+         mise à jour n'a pas ces colonnes : on prend les défauts du
+         schéma, et rien ne s'ouvre pour autant — « est_compte_enseigne() »
+         reste faux tant que les colonnes n'existent pas. */
+      peutCommandes: l.peut_commandes !== false,
+      peutBoutiques: l.peut_boutiques === true,
+      peutFinances: l.peut_finances === true,
       creeLe: versMs(l.cree_le),
     };
   }
+
+  /**
+   * Un compte de BIZZOO : de l'équipe, rattaché à AUCUNE boutique, et
+   * pas superadministrateur. C'est la boutique vide qui le définit, pas
+   * son rang — le même critère qu'en base.
+   */
+  const estCompteEnseigne = (c) => !!c && !c.boutiqueId &&
+    (c.role === "administrateur" || c.role === "moderateur");
+
+  /* Le mot que les écrans envoient pour dire « aucune boutique, et
+     c'est voulu ». Il ne descend jamais jusqu'à la base : le store le
+     traduit en « null ». */
+  const ENSEIGNE = "__enseigne";
 
   async function listerComptes() {
     const lignes = await Supabase.requete("GET",
@@ -847,18 +875,36 @@ const Store = (() => {
     if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
     if (!ROLES[role]) throw new Error("Choisissez le rôle du compte.");
 
-    /* Un modérateur travaille dans une boutique et une seule ;
-       un administrateur les gère toutes, il n'en porte donc aucune. */
+    /* Une boutique et une seule — ou AUCUNE, et le compte est alors un
+       compte de BIZZOO qui travaille sur toutes. Ce second cas est
+       réservé au superadministrateur : lui seul peut décider que
+       quelqu'un regarde par-dessus toutes les boutiques. */
     let attachee = null;
     if (role !== "superadministrateur" && boutiques.length) {
-      attachee = boutiqueRattachee || "";
-      if (!attachee) throw new Error("Choisissez la boutique confiée à ce compte.");
-      if (!lireBoutique(attachee)) throw new Error("Cette boutique n'existe plus.");
+      const choix = boutiqueRattachee || "";
+      /* « __enseigne » EST UN CHOIX, « » EST UN OUBLI. Les confondre,
+         c'était faire d'un menu laissé vide un compte qui regarde
+         toutes les boutiques — le contraire de ce qu'on voulait. */
+      if (choix === ENSEIGNE) {
+        if (!Supabase.estSuper()) {
+          throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
+        }
+        if (role === "livreur") {
+          throw new Error("Un livreur porte pour une boutique : choisissez laquelle.");
+        }
+        attachee = null;
+      } else if (!choix) {
+        throw new Error("Choisissez la boutique confiée à ce compte.");
+      } else if (!lireBoutique(choix)) {
+        throw new Error("Cette boutique n'existe plus.");
+      } else {
+        attachee = choix;
+      }
     }
     if (!rolesAttribuables().includes(role)) {
       throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
     }
-    if (!Supabase.estSuper() && attachee !== Supabase.boutiqueDuCompte()) {
+    if (!Supabase.estSuper() && (attachee || "") !== Supabase.boutiqueDuCompte()) {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
 
@@ -881,6 +927,14 @@ const Store = (() => {
     if (maj.boutiqueId !== undefined) {
       ligne.boutique_id = maj.boutiqueId || null;
       delete ligne.boutiqueId;
+    }
+    for (const [ici, enBase] of [["peutCommandes", "peut_commandes"],
+                                 ["peutBoutiques", "peut_boutiques"],
+                                 ["peutFinances", "peut_finances"]]) {
+      if (maj[ici] !== undefined) {
+        ligne[enBase] = !!maj[ici];
+        delete ligne[ici];
+      }
     }
     const avant = await ligneBrute("profils", id);
     const lignes = await Supabase.requete("PATCH", "profils?id=eq." + encodeURIComponent(id), ligne);
@@ -3012,6 +3066,7 @@ const Store = (() => {
     sauverBoutique, basculerBoutique, deplacerBoutique, supprimerBoutique,
     journaliser, lireJournal,
     listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,
+    estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     sousCategoriesDuSecteur, produitsClasses, changerSecteur,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
