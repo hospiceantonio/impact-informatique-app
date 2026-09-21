@@ -165,7 +165,7 @@ une. Le chemin se donne par `PLAYWRIGHT`, l'adresse par `BANC_URL` si le
 serveur n'est pas sur 5180, le navigateur par `CHROMIUM` pour en
 désigner un déjà installé, et `CAPTURES=<dossier>` range les images.
 
-Cinquante et un constats sur les deux applications, à quatre largeurs
+Quarante-deux constats sur les deux applications, à quatre largeurs
 d'écran (360, 390, 768, 1440 px). Ils regardent ce qu'une capture
 d'écran ne montre pas :
 
@@ -935,7 +935,7 @@ boutique **fermée** remontaient. `Catalogue.produits()` les écarte
 maintenant, comme le faisait déjà `produitsDeLEnseigne()`.
 
 [`tests/99h-categories.sql`](supabase/tests/99h-categories.sql) force
-les portes en 38 constats, et 50 de plus au navigateur. Quatre sabotages
+les portes en 38 constats, et 58 de plus au navigateur. Quatre sabotages
 les font tomber : rendre la liste à l'équipe, retirer le contrôle du
 secteur, laisser passer la catégorie soufflée par l'application,
 permettre le changement de secteur à la main.
