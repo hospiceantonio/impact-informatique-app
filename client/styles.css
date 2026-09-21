@@ -570,6 +570,12 @@ video.slide-img{background:#000}
 /* Un réassort en route : l'ambre de la charte, qui dit l'attente
    sans alarmer comme le rouge de la rupture. */
 .badge-approvisionnement{background:var(--ambre-clair);color:var(--orange-fonce)}
+/* LE SUIVI D'UNE COMMANDE SE LIT EN QUATRE PALIERS, et quatre paliers
+   demandent quatre couleurs : « Payé » bleu clair (rien à faire
+   encore), « Colis préparé » ambre (la boutique s'en occupe),
+   « Livraison en cours » bleu profond (ça bouge), « Livré » vert.
+   Deux paliers de la même teinte, et la progression ne se lit plus. */
+.badge-livraison{background:var(--bleu-700);color:#fff}
 .appro-echeance{
   display:flex;align-items:center;gap:7px;
   margin:10px 0 2px;padding:9px 12px;border-radius:var(--r-sm);
@@ -1121,10 +1127,51 @@ a.pub-carte:active{transform:scale(.98)}
   padding:1px 6px;border-radius:5px;
   background:var(--bleu-50);color:var(--bleu-700);font-weight:800;
 }
+/* La carte porte maintenant DEUX rangées : la commande, puis la barre
+   de suivi. D'où la colonne — en ligne, la barre se serait tassée à
+   côté du montant. */
 .re-resume{
-  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  display:flex;flex-direction:column;gap:12px;
   text-decoration:none;color:inherit;
 }
+.re-resume-ligne{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+}
+
+/* ---------- La barre de suivi ----------
+   Quatre paliers, remplis jusqu'où en est le colis. La pastille nomme
+   l'étape ; la barre dit le chemin parcouru et celui qui reste.
+
+   Les segments sont séparés par un écart plutôt que fondus : on doit
+   pouvoir COMPTER où l'on en est, pas estimer une longueur. */
+.re-barre{
+  padding-top:11px;border-top:1px solid var(--trait);
+}
+.re-barre-piste{display:flex;gap:4px}
+.re-barre-pas{
+  flex:1;height:5px;border-radius:99px;background:var(--trait);
+}
+.re-barre-pas.fait{background:var(--bleu)}
+/* L'étape en cours porte la couleur pleine ; celles d'avant la même,
+   en un peu plus pâle — on lit le chemin, puis où l'on est. */
+.re-barre-pas.fait:not(.ici){background:var(--bleu-300)}
+.re-barre-pas.ici{background:var(--bleu)}
+.re-barre-mots{
+  display:flex;gap:4px;margin-top:6px;
+}
+.re-barre-mots span{
+  flex:1;min-width:0;
+  font-size:10px;font-weight:600;line-height:1.2;
+  color:var(--encre-tres-douce);
+  text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.re-barre-mots span.fait{color:var(--encre-douce)}
+.re-barre-mots span.ici{color:var(--bleu-700);font-weight:800}
+/* Le bouton de confirmation, sous la barre pleine. Il vit DANS une
+   carte qui est un lien : c'est « preventDefault » qui l'empêche
+   d'ouvrir la commande, pas le style. */
+.re-recu-btn{width:100%;margin-top:11px}
 .re-resume-numero{font-size:14px;font-weight:800}
 .re-resume-date{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
 /* La colonne de droite ne se laisse pas écraser par un long numéro de

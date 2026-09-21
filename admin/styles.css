@@ -476,6 +476,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* Un réassort en route : l'ambre de la charte, qui dit l'attente
    sans alarmer comme le rouge de la rupture. */
 .badge-approvisionnement{background:var(--ambre-clair);color:var(--orange-fonce)}
+/* LE SUIVI D'UNE COMMANDE SE LIT EN QUATRE PALIERS, et quatre paliers
+   demandent quatre couleurs : « Payé » bleu clair (rien à faire
+   encore), « Colis préparé » ambre (la boutique s'en occupe),
+   « Livraison en cours » bleu profond (ça bouge), « Livré » vert.
+   Deux paliers de la même teinte, et la progression ne se lit plus. */
+.badge-livraison{background:var(--bleu-700);color:#fff}
 .badge-ok{background:var(--vert-clair);color:var(--vert)}
 /* Une commande partie au prix revendeur : BIZZOO y laisse sa marge,
    la boutique touche autant. Le dire évite de croire à une erreur. */

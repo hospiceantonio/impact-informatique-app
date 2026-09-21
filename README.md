@@ -1138,11 +1138,102 @@ refusé, c'est que quelqu'un a ouvert le prix BIZZOO à l'équipe.
 PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-marquer-vue.mjs
 ```
 
-Onze constats côté écran, sur l'**en-tête** que l'application envoie —
+Neuf constats côté écran, sur l'**en-tête** que l'application envoie —
 regarder « l'état a changé à l'écran » n'aurait rien prouvé, puisque
 l'écran se repeint avant la réponse de la base. La doublure répond 403
 à `return=representation`, exactement comme la vraie base. Retirer le
 correctif fait tomber trois constats et réaffiche le message d'origine.
+
+## Où en est ma commande : la barre, et l'accusé de réception
+
+Une commande payée restait « Payée » jusqu'au bout. Partie, livrée :
+toujours « Payée ». Le suivi existait pourtant déjà en base — cinq
+états par boutique, de `nouvelle` à `remise`, plus la confirmation du
+client — mais **il ne se lisait qu'en ouvrant le reçu**. Dans la
+liste, rien.
+
+### Côté client : quatre paliers sous la commande
+
+Chaque commande payée porte maintenant une barre à quatre segments,
+avec son mot sous chacun :
+
+```
+Payé ──── Préparé ──── En route ──── Livré
+```
+
+Deux mots par palier, et c'est voulu : la pastille dit l'étape en
+entier — « Livraison en cours » —, la barre la dit court — « En
+route ». Quatre étiquettes entières sur la largeur d'un téléphone
+déborderaient, et « Livraison en cours » serait le premier à sauter.
+
+**Rien avant le paiement.** Une commande en attente n'affiche pas de
+barre vide : elle se lirait comme une panne. C'est la pastille du
+paiement qui parle, comme avant.
+
+**Elle parle aussi à qui ne la voit pas.** Une barre est une image :
+seule, elle ne dit rien à un lecteur d'écran. Elle s'annonce donc en
+toutes lettres — *« Livraison en cours — étape 3 sur 4 »*.
+
+### La règle qui compte : le palier le MOINS avancé
+
+Une commande traverse parfois deux boutiques. Si l'une roule déjà et
+l'autre prépare encore, le client lit **« Préparé »**. Annoncer
+l'étape la plus avancée mentirait sur ce qu'il attend : son colis
+n'est pas en route, la moitié l'est. La même règle vaut des deux
+côtés — `Compte.statutLivraison` chez le client,
+`Store.statutCommande` côté boutique — et c'est le genre de règle
+qu'on écrit deux fois et qu'on désaccorde une fois sur deux, d'où le
+constat qui l'éprouve sur chacune.
+
+« Reçu confirmé » fait exception : il ne paraît que lorsque **toutes**
+les boutiques ont été confirmées.
+
+### « J'ai bien reçu », sans ouvrir la commande
+
+Au palier « Livré », un bouton paraît sous la barre. Il confirme d'un
+geste toutes les boutiques de la commande qui ont remis et attendent
+encore — c'est bien ce que le client veut dire : *j'ai tout reçu*.
+Quand il y en a deux, le bouton l'annonce : « J'ai bien reçu
+(2 boutiques) ». Une confirmation part alors par boutique, car c'est
+par boutique que la base signe, et la boutique la retrouve sur sa
+ligne : « Reçu confirmé, le … ».
+
+Le bouton **ne paraît qu'à « Livré »** et disparaît dès la
+confirmation faite. Offert plus tôt, il ferait accuser réception d'un
+colis qu'on n'a pas.
+
+**La carte est un lien, et le bouton vit dedans.** Sans
+`preventDefault`, le doigt ouvrirait la commande au lieu de
+confirmer, et le geste se perdrait en route — la même leçon que le
+cœur des favoris. Le banc ne s'en remet donc pas à ce qui est parti :
+il regarde **l'adresse de la page après le clic**.
+
+Ce qui s'affiche ensuite vient de la base : la liste est relue, pas
+cochée à l'écran.
+
+### Le banc
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-suivi.mjs
+```
+
+Trente-six constats, sur ce qui **quitte** l'application — les appels
+à la base, leur nombre et leurs arguments — et non sur ce que l'écran
+affiche : l'écran se repeint avant la réponse, et se repeindrait de la
+même façon si rien n'était parti.
+
+Trois sabotages ont vérifié que ces constats mordent, chacun sur le
+sien :
+
+| ce qu'on casse | ce qui tombe |
+| --- | --- |
+| `preventDefault` retiré | *la commande ne s'est PAS ouverte sous le doigt* |
+| le drapeau « confirmé » ignoré | *ni celle que le client a déjà confirmée* + *le bouton disparaît* |
+| le bouton ne regarde plus l'état `remise` | *aucune de celles qui ne sont pas encore livrées* |
+
+Un quatrième sabotage — annoncer le palier le **plus** avancé au lieu
+du moins avancé — fait tomber les deux constats de la règle des deux
+boutiques.
 
 ## Ce que cherche la recherche
 

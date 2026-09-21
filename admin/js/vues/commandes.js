@@ -144,6 +144,7 @@ const VueCommandes = (() => {
       c.client.tel.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
     /* Toutes les lignes de la boutique sont-elles derrière elle ? */
     const soldee = c.lignes.every((l) => l.etat === "remise" || l.etat === "annulee");
+    const statut = Store.statutCommande(c);
 
     return (
       '<div class="carte cmd-carte' + (soldee ? " cmd-soldee" : "") + '">' +
@@ -156,6 +157,16 @@ const VueCommandes = (() => {
             (c.revendeur
               ? ' <span class="badge badge-revendeur">' + UI.icone("personne", "ic-sm") +
                 "Revendeur</span>"
+              : "") +
+            /* OÙ EN EST LA COMMANDE, d'un coup d'œil. Les badges par
+               ligne disent où en est chaque article ; sur une commande
+               de cinq articles, cela faisait cinq badges à lire pour
+               répondre à la seule question qui compte au téléphone.
+               Celui-ci la résume — et porte les mêmes mots que l'écran
+               du client, pour qu'on parle de la même chose. */
+            (statut
+              ? ' <span class="badge ' + statut.classe + '">' +
+                Utils.echapper(statut.mot) + "</span>"
               : "") + "</div>" +
             '<div class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</div></div>" +
           '<div style="text-align:right">' +

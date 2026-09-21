@@ -1571,6 +1571,61 @@ const Store = (() => {
     preparee: "en_livraison", en_livraison: "remise",
   };
 
+  /* ---------- Le statut de la commande, en un mot ----------
+
+     Les badges par ligne disent où en est CHAQUE article. Sur une
+     commande de cinq articles, cela fait cinq badges à lire pour
+     répondre à « où en est cette commande ? ». Celui-ci répond d'un
+     coup d'œil, en tête de carte.
+
+     LE STATUT EST CELUI DE LA LIGNE LA MOINS AVANCÉE. Une commande
+     n'est pas « livrée » parce qu'un article sur trois l'est — et
+     l'annoncer ainsi ferait classer une commande qu'il reste à
+     préparer.
+
+     LA BOUTIQUE NE VOIT QUE SA PART. La base ne lui renvoie que ses
+     propres lignes : son statut porte donc sur ce qu'elle doit faire,
+     pas sur la commande entière. Le client, lui, voit le moins avancé
+     de TOUTES les boutiques — c'est la même règle, un cran au-dessus.
+
+     Les mots sont ceux du client, pas ceux de l'atelier : il vaut
+     mieux que les deux écrans disent la même chose au téléphone. */
+  const ORDRE_SUIVI = ["nouvelle", "vue", "preparee", "en_livraison", "remise"];
+  const STATUTS_COMMANDE = {
+    payee:        { mot: "Payé",               classe: "badge-commande" },
+    preparee:     { mot: "Colis préparé",      classe: "badge-approvisionnement" },
+    en_livraison: { mot: "Livraison en cours", classe: "badge-livraison" },
+    remise:       { mot: "Livré",              classe: "badge-ok" },
+    confirme:     { mot: "Reçu confirmé",      classe: "badge-ok" },
+    annulee:      { mot: "Annulée",            classe: "badge-annulee" },
+  };
+
+  /**
+   * Où en est la part de cette boutique. Rend null tant que la
+   * commande n'est pas payée : il n'y a alors rien à préparer, et
+   * c'est l'état du paiement qui doit s'afficher.
+   */
+  function statutCommande(c) {
+    if (!c || c.etat !== "payee") return null;
+    /* Une ligne annulée ne retient rien : elle ne sera jamais remise,
+       et la compter ferait rester la commande « à préparer » pour
+       toujours. */
+    const lignes = (c.lignes || []).filter((l) => l.etat !== "annulee");
+    if (!lignes.length) {
+      return (c.lignes || []).length ? STATUTS_COMMANDE.annulee : null;
+    }
+    if (lignes.every((l) => l.confirmeLe)) return STATUTS_COMMANDE.confirme;
+    let moins = "";
+    for (const l of lignes) {
+      const e = l.etat || "nouvelle";
+      if (!moins || ORDRE_SUIVI.indexOf(e) < ORDRE_SUIVI.indexOf(moins)) moins = e;
+    }
+    /* « nouvelle » et « vue » retombent sur « Payé » : ce sont des
+       affaires de comptoir, et le client n'en attend rien de plus que
+       « c'est payé, ça vient ». */
+    return STATUTS_COMMANDE[moins] || STATUTS_COMMANDE.payee;
+  }
+
   function commandeDepuisLigne(l) {
     const lignes = (l.commande_lignes || []).map((x) => ({
       id: x.id,
@@ -2966,6 +3021,7 @@ const Store = (() => {
     SUJETS_SAV, listerReclamations, messagesReclamation,
     repondreReclamation, trancherReclamation,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,
+    statutCommande,
     statistiquesVentes,
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, lireRegles, majRegles,

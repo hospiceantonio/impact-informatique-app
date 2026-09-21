@@ -566,6 +566,72 @@ const Compte = (() => {
     return ETAPES.indexOf(a) <= ETAPES.indexOf(b) ? a : b;
   }
 
+  /* ---------- Le statut d'une commande, en un mot ----------
+
+     La liste n'affichait que l'état du PAIEMENT. Une commande payée y
+     restait « Payée » pour toujours — le colis pouvait être préparé,
+     parti, remis : rien ne bougeait. Le client rouvrait le reçu pour
+     savoir, ou appelait la boutique.
+
+     LE STATUT EST CELUI DE LA BOUTIQUE LA MOINS AVANCÉE. Une commande
+     qui traverse deux boutiques n'est pas « livrée » parce que l'une
+     des deux a remis sa part ; elle l'est quand les deux l'ont fait.
+     C'est la même règle qu'à l'intérieur d'une boutique, d'un cran au
+     dessus.
+
+     Et « Reçu confirmé » n'est pas une sixième étape de la boutique :
+     c'est la parole du CLIENT, qui vient après. La base tient les deux
+     séparées, l'écran aussi. */
+  /* « niveau » et « court » servent la BARRE de la liste : le niveau
+     dit jusqu'où elle se remplit, le mot court tient sous elle — à
+     quatre étiquettes sur la largeur d'un téléphone, « Livraison en
+     cours » déborderait. Le mot entier reste sur la pastille. */
+  const STATUTS = {
+    payee:        { mot: "Payé",               court: "Payé",     niveau: 1,
+                    classe: "badge-commande" },
+    preparee:     { mot: "Colis préparé",      court: "Préparé",  niveau: 2,
+                    classe: "badge-approvisionnement" },
+    en_livraison: { mot: "Livraison en cours", court: "En route", niveau: 3,
+                    classe: "badge-livraison" },
+    remise:       { mot: "Livré",              court: "Livré",    niveau: 4,
+                    classe: "badge-ok" },
+    /* La confirmation du client ne fait pas un cinquième palier : elle
+       CLÔT le quatrième. La barre est pleine dans les deux cas ; c'est
+       la pastille qui dit lequel des deux. */
+    confirme:     { mot: "Reçu confirmé",      court: "Livré",    niveau: 4,
+                    classe: "badge-ok", confirme: true },
+  };
+
+  /** Les quatre paliers de la barre, dans l'ordre. */
+  const PALIERS = ["payee", "preparee", "en_livraison", "remise"]
+    .map((c) => STATUTS[c]);
+
+  /**
+   * Où en est la commande, toutes boutiques confondues. Rend null tant
+   * qu'elle n'est pas payée : il n'y a alors rien à suivre, et c'est
+   * l'état du paiement qui doit s'afficher.
+   */
+  function statutLivraison(commande) {
+    if (!commande || commande.etat !== "payee") return null;
+    const groupes = (commande.boutiques || []).filter((g) => g && g.etat);
+    if (!groupes.length) return null;
+
+    /* Tout confirmé, et par TOUTES les boutiques : une commande à
+       moitié confirmée n'est pas close. */
+    if (groupes.every((g) => g.confirme)) return STATUTS.confirme;
+
+    let moins = "";
+    for (const g of groupes) moins = ETAT_LE_MOINS_AVANCE(moins, g.etat);
+    /* « nouvelle » et « vue » sont des affaires de boutique : pour le
+       client, la commande est payée et attend. Lui annoncer « vue par
+       la boutique » ne lui dit rien de ce qu'il attend vraiment — et
+       c'est pourquoi ces deux-là retombent sur « Payé ». */
+    return STATUTS[moins] || STATUTS.payee;
+  }
+
+  /** Les quatre paliers, pour que l'écran dessine la barre. */
+  const paliersLivraison = () => PALIERS;
+
   /** Le nom d'une boutique, tel que le catalogue le connaît. */
   function boutiqueDe(id) {
     if (typeof Catalogue === "undefined") return null;
@@ -953,7 +1019,7 @@ const Compte = (() => {
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
     confirmerReception,
-    mesCommandes, commande, rpc, rest,
+    mesCommandes, commande, statutLivraison, paliersLivraison, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,
     chargerEquipe, estEquipe,

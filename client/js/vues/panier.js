@@ -980,8 +980,20 @@ const VuePanier = (() => {
 
   /** Une commande, en résumé, dans la liste. */
   function resumeHtml(c) {
-    const etat = ETATS[c.etat] || ETATS.a_payer;
+    /* OÙ EN EST LE COLIS PASSE AVANT L'ÉTAT DU PAIEMENT. Une commande
+       payée affichait « Payée » pour toujours : préparée, partie,
+       remise — rien ne bougeait dans la liste, et le client rouvrait
+       le reçu ou appelait la boutique pour savoir.
+
+       Tant qu'elle n'est pas payée, il n'y a rien à suivre : c'est
+       alors le paiement qui parle, comme avant. */
+    const suivi = (typeof Compte !== "undefined" && Compte.statutLivraison)
+      ? Compte.statutLivraison(c) : null;
+    const etat = suivi
+      ? { court: suivi.mot, nom: suivi.mot, classe: suivi.classe }
+      : (ETATS[c.etat] || ETATS.a_payer);
     return '<a class="carte re-resume" href="#/commande/' + Utils.echapper(c.id) + '">' +
+      '<div class="re-resume-ligne">' +
       "<div><div class=\"re-resume-numero\">" + Utils.echapper(c.numero) +
         /* Une commande que la base ne connaît pas encore : elle ne vit
            que sur ce téléphone. Le dire permet de comprendre ce qu'un
@@ -997,7 +1009,117 @@ const VuePanier = (() => {
         "<div><strong>" + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</strong></div>" +
         '<span class="badge ' + etat.classe + '">' +
           Utils.echapper(etat.court || etat.nom) + "</span>" +
-      "</div></a>";
+      "</div></div>" +
+      barreSuivi(suivi, c) +
+    "</a>";
+  }
+
+  /* ---------- Confirmer la réception, depuis la liste ----------
+
+     La boutique a déclaré « remis ». Il manque la parole du CLIENT, et
+     elle ne se donnait qu'en ouvrant le reçu — un écran de plus pour
+     un seul bouton, et beaucoup ne l'ouvraient jamais. Le bouton
+     apparaît donc là où le client voit « Livré ».
+
+     DEUX PAROLES, PAS UNE. La boutique dit « j'ai remis », le client
+     dit « j'ai reçu ». La base refuse à chacun de signer pour l'autre,
+     et c'est ce qui laisse quelque chose à interroger le jour d'un
+     litige. Le bouton ne double donc pas la déclaration de la
+     boutique : il en ajoute une autre.
+
+     UNE COMMANDE PEUT TRAVERSER PLUSIEURS BOUTIQUES. Le statut ne dit
+     « Livré » que lorsque TOUTES ont remis : confirmer ici vaut donc
+     pour toutes celles qui attendent encore, et c'est bien ce que le
+     client veut dire — « j'ai tout reçu ». */
+  function boutonRecu(c) {
+    const aConfirmer = (c.boutiques || [])
+      .filter((g) => g && g.etat === "remise" && !g.confirme);
+    if (!aConfirmer.length) return "";
+    return (
+      '<button type="button" class="btn btn-clair re-recu-btn" data-recu="' +
+        Utils.echapper(c.id) + '">' + UI.icone("check", "ic-sm") +
+        "J'ai bien reçu" +
+        (aConfirmer.length > 1
+          ? " (" + aConfirmer.length + " boutiques)" : "") +
+      "</button>"
+    );
+  }
+
+  /**
+   * Brancher les boutons de la liste.
+   *
+   * LA CARTE EST UN LIEN, et le bouton vit dedans : sans
+   * « preventDefault », le toucher ouvrirait la commande et la
+   * confirmation se perdrait en route. C'est la même leçon que le cœur
+   * des favoris.
+   */
+  function brancherRecus(vue, liste) {
+    for (const b of UI.$$("[data-recu]", vue)) {
+      b.addEventListener("click", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const c = liste.find((x) => x.id === b.dataset.recu);
+        if (!c) return;
+        const boutiques = (c.boutiques || [])
+          .filter((g) => g && g.etat === "remise" && !g.confirme);
+        b.disabled = true;
+        try {
+          /* Une boutique après l'autre : la base signe par boutique, et
+             une commande partagée en compte plusieurs. */
+          for (const g of boutiques) {
+            await Compte.confirmerReception(c.id, g.id);
+          }
+          UI.toast("Merci, c'est noté.");
+          /* On relit plutôt que de cocher à l'écran : ce qui s'affiche
+             doit venir de la base, comme le reste. */
+          mesCommandes(vue);
+        } catch (err) {
+          /* La base explique pourquoi — « rien à confirmer ici » quand
+             la boutique n'a encore rien déclaré. On la cite. */
+          UI.toast(err.message || "Impossible pour l'instant.", "err");
+          b.disabled = false;
+        }
+      });
+    }
+  }
+
+  /* ---------- La barre de suivi, sous la commande ----------
+
+     QUATRE PALIERS, remplis jusqu'où en est le colis. La pastille
+     nomme l'étape ; la barre dit le chemin parcouru et celui qui
+     reste — c'est ce qu'on veut savoir d'un coup d'œil dans une liste,
+     sans ouvrir le reçu.
+
+     Rien avant le paiement : il n'y a alors aucun chemin à montrer, et
+     une barre vide sous une commande impayée se lirait comme une
+     panne.
+
+     ELLE PARLE AUSSI À QUI NE LA VOIT PAS. Une barre est une image :
+     seule, elle ne dit rien à un lecteur d'écran. D'où le « role » et
+     le texte qui l'accompagne — et c'est aussi ce qui la rend lisible
+     quand les couleurs passent mal au soleil. */
+  function barreSuivi(suivi, c) {
+    if (!suivi) return "";
+    const paliers = Compte.paliersLivraison();
+    const ou = suivi.niveau || 1;
+    return (
+      '<div class="re-barre" role="img" aria-label="' +
+        Utils.echapper((suivi.confirme ? "Reçu confirmé" : suivi.mot) +
+          " — étape " + ou + " sur " + paliers.length) + '">' +
+        '<div class="re-barre-piste">' +
+          paliers.map((p, i) =>
+            '<span class="re-barre-pas' + (i < ou ? " fait" : "") +
+              (i === ou - 1 ? " ici" : "") + '"></span>').join("") +
+        "</div>" +
+        '<div class="re-barre-mots" aria-hidden="true">' +
+          paliers.map((p, i) =>
+            '<span class="' + (i < ou ? "fait" : "") +
+              (i === ou - 1 ? " ici" : "") + '">' +
+              Utils.echapper(p.court) + "</span>").join("") +
+        "</div>" +
+        boutonRecu(c || {}) +
+      "</div>"
+    );
   }
 
   /**
@@ -1059,6 +1181,8 @@ const VuePanier = (() => {
         : "") +
       liste.map(resumeHtml).join("") +
       invitation(connecte, local.filter((c) => !vues.has(c.id)));
+
+    brancherRecus(vue, liste);
   }
 
   /**
