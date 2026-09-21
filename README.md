@@ -1578,8 +1578,30 @@ Vingt-sept constats côté client, vingt et un côté boutique, sur ce qui
 quatrième sabotage admin ne tombait pas : le banc n'éprouvait jamais
 l'application **déconnectée**. Comblé.
 
-À coller : [`notifications.sql`](supabase/notifications.sql), **après**
-`comptes-enseigne.sql`.
+### Les fichiers à coller, dans l'ordre
+
+1. [`comptes-enseigne.sql`](supabase/comptes-enseigne.sql)
+2. [`notifications.sql`](supabase/notifications.sql) — il s'appuie sur
+   des colonnes que le premier pose
+3. [`livreur-nom.sql`](supabase/livreur-nom.sql)
+
+**Le troisième est né d'une erreur, et elle mérite d'être écrite.**
+`livreurs_boutique()` avait été enrichie — nom et téléphone — dans
+`schema.sql` et `role-livreur.sql` seulement. Or une base déjà en
+service ne rejoue ni l'un ni l'autre : les colonnes `nom` et `tel`
+arrivaient bien sur les comptes, mais la liste de « Confier à un
+livreur » continuait de rendre des adresses e-mail. **La
+fonctionnalité était posée partout sauf là où elle se voit**, et rien
+n'échouait — ni banc, ni écran, ni message d'erreur.
+
+Ce qui l'a rattrapée : une lecture directe de la base après coup,
+comparant ce qu'on croyait avoir livré à ce qui s'y trouvait vraiment.
+`pg_get_function_result()` rendait encore
+`TABLE(id uuid, email text, actif boolean)`.
+
+**La règle qui en sort :** toucher une fonction dans `schema.sql` ne
+suffit pas. Il faut se demander quel fichier une base EN SERVICE
+rejouera pour la recevoir — et si aucun ne le fait, en écrire un.
 
 ## Ce que cherche la recherche
 
