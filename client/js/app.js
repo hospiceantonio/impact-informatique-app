@@ -38,6 +38,9 @@ const App = { evenementInstallation: null };
        maquette : la barre du bas est pleine, et ce sont deux écrans
        qu'on ouvre de temps en temps, pas à chaque visite. */
     { motif: /^\/favoris$/, vue: (v) => VueFavoris.afficher(v) },
+    /* Les notifications : ce qui vient d'arriver, et le doigt qui mène
+       à l'opération concernée. */
+    { motif: /^\/notifications$/, vue: (v) => VueNotifications.afficher(v) },
     { motif: /^\/adresses$/, vue: (v) => VueFavoris.adresses(v) },
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
   ];
@@ -423,6 +426,26 @@ const App = { evenementInstallation: null };
        premier coup et non après un aller-retour sous les doigts. */
     if (typeof Compte !== "undefined") {
       Compte.chargerRegles().catch(() => { /* hors connexion : la dernière connue */ });
+    }
+
+    /* ---------- Les notifications ----------
+       Elles ne tournent que pour un compte connecté : sans compte, la
+       base n'a personne à prévenir. On les démarre à l'ouverture et à
+       chaque connexion, on les ARRÊTE à la déconnexion — sans quoi un
+       socket resterait ouvert au nom de quelqu'un qui est parti, et la
+       cloche garderait le compte du précédent. */
+    if (typeof Notifs !== "undefined" && typeof Compte !== "undefined") {
+      const suivreLeCompte = () => {
+        if (Compte.connecte()) Notifs.demarrer();
+        else Notifs.arreter();
+        UI.majCloche();
+      };
+      /* La cloche vit dans la barre du haut, redessinée à chaque écran :
+         on passe par un événement plutôt que d'aller la chercher. */
+      Notifs.surChangement(() =>
+        document.dispatchEvent(new CustomEvent("notifs:maj")));
+      Compte.surChangement(suivreLeCompte);
+      suivreLeCompte();
     }
 
     /* Les favoris, lus une fois à l'ouverture. Sans cela, le premier

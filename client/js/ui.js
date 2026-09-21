@@ -104,6 +104,47 @@ const UI = (() => {
 
   document.addEventListener("panier:maj", majPanier);
 
+  /* ---------- La cloche des notifications ----------
+
+     ELLE NE PARAÎT QUE POUR QUI A UN COMPTE. Sans compte, il n'y a
+     personne à prévenir : la base n'a pas de destinataire, et une
+     cloche muette sur tous les écrans ne ferait qu'encombrer une barre
+     déjà pleine.
+
+     LE NOMBRE EST DANS L'ÉTIQUETTE, pas seulement dans la pastille :
+     un lecteur d'écran annonce « Notifications, 3 non lues », là où
+     une pastille seule ne dit rien. */
+  function boutonCloche() {
+    if (typeof Compte === "undefined" || !Compte.connecte()) return "";
+    if (/^#\/notifications/.test(location.hash)) return "";
+    const combien = typeof Notifs !== "undefined" ? Notifs.compte() : 0;
+    return (
+      '<a class="btn-ic btn-cloche" href="#/notifications" aria-label="' +
+        (combien ? "Notifications, " + combien + " non lue" + (combien > 1 ? "s" : "")
+                 : "Notifications") + '">' + icone("cloche") +
+        (combien ? '<span class="panier-pastille">' +
+          (combien > 99 ? "99+" : combien) + "</span>" : "") +
+      "</a>"
+    );
+  }
+
+  function majCloche() {
+    const zone = $("#topbar .topbar-actions");
+    if (!zone) return;
+    const ancien = $(".btn-cloche", zone);
+    const neuf = boutonCloche();
+    if (ancien) ancien.outerHTML = neuf;
+    else if (neuf) {
+      /* La cloche se pose AVANT le panier : le panier reste le dernier
+         geste de la barre, celui qu'on cherche du pouce. */
+      const panier = $(".btn-panier", zone);
+      if (panier) panier.insertAdjacentHTML("beforebegin", neuf);
+      else zone.insertAdjacentHTML("beforeend", neuf);
+    }
+  }
+
+  document.addEventListener("notifs:maj", majCloche);
+
   /**
    * La barre du haut. `vignette` pose une pastille à gauche du titre :
    * c'est par elle qu'une boutique met son logo à côté de son nom, pour
@@ -115,7 +156,7 @@ const UI = (() => {
       ? '<button type="button" class="btn-ic" data-action="retour" aria-label="Retour">' +
         icone("retour") + "</button>"
       : "";
-    actions = (actions || "") + boutonCompte() + boutonPanier();
+    actions = (actions || "") + boutonCompte() + boutonCloche() + boutonPanier();
     const actionsHtml = '<div class="topbar-actions">' + (actions || "") + "</div>";
 
     /* ---------- L'en-tête d'une boutique ----------
@@ -894,7 +935,7 @@ const UI = (() => {
 
   return {
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
-    majPanier,
+    majPanier, majCloche,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
