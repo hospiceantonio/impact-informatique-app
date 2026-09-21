@@ -301,6 +301,7 @@ const VueAccueil = (() => {
     /* Le slider de l'accueil ne montre que ce que BIZZOO y met. */
     let html = htmlSlider(Catalogue.slidesGeneral(), []);
     html += htmlEtatCatalogue();
+    html += htmlOffreDuJour();
 
     html += UI.titreSection("Nos boutiques");
     html += boutiques.length
@@ -341,6 +342,41 @@ const VueAccueil = (() => {
     vue.innerHTML = html;
     demarrerSlider();
     brancherActualiser();
+
+    /* LA RANGÉE DES POPULAIRES ARRIVE APRÈS, et c'est voulu : elle
+       demande un aller-retour à la base, et l'accueil ne doit pas
+       attendre après elle. Si la base est plus ancienne que ce
+       chantier, hors d'atteinte, ou qu'aucune vente n'a encore eu
+       lieu, la rangée ne s'affiche pas — l'accueil reste entier. */
+    Catalogue.produitsPopulaires(8).then((liste) => {
+      if (!liste.length) return;
+      /* L'écran a pu changer pendant l'aller-retour : on ne pose pas
+         une rangée sur une vue que le client a déjà quittée. */
+      if (!document.body.contains(vue)) return;
+      if (location.hash && !/^#\/?$/.test(location.hash)) return;
+      vue.insertAdjacentHTML("beforeend",
+        UI.titreSection("Produits populaires") + UI.rangeeProduits(liste));
+    }).catch(() => { /* la rangée s'abstient, le reste tient debout */ });
+  }
+
+  /**
+   * L'offre du jour : la plus forte remise RÉELLEMENT en cours.
+   *
+   * Aucun chiffre n'est écrit en dur. Si plus rien n'est remisé, le
+   * bandeau disparaît — plutôt que de promettre une ristourne que le
+   * client ne trouvera nulle part une fois sur place.
+   */
+  function htmlOffreDuJour() {
+    const remise = Catalogue.meilleureRemise();
+    if (remise === null) return "";
+    return (
+      '<a class="offre-jour" href="#/promos">' +
+        '<span class="offre-jour-quoi">Offre du jour</span>' +
+        '<strong class="offre-jour-chiffre">Jusqu\'à −' + remise + "&nbsp;%</strong>" +
+        '<span class="offre-jour-voir">Voir les bonnes affaires ' +
+          UI.icone("chevron", "ic-sm") + "</span>" +
+      "</a>"
+    );
   }
 
   /** L'état du catalogue : hors ligne, démonstration… */

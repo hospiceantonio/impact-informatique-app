@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v67";
+const VERSION = "impact-client-v69";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -32,6 +32,7 @@ const FICHIERS = [
   "./js/compte.js",
   "./js/avis.js",
   "./js/sav.js",
+  "./js/favoris.js",
   "./js/panier.js",
   "./js/paiement.js",
   "./js/live.js",
@@ -46,6 +47,7 @@ const FICHIERS = [
   "./js/vues/compte.js",
   "./js/vues/avis.js",
   "./js/vues/sav.js",
+  "./js/vues/favoris.js",
   "./js/app.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

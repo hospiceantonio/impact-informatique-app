@@ -615,6 +615,57 @@ const UI = (() => {
   /* ---------- Cartes produit ---------- */
 
   /** Carte pour les grilles à 2 colonnes. */
+  /* ---------- Le cœur ----------
+
+     UN BOUTON POSÉ SUR UN LIEN. La carte d'un produit est un lien vers
+     sa fiche ; le cœur vit dedans. Sans « preventDefault », le toucher
+     ouvrirait la fiche et le favori se perdrait en route — d'où
+     l'écouteur unique posé plus bas, qui intercepte le clic avant que
+     le lien ne l'emporte.
+
+     ET IL S'AFFICHE POUR TOUT LE MONDE, connecté ou non. Le cacher aux
+     visiteurs reviendrait à ne jamais leur dire que cela existe ; le
+     toucher sans compte les mène à la connexion, avec la raison. */
+  function coeur(id, classe) {
+    const garde = typeof Favoris !== "undefined" && Favoris.aProduit(id);
+    return (
+      '<button type="button" class="coeur' + (garde ? " coeur-plein" : "") +
+        (classe ? " " + classe : "") + '" data-coeur="' + e(id) + '" ' +
+        'aria-pressed="' + (garde ? "true" : "false") + '" ' +
+        'aria-label="' + (garde ? "Retirer des favoris" : "Mettre de côté") + '">' +
+        icone("coeur") +
+      "</button>"
+    );
+  }
+
+  /* Un seul écouteur pour toute l'application : les cartes se
+     redessinent sans arrêt, et en rebrancher une par une laisserait
+     tôt ou tard un cœur mort sur un écran. */
+  document.addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-coeur]");
+    if (!b) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!Compte.connecte()) {
+      toast("Connectez-vous pour garder vos favoris");
+      location.hash = "#/connexion";
+      return;
+    }
+    b.disabled = true;
+    try {
+      const garde = await Favoris.basculerProduit(b.dataset.coeur);
+      /* On repeint CE cœur tout de suite. Les autres — la même fiche
+         ouverte ailleurs à l'écran — suivent par « surChangement ». */
+      b.classList.toggle("coeur-plein", garde);
+      b.setAttribute("aria-pressed", garde ? "true" : "false");
+      b.setAttribute("aria-label", garde ? "Retirer des favoris" : "Mettre de côté");
+      toast(garde ? "Mis de côté" : "Retiré des favoris");
+    } catch (e2) {
+      toast(e2.message || "Impossible pour l'instant.", "erreur");
+    }
+    b.disabled = false;
+  });
+
   /* `options.boutique` : dire d'où vient le produit. La recherche
      traverse toute l'enseigne — sans ce nom, on ne saurait pas chez
      qui aller le chercher. */
@@ -629,6 +680,7 @@ const UI = (() => {
           imageProduit(p, "p-carte-photo") +
           '<span class="p-carte-badges">' + badgesProduit(p) + "</span>" +
           pastilleVideo(p) +
+          coeur(p.id) +
         "</span>" +
         '<span class="p-carte-corps">' +
           (bou
@@ -789,7 +841,7 @@ const UI = (() => {
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
-    iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
+    coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide,
   };

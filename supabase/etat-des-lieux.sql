@@ -579,7 +579,42 @@ with controles(rang, element, ok) as (values
   -- une rattachée à une boutique, l'ancien classement cohabiterait avec
   -- le nouveau, et l'écran du client montrerait les deux.
   (101, 'Aucun ancien rayon de boutique ne traîne', not exists (
-      select 1 from public.categories where boutique_id is not null))
+      select 1 from public.categories where boutique_id is not null)),
+
+  -- ---------- Ce que le client garde pour lui ----------
+  (102, 'Les produits mis de côté (favoris)',
+      to_regclass('public.favoris') is not null),
+  (103, 'Les boutiques suivies',
+      to_regclass('public.boutiques_suivies') is not null),
+  (104, 'Les adresses de livraison',
+      to_regclass('public.adresses') is not null),
+  -- Deux adresses par défaut, c'est un formulaire de commande qui en
+  -- choisit une au hasard — et un colis chez la mauvaise.
+  (105, 'Une seule adresse par défaut, garantie par la base', exists (
+      select 1 from pg_indexes where schemaname = 'public'
+         and indexname = 'adresses_une_par_defaut')),
+  (106, 'Et cochée sans erreur au client', exists (
+      select 1 from pg_trigger where tgname = 'adresses_defaut'
+         and not tgisinternal)),
+  -- CE CONTRÔLE-LÀ EST LE PLUS IMPORTANT DES HUIT. Une base Supabase
+  -- accorde tout d'office aux visiteurs : si le « revoke » n'avait pas
+  -- pris, n'importe qui lirait les adresses de domicile de tous les
+  -- clients avec la seule clé publique de l'application.
+  (107, 'Rien de tout cela n''est lisible sans compte', not exists (
+      select 1 from information_schema.role_table_grants
+       where table_schema = 'public'
+         and table_name in ('favoris', 'boutiques_suivies', 'adresses')
+         and grantee = 'anon')),
+  (108, 'Le classement des ventes, pour l''accueil', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'produits_populaires')),
+  -- Il rend un ORDRE, jamais des chiffres : « voici ce qui part le
+  -- plus » est un service au client ; « voici combien chaque boutique
+  -- vend » livrerait à chacun le carnet de commandes de son voisin.
+  (109, 'Qui rend un ordre, et aucun chiffre de vente', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'produits_populaires'
+         and pg_get_function_result(p.oid) = 'TABLE(produit_id text)'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

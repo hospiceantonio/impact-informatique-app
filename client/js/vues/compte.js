@@ -497,6 +497,13 @@ const VueCompte = (() => {
            semaine ne se retrouve pas en fouillant ses commandes. */
         '<a class="btn btn-clair" href="#/reclamations" style="margin-top:10px">' +
           UI.icone("alerte") + "Mes réclamations</a>" +
+        /* Les favoris et les adresses : deux listes qui n'appartiennent
+           qu'au client, et que la base ferme à tout le monde d'autre,
+           l'enseigne comprise. */
+        '<a class="btn btn-clair" href="#/favoris" style="margin-top:10px">' +
+          UI.icone("coeur") + "Mes favoris</a>" +
+        '<a class="btn btn-clair" href="#/adresses" style="margin-top:10px">' +
+          UI.icone("lieu") + "Mes adresses</a>" +
       "</div>" +
       '<div class="carte">' +
         '<button type="button" class="btn btn-clair" id="cp-sortir">' + UI.icone("retour") +

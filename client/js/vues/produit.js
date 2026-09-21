@@ -226,6 +226,11 @@ const VueProduit = (() => {
             "</div>" +
             '<button type="button" class="btn btn-orange" id="p-ajouter">' + UI.icone("sacoche") +
               (dejaDedans ? "Ajouter encore" : "Ajouter au panier") + "</button>" +
+            /* Le cœur prend sa place dans la rangée plutôt que de
+               flotter sur la photo : ici on décide, et une pastille
+               posée sur une image se touche par accident en la faisant
+               défiler du doigt. */
+            UI.coeur(p.id, "coeur-fiche") +
           "</div>" +
           (dejaDedans
             ? '<a class="btn btn-clair" href="#/panier" style="margin-top:10px">Voir mon panier</a>'

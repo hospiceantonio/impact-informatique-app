@@ -798,6 +798,58 @@ const Catalogue = (() => {
       .sort(parPrixCroissant);
   }
 
+  /**
+   * La plus forte remise en cours, en pourcentage — ou null.
+   *
+   * C'EST CE CHIFFRE QU'ANNONCE LE BANDEAU DE L'ACCUEIL, et il se
+   * calcule sur les prix réellement affichés. Écrire « jusqu'à -40 % »
+   * en dur serait plus simple et plus faux : le jour où la dernière
+   * promotion se termine, l'accueil continuerait de la promettre, et
+   * le client qui s'est déplacé ne la trouverait nulle part. Un
+   * bandeau qui ment coûte plus cher que pas de bandeau.
+   */
+  function meilleureRemise() {
+    let haut = 0;
+    for (const p of promotions()) {
+      const r = Utils.remisePourcent(p.ancienPrix, p.prix);
+      if (r !== null && r > haut) haut = r;
+    }
+    return haut > 0 ? haut : null;
+  }
+
+  /**
+   * Ce qui se vend le mieux, servi par la base.
+   *
+   * La base rend un ORDRE — des identifiants, sans les quantités : un
+   * classement public ne doit pas livrer à chaque commerçant les
+   * volumes de vente de son voisin. On retrouve donc la marchandise
+   * dans le catalogue déjà chargé, et on écarte ce qui n'y est plus.
+   *
+   * Ouvert aux visiteurs : c'est l'accueil, il s'affiche avant qu'on
+   * se connecte — d'où la clé publique plutôt qu'un jeton.
+   */
+  async function produitsPopulaires(combien) {
+    const c = configuration();
+    if (!c) return [];
+    let lignes;
+    try {
+      const reponse = await fetch(c.url + "/rest/v1/rpc/produits_populaires", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Content-Type": "application/json" },
+        body: JSON.stringify({ limite: combien || 8 }),
+      });
+      if (!reponse.ok) return [];
+      lignes = await reponse.json();
+    } catch (_) {
+      /* Hors connexion, ou base d'avant ce chantier : la rangée ne
+         s'affiche pas, et le reste de l'accueil tient debout. */
+      return [];
+    }
+    if (!Array.isArray(lignes)) return [];
+    const parId = new Map(produits().map((p) => [p.id, p]));
+    return lignes.map((l) => parId.get(l && l.produit_id)).filter(Boolean);
+  }
+
   /* ---------- Recherche ----------
      Ce qu'on attend d'une recherche dans une enseigne à plusieurs
      boutiques : taper quelques lettres et voir ce qui s'en approche,
@@ -937,7 +989,8 @@ const Catalogue = (() => {
     rayonsDeLaBoutique, produitsDeLEnseigne,
     slides, slidesGeneral, publicites, misEnAvant,
     enVenteFlash, ventesFlash,
-    nouveautes, promotions, rechercher, similaires,
+    nouveautes, promotions, meilleureRemise, produitsPopulaires,
+    rechercher, similaires,
     boutiqueDuProduit, deviseDe,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,

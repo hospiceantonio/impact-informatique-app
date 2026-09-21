@@ -1358,3 +1358,105 @@ a.pub-carte:active{transform:scale(.98)}
 .sav-recours-btn{color:var(--orange-fonce);border-color:var(--ambre-clair)}
 .sav-close{display:flex;gap:8px;align-items:flex-start}
 .sav-close .ic{flex:none;margin-top:2px;color:var(--vert)}
+
+/* =========================================================
+   Favoris et adresses
+   ========================================================= */
+
+/* ---------- Le cœur ----------
+   Posé sur la carte d'un produit ET sur sa fiche. Il est TRACÉ tant que
+   le produit n'est pas gardé, PLEIN dès qu'il l'est : c'est la seule
+   différence qu'on lise d'un coup d'œil, et sans elle le bouton ne dit
+   rien de son état.
+
+   Il se touche par-dessus la carte, qui est un lien. D'où le z-index et
+   le « position:absolute » : sans eux, toucher le cœur ouvrirait la
+   fiche du produit — et le client repartirait sans son favori. */
+.coeur{
+  position:absolute;top:8px;right:8px;z-index:3;
+  display:flex;align-items:center;justify-content:center;
+  width:34px;height:34px;border-radius:50%;
+  background:rgba(255,255,255,.92);backdrop-filter:blur(6px);
+  border:1px solid var(--trait);color:var(--encre-tres-douce);
+  cursor:pointer;
+}
+.coeur .ic{width:19px;height:19px;stroke-width:1.8}
+.coeur:active{transform:scale(.9)}
+.coeur.coeur-plein{color:var(--orange);border-color:var(--orange-clair)}
+.coeur.coeur-plein .ic{fill:currentColor;stroke:currentColor}
+/* Sur la fiche produit, il rejoint la rangée des boutons : plus de
+   pastille flottante, il tient sa place dans la ligne. */
+.coeur-fiche{position:static;width:46px;height:46px;flex:none;border-radius:14px}
+.coeur-fiche .ic{width:22px;height:22px}
+
+/* Les favoris qui ne s'affichent plus : dit, pas caché. */
+.fav-absents{
+  margin-top:14px;font-size:12.5px;line-height:1.5;color:var(--encre-tres-douce);
+}
+
+/* ---------- Les adresses ---------- */
+.adr-carte + .adr-carte{margin-top:10px}
+.adr-tete{display:flex;gap:11px;align-items:flex-start}
+.adr-tete strong{font-size:14.5px;font-weight:700}
+.adr-tete p{
+  margin:3px 0 0;font-size:13px;line-height:1.5;color:var(--encre-douce);
+}
+.adr-rond{
+  display:flex;align-items:center;justify-content:center;flex:none;
+  width:34px;height:34px;border-radius:10px;
+  background:var(--bleu-50);color:var(--bleu);
+}
+.adr-defaut{
+  display:inline-block;margin-left:7px;padding:2px 7px;border-radius:99px;
+  background:var(--bleu-50);color:var(--bleu-700);
+  font-size:10.5px;font-weight:700;letter-spacing:.02em;vertical-align:2px;
+}
+.adr-actions{
+  display:flex;flex-wrap:wrap;gap:14px;
+  margin-top:11px;padding-top:11px;border-top:1px solid var(--trait);
+}
+.adr-case{
+  display:flex;align-items:center;gap:9px;
+  margin:2px 0 14px;font-size:13.5px;font-weight:600;color:var(--encre-douce);
+}
+.adr-case input{width:18px;height:18px;flex:none;accent-color:var(--bleu)}
+.adr-boutons{display:flex;gap:9px}
+.adr-boutons .btn{flex:1}
+
+/* Un bouton qui n'est pas un bouton : une action secondaire, écrite
+   comme un lien parce qu'elle n'appelle pas le doigt. */
+.btn-lien{
+  display:inline-flex;align-items:center;gap:5px;
+  background:none;border:0;padding:0;cursor:pointer;
+  font-family:inherit;font-size:13px;font-weight:700;color:var(--bleu);
+}
+.btn-lien .ic{width:15px;height:15px}
+.btn-lien:disabled{opacity:.5;cursor:default}
+.btn-lien-danger{color:var(--rouge)}
+
+/* ---------- L'offre du jour ----------
+   Le bandeau de l'accueil. Il est BLEU et non orange : l'orange de la
+   charte est réservé à ce qu'on touche — ajouter au panier, payer —, et
+   un aplat orange de cette taille en tête d'écran lui ferait concurrence
+   sur tous les boutons d'en dessous.
+
+   Le chiffre qu'il annonce est calculé sur les remises en cours ; quand
+   il n'y en a plus, le bandeau disparaît au lieu de mentir. */
+.offre-jour{
+  display:block;padding:16px 18px;border-radius:var(--r);
+  background:linear-gradient(135deg,var(--bleu) 0%,var(--bleu-800) 100%);
+  color:#fff;
+}
+.offre-jour-quoi{
+  display:block;font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--bleu-100);
+}
+.offre-jour-chiffre{
+  display:block;margin-top:5px;font-size:clamp(22px,6vw,28px);
+  font-weight:700;letter-spacing:-.6px;line-height:1.1;
+}
+.offre-jour-voir{
+  display:inline-flex;align-items:center;gap:4px;margin-top:9px;
+  font-size:12.5px;font-weight:600;color:var(--bleu-100);
+}
+.offre-jour:active{transform:scale(.99)}

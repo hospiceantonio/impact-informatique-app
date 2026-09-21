@@ -34,6 +34,11 @@ const App = { evenementInstallation: null };
     { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v) },
     { motif: /^\/mot-de-passe$/, vue: (v) => VueCompte.motDePasse(v) },
     { motif: /^\/compte$/, vue: (v) => VueCompte.monCompte(v) },
+    /* Les favoris et les adresses vivent sous le compte, comme dans la
+       maquette : la barre du bas est pleine, et ce sont deux écrans
+       qu'on ouvre de temps en temps, pas à chaque visite. */
+    { motif: /^\/favoris$/, vue: (v) => VueFavoris.afficher(v) },
+    { motif: /^\/adresses$/, vue: (v) => VueFavoris.adresses(v) },
     { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
   ];
 
@@ -418,6 +423,26 @@ const App = { evenementInstallation: null };
        premier coup et non après un aller-retour sous les doigts. */
     if (typeof Compte !== "undefined") {
       Compte.chargerRegles().catch(() => { /* hors connexion : la dernière connue */ });
+    }
+
+    /* Les favoris, lus une fois à l'ouverture. Sans cela, le premier
+       écran afficherait des cœurs vides sur des produits déjà mis de
+       côté — et le client en toucherait un pour le RETIRER en croyant
+       l'ajouter. On ne bloque pas le démarrage pour autant : un réseau
+       lent ne doit pas retarder le catalogue. */
+    if (typeof Favoris !== "undefined") {
+      Favoris.charger().catch(() => { /* on réessaiera à la connexion */ });
+      /* Quand la liste change, les cœurs déjà à l'écran se repeignent :
+         la même fiche peut être ouverte à deux endroits — la grille et
+         la rangée « Nouveautés » —, et deux cœurs contradictoires sur
+         un même produit passent pour un défaut. */
+      Favoris.surChangement(() => {
+        document.querySelectorAll("[data-coeur]").forEach((b) => {
+          const garde = Favoris.aProduit(b.dataset.coeur);
+          b.classList.toggle("coeur-plein", garde);
+          b.setAttribute("aria-pressed", garde ? "true" : "false");
+        });
+      });
     }
 
     /* Le catalogue se met à jour tout seul (temps réel + vérifications). */

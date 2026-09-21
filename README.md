@@ -839,6 +839,82 @@ toutes les courses, retirer le contrôle « livreur de ma boutique » de
 `assigner_livreur()`, et retirer le `revoke update` des trois fichiers
 qui le posent.
 
+## Ce que le client garde pour lui
+
+Les **favoris**, les **boutiques suivies** et les **adresses de
+livraison**. Trois listes qui n'appartiennent qu'au client.
+
+**Ce n'est pas de la donnée de vente, c'est de la donnée de vie.** Une
+liste de favoris dit ce qu'on hésite à s'offrir ; une liste d'adresses
+dit où l'on dort et où l'on travaille. L'enseigne n'en a aucun besoin
+pour faire son métier, et **`est_super()` n'ouvre aucune de ces trois
+portes** — contrairement à presque toutes les autres tables du projet.
+Un superadministrateur curieux ne lit pas les favoris de ses clients.
+C'est un choix, pas un oubli, et le banc le vérifie : si ce constat
+tombe un jour, c'est qu'on a ouvert cette porte.
+
+**Un favori se range en base, pas dans le téléphone.** C'est tout
+l'intérêt : changer d'appareil ne doit rien faire perdre. Il faut donc
+un compte, et le cœur d'un visiteur mène à la connexion plutôt que de
+faire semblant d'enregistrer.
+
+**Le cœur répond avant la base.** Un aller-retour réseau prend parfois
+deux secondes ici ; un bouton qui attend deux secondes passe pour
+cassé, et le client appuie une seconde fois. On peint donc tout de
+suite, et on remet l'écran dans l'état vrai si la base refuse.
+
+**Une seule adresse par défaut**, garantie par un index unique partiel
+et non par l'application. Un déclencheur décoche l'ancienne, pour que
+cocher une case ne renvoie pas une erreur de base de données au
+client : le déclencheur pour que ce soit utilisable, l'index pour que
+ce soit vrai.
+
+### L'accueil : l'offre du jour, et ce qui se vend
+
+**Le bandeau « Jusqu'à −X % » calcule son chiffre** sur les remises
+réellement en cours. Écrire « −40 % » en dur serait plus simple et
+plus faux : le jour où la dernière promotion se termine, l'accueil
+continuerait de la promettre, et le client qui s'est déplacé ne la
+trouverait nulle part. Quand plus rien n'est remisé, le bandeau
+disparaît.
+
+**Le classement des ventes rend un ordre, jamais des chiffres.**
+`produits_populaires()` lit les lignes de commande, que personne ne
+peut lire — d'où le `security definer`. Ce qu'elle rend tient en une
+colonne : l'identifiant du produit. Ajouter « quantité » au retour
+paraîtrait anodin et livrerait à chaque commerçant le carnet de
+commandes de son voisin, ouvrable avec un compte gratuit. Le banc
+compare la signature de sortie mot pour mot.
+
+La rangée arrive **après** le reste de l'accueil : elle demande un
+aller-retour, et l'accueil ne doit pas attendre après elle. Sur une
+base qui n'a pas encore reçu
+[`favoris-adresses.sql`](supabase/favoris-adresses.sql), la fonction
+n'existe pas, la rangée s'abstient, et tout le reste tient debout.
+
+### Le banc
+
+[`tests/99i-favoris-adresses.sql`](supabase/tests/99i-favoris-adresses.sql)
+force les portes en 28 constats, et 50 de plus au navigateur. Cinq
+sabotages les font tomber, chacun sur son propre constat : retirer le
+`with check` d'une règle, ouvrir une table à `est_super()`, oublier
+`anon` dans le `revoke`, ajouter les quantités au classement,
+supprimer la garantie de l'adresse par défaut.
+
+> **Deux fautes que ce chantier a values au banc lui-même.**
+>
+> Trois constats passaient au vert sur une **faute de frappe** : la
+> requête de sabotage perdait les guillemets autour d'un identifiant,
+> et la base répondait « la colonne cc111111 n'existe pas ». Un refus
+> de syntaxe ressemble à un refus de sécurité dans un journal —
+> `quote_literal()` a réglé cela, et il faut lire les motifs de refus,
+> pas seulement compter les lignes vertes.
+>
+> Et un contrôle cherchait les colonnes d'une fonction dans
+> `information_schema.columns`, où une fonction n'apparaît pas : il
+> trouvait **zéro colonne** et concluait que tout allait bien. Il
+> aurait trouvé zéro le jour où l'on aurait ajouté les quantités.
+
 ## La liste des catégories
 
 Jusqu'ici, chaque boutique inventait ses rayons. Sur une vitrine unique

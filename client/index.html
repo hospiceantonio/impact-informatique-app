@@ -79,6 +79,13 @@
     <g id="i-energie"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5z"/></g>
     <g id="i-telephone"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></g>
     <g id="i-ecran"><rect x="2.5" y="4" width="19" height="13" rx="1.8"/><path d="M9 21h6M12 17v4"/></g>
+    <!-- Le cœur est TRACÉ, comme toutes les autres : c'est le remplissage
+         qui dira « mis de côté », et il ne peut le dire que s'il y a une
+         différence à voir entre les deux états. -->
+    <g id="i-coeur"><path d="M12 20s-7.5-4.6-7.5-9.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.6c0 4.8-7.5 9.4-7.5 9.4z"/></g>
+    <g id="i-lieu"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></g>
+    <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+    <g id="i-corbeille"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1L18 7"/></g>
   </defs>
 </svg>
 
@@ -152,6 +159,7 @@
 <script src="js/compte.js"></script>
 <script src="js/avis.js"></script>
 <script src="js/sav.js"></script>
+<script src="js/favoris.js"></script>
 <script src="js/live.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/vues/accueil.js"></script>
@@ -163,6 +171,7 @@
 <script src="js/vues/compte.js"></script>
 <script src="js/vues/avis.js"></script>
 <script src="js/vues/sav.js"></script>
+<script src="js/vues/favoris.js"></script>
 <script src="js/vues/infos.js"></script>
 <script src="js/app.js"></script>
 </body>
