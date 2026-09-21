@@ -776,7 +776,12 @@ const Store = (() => {
   async function listerLivreurs() {
     const lignes = await Supabase.rpcLecture("livreurs_boutique", {});
     return (lignes || []).map((l) => ({
-      id: l.id, email: l.email || "", actif: l.actif !== false,
+      id: l.id, email: l.email || "",
+      /* Le nom s'il y en a un, l'adresse sinon : un livreur sans nom
+         doit rester choisissable, pas devenir un bouton vide. */
+      nom: l.nom || "", tel: l.tel || "",
+      affichage: l.nom || l.email || "Livreur",
+      actif: l.actif !== false,
     }));
   }
 

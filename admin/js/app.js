@@ -15,6 +15,18 @@
        commande fait partie du travail quotidien de la boutique. La base
        ne montre à chacun que les lignes de sa boutique. */
     { motif: /^\/commandes$/, vue: (v) => VueCommandes.afficher(v) },
+    /* LA MÊME LISTE, OUVERTE SUR UNE COMMANDE. C'est là que mène une
+       notification : « la commande BZ-000123 est payée » doit poser le
+       doigt sur BZ-000123, et non sur une liste de quarante où il
+       faudrait la chercher. Une commande introuvable — déjà archivée,
+       ou d'une boutique qui n'est pas la sienne — retombe sur la liste
+       entière plutôt que sur un écran vide. */
+    { motif: /^\/commandes\/([^/]+)$/, vue: (v, m) => VueCommandes.afficher(v, m[1]) },
+    /* Les notifications. Ouvertes à tous les rangs, LIVREUR COMPRIS :
+       c'est lui qui attend le plus une nouvelle course, et lui qui a le
+       moins de raisons de rouvrir un écran toutes les cinq minutes. */
+    { motif: /^\/notifications$/, vue: (v) => VueNotifications.afficher(v),
+      tous: true },
     { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), super: true },
     { motif: /^\/slider$/, vue: (v) => VueSlider.afficher(v), admin: true },
     { motif: /^\/validations$/, vue: (v) => VueValidations.afficher(v), super: true },
@@ -165,7 +177,12 @@
        l'ouvrirait n'y verrait rien — « mes_livraisons() » ne rend
        quelque chose qu'à un livreur — et confie ses courses depuis les
        commandes. */
-    if (estLivreur() && !route.livreur && chemin !== "/compte") {
+    /* « tous » veut dire TOUS LES RANGS, livreur compris — et il se
+       distingue de « livreur », qui RÉSERVE l'écran au livreur. Les
+       notifications sont le premier écran qui appartienne à tout le
+       monde : marquer « livreur: true » les aurait fermées à la
+       boutique, ce qui est exactement l'inverse. */
+    if (estLivreur() && !route.livreur && !route.tous && chemin !== "/compte") {
       location.hash = "#/livraisons";
       return;
     }
@@ -270,6 +287,18 @@
     if (!Supabase.compteActif()) {
       compteEnAttente(vue);
       return;
+    }
+
+    /* ---------- Les notifications ----------
+       On démarre APRÈS « Store.init() » : il faut le profil chargé pour
+       savoir qui l'on est, et le jeton valable pour que le temps réel
+       accepte la connexion. Une base pas encore mise à jour n'a pas la
+       table — le module le supporte en silence, et l'application marche
+       sans pastille plutôt que de s'arrêter. */
+    if (typeof Notifs !== "undefined") {
+      Notifs.surChangement(() =>
+        document.dispatchEvent(new CustomEvent("notifs:maj")));
+      Notifs.demarrer();
     }
     /* Un administrateur ou un modérateur sans boutique n'a de prise sur
        rien : mieux vaut un écran qui l'explique qu'une application à

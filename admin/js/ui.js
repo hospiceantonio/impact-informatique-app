@@ -69,9 +69,45 @@ const UI = (() => {
               "<h1>" + e(titre || "") + "</h1>" +
               (sous ? '<div class="sous">' + e(sous) + "</div>" : "") +
             "</div>") +
-        '<div class="topbar-actions">' + (actions || "") + "</div>" +
+        '<div class="topbar-actions">' + (actions || "") + boutonCloche() + "</div>" +
       "</div>";
   }
+
+  /* ---------- La cloche des notifications ----------
+
+     ELLE PARAÎT DÈS QU'ON EST CONNECTÉ, quel que soit le rang — le
+     livreur en a autant besoin que la boutique, et plus encore : c'est
+     lui qui attend une course, et lui qui n'a aucune raison de rouvrir
+     un écran toutes les cinq minutes.
+
+     LE NOMBRE EST DANS L'ÉTIQUETTE, pas seulement dans la pastille :
+     un lecteur d'écran annonce « Notifications, 3 non lues », là où
+     une pastille seule ne dit rien. */
+  function boutonCloche() {
+    if (typeof Notifs === "undefined" || !Supabase.sessionPresente()) return "";
+    if (/^#\/notifications/.test(location.hash)) return "";
+    const combien = Notifs.compte();
+    return (
+      '<a class="btn-ic btn-cloche" href="#/notifications" aria-label="' +
+        (combien ? "Notifications, " + combien + " non lue" + (combien > 1 ? "s" : "")
+                 : "Notifications") + '">' + icone("cloche") +
+        (combien ? '<span class="cloche-pastille">' +
+          (combien > 99 ? "99+" : combien) + "</span>" : "") +
+      "</a>"
+    );
+  }
+
+  /** Rafraîchit la pastille sans redessiner tout l'écran. */
+  function majCloche() {
+    const zone = $("#topbar .topbar-actions");
+    if (!zone) return;
+    const ancien = $(".btn-cloche", zone);
+    const neuf = boutonCloche();
+    if (ancien) ancien.outerHTML = neuf;
+    else if (neuf) zone.insertAdjacentHTML("beforeend", neuf);
+  }
+
+  document.addEventListener("notifs:maj", majCloche);
 
   function icone(nom, classe) {
     return '<svg class="ic' + (classe ? " " + classe : "") + '" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-' + nom + '"/></svg>';
@@ -595,7 +631,7 @@ const UI = (() => {
   }
 
   return {
-    $, $$, entete, icone, marque, motSymbole, logoAdmin, toast,
+    $, $$, entete, icone, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,

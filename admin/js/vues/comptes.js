@@ -107,12 +107,17 @@ const VueComptes = (() => {
         '<span class="compte-rond ' + (admin ? "compte-rond-admin" : "") + '">' +
           UI.icone(ICONE_ROLE[compte.role] || "personne", "ic-sm") + "</span>" +
         '<span class="compte-corps">' +
-          '<span class="compte-email">' + Utils.echapper(compte.email || "—") +
+          /* LE NOM D'ABORD s'il y en a un — on cherche « Rohim » dans une
+             liste, pas « porteur@impact.bj ». L'adresse reste en
+             dessous : c'est avec elle qu'on se connecte. */
+          '<span class="compte-email">' +
+            Utils.echapper(compte.nom || compte.email || "—") +
             (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
             (partout ? " · toutes les boutiques"
               : Store.estCompteEnseigne(compte) ? " · BIZZOO" + droitsResumes(compte)
               : " · " + Utils.echapper(nomBoutique(compte.boutiqueId))) +
+            (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
             (compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
         "</span>" +
@@ -144,6 +149,15 @@ const VueComptes = (() => {
         "</select>" +
         '<div class="aide" id="cp-role-aide">' + Utils.echapper(Store.ROLES[compte.role].aide) + "</div>" +
       "</div>" +
+      /* LE NOM ET LE NUMÉRO. « porteur@impact.bj » ne dit pas qui c'est ;
+         « Rohim » si — et c'est sous ce nom qu'on le choisira dans
+         « Confier à un livreur ». Le numéro sert quand le client n'est
+         pas chez lui : c'est le livreur qu'on rappelle. */
+      UI.champTexte({ id: "cp-nom", label: "Nom", valeur: compte.nom,
+        placeholder: "Rohim",
+        aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
+      UI.champTexte({ id: "cp-tel", label: "Téléphone", valeur: compte.tel,
+        type: "tel", placeholder: "01 97 00 00 00" }) +
       UI.interrupteur({ id: "cp-actif", label: "Compte actif", actif: compte.actif,
         aide: "Désactivé, il ne peut plus rien modifier, même en se connectant." }) +
       /* La boutique concerne administrateur et modérateur ; seul le
@@ -298,6 +312,10 @@ const VueComptes = (() => {
         if (peutModifier !== (compte.peutModifier !== false)) {
           await Store.majCompte(compte.id, { peutModifier });
         }
+        const nom = UI.$("#cp-nom", corps).value.trim();
+        const tel = UI.$("#cp-tel", corps).value.trim();
+        if (nom !== (compte.nom || "")) await Store.majCompte(compte.id, { nom });
+        if (tel !== (compte.tel || "")) await Store.majCompte(compte.id, { tel });
         /* Les interrupteurs d'enseigne, s'ils sont à l'écran. On
            n'envoie que ce qui a bougé : le journal raconte alors
            précisément quel droit a été donné ou retiré. */

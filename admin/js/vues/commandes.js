@@ -113,9 +113,16 @@ const VueCommandes = (() => {
         "du client, son numéro et son adresse. <strong>Aucun montant</strong> — ni ce " +
         "que le client a payé, ni ce que vous touchez.</p>" +
       livreurs.map((l) =>
-        '<button type="button" class="btn btn-clair" style="margin-bottom:8px" ' +
+        '<button type="button" class="btn btn-clair cmd-livreur" style="margin-bottom:8px" ' +
           'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
-          Utils.echapper(l.email) + "</button>").join("") +
+          '<span class="cmd-livreur-mots">' +
+            '<span class="cmd-livreur-nom">' + Utils.echapper(l.affichage) + "</span>" +
+            /* SON NUMÉRO SOUS SON NOM : c'est lui qu'on rappelle quand
+               le client n'est pas chez lui, et on ne va pas le chercher
+               dans un autre écran à ce moment-là. */
+            (l.tel ? '<span class="cmd-livreur-tel">' + Utils.echapper(l.tel) + "</span>" : "") +
+          "</span>" +
+        "</button>").join("") +
       '<button type="button" class="btn btn-clair btn-danger-clair" ' +
         'data-livreur="">' + UI.icone("fermer") + "Reprendre la course</button>");
 
@@ -125,7 +132,15 @@ const VueCommandes = (() => {
         try {
           await Store.confierLivraison(commandeId, boutique, b.dataset.livreur || null);
           UI.fermerFeuille();
-          UI.toast(b.dataset.livreur ? "Course confiée." : "Course reprise.");
+          /* ON DIT À QUI, et pas seulement « c'est fait ». Sur une
+             feuille de six livreurs, « Course confiée » laisse un doute
+             qu'il faut aller lever ailleurs. Et on annonce qu'il est
+             prévenu : c'est la base qui s'en charge, mais celui qui
+             confie n'a aucun moyen de le savoir autrement. */
+          const qui = (livreurs.find((l) => l.id === b.dataset.livreur) || {}).affichage;
+          UI.toast(b.dataset.livreur
+            ? "Course confiée à " + (qui || "ce livreur") + " — il est prévenu."
+            : "Course reprise.");
           await afficher(vue);
         } catch (err) {
           UI.toast(err.message, "err");
@@ -147,7 +162,10 @@ const VueCommandes = (() => {
     const statut = Store.statutCommande(c);
 
     return (
-      '<div class="carte cmd-carte' + (soldee ? " cmd-soldee" : "") + '">' +
+      /* L'identifiant sur la carte : c'est par lui qu'une notification
+         retrouve SA commande dans une liste de quarante. */
+      '<div class="carte cmd-carte' + (soldee ? " cmd-soldee" : "") +
+        '" data-commande="' + Utils.echapper(c.id) + '">' +
         '<div class="cmd-entete">' +
           "<div><div class=\"cmd-numero\">" + Utils.echapper(c.numero) +
             /* Une commande partie au prix revendeur le dit : c'est ce
@@ -244,7 +262,17 @@ const VueCommandes = (() => {
     );
   }
 
-  async function afficher(vue) {
+  /**
+   * `cible` : la commande sur laquelle ouvrir l'écran. C'est là que
+   * mène une notification — « BZ-000123 est payée » doit poser le doigt
+   * SUR BZ-000123, et non sur une liste où il faudrait la chercher.
+   *
+   * Introuvable — déjà archivée, ou d'une boutique qui n'est pas la
+   * sienne —, on ne dit rien et on montre la liste entière : mieux vaut
+   * une liste utile qu'un message d'erreur sur une commande dont le
+   * destinataire n'a de toute façon rien à faire.
+   */
+  async function afficher(vue, cible) {
     UI.entete({ titre: "Commandes", sous: "Ce que les clients ont acheté", retour: true });
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
       "Lecture des commandes…</div>";
@@ -311,6 +339,21 @@ const VueCommandes = (() => {
         ? '<div class="titre-section">Déjà remises</div>' +
           faites.slice(0, 20).map(htmlCommande).join("")
         : "");
+
+    /* ---------- Ouvrir SUR une commande ----------
+       On la fait venir sous les yeux et on la souligne quelques
+       secondes. « scrollIntoView » avec « block: center » plutôt que
+       « start » : posée tout en haut, elle se glisserait sous la barre
+       fixe, et le doigt tomberait sur la carte d'à côté. */
+    if (cible) {
+      const carte = vue.querySelector('[data-commande="' +
+        (window.CSS && CSS.escape ? CSS.escape(cible) : cible) + '"]');
+      if (carte) {
+        carte.classList.add("cmd-visee");
+        carte.scrollIntoView({ block: "center", behavior: "smooth" });
+        setTimeout(() => carte.classList.remove("cmd-visee"), 2600);
+      }
+    }
 
     for (const bouton of UI.$$("[data-avancer]", vue)) {
       bouton.onclick = async () => {

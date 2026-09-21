@@ -112,6 +112,29 @@ const Utils = (() => {
     return "dans " + jours + " jours";
   }
 
+  /**
+   * « à l'instant », « il y a 5 min », « il y a 3 h », « hier »…
+   *
+   * ON NE DIT PAS L'HEURE EXACTE, et c'est voulu : devant une liste de
+   * notifications, la question n'est jamais « à quelle heure ? » mais
+   * « est-ce récent ? ». Au-delà d'une semaine on retombe sur la date,
+   * parce que « il y a 34 jours » ne se compte plus de tête.
+   */
+  function ilYA(horodatage) {
+    const t = Number(horodatage) || 0;
+    if (!t) return "";
+    const secondes = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (secondes < 60) return "à l'instant";
+    const minutes = Math.round(secondes / 60);
+    if (minutes < 60) return "il y a " + minutes + " min";
+    const heures = Math.round(minutes / 60);
+    if (heures < 24) return "il y a " + heures + " h";
+    const jours = Math.round(heures / 24);
+    if (jours === 1) return "hier";
+    if (jours < 7) return "il y a " + jours + " jours";
+    return fmtDateHeure(t);
+  }
+
   /** La date, en « AAAA-MM-JJ », dans `jours` jours à partir d'aujourd'hui. */
   function dateDansXJours(jours) {
     const d = new Date();
@@ -287,7 +310,7 @@ const Utils = (() => {
     pad, uid, echapper,
     fmtNombre, fmtMontant, fmtTaux, lireNombre, remisePourcent,
     fmtDateHeure, fmtDate, fmtHeure,
-    joursAvant, delaiEnMots, dateDansXJours,
+    joursAvant, delaiEnMots, dateDansXJours, ilYA,
     normaliserTel, lienWhatsApp, lienTel, lienSite,
     sansAccent, tempo, telecharger, tailleLisible, tailleDataUrl,
     compresserImage, vignetteDepuisDataUrl,
