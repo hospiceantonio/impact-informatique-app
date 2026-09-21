@@ -229,7 +229,22 @@ const Supabase = (() => {
     }
     if (corps !== undefined) entetes["Content-Type"] = "application/json";
     if (methode === "POST" && !o.sansRetour) entetes["Prefer"] = "return=representation";
-    if (methode === "PATCH") entetes["Prefer"] = "return=representation";
+    /* « sansRetour » vaut aussi pour la modification, et ce n'est pas
+       une économie de réseau.
+
+       POSTGREST ÉCRIT « returning * » QUAND ON LUI DEMANDE LA LIGNE.
+       Sur une table dont la LECTURE est restreinte par colonne — et
+       « commande_lignes » l'est, pour que l'équipe ne voie ni le prix
+       BIZZOO ni le taux de marge —, ce « * » réclame des colonnes
+       fermées, et la base refuse TOUTE la requête. L'écriture était
+       pourtant permise : c'est le retour qui la faisait tomber.
+
+       L'appelant qui n'a que faire de la ligne demande donc à ne rien
+       recevoir. Cela vaut mieux que de nommer les colonnes permises :
+       une colonne fermée ajoutée demain casserait de nouveau. */
+    if (methode === "PATCH") {
+      entetes["Prefer"] = o.sansRetour ? "return=minimal" : "return=representation";
+    }
     if (o.upsert) entetes["Prefer"] = "resolution=merge-duplicates,return=representation";
 
     let reponse;

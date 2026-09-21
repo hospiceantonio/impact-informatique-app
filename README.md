@@ -1097,6 +1097,53 @@ les font tomber : rendre la liste à l'équipe, retirer le contrôle du
 secteur, laisser passer la catégorie soufflée par l'application,
 permettre le changement de secteur à la main.
 
+## « Marquer vue » refusé : le retour, pas l'écriture
+
+**Le défaut.** La boutique appuyait sur « Marquer vue » et l'écran
+répondait *« Écriture refusée par la base : votre compte n'a pas ce
+droit »*. Le droit d'écrire était pourtant bien là.
+
+**La cause, et elle n'est pas où on la cherche.** L'application ne
+dit pas `update … set etat = 'vue'`. Elle passe par PostgREST avec
+`Prefer: return=representation`, et PostgREST écrit alors :
+
+```sql
+update public.commande_lignes set etat = 'vue' where id = … RETURNING *
+```
+
+Ce `RETURNING *` réclame le droit de **lire chaque colonne** — dont
+`prix_bizzoo` et `taux_marge`, fermées à l'équipe exprès. La base
+refuse donc toute la requête. **C'est le retour qui faisait tomber
+l'écriture.**
+
+**Ce qu'on n'a PAS fait :** ouvrir la lecture de ces colonnes. Cela
+aurait réparé le geste en livrant la marge de BIZZOO à toute l'équipe
+— bien plus cher que le défaut. C'est l'application qui change : elle
+demande `return=minimal` et ne réclame plus une ligne dont elle n'a
+que faire. Le nouvel état, elle vient de le donner.
+
+On préfère `return=minimal` à la liste des colonnes permises : une
+colonne fermée ajoutée demain casserait de nouveau.
+
+### Les deux bancs
+
+[`tests/99j-marquer-vue.sql`](supabase/tests/99j-marquer-vue.sql)
+rejoue la requête de PostgREST, `RETURNING *` compris — un essai qui
+écrirait `update … set etat = 'vue'` tout court serait passé au vert
+sur une base où l'application échoue. **Un de ses constats vérifie
+qu'un refus a bien lieu** : si `RETURNING *` cesse un jour d'être
+refusé, c'est que quelqu'un a ouvert le prix BIZZOO à l'équipe.
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-marquer-vue.mjs
+```
+
+Onze constats côté écran, sur l'**en-tête** que l'application envoie —
+regarder « l'état a changé à l'écran » n'aurait rien prouvé, puisque
+l'écran se repeint avant la réponse de la base. La doublure répond 403
+à `return=representation`, exactement comme la vraie base. Retirer le
+correctif fait tomber trois constats et réaffiche le message d'origine.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :

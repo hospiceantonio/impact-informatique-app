@@ -1663,10 +1663,22 @@ const Store = (() => {
     return combien;
   }
 
-  /** Faire avancer une ligne. Seul son état bouge : la base y veille. */
+  /**
+   * Faire avancer une ligne. Seul son état bouge : la base y veille.
+   *
+   * « sansRetour » N'EST PAS UNE OPTIMISATION. Sans lui, PostgREST
+   * ajoute « returning * » à la modification — et « commande_lignes »
+   * a une lecture restreinte par colonne, pour que l'équipe ne voie ni
+   * le prix BIZZOO ni le taux de marge. La base refusait alors toute
+   * la requête, et « Marquer vue » répondait « votre compte n'a pas ce
+   * droit » alors que le droit d'écrire, lui, était bien là.
+   *
+   * On ne perd rien : le nouvel état, on vient de le donner.
+   */
   async function avancerLigne(ligneId, etat) {
     await Supabase.requete("PATCH",
-      "commande_lignes?id=eq." + encodeURIComponent(ligneId), { etat });
+      "commande_lignes?id=eq." + encodeURIComponent(ligneId), { etat },
+      { sansRetour: true });
     return etat;
   }
 
