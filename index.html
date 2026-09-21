@@ -100,6 +100,16 @@
   .titre-bloc h2{margin:0 0 8px;font-size:clamp(23px,3.4vw,31px);font-weight:700;letter-spacing:-.5px}
   .titre-bloc p{margin:0;color:var(--encre-douce);font-size:15.5px}
   .grille{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+  /* LES CINQ ENGAGEMENTS SE COMPTENT MAL TOUT SEULS. Laissée à
+     « auto-fit », la grille en met quatre de front sur un écran large
+     et abandonne le cinquième seul sur une deuxième ligne — on lit un
+     oubli, pas une liste. Cinq de front quand la place le permet, trois
+     ensuite (3+2 se lit comme un choix), et la grille reprend la main
+     sur les écrans étroits. */
+  @media (min-width:1100px){ .promesses .grille{grid-template-columns:repeat(5,1fr)} }
+  @media (min-width:700px) and (max-width:1099px){
+    .promesses .grille{grid-template-columns:repeat(3,1fr)}
+  }
   .carte{background:var(--blanc);border:1px solid var(--trait);border-radius:18px;padding:22px}
   .carte .rond{
     width:46px;height:46px;border-radius:50%;background:var(--orange);
