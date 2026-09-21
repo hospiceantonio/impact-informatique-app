@@ -5,13 +5,20 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v66";
+const VERSION = "impact-client-v67";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
   "./",
   "./index.html",
   "./styles.css",
+  /* LES POLICES DANS LA COQUILLE : sans elles, la première
+     ouverture hors connexion retomberait sur la police du
+     téléphone, et BIZZOO n'aurait plus l'air de BIZZOO. */
+  "./polices/poppins-400.woff2",
+  "./polices/poppins-500.woff2",
+  "./polices/poppins-600.woff2",
+  "./polices/poppins-700.woff2",
   "./manifest.webmanifest",
   "./config.js",
   "./demo-catalogue.json",

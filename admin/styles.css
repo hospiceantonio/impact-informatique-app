@@ -10,39 +10,69 @@
    bleu vif, bleu nuit, orange de la vague, ambre de l'anse. L'orange
    sert de fond et porte du bleu nuit ; en texte, c'est l'orange
    foncé. Le rouge est réservé au danger (suppression, erreur). */
+/* ---------- Poppins, embarquée ---------- */
+/* LES FICHIERS SONT DANS L'APPLICATION, pas chez Google. Une police
+   allée chercher sur le réseau ne s'affiche pas quand il n'y en a
+   pas — et BIZZOO doit s'ouvrir hors connexion. Quatre graisses
+   latines : 31 Ko en tout, moins qu'une seule photo de produit.
+   « font-display: swap » : le texte s'affiche tout de suite dans la
+   police du téléphone, puis bascule. Mieux vaut un texte lisible
+   aussitôt qu'un écran blanc le temps du chargement. */
+@font-face{font-family:'Poppins';font-style:normal;font-weight:400;font-display:swap;
+  src:url(polices/poppins-400.woff2) format('woff2')}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:500;font-display:swap;
+  src:url(polices/poppins-500.woff2) format('woff2')}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:600;font-display:swap;
+  src:url(polices/poppins-600.woff2) format('woff2')}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;
+  src:url(polices/poppins-700.woff2) format('woff2')}
+
 :root{
-  --nuit-900:#000E38;
-  --nuit-800:#001A6E;
-  --bleu-900:#001450;
-  --bleu-800:#001A6E;
-  --bleu-700:#0139B5;
-  --bleu:#0B5CF5;
-  --bleu-400:#3D86FF;
-  --bleu-300:#12A5FD;
-  --bleu-100:#DBE7FE;
-  --bleu-50:#EEF3FE;
-  --orange:#F96302;
-  --orange-fonce:#C24B00;
-  --orange-clair:#FFEFE2;
+  /* LE BLEU DE LA DA, et les nuances qui en descendent. */
+  --bleu-900:#001B52;
+  --bleu-800:#002A80;
+  --bleu-700:#0038A8;
+  --bleu:#0047D9;
+  --bleu-400:#3D78EC;
+  --bleu-300:#6FA0F5;
+  --bleu-100:#D6E2FB;
+  --bleu-50:#EDF2FE;
+
+  /* L'ORANGE DE LA DA. Il sert de FOND et porte le texte sombre :
+     blanc sur cet orange donne 2,36:1, illisible au soleil sur un
+     écran d'entrée de gamme. Le même orange avec la couleur de texte
+     de la DA donne 6,21:1. En TEXTE sur fond clair, c'est l'orange
+     foncé — l'orange vif y tomberait au même 2,36:1. */
+  --orange:#FF8A00;
+  --orange-texte:#1F2937;
+  --orange-fonce:#A85800;
+  --orange-clair:#FFF1DE;
   --ambre:#FFA808;
   --ambre-clair:#FFF3DE;
-  --rouge:#E62329;
-  --rouge-fonce:#B8161C;
-  --rouge-clair:#FDE8E8;
+
+  --rouge:#D92D20;
+  --rouge-fonce:#B42318;
+  --rouge-clair:#FEE4E2;
   --vert:#0F9D58;
   --vert-clair:#E4F5EC;
-  --encre:#0B1B33;
-  --encre-douce:#4E5F78;
-  --encre-tres-douce:#8492A8;
-  --trait:#E1E7F2;
-  --fond:#F3F6FC;
+  --wa:#1FAF56;
+
+  /* LE TEXTE ET LE FOND DE LA DA. */
+  --encre:#1F2937;
+  --encre-douce:#4B5563;
+  --encre-tres-douce:#9AA3AF;
+  --trait:#E3E8EF;
+  --fond:#F5F7FA;
   --blanc:#FFFFFF;
-  --ombre:0 12px 30px -18px rgba(0,20,80,.55);
-  --ombre-forte:0 20px 45px -20px rgba(0,20,80,.6);
+
+  --ombre:0 12px 30px -18px rgba(0,27,82,.55);
+  --ombre-forte:0 20px 45px -20px rgba(0,27,82,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
-  --police:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* Poppins d'abord ; la police du téléphone tant qu'elle charge, et
+     pour les alphabets qu'elle ne couvre pas. */
+  --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --barre-h:66px;
   --safe-b:max(env(safe-area-inset-bottom,0px), 8px);
 }
@@ -73,35 +103,64 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Barre supérieure ---------- */
 .topbar{
+  /* BLANC, comme la DA. Le dégradé bleu foncé d'avant avalait le
+     mot-symbole — dont le « Bizz » est bleu — et forçait tout ce que
+     l'en-tête porte à s'écrire en blanc. Sur fond clair, la marque
+     reste elle-même et le titre se lit à 13,7:1. */
   position:sticky;top:0;z-index:30;
-  background:linear-gradient(135deg,var(--nuit-800),var(--nuit-900));
-  color:#fff;
-  padding:calc(env(safe-area-inset-top,0px) + 18px) 16px 14px;
-  border-radius:0 0 var(--r-lg) var(--r-lg);
-  box-shadow:var(--ombre);
+  background:var(--blanc);
+  color:var(--encre);
+  padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 12px;
+  border-bottom:1px solid var(--trait);
 }
 .topbar-ligne{display:flex;align-items:center;gap:12px;min-height:40px}
 .topbar h1{font-size:18px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topbar .sous{font-size:12.5px;opacity:.78;margin-top:2px}
+.topbar .sous{font-size:12.5px;color:var(--encre-douce);margin-top:2px}
 .topbar-actions{display:flex;gap:6px;align-items:center}
 .topbar-logo{flex:1;min-width:0}
 .btn-ic{
   display:inline-flex;align-items:center;justify-content:center;
   width:38px;height:38px;border-radius:12px;border:0;
-  background:rgba(255,255,255,.14);color:inherit;
+  /* Sur l'en-tête blanc, un bouton translucide ne se voyait plus. */
+  background:var(--fond);color:var(--encre);
 }
 .btn-ic:active{transform:scale(.94)}
-.topbar .btn-ic{color:#fff}
+/* L'en-tête est blanc : un bouton blanc sur blanc ne se voit plus. */
+.topbar .btn-ic{color:var(--encre)}
 .btn-ic-clair{background:var(--bleu-50);color:var(--bleu-800);width:34px;height:34px}
 .btn-ic-clair:disabled{opacity:.35}
 .btn-ic-danger{color:var(--rouge-fonce);background:var(--rouge-clair)}
 
 /* ---------- Logo ---------- */
+/* ---------- Le mot-symbole ---------- */
+/* Écrit, pas dessiné : net à toutes les tailles, et rien à charger. */
+.logo-mot{
+  display:inline-block;position:relative;
+  font-weight:700;font-size:26px;line-height:1;letter-spacing:-.01em;
+  padding-bottom:9px;white-space:nowrap;
+}
+.logo-bizz{color:var(--bleu)}
+.logo-oo{color:var(--orange)}
+/* Les deux points, sous le mot : ils sont au logo ce que les roues
+   sont au chariot de l'icône. */
+.logo-points{
+  position:absolute;left:.09em;bottom:1px;display:flex;gap:.16em;
+}
+.logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
+.logo-points i:first-child{background:var(--bleu)}
+.logo-points i:last-child{background:var(--orange)}
+/* Sur un fond sombre, le bleu du mot disparaîtrait. */
+.logo-mot.clair .logo-bizz,
+.logo-mot.clair .logo-points i:first-child{color:#fff;background:#fff}
+.logo-mot.clair .logo-bizz{background:none;color:#fff}
+.logo-sous{
+  display:block;font-size:10.5px;font-weight:600;color:var(--encre-douce);
+  letter-spacing:.01em;margin-top:3px;white-space:nowrap;
+}
+
 .logo{display:inline-flex;align-items:center;gap:9px;min-width:0}
 .marque{flex:none;display:block;object-fit:contain}
 .logo-textes{display:flex;flex-direction:column;min-width:0;line-height:1.05}
-.logo-nom{font-size:25px;font-weight:800;letter-spacing:.06em;color:#fff}
-.logo-sous{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.85;white-space:nowrap}
 
 /* ---------- Zone de vue ---------- */
 .vue{
@@ -155,17 +214,33 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .carte-liste{padding:6px 8px}
 
 .btn{
+  /* BOUTON PRINCIPAL DE LA DA : bleu plein, texte blanc (7,23:1),
+     coins arrondis. Le dégradé d'avant venait d'une autre charte ;
+     la DA montre un aplat. */
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
   min-height:48px;padding:10px 18px;border:0;border-radius:13px;
-  background:linear-gradient(135deg,var(--bleu),var(--bleu-800));
-  color:#fff;font-weight:700;font-size:15px;
-  box-shadow:0 10px 22px -10px rgba(14,99,196,.7);
+  background:var(--bleu);
+  color:#fff;font-weight:600;font-size:15px;
+  box-shadow:0 10px 22px -12px rgba(0,71,217,.6);
   width:100%;
 }
 .btn:active{transform:scale(.98)}
 .btn-clair{
-  background:var(--bleu-50);color:var(--bleu-800);box-shadow:none;
-  border:1px solid var(--bleu-100);
+  /* BOUTON SECONDAIRE DE LA DA : fond blanc, trait bleu, texte bleu. */
+  background:var(--blanc);color:var(--bleu);box-shadow:none;
+  border:1.5px solid var(--bleu);
+}
+/* BOUTON ORANGE DE LA DA : l'action qui engage — ajouter au panier,
+   passer la commande. Il porte le texte sombre, pas du blanc : voir la
+   note sur l'orange dans les jetons de design. */
+.btn-orange{
+  background:var(--orange);color:var(--orange-texte);
+  box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
+}
+/* LIEN TEXTE DE LA DA : souligné, bleu, sans fond ni cadre. */
+.lien-texte{
+  color:var(--bleu);font-weight:600;text-decoration:underline;
+  text-underline-offset:3px;
 }
 .btn-danger{background:linear-gradient(135deg,var(--rouge),var(--rouge-fonce));box-shadow:0 10px 22px -10px rgba(230,35,41,.6)}
 .btn-danger-clair{background:var(--rouge-clair);color:var(--rouge-fonce);border-color:#F6C6C7}
@@ -283,7 +358,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .avant-num{
   flex:none;width:24px;height:24px;border-radius:50%;
   display:inline-flex;align-items:center;justify-content:center;
-  background:var(--orange);color:var(--bleu-900);font-size:12.5px;font-weight:800;
+  background:var(--orange);color:var(--orange-texte);font-size:12.5px;font-weight:800;
 }
 .avant-nom{
   flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;
@@ -393,7 +468,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   font-size:11px;font-weight:800;
 }
 .badge .ic-sm{width:13px;height:13px}
-.badge-promo{background:var(--orange);color:var(--bleu-900)}
+.badge-promo{background:var(--orange);color:var(--orange-texte)}
 .badge-flash{background:var(--ambre);color:var(--bleu-900)}
 .badge-rupture{background:var(--rouge);color:#fff}
 .badge-disponible{background:var(--vert-clair);color:var(--vert)}
@@ -918,7 +993,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .carte-commandes .carte-titre{color:var(--vert)}
 
-.badge-nouvelle{background:var(--orange);color:var(--bleu-900)}
+.badge-nouvelle{background:var(--orange);color:var(--orange-texte)}
 .badge-annulee{background:var(--fond);color:var(--encre-tres-douce)}
 
 .cmd-carte{border-left:3px solid var(--vert)}
@@ -1102,9 +1177,15 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
     padding:6px 13px 16px;margin-bottom:6px;
     border-bottom:1px solid var(--trait);
   }
-  .tabbar-marque img{width:34px;height:34px;border-radius:9px;flex:none}
-  .tabbar-marque span{
-    font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--bleu-800);
+  /* Le logo de la charte, à sa taille de menu, et le mot « Admin »
+     dessous. Aucune couleur n'est posée sur les spans : « Bizz » et
+     « oo » tiennent les leurs, et une règle de couleur ici les
+     repeindrait toutes les deux de la même teinte. */
+  .tabbar-marque{flex-direction:column;align-items:flex-start;gap:2px}
+  .tabbar-marque .logo-mot{font-size:19px}
+  .tabbar-marque .marque-role{
+    font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--encre-tres-douce);
   }
 
   /* Le rond orange du milieu redevient ce qu'il est : le bouton
@@ -1350,7 +1431,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .badge.sav-a-repondre{background:var(--ambre-clair);color:var(--orange-fonce)}
 .badge.sav-repondu{background:var(--bleu-50);color:var(--bleu-700)}
 .badge.sav-regle{background:var(--vert-clair);color:var(--vert)}
-.badge.sav-recours{background:var(--orange);color:var(--bleu-900)}
+.badge.sav-recours{background:var(--orange);color:var(--orange-texte)}
 .badge.sav-tranche{background:var(--bleu-900);color:#fff}
 /* Un dossier remonté à BIZZOO ne se confond pas avec les autres. */
 .sav-en-recours{border:1px solid var(--orange)}

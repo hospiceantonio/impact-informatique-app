@@ -16,6 +16,26 @@ const UI = (() => {
    * plus de version approchée qui finirait par diverger.
    * Le fichier est déjà gardé hors connexion par le service worker.
    */
+  /**
+   * LE MOT-SYMBOLE BIZZOO, écrit et non dessiné.
+   *
+   * « Bizz » en bleu, « oo » en orange, et les deux points sous le
+   * mot. Le tracer en texte plutôt qu'en image lui donne trois choses
+   * qu'une image n'a pas : il reste net à toutes les tailles, il ne
+   * pèse rien, et il s'affiche sans réseau comme sans fichier.
+   *
+   * L'icône carrée, elle, reste une image : c'est le raccourci sur
+   * l'écran d'accueil du téléphone, et Android la veut en PNG.
+   */
+  function motSymbole(classe) {
+    return (
+      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
+        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
+        '<span class="logo-points" aria-hidden="true"><i></i><i></i></span>' +
+      "</span>"
+    );
+  }
+
   function marque(taille = 40) {
     return (
       '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
@@ -26,9 +46,8 @@ const UI = (() => {
   function logoAdmin() {
     return (
       '<span class="logo">' +
-        marque(44) +
         '<span class="logo-textes">' +
-          '<span class="logo-nom">BIZZOO</span>' +
+          motSymbole() +
           '<span class="logo-sous">Espace admin</span>' +
         "</span>" +
       "</span>"
@@ -569,7 +588,7 @@ const UI = (() => {
   }
 
   return {
-    $, $$, entete, icone, marque, logoAdmin, toast,
+    $, $$, entete, icone, marque, motSymbole, logoAdmin, toast,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,

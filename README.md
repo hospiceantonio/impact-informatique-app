@@ -110,6 +110,82 @@ La bascule est vérifiée à 1023 et à 1024 px, des deux côtés.
 > Si le premier déploiement échoue, vérifier une fois dans
 > `Settings → Pages` que la source est « GitHub Actions ».
 
+## La charte graphique
+
+La charte de BIZZOO s'applique aux deux applications et à la vitrine.
+
+| | |
+|---|---|
+| Police | **Poppins**, 400/500/600/700 |
+| Bleu | `#0047D9` |
+| Orange | `#FF8A00` |
+| Encre | `#1F2937` |
+| Fond | `#F5F7FA` |
+
+**La police est embarquée, pas appelée.** Les quatre graisses sont dans
+`client/polices/` et `admin/polices/` — 31 ko en tout — et les deux
+service workers les gardent hors connexion. Une application qui irait
+chercher Poppins chez Google perdrait sa typographie au premier creux de
+réseau, ce qui, ici, arrive tous les jours. Aucune requête ne sort de
+l'application : le banc le vérifie en écoutant *tout* ce que la page
+demande.
+
+**Le logo n'est pas une image.** « Bizz » en bleu, « oo » en orange et
+les deux points sous le B sont écrits par la feuille de style
+(`motSymbole()` dans `ui.js`). Il reste net à toutes les tailles, suit la
+couleur du thème, et ne coûte aucun fichier. L'icône de l'application —
+le B au panier — reste une image : c'est un dessin fait pour un écran
+d'accueil, et elle n'a pas sa place à côté du mot. Posée en tête du menu
+latéral, elle donnait deux marques l'une contre l'autre.
+
+**L'orange se pose sous une encre sombre, jamais sous du blanc.** Du
+blanc sur `#FF8A00` donne **2,36:1** — sous le seuil de lisibilité même
+pour un gros titre. La charte pose son `#1F2937` dessus : **6,21:1**. Le
+banc relève le contraste sur le bouton lui-même et refuse en dessous de
+4,5:1. C'est pourquoi « Ajouter au panier » et « Passer la commande »
+portent l'orange avec une encre sombre, et non du blanc.
+
+**Un défaut que seule la capture d'écran a montré.** La barre du haut est
+passée du bleu au blanc ; ses boutons, eux, sont restés blancs — donc
+invisibles. Aucun constat ne tombait : les boutons étaient là, à la
+bonne place, avec les bonnes icônes. Le banc mesure maintenant la
+**luminance** du fond de la barre et celle de ses boutons, et exige que
+les seconds s'y détachent.
+
+### Le banc de la charte
+
+```bash
+bash tools/servir.sh &                 # le serveur local, sur 5180
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-da.mjs
+```
+
+Playwright n'est **pas** une dépendance du projet : les deux
+applications n'en ont aucune, et un banc ne justifie pas d'en ajouter
+une. Le chemin se donne par `PLAYWRIGHT`, l'adresse par `BANC_URL` si le
+serveur n'est pas sur 5180, le navigateur par `CHROMIUM` pour en
+désigner un déjà installé, et `CAPTURES=<dossier>` range les images.
+
+Cinquante et un constats sur les deux applications, à quatre largeurs
+d'écran (360, 390, 768, 1440 px). Ils regardent ce qu'une capture
+d'écran ne montre pas :
+
+- la police **affichée** est Poppins (`document.fonts.check`) — une
+  `@font-face` qui échoue ne laisse aucune trace, le navigateur retombe
+  sur la police du système et la page reste belle ;
+- rien n'est demandé hors de l'application ;
+- les couleurs sont relevées **sur les éléments**, pas dans la feuille de
+  style — une règle peut être écrite et surchargée dix lignes plus bas ;
+- rien ne déborde en largeur, à aucune des quatre largeurs.
+
+Quatre sabotages les font tomber, onze constats en tout : renvoyer la
+police chez Google, remettre l'ancien bleu, repasser les boutons de la
+barre en blanc, retirer la bascule de l'écran d'ordinateur.
+
+> **Un seuil qu'on ne peut pas franchir ne prouve rien.** « Le catalogue
+> s'étale » vérifiait une largeur de plus de 700 px — mais la colonne du
+> téléphone en fait déjà 720. Le constat restait vert avec l'écran
+> d'ordinateur entièrement désactivé. Le seuil est à 900.
+
 ## La base Supabase (mise en route, une seule fois)
 
 1. [`supabase/schema.sql`](supabase/schema.sql) : à coller dans

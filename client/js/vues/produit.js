@@ -224,7 +224,7 @@ const VueProduit = (() => {
               '<span id="p-quantite">1</span>' +
               '<button type="button" id="p-plus" aria-label="Un de plus">+</button>' +
             "</div>" +
-            '<button type="button" class="btn" id="p-ajouter">' + UI.icone("sacoche") +
+            '<button type="button" class="btn btn-orange" id="p-ajouter">' + UI.icone("sacoche") +
               (dejaDedans ? "Ajouter encore" : "Ajouter au panier") + "</button>" +
           "</div>" +
           (dejaDedans

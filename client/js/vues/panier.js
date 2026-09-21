@@ -163,7 +163,7 @@ const VuePanier = (() => {
             "<div>Un compte BIZZOO est nécessaire pour commander. " +
             "L'étape suivante vous le proposera.</div></div>"
           : "") +
-        '<button type="button" class="btn" id="pa-commander"' +
+        '<button type="button" class="btn btn-orange" id="pa-commander"' +
           (Panier.monnaiesMelangees() ? " disabled" : "") + ">" +
           UI.icone("check") + "Commander</button>" +
       "</div>";

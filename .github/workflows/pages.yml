@@ -1,8 +1,12 @@
 # Déploie les versions web des applications sur GitHub Pages :
 #  - application client -> https://<compte>.github.io/impact-informatique-app/client/
 #  - application admin  -> https://<compte>.github.io/impact-informatique-app/admin/
-# L'étape configure-pages active Pages automatiquement au premier passage ;
-# en cas d'échec, choisir une fois Settings -> Pages -> Source : "GitHub Actions".
+# ATTENTION, CECI NE S'ACTIVE PAS TOUT SEUL. « enablement: true » demande à
+# GitHub de CRÉER le site, et le jeton d'un workflow n'en a pas le droit :
+# le journal répond « Create Pages site failed — Resource not accessible by
+# integration ». Il faut l'autoriser UNE FOIS, à la main :
+#     Settings -> Pages -> Build and deployment -> Source : GitHub Actions
+# Ensuite ce workflow passe à chaque poussée, sans rien d'autre à faire.
 name: Déployer sur GitHub Pages
 
 on:
@@ -40,9 +44,12 @@ jobs:
           # Ce qui part en ligne : l'accueil et les deux applications.
           # Le reste — schéma de la base, captures, projet Android — n'a
           # rien à faire sur un site que des clients ouvrent.
+          # LES APK RESTENT, et c'est nouveau : la vitrine propose de
+          # télécharger l'application, et un lien qui ne mène à rien
+          # vaut moins que pas de lien du tout.
           rsync -a --exclude '.git' --exclude '.github' --exclude '_site' \
             --exclude 'serve.ps1' --exclude 'tools' \
-            --exclude 'android' --exclude 'apk' \
+            --exclude 'android' \
             --exclude 'supabase' --exclude 'captures' ./ _site/
 
       - name: Téléverser l'artefact Pages

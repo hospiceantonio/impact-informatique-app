@@ -4,12 +4,19 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v61";
+const VERSION = "impact-admin-v62";
 
 const FICHIERS = [
   "./",
   "./index.html",
   "./styles.css",
+  /* LES POLICES DANS LA COQUILLE : sans elles, la première
+     ouverture hors connexion retomberait sur la police du
+     téléphone, et BIZZOO n'aurait plus l'air de BIZZOO. */
+  "./polices/poppins-400.woff2",
+  "./polices/poppins-500.woff2",
+  "./polices/poppins-600.woff2",
+  "./polices/poppins-700.woff2",
   "./manifest.webmanifest",
   "./config.js",
   "./js/utils.js",

@@ -3,112 +3,355 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BIZZOO — Toutes vos boutiques</title>
-<meta name="description" content="BIZZOO réunit les boutiques de votre ville : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money.">
-<meta name="theme-color" content="#0B5CF5">
+<title>BIZZOO — Plus de boutiques, un seul endroit !</title>
+<meta name="description" content="BIZZOO réunit les boutiques de votre ville : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money. Sur le web ou dans l'application Android.">
+<meta name="theme-color" content="#0047D9">
 <link rel="icon" href="client/icons/icon-192.png">
+
+<!-- Ce que Facebook et WhatsApp montrent quand on partage le lien. -->
+<meta property="og:title" content="BIZZOO — Plus de boutiques, un seul endroit !">
+<meta property="og:description" content="Toutes vos boutiques préférées dans une seule application. Commandez et payez par Mobile Money.">
+<meta property="og:image" content="client/icons/icon-512.png">
+<meta property="og:type" content="website">
+
 <style>
+  /* LES POLICES VIENNENT DE L'APPLICATION CLIENTE : un seul jeu de
+     fichiers pour la vitrine et pour la boutique, et rien à charger
+     chez un tiers. */
+  @font-face{font-family:'Poppins';font-style:normal;font-weight:400;font-display:swap;
+    src:url(client/polices/poppins-400.woff2) format('woff2')}
+  @font-face{font-family:'Poppins';font-style:normal;font-weight:500;font-display:swap;
+    src:url(client/polices/poppins-500.woff2) format('woff2')}
+  @font-face{font-family:'Poppins';font-style:normal;font-weight:600;font-display:swap;
+    src:url(client/polices/poppins-600.woff2) format('woff2')}
+  @font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;
+    src:url(client/polices/poppins-700.woff2) format('woff2')}
+
   :root{
-    --bleu:#0B5CF5; --bleu-800:#001A6E; --bleu-900:#001450; --bleu-50:#EEF3FE;
-    --orange:#F96302; --encre:#0B1B33; --encre-douce:#4E5F78; --encre-tres-douce:#8492A8;
-    --trait:#E1E7F2; --fond:#F3F6FC; --blanc:#fff;
-    --police:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --bleu:#0047D9; --bleu-800:#002A80; --bleu-900:#001B52; --bleu-50:#EDF2FE;
+    --orange:#FF8A00; --orange-texte:#1F2937;
+    --encre:#1F2937; --encre-douce:#4B5563; --encre-tres-douce:#9AA3AF;
+    --trait:#E3E8EF; --fond:#F5F7FA; --blanc:#fff;
+    --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
   *,*::before,*::after{box-sizing:border-box}
   body{
-    margin:0;font-family:var(--police);color:var(--encre);background:var(--fond);
-    -webkit-font-smoothing:antialiased;
-    min-height:100dvh;display:flex;flex-direction:column;
+    margin:0;font-family:var(--police);color:var(--encre);background:var(--blanc);
+    -webkit-font-smoothing:antialiased;line-height:1.55;
   }
+  img,svg{display:block;max-width:100%}
+  a{color:inherit;text-decoration:none}
+
+  /* ---------- Le mot-symbole, le même que dans les applications ---------- */
+  .logo-mot{
+    display:inline-block;position:relative;
+    font-weight:700;line-height:1;letter-spacing:-.01em;padding-bottom:.34em;
+  }
+  .logo-bizz{color:var(--bleu)}
+  .logo-oo{color:var(--orange)}
+  .logo-points{position:absolute;left:.09em;bottom:.06em;display:flex;gap:.16em}
+  .logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
+  .logo-points i:first-child{background:var(--bleu)}
+  .logo-points i:last-child{background:var(--orange)}
+  /* Sur fond bleu, le « Bizz » bleu disparaîtrait. */
+  .sur-bleu .logo-bizz{color:#fff}
+  .sur-bleu .logo-points i:first-child{background:#fff}
+
+  .large{width:min(1120px,100%);margin:0 auto;padding:0 20px}
+
+  header{
+    position:sticky;top:0;z-index:10;background:rgba(255,255,255,.94);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--trait);
+  }
+  .entete{display:flex;align-items:center;gap:16px;padding:14px 0}
+  .entete .logo-mot{font-size:27px}
+  .entete nav{margin-left:auto;display:flex;align-items:center;gap:8px}
+
   .bandeau{
-    background:linear-gradient(135deg,var(--bleu) 0%,var(--bleu-800) 78%,var(--bleu-900) 100%);
-    color:#fff;padding:56px 24px 64px;text-align:center;
+    background:linear-gradient(135deg,var(--bleu) 0%,var(--bleu-800) 70%,var(--bleu-900) 100%);
+    color:#fff;padding:60px 0 72px;
   }
-  .bandeau img{width:76px;height:76px;border-radius:20px;background:#fff;padding:6px}
-  .bandeau h1{margin:16px 0 6px;font-size:34px;font-weight:800;letter-spacing:-.8px}
-  .bandeau p{margin:0 auto;max-width:520px;font-size:15.5px;line-height:1.55;opacity:.86}
+  .bandeau .large{display:grid;gap:40px;align-items:center}
+  .bandeau h1{margin:0 0 14px;font-size:clamp(30px,5.4vw,46px);font-weight:700;letter-spacing:-.9px;line-height:1.12}
+  .bandeau h1 .accent{color:#FFC061}
+  .bandeau p{margin:0 0 26px;font-size:16.5px;max-width:52ch;color:rgba(255,255,255,.9)}
+  .actions{display:flex;flex-wrap:wrap;gap:12px}
 
-  main{flex:1;width:100%;max-width:880px;margin:0 auto;padding:0 24px 56px}
-  .portes{display:grid;gap:18px;margin-top:-34px}
-  @media (min-width:720px){ .portes{grid-template-columns:1fr 1fr} }
-
-  .porte{
-    display:block;text-decoration:none;color:inherit;
-    background:var(--blanc);border-radius:20px;padding:24px;
-    box-shadow:0 12px 30px -18px rgba(0,20,80,.55);
-    border:1px solid var(--trait);
-    transition:transform .18s ease, box-shadow .18s ease;
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:9px;
+    min-height:52px;padding:12px 24px;border:0;border-radius:14px;
+    font-family:inherit;font-weight:600;font-size:15.5px;cursor:pointer;
   }
-  .porte:hover{transform:translateY(-3px);box-shadow:0 20px 45px -20px rgba(0,20,80,.6)}
-  .porte-rond{
+  .btn-orange{background:var(--orange);color:var(--orange-texte)}
+  .btn-bleu{background:var(--bleu);color:#fff}
+  .btn-trait{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.55)}
+  .btn-clair{background:#fff;color:var(--bleu);border:1.5px solid var(--bleu)}
+  .btn:active{transform:scale(.985)}
+  /* LA RÈGLE EST GLOBALE, et c'est ce qui manquait : réservée aux
+     boutons, les mêmes icônes posées dans les pastilles rondes
+     s'affichaient pleines et noires, à leur taille par défaut. */
+  .ic{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;
+    stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+  .sous-actions{margin-top:14px;font-size:13px;color:rgba(255,255,255,.72);max-width:52ch}
+
+  .promesses{padding:60px 0}
+  .titre-bloc{text-align:center;margin-bottom:38px}
+  .titre-bloc h2{margin:0 0 8px;font-size:clamp(23px,3.4vw,31px);font-weight:700;letter-spacing:-.5px}
+  .titre-bloc p{margin:0;color:var(--encre-douce);font-size:15.5px}
+  .grille{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+  .carte{background:var(--blanc);border:1px solid var(--trait);border-radius:18px;padding:22px}
+  .carte .rond{
+    width:46px;height:46px;border-radius:50%;background:var(--orange);
+    color:var(--orange-texte);display:flex;align-items:center;justify-content:center;
+    margin-bottom:14px;
+  }
+  .carte .rond .ic{width:23px;height:23px}
+  .carte h3{margin:0 0 6px;font-size:16.5px;font-weight:600}
+  .carte p{margin:0;color:var(--encre-douce);font-size:14.5px}
+
+  .marche{background:var(--fond);padding:60px 0}
+  .etapes{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));counter-reset:pas}
+  .etape{background:var(--blanc);border:1px solid var(--trait);border-radius:18px;padding:22px}
+  .etape::before{
+    counter-increment:pas;content:counter(pas);
     display:flex;align-items:center;justify-content:center;
-    width:52px;height:52px;border-radius:15px;
-    background:var(--bleu-50);color:var(--bleu-800);margin-bottom:14px;
+    width:34px;height:34px;border-radius:50%;background:var(--bleu);color:#fff;
+    font-weight:700;font-size:15px;margin-bottom:13px;
   }
-  .porte-admin .porte-rond{background:#FFEFE2;color:var(--orange)}
-  .porte-rond svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;
-    stroke-linecap:round;stroke-linejoin:round}
-  .porte h2{margin:0 0 6px;font-size:19px;font-weight:800;letter-spacing:-.3px}
-  .porte p{margin:0;font-size:14px;line-height:1.55;color:var(--encre-douce)}
-  .porte-aller{
-    display:inline-flex;align-items:center;gap:6px;margin-top:14px;
-    font-size:14px;font-weight:700;color:var(--bleu);
-  }
+  .etape h3{margin:0 0 5px;font-size:16px;font-weight:600}
+  .etape p{margin:0;color:var(--encre-douce);font-size:14.5px}
 
-  .note{
-    margin-top:28px;padding:16px 18px;border-radius:14px;
-    background:var(--blanc);border:1px solid var(--trait);
-    font-size:13.5px;line-height:1.6;color:var(--encre-douce);
+  .portes{padding:60px 0}
+  .porte{
+    display:flex;gap:18px;align-items:flex-start;
+    background:var(--blanc);border:1px solid var(--trait);border-radius:20px;padding:24px;
   }
-  .note strong{color:var(--encre)}
-  footer{
-    padding:20px 24px 28px;text-align:center;
-    font-size:12.5px;color:var(--encre-tres-douce);
+  .porte .rond .ic{width:25px;height:25px}
+  .porte .rond{
+    flex:none;width:52px;height:52px;border-radius:16px;background:var(--bleu-50);
+    color:var(--bleu);display:flex;align-items:center;justify-content:center;
   }
+  .porte h3{margin:0 0 6px;font-size:17px;font-weight:600}
+  .porte p{margin:0 0 16px;color:var(--encre-douce);font-size:14.5px}
+  .porte .btn{min-height:46px;padding:10px 18px;font-size:14.5px}
+
+  footer{background:var(--bleu-900);color:#fff;padding:40px 0 34px}
+  .pied{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+  .pied .logo-mot{font-size:24px}
+  .pied .slogan{font-size:14.5px;color:rgba(255,255,255,.78)}
+  .pied nav{margin-left:auto;display:flex;flex-wrap:wrap;gap:18px;font-size:14px}
+  .pied nav a{color:rgba(255,255,255,.82)}
+  .mentions{margin-top:26px;padding-top:20px;border-top:1px solid rgba(255,255,255,.14);
+    font-size:13px;color:rgba(255,255,255,.6)}
+
+  /* Une évocation de l'écran, dessinée en HTML : rien à charger, et
+     elle reste nette partout. Elle s'efface sur les petits écrans, où
+     elle n'apporterait qu'un encombrement. */
+  .mock{justify-self:center;width:min(280px,80vw)}
+  .mock-cadre{
+    border-radius:34px;border:9px solid rgba(255,255,255,.16);
+    background:var(--blanc);overflow:hidden;box-shadow:0 30px 60px -28px rgba(0,0,0,.6);
+  }
+  .mock-haut{padding:14px 14px 10px;border-bottom:1px solid var(--trait)}
+  .mock-haut .logo-mot{font-size:21px}
+  .mock-corps{padding:12px 14px 18px;display:grid;gap:9px}
+  .mock-ligne{display:flex;align-items:center;gap:10px;border:1px solid var(--trait);
+    border-radius:13px;padding:9px 11px}
+  .mock-rond{width:31px;height:31px;border-radius:50%;flex:none}
+  .mock-texte{flex:1;min-width:0}
+  .mock-texte b{display:block;font-size:12px;font-weight:600;color:var(--encre)}
+  .mock-texte span{display:block;font-size:10px;color:var(--encre-tres-douce)}
+  @media (max-width:899px){ .mock{display:none} }
+  @media (min-width:900px){ .bandeau .large{grid-template-columns:1.12fr .88fr} }
 </style>
 </head>
 <body>
 
-<header class="bandeau">
-  <img src="client/icons/icon-192.png" alt="">
-  <h1>BIZZOO</h1>
-  <p>Toutes les boutiques de votre ville, réunies : parcourez leurs catalogues,
-     comparez les prix, commandez et payez par Mobile Money.</p>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+  <g id="i-magasin"><path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.6 2.6 0 0 0 5.3 0 2.65 2.65 0 0 0 5.4 0 2.6 2.6 0 0 0 5.3 0"/><path d="M5 12v8.5h14V12M9.5 20.5v-5.5h5v5.5"/></g>
+  <g id="i-bouclier"><path d="M12 2.6 5 5.4v6c0 4.3 2.9 8.2 7 9.9 4.1-1.7 7-5.6 7-9.9v-6z"/><path d="m9 11.8 2.2 2.2L15.2 10"/></g>
+  <g id="i-camion"><path d="M2.5 6.5h10.5v10H2.5z"/><path d="M13 9.5h3.7l2.8 3v4H13z"/><circle cx="6.5" cy="18.5" r="1.8"/><circle cx="16.5" cy="18.5" r="1.8"/></g>
+  <g id="i-casque"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 13.5h2.6v5.5H5.2A1.2 1.2 0 0 1 4 17.8z"/><path d="M20 13.5h-2.6v5.5h1.4A1.2 1.2 0 0 0 20 17.8z"/></g>
+  <g id="i-etiquette"><path d="M11.4 2.6H20v8.6l-9.2 9.2a1.5 1.5 0 0 1-2.1 0l-6.5-6.5a1.5 1.5 0 0 1 0-2.1z"/><circle cx="16.2" cy="7" r="1.4"/></g>
+  <g id="i-telecharger"><path d="M12 3.5v12"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4 19.5h16"/></g>
+  <g id="i-ouvrir"><path d="M14 3.5h6.5V10"/><path d="M20.5 3.5 11 13"/><path d="M18 14v5.5a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1H10"/></g>
+  <g id="i-cle"><circle cx="8" cy="15" r="4.2"/><path d="m11 12 8-8"/><path d="m16.5 6.5 2 2"/><path d="m14.5 8.5 2 2"/></g>
+</defs></svg>
+
+<header>
+  <div class="large entete">
+    <span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points" aria-hidden="true"><i></i><i></i></span></span>
+    <nav>
+      <a class="btn btn-clair" href="client/">
+        <svg class="ic" viewBox="0 0 24 24"><use href="#i-magasin"/></svg>Ouvrir la boutique</a>
+    </nav>
+  </div>
 </header>
 
-<main>
-  <div class="portes">
+<section class="bandeau">
+  <div class="large">
+    <div>
+      <h1>Vos boutiques préférées<br><span class="accent">dans une seule application</span></h1>
+      <p>BIZZOO réunit les commerces de votre ville. Parcourez leurs catalogues,
+         comparez les prix, commandez et payez par Mobile&nbsp;Money — sans courir
+         d'une boutique à l'autre.</p>
+      <div class="actions">
+        <a class="btn btn-orange" href="client/">
+          <svg class="ic" viewBox="0 0 24 24"><use href="#i-ouvrir"/></svg>Ouvrir la boutique</a>
+        <a class="btn btn-trait" href="apk/bizzoo-client.apk" download>
+          <svg class="ic" viewBox="0 0 24 24"><use href="#i-telecharger"/></svg>Télécharger l'application</a>
+      </div>
+      <p class="sous-actions">La boutique s'ouvre tout de suite dans votre navigateur.
+         L'application Android, une fois installée, fonctionne même sans réseau.</p>
+    </div>
 
-    <a class="porte" href="client/">
-      <span class="porte-rond">
-        <svg viewBox="0 0 24 24"><path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.6 2.6 0 0 0 5.3 0 2.65 2.65 0 0 0 5.4 0 2.6 2.6 0 0 0 5.3 0"/><path d="M5 12v8.5h14V12M9.5 20.5v-5.5h5v5.5"/></svg>
-      </span>
-      <h2>La boutique</h2>
-      <p>Le catalogue, ouvert à tous. C'est l'adresse à donner à vos clients.</p>
-      <span class="porte-aller">Ouvrir le catalogue →</span>
-    </a>
-
-    <a class="porte porte-admin" href="admin/">
-      <span class="porte-rond">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
-      </span>
-      <h2>Espace admin</h2>
-      <p>La gestion des boutiques : produits, photos, prix, commandes et statistiques.
-         Réservé aux comptes de l'équipe.</p>
-      <span class="porte-aller">Ouvrir l'espace admin →</span>
-    </a>
-
+    <div class="mock" aria-hidden="true">
+      <div class="mock-cadre">
+        <div class="mock-haut">
+          <span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points"><i></i><i></i></span></span>
+        </div>
+        <div class="mock-corps">
+          <div class="mock-ligne"><span class="mock-rond" style="background:#6C3FBF"></span>
+            <span class="mock-texte"><b>Mode &amp; Vêtements</b><span>Homme · Femme · Chaussures</span></span></div>
+          <div class="mock-ligne"><span class="mock-rond" style="background:#0047D9"></span>
+            <span class="mock-texte"><b>High-Tech &amp; Électronique</b><span>Ordinateurs · Téléphones</span></span></div>
+          <div class="mock-ligne"><span class="mock-rond" style="background:#0F9D58"></span>
+            <span class="mock-texte"><b>Maison &amp; Jardin</b><span>Meubles · Électroménager</span></span></div>
+          <div class="mock-ligne"><span class="mock-rond" style="background:#FF8A00"></span>
+            <span class="mock-texte"><b>Restauration</b><span>Plats locaux · Boissons</span></span></div>
+        </div>
+      </div>
+    </div>
   </div>
+</section>
 
-  <p class="note">
-    <strong>Les deux s'installent comme une application.</strong>
-    Ouvrez l'une d'elles dans Chrome, puis menu ⋮ → « Installer l'application » :
-    elle prend son icône sur l'écran d'accueil et s'ouvre en plein écran, hors
-    connexion comprise.
-  </p>
-</main>
+<section class="promesses">
+  <div class="large">
+    <div class="titre-bloc">
+      <h2>Pourquoi BIZZOO</h2>
+      <p>Cinq engagements, les mêmes pour toutes les boutiques de la place de marché.</p>
+    </div>
+    <div class="grille">
+      <article class="carte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-magasin"/></svg></span>
+        <h3>Des boutiques de confiance</h3>
+        <p>Chaque commerce est enregistré par BIZZOO et rangé dans son secteur
+           d'activité. Vous savez chez qui vous achetez.</p>
+      </article>
+      <article class="carte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-bouclier"/></svg></span>
+        <h3>Des produits de qualité</h3>
+        <p>Les avis ne viennent que des clients qui ont réellement payé.
+           Une note ne s'achète pas ici.</p>
+      </article>
+      <article class="carte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-camion"/></svg></span>
+        <h3>Une livraison rapide</h3>
+        <p>La boutique confie votre commande à son livreur, et vous suivez
+           chaque étape jusqu'à la remise.</p>
+      </article>
+      <article class="carte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-casque"/></svg></span>
+        <h3>Un SAV irréprochable</h3>
+        <p>Une réclamation va d'abord à la boutique. Si rien ne bouge,
+           BIZZOO tranche.</p>
+      </article>
+      <article class="carte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-etiquette"/></svg></span>
+        <h3>Des prix clairs</h3>
+        <p>Le prix affiché est le prix payé. Un code promo se déduit avant
+           de valider, pas après.</p>
+      </article>
+    </div>
+  </div>
+</section>
 
-<footer>BIZZOO — Cotonou, Bénin</footer>
+<section class="marche">
+  <div class="large">
+    <div class="titre-bloc">
+      <h2>Comment ça marche</h2>
+      <p>Quatre gestes, du catalogue à la livraison.</p>
+    </div>
+    <div class="etapes">
+      <article class="etape">
+        <h3>Choisissez</h3>
+        <p>Parcourez les catégories, ou entrez directement dans une boutique.</p>
+      </article>
+      <article class="etape">
+        <h3>Commandez</h3>
+        <p>Remplissez votre panier, même chez plusieurs boutiques à la fois.</p>
+      </article>
+      <article class="etape">
+        <h3>Payez</h3>
+        <p>Mobile Money ou carte bancaire. Le paiement est confirmé par
+           l'opérateur, jamais par l'application.</p>
+      </article>
+      <article class="etape">
+        <h3>Recevez</h3>
+        <p>Suivez la préparation et la livraison, et confirmez vous-même la
+           réception.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="portes">
+  <div class="large">
+    <div class="titre-bloc">
+      <h2>Deux portes</h2>
+      <p>Une pour acheter, une pour tenir sa boutique.</p>
+    </div>
+    <div class="grille">
+      <article class="porte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-magasin"/></svg></span>
+        <div>
+          <h3>La boutique</h3>
+          <p>Pour les clients : le catalogue de toutes les boutiques, le panier,
+             le paiement et le suivi des commandes.</p>
+          <div class="actions">
+            <a class="btn btn-bleu" href="client/">Ouvrir</a>
+            <a class="btn btn-clair" href="apk/bizzoo-client.apk" download>
+              <svg class="ic" viewBox="0 0 24 24"><use href="#i-telecharger"/></svg>APK Android</a>
+          </div>
+        </div>
+      </article>
+      <article class="porte">
+        <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cle"/></svg></span>
+        <div>
+          <h3>L'espace des boutiques</h3>
+          <p>Pour les commerçants et l'enseigne : produits, commandes, livraisons,
+             statistiques. Un compte est nécessaire.</p>
+          <div class="actions">
+            <a class="btn btn-bleu" href="admin/">Ouvrir</a>
+            <a class="btn btn-clair" href="apk/bizzoo-admin.apk" download>
+              <svg class="ic" viewBox="0 0 24 24"><use href="#i-telecharger"/></svg>APK Android</a>
+          </div>
+        </div>
+      </article>
+    </div>
+    <p class="titre-bloc" style="margin:32px 0 0;font-size:14px;color:var(--encre-douce)">
+      Les deux s'installent aussi comme une application : ouvrez-les dans Chrome,
+      puis menu ⋮ → « Installer l'application ».
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="large">
+    <div class="pied">
+      <span class="logo-mot sur-bleu"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points" aria-hidden="true"><i></i><i></i></span></span>
+      <span class="slogan">Plus de boutiques, un seul endroit !</span>
+      <nav>
+        <a href="client/">La boutique</a>
+        <a href="admin/">Espace boutiques</a>
+        <a href="apk/bizzoo-client.apk" download>Télécharger</a>
+      </nav>
+    </div>
+    <p class="mentions">BIZZOO — place de marché en ligne, Cotonou, Bénin.
+       Paiement Mobile Money et carte bancaire.</p>
+  </div>
+</footer>
 
 </body>
 </html>
