@@ -33,9 +33,9 @@ set client_min_messages = notice;
 select essai.titre('Le décor : Awa a payé, Kofi non');
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_avis', 'bou_informatique', 'Article à noter', 7000,
-        'cat_accessoires', 50, true)
+        'sc_hightech_accessoires', 50, true)
 on conflict (id) do update set prix = 7000, stock = 50;
 
 -- Awa achète, et PAIE.

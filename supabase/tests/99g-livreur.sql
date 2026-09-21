@@ -59,9 +59,9 @@ select essai.egal((select count(*)::int from public.profils where role = 'livreu
   'trois livreurs existent');
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_course', 'bou_informatique', 'Imprimante', 80000,
-        'cat_accessoires', 20, true)
+        'sc_hightech_accessoires', 20, true)
 on conflict (id) do update set prix = 80000, stock = 20, disponible = true;
 insert into public.produits_prive (produit_id, prix_grossiste)
 values ('prod_course', 60000)

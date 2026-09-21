@@ -167,10 +167,52 @@ create unique index if not exists produits_code_unique
 -- colonnes qu'elle touche.
 alter table public.produits add column if not exists note_moyenne numeric(3,2);
 alter table public.produits add column if not exists nb_avis int not null default 0;
+-- Le rayon d'un produit : le déclencheur ci-dessous le déduit de la
+-- sous-catégorie, et va lire le secteur de la boutique pour le
+-- vérifier. Un fichier qui pose une fonction pose aussi les colonnes
+-- qu'elle touche — celles des AUTRES tables comprises.
+alter table public.produits   add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
+alter table public.produits   add column if not exists sous_categorie_id text references public.sous_categories(id);
+alter table public.produits   alter column categorie_id drop not null;
+alter table public.boutiques
+  add column if not exists categorie_id text references public.categories(id) on delete set null;
 
 create or replace function public.produit_code() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare rayon text; secteur text;
 begin
+  /* ---------- LE RAYON ----------
+     La boutique choisit une SOUS-CATÉGORIE ; la catégorie s'en déduit.
+     Ce que l'application envoie dans « categorie_id » n'est jamais
+     écouté : deux colonnes qu'on laisserait se contredire, c'est un
+     classement qui ment — le produit serait dans un rayon à l'écran et
+     dans un autre dans les comptes. */
+  if coalesce(new.sous_categorie_id, '') = '' then
+    -- À CLASSER. Le produit reste en vente, dans sa boutique et dans la
+    -- recherche ; il n'apparaît sous aucun rayon de BIZZOO.
+    new.sous_categorie_id := null;
+    new.categorie_id := null;
+  else
+    select sc.categorie_id into rayon
+      from public.sous_categories sc where sc.id = new.sous_categorie_id;
+    if rayon is null then
+      raise exception 'Cette sous-catégorie n''existe pas';
+    end if;
+    /* ET ELLE DOIT ÊTRE DU SECTEUR DE LA BOUTIQUE. C'est tout l'objet
+       de la liste de l'enseigne : une boutique de cosmétiques qui
+       publierait sous « Pièces détachées » rendrait le classement
+       inutilisable pour l'acheteur. */
+    select b.categorie_id into secteur
+      from public.boutiques b where b.id = new.boutique_id;
+    if secteur is null then
+      raise exception 'Cette boutique n''a pas encore de secteur : l''enseigne doit lui en donner un';
+    end if;
+    if rayon <> secteur then
+      raise exception 'Un produit se range dans une sous-catégorie du secteur de sa boutique';
+    end if;
+    new.categorie_id := rayon;
+  end if;
+
   if tg_op = 'INSERT' then
     -- Ce que l'application envoie dans « code » n'est jamais écouté :
     -- la base le donne elle-même.

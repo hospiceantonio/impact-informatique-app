@@ -41,9 +41,9 @@ select essai.titre('Le décor : un produit à prix BIZZOO, un autre sans');
 -- en touche 8 000. Au taux de départ — 10 % sur le prix BIZZOO — un
 -- revendeur le paie donc 8 800, et l'enseigne garde 800.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_marge', 'bou_informatique', 'Article à marge', 10000,
-        'cat_accessoires', 10, true)
+        'sc_hightech_accessoires', 10, true)
 on conflict (id) do update set prix = 10000, stock = 10;
 insert into public.produits_prive (produit_id, prix_grossiste)
 values ('prod_marge', 8000)
@@ -52,9 +52,9 @@ on conflict (produit_id) do update set prix_grossiste = 8000;
 -- Et un produit dont personne n'a renseigné le prix BIZZOO. C'est le
 -- cas d'un catalogue importé, ou d'une boutique pressée.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_sans_bizzoo', 'bou_informatique', 'Article sans prix BIZZOO',
-        5000, 'cat_accessoires', 10, true)
+        5000, 'sc_hightech_accessoires', 10, true)
 on conflict (id) do update set prix = 5000, stock = 10;
 delete from public.produits_prive where produit_id = 'prod_sans_bizzoo';
 

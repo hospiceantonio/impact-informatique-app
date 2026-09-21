@@ -22,26 +22,24 @@ set client_min_messages = notice;
 
 select essai.titre('Le décor : deux boutiques, quelques produits');
 
-insert into public.boutiques (id, nom, secteur, devise, actif, ordre)
-values ('bou_essai_eur', 'BOUTIQUE EN EUROS', 'Essai', 'EUR', true, 90)
+-- Un secteur, comme toute boutique : les rayons sont ceux de
+-- l'enseigne, et une boutique n'en invente plus.
+insert into public.boutiques (id, nom, secteur, devise, actif, ordre, categorie_id)
+values ('bou_essai_eur', 'BOUTIQUE EN EUROS', 'Essai', 'EUR', true, 90, 'cat_hightech')
 on conflict (id) do update set devise = 'EUR';
 
-insert into public.categories (id, boutique_id, nom, ordre)
-values ('cat_essai_eur', 'bou_essai_eur', 'Divers', 1)
-on conflict (id) do nothing;
-
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, sur_commande, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, sur_commande, disponible)
 values
-  ('prod_essai_eur', 'bou_essai_eur', 'Article en euros', 10, 'cat_essai_eur', 5, false, true)
+  ('prod_essai_eur', 'bou_essai_eur', 'Article en euros', 10, 'sc_hightech_accessoires', 5, false, true)
 on conflict (id) do nothing;
 
 -- Un produit dont il ne reste rien, et qu'on ne commande pas.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, sur_commande, disponible, appro_le)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, sur_commande, disponible, appro_le)
 values
   ('prod_essai_rupture', 'bou_informatique', 'Article épuisé', 1000,
-   'cat_accessoires', 0, false, false, null)
+   'sc_hightech_accessoires', 0, false, false, null)
 on conflict (id) do update set stock = 0, sur_commande = false, appro_le = null;
 
 -- ---------------------------------------------------------
@@ -129,9 +127,9 @@ select essai.egal((select total from public.commandes where id = :'cmd'),
 -- ---------------------------------------------------------
 select essai.titre('Le code d''un produit : donné par la base, et gravé');
 -- ---------------------------------------------------------
-insert into public.produits (id, boutique_id, nom, prix, categorie_id, stock, code)
+insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id, stock, code)
 values ('prod_essai_code', 'bou_informatique', 'Produit à coder', 1000,
-        'cat_accessoires', 3, '000-CHOISI-PAR-MOI');
+        'sc_hightech_accessoires', 3, '000-CHOISI-PAR-MOI');
 
 select essai.verifie(
   (select code ~ '^[0-9]+$' from public.produits where id = 'prod_essai_code'),

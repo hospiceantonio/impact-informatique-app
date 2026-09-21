@@ -42,9 +42,9 @@ on conflict (id) do update set nom = 'Brice', tel = '96121212';
 
 -- Un article à prix rond : chaque total doit se lire sans calcul.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_fiche', 'bou_informatique', 'Chargeur secteur', 4000,
-        'cat_accessoires', 50, true)
+        'sc_hightech_accessoires', 50, true)
 on conflict (id) do update
    set prix = excluded.prix, stock = 50, disponible = true;
 

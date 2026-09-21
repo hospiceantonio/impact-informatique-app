@@ -50,9 +50,9 @@ select essai.personne();
 -- ou vider un stock, et un décor qui dépend de ce qu'ils ont laissé
 -- casse pour des raisons qui n'ont rien à voir avec ce qu'on éprouve.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_feex', 'bou_informatique', 'Article FeexPay', 12000,
-        'cat_accessoires', 10, true)
+        'sc_hightech_accessoires', 10, true)
 on conflict (id) do update set prix = 12000, stock = 10, disponible = true;
 
 -- Deux commandes, créées par la porte prévue.

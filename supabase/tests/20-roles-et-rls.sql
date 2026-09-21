@@ -24,18 +24,20 @@ set client_min_messages = notice;
 
 select essai.titre('Le décor : une seconde boutique, et deux comptes');
 
-insert into public.boutiques (id, nom, secteur, devise, actif, ordre)
-values ('bou_essai_voisine', 'BOUTIQUE VOISINE', 'Essai', 'FCFA', true, 91)
-on conflict (id) do nothing;
-
-insert into public.categories (id, boutique_id, nom, ordre)
-values ('cat_essai_voisine', 'bou_essai_voisine', 'Divers', 1)
+-- ELLE A UN SECTEUR, comme toute boutique de BIZZOO : elle n'invente
+-- plus ses rayons, elle choisit sa place dans la liste de l'enseigne.
+-- On la met dans le MÊME secteur que la boutique d'à côté, pour que le
+-- décor des autres essais reste simple. La règle « un produit d'un
+-- autre secteur est refusé » s'éprouve dans « 99h-categories.sql », sur
+-- une troisième boutique faite pour cela.
+insert into public.boutiques (id, nom, secteur, devise, actif, ordre, categorie_id)
+values ('bou_essai_voisine', 'BOUTIQUE VOISINE', 'Essai', 'FCFA', true, 91, 'cat_hightech')
 on conflict (id) do nothing;
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_essai_voisin', 'bou_essai_voisine', 'Article du voisin',
-        5000, 'cat_essai_voisine', 3, true)
+        5000, 'sc_hightech_accessoires', 3, true)
 on conflict (id) do nothing;
 
 insert into public.produits_prive (produit_id, prix_grossiste)
@@ -72,8 +74,8 @@ select essai.verifie((select count(*) >= 0 from public.slides),
 select essai.refuse($$select count(*) from public.produits_prive$$,
   'un visiteur lit les prix grossistes');
 select essai.refuse(
-  $$insert into public.produits (id, boutique_id, nom, prix, categorie_id)
-    values ('prod_pirate', 'bou_informatique', 'Pirate', 1, 'cat_accessoires')$$,
+  $$insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id)
+    values ('prod_pirate', 'bou_informatique', 'Pirate', 1, 'sc_hightech_accessoires')$$,
   'un visiteur ajoute un produit');
 select essai.sans_effet($$update public.produits set prix = 1 where id = 'prod_hp15'$$,
   'un visiteur change un prix');

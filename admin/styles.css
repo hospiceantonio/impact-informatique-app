@@ -487,6 +487,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .champ:last-child{margin-bottom:0}
 .champ label{display:block;font-size:12.5px;font-weight:700;color:var(--encre-douce);margin-bottom:6px}
 .obligatoire{color:var(--rouge)}
+/* Une valeur qu'on montre sans la laisser modifier : elle vient
+   d'ailleurs, et un champ de saisie grisé laisserait croire l'inverse. */
+.lecture-seule{
+  padding:11px 13px;border-radius:12px;background:var(--fond);
+  border:1px solid var(--trait);
+  font-size:14px;font-weight:700;color:var(--encre);
+}
 .champ input,.champ select,.champ textarea{
   width:100%;min-height:48px;
   border:1.5px solid var(--trait);border-radius:12px;
@@ -533,6 +540,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Catégories ---------- */
 .cat-bloc{padding:13px 16px}
 .cat-bloc-entete{display:flex;align-items:center;gap:10px}
+/* La pastille ronde de la liste : la même que chez le client, en plus
+   petit. C'est elle qu'on reconnaît d'un écran à l'autre. */
+.cat-pastille{
+  flex:none;width:38px;height:38px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;color:#fff;
+}
+.cat-pastille .ic{width:20px;height:20px}
 .cat-bloc-nom{flex:1;min-width:0;font-size:14.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cat-bloc-compte{flex:none;font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
 .cat-bloc-sous{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}

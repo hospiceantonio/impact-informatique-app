@@ -27,18 +27,14 @@ set client_min_messages = notice;
 
 select essai.titre('Le décor : une boutique, un produit, une vente');
 
-insert into public.boutiques (id, nom, secteur, devise, actif, ordre)
-values ('bou_essai_repar', 'BOUTIQUE À RÉPARER', 'Essai', 'FCFA', true, 95)
-on conflict (id) do nothing;
-
-insert into public.categories (id, boutique_id, nom, ordre)
-values ('cat_essai_repar', 'bou_essai_repar', 'Divers', 1)
+insert into public.boutiques (id, nom, secteur, devise, actif, ordre, categorie_id)
+values ('bou_essai_repar', 'BOUTIQUE À RÉPARER', 'Essai', 'FCFA', true, 95, 'cat_hightech')
 on conflict (id) do nothing;
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, sur_commande, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, sur_commande, disponible)
 values ('prod_essai_repar', 'bou_essai_repar', 'Article à coder', 2500,
-        'cat_essai_repar', 10, false, true)
+        'sc_hightech_accessoires', 10, false, true)
 on conflict (id) do nothing;
 
 -- Une vente d'avant la panne : c'est elle qui devra retrouver son code.

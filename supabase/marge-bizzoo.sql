@@ -45,6 +45,10 @@ alter table public.boutiques
 -- colonnes qu'elle touche.
 alter table public.boutiques add column if not exists note_moyenne numeric(3,2);
 alter table public.boutiques add column if not exists nb_avis int not null default 0;
+-- Le secteur de la boutique : le verrou ci-dessous le nomme. La clé
+-- étrangère vise « categories », qui existe depuis toujours.
+alter table public.boutiques
+  add column if not exists categorie_id text references public.categories(id) on delete set null;
 
 create or replace function public.boutique_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -57,6 +61,29 @@ begin
     if new.note_moyenne is distinct from old.note_moyenne
     or new.nb_avis      is distinct from old.nb_avis then
       raise exception 'La note d''une boutique vient de ses avis, elle ne s''écrit pas';
+    end if;
+  end if;
+
+  -- LE SECTEUR, ET LES DEUX RAISONS DE LE REFUSER. Ceci passe AVANT la
+  -- sortie du superadministrateur, parce que la seconde raison n'est pas
+  -- une question de rang mais de cohérence.
+  --
+  --   1. Il n'est pas à la boutique : il dit où elle se range dans
+  --      BIZZOO, et c'est une décision de l'enseigne.
+  --   2. En CHANGER déclasse tout le catalogue — les produits sont
+  --      rangés dans des sous-catégories de l'ancien secteur, que le
+  --      nouveau n'a pas. « changer_secteur() » fait les deux gestes
+  --      dans l'ordre, déclasser puis changer, et pose ce drapeau.
+  --
+  -- Lui en donner un pour la PREMIÈRE fois ne déclasse rien : sans
+  -- secteur, aucun produit n'a pu être classé.
+  if coalesce(current_setting('bizzoo.secteur', true), '') <> 'oui'
+     and new.categorie_id is distinct from old.categorie_id then
+    if old.categorie_id is not null then
+      raise exception 'Changer le secteur déclasse les produits : passez par le bouton prévu';
+    end if;
+    if not public.est_super() then
+      raise exception 'Le secteur d''une boutique est fixé par l''enseigne';
     end if;
   end if;
 

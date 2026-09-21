@@ -113,11 +113,11 @@ select essai.egal(public.prix_revendeur(10000, 8000, 10, 'n''importe quoi'),
 select essai.titre('Le décor : une boutique, deux articles, une revendeuse');
 -- ---------------------------------------------------------
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_rev_a', 'bou_informatique', 'Article revendeur A', 20000,
-        'cat_accessoires', 50, true),
+        'sc_hightech_accessoires', 50, true),
        ('prod_rev_b', 'bou_informatique', 'Article revendeur B', 20000,
-        'cat_accessoires', 50, true)
+        'sc_hightech_accessoires', 50, true)
 on conflict (id) do update set prix = 20000, stock = 50, disponible = true;
 
 -- A suit la boutique ; B a son taux à lui.

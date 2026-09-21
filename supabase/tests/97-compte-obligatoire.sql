@@ -58,9 +58,9 @@ grant execute on function essai.message_de(text) to anon, authenticated;
 select essai.titre('Le décor : un article, et l''interrupteur tel qu''il arrive');
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_porte', 'bou_informatique', 'Article de la porte', 9000,
-        'cat_accessoires', 100, true)
+        'sc_hightech_accessoires', 100, true)
 on conflict (id) do update set prix = 9000, stock = 100, disponible = true;
 
 select essai.verifie(exists (

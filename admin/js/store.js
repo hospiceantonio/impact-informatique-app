@@ -290,7 +290,7 @@ const Store = (() => {
       tauxMarge: prive.tauxMarge,
       tauxRevendeur: prive.tauxRevendeur,
       ancienPrix: l.ancien_prix === null || l.ancien_prix === undefined ? null : Number(l.ancien_prix),
-      categorieId: l.categorie_id,
+      categorieId: l.categorie_id || "",
       sousCategorieId: l.sous_categorie_id || "",
       stock,
       surCommande: !!l.sur_commande,
@@ -316,7 +316,9 @@ const Store = (() => {
       description: p.description,
       prix: p.prix,
       ancien_prix: p.ancienPrix,
-      categorie_id: p.categorieId,
+      /* LA CATÉGORIE N'EST PAS ENVOYÉE : le déclencheur la déduit du
+         rayon, et écrase ce qu'on lui souffle. L'envoyer laisserait
+         croire que l'application décide du classement. */
       sous_categorie_id: p.sousCategorieId || null,
       stock: p.surCommande ? 0 : p.stock,
       sur_commande: !!p.surCommande,
@@ -370,6 +372,12 @@ const Store = (() => {
     return {
       id: l.id || "",
       secteur: l.secteur || "",
+      /* Le SECTEUR STRUCTUREL : la catégorie de BIZZOO où se range la
+         boutique. « secteur » juste au-dessus n'est que le texte affiché
+         sous son nom ; c'est celui-ci qui décide ce qu'elle peut
+         classer. Une base pas encore mise à jour n'a pas la colonne :
+         la boutique se retrouve sans secteur, ce qui est exact. */
+      categorieId: l.categorie_id || "",
       icone: l.icone || "magasin",
       couleur: l.couleur || "#0B5CF5",
       logo: l.logo || "",
@@ -488,6 +496,13 @@ const Store = (() => {
       telephones: b.telephones || [],
       adresses: b.adresses || [],
       video: b.video || "",
+      /* À LA CRÉATION, c'est ici que le secteur se pose : la boutique
+         n'en a pas encore, et le verrou laisse passer le premier. Pour
+         en CHANGER, il faut « changerSecteur() » — le verrou refuse
+         l'écriture directe, qui laisserait les produits rangés sous un
+         rayon que le nouveau secteur n'a pas. Renvoyer la valeur déjà
+         en base ne change rien, donc ne lève pas. */
+      categorie_id: b.categorieId || null,
       taux_marge: b.tauxMarge === undefined ? 20 : b.tauxMarge,
       revendeur_mode: b.revendeurMode === "public" ? "public" : "bizzoo",
       taux_revendeur: b.tauxRevendeur === undefined
@@ -1993,18 +2008,32 @@ const Store = (() => {
 
   /* ---------- Catégories ---------- */
 
+  /* LA LISTE EST CELLE DE BIZZOO, PLUS CELLE D'UNE BOUTIQUE : aucun
+     filtre de boutique ici. Il y en avait un, du temps où chaque
+     commerce inventait ses rayons ; le garder montrerait une liste
+     vide, puisque aucune catégorie n'appartient plus à personne. */
   async function listerCategories() {
     const lignes = await Supabase.requete("GET",
-      "categories?select=*,sous_categories(*)&order=ordre.asc" +
-      (filtreBoutique() ? "&" + filtreBoutique() : ""));
+      "categories?select=*,sous_categories(*)&order=ordre.asc");
     return (lignes || []).map((c) => ({
       id: c.id,
       nom: c.nom,
+      icone: c.icone || "categories",
+      couleur: c.couleur || "#0B5CF5",
+      enAvant: c.en_avant === true,
       ordre: c.ordre || 0,
       sousCategories: (c.sous_categories || [])
         .map((s) => ({ id: s.id, nom: s.nom, ordre: s.ordre || 0 }))
         .sort((a, b) => a.ordre - b.ordre),
     }));
+  }
+
+  /** Les rayons du secteur d'une boutique : ce dans quoi elle classe. */
+  async function sousCategoriesDuSecteur(secteur) {
+    if (!secteur) return [];
+    const categories = await listerCategories();
+    const c = categories.find((x) => x.id === secteur);
+    return c ? c.sousCategories : [];
   }
 
   async function lireCategorie(id) {
@@ -2033,12 +2062,21 @@ const Store = (() => {
           undefined, { avecSession: true }).catch(() => [])
       : [];
 
+    const pastille = {
+      icone: (donnees.icone || "categories").trim() || "categories",
+      couleur: (donnees.couleur || "#0B5CF5").trim() || "#0B5CF5",
+      en_avant: donnees.enAvant === true,
+    };
+
     if (existante) {
-      await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(id), { nom, ordre });
+      await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(id),
+        Object.assign({ nom, ordre }, pastille));
     } else {
-      /* Un rayon appartient à la boutique ouverte. */
+      /* AUCUN « boutique_id » : la liste est celle de l'enseigne. En
+         poser un rattacherait la catégorie à la boutique ouverte, et
+         elle disparaîtrait de l'écran des autres. */
       await Supabase.requete("POST", "categories",
-        boutiqueId ? { id, boutique_id: boutiqueId, nom, ordre } : { id, nom, ordre });
+        Object.assign({ id, nom, ordre }, pastille));
     }
 
     /* Sous-catégories : aligner la base sur la liste finale. */
@@ -2160,9 +2198,32 @@ const Store = (() => {
     return lignes && lignes.length ? produitDepuisLigne(lignes[0]) : null;
   }
 
+  /* TOUTES BOUTIQUES CONFONDUES. Une catégorie de BIZZOO traverse les
+     commerces : compter dans la seule boutique ouverte annoncerait
+     « aucun produit » avant d'en supprimer une qui en tient trente
+     ailleurs. Seul le superadministrateur ouvre cet écran, et la base
+     ne lui cache rien. */
   async function produitsDeCategorie(categorieId) {
-    const lignes = await lignesProduits("categorie_id=eq." + encodeURIComponent(categorieId));
+    const lignes = await lignesProduits(
+      "categorie_id=eq." + encodeURIComponent(categorieId), true);
     return (lignes || []).map(produitDepuisLigne);
+  }
+
+  /* ---------- Le secteur d'une boutique ---------- */
+
+  /** Combien de produits perdraient leur rayon si l'on changeait le secteur. */
+  async function produitsClasses(boutique) {
+    const n = await Supabase.rpcLecture("produits_classes", { boutique });
+    return Number(n) || 0;
+  }
+
+  /** Déclasse, puis change. Rend le nombre de produits déclassés. */
+  async function changerSecteur(boutique, vers) {
+    const combien = await Supabase.rpc("changer_secteur", { boutique, vers: vers || null });
+    journaliser("boutique", "modification",
+      vers ? "Secteur de la boutique changé" : "Secteur de la boutique retiré",
+      boutique, undefined, boutique);
+    return Number(combien) || 0;
   }
 
   function chercherProduits(produits, terme) {
@@ -2202,6 +2263,16 @@ const Store = (() => {
 
     const nom = (donnees.nom || "").trim();
     if (!nom) throw new Error("Le nom du produit est obligatoire.");
+
+    /* LE RAYON EST OBLIGATOIRE, et c'est une règle de l'application, pas
+       de la base : celle-ci accepte un produit « à classer », puisque la
+       reprise en a laissé beaucoup. Mais rien ne justifie d'en créer de
+       nouveaux — un produit sans rayon n'apparaît sous aucune catégorie
+       chez le client, et personne ne le trouve. */
+    if (!(donnees.sousCategorieId || "").trim()) {
+      throw new Error("Choisissez le rayon du produit : sans lui, vos clients " +
+        "ne le trouveront sous aucune catégorie.");
+    }
 
     let reference = (donnees.reference || "").trim();
     if (!reference) reference = await prochaineReference();
@@ -2748,14 +2819,24 @@ const Store = (() => {
       }
     }
 
-    dire("Enregistrement des catégories…");
-    for (const c of donnees.categories || []) {
-      await Supabase.requete("POST", "categories?on_conflict=id",
-        { id: c.id, nom: c.nom, ordre: c.ordre || 0 }, { upsert: true });
-      for (const s of c.sousCategories || []) {
-        await Supabase.requete("POST", "sous_categories?on_conflict=id",
-          { id: s.id, categorie_id: c.id, nom: s.nom, ordre: s.ordre || 0 }, { upsert: true });
+    /* LA LISTE DES CATÉGORIES EST CELLE DE BIZZOO : seule l'enseigne
+       l'écrit. Une sauvegarde rapportée par une boutique ne doit pas la
+       réécrire — et la base le refuserait, ce qui arrêterait tout
+       l'import au premier rayon. On la saute, en le disant. */
+    if (Supabase.estSuper()) {
+      dire("Enregistrement des catégories…");
+      for (const c of donnees.categories || []) {
+        await Supabase.requete("POST", "categories?on_conflict=id",
+          { id: c.id, nom: c.nom, ordre: c.ordre || 0,
+            icone: c.icone || "categories", couleur: c.couleur || "#0B5CF5",
+            en_avant: c.enAvant === true }, { upsert: true });
+        for (const s of c.sousCategories || []) {
+          await Supabase.requete("POST", "sous_categories?on_conflict=id",
+            { id: s.id, categorie_id: c.id, nom: s.nom, ordre: s.ordre || 0 }, { upsert: true });
+        }
       }
+    } else if ((donnees.categories || []).length) {
+      dire("Catégories ignorées : la liste est tenue par BIZZOO.");
     }
 
     let fait = 0;
@@ -2833,6 +2914,7 @@ const Store = (() => {
     journaliser, lireJournal,
     listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
+    sousCategoriesDuSecteur, produitsClasses, changerSecteur,
     listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,

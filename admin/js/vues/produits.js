@@ -25,35 +25,57 @@ const VueProduits = (() => {
       return;
     }
 
-    if (filtreCategorie && !categories.some((c) => c.id === filtreCategorie)) filtreCategorie = "";
+    /* LES FILTRES SONT LES RAYONS DU SECTEUR, plus celui qui compte le
+       plus après la reprise : « à classer ». Filtrer par CATÉGORIE
+       n'aurait plus de sens — une boutique n'en a qu'une, son
+       secteur, et la puce ne retirerait jamais rien. */
+    const maBoutique = Store.boutiqueCourante();
+    const secteur = categories.find((c) => c.id === (maBoutique && maBoutique.categorieId));
+    const rayons = (secteur && secteur.sousCategories) || [];
+    const aClasser = produits.filter((p) => !p.sousCategorieId).length;
+    if (filtreCategorie && filtreCategorie !== "aclasser"
+        && !rayons.some((sc) => sc.id === filtreCategorie)) filtreCategorie = "";
 
     vue.innerHTML =
+      (aClasser
+        ? '<div class="carte carte-publier">' +
+            '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") + " " +
+              aClasser + " produit" + (aClasser > 1 ? "s" : "") + " à classer</div>" +
+            '<p class="aide" style="margin:0">' +
+              (aClasser > 1 ? "Ils restent" : "Il reste") + " en vente, mais " +
+              (aClasser > 1 ? "n'apparaissent" : "n'apparaît") + " sous aucun rayon de " +
+              "BIZZOO. Ouvrez la fiche et choisissez le rayon.</p>" +
+          "</div>"
+        : "") +
       '<div class="recherche-boite">' + UI.icone("recherche", "ic-sm") +
         '<input id="produits-recherche" type="search" placeholder="Rechercher un produit…" autocomplete="off" value="' +
         Utils.echapper(termeRecherche) + '">' +
       "</div>" +
       '<div class="puces" id="produits-filtres">' +
         '<button type="button" class="puce' + (filtreCategorie ? "" : " active") + '" data-filtre="">Tout</button>' +
-        categories.map((c) =>
-          '<button type="button" class="puce' + (filtreCategorie === c.id ? " active" : "") +
-          '" data-filtre="' + Utils.echapper(c.id) + '">' + Utils.echapper(c.nom) + "</button>").join("") +
+        (aClasser
+          ? '<button type="button" class="puce' +
+            (filtreCategorie === "aclasser" ? " active" : "") +
+            '" data-filtre="aclasser">À classer (' + aClasser + ")</button>"
+          : "") +
+        rayons.map((sc) =>
+          '<button type="button" class="puce' + (filtreCategorie === sc.id ? " active" : "") +
+          '" data-filtre="' + Utils.echapper(sc.id) + '">' + Utils.echapper(sc.nom) + "</button>").join("") +
       "</div>" +
       '<div id="produits-liste"></div>';
 
     const zone = UI.$("#produits-liste");
     const nomSousCategorie = (p) => {
-      const c = categories.find((x) => x.id === p.categorieId);
-      const cat = !c ? "Sans catégorie"
-        : ((c.sousCategories || []).find((x) => x.id === p.sousCategorieId) || {}).nom
-          ? c.nom + " · " + (c.sousCategories || []).find((x) => x.id === p.sousCategorieId).nom
-          : c.nom;
+      const rayon = rayons.find((x) => x.id === p.sousCategorieId);
       return (p.code ? p.code + " · " : "") +
-        (p.reference ? p.reference + " · " : "") + cat;
+        (p.reference ? p.reference + " · " : "") +
+        (rayon ? rayon.nom : "À CLASSER");
     };
 
     const rendre = () => {
       let visibles = produits;
-      if (filtreCategorie) visibles = visibles.filter((p) => p.categorieId === filtreCategorie);
+      if (filtreCategorie === "aclasser") visibles = visibles.filter((p) => !p.sousCategorieId);
+      else if (filtreCategorie) visibles = visibles.filter((p) => p.sousCategorieId === filtreCategorie);
       visibles = Store.chercherProduits(visibles, termeRecherche);
       zone.innerHTML = visibles.length
         ? '<div class="carte carte-liste">' + visibles.map((p) => UI.ligneProduit(p, nomSousCategorie(p))).join("") + "</div>"
@@ -380,17 +402,6 @@ const VueProduits = (() => {
     rafraichir();
   }
 
-  function optionsSousCategories(categories, categorieId, valeur) {
-    const c = categories.find((x) => x.id === categorieId);
-    const sousCategories = (c && c.sousCategories) || [];
-    if (!sousCategories.length) {
-      return '<option value="">— (aucune sous-catégorie dans ce rayon)</option>';
-    }
-    return '<option value="">Choisir…</option>' +
-      sousCategories.map((s) =>
-        '<option value="' + Utils.echapper(s.id) + '"' + (valeur === s.id ? " selected" : "") + ">" +
-        Utils.echapper(s.nom) + "</option>").join("");
-  }
 
   async function formulaire(vue, id) {
     /* Retoucher un produit existant demande le droit de modification ;
@@ -412,13 +423,25 @@ const VueProduits = (() => {
       return;
     }
     const categories = await Store.listerCategories();
+    /* LA CATÉGORIE NE SE CHOISIT PLUS : c'est le SECTEUR de la boutique,
+       posé par l'enseigne. Ce qui se choisit, c'est le RAYON — une
+       sous-catégorie de ce secteur, et d'aucun autre. */
+    const maBoutique = Store.boutiqueCourante();
+    const secteur = categories.find((c) => c.id === (maBoutique && maBoutique.categorieId));
 
     UI.entete({ titre: existant ? "Modifier le produit" : "Nouveau produit", retour: true });
 
-    if (!categories.length) {
-      vue.innerHTML = UI.vide("categories", "Créez d'abord une catégorie",
-        "Chaque produit doit être rangé dans une catégorie et une sous-catégorie.",
-        '<a class="btn" href="#/categories">Ouvrir les catégories</a>');
+    if (!secteur) {
+      vue.innerHTML = UI.vide("categories", "Votre boutique n'a pas encore de secteur",
+        "BIZZOO range les boutiques par secteur d'activité, et vos produits se classent " +
+        "dans les rayons du vôtre. Demandez à l'enseigne de vous en attribuer un : " +
+        "sans lui, un produit ne peut être rangé nulle part.");
+      return;
+    }
+    if (!secteur.sousCategories.length) {
+      vue.innerHTML = UI.vide("categories", "Aucun rayon dans votre secteur",
+        "« " + secteur.nom + " » n'a encore aucun rayon. Demandez à l'enseigne d'en " +
+        "ajouter : sans rayon, un produit ne peut pas être classé.");
       return;
     }
 
@@ -429,7 +452,6 @@ const VueProduits = (() => {
       if (existant.video) videoTravail = { chemin: existant.video, url: existant.videoUrl };
     }
 
-    const categorieInitiale = existant ? existant.categorieId : (categories[0] && categories[0].id);
 
     /* Délai d'approvisionnement : de 1 à 8 jours. On rouvre le
        formulaire sur ce qu'il reste à courir, pas sur ce qui a été
@@ -552,18 +574,22 @@ const VueProduits = (() => {
 
       '<div class="carte">' +
         '<div class="champ">' +
-          '<label for="p-categorie">Catégorie <span class="obligatoire">*</span></label>' +
-          '<select id="p-categorie">' +
-            categories.map((c) =>
-              '<option value="' + Utils.echapper(c.id) + '"' + (categorieInitiale === c.id ? " selected" : "") + ">" +
-              Utils.echapper(c.nom) + "</option>").join("") +
-          "</select>" +
+          "<label>Secteur de la boutique</label>" +
+          '<div class="lecture-seule">' + Utils.echapper(secteur.nom) + "</div>" +
+          '<div class="aide">Posé par BIZZOO. Vos produits se rangent dans ses rayons, ' +
+            "et dans ceux-là seulement.</div>" +
         "</div>" +
         '<div class="champ">' +
-          '<label for="p-souscategorie">Sous-catégorie <span class="obligatoire">*</span></label>' +
+          '<label for="p-souscategorie">Rayon <span class="obligatoire">*</span></label>' +
           '<select id="p-souscategorie">' +
-            optionsSousCategories(categories, categorieInitiale, existant ? existant.sousCategorieId : "") +
+            '<option value="">— Choisissez un rayon —</option>' +
+            secteur.sousCategories.map((sc) =>
+              '<option value="' + Utils.echapper(sc.id) + '"' +
+                ((existant && existant.sousCategorieId === sc.id) ? " selected" : "") + ">" +
+                Utils.echapper(sc.nom) + "</option>").join("") +
           "</select>" +
+          '<div class="aide">C\'est sous ce rayon que vos clients trouveront le produit ' +
+            "dans l'écran « Catégories » de BIZZOO.</div>" +
         "</div>" +
       "</div>" +
 
@@ -646,9 +672,6 @@ const VueProduits = (() => {
       });
     }
 
-    UI.$("#p-categorie").addEventListener("change", (ev) => {
-      UI.$("#p-souscategorie").innerHTML = optionsSousCategories(categories, ev.target.value, "");
-    });
 
     /* ---------- Prix grossiste → prix public ----------
        Les trois champs se répondent : toucher au prix d'achat ou au taux
@@ -720,7 +743,9 @@ const VueProduits = (() => {
              celui de la boutique qui s'applique. */
           tauxRevendeur: champTauxRevendeur ? champTauxRevendeur.value : "",
           ancienPrix: UI.$("#p-ancien").value.trim(),
-          categorieId: UI.$("#p-categorie").value,
+          /* On n'envoie PAS de catégorie : le déclencheur la déduit du
+             rayon. En envoyer une n'aurait aucun effet, et laisserait
+             croire que l'application décide du classement. */
           sousCategorieId: UI.$("#p-souscategorie").value,
           stock: UI.$("#p-stock").value,
           surCommande: UI.$("#p-sur-commande").checked,

@@ -139,7 +139,7 @@ et `authenticated`, schéma `auth`, stockage, temps réel), charge
 `schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
 qu'il se rejoue —, **rejoue ensuite chaque fichier de `supabase/` comme
 le fait l'éditeur SQL** (tout d'un bloc, sans compte connecté), puis
-essaie de forcer chaque porte. Plus de 700 constats, plus les 92
+essaie de forcer chaque porte. Plus de 760 constats, plus les 101
 contrôles de l'état des lieux ; la sortie nomme celui qui cède.
 
 Pourquoi un vrai moteur : les tests des applications simulent la base.
@@ -763,6 +763,94 @@ toutes les courses, retirer le contrôle « livreur de ma boutique » de
 `assigner_livreur()`, et retirer le `revoke update` des trois fichiers
 qui le posent.
 
+## La liste des catégories
+
+Jusqu'ici, chaque boutique inventait ses rayons. Sur une vitrine unique
+c'était sans conséquence ; sur une **place de marché**, cela donne à
+l'acheteur autant de classements qu'il y a de commerces —
+« Ordinateurs » chez l'un ne rejoint jamais « Ordinateurs » chez
+l'autre, et aucune liste ne peut plus les réunir.
+
+La liste est désormais celle de **BIZZOO** : quinze secteurs,
+soixante-quatorze rayons, écrits par le **superadministrateur seul**.
+
+```
+Catégorie de BIZZOO            ← l'enseigne l'écrit
+   └── Rayon (sous-catégorie)  ← l'enseigne l'écrit
+          └── Produit          ← la boutique le range là
+```
+
+Une boutique **choisit son secteur** dans cette liste, et ses produits
+ne se rangent que dans les rayons de celui-là : une boutique de
+cosmétiques qui publierait sous « Pièces détachées » rendrait le
+classement inutilisable pour l'acheteur, et c'est exactement ce que la
+liste commune sert à empêcher.
+
+### Le rayon commande, la catégorie suit
+
+La boutique choisit une **sous-catégorie** ; `categorie_id` s'en déduit,
+et le déclencheur `produit_code` l'écrit. Ce que l'application envoie
+dans `categorie_id` **n'est jamais écouté** : deux colonnes qu'on
+laisserait se contredire, c'est un classement qui ment — le produit
+serait dans un rayon à l'écran et dans un autre dans les comptes.
+
+Aucune des deux n'est obligatoire en base. Un produit peut rester **à
+classer** : en vente, dans sa boutique et dans la recherche, mais sous
+aucune catégorie. C'est l'état où la reprise laisse tout le catalogue,
+et l'écran des produits le compte en haut de la liste. L'application,
+elle, **refuse d'en créer de nouveaux** sans rayon — rien ne justifie de
+publier un article que personne ne trouvera.
+
+### Changer de secteur déclasse le catalogue
+
+Les produits sont rangés dans des rayons de l'ancien secteur, que le
+nouveau n'a pas. La base **refuse l'écriture directe**, même à
+l'enseigne : ce n'est pas une question de rang mais de cohérence.
+`changer_secteur()` fait les deux gestes dans l'ordre — déclasser, puis
+changer — et rend le nombre de produits déclassés ; l'application le
+demande **avant** d'ouvrir la confirmation, pour que l'enseigne sache ce
+qu'elle s'apprête à défaire.
+
+### Ce que voit l'acheteur
+
+L'écran **Catégories** est le menu de BIZZOO : pastille ronde de la
+couleur du secteur, nom, chevron, et un champ de recherche en tête qui
+regarde **aussi les rayons** — on cherche « pneus » sans savoir que cela
+vit sous « Auto & Moto ».
+
+Ouvrir une catégorie montre ses **rayons tels que les boutiques les
+tiennent**, et rien d'autre : un rayon que personne ne tient n'y figure
+pas, parce que c'est une porte qui ne mène nulle part. Une **catégorie**
+vide, elle, reste au menu — un menu annonce aussi ce qu'on peut venir y
+chercher.
+
+Sur l'accueil, l'enseigne en met quelques-unes en avant ; les autres
+attendent derrière « Voir toutes les catégories ». Quinze lignes sur un
+premier écran, c'est n'en montrer aucune.
+
+**Un défaut que seule la capture d'écran a montré.** L'onglet
+« Catégories » restait caché tant qu'on n'était pas entré dans une
+boutique — à bon droit, du temps où il aurait mélangé les classements de
+tous les commerces. Depuis que la liste est celle de l'enseigne, c'est
+la porte d'entrée de la place de marché, et la cacher revenait à la
+retirer. Les constats du banc étaient tous verts ; la barre du bas ne
+proposait pas l'écran.
+
+En le corrigeant, deux restes du modèle d'avant sont tombés : ouvrir un
+rayon faisait **entrer dans une boutique** (une catégorie n'appartient
+plus à personne), et « Promotions » entrait d'autorité dans la
+**première** boutique — alors que la rubrique des bonnes affaires est
+celle de BIZZOO et doit les réunir toutes. Ce second retrait a découvert
+une fuite qu'il masquait : hors d'une boutique, les articles d'une
+boutique **fermée** remontaient. `Catalogue.produits()` les écarte
+maintenant, comme le faisait déjà `produitsDeLEnseigne()`.
+
+[`tests/99h-categories.sql`](supabase/tests/99h-categories.sql) force
+les portes en 38 constats, et 50 de plus au navigateur. Quatre sabotages
+les font tomber : rendre la liste à l'équipe, retirer le contrôle du
+secteur, laisser passer la catégorie soufflée par l'application,
+permettre le changement de secteur à la main.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
@@ -1277,6 +1365,7 @@ impact-informatique-app/
 │   ├── codes-promo.sql              # Une remise sort de la marge de l'enseigne, jamais de la boutique
 │   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
 │   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, aucun montant
+│   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

@@ -97,8 +97,26 @@ const VueBoutiques = (() => {
       UI.champTexte({ id: "bq-nom", label: "Nom de la boutique", obligatoire: true,
         valeur: b ? b.nomBoutique : "", placeholder: "Ex. COSMÉTIQUES ET BEAUTÉ",
         aide: "C'est ce nom que les clients voient sous l'icône." }) +
-      UI.champTexte({ id: "bq-secteur", label: "Secteur d'activité",
-        valeur: b ? b.secteur : "", placeholder: "Ex. Cosmétiques et beauté" }) +
+      /* LE SECTEUR, ET IL EST OBLIGATOIRE. C'est la catégorie de BIZZOO
+         où la boutique se range, et elle décide de ce qu'elle pourra
+         classer : ses produits ne se rangent que dans les RAYONS de ce
+         secteur. Sans lui, son catalogue reste en vente mais
+         n'apparaît sous aucune catégorie chez le client.
+
+         La liste se remplit après coup, quand les catégories sont
+         lues : un « select » vide à l'ouverture ferait croire qu'il n'y
+         a rien à choisir. */
+      '<div class="champ">' +
+        '<label for="bq-categorie">Secteur d\'activité <span class="obligatoire">*</span></label>' +
+        '<select id="bq-categorie"><option value="">Lecture des catégories…</option></select>' +
+        '<div class="aide">La catégorie de BIZZOO où se range cette boutique. ' +
+          "Ses produits se classeront dans les rayons de ce secteur, et dans " +
+          "ceux-là seulement.</div>" +
+      "</div>" +
+      UI.champTexte({ id: "bq-secteur", label: "Précision affichée sous le nom",
+        valeur: b ? b.secteur : "", placeholder: "Ex. Cosmétiques et beauté",
+        aide: "Texte libre, montré aux clients sous le nom de la boutique. " +
+          "Il ne change rien au classement." }) +
       UI.champTexte({ id: "bq-slogan", label: "Slogan", valeur: b ? b.slogan : "",
         placeholder: "Une phrase courte, affichée en bandeau" }) +
 
@@ -244,6 +262,31 @@ const VueBoutiques = (() => {
     return actif && actif.dataset.mode === "public" ? "public" : "bizzoo";
   };
 
+  /* La liste des secteurs se lit en base : on la remplit une fois la
+     feuille ouverte, plutôt que de faire attendre son affichage. */
+  async function remplirSecteurs(base, boutique) {
+    const select = UI.$("#bq-categorie", base);
+    if (!select) return;
+    let categories = [];
+    try {
+      categories = await Store.listerCategories();
+    } catch (_) {
+      select.innerHTML = '<option value="">Catégories indisponibles</option>';
+      return;
+    }
+    if (!categories.length) {
+      select.innerHTML = '<option value="">Aucune catégorie — créez-en d\'abord</option>';
+      return;
+    }
+    const actuel = (boutique && boutique.categorieId) || "";
+    select.innerHTML =
+      '<option value="">— Choisissez un secteur —</option>' +
+      categories.map((c) =>
+        '<option value="' + Utils.echapper(c.id) + '"' +
+          (c.id === actuel ? " selected" : "") + ">" +
+          Utils.echapper(c.nom) + "</option>").join("");
+  }
+
   const choisi = (base, selecteur, attribut, defaut) => {
     const actif = UI.$(selecteur + " .actif", base);
     return actif ? actif.dataset[attribut] : defaut;
@@ -276,14 +319,29 @@ const VueBoutiques = (() => {
 
     brancherChoix(corps);
     brancherLogo(corps);
+    remplirSecteurs(corps, boutique);
 
     UI.$("#bq-enregistrer", corps).onclick = async () => {
       const bouton = UI.$("#bq-enregistrer", corps);
       bouton.disabled = true;
       try {
+        const secteurVoulu = UI.$("#bq-categorie", corps).value;
+        if (!secteurVoulu) throw new Error("Choisissez le secteur d'activité de la boutique.");
+
+        /* CHANGER DE SECTEUR DÉCLASSE LE CATALOGUE : les produits sont
+           rangés dans des rayons de l'ancien, que le nouveau n'a pas.
+           La base refuse d'ailleurs l'écriture directe. On enregistre
+           donc TOUT LE RESTE D'ABORD — avec l'ancien secteur, qui ne
+           lève pas — puis on demande, en disant combien de produits
+           perdront leur rayon. Faire l'inverse perdrait le nom, le
+           slogan et l'icône si la question recevait « non ». */
+        const changement = !!(boutique && boutique.categorieId
+                              && secteurVoulu !== boutique.categorieId);
+
         const enregistree = await Store.sauverBoutique({
           id: boutique ? boutique.id : null,
           nomBoutique: UI.$("#bq-nom", corps).value,
+          categorieId: changement ? boutique.categorieId : secteurVoulu,
           secteur: UI.$("#bq-secteur", corps).value.trim(),
           slogan: UI.$("#bq-slogan", corps).value.trim(),
           icone: choisi(corps, "#bq-icones", "icone", "magasin"),
@@ -294,8 +352,36 @@ const VueBoutiques = (() => {
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
         });
+        UI.feuilleSansRappel();
         UI.fermerFeuille();
-        UI.toast(boutique ? "Boutique enregistrée" : "Boutique créée : " + enregistree.nomBoutique, "ok");
+
+        if (changement) {
+          const combien = await Store.produitsClasses(boutique.id);
+          const ok = await UI.confirmer({
+            titre: "Changer le secteur ?",
+            texte: combien
+              ? combien + " produit" + (combien > 1 ? "s" : "") + " de cette boutique " +
+                (combien > 1 ? "sont rangés" : "est rangé") + " dans les rayons du secteur " +
+                "actuel. Le nouveau n'a pas les mêmes : " +
+                (combien > 1 ? "ils repasseront" : "il repassera") + " « à classer » — " +
+                "en vente, mais sous aucune catégorie — jusqu'à ce que la boutique " +
+                (combien > 1 ? "les reclasse" : "le reclasse") + "."
+              : "Aucun produit n'est encore classé : rien ne sera perdu.",
+            bouton: "Changer le secteur",
+            danger: combien > 0,
+          });
+          if (ok) {
+            await Store.changerSecteur(boutique.id, secteurVoulu);
+            UI.toast(combien
+              ? "Secteur changé — " + combien + " produit" + (combien > 1 ? "s" : "") + " à reclasser"
+              : "Secteur changé", "ok");
+          } else {
+            UI.toast("Le reste est enregistré ; le secteur n'a pas changé.");
+          }
+        } else {
+          UI.toast(boutique ? "Boutique enregistrée"
+                            : "Boutique créée : " + enregistree.nomBoutique, "ok");
+        }
         apres();
       } catch (err) {
         UI.toast(err.message, "err");

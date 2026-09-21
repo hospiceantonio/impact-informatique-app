@@ -39,11 +39,11 @@ select essai.titre('Le décor : une commande qui traverse deux boutiques');
 -- Un article de chaque côté. Les chiffres sont choisis pour qu'aucune
 -- somme ne puisse se confondre avec une autre.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_stat_a', 'bou_informatique', 'Article de la maison', 12000,
-        'cat_accessoires', 50, true),
+        'sc_hightech_accessoires', 50, true),
        ('prod_stat_b', 'bou_essai_voisine', 'Article du voisin', 5000,
-        'cat_essai_voisine', 50, true)
+        'sc_hightech_accessoires', 50, true)
 on conflict (id) do update
    set prix = excluded.prix, stock = 50, disponible = true;
 

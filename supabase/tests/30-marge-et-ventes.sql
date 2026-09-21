@@ -35,9 +35,9 @@ select essai.egal((select taux_marge from public.boutiques where id = 'bou_infor
 
 -- Un produit : la boutique veut toucher 8 000, l'enseigne vend 10 000.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_marge', 'bou_informatique', 'Article à marge', 10000,
-        'cat_accessoires', 10, true)
+        'sc_hightech_accessoires', 10, true)
 on conflict (id) do update set prix = 10000;
 insert into public.produits_prive (produit_id, prix_grossiste)
 values ('prod_marge', 8000)
@@ -120,11 +120,11 @@ select essai.egal((select prix from public.produits where id = 'prod_marge')::in
 
 -- Deux articles pour éprouver ce que le recalcul ne doit PAS toucher.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_taux_propre', 'bou_informatique', 'Article à taux propre', 9999,
-        'cat_accessoires', 5, true),
+        'sc_hightech_accessoires', 5, true),
        ('prod_sans_achat', 'bou_informatique', 'Article sans prix BIZZOO', 7000,
-        'cat_accessoires', 5, true)
+        'sc_hightech_accessoires', 5, true)
 on conflict (id) do update set prix = excluded.prix, stock = 5, disponible = true;
 insert into public.produits_prive (produit_id, prix_grossiste, taux_marge)
 values ('prod_taux_propre', 5000, 10)

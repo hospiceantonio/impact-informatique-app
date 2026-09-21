@@ -42,9 +42,9 @@ select essai.titre('Le décor : un article dont on connaît toute la marge');
 -- Prix public 10 000, prix BIZZOO 6 000 : l'enseigne garde 4 000 par
 -- unité. Chaque chiffre de ce fichier se relit de tête.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_promo', 'bou_informatique', 'Clavier mécanique', 10000,
-        'cat_accessoires', 99, true)
+        'sc_hightech_accessoires', 99, true)
 on conflict (id) do update
    set prix = 10000, stock = 99, disponible = true;
 insert into public.produits_prive (produit_id, prix_grossiste)

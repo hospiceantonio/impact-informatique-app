@@ -36,9 +36,9 @@ select essai.titre('Le décor : une commande d''Awa, à marge connue');
 
 -- Awa a son compte et son numéro vérifié depuis le banc 60.
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_histo', 'bou_informatique', 'Article d''historique', 12000,
-        'cat_accessoires', 10, true)
+        'sc_hightech_accessoires', 10, true)
 on conflict (id) do update set prix = 12000, stock = 10;
 insert into public.produits_prive (produit_id, prix_grossiste)
 values ('prod_histo', 9000)

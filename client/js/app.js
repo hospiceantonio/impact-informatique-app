@@ -173,38 +173,36 @@ const App = { evenementInstallation: null };
       const p = Catalogue.produit(produit[1]);
       if (p && p.boutiqueId) Catalogue.choisirBoutique(p.boutiqueId);
     }
-    const rayon = /^\/categorie\/([^/]+)$/.exec(chemin);
-    if (rayon) {
-      const c = Catalogue.categorie(rayon[1]);
-      if (c && c.boutiqueId) Catalogue.choisirBoutique(c.boutiqueId);
-    }
+    /* UNE CATÉGORIE N'APPARTIENT PLUS À UNE BOUTIQUE : c'est la liste
+       de l'enseigne, et « Mode & Vêtements » traverse tous les
+       commerces qui s'y rangent. Entrer dans l'une d'elles en ouvrant
+       un rayon cacherait les autres — c'est l'inverse de ce que cet
+       écran sert à montrer.
 
-    /* Les promotions parlent forcément d'une boutique : à défaut de
-       choix, ce sera la première. Les autres onglets, non — Infos
-       montre l'enseigne, et Catégories, Produits et Recherche
-       traversent toutes les boutiques ; entrer d'autorité dans la
-       première reviendrait à cacher les autres. */
-    if (/^\/promos$/.test(chemin) && !Catalogue.boutiqueChoisie()) {
-      const premiere = Catalogue.boutiques()[0];
-      if (premiere) Catalogue.choisirBoutique(premiere.id);
-    }
+       Les PROMOTIONS non plus n'entrent plus d'autorité dans la
+       première boutique : la rubrique des bonnes affaires est celle de
+       BIZZOO, elle doit les réunir toutes. Dans une boutique, elle
+       reste la sienne. */
   }
 
   /* ---------- Les onglets d'un catalogue ----------
-     Catégories et Produits parlent d'un catalogue : ils n'ont rien à
-     dire tant que le client n'est entré nulle part. Sur l'accueil
-     BIZZOO il choisit d'abord chez qui il va — les icônes des
-     boutiques et la liste des rayons sont là pour ça — et les deux
-     onglets apparaissent une fois qu'il est dedans.
+     « CATÉGORIES » EST LE MENU DE BIZZOO, et il l'est partout.
+     Tant que chaque boutique inventait ses rayons, cet onglet n'avait
+     rien à dire avant d'être entré quelque part : il aurait mélangé
+     les classements de tous les commerces. La liste est maintenant
+     celle de l'enseigne, la même pour tout le monde — c'est même par
+     là qu'on choisit où aller. Le cacher sur l'accueil reviendrait à
+     retirer la porte d'entrée.
 
-     En boutique unique il n'y a pas d'accueil d'enseigne : les deux
-     onglets sont alors toujours là.
+     « Produits » reste un onglet de boutique : hors de l'une d'elles,
+     il déroulerait tout le catalogue de la place de marché, sans ordre
+     ni raison. On y arrive par une catégorie ou par la recherche.
 
      Un onglet reste visible quand c'est l'écran affiché, même hors
      d'une boutique : une barre qui ne montre pas où l'on se trouve
      désoriente plus qu'elle n'allège. */
 
-  const ONGLETS_DE_BOUTIQUE = ["/categories", "/produits"];
+  const ONGLETS_DE_BOUTIQUE = ["/produits"];
 
   /* Est-on CHEZ quelqu'un ? En boutique unique, toujours : il n'y a pas
      d'accueil d'enseigne où se tenir. */

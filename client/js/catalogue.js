@@ -220,6 +220,10 @@ const Catalogue = (() => {
           id: b2.id,
           nom: b2.nom || "",
           secteur: b2.secteur || "",
+          /* Le secteur STRUCTUREL : la catégorie de BIZZOO où se range
+             la boutique. « secteur » juste au-dessus n'est que le texte
+             affiché sous son nom. */
+          categorieId: b2.categorie_id || "",
           slogan: b2.slogan || "",
           description: b2.description || "",
           icone: b2.icone || "magasin",
@@ -249,6 +253,12 @@ const Catalogue = (() => {
           id: cat.id,
           boutiqueId: cat.boutique_id || "",
           nom: cat.nom,
+          /* La pastille ronde de l'écran « Catégories ». Une base pas
+             encore mise à jour n'a pas ces colonnes : la catégorie
+             garde alors l'icône passe-partout plutôt qu'un rond vide. */
+          icone: cat.icone || "categories",
+          couleur: cat.couleur || "#0B5CF5",
+          enAvant: cat.en_avant === true,
           ordre: cat.ordre || 0,
           sousCategories: (cat.sous_categories || [])
             .map((s) => ({ id: s.id, nom: s.nom, ordre: s.ordre || 0 }))
@@ -549,7 +559,17 @@ const Catalogue = (() => {
   });
 
   function produits() {
-    return ((donnees && donnees.produits) || []).filter(dansLaBoutique).map(normaliser);
+    /* UNE BOUTIQUE FERMÉE DISPARAÎT DU CLIENT, ses articles avec. Ce
+       filtre-là manquait : tant que « Promotions » entrait d'autorité
+       dans la première boutique, la question ne se posait pas. Elle
+       réunit maintenant toutes les boutiques, et une fermée n'a rien à
+       y faire. */
+    const ouvertes = {};
+    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    return ((donnees && donnees.produits) || [])
+      .filter(dansLaBoutique)
+      .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
+      .map(normaliser);
   }
 
   /* Comme pour les rayons : un lien direct doit ouvrir la fiche même
@@ -599,13 +619,6 @@ const Catalogue = (() => {
       .sort(parPrixCroissant);
   }
 
-  function nombreParCategorie() {
-    const table = {};
-    for (const p of produits()) {
-      table[p.categorieId] = (table[p.categorieId] || 0) + 1;
-    }
-    return table;
-  }
 
   /**
    * Tout ce que l'enseigne vend, boutiques ouvertes confondues : c'est
@@ -622,46 +635,78 @@ const Catalogue = (() => {
   }
 
   /**
-   * Tous les rayons de l'enseigne, boutiques ouvertes confondues, par
-   * ordre alphabétique. C'est la liste que l'accueil déroule sous les
-   * ventes flash : on cherche souvent un rayon — « encre », « écrans » —
-   * avant de savoir quelle boutique le tient.
+   * LA LISTE DE BIZZOO, dans l'ordre que l'enseigne lui a donné.
    *
-   * Chaque entrée porte sa boutique et son nombre de produits. Les
-   * rayons vides restent de la liste : le gérant les a créés, ils
-   * annoncent ce qui vient, et leur écran dit lui-même qu'il se
-   * remplira.
+   * Ce n'est plus une collection de rayons de boutiques : c'est un
+   * MENU, le même pour tout le monde, et c'est ce qui permet à
+   * l'acheteur de s'y retrouver d'un commerce à l'autre. Les
+   * catégories vides restent dedans — le menu d'une place de marché
+   * annonce ce qu'on peut y chercher, pas seulement ce qui s'y trouve
+   * aujourd'hui, et leur écran dit lui-même qu'il se remplira.
    */
-  function rayonsDeLEnseigne() {
-    const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
-    const ouverte = (x) => !multiBoutiques() || !x.boutiqueId || ouvertes[x.boutiqueId];
-
+  function categoriesBizzoo() {
     const comptes = {};
-    for (const p of tousProduits()) {
-      if (ouverte(p)) comptes[p.categorieId] = (comptes[p.categorieId] || 0) + 1;
+    for (const p of produitsDeLEnseigne()) {
+      if (p.categorieId) comptes[p.categorieId] = (comptes[p.categorieId] || 0) + 1;
     }
-
     return toutesCategories()
-      .filter(ouverte)
-      .map((c) => ({
-        categorie: c,
-        boutique: boutiques().find((b) => b.id === c.boutiqueId) || null,
-        compte: comptes[c.id] || 0,
-      }))
-      /* Accents ignorés pour le classement : « Écrans » se range entre
-         « Disques » et « Encre », et non tout à la fin. À noms égaux,
-         c'est la boutique qui départage. */
-      .sort((a, b) => {
-        const parNom = Utils.sansAccent(a.categorie.nom)
-          .localeCompare(Utils.sansAccent(b.categorie.nom), "fr");
-        if (parNom) return parNom;
-        return Utils.sansAccent((a.boutique && a.boutique.nom) || "")
-          .localeCompare(Utils.sansAccent((b.boutique && b.boutique.nom) || ""), "fr");
-      });
+      .slice()
+      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0))
+      .map((c) => ({ categorie: c, compte: comptes[c.id] || 0 }));
   }
 
-  /* ---------- Slider ---------- */
+  /** Celles que l'enseigne montre sur l'accueil : les autres attendent. */
+  const categoriesEnAvant = () =>
+    categoriesBizzoo().filter((r) => r.categorie.enAvant);
+
+  /**
+   * Les rayons d'une catégorie TELS QUE LES BOUTIQUES LES TIENNENT.
+   *
+   * C'est le second étage de l'écran « Catégories » : on ouvre
+   * « Mode & Vêtements » et on voit ce que les boutiques de ce secteur
+   * proposent vraiment. Un rayon vide n'y figure pas — sur une place de
+   * marché, c'est une porte qui ne mène nulle part.
+   */
+  function rayonsDeLaCategorie(categorieId) {
+    const comptes = {};
+    for (const p of produitsDeLEnseigne()) {
+      if (p.categorieId === categorieId && p.sousCategorieId) {
+        comptes[p.sousCategorieId] = (comptes[p.sousCategorieId] || 0) + 1;
+      }
+    }
+    return sousCategories(categorieId)
+      .filter((s) => comptes[s.id])
+      .map((s) => ({ sousCategorie: s, compte: comptes[s.id] }));
+  }
+
+  /**
+   * Les rayons de la boutique visitée : ses sous-catégories tenues.
+   *
+   * « Les catégories d'une boutique » n'existent plus en tant que
+   * telles ; ce sont les rayons du secteur de BIZZOO où elle se range,
+   * et seulement ceux où elle a quelque chose.
+   */
+  function rayonsDeLaBoutique() {
+    /* Sans liste de boutiques — le catalogue de démonstration, ou une
+       base d'avant — « boutiqueChoisie() » ne rend rien. On part donc
+       des PRODUITS EN VUE, qui sont déjà filtrés à la boutique
+       visitée : le résultat est le même, et il tient dans les deux cas. */
+    const b = boutiqueChoisie();
+    const enVue = b ? produitsDeLEnseigne(b.id) : produits();
+    const comptes = {};
+    for (const p of enVue) {
+      if (p.sousCategorieId) comptes[p.sousCategorieId] = (comptes[p.sousCategorieId] || 0) + 1;
+    }
+    const sortie = [];
+    for (const c of toutesCategories()) {
+      for (const s of sousCategories(c.id)) {
+        if (comptes[s.id]) {
+          sortie.push({ sousCategorie: s, compte: comptes[s.id], categorieId: c.id });
+        }
+      }
+    }
+    return sortie;
+  }
 
   /** Un écran de slider montre quelque chose et n'est pas masqué. */
   const ecranVisible = (s) => s.actif !== false && (s.image || s.video);
@@ -887,8 +932,9 @@ const Catalogue = (() => {
     boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,
     quitterBoutique, nombreParBoutique,
     categories, categorie, sousCategories, sousCategorie,
-    produits, produit, produitsDeCategorie, nombreParCategorie,
-    rayonsDeLEnseigne, produitsDeLEnseigne,
+    produits, produit, produitsDeCategorie,
+    categoriesBizzoo, categoriesEnAvant, rayonsDeLaCategorie,
+    rayonsDeLaBoutique, produitsDeLEnseigne,
     slides, slidesGeneral, publicites, misEnAvant,
     enVenteFlash, ventesFlash,
     nouveautes, promotions, rechercher, similaires,

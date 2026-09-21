@@ -366,6 +366,11 @@ video.slide-img{background:#000}
   background:linear-gradient(135deg,var(--bleu-50),var(--bleu-100));
   color:var(--bleu-700);
 }
+/* La pastille de l'écran « Catégories » : RONDE, et de la couleur que
+   l'enseigne a donnée au secteur. Le carré arrondi bleu ci-dessus sert
+   ailleurs, sur les vignettes de l'accueil. */
+.cat-rond-couleur{border-radius:50%;background:var(--bleu-700);color:#fff}
+.cat-rond-couleur .ic{width:22px;height:22px;stroke-width:1.9}
 .cat-nom{font-size:12px;font-weight:700;line-height:1.25;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .cat-compte{font-size:10.5px;color:var(--encre-tres-douce);font-weight:600}

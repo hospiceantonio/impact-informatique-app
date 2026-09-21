@@ -32,9 +32,9 @@ set client_min_messages = notice;
 select essai.titre('Le décor : une commande payée, une qui ne l''est pas');
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_sav', 'bou_informatique', 'Article à réclamer', 15000,
-        'cat_accessoires', 50, true)
+        'sc_hightech_accessoires', 50, true)
 on conflict (id) do update set prix = 15000, stock = 50;
 
 select essai.devenir(:AWA::uuid);

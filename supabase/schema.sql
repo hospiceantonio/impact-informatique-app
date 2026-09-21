@@ -155,15 +155,41 @@ select 'bou_informatique', 'INFORMATIQUE ET ELECTRONIQUE', 'Informatique et éle
 where not exists (select 1 from public.boutiques);
 
 -- ---------- Catégories et sous-catégories ----------
--- Les rayons appartiennent à une boutique : « Ordinateurs portables »
--- n'a rien à faire dans une boutique de cosmétiques.
+-- LA LISTE EST CELLE DE BIZZOO, PLUS CELLE D'UNE BOUTIQUE. Sur une
+-- place de marché, laisser chaque commerce inventer ses rayons donne à
+-- l'acheteur autant de classements qu'il y a de boutiques :
+-- « Ordinateurs » chez l'un ne rejoint jamais « Ordinateurs » chez
+-- l'autre, et aucune liste ne peut plus les réunir. L'enseigne pose
+-- donc la liste, une fois, pour tout le monde.
+--
+-- Une boutique choisit SON SECTEUR parmi ces catégories, et ses
+-- produits se rangent dans les SOUS-CATÉGORIES de ce secteur. Les
+-- rayons d'une boutique ne sont plus des rayons à elle : ce sont les
+-- sous-catégories de BIZZOO qu'elle tient effectivement.
+--
+-- « boutique_id » reste là, mais ne sert plus : elle vaut null sur
+-- toute catégorie de l'enseigne. La colonne n'est pas retirée parce que
+-- les fichiers déjà envoyés au gérant la nomment — la retirer les ferait
+-- échouer en bloc chez lui.
 create table if not exists public.categories (
   id          text primary key,
   boutique_id text references public.boutiques(id) on delete cascade,
   nom         text not null,
+  -- La pastille ronde de l'écran « Catégories », comme celle d'une
+  -- boutique : une icône DÉJÀ DESSINÉE dans les deux applications, et
+  -- une couleur de fond. Rien à téléverser, rien à stocker, et la liste
+  -- s'affiche hors connexion.
+  icone       text not null default 'categories',
+  couleur     text not null default '#0B5CF5',
+  -- Les quinze ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
+  -- les autres attendent derrière « Voir toutes les catégories ».
+  en_avant    boolean not null default false,
   ordre       int  not null default 0,
   cree_le     timestamptz not null default now()
 );
+alter table public.categories add column if not exists icone    text not null default 'categories';
+alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
+alter table public.categories add column if not exists en_avant boolean not null default false;
 
 create table if not exists public.sous_categories (
   id           text primary key,
@@ -173,6 +199,26 @@ create table if not exists public.sous_categories (
 );
 create index if not exists sous_categories_categorie
   on public.sous_categories(categorie_id);
+create index if not exists categories_en_avant
+  on public.categories(en_avant) where en_avant;
+
+-- ---------- Le secteur d'une boutique ----------
+-- Une boutique appartient à UNE catégorie de BIZZOO, et ses produits ne
+-- se rangent que dans les sous-catégories de celle-là. Une boutique de
+-- cosmétiques qui publierait sous « Pièces détachées » rendrait la
+-- liste inutilisable pour l'acheteur — c'est exactement ce que la liste
+-- de l'enseigne sert à empêcher.
+--
+-- La contrainte s'ajoute ici et non dans le « create table » : la table
+-- des boutiques naît avant celle des catégories, et une clé étrangère
+-- ne peut pas désigner ce qui n'existe pas encore.
+--
+-- « on delete set null » plutôt que « cascade » : supprimer une
+-- catégorie ne doit pas emporter les boutiques qui la tenaient. Elles
+-- se retrouvent sans secteur, et l'enseigne leur en redonne un.
+alter table public.boutiques
+  add column if not exists categorie_id text references public.categories(id) on delete set null;
+create index if not exists boutiques_categorie on public.boutiques(categorie_id);
 
 -- ---------- Produits ----------
 create table if not exists public.produits (
@@ -183,7 +229,16 @@ create table if not exists public.produits (
   description       text not null default '',
   prix              bigint not null check (prix >= 0),
   ancien_prix       bigint,
-  categorie_id      text not null references public.categories(id),
+  -- LA SOUS-CATÉGORIE EST CE QUE LA BOUTIQUE CHOISIT ; la catégorie s'en
+  -- déduit, et le déclencheur « produit_rayon » l'écrit. Deux colonnes
+  -- pour un seul classement, oui — mais la catégorie sert à des
+  -- centaines de lectures (un rayon, un compte, une liste) et la
+  -- recalculer à chaque fois coûterait une jointure de plus partout.
+  --
+  -- Aucune des deux n'est obligatoire : un produit peut attendre d'être
+  -- classé. Il reste alors dans sa boutique et dans la recherche, mais
+  -- n'apparaît sous aucun rayon de BIZZOO.
+  categorie_id      text references public.categories(id),
   sous_categorie_id text references public.sous_categories(id),
   stock             int not null default 0 check (stock >= 0),
   sur_commande      boolean not null default false, -- vendu sans stock : « Sur commande »
@@ -200,6 +255,10 @@ create table if not exists public.produits (
   modifie_le        timestamptz not null default now()
 );
 -- Ajout des colonnes sur les bases déjà créées (sans risque).
+-- Sur une base en service, la colonne existe et porte encore son
+-- « not null » : il faut le retirer explicitement, sinon un produit
+-- laissé à classer serait refusé et toute la reprise s'arrêterait là.
+alter table public.produits alter column categorie_id drop not null;
 alter table public.categories add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
 alter table public.produits   add column if not exists boutique_id text references public.boutiques(id) on delete cascade;
 alter table public.produits add column if not exists reference text not null default '';
@@ -261,7 +320,40 @@ create unique index if not exists produits_code_unique
 
 create or replace function public.produit_code() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare rayon text; secteur text;
 begin
+  /* ---------- LE RAYON ----------
+     La boutique choisit une SOUS-CATÉGORIE ; la catégorie s'en déduit.
+     Ce que l'application envoie dans « categorie_id » n'est jamais
+     écouté : deux colonnes qu'on laisserait se contredire, c'est un
+     classement qui ment — le produit serait dans un rayon à l'écran et
+     dans un autre dans les comptes. */
+  if coalesce(new.sous_categorie_id, '') = '' then
+    -- À CLASSER. Le produit reste en vente, dans sa boutique et dans la
+    -- recherche ; il n'apparaît sous aucun rayon de BIZZOO.
+    new.sous_categorie_id := null;
+    new.categorie_id := null;
+  else
+    select sc.categorie_id into rayon
+      from public.sous_categories sc where sc.id = new.sous_categorie_id;
+    if rayon is null then
+      raise exception 'Cette sous-catégorie n''existe pas';
+    end if;
+    /* ET ELLE DOIT ÊTRE DU SECTEUR DE LA BOUTIQUE. C'est tout l'objet
+       de la liste de l'enseigne : une boutique de cosmétiques qui
+       publierait sous « Pièces détachées » rendrait le classement
+       inutilisable pour l'acheteur. */
+    select b.categorie_id into secteur
+      from public.boutiques b where b.id = new.boutique_id;
+    if secteur is null then
+      raise exception 'Cette boutique n''a pas encore de secteur : l''enseigne doit lui en donner un';
+    end if;
+    if rayon <> secteur then
+      raise exception 'Un produit se range dans une sous-catégorie du secteur de sa boutique';
+    end if;
+    new.categorie_id := rayon;
+  end if;
+
   if tg_op = 'INSERT' then
     -- Ce que l'application envoie dans « code » n'est jamais écouté :
     -- la base le donne elle-même.
@@ -361,7 +453,11 @@ declare premiere text;
 begin
   select id into premiere from public.boutiques order by ordre, cree_le limit 1;
   if premiere is null then return; end if;
-  update public.categories set boutique_id = premiere where boutique_id is null;
+  -- LES CATÉGORIES NE SONT PLUS DE CE VOYAGE, et c'est un piège qu'il
+  -- faut nommer : elles appartiennent désormais à l'enseigne, donc leur
+  -- « boutique_id » vaut null POUR TOUJOURS. Cette ligne les rattachait
+  -- toutes à la première boutique — à chaque relecture du fichier, et
+  -- sans un mot. Le rattrapage ne concerne plus que les produits.
   update public.produits   set boutique_id = premiere where boutique_id is null;
   -- Ni le slider de l'enseigne ni sa publicité n'appartiennent à une
   -- boutique : ils resteraient rangés là où ils n'ont rien à faire.
@@ -1546,6 +1642,29 @@ begin
     end if;
   end if;
 
+  -- LE SECTEUR, ET LES DEUX RAISONS DE LE REFUSER. Ceci passe AVANT la
+  -- sortie du superadministrateur, parce que la seconde raison n'est pas
+  -- une question de rang mais de cohérence.
+  --
+  --   1. Il n'est pas à la boutique : il dit où elle se range dans
+  --      BIZZOO, et c'est une décision de l'enseigne.
+  --   2. En CHANGER déclasse tout le catalogue — les produits sont
+  --      rangés dans des sous-catégories de l'ancien secteur, que le
+  --      nouveau n'a pas. « changer_secteur() » fait les deux gestes
+  --      dans l'ordre, déclasser puis changer, et pose ce drapeau.
+  --
+  -- Lui en donner un pour la PREMIÈRE fois ne déclasse rien : sans
+  -- secteur, aucun produit n'a pu être classé.
+  if coalesce(current_setting('bizzoo.secteur', true), '') <> 'oui'
+     and new.categorie_id is distinct from old.categorie_id then
+    if old.categorie_id is not null then
+      raise exception 'Changer le secteur déclasse les produits : passez par le bouton prévu';
+    end if;
+    if not public.est_super() then
+      raise exception 'Le secteur d''une boutique est fixé par l''enseigne';
+    end if;
+  end if;
+
   -- L'enseigne fait ce qu'elle veut : c'est elle qui approuve.
   if public.est_super() then return new; end if;
 
@@ -1593,6 +1712,66 @@ drop trigger if exists boutiques_verrous on public.boutiques;
 create trigger boutiques_verrous
   before update on public.boutiques
   for each row execute function public.boutique_verrous();
+
+-- ---------- Changer le secteur d'une boutique ----------
+-- Le verrou refuse ce changement, et il a raison : les produits sont
+-- rangés dans des sous-catégories de l'ANCIEN secteur, qui n'existent
+-- pas dans le nouveau. Cette fonction-ci fait les deux gestes dans le
+-- bon ordre et le dit : elle déclasse d'abord, elle change ensuite.
+--
+-- Elle rend le nombre de produits déclassés, pour que l'application
+-- puisse le montrer AVANT de l'appeler et après. Ce n'est pas une
+-- politesse : c'est la seule façon pour l'enseigne de savoir ce qu'elle
+-- s'apprête à défaire.
+-- Le paramètre s'appelait « secteur », comme la colonne du même nom sur
+-- « boutiques » : plpgsql répondait « column reference "secteur" is
+-- ambiguous » et la fonction s'arrêtait là. Un paramètre ne se renomme
+-- pas par « create or replace » — il faut retirer l'ancienne signature.
+drop function if exists public.changer_secteur(text, text);
+create or replace function public.changer_secteur(boutique text, vers text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int;
+begin
+  if not public.est_super() then
+    raise exception 'Le secteur d''une boutique est fixé par l''enseigne';
+  end if;
+  if coalesce(boutique, '') = ''
+     or not exists (select 1 from public.boutiques b where b.id = boutique) then
+    raise exception 'Cette boutique n''existe pas';
+  end if;
+  -- Un secteur vide retire la boutique de la liste : elle n'apparaît
+  -- plus sous aucune catégorie, et ne peut plus classer ses produits.
+  if coalesce(vers, '') <> ''
+     and not exists (select 1 from public.categories c where c.id = vers) then
+    raise exception 'Cette catégorie n''existe pas';
+  end if;
+
+  update public.produits
+     set sous_categorie_id = null, categorie_id = null, modifie_le = now()
+   where boutique_id = boutique and sous_categorie_id is not null;
+  get diagnostics combien = row_count;
+
+  perform set_config('bizzoo.secteur', 'oui', true);
+  update public.boutiques
+     set categorie_id = nullif(coalesce(vers, ''), ''), maj_le = now()
+   where id = boutique;
+  perform set_config('bizzoo.secteur', '', true);
+  return combien;
+end $$;
+revoke all on function public.changer_secteur(text, text) from public, anon, authenticated;
+grant execute on function public.changer_secteur(text, text) to authenticated;
+
+-- Combien de produits perdrait-on à changer de secteur ? L'application
+-- le demande AVANT d'ouvrir la confirmation.
+create or replace function public.produits_classes(boutique text) returns int
+language sql stable security definer set search_path = public as $$
+  select count(*)::int from public.produits p
+   where public.est_equipe() and p.boutique_id = boutique
+     and p.sous_categorie_id is not null;
+$$;
+revoke all on function public.produits_classes(text) from public, anon, authenticated;
+grant execute on function public.produits_classes(text) to authenticated;
 
 -- ---------- La marge change, les prix suivent ----------
 -- Le modèle est « prix de vente = prix BIZZOO + marge ». Mais le prix de
@@ -1699,25 +1878,26 @@ create policy "lecture publique"   on public.boutique        for select using (t
 create policy "ecriture connectee" on public.boutique
   for all to authenticated using (public.est_super()) with check (public.est_super());
 
--- Les rayons appartiennent à une boutique : le modérateur ne touche
--- qu'à ceux de la sienne, l'administrateur à tous.
+-- LA LISTE EST CELLE DE BIZZOO : l'enseigne seule l'écrit. Une boutique
+-- qui pouvait encore créer un rayon créait un classement rien qu'à
+-- elle, et la liste commune cessait d'en être une. Elle reste lue par
+-- tout le monde, sans compte : c'est le menu de la vitrine.
 drop policy if exists "lecture publique"  on public.categories;
 drop policy if exists "ecriture connectee" on public.categories;
-create policy "lecture publique"   on public.categories      for select using (true);
-create policy "ecriture connectee" on public.categories
+drop policy if exists "ecriture enseigne" on public.categories;
+create policy "lecture publique"  on public.categories for select using (true);
+create policy "ecriture enseigne" on public.categories
   for all to authenticated
-  using (public.peut_agir_sur(boutique_id)) with check (public.peut_agir_sur(boutique_id));
+  using (public.est_super()) with check (public.est_super());
 
--- Une sous-catégorie suit le sort de son rayon.
+-- Une sous-catégorie suit le sort de son rayon, donc la même règle.
 drop policy if exists "lecture publique"  on public.sous_categories;
 drop policy if exists "ecriture connectee" on public.sous_categories;
-create policy "lecture publique"   on public.sous_categories for select using (true);
-create policy "ecriture connectee" on public.sous_categories
+drop policy if exists "ecriture enseigne" on public.sous_categories;
+create policy "lecture publique"  on public.sous_categories for select using (true);
+create policy "ecriture enseigne" on public.sous_categories
   for all to authenticated
-  using (public.peut_agir_sur(
-    (select c.boutique_id from public.categories c where c.id = categorie_id)))
-  with check (public.peut_agir_sur(
-    (select c.boutique_id from public.categories c where c.id = categorie_id)));
+  using (public.est_super()) with check (public.est_super());
 
 -- Les produits se découpent en trois droits : ajouter, modifier, supprimer.
 -- Toute l'équipe ajoute — dans sa boutique ; retoucher ou retirer un
@@ -4736,36 +4916,161 @@ revoke all on function public.trancher_reclamation(text, text)
   from public, anon, authenticated;
 grant execute on function public.trancher_reclamation(text, text) to authenticated;
 
--- ---------- Rayons de départ d'une boutique informatique ----------
-insert into public.categories (id, boutique_id, nom, ordre) values
-  ('cat_ordinateurs',  'bou_informatique', 'Ordinateurs',            1),
-  ('cat_imprimantes',  'bou_informatique', 'Imprimantes & scanners', 2),
-  ('cat_consommables', 'bou_informatique', 'Consommables',           3),
-  ('cat_accessoires',  'bou_informatique', 'Accessoires',            4),
-  ('cat_stockage',     'bou_informatique', 'Stockage',               5),
-  ('cat_reseau',       'bou_informatique', 'Réseau & énergie',       6)
+-- ---------- La liste de BIZZOO ----------
+-- Quinze secteurs, soixante-quatorze rayons. Ils arrivent une fois ;
+-- ensuite c'est le superadministrateur qui les tient depuis
+-- l'application — renommer, réordonner, ajouter, retirer.
+--
+-- « on conflict do nothing » : une liste déjà retouchée par l'enseigne
+-- ne doit pas être remise à l'état d'usine à chaque relecture du
+-- fichier. Ce qui est posé reste posé.
+--
+-- « en_avant » désigne les huit de l'accueil. Les quinze ne tiennent
+-- pas sur un premier écran, et les montrer toutes reviendrait à n'en
+-- montrer aucune.
+insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre) values
+  ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1),
+  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2),
+  ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3),
+  ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4),
+  ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5),
+  ('cat_restauration', null, 'Restauration & Alimentation',        'couverts', '#F96302', true,   6),
+  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'chariot',  '#E62329', true,   7),
+  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'ecran', '#0B7C8C', false, 8),
+  ('cat_bebe',         null, 'Bébé & Enfant',                      'cadeau',   '#3F51B5', false,  9),
+  ('cat_sport',        null, 'Sport & Loisirs',                    'ballon',   '#9A6B00', false, 10),
+  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'outils',   '#546E7A', false, 11),
+  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livre',    '#7A4A32', false, 12),
+  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'diamant',  '#6C3FBF', false, 13),
+  ('cat_animaux',      null, 'Animaux',                            'patte',    '#0F9D58', false, 14),
+  ('cat_services',     null, 'Services',                           'sacoche',  '#0B7C8C', true,  15)
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values
-  ('sc_portables',      'cat_ordinateurs',  'Ordinateurs portables',   1),
-  ('sc_bureau',         'cat_ordinateurs',  'Ordinateurs de bureau',   2),
-  ('sc_toutenun',       'cat_ordinateurs',  'Tout-en-un',              3),
-  ('sc_jetencre',       'cat_imprimantes',  'Jet d''encre',            1),
-  ('sc_laser',          'cat_imprimantes',  'Laser',                   2),
-  ('sc_multifonctions', 'cat_imprimantes',  'Multifonctions',          3),
-  ('sc_encres',         'cat_consommables', 'Encres & cartouches',     1),
-  ('sc_toners',         'cat_consommables', 'Toners',                  2),
-  ('sc_papier',         'cat_consommables', 'Papier & rames',          3),
-  ('sc_claviers_souris','cat_accessoires',  'Claviers & souris',       1),
-  ('sc_sacoches',       'cat_accessoires',  'Sacoches & sacs à dos',   2),
-  ('sc_casques',        'cat_accessoires',  'Casques & audio',         3),
-  ('sc_cles_usb',       'cat_stockage',     'Clés USB',                1),
-  ('sc_disques',        'cat_stockage',     'Disques durs & SSD',      2),
-  ('sc_cartes',         'cat_stockage',     'Cartes mémoire',          3),
-  ('sc_wifi',           'cat_reseau',       'Routeurs & wifi',         1),
-  ('sc_cables',         'cat_reseau',       'Câbles & adaptateurs',    2),
-  ('sc_onduleurs',      'cat_reseau',       'Onduleurs',               3)
+  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
+  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
+  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
+  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
+  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
+
+  ('sc_hightech_smartphones',  'cat_hightech', 'Smartphones',       1),
+  ('sc_hightech_ordinateurs',  'cat_hightech', 'Ordinateurs',       2),
+  ('sc_hightech_tablettes',    'cat_hightech', 'Tablettes',         3),
+  ('sc_hightech_accessoires',  'cat_hightech', 'Accessoires',       4),
+  ('sc_hightech_tv',           'cat_hightech', 'TV & audio',        5),
+
+  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
+  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
+  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
+  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
+  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
+  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
+
+  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
+  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
+  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
+  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
+  ('sc_maison_jardinage',      'cat_maison', 'Jardinage',           5),
+
+  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
+  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
+  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
+  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
+  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
+
+  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
+  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
+  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
+  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
+  ('sc_resto_epicerie',        'cat_restauration', 'Épicerie',       5),
+  ('sc_resto_frais',           'cat_restauration', 'Produits frais', 6),
+
+  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
+  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
+  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
+  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
+  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
+
+  ('sc_logiciels_gestion',     'cat_logiciels', 'Logiciels de gestion',      1),
+  ('sc_logiciels_compta',      'cat_logiciels', 'Comptabilité',              2),
+  ('sc_logiciels_caisse',      'cat_logiciels', 'Caisse/POS',                3),
+  ('sc_logiciels_antivirus',   'cat_logiciels', 'Antivirus',                 4),
+  ('sc_logiciels_licences',    'cat_logiciels', 'Licences',                  5),
+  ('sc_logiciels_entreprises', 'cat_logiciels', 'Solutions pour entreprises', 6),
+
+  ('sc_bebe_vetements',        'cat_bebe', 'Vêtements',             1),
+  ('sc_bebe_jouets',           'cat_bebe', 'Jouets',                2),
+  ('sc_bebe_puericulture',     'cat_bebe', 'Puériculture',          3),
+  ('sc_bebe_mobilier',         'cat_bebe', 'Mobilier enfant',       4),
+
+  ('sc_sport_equipements',     'cat_sport', 'Équipements sportifs', 1),
+  ('sc_sport_vetements',       'cat_sport', 'Vêtements de sport',   2),
+  ('sc_sport_fitness',         'cat_sport', 'Fitness',              3),
+  ('sc_sport_jeux',            'cat_sport', 'Jeux',                 4),
+  ('sc_sport_loisirs',         'cat_sport', 'Loisirs',              5),
+
+  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
+  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
+  ('sc_brico_electricite',     'cat_bricolage', 'Électricité',                3),
+  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
+  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+
+  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
+  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
+  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
+  ('sc_livres_formations',     'cat_livres', 'Formations',           4),
+
+  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
+  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
+  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
+  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+
+  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
+  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
+  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
+
+  ('sc_services_reparation',   'cat_services', 'Réparation',              1),
+  ('sc_services_installation', 'cat_services', 'Installation',            2),
+  ('sc_services_maintenance',  'cat_services', 'Maintenance',             3),
+  ('sc_services_informatique', 'cat_services', 'Informatique',            4),
+  ('sc_services_nettoyage',    'cat_services', 'Nettoyage',               5),
+  ('sc_services_pro',          'cat_services', 'Services professionnels', 6)
 on conflict (id) do nothing;
+
+-- ---------- LA REPRISE : les anciens rayons des boutiques s'en vont ----------
+-- Ils étaient à chaque boutique ; la liste est maintenant à l'enseigne.
+-- On ne peut pas les garder sans garder deux classements côte à côte.
+--
+-- CE QUE CELA FAIT AUX PRODUITS, en toutes lettres : ceux qui s'y
+-- rangeaient deviennent « à classer ». Ils restent en vente, dans leur
+-- boutique et dans la recherche ; ils n'apparaissent sous aucun rayon
+-- de BIZZOO tant que la boutique ne leur a pas donné une sous-catégorie
+-- de son secteur. Le décompte s'affiche à la fin de ce fichier.
+--
+-- On reconnaît un ancien rayon à son « boutique_id » : ceux de
+-- l'enseigne l'ont toujours à null.
+update public.produits set sous_categorie_id = null
+ where sous_categorie_id in (
+   select sc.id from public.sous_categories sc
+     join public.categories c on c.id = sc.categorie_id
+    where c.boutique_id is not null);
+update public.produits set categorie_id = null
+ where categorie_id in (select id from public.categories where boutique_id is not null);
+delete from public.categories where boutique_id is not null;
+
+-- La boutique d'exemple se range dans le secteur qui lui correspond.
+-- LE DRAPEAU EST INDISPENSABLE ICI : ce fichier se colle dans l'éditeur
+-- SQL de Supabase, où PERSONNE n'est connecté. Sans lui, le verrou des
+-- boutiques répondrait « le secteur est fixé par l'enseigne » — ce qui
+-- est vrai, mais ferait échouer le fichier entier, et le gérant
+-- n'obtiendrait rien du tout.
+do $$
+begin
+  perform set_config('bizzoo.secteur', 'oui', true);
+  update public.boutiques set categorie_id = 'cat_hightech'
+   where id = 'bou_informatique' and categorie_id is null;
+  perform set_config('bizzoo.secteur', '', true);
+end $$;
 
 -- Références des produits d'exemple déjà en base (seulement si vides).
 update public.produits set reference = 'IMP-0001' where id = 'prod_hp15' and reference = '';
@@ -4787,20 +5092,20 @@ insert into public.produits
    stock, sur_commande, disponible, en_avant, ordre_avant) values
   ('prod_hp15', 'bou_informatique', 'Ordinateur portable HP 15',
    e'Écran 15,6" HD, processeur Intel Core i5, 8 Go de RAM, SSD 512 Go, Windows 11.\nIdéal pour le bureau, les études et la navigation.\nGarantie boutique, livraison possible à Cotonou.',
-   385000, null, 'cat_ordinateurs', 'sc_portables', 4, false, true, false, 0),
+   385000, null, 'cat_hightech', 'sc_hightech_ordinateurs', 4, false, true, false, 0),
   ('prod_epson_l3250', 'bou_informatique', 'Imprimante Epson EcoTank L3250',
    e'Multifonction 3 en 1 (impression, copie, scan) à réservoirs d''encre rechargeables.\nWifi intégré, impression depuis le téléphone.\nJusqu''à 4 500 pages noir avec un seul flacon.',
-   145000, 165000, 'cat_imprimantes', 'sc_multifonctions', 2, false, true, false, 0),
+   145000, 165000, 'cat_hightech', 'sc_hightech_accessoires', 2, false, true, false, 0),
   ('prod_apc650', 'bou_informatique', 'Onduleur APC Back-UPS 650 VA',
    e'Protège votre ordinateur des coupures et variations de courant.\nAutonomie suffisante pour enregistrer votre travail et éteindre proprement.\nPrises multiples, protection téléphone/ADSL.',
-   42000, null, 'cat_reseau', 'sc_onduleurs', 7, false, true, false, 0),
+   42000, null, 'cat_hightech', 'sc_hightech_accessoires', 7, false, true, false, 0),
   ('prod_usb_kingston64', 'bou_informatique', 'Clé USB Kingston 64 Go',
    e'Clé USB 3.2 rapide et fiable pour vos documents, photos et vidéos.\nCompatible ordinateur, TV et autoradio.',
-   6500, null, 'cat_stockage', 'sc_cles_usb', 25, false, true, false, 0),
+   6500, null, 'cat_hightech', 'sc_hightech_accessoires', 25, false, true, false, 0),
   ('prod_toner_85a', 'bou_informatique', 'Toner HP 85A (CE285A)',
    e'Cartouche de toner noir d''origine pour HP LaserJet P1102, M1132, M1212…\nEnviron 1 600 pages.',
-   28000, 32000, 'cat_consommables', 'sc_toners', 0, false, false, false, 0),
+   28000, 32000, 'cat_hightech', 'sc_hightech_accessoires', 0, false, false, false, 0),
   ('prod_logitech_m185', 'bou_informatique', 'Souris sans fil Logitech M185',
    e'Souris sans fil compacte avec récepteur USB nano.\nJusqu''à 12 mois d''autonomie avec une pile AA.',
-   8500, null, 'cat_accessoires', 'sc_claviers_souris', 12, false, true, false, 0)
+   8500, null, 'cat_hightech', 'sc_hightech_accessoires', 12, false, true, false, 0)
 on conflict (id) do nothing;

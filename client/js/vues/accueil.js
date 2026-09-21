@@ -241,12 +241,19 @@ const VueAccueil = (() => {
 
   /* ---------- Catégories ---------- */
 
+  /* L'ICÔNE ET LA COULEUR VIENNENT DE LA BASE, pas d'une devinette sur
+     le nom : c'est l'enseigne qui les choisit, et la même pastille doit
+     se reconnaître d'un écran à l'autre. */
   function carteCategorie(c, compte) {
     return (
       '<a class="cat-carte" href="#/categorie/' + Utils.echapper(c.id) + '">' +
-        '<span class="cat-rond">' + UI.icone(UI.iconeCategorie(c.nom)) + "</span>" +
+        '<span class="cat-rond cat-rond-couleur" style="background:' +
+          Utils.echapper(c.couleur || "#0B5CF5") + '">' +
+          UI.icone(c.icone || "categories") + "</span>" +
         '<span class="cat-nom">' + Utils.echapper(c.nom) + "</span>" +
-        '<span class="cat-compte">' + (compte || 0) + " produit" + (compte > 1 ? "s" : "") + "</span>" +
+        (compte
+          ? '<span class="cat-compte">' + compte + " article" + (compte > 1 ? "s" : "") + "</span>"
+          : '<span class="cat-compte">à découvrir</span>') +
       "</a>"
     );
   }
@@ -313,15 +320,22 @@ const VueAccueil = (() => {
       html += htmlPublicite(publicites);
     }
 
-    /* Puis tous les rayons de l'enseigne, par ordre alphabétique. On
-       cherche souvent un rayon — « encre », « écrans » — avant de
-       savoir quelle boutique le tient. */
-    const rayons = Catalogue.rayonsDeLEnseigne();
-    if (rayons.length) {
-      /* Pas de « Tout voir » : la liste est déjà complète ici, et
-         l'onglet Catégories n'existe qu'une fois entré quelque part. */
-      html += UI.titreSection("Tous les rayons");
-      html += rayons.map((r) => UI.ligneRayon(r)).join("");
+    /* LES CATÉGORIES DE BIZZOO, et pas toutes : quinze lignes sur un
+       accueil, c'est n'en montrer aucune. L'enseigne en désigne
+       quelques-unes ; le reste attend derrière le bouton, sur l'écran
+       qui n'est fait que pour cela. */
+    const misesEnAvant = Catalogue.categoriesEnAvant();
+    const toutes = Catalogue.categoriesBizzoo();
+    const vedettes = misesEnAvant.length ? misesEnAvant : toutes.slice(0, 8);
+    if (vedettes.length) {
+      html += UI.titreSection("Catégories", "#/categories");
+      html += '<div class="cat-grille">' +
+        vedettes.map((r) => carteCategorie(r.categorie, r.compte)).join("") +
+      "</div>";
+      if (toutes.length > vedettes.length) {
+        html += '<a class="btn btn-clair" href="#/categories">' + UI.icone("categories") +
+          "Voir toutes les catégories (" + toutes.length + ")</a>";
+      }
     }
 
     vue.innerHTML = html;
@@ -386,8 +400,11 @@ const VueAccueil = (() => {
 
     const slides = Catalogue.slides();
     const enAvant = Catalogue.misEnAvant();
-    const categories = Catalogue.categories();
-    const comptes = Catalogue.nombreParCategorie();
+    /* LES RAYONS DE CETTE BOUTIQUE. « Catalogue.categories() » rendrait
+       les quinze secteurs de BIZZOO, dont quatorze qu'elle ne tient
+       pas : ce qui la concerne, ce sont les rayons de son secteur où
+       elle a quelque chose. */
+    const mesRayons = Catalogue.rayonsDeLaBoutique();
     const promos = Catalogue.promotions().slice(0, 8);
     const nouveautes = Catalogue.nouveautes(8);
     const boutique = Catalogue.boutique();
@@ -397,11 +414,9 @@ const VueAccueil = (() => {
     html += htmlSlider(slides, enAvant);
     html += htmlEtatCatalogue();
 
-    if (categories.length) {
-      html += UI.titreSection("Catégories", "#/categories");
-      html += '<div class="cat-grille">' +
-        categories.slice(0, 6).map((c) => carteCategorie(c, comptes[c.id] || 0)).join("") +
-      "</div>";
+    if (mesRayons.length) {
+      html += UI.titreSection("Rayons", "#/categories");
+      html += mesRayons.slice(0, 6).map((r) => UI.ligneSousRayon(r, r.categorieId)).join("");
     }
 
     /* Les ventes flash de cette boutique : elles n'appartiennent

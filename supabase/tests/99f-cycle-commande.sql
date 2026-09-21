@@ -36,11 +36,11 @@ set client_min_messages = notice;
 select essai.titre('Le décor : une commande payée, chez deux boutiques');
 
 insert into public.produits
-  (id, boutique_id, nom, prix, categorie_id, stock, disponible)
+  (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
 values ('prod_cycle_a', 'bou_informatique', 'Souris sans fil', 7000,
-        'cat_accessoires', 50, true),
+        'sc_hightech_accessoires', 50, true),
        ('prod_cycle_b', 'bou_essai_voisine', 'Tapis de souris', 2000,
-        'cat_essai_voisine', 50, true)
+        'sc_hightech_accessoires', 50, true)
 on conflict (id) do update
    set prix = excluded.prix, stock = 50, disponible = true;
 

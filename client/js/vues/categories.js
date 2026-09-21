@@ -1,47 +1,87 @@
 /* =========================================================
-   Catégories — liste complète, rayon d'une catégorie
-   (avec puces de sous-catégories) et page promotions.
+   Catégories — le menu de BIZZOO.
+
+   DEUX ÉTAGES, et c'est tout l'objet de cet écran.
+
+     1. LES CATÉGORIES DE BIZZOO. La même liste pour tout le
+        monde, posée par l'enseigne : pastille ronde, nom,
+        chevron. Un champ de recherche en tête, parce qu'une
+        liste de quinze lignes se parcourt mal au doigt.
+
+     2. LES RAYONS. Ouvrir une catégorie montre ce que les
+        boutiques de ce secteur tiennent VRAIMENT — et rien
+        d'autre. Un rayon vide n'y figure pas : sur une place
+        de marché, c'est une porte qui ne mène nulle part.
+
+   Dans une boutique, l'écran parle d'elle seule : ses rayons,
+   c'est-à-dire ceux de son secteur où elle a quelque chose.
    ========================================================= */
 const VueCategories = (() => {
 
-  /* ---------- Toutes les catégories ---------- */
+  /* ---------- Premier étage : la liste de BIZZOO ---------- */
 
   async function liste(vue) {
-    /* Cet onglet n'apparaît qu'une fois le client entré dans une
-       boutique : il parle donc d'elle seule, et garde l'ordre que son
-       gérant a choisi. La vue d'ensemble — tous les rayons de
-       l'enseigne, par ordre alphabétique — vit sur l'accueil BIZZOO.
-
-       Reste le cas d'un lien direct ouvert avant tout choix de
-       boutique : on montre alors cette vue d'ensemble plutôt qu'un
-       mélange de rayons sans étiquette. */
+    /* L'onglet existe dans les deux cas. Entré dans une boutique, il
+       parle d'elle ; sur l'accueil de l'enseigne, il parle de BIZZOO. */
     const choisie = Catalogue.boutiqueChoisie();
-    const toutesBoutiques = Catalogue.multiBoutiques() && !choisie;
-    const comptes = toutesBoutiques ? {} : Catalogue.nombreParCategorie();
-    const rayons = toutesBoutiques
-      ? Catalogue.rayonsDeLEnseigne()
-      : Catalogue.categories().map((c) => ({
-          categorie: c, boutique: null, compte: comptes[c.id] || 0,
-        }));
+    if (Catalogue.multiBoutiques() && choisie) { rayonsDeLaBoutique(vue); return; }
 
-    UI.entete({ titre: "Catégories",
-      sous: toutesBoutiques ? "Les rayons de toutes les boutiques" : "Tout le matériel, classé par rayon" });
+    const rayons = Catalogue.categoriesBizzoo();
 
-    /* Le bandeau « vous êtes chez X » n'aurait rien à dire quand la
-       liste les traverse toutes. */
-    const bandeau = toutesBoutiques ? "" : UI.bandeauBoutique();
+    UI.entete({ titre: "Catégories", sous: "Tout BIZZOO, secteur par secteur",
+      actions: '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' +
+        UI.icone("recherche") + "</a>" });
 
     if (!rayons.length) {
-      vue.innerHTML = bandeau +
-        UI.vide("categories", "Aucune catégorie pour l'instant",
-          "Les rayons des boutiques s'afficheront ici.");
+      vue.innerHTML = UI.vide("categories", "Aucune catégorie pour l'instant",
+        "Les rayons de BIZZOO s'afficheront ici.");
       return;
     }
 
-    vue.innerHTML = bandeau + rayons.map((r) => UI.ligneRayon(r)).join("");
+    vue.innerHTML =
+      '<div class="recherche-boite">' + UI.icone("recherche", "ic-sm") +
+        '<input id="cat-chercher" type="search" autocomplete="off" ' +
+          'placeholder="Rechercher une catégorie…">' +
+      "</div>" +
+      '<div id="cat-liste">' + rayons.map((r) => UI.ligneRayon(r)).join("") + "</div>";
+
+    /* LA RECHERCHE REGARDE AUSSI LES RAYONS. On cherche « pneus » sans
+       savoir que cela vit sous « Auto & Moto » : ne comparer que le nom
+       des catégories ne rendrait rien, et l'écran paraîtrait vide. */
+    const zone = UI.$("#cat-liste", vue);
+    const champ = UI.$("#cat-chercher", vue);
+    champ.oninput = () => {
+      const t = Utils.sansAccent(champ.value).trim();
+      const gardes = !t ? rayons : rayons.filter((r) => {
+        const noms = [r.categorie.nom]
+          .concat(Catalogue.sousCategories(r.categorie.id).map((s) => s.nom));
+        return Utils.sansAccent(noms.join(" ")).includes(t);
+      });
+      zone.innerHTML = gardes.length
+        ? gardes.map((r) => UI.ligneRayon(r)).join("")
+        : UI.vide("recherche", "Aucune catégorie trouvée",
+            "Essayez un autre mot — « chaussures », « pneus », « riz »…");
+    };
   }
 
-  /* ---------- Une catégorie ---------- */
+  /* Dans une boutique : ses rayons à elle. « Les catégories d'une
+     boutique » n'existent plus ; ce sont les rayons du secteur de
+     BIZZOO où elle se range, et seulement ceux qu'elle tient. */
+  function rayonsDeLaBoutique(vue) {
+    const rayons = Catalogue.rayonsDeLaBoutique();
+    UI.entete({ titre: "Catégories", sous: "Tout le catalogue, classé par rayon" });
+
+    if (!rayons.length) {
+      vue.innerHTML = UI.bandeauBoutique() +
+        UI.vide("categories", "Aucun rayon pour l'instant",
+          "Les articles de cette boutique s'afficheront ici, classés par rayon.");
+      return;
+    }
+    vue.innerHTML = UI.bandeauBoutique() +
+      rayons.map((r) => UI.ligneSousRayon(r, r.categorieId)).join("");
+  }
+
+  /* ---------- Second étage : une catégorie ---------- */
 
   async function rayon(vue, id, params) {
     const c = Catalogue.categorie(id);
@@ -53,26 +93,52 @@ const VueCategories = (() => {
       return;
     }
 
-    const sousCategories = Catalogue.sousCategories(c.id);
-    const scActive = params && params.sc && sousCategories.some((s) => s.id === params.sc)
+    const rayons = Catalogue.rayonsDeLaCategorie(c.id);
+    const scActive = params && params.sc && rayons.some((r) => r.sousCategorie.id === params.sc)
       ? params.sc : null;
-    const produits = Catalogue.produitsDeCategorie(c.id, scActive);
 
-    UI.entete({ titre: c.nom, retour: true,
-      sous: produits.length + " produit" + (produits.length > 1 ? "s" : "") });
+    /* SANS RAYON CHOISI, ON MONTRE LES RAYONS — c'est ce qu'on attend
+       en ouvrant une catégorie sur une place de marché : savoir ce
+       qu'elle contient avant de dérouler cent articles. Le lien
+       « Tout voir » reste, pour qui préfère la grille. */
+    /* « ?sc=tout » n'est pas un rayon : c'est la demande explicite de
+       voir la grille entière. Sans ce cas à part, le lien « Tout voir »
+       ramènerait à la liste des rayons — en rond. */
+    const toutVoir = !!(params && params.sc === "tout");
+    if (!scActive && !toutVoir && rayons.length > 1) {
+      const total = Catalogue.produitsDeCategorie(c.id).length;
+      UI.entete({ titre: c.nom, retour: true,
+        sous: rayons.length + " rayon" + (rayons.length > 1 ? "s" : "") });
+      vue.innerHTML =
+        rayons.map((r) => UI.ligneSousRayon(r, c.id)).join("") +
+        '<a class="btn btn-clair" style="margin-top:12px" href="#/categorie/' +
+          Utils.echapper(c.id) + '?sc=tout">' + UI.icone("boite") +
+          "Tout voir (" + total + " article" + (total > 1 ? "s" : "") + ")</a>";
+      return;
+    }
+
+    const produits = Catalogue.produitsDeCategorie(c.id, scActive);
+    const nomRayon = scActive
+      ? (rayons.find((r) => r.sousCategorie.id === scActive) || {}).sousCategorie
+      : null;
+
+    UI.entete({ titre: nomRayon ? nomRayon.nom : c.nom, retour: true,
+      sous: produits.length + " article" + (produits.length > 1 ? "s" : "") +
+        (nomRayon ? " · " + c.nom : "") });
 
     let html = "";
 
-    if (sousCategories.length) {
+    if (rayons.length) {
       /* « collees » : la rangée se fige sous la barre du haut quand on
-         fait défiler le rayon, pour changer de sous-catégorie sans
-         avoir à remonter. */
+         fait défiler, pour changer de rayon sans avoir à remonter. */
       html += '<div class="puces puces-collees">' +
-        '<a class="puce' + (scActive ? "" : " active") + '" href="#/categorie/' + Utils.echapper(c.id) + '">Tout</a>' +
-        sousCategories.map((s) =>
-          '<a class="puce' + (scActive === s.id ? " active" : "") + '" href="#/categorie/' +
-            Utils.echapper(c.id) + "?sc=" + Utils.echapper(s.id) + '">' + Utils.echapper(s.nom) + "</a>"
-        ).join("") +
+        '<a class="puce' + (scActive ? "" : " active") + '" href="#/categorie/' +
+          Utils.echapper(c.id) + '?sc=tout">Tout</a>' +
+        rayons.map((r) =>
+          '<a class="puce' + (scActive === r.sousCategorie.id ? " active" : "") +
+            '" href="#/categorie/' + Utils.echapper(c.id) + "?sc=" +
+            Utils.echapper(r.sousCategorie.id) + '">' +
+            Utils.echapper(r.sousCategorie.nom) + "</a>").join("") +
       "</div>";
     }
 

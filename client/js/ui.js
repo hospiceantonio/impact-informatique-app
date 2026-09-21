@@ -696,22 +696,44 @@ const UI = (() => {
    * Le lien mène droit au rayon : la boutique se règle toute seule en
    * chemin, par le mécanisme qui sert déjà aux liens partagés.
    */
+  /**
+   * Une ligne de la liste « Catégories » : pastille ronde, nom,
+   * chevron. La pastille porte l'icône ET LA COULEUR que l'enseigne a
+   * choisies — c'est elle qu'on reconnaît d'un écran à l'autre, et
+   * c'est pour cela qu'elle vient de la base et non d'une devinette
+   * sur le nom.
+   */
   function ligneRayon(r) {
-    const nomBoutique = r.boutique ? r.boutique.nom : "";
-    const sousCategories = Catalogue.sousCategories(r.categorie.id);
-    const dessous = nomBoutique
-      ? '<span class="cat-ligne-sous cat-ligne-boutique">' + icone("magasin", "ic-sm") +
-          "<span>" + e(nomBoutique) + "</span></span>"
-      : '<span class="cat-ligne-sous">' +
-          e(sousCategories.length
-            ? sousCategories.map((s) => s.nom).join(" · ")
-            : r.compte + " produit" + (r.compte > 1 ? "s" : "")) + "</span>";
+    const rayons = Catalogue.rayonsDeLaCategorie(r.categorie.id);
+    const dessous = rayons.length
+      ? rayons.map((x) => x.sousCategorie.nom).join(" · ")
+      : "Bientôt des articles ici";
     return (
       '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
-        '<span class="cat-rond">' + icone(iconeCategorie(r.categorie.nom)) + "</span>" +
+        '<span class="cat-rond cat-rond-couleur" style="background:' +
+          e(r.categorie.couleur || "#0B5CF5") + '">' +
+          icone(r.categorie.icone || "categories") + "</span>" +
         '<span class="cat-ligne-corps">' +
           '<span class="cat-ligne-nom">' + e(r.categorie.nom) + "</span>" +
-          dessous +
+          '<span class="cat-ligne-sous">' + e(dessous) + "</span>" +
+        "</span>" +
+        (r.compte ? '<span class="cat-ligne-compte">' + r.compte + "</span>" : "") +
+        icone("chevron", "ic-sm") +
+      "</a>"
+    );
+  }
+
+  /**
+   * Le second étage : un rayon d'une catégorie. Pas de pastille ici —
+   * elle est déjà en haut de l'écran, et la répéter quinze fois ne
+   * dirait rien de plus.
+   */
+  function ligneSousRayon(r, categorieId) {
+    return (
+      '<a class="carte cat-ligne" href="#/categorie/' + e(categorieId) +
+        "?sc=" + e(r.sousCategorie.id) + '">' +
+        '<span class="cat-ligne-corps">' +
+          '<span class="cat-ligne-nom">' + e(r.sousCategorie.nom) + "</span>" +
         "</span>" +
         '<span class="cat-ligne-compte">' + r.compte + "</span>" +
         icone("chevron", "ic-sm") +
@@ -751,7 +773,7 @@ const UI = (() => {
     $, $$, entete, icone, marque, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
-    iconeCategorie, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
+    iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide,
   };

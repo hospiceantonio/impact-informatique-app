@@ -530,7 +530,56 @@ with controles(rang, element, ok) as (values
       select 1 from information_schema.column_privileges
        where table_schema = 'public' and table_name = 'commande_lignes'
          and grantee = 'authenticated' and privilege_type = 'UPDATE'
-         and column_name <> 'etat'))
+         and column_name <> 'etat')),
+
+  -- ---------- La liste des catégories, celle de l'enseigne ----------
+  (93, 'La pastille d''une catégorie (icone, couleur)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'categories' and column_name = 'icone')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'categories' and column_name = 'couleur')),
+  (94, 'Celles que l''accueil montre (categories.en_avant)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'categories' and column_name = 'en_avant')),
+  (95, 'Le secteur d''une boutique (boutiques.categorie_id)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques' and column_name = 'categorie_id')),
+  -- Sans ce retrait, un produit laissé à classer serait refusé et toute
+  -- la reprise s'arrêterait à la première ligne.
+  (96, 'Un produit peut attendre d''être classé', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'produits'
+         and column_name = 'categorie_id' and is_nullable = 'YES')),
+  -- LE contrôle de ce chantier. Tant qu'une boutique peut écrire la
+  -- liste, ce n'est plus une liste commune : c'est autant de
+  -- classements qu'il y a de commerces, et l'écran « Catégories » de
+  -- BIZZOO ne veut plus rien dire.
+  (97, 'L''enseigne SEULE écrit la liste', not exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename in ('categories', 'sous_categories')
+         and cmd <> 'SELECT'
+         and coalesce(qual, '') not like '%est_super%')),
+  -- Et elle reste LUE par tout le monde : c'est le menu de la vitrine.
+  (98, 'Et tout le monde la lit, même sans compte', exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'categories' and cmd = 'SELECT')),
+  -- Le rayon commande, la catégorie suit. Si le déclencheur ne nommait
+  -- plus la sous-catégorie, l'application pourrait ranger un produit
+  -- où bon lui semble.
+  (99, 'Le rayon d''un produit se déduit de sa sous-catégorie', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'produit_code'
+         and pg_get_functiondef(p.oid) like '%sous_categorie_id%'
+         and pg_get_functiondef(p.oid) like '%secteur de sa boutique%')),
+  (100, 'Changer de secteur passe par la fonction prévue (changer_secteur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'changer_secteur')),
+  -- Une catégorie de l'enseigne n'appartient à personne. S'il en restait
+  -- une rattachée à une boutique, l'ancien classement cohabiterait avec
+  -- le nouveau, et l'écran du client montrerait les deux.
+  (101, 'Aucun ancien rayon de boutique ne traîne', not exists (
+      select 1 from public.categories where boutique_id is not null))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
