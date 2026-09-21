@@ -136,6 +136,23 @@ const VueInfos = (() => {
         "</div>");
     }
 
+    /* LE SITE WEB. On affiche l'adresse telle qu'elle a été saisie —
+       « bizzoo.bj » se lit mieux que « https://bizzoo.bj » — mais le
+       lien, lui, porte l'adresse complète. Une saisie qui n'est pas
+       une adresse ne donne rien : « lienSite » rend « », et la ligne
+       ne paraît pas, plutôt que d'offrir un lien mort. */
+    const site = Utils.lienSite(b.siteWeb);
+    if (site) {
+      contacts.push(
+        '<a class="ligne-info" target="_blank" rel="noopener" href="' +
+          Utils.echapper(site) + '">' +
+          '<span class="rond-bleu">' + UI.icone("globe") + "</span>" +
+          "<span><strong>Site web</strong><br><small>" +
+            Utils.echapper(b.siteWeb.replace(/^https?:\/\//i, "")) + "</small></span>" +
+          UI.icone("chevron", "ic-sm") +
+        "</a>");
+    }
+
     html += '<div class="carte">' +
       '<div class="carte-titre">Nous contacter</div>' +
       (contacts.length

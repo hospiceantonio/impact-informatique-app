@@ -374,6 +374,15 @@ const VueReglages = (() => {
           placeholder: "Quartier, rue, ville" }) +
         UI.champTexte({ id: "r-horaires", label: "Horaires", valeur: r.horaires,
           placeholder: "Lun–Sam : 8h–19h" }) +
+        /* Le site web se saisit comme on le dit : « bizzoo.bj ». C'est
+           l'application qui en fait une adresse ouvrable, comme pour
+           Facebook ou Instagram — et l'aperçu montre laquelle, avant
+           d'enregistrer. */
+        UI.champTexte({ id: "r-site", label: "Site web", valeur: r.siteWeb,
+          placeholder: "bizzoo.bj",
+          aide: "Sans « https:// » si vous voulez : il est ajouté tout seul. " +
+            "Laissez vide si vous n'avez pas de site." }) +
+        '<div id="r-site-apercu"></div>' +
         '<button type="button" class="btn" id="r-enregistrer">' + UI.icone("check") + (surEnseigne ? "Enregistrer BIZZOO" : "Enregistrer la boutique") + "</button>" +
       "</div>" +
 
@@ -835,6 +844,29 @@ const VueReglages = (() => {
       rendreLogo();
     }
 
+    /* ---------- Le site web, et où il mène ----------
+       Le gérant voit l'adresse exacte avant d'enregistrer — et, si ce
+       qu'il a tapé n'en est pas une, il le lit ici plutôt que de le
+       découvrir chez un client. */
+    const montrerApercuSite = () => {
+      const zone = UI.$("#r-site-apercu");
+      if (!zone) return;
+      const saisi = UI.$("#r-site").value.trim();
+      const lien = Utils.lienSite(saisi);
+      zone.innerHTML = !saisi ? ""
+        : lien
+          ? '<a class="lien-copiable" style="margin:8px 0 12px" target="_blank" ' +
+            'rel="noopener" href="' + Utils.echapper(lien) + '">' +
+              UI.icone("lien", "ic-sm") + "<span>" + Utils.echapper(lien) + "</span></a>"
+          : '<p class="aide" style="margin:8px 0 12px;color:var(--rouge)">' +
+            "Cela ne ressemble pas à une adresse de site — il y manque un point " +
+            "(« bizzoo.bj »). Tel quel, aucun lien ne sera montré aux clients.</p>";
+    };
+    if (UI.$("#r-site")) {
+      UI.$("#r-site").addEventListener("input", Utils.tempo(montrerApercuSite, 300));
+      montrerApercuSite();
+    }
+
     /* ---------- Boutique ---------- */
     UI.$("#r-enregistrer").onclick = async () => {
       const nom = UI.$("#r-nom").value.trim();
@@ -854,6 +886,7 @@ const VueReglages = (() => {
           ...(surEnseigne ? {} : { devise: UI.$("#r-devise").value.trim() || "FCFA" }),
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
+          siteWeb: UI.$("#r-site").value.trim(),
           /* Le logo ne part que s'il a bougé : sinon chaque
              enregistrement demanderait une validation pour rien. */
           ...(logoTouche ? { logo: logoTravail } : {}),

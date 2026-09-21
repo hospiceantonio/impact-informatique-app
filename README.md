@@ -1235,6 +1235,135 @@ Un quatrième sabotage — annoncer le palier le **plus** avancé au lieu
 du moins avancé — fait tomber les deux constats de la règle des deux
 boutiques.
 
+## L'accueil de BIZZOO : le slogan, les boutiques, le site
+
+### Le slogan sous le logo — celui de BIZZOO, pas celui d'une boutique
+
+Sur l'accueil de l'enseigne, le slogan s'écrit maintenant **sous le
+mot-symbole**, en petit et calé à gauche.
+
+Il vient de `Catalogue.enseigne()`, et **jamais** de
+`Catalogue.boutique()`. Cette dernière vide le slogan exprès quand
+aucune boutique n'est choisie — *« le slogan de l'une d'elles
+tromperait sur les autres »* —, ce qui est la bonne règle et qu'on
+n'a pas défaite. L'enseigne, elle, a le droit de parler en son nom :
+d'où l'accès séparé, qui ne laisse aucun doute sur qui parle.
+
+**Il ne s'affiche jamais deux fois.** En mode mono-boutique — la
+table `boutiques` vide, l'ancienne ligne unique fait les deux — le
+bandeau orange porte déjà ce texte. Le slogan sous le logo n'apparaît
+donc que lorsque ce bandeau se tait.
+
+**Combien de place ?** Entre le bord de l'écran et les quatre boutons
+de la barre, il reste **176 px sur un téléphone de 390 px** et
+seulement **106 px sur un de 320 px**. Le slogan s'y écrit sur
+**deux lignes au plus**, puis s'arrête — au-delà, la barre du haut
+grandirait et tout ce qui se fige dessous descendrait avec elle.
+Mesuré :
+
+| slogan | 320 px | 390 px |
+| --- | --- | --- |
+| « Toutes vos boutiques » (20 car.) | tient | tient |
+| « Nous sommes imbattables en prix » (31 car.) | coupé | tient |
+| 56 caractères | coupé | tient |
+
+En clair : **jusqu'à 55 caractères sur un téléphone courant, une
+vingtaine sur les plus petits.**
+
+### Les boutiques par trois
+
+`.bou-grille` passe de deux à trois colonnes, et l'icône de 64 à
+48 px. C'est le plus petit téléphone qui commande : à 320 px la
+colonne fait 288, et trois cartes avec deux écarts de 8 px n'en
+laissent que **90,7 px** chacune — 74,7 une fois les marges
+intérieures retirées. Le rond de 64 px y touchait les deux bords.
+
+L'écart de 8 px est celui des catégories : deux grilles sur le même
+écran ne peuvent pas respirer différemment.
+
+**Le piège, et il coûte cher.** Une case de grille vaut
+`min-width:auto` par défaut. Un nom d'un seul long mot —
+INFORMATIQUE — **élargit sa colonne** au lieu d'être coupé : les
+trois cartes passaient de 91 à 143 px et la page se mettait à défiler
+de côté. D'où `min-width:0` sur `.bou-carte`, et
+`overflow-wrap:anywhere` sur le nom. Le banc mesure donc la
+**largeur de la page**, pas seulement le nombre de cartes par
+rangée : compter trois cartes serait resté vert pendant que la page
+débordait.
+
+Les noms réservent deux lignes d'avance (`min-height:2.5em`), sans
+quoi une boutique au nom court fait une carte plus basse que sa
+voisine — c'est la leçon des catégories.
+
+### Le site web
+
+Une colonne `site_web` arrive sur l'enseigne **et** sur chaque
+boutique : [`supabase/site-web.sql`](supabase/site-web.sql), à coller
+dans **SQL Editor → New query → Run**. Elle n'ajoute que deux
+colonnes vides et se recolle sans conséquence.
+
+Le champ est dans **Réglages**, sous les horaires. On y tape
+l'adresse comme on la dit — `bizzoo.bj` — et l'application en fait
+`https://bizzoo.bj`. Un **aperçu sous le champ** montre l'adresse
+exacte qui s'ouvrira, avant d'enregistrer.
+
+**Ce qui n'est pas une adresse ne devient pas un lien.** Sans ce
+contrôle, « mon site » donnerait `https://mon site` : un lien mort
+posé chez tous les clients, et qui aurait l'air d'un vrai. La règle
+(`Utils.lienSite`) exige un point dans le nom d'hôte et rien qui
+ressemble à une phrase ; sinon elle rend `""`, l'écran des réglages
+le dit en rouge au gérant, et la ligne ne paraît pas chez le client.
+**La même fonction existe des deux côtés, à l'identique** — sinon
+l'aperçu mentirait sur ce qui s'ouvre vraiment.
+
+Chez le client, la ligne « Site web » rejoint « Nous contacter »,
+avec une icône de globe. Elle affiche l'adresse **sans** le
+`https://` — plus lisible — mais le lien, lui, porte l'adresse
+complète.
+
+### Le banc
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-accueil-enseigne.mjs
+```
+
+Trente-sept constats : des **mesures réelles** à l'écran, et le
+**corps des requêtes** qui partent vers la base — le nom de colonne
+compris, car la base attend `site_web` et non `siteWeb`.
+
+Six sabotages ont vérifié qu'ils mordent, chacun sur les siens :
+
+| ce qu'on casse | ce qui tombe |
+| --- | --- |
+| retour à deux colonnes | les 4 constats « trois par rangée » |
+| `min-width:0` retiré de la carte | la page déborde à 320 px (335 px) |
+| le logo reprend le slogan vidé de `boutique()` | 5 constats du slogan |
+| le slogan s'écrit aussi quand le bandeau le porte | *il ne s'écrit pas deux fois* |
+| `lienSite` ne vérifie plus l'adresse | les 2 constats du lien mort |
+| les réglages envoient `siteWeb` | les 2 constats du nom de colonne |
+
+### Deux défauts que ce chantier a fait tomber
+
+**Le logo débordait la page.** `.logo` est un `inline-flex` : il se
+dimensionne sur son contenu et sort de son parent sans rien demander.
+Le `min-width:0` posé plus bas ne servait donc à rien, ni la coupure
+du slogan — un slogan un peu long faisait défiler la page de côté.
+Il a fallu `max-width:100%` sur `.logo` lui-même.
+
+**Le banc de la publicité avait cessé d'éprouver quoi que ce soit.**
+Son constat « la page n'a pas sauté » suppose que la publicité soit
+**sous le pli**. Son décor n'avait qu'une catégorie et une boutique ;
+la grille passée à trois colonnes a raccourci l'accueil, la page a
+tenu dans la fenêtre, `scrollTo` n'a plus rien fait — et le constat
+serait resté vert même avec le défaut qu'il surveille. Le décor porte
+maintenant huit catégories et six boutiques, comme en service, et le
+sabotage retombe (248 → 299 px).
+
+C'est la troisième fois dans ce projet qu'un constat vert ne prouvait
+rien. La parade est toujours la même : **vérifier que la condition de
+départ tient** — ici, que la page a bien de quoi défiler — avant de
+croire ce qui suit.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :

@@ -44,10 +44,18 @@ const UI = (() => {
   }
 
   /** Logo complet : le sac + « BIZZOO », pour l'accueil. */
-  function logo() {
+  /**
+   * Le mot-symbole, et sous lui le slogan de l'enseigne quand on en
+   * passe un. Deux lignes calées à gauche : le slogan appartient au
+   * logo, il ne flotte pas à côté.
+   */
+  function logo(sous) {
     return (
-      '<span class="logo">' +
-        motSymbole() +
+      '<span class="logo' + (sous ? " logo-avec-sous" : "") + '">' +
+        '<span class="logo-textes">' +
+          motSymbole() +
+          (sous ? '<span class="logo-sous">' + e(sous) + "</span>" : "") +
+        "</span>" +
       "</span>"
     );
   }
@@ -141,19 +149,32 @@ const UI = (() => {
       return;
     }
 
+    /* ---------- Le slogan de BIZZOO, sous le logo ----------
+
+       DEUX ENDROITS POSSIBLES, JAMAIS LES DEUX. Le bandeau orange
+       porte le slogan de la boutique en mode mono-boutique : là, la
+       maison ET la boutique sont la même, et l'écrire deux fois serait
+       du bégaiement. Sur l'accueil de l'enseigne le bandeau se tait —
+       « boutique() » vide son slogan exprès, le slogan d'une boutique
+       tromperait sur les autres —, et c'est alors sous le logo que
+       BIZZOO parle en son nom. Le second n'apparaît donc que lorsque
+       le premier se tait. */
+    const sloganBandeau = accueil ? Catalogue.boutique().slogan : "";
+    const sloganLogo = accueil && !sloganBandeau ? Catalogue.enseigne().slogan : "";
+
     zone.innerHTML =
       '<div class="topbar-ligne">' +
         retourHtml +
         (accueil
-          ? '<div class="topbar-logo">' + logo() + "</div>"
+          ? '<div class="topbar-logo">' + logo(sloganLogo) + "</div>"
           : "<div style='flex:1;min-width:0'>" +
               "<h1>" + e(titre || "") + "</h1>" +
               (sous ? '<div class="sous">' + e(sous) + "</div>" : "") +
             "</div>") +
         actionsHtml +
       "</div>" +
-      (accueil && Catalogue.boutique().slogan
-        ? '<div class="topbar-slogan">' + e(Catalogue.boutique().slogan) + "</div>"
+      (sloganBandeau
+        ? '<div class="topbar-slogan">' + e(sloganBandeau) + "</div>"
         : "");
     mesurerEntete();
   }

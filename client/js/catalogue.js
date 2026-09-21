@@ -207,6 +207,7 @@ const Catalogue = (() => {
           nom: b.nom || "", slogan: b.slogan || "", description: b.description || "",
           tel: b.tel || "", whatsapp: b.whatsapp || "", indicatif: b.indicatif || "",
           devise: b.devise || "", adresse: b.adresse || "", horaires: b.horaires || "",
+          siteWeb: b.site_web || "",
           facebook: b.facebook || "", instagram: b.instagram || "",
           tiktok: b.tiktok || "", youtube: b.youtube || "", snapchat: b.snapchat || "",
           latitude: b.latitude === null || b.latitude === undefined ? null : Number(b.latitude),
@@ -233,6 +234,7 @@ const Catalogue = (() => {
           ordre: b2.ordre || 0,
           tel: b2.tel || "", whatsapp: b2.whatsapp || "", indicatif: b2.indicatif || "",
           devise: b2.devise || "", adresse: b2.adresse || "", horaires: b2.horaires || "",
+          siteWeb: b2.site_web || "",
           facebook: b2.facebook || "", instagram: b2.instagram || "",
           tiktok: b2.tiktok || "", youtube: b2.youtube || "", snapchat: b2.snapchat || "",
           latitude: b2.latitude === null || b2.latitude === undefined ? null : Number(b2.latitude),
@@ -482,6 +484,7 @@ const Catalogue = (() => {
       devise: b.devise || "FCFA",
       adresse: b.adresse || "",
       horaires: b.horaires || "",
+      siteWeb: b.siteWeb || "",
       facebook: b.facebook || "",
       instagram: b.instagram || "",
       tiktok: b.tiktok || "",
@@ -518,6 +521,13 @@ const Catalogue = (() => {
     const b = (donnees && donnees.boutique) || {};
     return {
       nom: b.nom || "BIZZOO",
+      /* LE SLOGAN DE BIZZOO, et pas celui d'une boutique. « boutique() »
+         le vide exprès sur l'accueil de l'enseigne — celui d'une
+         boutique y tromperait sur les autres —, mais la barre du haut
+         a besoin de celui de la maison précisément là. On le prend
+         donc ici, où il n'y a aucun doute sur qui parle. */
+      slogan: b.slogan || "",
+      siteWeb: b.siteWeb || "",
       whatsapp: b.whatsapp || b.tel || "",
       tel: b.tel || "",
       indicatif: b.indicatif || "229",

@@ -265,12 +265,30 @@ const Utils = (() => {
     return petite;
   }
 
+  /**
+   * L'adresse d'un site web, telle qu'on la dit — « bizzoo.bj » — vers
+   * celle qu'un navigateur ouvre. MÊME RÈGLE QUE CHEZ LE CLIENT
+   * (« client/js/utils.js ») : ce que l'aperçu montre ici doit être
+   * exactement ce qui s'ouvrira là-bas, sinon l'aperçu ment.
+   *
+   * Elle rend « » quand ce n'en est pas une : « mon site » deviendrait
+   * « https://mon site », un lien mort qui aurait l'air d'un vrai.
+   */
+  function lienSite(valeur) {
+    const v = String(valeur || "").trim();
+    if (!v) return "";
+    const sansSchema = v.replace(/^https?:\/\//i, "").replace(/^\/+/, "");
+    const hote = sansSchema.split(/[/?#]/)[0];
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(hote)) return "";
+    return "https://" + sansSchema;
+  }
+
   return {
     pad, uid, echapper,
     fmtNombre, fmtMontant, fmtTaux, lireNombre, remisePourcent,
     fmtDateHeure, fmtDate, fmtHeure,
     joursAvant, delaiEnMots, dateDansXJours,
-    normaliserTel, lienWhatsApp, lienTel,
+    normaliserTel, lienWhatsApp, lienTel, lienSite,
     sansAccent, tempo, telecharger, tailleLisible, tailleDataUrl,
     compresserImage, vignetteDepuisDataUrl,
   };

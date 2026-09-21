@@ -31,6 +31,7 @@ create table if not exists public.boutique (
   devise      text not null default 'FCFA',
   adresse     text not null default '',
   horaires    text not null default '',
+  site_web    text not null default '',       -- « bizzoo.bj », ou le lien entier
   facebook    text not null default '',
   instagram   text not null default '',
   tiktok      text not null default '',
@@ -64,6 +65,7 @@ alter table public.boutique add column if not exists telephones jsonb not null d
 alter table public.boutique add column if not exists adresses jsonb not null default '[]'::jsonb;
 alter table public.boutique add column if not exists taux_marge numeric(6,2) not null default 20;
 alter table public.boutique add column if not exists video text not null default '';
+alter table public.boutique add column if not exists site_web text not null default '';
 
 -- ---------- Les boutiques ----------
 -- L'application couvre plusieurs secteurs d'activité : une boutique par
@@ -87,6 +89,7 @@ create table if not exists public.boutiques (
   devise      text not null default 'FCFA',
   adresse     text not null default '',
   horaires    text not null default '',
+  site_web    text not null default '',
   facebook    text not null default '',
   instagram   text not null default '',
   tiktok      text not null default '',
@@ -109,6 +112,7 @@ create table if not exists public.boutiques (
   maj_le      timestamptz not null default now()
 );
 alter table public.boutiques add column if not exists video text not null default '';
+alter table public.boutiques add column if not exists site_web text not null default '';
 -- « create table if not exists » ne touche pas une table qui existe déjà :
 -- une colonne ajoutée plus tard doit être répétée ici, sinon elle n'arrive
 -- jamais dans une base en service. La marge de BIZZOO en fait partie —

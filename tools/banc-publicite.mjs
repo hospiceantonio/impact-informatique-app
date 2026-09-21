@@ -41,10 +41,23 @@ const nav = await chromium.launch({
      — pas celui de l'application, qui part d'un vrai geste. */
   args: ["--autoplay-policy=no-user-gesture-required"] });
 
-const CAT = [{ id:"cat_h", nom:"High-Tech", icone:"portable", couleur:"#0B5CF5",
-  en_avant:true, ordre:1, sous_categories:[{id:"sc_o",nom:"Ordinateurs",ordre:1}] }];
-const BOU = [{ id:"bou_tech", nom:"IMPACT", secteur:"Informatique", categorie_id:"cat_h",
-  icone:"portable", couleur:"#0B5CF5", devise:"FCFA", indicatif:"229", actif:true, ordre:1 }];
+/* UN ACCUEIL DE VRAIE TAILLE — huit catégories et six boutiques, comme
+   en service. Ce n'est pas du décor : le constat « la page n'a pas
+   sauté » n'a de sens que si la publicité est SOUS le pli. Avec une
+   seule catégorie et une seule boutique, l'accueil tenait dans la
+   fenêtre, « scrollTo » ne faisait rien, et le sabotage passait
+   inaperçu. La grille des boutiques étant passée à trois colonnes,
+   l'accueil a encore raccourci — d'où ce décor, qui le rallonge. */
+const CAT = Array.from({ length: 8 }, (_, i) => ({
+  id: i === 0 ? "cat_h" : "cat_" + i, nom: i === 0 ? "High-Tech" : "Rayon " + i,
+  icone: "portable", couleur: "#0B5CF5", en_avant: true, ordre: i + 1,
+  sous_categories: i === 0 ? [{ id:"sc_o", nom:"Ordinateurs", ordre:1 }] : [],
+}));
+const BOU = Array.from({ length: 6 }, (_, i) => ({
+  id: i === 0 ? "bou_tech" : "bou_" + i, nom: i === 0 ? "IMPACT" : "BOUTIQUE " + i,
+  secteur: "Informatique", categorie_id: "cat_h", icone: "portable",
+  couleur: "#0B5CF5", devise: "FCFA", indicatif: "229", actif: true, ordre: i + 1,
+}));
 const PR = [{ id:"prod_hp", boutique_id:"bou_tech", nom:"Ordinateur HP", code:"0001",
   reference:"", description:"d", prix:385000, ancien_prix:null, categorie_id:"cat_h",
   sous_categorie_id:"sc_o", stock:5, sur_commande:false, disponible:true,

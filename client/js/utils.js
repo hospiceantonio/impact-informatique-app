@@ -153,6 +153,26 @@ const Utils = (() => {
     return config.base + v.replace(/^@+/, "").replace(/^\/+/, "");
   }
 
+  /**
+   * L'adresse d'un site web, telle qu'on la dit — « bizzoo.bj » — vers
+   * celle qu'un navigateur ouvre.
+   *
+   * ELLE REND « » QUAND CE N'EN EST PAS UNE. Sans ce contrôle, « mon
+   * site » deviendrait « https://mon site » : un lien mort posé chez
+   * tous les clients, et qui aurait l'air d'un vrai. Mieux vaut ne
+   * rien afficher — l'écran des réglages, lui, le dit au gérant avant
+   * qu'il enregistre.
+   */
+  function lienSite(valeur) {
+    const v = String(valeur || "").trim();
+    if (!v) return "";
+    const sansSchema = v.replace(/^https?:\/\//i, "").replace(/^\/+/, "");
+    const hote = sansSchema.split(/[/?#]/)[0];
+    /* Un point au moins, et rien qui ressemble à une phrase. */
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(hote)) return "";
+    return "https://" + sansSchema;
+  }
+
   /* ---------- Téléchargement des photos ---------- */
 
   /** "Ordinateur portable HP 15" -> "ordinateur-portable-hp-15". */
@@ -221,6 +241,6 @@ const Utils = (() => {
     normaliserTel, lienWhatsApp, lienTel,
     sansAccent, tempo, paragraphes,
     versNomFichier, enregistrerBlob, telechargerImage,
-    RESEAUX, lienReseau,
+    RESEAUX, lienReseau, lienSite,
   };
 })();
