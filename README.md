@@ -1364,6 +1364,223 @@ rien. La parade est toujours la même : **vérifier que la condition de
 départ tient** — ici, que la page a bien de quoi défiler — avant de
 croire ce qui suit.
 
+## Les comptes de BIZZOO
+
+Un compte de l'équipe était forcément rattaché à **une** boutique, sauf
+le superadministrateur qui a tout. Entre les deux, rien : personne ne
+pouvait suivre les commandes de toutes les boutiques sans devenir
+maître de l'enseigne entière.
+
+Un rang intermédiaire existe maintenant : **administrateur ou
+modérateur rattaché à AUCUNE boutique**. Dans Réglages → Comptes, le
+menu « Boutique confiée » propose « BIZZOO — toutes les boutiques »,
+réservé au superadministrateur.
+
+Ses droits ne viennent pas de son rang mais de **quatre
+interrupteurs** :
+
+| interrupteur | ce qu'il ouvre | défaut |
+| --- | --- | --- |
+| Les commandes | toutes les boutiques | allumé |
+| Le catalogue | produits et rayons de toutes | allumé |
+| Les boutiques | régler une boutique | éteint |
+| Les chiffres | journal et statistiques | éteint |
+
+Le rang nomme la personne ; les interrupteurs disent ce qu'elle
+touche. « Admin de BIZZOO » ne veut pas dire la même chose chez vous
+que la semaine prochaine.
+
+**Il ne crée aucun compte**, quel que soit son rang. Ce n'est pas une
+politesse d'écran : les règles de `profils` exigent une boutique non
+nulle, et il n'en a pas. L'écran ne lui propose donc pas un geste que
+la base refuserait.
+
+### Un interrupteur qui ne ferme qu'à l'écran n'est pas un droit
+
+`peut_agir_sur()` répond **oui partout** à un compte d'enseigne. Les
+règles des commandes vérifient donc **aussi** `peut_voir_commandes()`.
+Sans cette seconde condition, éteindre l'interrupteur n'aurait rien
+fermé du tout — le bouton aurait disparu de l'écran pendant que la
+base continuait de tout rendre.
+
+### Le piège qu'on a failli laisser
+
+`schema.sql` contenait cette ligne, écrite pour rattraper les bases
+d'avant :
+
+```sql
+update profils set role = 'superadministrateur'
+ where role = 'administrateur' and boutique_id is null;
+```
+
+Elle décrit désormais **mot pour mot un administrateur de BIZZOO**. Un
+simple rejeu du fichier lui aurait donné l'argent, les comptes et
+l'enseigne entière, en silence. Elle ne s'exécute plus que si personne
+ne tient encore l'enseigne.
+
+**Et elle porte un nom.** Écrite en `do $$` anonyme, cette garde ne
+s'éprouvait pas : le banc ne pouvait que recopier la même logique à
+côté, et il éprouvait alors **sa copie**. Vérifié : le sabotage ne
+tombait pas — le banc restait vert pendant que le vrai fichier
+promouvait tout le monde. Nommée `rattraper_anciens_admins()`, elle
+s'appelle, et le sabotage tombe.
+
+[`tests/99k-comptes-enseigne.sql`](supabase/tests/99k-comptes-enseigne.sql) :
+vingt-deux constats sur la **base** et non sur les boutons — zéro
+ligne rendue, zéro ligne touchée, refus à l'insertion.
+
+À coller : [`comptes-enseigne.sql`](supabase/comptes-enseigne.sql).
+
+## Les notifications
+
+Le mot n'existait nulle part dans ce projet. Une commande payée à
+l'instant n'arrivait chez la boutique qu'en rouvrant l'écran des
+commandes — et le client attendait pendant ce temps.
+
+### Une ligne par personne prévenue
+
+Et non une ligne par événement. C'est plus de lignes, mais c'est la
+seule forme où « lue » veut dire quelque chose : une commande payée
+prévient le client, l'équipe de chaque boutique concernée, les comptes
+de BIZZOO et le superadministrateur — chacun la lit à son heure, et
+l'un ne décoche rien pour les autres.
+
+**Une fois, et une seule.** Une commande de trois articles chez la
+même boutique fait trois lignes qui passent à « préparée » : un index
+unique retient les doublons, sans quoi la boutique recevrait trois
+fois la même nouvelle. Le `coalesce` de cet index n'est pas décoratif
+— deux `NULL` sont **distincts** pour un index unique, et la
+contrainte n'aurait rien retenu sur les notifications sans boutique.
+
+### Qui reçoit quoi
+
+| cran du circuit | qui est prévenu |
+| --- | --- |
+| payée | client · boutique · BIZZOO · **superadministrateur** |
+| vue | **personne** |
+| préparée | le client |
+| confiée à un livreur | **le livreur** · BIZZOO |
+| en livraison | client · boutique |
+| remise | client (invité à confirmer) · boutique |
+| réception confirmée | **la boutique** · BIZZOO |
+| annulée | client · boutique · BIZZOO · superadministrateur |
+
+**Le superadministrateur reçoit l'argent et les incidents**, pas les
+crans intermédiaires. À dix boutiques et vingt commandes par jour,
+être prévenu de chaque cran ferait plusieurs centaines de pastilles
+quotidiennes : une pastille qui ne redescend jamais à zéro ne veut
+plus rien dire.
+
+**« Vue » ne prévient personne**, et c'est un choix : le client n'a
+que faire de savoir qu'on a ouvert son écran.
+
+### Personne n'écrit ici, pas même l'application
+
+Aucune règle d'insertion n'existe, pour aucun rang. Les notifications
+naissent des déclencheurs et d'eux seuls — un client ne peut pas
+s'annoncer une commande livrée, ni une boutique se fabriquer un accusé
+de réception. La seule écriture permise est `lue_le`, sur ses propres
+lignes.
+
+**Aucun montant n'y entre.** La règle des prix fermés au livreur ne
+servirait à rien si le texte d'une notification les recopiait.
+
+### La cloche, le panneau, les trois bips
+
+Dans les deux applications : pastille avec le compte, **et le nombre
+dans l'étiquette** — une pastille seule ne dit rien à un lecteur
+d'écran. Le panneau groupe par famille, dans l'ordre de la
+notification la plus récente et non alphabétique. Un doigt sur une
+ligne la marque lue **et** mène à l'opération : la commande chez le
+client, la commande **visée dans la liste** chez la boutique, les
+livraisons chez le livreur.
+
+Les trois bips se fabriquent avec le son du navigateur — rien à
+charger, rien de plus dans la coquille hors connexion, pas de silence
+le jour où un fichier manque. **Les navigateurs refusent le son avant
+le premier geste** : ce n'est pas un réglage, c'est une règle du
+navigateur, et l'écran le dit. On peut les couper, sur l'appareil.
+
+**Le son suit les nouvelles, pas le compteur.** Sonner « quand le
+nombre monte » aurait sonné au premier chargement, quand on retrouve
+vingt notifications jamais lues — un carillon à l'ouverture.
+
+### Ce que cette option ne fait pas
+
+Les notifications arrivent quand l'application est **ouverte ou
+revenue de l'arrière-plan**. Une application fermée ne reçoit rien :
+tout se rattrape à la réouverture, rien ne se perd, mais l'écran
+verrouillé reste muet. Prévenir un téléphone fermé demande un service
+de push extérieur — c'est un chantier à part, qui dépend d'un compte
+qui n'est pas le nôtre.
+
+### Le temps réel passe par son propre socket
+
+Celui de `live.js` se connecte avec la clé **publiable** : il écoute
+des tables ouvertes à tous. Les notifications sont fermées à leur
+destinataire, et le temps réel ne laisse passer une ligne que si le
+**jeton du compte** le permet. Deux connexions, parce que ce ne sont
+pas les mêmes droits. Avec les trois mêmes filets que le catalogue :
+temps réel, retour au premier plan, vérification de fond.
+
+L'application de la boutique n'en avait aucun — elle a maintenant le
+même.
+
+### Le circuit, vérifié d'un bout à l'autre
+
+Chaque chantier a son banc, et chacun est vert. Mais **un circuit se
+rompt ENTRE deux chantiers verts**, là où personne ne regarde.
+[`tests/99m-circuit-complet.sql`](supabase/tests/99m-circuit-complet.sql)
+parcourt **une seule** commande de l'achat à la confirmation et
+vérifie à chaque cran deux choses ensemble : l'état a avancé, **et**
+la notification est partie chez les bonnes personnes. Un cran muet,
+c'est quelqu'un devant un écran qui ne bouge pas.
+
+Sabotage vérifié : rendre le cran « préparée » muet fait tomber le
+constat.
+
+### Trois constats qui passaient pour la mauvaise raison
+
+Ce chantier en a surtout appris cela, et c'est ce qu'il faut retenir.
+
+**Le numéro n'est pas un montant.** « Aucun nombre à quatre chiffres
+dans le texte » tombait sur le **numéro de la commande**, qui a
+parfaitement sa place. Un constat qui se déclenche sur ce qu'on veut
+garder ne défend rien, il gêne. On cherche maintenant le montant
+exact, écrit comme l'application l'écrit.
+
+**Le refus venait d'ailleurs.** « L'insertion est refusée » restait
+**vert** après qu'on eut ouvert `insert` **et** posé une règle
+permissive : c'est la séquence de la clé primaire qui refusait, pas
+l'absence de règle. Le banc lit désormais le catalogue — aucune règle
+INSERT, aucune règle DELETE, et seulement SELECT et UPDATE.
+
+**Saboter un fichier sur deux ne prouve rien.** `notifications.sql`
+rejoue les mêmes règles après `schema.sql` : saboter le premier seul
+laissait tout vert. Les sabotages se posent dans les deux. L'aligneur
+propage les **fonctions**, pas les règles — c'est à la main pour
+celles-ci.
+
+**Et une doublure qui oublie les écritures ne représente pas une
+base**, elle représente une base en panne : « tout marquer lu »
+partait bien, la relecture ramenait les mêmes non lues, la pastille
+remontait. Le défaut n'existait que dans le banc.
+
+### Les bancs
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-notifications.mjs
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-notifications-admin.mjs
+```
+
+Vingt-sept constats côté client, vingt et un côté boutique, sur ce qui
+**quitte** l'application — corps des requêtes et en-têtes compris. Le
+quatrième sabotage admin ne tombait pas : le banc n'éprouvait jamais
+l'application **déconnectée**. Comblé.
+
+À coller : [`notifications.sql`](supabase/notifications.sql), **après**
+`comptes-enseigne.sql`.
+
 ## Ce que cherche la recherche
 
 Le champ de recherche regarde six endroits, **dans cet ordre** :
