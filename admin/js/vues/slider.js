@@ -319,6 +319,17 @@ const VueSlider = (() => {
             champVideo.value = "";
             return;
           }
+          /* CE QUE LE FICHIER COÛTERA À VOS CLIENTS. La vidéo n'est pas
+             gardée hors connexion : chacun la retélécharge. On le dit
+             ICI, au moment où l'on peut encore choisir une autre prise
+             — et on laisse passer, parce qu'une vidéo lourde peut avoir
+             une raison que l'application ne connaît pas. */
+          if (octets > Store.ALERTE_VIDEO_MO * 1024 * 1024) {
+            UI.toast("Vidéo de " + Utils.tailleLisible(octets) + " : chaque client " +
+              "la téléchargera sur son forfait. Au-delà de " +
+              Store.ALERTE_VIDEO_MO + " Mo, beaucoup ne la regarderont pas. " +
+              "Elle passe quand même.", "alerte");
+          }
           mediaTravail = {
             type: "video", fichier, taille: octets, url: URL.createObjectURL(fichier),
           };

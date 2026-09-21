@@ -101,9 +101,12 @@ const VueAccueil = (() => {
      slider : celui du haut a déjà cette place, et deux choses qui
      défilent toutes seules sur le même écran se disputent l'œil.
 
-     Une vidéo se joue à la demande (`controls`) : plusieurs vidéos qui
-     démarreraient ensemble feraient chauffer le téléphone et
-     mangeraient le forfait. */
+     RIEN NE DÉMARRE TOUT SEUL : la première vidéo attend un geste
+     (`controls`). Mais une fois lancée, la rangée s'enchaîne — la
+     vidéo finie, on avance jusqu'à la suivante et on la joue, comme un
+     slider. La chaîne s'arrête au bout de la rangée, sans boucler, et
+     jamais deux vidéos ne jouent ensemble : ce serait le double du
+     débit et un téléphone qui chauffe. Voir « brancherPublicite ». */
 
   function cartePublicite(s, index) {
     const produit = s.produitId ? Catalogue.produit(s.produitId) : null;
@@ -346,6 +349,7 @@ const VueAccueil = (() => {
     vue.innerHTML = html;
     demarrerSlider();
     brancherActualiser();
+    brancherPublicite();
 
     /* LA RANGÉE DES POPULAIRES ARRIVE APRÈS, et c'est voulu : elle
        demande un aller-retour à la base, et l'accueil ne doit pas
@@ -395,6 +399,78 @@ const VueAccueil = (() => {
         " Catalogue de démonstration — la connexion à la boutique se règle dans l'onglet Infos.</div>";
     }
     return "";
+  }
+
+  /* ---------- La publicité s'enchaîne ----------
+
+     Quand une vidéo finit, la rangée avance jusqu'à la suivante et la
+     lance. C'est le comportement d'un slider, avec une différence qui
+     compte : RIEN NE DÉMARRE TOUT SEUL. La chaîne ne part que d'un
+     geste — le client a appuyé sur lecture — et s'arrête d'elle-même
+     au bout de la rangée, sans boucler.
+
+     Trois garde-fous, et chacun répond à une façon précise de gâcher
+     le forfait d'un client :
+
+       — UNE SEULE VIDÉO À LA FOIS. On met les autres en pause avant de
+         lancer la suivante : deux vidéos qui jouent ensemble, c'est le
+         double du débit et un téléphone qui chauffe.
+       — ON NE JOUE PAS CE QU'ON NE REGARDE PAS. Si la rangée est
+         sortie de l'écran — le client a fait défiler l'accueil, ou
+         changé d'onglet —, la chaîne s'arrête là.
+       — LA CARTE SUIVANTE N'EST PAS TOUJOURS UNE VIDÉO. Si c'est une
+         affiche, on s'y arrête : une image n'a pas de fin, et
+         continuer sans elle reviendrait à la sauter. */
+  function brancherPublicite() {
+    const rangee = UI.$(".pub-rangee");
+    if (!rangee) return;
+    const cartes = Array.from(rangee.querySelectorAll(".pub-carte"));
+    const videos = Array.from(rangee.querySelectorAll("video.pub-media"));
+    if (videos.length < 1) return;
+
+    const douceur = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto" : "smooth";
+
+    const visible = () => {
+      const r = rangee.getBoundingClientRect();
+      return r.bottom > 0 && r.top < (window.innerHeight || 0);
+    };
+
+    videos.forEach((v) => {
+      /* Une seule à la fois : dès qu'une part, les autres s'arrêtent.
+         Cela vaut aussi quand c'est le CLIENT qui appuie sur lecture,
+         pas seulement quand la chaîne enchaîne. */
+      v.addEventListener("play", () => {
+        videos.forEach((autre) => { if (autre !== v) autre.pause(); });
+      });
+
+      v.addEventListener("ended", () => {
+        if (!visible()) return;
+        const carte = v.closest(".pub-carte");
+        const suivante = cartes[cartes.indexOf(carte) + 1];
+        if (!suivante) return;          // fin de rangée : on ne boucle pas
+
+        /* Le défilement porte sur la RANGÉE, jamais sur la page :
+           « scrollIntoView » ferait sauter tout l'accueil sous les
+           yeux du client pour montrer une publicité. */
+        const dx = suivante.getBoundingClientRect().left -
+                   rangee.getBoundingClientRect().left;
+        rangee.scrollTo({ left: rangee.scrollLeft + dx, behavior: douceur });
+
+        const prochaine = suivante.querySelector("video.pub-media");
+        if (!prochaine) return;         // une affiche : on s'arrête dessus
+        /* Le temps que le défilement se pose, sinon la vidéo démarre
+           hors champ et le client entend avant de voir. */
+        setTimeout(() => {
+          if (!visible()) return;
+          const promesse = prochaine.play();
+          /* Le navigateur peut refuser — c'est son droit, et ce n'est
+             pas une panne : la rangée reste simplement là où elle est. */
+          if (promesse && promesse.catch) promesse.catch(() => {});
+        }, douceur === "smooth" ? 420 : 0);
+      });
+    });
   }
 
   function brancherActualiser() {
@@ -497,6 +573,7 @@ const VueAccueil = (() => {
     vue.innerHTML = html;
     demarrerSlider();
     brancherActualiser();
+    brancherPublicite();
   }
 
   return { afficher, boutique, arreterSlider };

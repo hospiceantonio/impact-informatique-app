@@ -878,6 +878,64 @@ continuerait de la promettre, et le client qui s'est déplacé ne la
 trouverait nulle part. Quand plus rien n'est remisé, le bandeau
 disparaît.
 
+### La publicité s'enchaîne
+
+Une vidéo finit, la rangée avance jusqu'à la suivante et la lance —
+comme un slider. Avec une différence qui compte : **rien ne démarre
+tout seul**. La chaîne ne part que d'un geste, et s'arrête au bout de
+la rangée sans boucler.
+
+Trois garde-fous, chacun contre une façon précise de vider le forfait
+d'un client :
+
+- **une seule vidéo à la fois** — deux qui jouent ensemble, c'est le
+  double du débit et un téléphone qui chauffe. La règle vaut aussi
+  quand c'est le client qui appuie sur lecture, pas seulement quand la
+  chaîne enchaîne ;
+- **on ne joue pas ce qu'on ne regarde pas** — si la rangée est sortie
+  de l'écran, la chaîne s'arrête là ;
+- **la carte suivante n'est pas toujours une vidéo** — sur une affiche
+  on s'arrête : une image n'a pas de fin, et continuer sans elle
+  reviendrait à la sauter.
+
+Le défilement porte sur la **rangée**, jamais sur la page :
+`scrollIntoView` ferait sauter tout l'accueil pour montrer une
+publicité.
+
+**Quelle taille pour une vidéo de publicité.** Le cadre fait 272 × 170
+px, en **16:10**, et ce qui dépasse est coupé au centre. Visez
+**1280 × 800**, 10 à 20 secondes, **3 à 6 Mo**, en MP4 *faststart*
+(l'entête au début du fichier — sans lui, la lecture ne commence
+qu'une fois tout téléchargé). Une vidéo filmée en 16:9 perd environ
+10 % à gauche et à droite : gardez l'essentiel dans les 80 % centraux.
+Au-delà de **8 Mo**, l'app admin prévient — sans refuser — que chaque
+client paiera ce téléchargement sur son forfait. Le refus, lui, reste
+à 40 Mo.
+
+#### Le banc de la publicité
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-publicite.mjs
+```
+
+Quinze constats, sur de **vraies vidéos** : c'est l'événement `ended`
+d'un `<video>` qui déclenche tout, et une doublure de lecteur ne
+prouverait rien. Trois sabotages les font tomber — retirer la mise en
+pause des autres, faire boucler la chaîne, passer à `scrollIntoView`.
+
+> **Deux pièges rencontrés en écrivant ce banc**, et qui resserviront.
+>
+> Un Chromium bâti à partir des sources **n'embarque pas H.264** : le
+> MP4 s'y refuse avec « l'élément n'a aucune source ». Le banc éprouve
+> donc en WebM — ce qu'il mesure ne dépend pas du format. Sur un
+> téléphone Android, le MP4 du gérant se lit sans difficulté.
+>
+> Et le constat « la page n'a pas sauté » **restait vert avec le
+> sabotage**, parce que la fenêtre d'essai faisait 1 800 px de haut :
+> la page ne pouvait pas défiler. Il fallait une fenêtre de 640 px, et
+> la rangée amenée **en bas** de l'écran — `scrollIntoView` veut poser
+> la carte en haut, et vue en haut elle y est déjà.
+
 **Le classement des ventes rend un ordre, jamais des chiffres.**
 `produits_populaires()` lit les lignes de commande, que personne ne
 peut lire — d'où le `security definer`. Ce qu'elle rend tient en une

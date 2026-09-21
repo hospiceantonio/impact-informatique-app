@@ -86,11 +86,18 @@ const UI = (() => {
     el.className = "toast" + (type ? " toast-" + type : "");
     el.textContent = message;
     zone.appendChild(el);
+    /* LE TEMPS DE LIRE. 2,6 s suffisent pour « Enregistré » ; un
+       avertissement de trois lignes disparaissait avant d'être lu — et
+       un avertissement qu'on ne lit pas ne sert à rien. On compte donc
+       sur la longueur du message, sans descendre sous 2,6 s ni monter
+       au-delà de 8 : passé ce délai, ce serait une fenêtre qu'il
+       faudrait, pas un toast. */
+    const duree = Math.min(8000, Math.max(2600, 1200 + message.length * 45));
     setTimeout(() => {
       el.style.transition = "opacity .25s";
       el.style.opacity = "0";
       setTimeout(() => el.remove(), 260);
-    }, 2600);
+    }, duree);
   }
 
   /* ---------- Feuille modale ---------- */

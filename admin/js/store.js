@@ -16,6 +16,16 @@ const Store = (() => {
   const MAX_EN_AVANT = 5;   // produits qui défilent à la suite des images
   const MAX_PHOTOS = 4;
   const MAX_VIDEO_MO = 40;  // au-delà, l'envoi devient trop long au téléphone
+  /* LE SEUIL QUI AVERTIT SANS REFUSER. Quarante mégaoctets passent
+     techniquement ; ce sont vos CLIENTS qui les paient. Une publicité
+     de 30 Mo regardée cent fois, c'est trois gigaoctets pris sur les
+     forfaits de gens qui n'ont rien demandé.
+
+     Huit mégaoctets tiennent une quinzaine de secondes en 1280×800 —
+     assez pour une annonce. Au-delà, l'application le dit et laisse
+     décider : c'est un avertissement, pas une serrure, parce qu'une
+     vidéo lourde peut avoir une raison que le code ne connaît pas. */
+  const ALERTE_VIDEO_MO = 8;
 
   /* ---------- Ce qui demande l'accord de l'enseigne ----------
      Ce qui représente la boutique auprès des clients : son nom, son
@@ -2919,7 +2929,8 @@ const Store = (() => {
   }
 
   return {
-    MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, MAX_PHOTOS_BOUTIQUE,
+    MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, ALERTE_VIDEO_MO,
+    MAX_PHOTOS_BOUTIQUE,
     MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte,
     prixPublic, prixRevendeur, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,

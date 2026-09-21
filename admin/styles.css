@@ -836,6 +836,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .toast-ok{background:var(--vert)}
 .toast-err{background:var(--rouge-fonce)}
+/* L'ambre de l'avertissement : ni le vert qui approuve, ni le rouge qui
+   refuse. Ce toast dit « c'est passé, mais regardez ce que cela coûte ».
+   Il porte souvent trois lignes — d'où le texte aligné à gauche, qui se
+   lit mieux qu'un paragraphe centré. */
+.toast-alerte{background:#8A5B00;text-align:left;line-height:1.45;max-width:340px}
 
 /* ---------- Feuille modale ---------- */
 .feuille{position:fixed;inset:0;z-index:70}
