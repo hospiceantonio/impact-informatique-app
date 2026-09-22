@@ -18,10 +18,14 @@ const VueComptes = (() => {
    * Les boutiques à confier — et, pour le superadministrateur seul,
    * l'option « BIZZOO ».
    *
-   * AUCUNE BOUTIQUE VEUT DIRE TOUTES. Choisir BIZZOO fait de ce compte
-   * un compte d'enseigne : il regarde par-dessus toutes les boutiques,
-   * dans la limite des interrupteurs qu'on lui laisse. C'est beaucoup,
-   * et c'est pour cela que seul le superadministrateur peut le donner.
+   * AUCUNE BOUTIQUE VEUT DIRE TOUTES — et cela veut dire DEUX choses
+   * selon le rang. Pour un administrateur ou un modérateur, c'est un
+   * compte d'enseigne : il regarde par-dessus toutes les boutiques,
+   * dans la limite des interrupteurs qu'on lui laisse. Pour un
+   * LIVREUR, c'est un porteur de l'enseigne : toutes les boutiques
+   * peuvent lui confier une course, et il ne gagne aucun droit pour
+   * autant. Les deux sont beaucoup, et c'est pour cela que seul le
+   * superadministrateur peut les donner.
    */
   function optionsBoutiques(selection, avecEnseigne) {
     const liste = Store.listerBoutiques();
@@ -66,6 +70,19 @@ const VueComptes = (() => {
   const lireInterrupteur = (compte, i) =>
     (i.defaut ? compte[i.champ] !== false : compte[i.champ] === true);
 
+  /* CE QUE « BIZZOO » VEUT DIRE DANS CE MENU, et ce n'est pas la même
+     chose selon le rang : un compte qui gouverne toutes les boutiques,
+     ou un porteur qui les sert toutes. Le même mot, deux portées très
+     différentes — celui qui nomme doit lire laquelle il donne. */
+  const aideBoutique = (rang) => rang === "livreur"
+    ? "Ce livreur ne portera que pour cette boutique-là. Choisir " +
+      "<strong>BIZZOO</strong> en fait un livreur de l'enseigne : toutes les " +
+      "boutiques pourront lui confier une course. Il ne gagne <strong>aucun " +
+      "autre droit</strong> pour autant — ni commandes, ni catalogue, ni chiffres."
+    : "Ce compte ne verra et ne touchera que cette boutique. " +
+      "Choisir <strong>BIZZOO</strong> le met au-dessus de toutes, avec les " +
+      "droits que vous lui laissez juste en dessous.";
+
   const htmlInterrupteurs = (compte) =>
     '<div id="cp-zone-enseigne" class="carte" style="box-shadow:none;padding:14px 0 0;' +
       'margin-top:6px;border-top:1px solid var(--trait)"' +
@@ -96,9 +113,25 @@ const VueComptes = (() => {
     moderateur: "personne",
   };
 
+  /* À quelle boutique ce compte appartient, en toutes lettres. Un
+     livreur sans boutique est un livreur de BIZZOO — et non « boutique
+     à choisir », qui l'aurait fait passer pour un compte mal rempli
+     alors que c'est un choix délibéré. */
+  function rattachement(compte) {
+    if (compte.role === "superadministrateur") return " · toutes les boutiques";
+    if (Store.estCompteEnseigne(compte)) return " · BIZZOO" + droitsResumes(compte);
+    if (compte.role === "livreur" && !compte.boutiqueId) {
+      return " · BIZZOO — porte pour toutes les boutiques";
+    }
+    return " · " + Utils.echapper(nomBoutique(compte.boutiqueId));
+  }
+
   function htmlLigne(compte, moi) {
-    const admin = compte.role !== "moderateur";
-    const partout = compte.role === "superadministrateur";
+    /* LES DEUX RANGS QUI COMMANDENT, nommés. La règle d'avant disait
+       « tout sauf modérateur », ce qui donnait au livreur la pastille
+       des chefs — le seul rang de la liste qui ne décide de rien. */
+    const admin = compte.role === "administrateur" ||
+      compte.role === "superadministrateur";
     /* Un modérateur privé du droit de modification se voit d'un coup d'œil
        dans la liste : inutile d'ouvrir sa fiche pour le savoir. */
     const bride = compte.role === "moderateur" && !compte.peutModifier;
@@ -114,9 +147,7 @@ const VueComptes = (() => {
             Utils.echapper(compte.nom || compte.email || "—") +
             (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
-            (partout ? " · toutes les boutiques"
-              : Store.estCompteEnseigne(compte) ? " · BIZZOO" + droitsResumes(compte)
-              : " · " + Utils.echapper(nomBoutique(compte.boutiqueId))) +
+            rattachement(compte) +
             (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
             (compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
@@ -168,10 +199,8 @@ const VueComptes = (() => {
             '<div class="champ">' +
               '<label for="cp-boutique">Boutique confiée</label>' +
               '<select id="cp-boutique">' +
-                optionsBoutiques(compte.boutiqueId, compte.role !== "livreur") + "</select>" +
-              '<div class="aide">Ce compte ne verra et ne touchera que cette boutique. ' +
-                "Choisir <strong>BIZZOO</strong> le met au-dessus de toutes, avec les " +
-                "droits que vous lui laissez juste en dessous.</div>" +
+                optionsBoutiques(compte.boutiqueId, true) + "</select>" +
+              '<div class="aide" id="cp-boutique-aide">' + aideBoutique(compte.role) + "</div>" +
             "</div>" +
             /* TOUJOURS RENDUS, simplement cachés. Les afficher seulement
                quand le compte EST déjà d'enseigne, c'était les rendre
@@ -221,6 +250,11 @@ const VueComptes = (() => {
       const surEnseigne = champBoutiqueMenu
         ? champBoutiqueMenu.value === "__enseigne" : !compte.boutiqueId;
       UI.$("#cp-role-aide", corps).textContent = Store.ROLES[rang].aide;
+      /* L'AIDE DU MENU SUIT LE RANG. « BIZZOO » ne veut pas dire la
+         même chose pour un modérateur et pour un livreur ; une phrase
+         figée en aurait décrit un des deux, et trompé sur l'autre. */
+      const aide = UI.$("#cp-boutique-aide", corps);
+      if (aide) aide.innerHTML = aideBoutique(rang);
       /* Le droit « produits » d'un compte d'enseigne vit dans SES
          interrupteurs : l'afficher deux fois se contredirait. */
       UI.$("#cp-zone-modif", corps).hidden =
@@ -294,13 +328,9 @@ const VueComptes = (() => {
       const choix = champBoutique ? champBoutique.value : compte.boutiqueId;
       const boutiqueId = role === "superadministrateur" || choix === "__enseigne"
         ? "" : choix;
-      const versEnseigne = choix === "__enseigne" && role !== "superadministrateur";
       try {
         if (role !== "superadministrateur" && champBoutique && !choix) {
           throw new Error("Choisissez la boutique confiée à ce compte.");
-        }
-        if (versEnseigne && role === "livreur") {
-          throw new Error("Un livreur porte pour une boutique : choisissez laquelle.");
         }
         /* Un enregistrement par changement plutôt qu'un seul : le journal
            raconte alors précisément ce qui a changé. */
@@ -339,9 +369,15 @@ const VueComptes = (() => {
   /* ---------- Créer un compte ---------- */
 
   function ouvrirCreation(apres) {
-    /* Du plus étroit au plus large : on propose d'abord le rang le plus
-       courant, et le menu disparaît quand il n'y a pas le choix. */
-    const rangs = ["moderateur", "administrateur", "superadministrateur"]
+    /* LE LIVREUR EST DANS LA LISTE, et il y manquait. On pouvait le
+       nommer, mais seulement APRÈS coup : il fallait créer un
+       modérateur puis changer son rang dans sa fiche. Personne ne
+       devine ce détour, et le compte restait modérateur chez ceux qui
+       ne l'ont pas deviné.
+       L'ordre suit le plus courant, pas la hiérarchie : on crée des
+       modérateurs et des livreurs tous les jours, un administrateur
+       une fois. Et le menu disparaît quand il n'y a pas le choix. */
+    const rangs = ["moderateur", "livreur", "administrateur", "superadministrateur"]
       .filter((cle) => Store.rolesAttribuables().includes(cle));
     if (!rangs.length) {
       UI.toast("Votre compte ne peut pas créer d'autres comptes.", "err");
@@ -355,6 +391,16 @@ const VueComptes = (() => {
       UI.champTexte({ id: "nc-mdp", label: "Mot de passe", obligatoire: true,
         type: "password", placeholder: "6 caractères minimum",
         aide: "À lui communiquer ; elle pourra le changer elle-même ensuite." }) +
+      /* LE NOM ET LE NUMÉRO SE DONNENT ICI, pas « plus tard ». Plus
+         tard n'arrive pas : le compte part en service avec son adresse
+         e-mail pour seul nom, et c'est cette adresse que la boutique
+         lit dans « Confier à un livreur » le jour où elle cherche qui
+         appeler. */
+      UI.champTexte({ id: "nc-nom", label: "Nom", placeholder: "Rohim",
+        aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
+      UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel",
+        placeholder: "01 97 00 00 00",
+        aide: "Pour le rappeler quand le client n'est pas chez lui." }) +
       '<div class="champ">' +
         '<label for="nc-role">Rôle</label>' +
         '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +
@@ -369,10 +415,8 @@ const VueComptes = (() => {
             '<label for="nc-boutique">Boutique confiée <span class="obligatoire">*</span></label>' +
             '<select id="nc-boutique"' + (Supabase.estSuper() ? "" : " disabled") + ">" +
               optionsBoutiques((Store.boutiqueCourante() || {}).id, true) + "</select>" +
-            '<div class="aide">' + (Supabase.estSuper()
-              ? "Ce compte ne s'occupera que de cette boutique-là. Choisir " +
-                "<strong>BIZZOO</strong> en fait un compte de l'enseigne, au-dessus de " +
-                "toutes — ses droits se règlent ensuite dans sa fiche."
+            '<div class="aide" id="nc-boutique-aide">' + (Supabase.estSuper()
+              ? aideBoutique(rangs[0])
               : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
         : "") +
@@ -387,6 +431,8 @@ const VueComptes = (() => {
       UI.$("#nc-role-aide", corps).textContent = Store.ROLES[selecteur.value].aide;
       /* Un administrateur les gère toutes : pas de boutique à choisir. */
       if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "superadministrateur";
+      const aide = UI.$("#nc-boutique-aide", corps);
+      if (aide && Supabase.estSuper()) aide.innerHTML = aideBoutique(selecteur.value);
     };
 
     UI.$("#nc-creer", corps).onclick = async () => {
@@ -400,7 +446,8 @@ const VueComptes = (() => {
            traduire ici ferait d'un menu oublié un compte d'enseigne. */
         const compte = await Store.creerCompte(
           UI.$("#nc-email", corps).value, UI.$("#nc-mdp", corps).value, selecteur.value,
-          champBoutique ? champBoutique.value : "");
+          champBoutique ? champBoutique.value : "",
+          UI.$("#nc-nom", corps).value, UI.$("#nc-tel", corps).value);
         UI.fermerFeuille();
         if (compte.confirmationRequise) {
           UI.toast("Compte créé — il doit d'abord confirmer son adresse par email.", "ok");
@@ -443,7 +490,9 @@ const VueComptes = (() => {
           "toute l'enseigne : les boutiques, les réglages BIZZOO et les comptes. " +
           "L'<strong>administrateur</strong> a tous les droits sur SA boutique — produits, rayons, " +
           "slider, réglages et ses modérateurs. Le <strong>modérateur</strong> s'occupe des produits " +
-          "et des rayons de sa boutique, rien d'autre.</p>" +
+          "et des rayons de sa boutique, rien d'autre. Le <strong>livreur</strong> ne voit que " +
+          "les courses qu'on lui confie, sans aucun montant : il porte pour une boutique, ou " +
+          "pour <strong>BIZZOO</strong> et alors pour toutes.</p>" +
         (comptes.length
           ? comptes.map((c) => htmlLigne(c, c.id === moi)).join("")
           : '<p class="aide" style="margin:0">Aucun compte enregistré.</p>') +

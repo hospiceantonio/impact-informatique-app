@@ -758,7 +758,58 @@ contrôles là où il n'y en avait qu'un : le 80 regarde le déclencheur, le
 
 Un quatrième rôle, à côté de `superadministrateur`, `administrateur` et
 `moderateur` : **`livreur`**. Il se crée comme les autres, depuis
-Réglages → Comptes, et se rattache à une boutique.
+Réglages → Comptes → **Créer un compte** : son adresse, son mot de
+passe, **son nom**, **son numéro**, le rang « Livreur », puis pour qui
+il porte.
+
+### Son nom et son numéro se donnent à la création
+
+Ils l'étaient déjà dans la fiche d'un compte existant — mais pas dans
+l'écran de **création**, qui n'offrait même pas le rang « Livreur ». Il
+fallait donc créer un modérateur, puis ouvrir sa fiche et changer son
+rang : un détour que personne ne devine. Résultat sur la base en
+service : un livreur sans nom ni numéro, que « Confier à un livreur »
+affichait par son adresse e-mail. **Rien n'était rouge nulle part.**
+
+Le nom est ce qu'on lit dans la liste ; le numéro est ce qu'on rappelle
+quand le client n'est pas chez lui. Les laisser pour « plus tard », c'est
+les laisser vides — plus tard n'arrive pas.
+
+### Pour une boutique, ou pour BIZZOO
+
+Un livreur se rattache à **une** boutique, ou à **aucune** — et aucune
+veut dire **toutes** : c'est un livreur de l'enseigne. Toutes les
+boutiques le voient dans « Confier à un livreur », toutes peuvent lui
+confier une course, et ses courses arrivent dans une seule liste.
+Comme pour les comptes d'enseigne, seul le superadministrateur peut le
+décider.
+
+**« Aucune boutique » veut donc dire deux choses dans cette base**, et
+c'est ce qui rendait ce chantier délicat. Pour un `administrateur` ou un
+`moderateur`, c'est un **compte d'enseigne** : quelqu'un qui regarde
+par-dessus toutes les boutiques. Pour un `livreur`, c'est un **porteur**
+qui les sert toutes. Ce qui empêche la confusion tient en un mot :
+`est_compte_enseigne()` nomme les deux rangs qu'elle accepte, et le
+livreur n'en est pas. Sans cette exclusion, lui permettre de porter
+partout lui aurait donné d'un coup les commandes, le catalogue et les
+chiffres de toutes les boutiques.
+
+Le banc l'éprouve de front — *« il n'est pas un compte d'enseigne,
+malgré sa boutique vide »* — et le sabotage de ce constat n'est tombé
+qu'après avoir été posé dans les **douze** fichiers qui recopient
+`est_compte_enseigne()`. Sabotés à onze, le dernier dans l'ordre
+alphabétique remettait la bonne version et tout restait vert.
+
+Dans « Confier à un livreur », celui de l'enseigne porte une pastille
+**BIZZOO** : on lui remet le nom, le numéro et l'adresse d'un client, et
+il n'est pas de la maison. Autant que ce soit lisible au moment
+d'appuyer.
+
+Un livreur créé **avant** ce chantier sans qu'on lui choisisse de
+boutique se retrouvait avec une boutique vide par distraction, et plus
+aucune liste ne le montrait. Ce compte-là devient maintenant un livreur
+de BIZZOO, visible de toutes les boutiques. S'il y en a un dans ce cas,
+sa fiche attend sa boutique.
 
 ### Il n'a qu'un écran
 
@@ -805,10 +856,16 @@ par ces deux portes.
 ### Confier une course
 
 Sur une commande payée dont une ligne est `preparee`, la boutique voit
-« Confier à un livreur » et choisit dans la liste de **ses** livreurs.
-`assigner_livreur()` vérifie trois choses avant d'écrire : que celui qui
-confie tient la boutique, que celui à qui l'on confie est bien un livreur
-**de cette boutique**, et qu'il y a bien quelque chose à confier.
+« Confier à un livreur » et choisit dans la liste de **ses** livreurs et
+de **ceux de BIZZOO**. `assigner_livreur()` vérifie trois choses avant
+d'écrire : que celui qui confie tient la boutique, que celui à qui l'on
+confie est bien un livreur **de cette boutique ou de l'enseigne**, et
+qu'il y a bien quelque chose à confier.
+
+Le porteur de la boutique **d'à côté** reste refusé, et ce refus est
+éprouvé à part : c'est la moitié de la règle qu'on aurait pu emporter en
+ouvrant l'autre. Lui confier une course, ce serait lui remettre le nom,
+le numéro et l'adresse d'un client qui n'est pas le sien.
 
 `livreur_id` ne s'écrit pas à la main : `lignes_verrous` lève sur tout
 changement de cette colonne hors du drapeau que seule
@@ -838,6 +895,18 @@ portes en 46 constats. Quatre sabotages les font tomber : rendre à
 toutes les courses, retirer le contrôle « livreur de ma boutique » de
 `assigner_livreur()`, et retirer le `revoke update` des trois fichiers
 qui le posent.
+
+[`tests/99n-livreur-bizzoo.sql`](supabase/tests/99n-livreur-bizzoo.sql)
+ajoute 30 constats pour le porteur de l'enseigne, et trois sabotages les
+font tomber : retirer `p.boutique_id is null` de la liste des livreurs,
+le retirer de `assigner_livreur()`, et faire entrer le rang `livreur`
+dans `est_compte_enseigne()`.
+
+[`tools/banc-livreur-bizzoo.mjs`](tools/banc-livreur-bizzoo.mjs) éprouve
+l'écran en 21 constats — mais sur **ce qui part vers la base**, pas sur
+ce que le formulaire montre. Un champ peut être à l'écran et n'aller
+nulle part : c'est exactement la panne qu'il répare, et un banc qui
+regarde le formulaire ne l'aurait pas vue.
 
 ## Ce que le client garde pour lui
 
@@ -1584,6 +1653,9 @@ l'application **déconnectée**. Comblé.
 2. [`notifications.sql`](supabase/notifications.sql) — il s'appuie sur
    des colonnes que le premier pose
 3. [`livreur-nom.sql`](supabase/livreur-nom.sql)
+4. [`livreur-bizzoo.sql`](supabase/livreur-bizzoo.sql) — le livreur de
+   l'enseigne. Il repose les colonnes et la fonction du troisième :
+   **si `livreur-nom.sql` n'a pas encore été collé, celui-ci suffit**.
 
 **Le troisième est né d'une erreur, et elle mérite d'être écrite.**
 `livreurs_boutique()` avait été enrichie — nom et téléphone — dans

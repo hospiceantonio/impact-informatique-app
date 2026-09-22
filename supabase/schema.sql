@@ -2754,37 +2754,50 @@ grant execute on function public.confirmer_reception(text, text) to authenticate
 -- NUMÉRO part avec : quand le client n'est pas chez lui, c'est le
 -- livreur qu'on rappelle, et on ne va pas le chercher ailleurs.
 --
+-- DEUX SORTES DE LIVREURS, et la liste les rend toutes les deux :
+-- celui de la boutique, et CELUI DE BIZZOO — rattaché à aucune
+-- boutique, il porte pour toutes. La colonne « bizzoo » dit lequel est
+-- lequel, pour que l'écran puisse l'écrire : confier une course à
+-- quelqu'un qui n'est pas de la maison se fait les yeux ouverts.
+--
 -- « drop » AVANT « create or replace » : changer les colonnes rendues
 -- par une fonction n'est pas un remplacement aux yeux de PostgreSQL,
 -- qui refuse net. Sans cette ligne, le fichier s'arrêterait sur une
 -- base déjà en service — et seulement sur celle-là.
 drop function if exists public.livreurs_boutique();
 create or replace function public.livreurs_boutique()
-returns table (id uuid, email text, nom text, tel text, actif boolean)
+returns table (id uuid, email text, nom text, tel text,
+               actif boolean, bizzoo boolean)
 language plpgsql stable security definer set search_path = public as $$
 declare cible text := public.boutique_du_compte();
 begin
   if not public.est_equipe() then return; end if;
   return query
     select p.id, coalesce(p.email, '')::text,
-           coalesce(p.nom, '')::text, coalesce(p.tel, '')::text, p.actif
+           coalesce(p.nom, '')::text, coalesce(p.tel, '')::text, p.actif,
+           (p.boutique_id is null)
       from public.profils p
      where p.role = 'livreur'
        -- L'enseigne les voit tous, les comptes de BIZZOO aussi ;
-       -- une boutique, les siens.
+       -- une boutique, les siens ET ceux de BIZZOO.
        and (public.est_super() or public.est_compte_enseigne()
-            or (cible is not null and p.boutique_id = cible))
-     -- Par nom quand il y en a un, par adresse sinon : une liste
+            or (cible is not null
+                and (p.boutique_id = cible or p.boutique_id is null)))
+     -- Les siens d'abord, ceux de BIZZOO ensuite : on appelle son
+     -- porteur avant de déranger celui de l'enseigne.
+     -- Puis par nom quand il y en a un, par adresse sinon : une liste
      -- rangée par e-mail alors qu'on lit des noms paraît en désordre.
-     order by nullif(p.nom, '') nulls last, p.email;
+     order by (p.boutique_id is null), nullif(p.nom, '') nulls last, p.email;
 end $$;
 revoke all on function public.livreurs_boutique() from public, anon;
 grant execute on function public.livreurs_boutique() to authenticated;
 
 -- ---------- Confier une livraison ----------
--- LA BOUTIQUE CONFIE, et seulement à SON livreur. Confier à celui de la
--- boutique d'à côté reviendrait à lui remettre le nom, le numéro et
--- l'adresse d'un client qui n'est pas le sien.
+-- LA BOUTIQUE CONFIE, à SON livreur ou à CELUI DE BIZZOO. Confier à
+-- celui de la boutique d'à côté reste refusé : ce serait lui remettre
+-- le nom, le numéro et l'adresse d'un client qui n'est pas le sien.
+-- Un livreur de BIZZOO, lui, porte pour toute l'enseigne — c'est
+-- exactement ce qu'on a voulu en ne le rattachant à aucune boutique.
 --
 -- On ne confie que ce qui est PRÊT : une commande pas encore préparée
 -- n'a rien à donner à porter.
@@ -2806,9 +2819,12 @@ begin
     select p.role into rang from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
+            or public.est_compte_enseigne()
+            -- Le livreur de BIZZOO : aucune boutique, donc toutes.
+            or p.boutique_id is null
             or p.boutique_id = public.boutique_du_compte());
     if rang is distinct from 'livreur' then
-      raise exception 'Ce compte n''est pas un livreur de votre boutique';
+      raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
     end if;
   end if;
 

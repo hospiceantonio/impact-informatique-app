@@ -59,23 +59,28 @@ grant execute on function public.est_compte_enseigne() to authenticated;
 -- base déjà en service — et seulement sur celle-là.
 drop function if exists public.livreurs_boutique();
 create or replace function public.livreurs_boutique()
-returns table (id uuid, email text, nom text, tel text, actif boolean)
+returns table (id uuid, email text, nom text, tel text,
+               actif boolean, bizzoo boolean)
 language plpgsql stable security definer set search_path = public as $$
 declare cible text := public.boutique_du_compte();
 begin
   if not public.est_equipe() then return; end if;
   return query
     select p.id, coalesce(p.email, '')::text,
-           coalesce(p.nom, '')::text, coalesce(p.tel, '')::text, p.actif
+           coalesce(p.nom, '')::text, coalesce(p.tel, '')::text, p.actif,
+           (p.boutique_id is null)
       from public.profils p
      where p.role = 'livreur'
        -- L'enseigne les voit tous, les comptes de BIZZOO aussi ;
-       -- une boutique, les siens.
+       -- une boutique, les siens ET ceux de BIZZOO.
        and (public.est_super() or public.est_compte_enseigne()
-            or (cible is not null and p.boutique_id = cible))
-     -- Par nom quand il y en a un, par adresse sinon : une liste
+            or (cible is not null
+                and (p.boutique_id = cible or p.boutique_id is null)))
+     -- Les siens d'abord, ceux de BIZZOO ensuite : on appelle son
+     -- porteur avant de déranger celui de l'enseigne.
+     -- Puis par nom quand il y en a un, par adresse sinon : une liste
      -- rangée par e-mail alors qu'on lit des noms paraît en désordre.
-     order by nullif(p.nom, '') nulls last, p.email;
+     order by (p.boutique_id is null), nullif(p.nom, '') nulls last, p.email;
 end $$;
 revoke all on function public.livreurs_boutique() from public, anon;
 grant execute on function public.livreurs_boutique() to authenticated;

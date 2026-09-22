@@ -102,8 +102,9 @@ const VueCommandes = (() => {
       UI.ouvrirFeuille("Aucun livreur",
         '<p class="aide" style="margin:0 0 14px">Votre boutique n\'a pas encore de ' +
           "livreur. Créez-en un depuis <strong>Comptes</strong> : choisissez le rôle " +
-          "« Livreur ». Il ne verra que les courses qu'on lui confie — aucun prix " +
-          "ne lui est montré.</p>" +
+          "« Livreur », donnez-lui son nom et son numéro, puis sa boutique — ou " +
+          "<strong>BIZZOO</strong> s'il porte pour toutes. Il ne verra que les courses " +
+          "qu'on lui confie — aucun prix ne lui est montré.</p>" +
         '<a class="btn btn-clair" href="#/comptes">Ouvrir les comptes</a>');
       return;
     }
@@ -116,7 +117,12 @@ const VueCommandes = (() => {
         '<button type="button" class="btn btn-clair cmd-livreur" style="margin-bottom:8px" ' +
           'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
           '<span class="cmd-livreur-mots">' +
-            '<span class="cmd-livreur-nom">' + Utils.echapper(l.affichage) + "</span>" +
+            '<span class="cmd-livreur-nom">' + Utils.echapper(l.affichage) +
+              /* CELUI-LÀ N'EST PAS DE LA MAISON. On lui remet le nom, le
+                 numéro et l'adresse d'un client : il faut le savoir en
+                 appuyant, pas le découvrir après. */
+              (l.bizzoo ? '<span class="cmd-livreur-bizzoo">BIZZOO</span>' : "") +
+            "</span>" +
             /* SON NUMÉRO SOUS SON NOM : c'est lui qu'on rappelle quand
                le client n'est pas chez lui, et on ne va pas le chercher
                dans un autre écran à ce moment-là. */

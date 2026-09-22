@@ -782,6 +782,13 @@ const Store = (() => {
       nom: l.nom || "", tel: l.tel || "",
       affichage: l.nom || l.email || "Livreur",
       actif: l.actif !== false,
+      /* CELUI-LÀ N'EST PAS DE LA MAISON : il porte pour toute
+         l'enseigne. On le dit à l'écran — confier le nom, le numéro et
+         l'adresse d'un client à quelqu'un d'extérieur à la boutique se
+         fait les yeux ouverts, pas par un bouton qui ressemble aux
+         autres. Une base pas encore à jour ne rend pas la colonne : on
+         lit alors « faux », et rien n'est annoncé à tort. */
+      bizzoo: l.bizzoo === true,
     }));
   }
 
@@ -825,7 +832,14 @@ const Store = (() => {
   function gereLeCompte(c) {
     if (!c) return false;
     if (Supabase.estSuper()) return true;
-    return Supabase.estAdmin() && c.role === "moderateur" &&
+    /* LES DEUX RANGS QU'UN ADMINISTRATEUR NOMME, ET DONC LES DEUX
+       QU'IL DOIT POUVOIR REPRENDRE. Le livreur manquait ici alors que
+       « rolesAttribuables() » le lui offrait déjà : il créait un
+       porteur et n'avait plus aucun crayon pour lui donner son nom et
+       son numéro. Un rang qu'on peut donner et jamais reprendre n'est
+       pas un rang, c'est un piège. */
+    return Supabase.estAdmin() &&
+      (c.role === "moderateur" || c.role === "livreur") &&
       !!c.boutiqueId && c.boutiqueId === Supabase.boutiqueDuCompte();
   }
 
@@ -874,16 +888,20 @@ const Store = (() => {
    * déjà — la base la pose à la création du compte — il ne reste qu'à
    * l'activer et à inscrire le rôle voulu.
    */
-  async function creerCompte(email, motDePasse, role, boutiqueRattachee) {
+  async function creerCompte(email, motDePasse, role, boutiqueRattachee, nom, tel) {
     const adresse = String(email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
     if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
     if (!ROLES[role]) throw new Error("Choisissez le rôle du compte.");
 
-    /* Une boutique et une seule — ou AUCUNE, et le compte est alors un
-       compte de BIZZOO qui travaille sur toutes. Ce second cas est
-       réservé au superadministrateur : lui seul peut décider que
-       quelqu'un regarde par-dessus toutes les boutiques. */
+    /* Une boutique et une seule — ou AUCUNE, et cela veut dire DEUX
+       choses selon le rang. Pour un administrateur ou un modérateur,
+       c'est un compte de BIZZOO qui travaille sur toutes les
+       boutiques. Pour un LIVREUR, c'est un porteur de BIZZOO : toutes
+       les boutiques peuvent lui confier une course, et il n'hérite
+       d'aucun droit pour autant. Les deux cas sont réservés au
+       superadministrateur — lui seul décide de ce qui dépasse une
+       boutique. */
     let attachee = null;
     if (role !== "superadministrateur" && boutiques.length) {
       const choix = boutiqueRattachee || "";
@@ -893,9 +911,6 @@ const Store = (() => {
       if (choix === ENSEIGNE) {
         if (!Supabase.estSuper()) {
           throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
-        }
-        if (role === "livreur") {
-          throw new Error("Un livreur porte pour une boutique : choisissez laquelle.");
         }
         attachee = null;
       } else if (!choix) {
@@ -914,9 +929,18 @@ const Store = (() => {
     }
 
     const cree = await Supabase.creerCompte(adresse, motDePasse);
-    const fiche = { id: cree.id, email: adresse, role, actif: true, boutique_id: attachee };
+    /* LE NOM ET LE NUMÉRO SONT POSÉS ICI, à la création, et pas
+       laissés pour plus tard. « Plus tard » n'arrive pas : le compte
+       part en service avec son adresse e-mail pour seul nom, et c'est
+       cette adresse que la boutique lit dans « Confier à un livreur »
+       le jour où elle cherche qui appeler. */
+    const fiche = {
+      id: cree.id, email: adresse, role, actif: true, boutique_id: attachee,
+      nom: String(nom || "").trim(), tel: String(tel || "").trim(),
+    };
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
-    const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")" : "";
+    const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")"
+      : role === "livreur" ? " (BIZZOO — toutes les boutiques)" : "";
     journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse + ou, adresse,
       undefined, attachee || null);
     return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
