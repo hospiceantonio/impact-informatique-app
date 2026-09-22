@@ -29,7 +29,10 @@
 
   :root{
     --bleu:#0047D9; --bleu-800:#002A80; --bleu-900:#001B52; --bleu-50:#EDF2FE;
-    --orange:#FF8A00; --orange-texte:#1F2937;
+    /* BLANC SUR L'ORANGE, comme la DA corrigée — voir la note sur ce
+       jeton dans client/styles.css : c'est un choix de marque, pas le
+       plus lisible, et c'est ici la seule ligne à changer pour y revenir. */
+    --orange:#FF8A00; --orange-texte:#FFFFFF;
     --encre:#1F2937; --encre-douce:#4B5563; --encre-tres-douce:#9AA3AF;
     --trait:#E3E8EF; --fond:#F5F7FA; --blanc:#fff;
     --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -63,7 +66,10 @@
     position:sticky;top:0;z-index:10;background:rgba(255,255,255,.94);
     backdrop-filter:blur(10px);border-bottom:1px solid var(--trait);
   }
-  .entete{display:flex;align-items:center;gap:16px;padding:14px 0}
+  /* HAUT ET BAS SEULEMENT : « padding:14px 0 » écrasait la marge de
+     côté de « .large », et sur un téléphone le logo et le bouton
+     touchaient les bords de l'écran. */
+  .entete{display:flex;align-items:center;gap:16px;padding-top:14px;padding-bottom:14px}
   .entete .logo-mot{font-size:27px}
   .entete nav{margin-left:auto;display:flex;align-items:center;gap:8px}
 
@@ -73,16 +79,16 @@
   }
   .bandeau .large{display:grid;gap:40px;align-items:center}
   .bandeau h1{margin:0 0 14px;font-size:clamp(30px,5.4vw,46px);font-weight:700;letter-spacing:-.9px;line-height:1.12}
-  .bandeau h1 .accent{color:#FFC061}
+  .bandeau h1 .accent{color:var(--orange)}
   .bandeau p{margin:0 0 26px;font-size:16.5px;max-width:52ch;color:rgba(255,255,255,.9)}
   .actions{display:flex;flex-wrap:wrap;gap:12px}
 
   .btn{
     display:inline-flex;align-items:center;justify-content:center;gap:9px;
-    min-height:52px;padding:12px 24px;border:0;border-radius:14px;
+    min-height:52px;padding:12px 26px;border:0;border-radius:999px;
     font-family:inherit;font-weight:600;font-size:15.5px;cursor:pointer;
   }
-  .btn-orange{background:var(--orange);color:var(--orange-texte)}
+  .btn-orange{background:var(--orange);color:var(--orange-texte);font-weight:700}
   .btn-bleu{background:var(--bleu);color:#fff}
   .btn-trait{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.55)}
   .btn-clair{background:#fff;color:var(--bleu);border:1.5px solid var(--bleu)}
@@ -93,7 +99,10 @@
   .ic{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;
     stroke-linecap:round;stroke-linejoin:round;flex:none}
 
-  .sous-actions{margin-top:14px;font-size:13px;color:rgba(255,255,255,.72);max-width:52ch}
+  /* « .bandeau p » est plus précis qu'une classe seule : écrit
+     « .sous-actions », ce réglage perdait sa marge et sa taille, et la
+     note collait aux boutons en grands caractères. */
+  .bandeau .sous-actions{margin:14px 0 0;font-size:13px;color:rgba(255,255,255,.72);max-width:52ch}
 
   .promesses{padding:60px 0}
   .titre-bloc{text-align:center;margin-bottom:38px}
@@ -155,25 +164,40 @@
   .mentions{margin-top:26px;padding-top:20px;border-top:1px solid rgba(255,255,255,.14);
     font-size:13px;color:rgba(255,255,255,.6)}
 
-  /* Une évocation de l'écran, dessinée en HTML : rien à charger, et
-     elle reste nette partout. Elle s'efface sur les petits écrans, où
-     elle n'apporterait qu'un encombrement. */
-  .mock{justify-self:center;width:min(280px,80vw)}
+  /* LE TÉLÉPHONE DU BANDEAU : une capture de l'application dans un
+     cadre. Il s'efface sur les petits écrans, où la galerie juste
+     dessous montre déjà les écrans en entier. */
+  .mock{justify-self:center;width:min(300px,80vw)}
   .mock-cadre{
-    border-radius:34px;border:9px solid rgba(255,255,255,.16);
+    border-radius:38px;border:10px solid #0B1433;
     background:var(--blanc);overflow:hidden;box-shadow:0 30px 60px -28px rgba(0,0,0,.6);
   }
-  .mock-haut{padding:14px 14px 10px;border-bottom:1px solid var(--trait)}
-  .mock-haut .logo-mot{font-size:21px}
-  .mock-corps{padding:12px 14px 18px;display:grid;gap:9px}
-  .mock-ligne{display:flex;align-items:center;gap:10px;border:1px solid var(--trait);
-    border-radius:13px;padding:9px 11px}
-  .mock-rond{width:31px;height:31px;border-radius:50%;flex:none}
-  .mock-texte{flex:1;min-width:0}
-  .mock-texte b{display:block;font-size:12px;font-weight:600;color:var(--encre)}
-  .mock-texte span{display:block;font-size:10px;color:var(--encre-tres-douce)}
+  .mock-cadre img{width:100%;height:auto}
   @media (max-width:899px){ .mock{display:none} }
   @media (min-width:900px){ .bandeau .large{grid-template-columns:1.12fr .88fr} }
+
+  /* ---------- L'application en images ----------
+     Quatre écrans, dans l'ordre d'un achat. Sur un téléphone, une rangée
+     qu'on fait glisser du doigt ; sur un ordinateur, les quatre de front. */
+  .ecrans{padding:60px 0;background:var(--fond)}
+  .ecrans-rangee{
+    display:grid;grid-auto-flow:column;grid-auto-columns:min(240px,70vw);gap:18px;
+    overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 20px 12px;margin:0 -20px;
+    scrollbar-width:none;
+  }
+  .ecrans-rangee::-webkit-scrollbar{display:none}
+  @media (min-width:1040px){
+    .ecrans-rangee{grid-auto-flow:row;grid-template-columns:repeat(4,1fr);overflow:visible;
+      margin:0;padding:4px 0 0}
+  }
+  .ecran{margin:0;scroll-snap-align:center;text-align:center}
+  .ecran-cadre{
+    border-radius:30px;border:8px solid #0B1433;overflow:hidden;background:var(--blanc);
+    box-shadow:0 22px 44px -26px rgba(0,27,82,.55);
+  }
+  .ecran-cadre img{width:100%;height:auto}
+  .ecran figcaption{margin-top:12px;font-size:14.5px;font-weight:600;color:var(--bleu-900)}
+  .ecrans-note{margin:22px 0 0;text-align:center;font-size:12.5px;color:var(--encre-tres-douce)}
 </style>
 </head>
 <body>
@@ -202,7 +226,7 @@
 <section class="bandeau">
   <div class="large">
     <div>
-      <h1>Vos boutiques préférées<br><span class="accent">dans une seule application</span></h1>
+      <h1>Vos boutiques préférées<br><span class="accent">dans une seule app !</span></h1>
       <p>BIZZOO réunit les commerces de votre ville. Parcourez leurs catalogues,
          comparez les prix, commandez et payez par Mobile&nbsp;Money — sans courir
          d'une boutique à l'autre.</p>
@@ -216,23 +240,48 @@
          L'application Android, une fois installée, fonctionne même sans réseau.</p>
     </div>
 
-    <div class="mock" aria-hidden="true">
+    <!-- UNE VRAIE CAPTURE DE L'APPLICATION, plus un écran dessiné en
+         HTML : le dessin d'avant montrait une liste que l'application
+         n'avait plus. Les noms sont ceux des boutiques de BIZZOO ; aucune
+         note ni aucun avis n'y figure, faute de pouvoir les montrer vrais. -->
+    <div class="mock">
       <div class="mock-cadre">
-        <div class="mock-haut">
-          <span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points"><i></i><i></i></span></span>
-        </div>
-        <div class="mock-corps">
-          <div class="mock-ligne"><span class="mock-rond" style="background:#6C3FBF"></span>
-            <span class="mock-texte"><b>Mode &amp; Vêtements</b><span>Homme · Femme · Chaussures</span></span></div>
-          <div class="mock-ligne"><span class="mock-rond" style="background:#0047D9"></span>
-            <span class="mock-texte"><b>High-Tech &amp; Électronique</b><span>Ordinateurs · Téléphones</span></span></div>
-          <div class="mock-ligne"><span class="mock-rond" style="background:#0F9D58"></span>
-            <span class="mock-texte"><b>Maison &amp; Jardin</b><span>Meubles · Électroménager</span></span></div>
-          <div class="mock-ligne"><span class="mock-rond" style="background:#FF8A00"></span>
-            <span class="mock-texte"><b>Restauration</b><span>Plats locaux · Boissons</span></span></div>
-        </div>
+        <img src="vitrine/ecran-accueil.jpg" width="540" height="1169"
+             alt="L'accueil de BIZZOO : la recherche, les catégories, les boutiques partenaires">
       </div>
     </div>
+  </div>
+</section>
+
+<section class="ecrans">
+  <div class="large">
+    <div class="titre-bloc">
+      <h2>L'application en images</h2>
+      <p>Du catalogue au paiement, en quatre écrans.</p>
+    </div>
+    <div class="ecrans-rangee">
+      <figure class="ecran">
+        <div class="ecran-cadre"><img src="vitrine/ecran-accueil.jpg" width="540" height="1169" loading="lazy"
+          alt="L'accueil : la recherche, les catégories, les boutiques partenaires"></div>
+        <figcaption>1. Accueil</figcaption>
+      </figure>
+      <figure class="ecran">
+        <div class="ecran-cadre"><img src="vitrine/ecran-boutique.jpg" width="540" height="1169" loading="lazy"
+          alt="La fiche d'une boutique : son logo, ses atouts, ses produits"></div>
+        <figcaption>2. Une boutique</figcaption>
+      </figure>
+      <figure class="ecran">
+        <div class="ecran-cadre"><img src="vitrine/ecran-produit.jpg" width="540" height="1169" loading="lazy"
+          alt="La fiche d'un produit : le prix, les spécifications, le bouton Ajouter au panier"></div>
+        <figcaption>3. Un produit</figcaption>
+      </figure>
+      <figure class="ecran">
+        <div class="ecran-cadre"><img src="vitrine/ecran-paiement.jpg" width="540" height="1169" loading="lazy"
+          alt="Le paiement : MTN, Moov ou Celtiis, et l'adresse de livraison"></div>
+        <figcaption>4. Le paiement</figcaption>
+      </figure>
+    </div>
+    <p class="ecrans-note">Captures de l'application. Les produits et les prix montrés sont des exemples.</p>
   </div>
 </section>
 
@@ -269,9 +318,9 @@
       </article>
       <article class="carte">
         <span class="rond"><svg class="ic" viewBox="0 0 24 24"><use href="#i-etiquette"/></svg></span>
-        <h3>Des prix clairs</h3>
-        <p>Le prix affiché est le prix payé. Un code promo se déduit avant
-           de valider, pas après.</p>
+        <h3>Des prix défiant toute concurrence</h3>
+        <p>Les boutiques de la ville côte à côte : on compare avant
+           d'acheter. Et le prix affiché est le prix payé.</p>
       </article>
     </div>
   </div>
@@ -294,8 +343,8 @@
       </article>
       <article class="etape">
         <h3>Payez</h3>
-        <p>Mobile Money ou carte bancaire. Le paiement est confirmé par
-           l'opérateur, jamais par l'application.</p>
+        <p>Par Mobile Money, depuis votre téléphone. Le paiement est confirmé
+           par l'opérateur, jamais par l'application.</p>
       </article>
       <article class="etape">
         <h3>Recevez</h3>
@@ -359,7 +408,7 @@
       </nav>
     </div>
     <p class="mentions">BIZZOO — place de marché en ligne, Cotonou, Bénin.
-       Paiement Mobile Money et carte bancaire.</p>
+       Paiement par Mobile Money.</p>
   </div>
 </footer>
 

@@ -138,12 +138,20 @@ le B au panier — reste une image : c'est un dessin fait pour un écran
 d'accueil, et elle n'a pas sa place à côté du mot. Posée en tête du menu
 latéral, elle donnait deux marques l'une contre l'autre.
 
-**L'orange se pose sous une encre sombre, jamais sous du blanc.** Du
-blanc sur `#FF8A00` donne **2,36:1** — sous le seuil de lisibilité même
-pour un gros titre. La charte pose son `#1F2937` dessus : **6,21:1**. Le
-banc relève le contraste sur le bouton lui-même et refuse en dessous de
-4,5:1. C'est pourquoi « Ajouter au panier » et « Passer la commande »
-portent l'orange avec une encre sombre, et non du blanc.
+**Sur l'orange, du blanc — c'est le choix de la DA corrigée, pas le plus
+lisible.** Du blanc sur `#FF8A00` donne **2,36:1**, sous le seuil de
+4,5:1 des règles d'accessibilité ; l'encre sombre `#1F2937` y donnait
+**6,21:1**, et la version 3.42 l'employait pour cette raison. La DA
+corrigée remet du blanc sur « Ajouter au panier » et « Passer la
+commande » : la marque a tranché. On compense ce qui peut l'être sans
+toucher à la couleur — un texte **gras** (700) et un peu plus grand.
+
+Pour revenir au sombre, une ligne par feuille de style : le jeton
+`--orange-texte` vaut `#FFFFFF` ; le passer à `#1F2937` dans
+`client/styles.css`, `admin/styles.css` et `index.html`, et tous les
+composants orange suivent. Le banc vérifie que le blanc et le gras sont
+bien posés, et **affiche** le contraste à chaque passage plutôt que de
+le taire.
 
 **Un défaut que seule la capture d'écran a montré.** La barre du haut est
 passée du bleu au blanc ; ses boutons, eux, sont restés blancs — donc
@@ -165,7 +173,7 @@ une. Le chemin se donne par `PLAYWRIGHT`, l'adresse par `BANC_URL` si le
 serveur n'est pas sur 5180, le navigateur par `CHROMIUM` pour en
 désigner un déjà installé, et `CAPTURES=<dossier>` range les images.
 
-Quarante-deux constats sur les deux applications, à quatre largeurs
+Quarante-trois constats sur les deux applications, à quatre largeurs
 d'écran (360, 390, 768, 1440 px). Ils regardent ce qu'une capture
 d'écran ne montre pas :
 
@@ -185,6 +193,132 @@ barre en blanc, retirer la bascule de l'écran d'ordinateur.
 > s'étale » vérifiait une largeur de plus de 700 px — mais la colonne du
 > téléphone en fait déjà 720. Le constat restait vert avec l'écran
 > d'ordinateur entièrement désactivé. Le seuil est à 900.
+
+## La DA corrigée : les huit écrans
+
+La DA corrigée ne change pas seulement des couleurs : elle refait la
+**structure** de l'application cliente. Huit écrans — Accueil,
+Catégories, Nos boutiques, Fiche boutique, Fiche produit, Panier,
+Paiement, Confirmation — et, pour les tenir, une barre du bas plus
+courte et des écrans de parcours qui n'en ont plus.
+
+### La barre du bas : quatre onglets
+
+| Onglet | Ce qu'il ouvre |
+|---|---|
+| Accueil | l'accueil de BIZZOO — toujours, même depuis une boutique |
+| Catégories | la liste des catégories |
+| Favoris | les produits aimés et les boutiques suivies |
+| Compte | le compte, et en bas : **À propos de BIZZOO**, **Nous contacter**, **Actualiser le catalogue** |
+
+Ce qui n'est plus un onglet a gardé une place : la **recherche** est la
+barre-pilule en tête de l'accueil (et la loupe de l'écran Catégories) ;
+le **panier** est le bouton de la barre du haut ; les **infos** de
+l'enseigne sont sous Compte → À propos de BIZZOO.
+
+### Les écrans de parcours : pas d'onglets, une action en bas
+
+Fiche boutique, fiche produit, panier, paiement et confirmation n'ont
+pas de barre d'onglets, comme sur la DA : on y avance, on n'y navigue
+pas. L'action qui fait avancer est **fixée en bas** de l'écran :
+
+| Écran | Action du bas |
+|---|---|
+| Fiche produit | le compteur, et **Ajouter au panier** — orange |
+| Panier | **Passer la commande** — orange |
+| Paiement | **Payer 352 000 FCFA** — bleu, le montant dans le bouton |
+
+La DA ne met l'orange que sur ce qui ajoute au panier et sur le passage
+de commande ; payer est bleu. **L'action ne survit pas à son écran** :
+revenu à l'accueil, elle disparaît et la barre d'onglets revient. C'est
+le défaut qui se voit le moins en développant — on va toujours de
+l'avant — et le plus en vrai.
+
+### Écran par écran
+
+- **Accueil**, dans l'ordre de la DA : la recherche, les catégories en
+  ronds, la bannière, puis **Nos boutiques partenaires** — rien entre la
+  bannière et les boutiques. L'offre du jour, la publicité et les
+  produits populaires viennent dessous. Les ronds restent **huit, sur
+  deux rangées**, comme demandé pour l'accueil ; la DA n'en dessine
+  qu'une rangée de quatre, et avec des photos là où l'application a ses
+  icônes (une catégorie n'a pas d'image en base).
+- **Nos boutiques** (« Tout voir ») : la liste entière et trois filtres.
+  *Toutes* suit l'ordre de l'enseigne ; *Top* range les mieux notées et
+  **écarte celles qui n'ont aucun avis** — les mettre en queue les ferait
+  passer pour les plus mal notées ; *Proches de moi* trie par distance
+  celles qui ont posé leur adresse sur la carte, les autres suivent sans
+  distance. Une boutique sans avis écrit « Pas encore d'avis », jamais
+  un zéro.
+- **Fiche boutique** : la couverture, le logo, la note, le slogan, les
+  atouts, **Suivre**, puis trois onglets — Produits, Avis, À propos.
+  Sous « Produits », **les vignettes d'abord**, trois par rangée ; la
+  vitrine de la boutique (bannières, ventes flash, promotions, rayons)
+  vient dessous. Au-delà de neuf produits, un bouton ouvre la liste
+  complète.
+- **Fiche produit** : le cœur dans la barre du haut, le prix en bleu, la
+  remise en pastille orange, et les **Spécifications** lues dans la
+  description — ses lignes « Clé : valeur », dès qu'il y en a deux.
+- **Panier** : « Mon panier (3) », « Supprimer tout » (qui demande
+  confirmation), une corbeille par ligne, et le récapitulatif.
+- **Paiement** : la méthode, l'adresse **résumée** quand elle est déjà
+  connue (« Modifier » rouvre le formulaire, déjà rempli), et « Payer ».
+- **Confirmation** : la coche, les confettis, « Voir mes commandes » et
+  « Retour à l'accueil ».
+
+### Ce que la maquette montre et qui n'est pas vrai ici
+
+Une maquette montre un exemple ; l'application affiche des faits. Ce qui
+suit est dessiné sur la DA et n'a **pas** été recopié :
+
+| Sur la DA | Dans l'application | Pourquoi |
+|---|---|---|
+| Livraison « 5 000 FCFA » | « À convenir avec la boutique » | aucun frais de livraison n'est fixé nulle part |
+| « Orange Money », « Carte bancaire » | MTN, Moov, Celtiis | les opérateurs du Bénin ; FeexPay n'ouvre pas la carte ici |
+| « Vous allez recevoir un e-mail » | le numéro de commande à garder — ou, avec un compte, « vous serez prévenu à chaque étape » | BIZZOO n'envoie pas d'e-mail |
+| « Commande confirmée ! » | seulement quand la base a constaté le paiement | l'annoncer avant, c'est promettre une commande que la boutique n'a peut-être jamais reçue |
+| « Produits certifiés », « Service pro » | Livraison rapide, **Paiement sécurisé** (seulement quand le paiement en ligne est ouvert), SAV irréprochable | les atouts reprennent les promesses de BIZZOO ; « certifiés », personne ne l'a vérifié |
+
+Avec KkiaPay, l'opérateur se choisit dans la fenêtre de KkiaPay : l'écran
+montre une seule ligne, « Mobile Money ou carte », plutôt que trois
+choix qui ne serviraient à rien.
+
+### La vitrine
+
+La page d'accueil du site (`index.html`) suit la DA : boutons en pilule,
+blanc sur l'orange, et le titre « Vos boutiques préférées **dans une
+seule app !** ». Le téléphone dessiné en HTML — il montrait une liste
+que l'application n'avait plus — est remplacé par une **vraie capture**
+de l'application, et une galerie « L'application en images » en montre
+quatre (accueil, boutique, produit, paiement), rangées dans `vitrine/`.
+Les noms de boutiques sont ceux de BIZZOO, aucune note n'y est inventée,
+et une ligne le dit : les produits et les prix sont des exemples. La
+« carte bancaire » a quitté les textes : l'application n'encaisse que
+le Mobile Money.
+
+### Le banc des huit écrans
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-da-ecrans.mjs
+```
+
+Quarante-sept constats en sept parties : les quatre onglets ; les écrans
+de parcours sans onglets, leur action en bas et sa couleur ; l'ordre de
+l'accueil et les filtres de « Nos boutiques » ; la fiche boutique ; le
+panier ; le paiement ; la confirmation. Douze sabotages les font tomber,
+chacun sur le constat attendu : un cinquième onglet, l'action du bas
+jamais retirée, la fiche produit avec ses onglets, « Payer » en orange,
+les boutiques sans avis dans « Top », « Paiement sécurisé » affiché
+paiement fermé, « 5 000 FCFA » de livraison, « Orange Money » ajouté, la
+coche « confirmée » sur une commande à payer, l'offre du jour remise
+entre la bannière et les boutiques, le pluriel pour une seule boutique
+(« Elles vous rappellent »), la bannière de la boutique devant ses
+vignettes.
+
+Trois bancs ont suivi la nouvelle structure : `banc-accueil-enseigne.mjs`
+(les tuiles et la fiche de boutique), `banc-entete.mjs` (le nom long
+d'une boutique tient sur deux lignes sans être coupé, son slogan sur
+trois) et `banc-da.mjs` (le blanc sur l'orange).
 
 ## La base Supabase (mise en route, une seule fois)
 
@@ -2629,8 +2763,9 @@ impact-informatique-app/
   (`photos[]`, dossier `boutique/` du bucket) réglées dans l'admin —
   relevé de la position sur place en un bouton, ou extraction depuis un
   lien Google Maps collé. Côté client : bande de photos et lien
-  d'itinéraire dans l'onglet Infos. Le relevé de position demande la
-  permission Android de localisation (application admin uniquement).
+  d'itinéraire sous « À propos » de la fiche boutique. Le relevé de
+  position demande la permission Android de localisation (application
+  admin uniquement).
 - Plusieurs numéros et plusieurs adresses (colonnes `jsonb`
   `boutique.telephones` et `boutique.adresses`, 8 de chaque au
   maximum) : en plus du numéro de commande WhatsApp et de l'adresse
@@ -2644,8 +2779,8 @@ impact-informatique-app/
   ce point précis, sinon sur une recherche du texte. Les lignes laissées
   vides (numéro sans chiffre, adresse sans texte) sont écartées à
   l'enregistrement plutôt que publiées à moitié. Côté client, tout
-  arrive dans la carte « Nous contacter » de l'onglet Infos, à la suite
-  du numéro et de l'adresse principaux.
+  arrive dans la carte « Nous contacter », sous « À propos » de la
+  fiche boutique, à la suite du numéro et de l'adresse principaux.
 - Position de lecture conservée (les deux applications) : la hauteur de
   défilement de chaque écran est mémorisée et restaurée au retour en
   arrière — on retrouve sa place exacte dans une longue liste après
@@ -2683,8 +2818,8 @@ impact-informatique-app/
   (colonnes de `boutique`). Le gérant saisit un nom de compte ou un lien
   complet ; l'adresse finale est reconstruite (`Utils.lienReseau`) et
   affichée en aperçu dans l'admin. Côté client, carte « Suivez-nous »
-  dans l'onglet Infos, avec les couleurs de chaque marque — seuls les
-  réseaux remplis apparaissent.
+  sous « À propos » de la fiche boutique, avec les couleurs de chaque
+  marque — seuls les réseaux remplis apparaissent.
 - Notifications du catalogue (app client Android) : une vérification de
   fond (`VerificateurCatalogue.java`, WorkManager, toutes les 15 min et
   même application fermée) lit le produit modifié en dernier et dépose

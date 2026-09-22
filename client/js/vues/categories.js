@@ -28,8 +28,10 @@ const VueCategories = (() => {
 
     const rayons = Catalogue.categoriesBizzoo();
 
-    UI.entete({ titre: "Catégories", sous: "Tout BIZZOO, secteur par secteur",
-      actions: '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' +
+    /* Le titre seul, et la loupe qui mène à la recherche des PRODUITS :
+       le champ juste dessous, lui, ne cherche que parmi les catégories. */
+    UI.entete({ titre: "Catégories",
+      actions: '<a class="btn-ic" href="#/recherche" aria-label="Rechercher un produit">' +
         UI.icone("recherche") + "</a>" });
 
     if (!rayons.length) {

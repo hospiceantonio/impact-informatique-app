@@ -301,7 +301,7 @@ titre("Les couleurs relevées sur les éléments, pas dans la feuille");
   await ctx.close();
 }
 
-titre("L'orange n'est posé que là où il se lit");
+titre("L'orange de la DA, et le texte blanc qu'elle y pose");
 {
   const { page, ctx } = await ouvrirClient({ largeur: 390, hauteur: 1700,
     boutique: "bou_tech", hash: "#/produit/prod_hp" });
@@ -316,15 +316,26 @@ titre("L'orange n'est posé que là où il se lit");
     };
     const a = lum(s.backgroundColor), b = lum(s.color);
     return { fond: s.backgroundColor, encre: s.color, texte: o.innerText.trim(),
+      poids: Number(s.fontWeight) || 0,
       contraste: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
   });
   ok(t !== null, "l'appel à l'action porte l'orange de la DA");
   if (t) {
     ok(t.fond === ORANGE, "c'est bien l'orange de la DA (" + t.fond + ")");
-    /* Du blanc sur cet orange donne 2,36:1 — sous le seuil de tout texte.
-       La DA pose son encre sombre dessus, et c'est elle qu'on vérifie. */
-    ok(t.contraste >= 4.5,
-      "son texte s'y lit : " + t.contraste.toFixed(2) + ":1 (seuil 4,5)");
+    /* LA RÈGLE A CHANGÉ, ET CE CONSTAT AVEC ELLE. Il exigeait 4,5:1, et
+       la version précédente écrivait donc en sombre sur l'orange. La DA
+       corrigée y pose du BLANC : c'est ce qu'on vérifie désormais.
+
+       Le contraste n'est pas pour autant passé sous silence : il est
+       mesuré et AFFICHÉ à chaque passage, pour qu'on sache toujours ce
+       que coûte ce choix. S'il remontait — texte revenu au sombre —, le
+       premier constat tomberait : c'est lui qui dit ce que veut la DA. */
+    ok(t.encre === "rgb(255, 255, 255)",
+      "son texte est blanc, comme sur la DA (" + t.encre + ")");
+    ok(t.poids >= 700, "et gras, ce qui se lit mieux au soleil qu'un texte mi-gras (" +
+      t.poids + ")");
+    console.log("  info   contraste du blanc sur l'orange : " + t.contraste.toFixed(2) +
+      ":1 — sous le seuil de 4,5:1, choix de la DA (voir --orange-texte)");
   }
   await ctx.close();
 }

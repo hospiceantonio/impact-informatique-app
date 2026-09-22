@@ -24,6 +24,56 @@ const VueCompte = (() => {
 
   /* ---------- Connexion ---------- */
 
+  /* ---------- Ce qui vivait dans l'onglet « Infos » ----------
+     La barre du bas de la DA n'a que quatre onglets : les infos de
+     BIZZOO, son contact WhatsApp et l'actualisation du catalogue
+     descendent ici, sous « Compte » — connecté ou non, car on peut
+     vouloir écrire à BIZZOO sans avoir de compte. */
+  function carteBizzoo() {
+    const maison = Catalogue.enseigne();
+    const wa = maison.whatsapp
+      ? Utils.lienWhatsApp(maison.whatsapp,
+          "Bonjour " + (maison.nom || "BIZZOO") + ", je souhaite un renseignement.", maison.indicatif)
+      : "";
+    return (
+      '<div class="carte cp-bizzoo">' +
+        '<a class="ligne-info" href="#/infos">' +
+          '<span class="rond-bleu">' + UI.icone("infos") + "</span>" +
+          "<span><strong>À propos de BIZZOO</strong><br><small>Contacts, réseaux, " +
+            "installer l'application</small></span>" +
+          UI.icone("chevron", "ic-sm") +
+        "</a>" +
+        (wa
+          ? '<a class="ligne-info" target="_blank" rel="noopener" href="' + Utils.echapper(wa) + '">' +
+              '<span class="rond-wa">' + UI.icone("whatsapp") + "</span>" +
+              "<span><strong>Nous contacter</strong><br><small>Écrire à BIZZOO sur WhatsApp</small></span>" +
+              UI.icone("chevron", "ic-sm") +
+            "</a>"
+          : "") +
+        '<button type="button" class="ligne-info" id="cp-actualiser">' +
+          '<span class="rond-bleu">' + UI.icone("actualiser") + "</span>" +
+          "<span><strong>Actualiser le catalogue</strong><br><small>Les derniers prix et " +
+            "produits des boutiques</small></span>" +
+        "</button>" +
+      "</div>"
+    );
+  }
+
+  function brancherCarteBizzoo() {
+    const bouton = UI.$("#cp-actualiser");
+    if (!bouton) return;
+    bouton.onclick = async () => {
+      bouton.disabled = true;
+      const rond = bouton.querySelector(".ic");
+      if (rond) rond.classList.add("tourne-seul");
+      let change = false;
+      try { change = await Live.verifier(); } catch (_) { /* hors connexion */ }
+      if (rond) rond.classList.remove("tourne-seul");
+      bouton.disabled = false;
+      UI.toast(change ? "Catalogue mis à jour" : "Catalogue déjà à jour", "ok");
+    };
+  }
+
   function connexion(vue) {
     UI.entete({ titre: "Se connecter", retour: true });
 
@@ -57,7 +107,9 @@ const VueCompte = (() => {
           "commandes depuis n'importe quel téléphone.</p>" +
         '<a class="btn btn-clair" href="#/inscription">' + UI.icone("compte") +
           "Créer mon compte</a>" +
-      "</div>";
+      "</div>" +
+      carteBizzoo();
+    brancherCarteBizzoo();
 
     const entrer = async () => {
       const email = UI.$("#cp-email").value.trim();
@@ -505,11 +557,13 @@ const VueCompte = (() => {
         '<a class="btn btn-clair" href="#/adresses" style="margin-top:10px">' +
           UI.icone("lieu") + "Mes adresses</a>" +
       "</div>" +
+      carteBizzoo() +
       '<div class="carte">' +
         '<button type="button" class="btn btn-clair" id="cp-sortir">' + UI.icone("retour") +
           "Se déconnecter</button>" +
       "</div>";
 
+    brancherCarteBizzoo();
     brancherRevendeur(vue);
     brancherEspaceVendeur(vue);
     brancherOuRevendeur(vue);

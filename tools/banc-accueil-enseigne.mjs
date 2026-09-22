@@ -106,7 +106,9 @@ async function ouvrir(largeur, { unique = false } = {}) {
 /* Combien de cartes par rangée : on relève le « top » de chacune. */
 const parRangee = (page) => page.evaluate(() => {
   const par = new Map();
-  for (const c of document.querySelectorAll(".bou-grille .bou-carte")) {
+  /* LES TUILES DE LA DA : même règle qu'avant — trois par rangée —,
+     posée sur les nouvelles « bou-tuile » qui ont remplacé les cartes. */
+  for (const c of document.querySelectorAll(".bou-tuiles .bou-tuile")) {
     const y = Math.round(c.getBoundingClientRect().top);
     par.set(y, (par.get(y) || 0) + 1);
   }
@@ -126,19 +128,19 @@ titre("Et rien n'y déborde, sur le plus petit téléphone");
 {
   const { page, ctx } = await ouvrir(320);
   const m = await page.evaluate(() => {
-    const cartes = [...document.querySelectorAll(".bou-grille .bou-carte")];
-    const g = document.querySelector(".bou-grille").getBoundingClientRect();
+    const cartes = [...document.querySelectorAll(".bou-tuiles .bou-tuile")];
+    const g = document.querySelector(".bou-tuiles").getBoundingClientRect();
     let deborde = 0, hauteurs = new Set(), rondTrop = 0;
     for (const c of cartes) {
       const r = c.getBoundingClientRect();
       if (r.left < g.left - 1 || r.right > g.right + 1) deborde++;
-      const rond = c.querySelector(".bou-rond").getBoundingClientRect();
+      const rond = c.querySelector(".bou-logo").getBoundingClientRect();
       if (rond.width > r.width - 16) rondTrop++;
       hauteurs.add(Math.round(r.height));
     }
     return { deborde, rondTrop, hauteurs: [...hauteurs],
       largeurPage: document.documentElement.scrollWidth,
-      rond: Math.round(cartes[0].querySelector(".bou-rond").getBoundingClientRect().width),
+      rond: Math.round(cartes[0].querySelector(".bou-logo").getBoundingClientRect().width),
       carte: Math.round(cartes[0].getBoundingClientRect().width) };
   });
   ok(m.deborde === 0, "aucune carte ne sort de la grille");
@@ -186,13 +188,16 @@ titre("Une boutique ne prête pas son slogan à l'enseigne");
   const { page, ctx } = await ouvrir(390);
   await page.evaluate(() => { location.hash = "#/boutique/bou_0"; });
   await page.waitForTimeout(900);
+  /* LA FICHE DE LA DA porte le slogan de la boutique, sous son nom —
+     là où l'ancien en-tête le portait. La règle ne change pas : chez
+     une boutique, c'est SON slogan, jamais celui de BIZZOO. */
   const m = await page.evaluate(() => ({
     sous: !!document.querySelector(".topbar .logo-sous"),
-    enseigne: !!document.querySelector(".topbar-enseigne"),
-    texte: (document.querySelector(".topbar-enseigne .sous") || {}).textContent || "",
+    enseigne: !!document.querySelector(".bou-fiche"),
+    texte: (document.querySelector(".bou-fiche-slogan") || {}).textContent || "",
   }));
   ok(!m.sous, "chez une boutique, le slogan de BIZZOO disparaît");
-  ok(m.enseigne, "c'est l'en-tête de la boutique qui prend la place");
+  ok(m.enseigne, "c'est la fiche de la boutique qui prend la place");
   ok(/Slogan de IMPACT/.test(m.texte), "et c'est SON slogan à elle (" + m.texte.trim() + ")");
   await ctx.close();
 }

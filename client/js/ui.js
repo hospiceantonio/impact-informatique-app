@@ -68,17 +68,8 @@ const UI = (() => {
      écrans du panier lui-même — y renvoyer depuis là ne mènerait nulle
      part. */
 
-  /* Le compte vit à côté du panier, dans la barre du haut : une icône qui
-     mène à « Mon compte » quand on est connecté, à la connexion sinon. Pas
-     d'onglet en bas — la barre est déjà pleine, et le compte n'est pas un
-     rayon du magasin. */
-  function boutonCompte() {
-    if (/^#\/(connexion|inscription|mot-de-passe|compte)/.test(location.hash)) return "";
-    const dedans = typeof Compte !== "undefined" && Compte.connecte();
-    return '<a class="btn-ic" href="#/' + (dedans ? "compte" : "connexion") +
-      '" aria-label="' + (dedans ? "Mon compte" : "Se connecter") + '">' +
-      icone("compte") + "</a>";
-  }
+  /* Le compte n'est plus dans la barre du haut : c'est un onglet de la
+     barre du bas, comme sur la DA. */
 
   function boutonPanier() {
     if (/^#\/(panier|commande|mes-commandes)/.test(location.hash)) return "";
@@ -156,7 +147,9 @@ const UI = (() => {
       ? '<button type="button" class="btn-ic" data-action="retour" aria-label="Retour">' +
         icone("retour") + "</button>"
       : "";
-    actions = (actions || "") + boutonCompte() + boutonCloche() + boutonPanier();
+    /* Restent la cloche et le panier : deux choses qu'on doit voir
+       changer sans avoir à les chercher. */
+    actions = (actions || "") + boutonCloche() + boutonPanier();
     const actionsHtml = '<div class="topbar-actions">' + (actions || "") + "</div>";
 
     /* ---------- L'en-tête d'une boutique ----------
@@ -667,6 +660,27 @@ const UI = (() => {
     );
   }
 
+  /**
+   * LA NOTE DE LA DA : UNE étoile orange, le chiffre, le nombre d'avis —
+   * « ★ 4,7 (320 avis) ». Cinq étoiles dessinées disent la même chose
+   * en prenant trois fois la place, et sur une ligne de liste c'est le
+   * nom de la boutique qu'elles poussent dehors.
+   * Rien du tout tant qu'il n'y a pas d'avis : une note sans avis ne
+   * veut rien dire.
+   */
+  function noteCourte(cible) {
+    if (!cible || !cible.nbAvis) return "";
+    const n = Number(cible.note);
+    if (!isFinite(n) || n <= 0) return "";
+    return (
+      '<span class="note-courte">' + icone("etoile", "ic-sm") +
+        "<strong>" + e(n.toFixed(1).replace(".", ",")) + "</strong>" +
+        /* « 1 200 », avec l'espace des prix : la même règle partout. */
+        "<span>(" + e(Utils.fmtNombre(cible.nbAvis)) + " avis)</span>" +
+      "</span>"
+    );
+  }
+
   /** La note d'un produit ou d'une boutique, ou rien du tout. */
   function noteHtml(cible, options) {
     if (!cible || !cible.nbAvis) return "";
@@ -837,6 +851,42 @@ const UI = (() => {
     );
   }
 
+  /* ---------- La barre de recherche de la DA ----------
+     Une pilule claire, la loupe à gauche. SUR L'ACCUEIL CE N'EST PAS UN
+     CHAMP, c'est une porte : on y tape, elle mène à l'écran de
+     recherche, qui a sa propre zone de saisie et ses résultats. Un vrai
+     champ ici ferait lever le clavier sur l'accueil, et le client
+     taperait sans rien voir s'afficher dessous. */
+  function recherchePilule(texte, lien) {
+    return (
+      '<a class="recherche-pilule" href="' + e(lien || "#/recherche") + '">' +
+        icone("recherche", "ic-sm") + "<span>" + e(texte) + "</span>" +
+      "</a>"
+    );
+  }
+
+  /* ---------- L'action du bas d'un écran de parcours ----------
+     « Ajouter au panier », « Passer la commande », « Payer » : fixée au
+     bas de l'écran, à la place de la barre d'onglets que ces écrans
+     n'ont pas. L'écran suivant la retire (voir le routeur) : une action
+     ne survit pas à l'écran qui l'a posée. */
+  function barreAction(html) {
+    retirerAction();
+    const barre = document.createElement("div");
+    barre.className = "barre-action";
+    barre.id = "barre-action";
+    barre.innerHTML = '<div class="barre-action-dedans">' + html + "</div>";
+    document.body.appendChild(barre);
+    document.body.classList.add("avec-action");
+    return barre;
+  }
+
+  function retirerAction() {
+    const ancienne = document.getElementById("barre-action");
+    if (ancienne) ancienne.remove();
+    document.body.classList.remove("avec-action");
+  }
+
   function vide(icon, titre, note, bouton) {
     return (
       '<div class="vide">' + icone(icon) +
@@ -867,21 +917,21 @@ const UI = (() => {
    * c'est pour cela qu'elle vient de la base et non d'une devinette
    * sur le nom.
    */
+  /* UNE LIGNE DE LA DA : la pastille ronde, le nom, le chevron — et rien
+     d'autre. Le sous-titre d'avant (les rayons, ou « Bientôt des
+     articles ici ») et le compteur doublaient la hauteur de la liste :
+     huit catégories ne tenaient plus sur un écran. La recherche, elle,
+     regarde toujours les rayons (voir categories.js). */
   function ligneRayon(r) {
-    const rayons = Catalogue.rayonsDeLaCategorie(r.categorie.id);
-    const dessous = rayons.length
-      ? rayons.map((x) => x.sousCategorie.nom).join(" · ")
-      : "Bientôt des articles ici";
+    const couleur = /^#[0-9a-f]{6}$/i.test(String(r.categorie.couleur || "").trim())
+      ? r.categorie.couleur.trim() : "#0047D9";
     return (
       '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
-        '<span class="cat-rond cat-rond-couleur" style="background:' +
-          e(r.categorie.couleur || "#0B5CF5") + '">' +
+        '<span class="cat-rond cat-rond-couleur" style="background:' + couleur + '">' +
           icone(r.categorie.icone || "categories") + "</span>" +
         '<span class="cat-ligne-corps">' +
           '<span class="cat-ligne-nom">' + e(r.categorie.nom) + "</span>" +
-          '<span class="cat-ligne-sous">' + e(dessous) + "</span>" +
         "</span>" +
-        (r.compte ? '<span class="cat-ligne-compte">' + r.compte + "</span>" : "") +
         icone("chevron", "ic-sm") +
       "</a>"
     );
@@ -937,8 +987,9 @@ const UI = (() => {
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier, majCloche,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
-    coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, pastilleVideo, imageProduit,
+    coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, noteCourte,
+    pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
-    titreSection, vide,
+    titreSection, vide, recherchePilule, barreAction, retirerAction,
   };
 })();

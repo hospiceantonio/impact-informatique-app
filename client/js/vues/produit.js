@@ -63,23 +63,23 @@ const VueProduit = (() => {
   }
 
   /**
-   * Le compteur et le bouton « Ajouter au panier ». La fiche n'est pas
-   * redessinée après l'ajout : le client vient de la lire, la lui
-   * remettre sous les yeux lui ferait perdre sa place.
+   * Le compteur et le bouton « Ajouter au panier », dans la barre du
+   * bas. La fiche n'est pas redessinée après l'ajout : le client vient
+   * de la lire, la lui remettre sous les yeux lui ferait perdre sa place.
    */
-  function brancherPanier(vue, p) {
-    const affichage = UI.$("#p-quantite", vue);
+  function brancherPanier(barre, p) {
+    const affichage = UI.$("#p-quantite", barre);
     if (!affichage) return;
     let quantite = 1;
     const poser = () => { affichage.textContent = String(quantite); };
 
-    UI.$("#p-moins", vue).onclick = () => { quantite = Math.max(1, quantite - 1); poser(); };
-    UI.$("#p-plus", vue).onclick = () => {
+    UI.$("#p-moins", barre).onclick = () => { quantite = Math.max(1, quantite - 1); poser(); };
+    UI.$("#p-plus", barre).onclick = () => {
       quantite = Math.min(Panier.MAX_QUANTITE, quantite + 1);
       poser();
     };
 
-    UI.$("#p-ajouter", vue).onclick = () => {
+    UI.$("#p-ajouter", barre).onclick = () => {
       if (!Panier.ajouter(p.id, quantite)) {
         UI.toast("Votre panier est plein (" + Panier.MAX_ARTICLES + " produits différents)", "err");
         return;
@@ -89,7 +89,37 @@ const VueProduit = (() => {
         : "Ajouté au panier", "ok");
       quantite = 1;
       poser();
+      const dedans = UI.$("#p-deja");
+      if (dedans) dedans.hidden = false;
+      const combien = UI.$("#p-deja-combien");
+      if (combien) {
+        const n = Panier.quantiteDe(p.id);
+        combien.textContent = n + (n > 1 ? " articles" : " article");
+      }
     };
+  }
+
+  /**
+   * LES SPÉCIFICATIONS DE LA DA, tirées de la description. Une boutique
+   * écrit « Processeur : Intel Core i5 » ligne après ligne — c'est déjà
+   * un tableau, il suffit de le poser comme tel. Il en faut au moins
+   * deux : une seule ligne « Couleur : noir » au milieu d'un paragraphe
+   * n'est pas une fiche technique.
+   *
+   * Ce qui n'a pas la forme « clé : valeur » reste du texte, sous
+   * « Description » : rien de ce que la boutique a écrit ne se perd.
+   */
+  function lireSpecifications(description) {
+    const lignes = String(description || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    const specs = [];
+    const reste = [];
+    for (const l of lignes) {
+      const m = /^[-•*\s]*([^:]{2,32}?)\s*:\s*(.+)$/.exec(l);
+      if (m && !/https?$/i.test(m[1])) specs.push({ cle: m[1].trim(), valeur: m[2].trim() });
+      else reste.push(l);
+    }
+    if (specs.length < 2) return { specs: [], texte: String(description || "") };
+    return { specs, texte: reste.join("\n") };
   }
 
   async function afficher(vue, id) {
@@ -103,12 +133,14 @@ const VueProduit = (() => {
     }
 
     const boutique = Catalogue.boutique();
-    const cat = Catalogue.categorie(p.categorieId);
-    const sc = Catalogue.sousCategorie(p.categorieId, p.sousCategorieId);
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     const similaires = Catalogue.similaires(p, 4);
 
-    UI.entete({ titre: p.nom, retour: true, sous: cat ? cat.nom : "" });
+    /* L'EN-TÊTE DE LA DA : le retour à gauche, le cœur et le panier à
+       droite, et pas de titre — le nom du produit est en grand juste
+       sous la photo. Le cœur est en haut, loin de la photo : posé
+       dessus, il se touchait par accident en la faisant défiler. */
+    UI.entete({ titre: "", retour: true, actions: UI.coeur(p.id, "coeur-entete") });
 
     /* Message WhatsApp : référence, prix et description complète du produit. */
     const description = (p.description || "").split(/\n+/)
@@ -135,17 +167,39 @@ const VueProduit = (() => {
 
     html += carrousel(p);
 
+    const lu = lireSpecifications(p.description);
+    const dejaDedans = Panier.quantiteDe(p.id);
+
+    /* DANS L'ORDRE DE LA DA : le nom, le prix en bleu et sa remise en
+       pastille orange, l'étoile et les avis. Ce qui suit — l'état du
+       stock, la vente flash, le code — ne figure pas sur la maquette,
+       mais le client en a besoin : il vient après, plus discret. */
     html +=
-      '<div class="carte fiche-infos">' +
+      '<div class="fiche-infos">' +
+        '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
+        '<div class="fiche-prix-ligne">' +
+          UI.prixHtml(p, { grand: true }) +
+          (remise !== null ? '<span class="badge badge-promo">-' + remise + "&nbsp;%</span>" : "") +
+        "</div>" +
+        /* Un prix barré ressemble à une promotion, et une promotion
+           s'arrête. Ici il faut dire ce que c'est : le prix de ce
+           compte-ci, qui ne s'arrêtera pas dimanche soir. */
+        (p.prixRevendeur
+          ? '<div class="fiche-revendeur">' + UI.icone("magasin", "ic-sm") +
+            "Votre prix revendeur</div>"
+          : "") +
+        /* La note mène au bloc des avis, plus bas. */
+        (p.nbAvis ? '<a class="fiche-note" href="#av-bloc">' + UI.noteCourte(p) + "</a>" : "") +
         '<div class="fiche-badges">' +
           '<span class="badge ' + Catalogue.STATUTS[etat].classe + '">' +
             (etat === "disponible" ? UI.icone("check", "ic-sm") : "") +
             Catalogue.STATUTS[etat].nom + "</span>" +
-          (remise !== null ? '<span class="badge badge-promo">Promotion -' + remise + " %</span>" : "") +
           (Catalogue.enVenteFlash(p)
             ? '<span class="badge badge-flash">' + UI.icone("energie", "ic-sm") + "Vente flash</span>"
             : "") +
           (p.enAvant ? '<span class="badge badge-avant">' + UI.icone("etoile", "ic-sm") + "Sélection</span>" : "") +
+          (p.code ? '<span class="fiche-code">Code ' + Utils.echapper(p.code) + "</span>" : "") +
+          (p.reference ? '<span class="fiche-ref">Réf. ' + Utils.echapper(p.reference) + "</span>" : "") +
         "</div>" +
         (Catalogue.enVenteFlash(p)
           ? '<div class="flash-echeance">' + UI.icone("horloge", "ic-sm") +
@@ -157,35 +211,24 @@ const VueProduit = (() => {
             " En cours d'approvisionnement — arrive " +
             Utils.echapper(Utils.delaiEnMots(Catalogue.joursAppro(p))) + "</div>"
           : "") +
-        '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
-        (p.code || p.reference
-          ? '<div class="fiche-reference">' +
-              (p.code ? '<span class="fiche-code">Code ' + Utils.echapper(p.code) + "</span>" : "") +
-              (p.reference ? "Réf. " + Utils.echapper(p.reference) : "") +
-            "</div>"
-          : "") +
-        UI.prixHtml(p, { grand: true }) +
-        /* Un prix barré ressemble à une promotion, et une promotion
-           s'arrête. Ici il faut dire ce que c'est : le prix de ce
-           compte-ci, qui ne s'arrêtera pas dimanche soir. */
-        (p.prixRevendeur
-          ? '<div class="fiche-revendeur">' + UI.icone("magasin", "ic-sm") +
-            "Votre prix revendeur</div>"
-          : "") +
-        /* La note, avec son chiffre : ici on compare, on ne survole
-           plus. Elle mène au bloc des avis, plus bas. */
-        (p.nbAvis
-          ? '<a class="fiche-note" href="#av-bloc">' +
-            UI.noteHtml(p, { grand: true }) + "</a>"
-          : "") +
-        (cat
-          ? '<div class="fiche-chemin">' +
-              '<a class="puce" href="#/categorie/' + Utils.echapper(cat.id) + '">' + Utils.echapper(cat.nom) + "</a>" +
-              (sc ? '<a class="puce" href="#/categorie/' + Utils.echapper(cat.id) + "?sc=" + Utils.echapper(sc.id) + '">' +
-                Utils.echapper(sc.nom) + "</a>" : "") +
-            "</div>"
-          : "") +
+        /* Déjà dans le panier : on le dit, pour qu'il ne l'ajoute pas
+           deux fois par mégarde. Le bloc est posé caché et se montre
+           après un ajout, sans redessiner la fiche. */
+        '<a class="p-panier-dedans" id="p-deja" href="#/panier"' + (dejaDedans ? "" : " hidden") + ">" +
+          UI.icone("check", "ic-sm") + "<span>Déjà dans votre panier — <b id=\"p-deja-combien\">" +
+          dejaDedans + (dejaDedans > 1 ? " articles" : " article") + "</b></span>" +
+          UI.icone("chevron", "ic-sm") + "</a>" +
       "</div>";
+
+    if (lu.specs.length) {
+      html +=
+        '<div class="carte">' +
+          '<div class="carte-titre">Spécifications</div>' +
+          '<dl class="fiche-specs">' + lu.specs.map((s) =>
+            "<dt>" + Utils.echapper(s.cle) + "</dt><dd>" + Utils.echapper(s.valeur) + "</dd>").join("") +
+          "</dl>" +
+        "</div>";
+    }
 
     if (p.video) {
       html +=
@@ -197,44 +240,11 @@ const VueProduit = (() => {
         "</div>";
     }
 
-    if (p.description) {
+    if (lu.texte.trim()) {
       html +=
         '<div class="carte">' +
           '<div class="carte-titre">Description</div>' +
-          '<div class="fiche-description">' + Utils.paragraphes(p.description) + "</div>" +
-        "</div>";
-    }
-
-    /* Le panier. Un produit en rupture n'y entre pas : la boutique ne
-       pourrait pas le remettre, et la base refuserait la commande au
-       moment de payer — autant le dire tout de suite. */
-    if (etat !== "rupture") {
-      const dejaDedans = Panier.quantiteDe(p.id);
-      html +=
-        '<div class="carte">' +
-          '<div class="carte-titre">' + UI.icone("sacoche", "ic-sm") + " Mon panier</div>" +
-          (dejaDedans
-            ? '<div class="p-panier-dedans">' + UI.icone("check", "ic-sm") +
-                "<span>Déjà dans votre panier — " + dejaDedans +
-                (dejaDedans > 1 ? " articles" : " article") + "</span></div>"
-            : "") +
-          '<div class="p-panier-ligne">' +
-            '<div class="pa-compteur">' +
-              '<button type="button" id="p-moins" aria-label="Un de moins">−</button>' +
-              '<span id="p-quantite">1</span>' +
-              '<button type="button" id="p-plus" aria-label="Un de plus">+</button>' +
-            "</div>" +
-            '<button type="button" class="btn btn-orange" id="p-ajouter">' + UI.icone("sacoche") +
-              (dejaDedans ? "Ajouter encore" : "Ajouter au panier") + "</button>" +
-            /* Le cœur prend sa place dans la rangée plutôt que de
-               flotter sur la photo : ici on décide, et une pastille
-               posée sur une image se touche par accident en la faisant
-               défiler du doigt. */
-            UI.coeur(p.id, "coeur-fiche") +
-          "</div>" +
-          (dejaDedans
-            ? '<a class="btn btn-clair" href="#/panier" style="margin-top:10px">Voir mon panier</a>'
-            : "") +
+          '<div class="fiche-description">' + Utils.paragraphes(lu.texte) + "</div>" +
         "</div>";
     }
 
@@ -283,7 +293,23 @@ const VueProduit = (() => {
 
     vue.innerHTML = html;
     activerCarrousel();
-    brancherPanier(vue, p);
+
+    /* « AJOUTER AU PANIER », ORANGE, EN BAS — comme la DA. Le compteur
+       l'accompagne : on choisit la quantité là où l'on ajoute.
+       Un produit en rupture n'a pas de barre : la boutique ne pourrait
+       pas le remettre, et la base refuserait la commande au moment de
+       payer. Le bouton WhatsApp, plus haut, reste là pour demander le
+       délai. */
+    if (etat !== "rupture") {
+      const barre = UI.barreAction(
+        '<div class="pa-compteur pa-compteur-da">' +
+          '<button type="button" id="p-moins" aria-label="Un de moins">−</button>' +
+          '<span id="p-quantite">1</span>' +
+          '<button type="button" id="p-plus" aria-label="Un de plus">+</button>' +
+        "</div>" +
+        '<button type="button" class="btn btn-orange" id="p-ajouter">Ajouter au panier</button>');
+      brancherPanier(barre, p);
+    }
 
     /* Un avis déposé change la note du produit : on redemande le
        catalogue, et la fiche se redessine avec ses nouvelles étoiles. */

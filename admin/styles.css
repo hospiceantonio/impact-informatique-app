@@ -38,13 +38,21 @@
   --bleu-100:#D6E2FB;
   --bleu-50:#EDF2FE;
 
-  /* L'ORANGE DE LA DA. Il sert de FOND et porte le texte sombre :
-     blanc sur cet orange donne 2,36:1, illisible au soleil sur un
-     écran d'entrée de gamme. Le même orange avec la couleur de texte
-     de la DA donne 6,21:1. En TEXTE sur fond clair, c'est l'orange
-     foncé — l'orange vif y tomberait au même 2,36:1. */
+  /* L'ORANGE DE LA DA, et le texte qu'il porte : BLANC, comme sur la
+     DA corrigée — ses trois boutons, sa pastille de remise, sa cloche.
+
+     CE N'EST PAS LE CHOIX LE PLUS LISIBLE, et il faut le savoir : blanc
+     sur cet orange donne 2,36:1, sous le seuil des règles
+     d'accessibilité ; le texte sombre de la DA y donnait 6,21:1, et la
+     version précédente l'employait pour cette raison. La marque a
+     tranché pour le blanc. Ce jeton est le seul endroit à changer pour
+     revenir au sombre : « #1F2937 », et tous les composants orange
+     suivent.
+
+     En TEXTE sur fond clair, c'est l'orange foncé — l'orange vif y
+     tomberait au même 2,36:1. */
   --orange:#FF8A00;
-  --orange-texte:#1F2937;
+  --orange-texte:#FFFFFF;
   --orange-fonce:#A85800;
   --orange-clair:#FFF1DE;
   --ambre:#FFA808;
@@ -218,7 +226,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
      coins arrondis. Le dégradé d'avant venait d'une autre charte ;
      la DA montre un aplat. */
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  min-height:48px;padding:10px 18px;border:0;border-radius:13px;
+  /* En pilule, comme les trois boutons de la DA corrigée. */
+  min-height:48px;padding:10px 20px;border:0;border-radius:999px;
   background:var(--bleu);
   color:#fff;font-weight:600;font-size:15px;
   box-shadow:0 10px 22px -12px rgba(0,71,217,.6);
@@ -234,7 +243,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    passer la commande. Il porte le texte sombre, pas du blanc : voir la
    note sur l'orange dans les jetons de design. */
 .btn-orange{
-  background:var(--orange);color:var(--orange-texte);
+  background:var(--orange);color:var(--orange-texte);font-weight:700;
   box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
 }
 /* LIEN TEXTE DE LA DA : souligné, bleu, sans fond ni cadre. */

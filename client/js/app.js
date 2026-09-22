@@ -6,43 +6,59 @@ const App = { evenementInstallation: null };
 
 (() => {
 
+  /* « onglet » : celui qui s'allume dans la barre du bas. Quatre
+     onglets pour tous les écrans — chacun dit sous lequel il se range.
+
+     « sansOnglets » : les écrans de PARCOURS de la DA — une boutique, un
+     produit, le panier, le paiement, la confirmation. Ils n'ont pas de
+     barre du bas : un retour en haut, et une action en bas. */
   const ROUTES = [
     { motif: /^\/$/, vue: (v) => VueAccueil.afficher(v), onglet: "/" },
-    { motif: /^\/boutique\/([^/]+)$/, vue: (v, m) => VueAccueil.boutique(v, m[1]), onglet: "/" },
+    /* « Nos boutiques » : la liste entière, qu'on ouvre depuis
+       « Nos boutiques partenaires » sur l'accueil. */
+    { motif: /^\/boutiques$/, vue: (v) => VueAccueil.boutiques(v), onglet: "/" },
+    { motif: /^\/boutique\/([^/]+)$/, vue: (v, m, p) => VueAccueil.boutique(v, m[1], p),
+      sansOnglets: true },
     { motif: /^\/categories$/, vue: (v) => VueCategories.liste(v), onglet: "/categories" },
     { motif: /^\/categorie\/([^/]+)$/, vue: (v, m, p) => VueCategories.rayon(v, m[1], p), onglet: "/categories" },
-    { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v) },
-    { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/produits" },
-    { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]) },
-    { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/recherche" },
-    /* Le panier traverse les boutiques : aucun onglet ne s'allume, on y
-       entre par le bouton de la barre du haut. */
-    { motif: /^\/panier$/, vue: (v) => VuePanier.afficher(v) },
-    { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v) },
-    { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]) },
-    { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v) },
+    { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v), onglet: "/" },
+    /* Les produits d'une boutique : l'onglet « Produits » de sa fiche y
+       mène aussi, pour qui veut la liste entière avec ses tris. */
+    { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/" },
+    { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]),
+      sansOnglets: true },
+    /* La recherche n'est plus un onglet : c'est la barre-pilule de
+       l'accueil, comme sur la DA. Elle se range donc sous « Accueil ». */
+    { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/" },
+    /* Le panier traverse les boutiques : on y entre par le bouton de la
+       barre du haut, et il ne porte que son action — « Passer la
+       commande ». */
+    { motif: /^\/panier$/, vue: (v) => VuePanier.afficher(v), sansOnglets: true },
+    { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v), sansOnglets: true },
+    { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]), sansOnglets: true },
+    { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v), onglet: "/compte" },
     /* Le SAV : on y arrive depuis le reçu d'une commande payée, c'est
        là que le client est quand il constate le problème. */
-    { motif: /^\/reclamations$/, vue: (v) => VueSAV.mesReclamations(v) },
-    { motif: /^\/reclamation\/([^/]+)$/, vue: (v, m) => VueSAV.fil(v, m[1]) },
-    /* Le compte traverse les boutiques, comme le panier : aucun onglet
-       ne s'allume, on y entre par la barre du haut. */
-    { motif: /^\/connexion$/, vue: (v) => VueCompte.connexion(v) },
+    { motif: /^\/reclamations$/, vue: (v) => VueSAV.mesReclamations(v), onglet: "/compte" },
+    { motif: /^\/reclamation\/([^/]+)$/, vue: (v, m) => VueSAV.fil(v, m[1]), onglet: "/compte" },
+    /* Se connecter, c'est ouvrir son compte : l'onglet « Compte » reste
+       allumé, sans quoi on croirait avoir quitté l'écran qu'on a pressé. */
+    { motif: /^\/connexion$/, vue: (v) => VueCompte.connexion(v), onglet: "/compte" },
     /* Entrer par son numéro : au Bénin, beaucoup de clients ont un
        téléphone et pas d'adresse e-mail. */
-    { motif: /^\/connexion-tel$/, vue: (v) => VueCompte.connexionTel(v) },
-    { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v) },
-    { motif: /^\/mot-de-passe$/, vue: (v) => VueCompte.motDePasse(v) },
-    { motif: /^\/compte$/, vue: (v) => VueCompte.monCompte(v) },
-    /* Les favoris et les adresses vivent sous le compte, comme dans la
-       maquette : la barre du bas est pleine, et ce sont deux écrans
-       qu'on ouvre de temps en temps, pas à chaque visite. */
-    { motif: /^\/favoris$/, vue: (v) => VueFavoris.afficher(v) },
+    { motif: /^\/connexion-tel$/, vue: (v) => VueCompte.connexionTel(v), onglet: "/compte" },
+    { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v), onglet: "/compte" },
+    { motif: /^\/mot-de-passe$/, vue: (v) => VueCompte.motDePasse(v), onglet: "/compte" },
+    { motif: /^\/compte$/, vue: (v) => VueCompte.monCompte(v), onglet: "/compte" },
+    /* LES FAVORIS SONT UN ONGLET, comme sur la DA. */
+    { motif: /^\/favoris$/, vue: (v) => VueFavoris.afficher(v), onglet: "/favoris" },
     /* Les notifications : ce qui vient d'arriver, et le doigt qui mène
        à l'opération concernée. */
-    { motif: /^\/notifications$/, vue: (v) => VueNotifications.afficher(v) },
-    { motif: /^\/adresses$/, vue: (v) => VueFavoris.adresses(v) },
-    { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/infos" },
+    { motif: /^\/notifications$/, vue: (v) => VueNotifications.afficher(v), onglet: "/compte" },
+    { motif: /^\/adresses$/, vue: (v) => VueFavoris.adresses(v), onglet: "/compte" },
+    /* « À propos de BIZZOO » : ses contacts, ses réseaux, et le réglage
+       de la base. On y entre par l'écran du compte. */
+    { motif: /^\/infos$/, vue: (v) => VueInfos.afficher(v), onglet: "/compte" },
   ];
 
 
@@ -133,8 +149,14 @@ const App = { evenementInstallation: null };
       return;
     }
     reglerBoutique(chemin);
-    reglerContact();
-    reglerOnglets(route.onglet || "");
+    /* La barre du bas se range AVANT que l'écran ne se dessine, et
+       l'action du bas de l'écran quitté s'en va : « Ajouter au panier »
+       ne doit pas survivre sur le panier. Chaque écran de parcours pose
+       la sienne. */
+    document.body.classList.toggle("sans-onglets", !!route.sansOnglets);
+    UI.retirerAction();
+    reglerContact(chemin);
+    reglerOnglets();
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
@@ -172,7 +194,15 @@ const App = { evenementInstallation: null };
        l'écran d'une boutique parle de celle-là. C'est ici que la
        question se règle, avant que l'écran ne se dessine — la barre
        d'onglets, juste après, a besoin de la réponse. */
-    if (chemin === "/") Catalogue.quitterBoutique();
+    /* « À propos de BIZZOO » parle de l'enseigne, même si l'on sort
+       d'une boutique pour l'ouvrir : on y arrive par le compte, pas par
+       la boutique, dont la fiche a son propre « À propos ». */
+    /* « Catégories » aussi : c'est le menu de BIZZOO, le même partout.
+       Entré dans une boutique puis passé à cet onglet, on ne doit pas
+       tomber sur les seuls rayons de la boutique quittée. */
+    if (chemin === "/" || chemin === "/infos" || chemin === "/categories") {
+      Catalogue.quitterBoutique();
+    }
     const laBoutique = /^\/boutique\/([^/]+)$/.exec(chemin);
     if (laBoutique) Catalogue.choisirBoutique(laBoutique[1]);
 
@@ -193,77 +223,50 @@ const App = { evenementInstallation: null };
        reste la sienne. */
   }
 
-  /* ---------- Les onglets d'un catalogue ----------
-     « CATÉGORIES » EST LE MENU DE BIZZOO, et il l'est partout.
-     Tant que chaque boutique inventait ses rayons, cet onglet n'avait
-     rien à dire avant d'être entré quelque part : il aurait mélangé
-     les classements de tous les commerces. La liste est maintenant
-     celle de l'enseigne, la même pour tout le monde — c'est même par
-     là qu'on choisit où aller. Le cacher sur l'accueil reviendrait à
-     retirer la porte d'entrée.
+  /* ---------- Les quatre onglets de la DA ----------
+     Accueil, Catégories, Favoris, Compte : les mêmes partout.
 
-     « Produits » reste un onglet de boutique : hors de l'une d'elles,
-     il déroulerait tout le catalogue de la place de marché, sans ordre
-     ni raison. On y arrive par une catégorie ou par la recherche.
+     « ACCUEIL » RAMÈNE À BIZZOO, TOUJOURS. L'ancienne barre gardait le
+     client dans la boutique où il était entré — « Accueil » y menait à
+     la vitrine de la boutique, et un onglet BIZZOO servait à en sortir.
+     La DA n'a plus ce double sens : la fiche d'une boutique est un écran
+     de parcours, avec son retour en haut, et « Accueil » est celui de
+     l'enseigne. Une boutique partagée par lien s'ouvre toujours sur sa
+     fiche ; c'est seulement la sortie qui mène désormais à toutes les
+     autres.
 
-     Un onglet reste visible quand c'est l'écran affiché, même hors
-     d'une boutique : une barre qui ne montre pas où l'on se trouve
-     désoriente plus qu'elle n'allège. */
-
-  const ONGLETS_DE_BOUTIQUE = ["/produits"];
+     « Catégories » est le menu de BIZZOO, et il l'est partout : la
+     liste est celle de l'enseigne, la même pour tout le monde. */
 
   /* Est-on CHEZ quelqu'un ? En boutique unique, toujours : il n'y a pas
      d'accueil d'enseigne où se tenir. */
   const enBoutique = () =>
     !Catalogue.multiBoutiques() || !!Catalogue.boutiqueChoisie();
 
-  function reglerOnglets(ongletAffiche) {
-    const dansUneBoutique = enBoutique();
-    for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
-      const onglet = lien.dataset.tab;
-      lien.hidden = ONGLETS_DE_BOUTIQUE.includes(onglet) &&
-        !dansUneBoutique && onglet !== ongletAffiche;
-    }
-
-    /* ---------- Où mène « Accueil » ----------
-       Une fois entré chez quelqu'un, on y reste : « Accueil » ramène à
-       LA VITRINE DE CETTE BOUTIQUE, pas à BIZZOO. Sortir se demande, et
-       c'est l'onglet BIZZOO qui le fait — sinon on quitte la boutique
-       sans l'avoir voulu, en croyant simplement remonter en haut. */
-    const choisie = Catalogue.boutiqueChoisie();
+  function reglerOnglets() {
     const accueil = document.querySelector('#tabbar a[data-tab="/"]');
-    if (accueil) {
-      accueil.href = choisie ? "#/boutique/" + choisie.id : "#/";
-    }
-
-    /* L'onglet BIZZOO n'a de sens que si l'on peut en sortir : il faut
-       plusieurs boutiques, et être entré dans l'une d'elles. */
-    const versBizzoo = document.getElementById("tab-bizzoo");
-    if (versBizzoo) versBizzoo.hidden = !choisie;
+    if (accueil) accueil.href = "#/";
   }
 
   /* ---------- « Nous contacter » ----------
-     Le dernier onglet n'ouvre pas un écran : il écrit à BIZZOO sur
-     WhatsApp — à l'enseigne, jamais à la boutique où l'on se trouvait
-     par hasard. Le numéro venant du catalogue, on repose le lien à
-     chaque écran plutôt que de le figer dans la page : il suit une mise
-     à jour des réglages sans qu'on ait à rouvrir l'application.
+     Le bouton WhatsApp flottant, sur les écrans d'UNE boutique : sa
+     fiche, ses produits. Le numéro venant du catalogue, on repose le
+     lien à chaque écran plutôt que de le figer dans la page : il suit
+     une mise à jour des réglages sans qu'on ait à rouvrir l'application.
 
-     Sans numéro renseigné, l'onglet se retire — la barre se répartit
-     alors d'elle-même sur ceux qui restent (`grid-auto-columns`). */
+     Le contact de BIZZOO, lui, n'est plus un onglet : la barre de la DA
+     en compte quatre, et il vit sous « Compte ». */
 
-  function reglerContact() {
-    const onglet = document.getElementById("tab-contact");
+  function reglerContact(chemin) {
     const flottant = document.getElementById("contact-flottant");
     const maison = Catalogue.enseigne();
 
-    /* Dans une boutique, la barre du bas porte déjà six entrées, dont
-       le retour à BIZZOO. « Contact » en sort et devient le bouton
-       flottant : il ne bouge plus d'un écran à l'autre. Sur l'accueil
-       de l'enseigne, où la barre est plus courte, il y reprend sa
-       place — un bouton qui flotte au-dessus d'une barre à moitié vide
-       n'apporterait rien. */
-    const flotte = enBoutique();
+    /* SUR LES ÉCRANS DE LA BOUTIQUE SEULEMENT. Ailleurs — le panier qui
+       mêle plusieurs boutiques, les catégories de l'enseigne — le bouton
+       écrirait à la dernière boutique visitée, qui n'a peut-être rien à
+       voir avec ce que le client regarde. */
+    const flotte = enBoutique() &&
+      /^\/(boutique\/[^/]+|produit\/[^/]+|produits)$/.test(chemin || "");
 
     /* ---------- À QUI l'on écrit ----------
        Le bouton vu DANS une boutique écrit à CETTE boutique : le client
@@ -289,18 +292,6 @@ const App = { evenementInstallation: null };
 
     const adresser = (a) => Utils.lienWhatsApp(
       a.numero, "Bonjour " + a.nom + ", je souhaite un renseignement.", a.indicatif);
-
-    /* L'onglet, lui, ne paraît que sur l'accueil de l'enseigne : c'est
-       chez elle qu'on se trouve, c'est à elle qu'il écrit. */
-    if (onglet) {
-      onglet.hidden = flotte || !maison.whatsapp;
-      if (maison.whatsapp) {
-        onglet.href = adresser({ numero: maison.whatsapp, indicatif: maison.indicatif,
-                                 nom: maison.nom });
-        onglet.target = "_blank";
-        onglet.rel = "noopener";
-      }
-    }
 
     if (flottant) {
       flottant.hidden = !flotte || !qui.numero;

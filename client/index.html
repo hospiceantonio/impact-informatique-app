@@ -102,24 +102,19 @@
        l'application, qui est un dessin fait pour un écran d'accueil et
        qui, posée ici, donnait deux marques côte à côte. -->
   <div class="tabbar-marque" aria-hidden="true"><span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points"><i></i><i></i></span></span></div>
+  <!-- LES QUATRE ONGLETS DE LA DA, et eux seuls. Rien n'a disparu,
+       chaque entrée a changé de porte : la recherche est la barre-pilule
+       de l'accueil ; les infos et le contact de BIZZOO sont sous
+       « Compte » ; les produits d'une boutique, sous l'onglet
+       « Produits » de sa fiche. -->
   <a href="#/" data-tab="/"><svg class="ic" viewBox="0 0 24 24"><use href="#i-accueil"/></svg><span>Accueil</span></a>
   <a href="#/categories" data-tab="/categories"><svg class="ic" viewBox="0 0 24 24"><use href="#i-categories"/></svg><span>Catégories</span></a>
-  <a href="#/produits" data-tab="/produits"><svg class="ic" viewBox="0 0 24 24"><use href="#i-boite"/></svg><span>Produits</span></a>
-  <a href="#/recherche" data-tab="/recherche"><svg class="ic" viewBox="0 0 24 24"><use href="#i-recherche"/></svg><span>Recherche</span></a>
-  <a href="#/infos" data-tab="/infos"><svg class="ic" viewBox="0 0 24 24"><use href="#i-infos"/></svg><span>Infos</span></a>
-  <!-- Dans une boutique, « Accueil » ramène à SA vitrine : celui-ci
-       ramène à BIZZOO, c'est-à-dire à toutes les boutiques. Il n'a donc
-       de sens que lorsqu'on est entré quelque part. -->
-  <a id="tab-bizzoo" href="#/" hidden><img class="tab-logo" src="icons/icon-192.png" alt=""><span>BIZZOO</span></a>
-  <!-- Pas un écran : le lien part vers WhatsApp. Le numéro est celui de
-       BIZZOO et vient du catalogue, donc il est posé par app.js ; sans
-       numéro renseigné, l'onglet reste caché. Dans une boutique il
-       s'efface au profit du bouton flottant, juste en dessous. -->
-  <a id="tab-contact" class="tab-contact" href="#/infos" aria-label="Nous contacter sur WhatsApp" hidden><svg class="ic" viewBox="0 0 24 24"><use href="#i-whatsapp"/></svg><span>Contact</span></a>
+  <a href="#/favoris" data-tab="/favoris"><svg class="ic" viewBox="0 0 24 24"><use href="#i-coeur"/></svg><span>Favoris</span></a>
+  <a href="#/compte" data-tab="/compte"><svg class="ic" viewBox="0 0 24 24"><use href="#i-compte"/></svg><span>Compte</span></a>
 </nav>
 
-<!-- Dans une boutique, la barre du bas est pleine : « Contact » en sort
-     et se pose ici, toujours au même endroit, quel que soit l'écran. -->
+<!-- Le contact WhatsApp de la boutique où l'on se trouve : toujours au
+     même endroit, quel que soit l'écran de cette boutique. -->
 <a id="contact-flottant" class="contact-flottant" hidden target="_blank" rel="noopener"
    aria-label="Nous contacter sur WhatsApp">
   <svg class="ic" viewBox="0 0 24 24"><use href="#i-whatsapp"/></svg>

@@ -97,14 +97,16 @@ const VuePanier = (() => {
   async function afficher(vue) {
     const groupes = Panier.parBoutique();
     const devise = Panier.devise();
+    const nombre = Panier.nombre();
 
+    /* L'EN-TÊTE DE LA DA : « Mon panier (3) », et « Supprimer tout » en
+       toutes lettres à droite. La croix d'avant se lisait « fermer » —
+       et vidait le panier. */
     UI.entete({
-      titre: "Mon panier",
+      titre: Panier.vide() ? "Mon panier" : "Mon panier (" + nombre + ")",
       retour: true,
-      sous: Panier.vide() ? "" : Panier.nombre() + " article" + (Panier.nombre() > 1 ? "s" : ""),
       actions: Panier.vide() ? "" :
-        '<button type="button" class="btn-ic" id="pa-vider" aria-label="Vider le panier">' +
-          UI.icone("fermer") + "</button>",
+        '<button type="button" class="lien-entete" id="pa-vider">Supprimer tout</button>',
     });
 
     if (Panier.vide()) {
@@ -118,18 +120,18 @@ const VuePanier = (() => {
       return;
     }
 
+    /* Une carte par boutique : chacune prépare et livre ce qui est à
+       elle, et c'est ainsi que la commande lui parviendra. */
     let html = "";
     for (const groupe of groupes) {
       html +=
         '<div class="carte pa-groupe">' +
-          '<div class="pa-groupe-titre">' +
-            UI.icone("magasin", "ic-sm") +
-            "<span>" + Utils.echapper((groupe.boutique && groupe.boutique.nom) || "Boutique") + "</span>" +
-          "</div>" +
+          (groupes.length > 1
+            ? '<div class="pa-groupe-titre">' + UI.icone("magasin", "ic-sm") +
+                "<span>" + Utils.echapper((groupe.boutique && groupe.boutique.nom) || "Boutique") +
+              "</span></div>"
+            : "") +
           groupe.lignes.map(ligneHtml).join("") +
-          '<div class="pa-sous-total"><span>Sous-total</span><strong>' +
-            Utils.echapper(Utils.fmtMontant(groupe.montant,
-              Catalogue.deviseDe(groupe.lignes[0].produit))) + "</strong></div>" +
         "</div>";
     }
 
@@ -141,19 +143,24 @@ const VuePanier = (() => {
         "</div>";
     }
 
+    /* LE RÉCAPITULATIF DE LA DA : sous-total, livraison, total en bleu.
+       LA LIVRAISON N'A PAS DE PRIX ICI, et on ne lui en invente pas : elle
+       se convient avec chaque boutique. Écrire « 5 000 FCFA » comme la
+       maquette, ce serait un chiffre que personne n'a fixé. */
     html +=
-      '<div class="carte pa-total">' +
-        '<div class="pa-total-ligne"><span>Total</span><strong>' +
+      '<div class="carte pa-recap">' +
+        '<div class="pa-recap-ligne"><span>Sous-total</span><span>' +
+          Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
+        '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>' +
+        '<div class="pa-recap-ligne pa-recap-total"><span>Total</span><strong>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
         /* Dire au revendeur que ce total est déjà le sien : sans cela,
            il attend une remise à la caisse qui ne viendra pas — elle est
            déjà dans le chiffre qu'il lit. */
         (Catalogue.auxPrixRevendeur()
-          ? '<div class="fiche-revendeur" style="margin:0 0 10px">' +
+          ? '<div class="fiche-revendeur" style="margin:10px 0 0">' +
             UI.icone("magasin", "ic-sm") + "Total à vos prix revendeur</div>"
           : "") +
-        '<p class="aide" style="margin:0 0 12px">Livraison et retrait se conviennent avec la ' +
-          "boutique après la commande.</p>" +
         /* Le prévenir ICI, pas au bout du formulaire. Découvrir qu'il
            faut un compte après avoir tapé son nom, son numéro et son
            adresse, c'est le meilleur moyen de faire abandonner un
@@ -163,14 +170,20 @@ const VuePanier = (() => {
             "<div>Un compte BIZZOO est nécessaire pour commander. " +
             "L'étape suivante vous le proposera.</div></div>"
           : "") +
-        '<button type="button" class="btn btn-orange" id="pa-commander"' +
-          (Panier.monnaiesMelangees() ? " disabled" : "") + ">" +
-          UI.icone("check") + "Commander</button>" +
       "</div>";
 
     vue.innerHTML = html;
 
+    /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
+    UI.barreAction(
+      '<button type="button" class="btn btn-orange" id="pa-commander"' +
+        (Panier.monnaiesMelangees() ? " disabled" : "") + ">Passer la commande</button>");
+
     UI.$("#pa-vider").onclick = () => {
+      /* VIDER SE CONFIRME : trois produits choisis un à un ne doivent pas
+         disparaître d'un doigt posé au mauvais endroit. */
+      if (!window.confirm("Vider le panier ? Les " + nombre + " article" +
+          (nombre > 1 ? "s" : "") + " seront retirés.")) return;
       Panier.vider();
       UI.toast("Panier vidé", "ok");
       location.hash = "#/";
@@ -195,6 +208,10 @@ const VuePanier = (() => {
     }
   }
 
+  /* UNE LIGNE DE LA DA : la photo, le nom, le prix, le compteur gris,
+     et la corbeille à droite. Le total de la ligne ne s'écrit que s'il
+     diffère du prix — à un exemplaire, « 35 000 = 35 000 » ne disait
+     rien. */
   function ligneHtml(l) {
     const p = l.produit;
     const devise = Catalogue.deviseDe(p);
@@ -206,18 +223,22 @@ const VuePanier = (() => {
           '<a class="pa-ligne-nom" href="#/produit/' + Utils.echapper(p.id) + '">' +
             Utils.echapper(p.nom) + "</a>" +
           '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
-            ' <span class="pa-ligne-sous">= ' +
-            Utils.echapper(Utils.fmtMontant((p.prix || 0) * l.quantite, devise)) + "</span></div>" +
-          '<div class="pa-compteur">' +
+            (l.quantite > 1
+              ? ' <span class="pa-ligne-sous">× ' + l.quantite + " = " +
+                Utils.echapper(Utils.fmtMontant((p.prix || 0) * l.quantite, devise)) + "</span>"
+              : "") +
+          "</div>" +
+          '<div class="pa-compteur pa-compteur-da">' +
             '<button type="button" data-panier-action="moins" data-produit="' +
               Utils.echapper(p.id) + '" aria-label="Un de moins">−</button>' +
             "<span>" + l.quantite + "</span>" +
             '<button type="button" data-panier-action="plus" data-produit="' +
               Utils.echapper(p.id) + '" aria-label="Un de plus">+</button>' +
-            '<button type="button" class="pa-retirer" data-panier-action="retirer" data-produit="' +
-              Utils.echapper(p.id) + '" aria-label="Retirer">' + UI.icone("fermer", "ic-sm") + "</button>" +
           "</div>" +
         "</div>" +
+        '<button type="button" class="pa-corbeille" data-panier-action="retirer" data-produit="' +
+          Utils.echapper(p.id) + '" aria-label="Retirer ' + Utils.echapper(p.nom) + '">' +
+          UI.icone("corbeille", "ic-sm") + "</button>" +
       "</div>"
     );
   }
@@ -332,37 +353,61 @@ const VuePanier = (() => {
        faut donc lui demander ici l'opérateur et le numéro qui paie. */
     const parFeexpay = enLigne && Paiement.fournisseur() === "feexpay";
 
-    UI.entete({ titre: "Votre commande", retour: true });
+    /* « PAIEMENT », le titre de la DA : c'est l'écran où l'on paie. */
+    UI.entete({ titre: enLigne ? "Paiement" : "Votre commande", retour: true });
+
+    /* L'ADRESSE RÉSUMÉE, COMME SUR LA DA, quand on la connaît déjà : le
+       nom, le numéro, l'adresse, et « Modifier ». Le formulaire est
+       toujours là, replié — c'est lui que la commande lit. Un client
+       qui revient n'a pas à retaper ce qu'il a donné la dernière fois. */
+    const connu = !!(c.nom && c.tel && c.adresse);
 
     vue.innerHTML =
+      /* UNE LIGNE, PAS UNE CARTE : la DA ouvre l'écran sur la méthode de
+         paiement. L'invitation reste, pour qui a un compte et veut
+         retrouver ses coordonnées — elle ne passe simplement plus devant. */
       (typeof Compte !== "undefined" && !Compte.connecte()
-        ? '<div class="carte">' +
-            '<p class="aide" style="margin:0 0 10px">Vous avez un compte BIZZOO ? ' +
-              "Connectez-vous pour retrouver vos coordonnées et suivre cette " +
-              "commande depuis n'importe quel téléphone.</p>" +
-            '<a class="btn btn-clair" href="#/connexion" id="co-connexion">' +
-              UI.icone("compte") + "Se connecter</a>" +
-          "</div>"
+        ? '<p class="co-invite">Vous avez un compte BIZZOO ? ' +
+            '<a class="lien-texte" href="#/connexion" id="co-connexion">Se connecter</a></p>'
         : "") +
+
+      /* LA MÉTHODE DE PAIEMENT D'ABORD, comme la DA — quand on paie en
+         ligne. Sinon la commande part sur WhatsApp, et il n'y a rien à
+         choisir. */
+      (enLigne ? blocMethode(c, parFeexpay) : "") +
+
       '<div class="carte">' +
-        '<div class="carte-titre">Où vous joindre</div>' +
-        '<div class="champ"><label for="co-nom">Votre nom</label>' +
-          '<input id="co-nom" type="text" autocomplete="name" placeholder="Nom et prénom" value="' +
-            Utils.echapper(c.nom) + '"></div>' +
-        '<div class="champ"><label for="co-tel">Téléphone</label>' +
-          '<div class="champ-tel">' +
-            '<input id="co-indicatif" type="tel" inputmode="numeric" aria-label="Indicatif" value="' +
-              Utils.echapper(c.indicatif) + '">' +
-            '<input id="co-tel" type="tel" inputmode="tel" autocomplete="tel" ' +
-              'placeholder="97 00 00 00" value="' + Utils.echapper(c.tel) + '">' +
-          "</div>" +
-          '<p class="aide" style="margin:6px 0 0">C\'est à ce numéro que la boutique vous ' +
-            "rappellera pour la livraison.</p></div>" +
-        '<div class="champ"><label for="co-adresse">Adresse de livraison</label>' +
-          '<input id="co-adresse" type="text" autocomplete="street-address" ' +
-            'placeholder="Quartier, repère… ou « je viens retirer »" value="' +
-            Utils.echapper(c.adresse) + '"></div>' +
-        '<div class="champ"><label for="co-note">Un mot pour la boutique <small>(facultatif)</small></label>' +
+        '<div class="co-adresse-tete">' +
+          '<div class="carte-titre" style="margin:0">Adresse de livraison</div>' +
+          (connu ? '<button type="button" class="lien-texte co-modifier" id="co-modifier">Modifier</button>' : "") +
+        "</div>" +
+        (connu
+          ? '<div class="co-resume" id="co-resume">' +
+              "<strong>" + Utils.echapper(c.nom) + "</strong>" +
+              "<span>" + Utils.echapper(Compte.telAffichage(c.tel, c.indicatif)) + "</span>" +
+              "<span>" + Utils.echapper(c.adresse) + "</span>" +
+            "</div>"
+          : "") +
+        '<div class="co-formulaire" id="co-formulaire"' + (connu ? " hidden" : "") + ">" +
+          '<div class="champ"><label for="co-nom">Votre nom</label>' +
+            '<input id="co-nom" type="text" autocomplete="name" placeholder="Nom et prénom" value="' +
+              Utils.echapper(c.nom) + '"></div>' +
+          '<div class="champ"><label for="co-tel">Téléphone</label>' +
+            '<div class="champ-tel">' +
+              '<input id="co-indicatif" type="tel" inputmode="numeric" aria-label="Indicatif" value="' +
+                Utils.echapper(c.indicatif) + '">' +
+              '<input id="co-tel" type="tel" inputmode="tel" autocomplete="tel" ' +
+                'placeholder="97 00 00 00" value="' + Utils.echapper(c.tel) + '">' +
+            "</div>" +
+            '<p class="aide" style="margin:6px 0 0">C\'est à ce numéro que la boutique vous ' +
+              "rappellera pour la livraison.</p></div>" +
+          '<div class="champ"><label for="co-adresse">Adresse de livraison</label>' +
+            '<input id="co-adresse" type="text" autocomplete="street-address" ' +
+              'placeholder="Quartier, repère… ou « je viens retirer »" value="' +
+              Utils.echapper(c.adresse) + '"></div>' +
+        "</div>" +
+        '<div class="champ" style="margin:14px 0 0"><label for="co-note">Un mot pour la boutique ' +
+          "<small>(facultatif)</small></label>" +
           '<textarea id="co-note" rows="2" placeholder="Précisions sur la couleur, la taille…"></textarea></div>' +
       "</div>" +
 
@@ -396,30 +441,43 @@ const VuePanier = (() => {
           '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
             Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
         "</div>" +
-        (enLigne
-          ? (parFeexpay
-              ? blocMobileMoney(c)
-              : Paiement.bacASable()
-                ? '<div class="pa-essai">' + UI.icone("alerte", "ic-sm") +
-                  "<div><strong>Paiement en mode essai.</strong> Aucun argent ne sera prélevé, " +
-                  "et seuls les numéros de test sont acceptés (MTN 97000000, Moov 95000000).</div></div>"
-                : "") +
-            '<button type="button" class="btn" id="co-payer">' + UI.icone("energie") +
-              "Payer " + Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</button>" +
-            '<p class="aide" style="margin:10px 0 0">' +
-              (parFeexpay
-                ? "Vous recevrez une demande de paiement sur ce numéro : validez-la avec votre " +
-                  "code Mobile Money."
+        (enLigne && !parFeexpay && Paiement.bacASable()
+          ? '<div class="pa-essai">' + UI.icone("alerte", "ic-sm") +
+            "<div><strong>Paiement en mode essai.</strong> Aucun argent ne sera prélevé, " +
+            "et seuls les numéros de test sont acceptés (MTN 97000000, Moov 95000000).</div></div>"
+          : "") +
+        '<p class="aide" style="margin:10px 0 0">' +
+          (enLigne
+            ? (parFeexpay
+                ? "Vous recevrez une demande de paiement sur le numéro choisi : validez-la " +
+                  "avec votre code Mobile Money."
                 : "Paiement Mobile Money ou carte, par KkiaPay.") +
-              " Votre commande n'est transmise aux boutiques qu'une fois le paiement " +
-              "confirmé.</p>"
-          : '<button type="button" class="btn btn-wa" id="co-whatsapp">' + UI.icone("whatsapp") +
-              "Envoyer la commande sur WhatsApp</button>" +
-            '<p class="aide" style="margin:10px 0 0">Le paiement en ligne n\'est pas encore ouvert : ' +
-              "votre commande part directement à chaque boutique, qui vous rappellera pour " +
-              "le règlement et la livraison.</p>") +
+              " Votre commande n'est transmise aux boutiques qu'une fois le paiement confirmé."
+            : "Le paiement en ligne n'est pas encore ouvert : votre commande part directement " +
+              "à chaque boutique, qui vous rappellera pour le règlement et la livraison.") +
+        "</p>" +
       "</div>" +
       '<div id="co-liens"></div>';
+
+    /* L'ACTION DU BAS : payer, en BLEU — la DA ne met l'orange que sur ce
+       qui ajoute au panier et sur le passage de commande. Le montant est
+       dans le bouton : ce geste-là demande de l'argent, il le dit. */
+    UI.barreAction(enLigne
+      ? '<button type="button" class="btn" id="co-payer">' +
+          "Payer " + Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</button>"
+      : '<button type="button" class="btn btn-wa" id="co-whatsapp">' + UI.icone("whatsapp") +
+          "Envoyer sur WhatsApp</button>");
+
+    const modifier = UI.$("#co-modifier");
+    if (modifier) {
+      modifier.onclick = () => {
+        UI.$("#co-formulaire").hidden = false;
+        const resume = UI.$("#co-resume");
+        if (resume) resume.hidden = true;
+        modifier.hidden = true;
+        UI.$("#co-nom").focus();
+      };
+    }
 
     /* Un client qu'on envoie se connecter depuis son panier doit revenir
        à son panier, pas à l'accueil : il était en train d'acheter. */
@@ -438,7 +496,7 @@ const VuePanier = (() => {
        FeexPay ; ailleurs on renvoie de quoi ne rien casser. */
     const lirePaiement = () => {
       const champ = UI.$("#co-mm-tel");
-      const actif = UI.$("#co-operateurs .puce.active");
+      const actif = UI.$("#co-operateurs .pay-methode.active");
       return {
         numero: champ ? champ.value.trim() : "",
         reseau: actif ? actif.dataset.reseau : "",
@@ -510,8 +568,7 @@ const VuePanier = (() => {
             Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>";
     }
     if (boutonPayer) {
-      boutonPayer.innerHTML = UI.icone("energie") +
-        "Payer " + Utils.echapper(Utils.fmtMontant(aRegler(), devise));
+      boutonPayer.innerHTML = "Payer " + Utils.echapper(Utils.fmtMontant(aRegler(), devise));
     }
   }
 
@@ -579,24 +636,53 @@ const VuePanier = (() => {
      Avec FeexPay il n'y a pas de fenêtre de paiement à ouvrir : la
      demande part vers un numéro, et c'est sur son téléphone que le
      client la valide. Il faut donc savoir chez qui l'envoyer. */
+  /* LES VRAIS OPÉRATEURS DU BÉNIN. La maquette montre « Orange Money »,
+     qui n'existe pas ici, et « Carte bancaire », que la demande FeexPay
+     n'ouvre pas : on reprend son COMPOSANT — une liste de tuiles, un
+     bouton radio à droite — avec ce que le client peut réellement
+     choisir. Les couleurs des tuiles sont celles de la DA, pas celles
+     des opérateurs : on n'emprunte pas leurs marques. */
   const OPERATEURS = [
-    { cle: "MTN", nom: "MTN" },
-    { cle: "MOOV", nom: "Moov" },
-    { cle: "CELTIIS", nom: "Celtiis" },
+    { cle: "MTN", nom: "MTN", teinte: "orange" },
+    { cle: "MOOV", nom: "Moov", teinte: "bleu" },
+    { cle: "CELTIIS", nom: "Celtiis", teinte: "nuit" },
   ];
 
-  function blocMobileMoney(c) {
+  function ligneMethode(o, choisi, fixe) {
+    return (
+      '<button type="button" class="pay-methode' + (choisi ? " active" : "") + '" role="radio" ' +
+        'aria-checked="' + choisi + '"' + (o.cle ? ' data-reseau="' + o.cle + '"' : "") +
+        (fixe ? " disabled" : "") + ">" +
+        '<span class="pay-tuile pay-tuile-' + o.teinte + '">' + UI.icone(o.icone || "telephone") + "</span>" +
+        '<span class="pay-mots"><strong>' + Utils.echapper(o.nom) + "</strong>" +
+          '<small>' + Utils.echapper(o.sous || "Mobile Money") + "</small></span>" +
+        '<span class="pay-radio" aria-hidden="true"></span>' +
+      "</button>"
+    );
+  }
+
+  function blocMethode(c, parFeexpay) {
+    if (!parFeexpay) {
+      /* KkiaPay ouvre SA fenêtre, où le client choisit lui-même : il
+         n'y a rien à choisir ici, et l'on n'en fait pas semblant. */
+      return (
+        '<div class="carte">' +
+          '<div class="carte-titre carte-titre-bleu">Méthode de paiement</div>' +
+          '<div class="pay-methodes" role="radiogroup">' +
+            ligneMethode({ nom: "Mobile Money ou carte", sous: "Choisi dans la fenêtre KkiaPay",
+              teinte: "orange" }, true, true) +
+          "</div>" +
+        "</div>"
+      );
+    }
     const suggere = Paiement.operateurDuNumero(c.tel);
     return (
-      '<div class="co-mm">' +
-        '<div class="carte-titre" style="margin-top:4px">Payer par Mobile Money</div>' +
-        '<div class="champ"><label>Opérateur</label>' +
-          '<div class="puces puces-pliees" id="co-operateurs">' +
-            OPERATEURS.map((o) =>
-              '<button type="button" class="puce' + (o.cle === suggere ? " active" : "") +
-                '" data-reseau="' + o.cle + '">' + Utils.echapper(o.nom) + "</button>").join("") +
-          "</div></div>" +
-        '<div class="champ"><label for="co-mm-tel">Numéro qui paie</label>' +
+      '<div class="carte co-mm">' +
+        '<div class="carte-titre carte-titre-bleu">Méthode de paiement</div>' +
+        '<div class="pay-methodes" id="co-operateurs" role="radiogroup" aria-label="Opérateur">' +
+          OPERATEURS.map((o) => ligneMethode(o, o.cle === suggere)).join("") +
+        "</div>" +
+        '<div class="champ" style="margin:14px 0 0"><label for="co-mm-tel">Numéro qui paie</label>' +
           '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
             Utils.echapper(c.tel) + '">' +
           '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
@@ -607,21 +693,21 @@ const VuePanier = (() => {
 
   /** L'opérateur se met à jour pendant qu'on tape, sans jamais forcer. */
   function brancherMobileMoney() {
-    const puces = UI.$$("#co-operateurs .puce");
-    for (const puce of puces) {
-      puce.onclick = () => {
-        for (const autre of puces) autre.classList.remove("active");
-        puce.classList.add("active");
-      };
-    }
+    const lignes = UI.$$("#co-operateurs .pay-methode");
+    const choisir = (ligne) => {
+      for (const autre of lignes) {
+        autre.classList.toggle("active", autre === ligne);
+        autre.setAttribute("aria-checked", String(autre === ligne));
+      }
+    };
+    for (const ligne of lignes) ligne.onclick = () => choisir(ligne);
     const champ = UI.$("#co-mm-tel");
     if (!champ) return;
     champ.oninput = () => {
       const devine = Paiement.operateurDuNumero(champ.value);
       if (!devine) return;   // porté d'un réseau à l'autre : on ne devine pas
-      for (const puce of puces) {
-        puce.classList.toggle("active", puce.dataset.reseau === devine);
-      }
+      const ligne = lignes.find((l) => l.dataset.reseau === devine);
+      if (ligne) choisir(ligne);
     };
   }
 
@@ -773,6 +859,9 @@ const VuePanier = (() => {
        alors que son versement, lui, est bien passé. */
     if (!Paiement.connu()) await Paiement.charger();
 
+    /* Payée, c'est « Commande confirmée ! » qui titre l'écran, en grand :
+       l'en-tête ne garde que le retour, comme sur la DA. */
+    if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
     dessinerRecu(vue, commande);
     brancherSuivi(vue, commande);
 
@@ -803,7 +892,10 @@ const VuePanier = (() => {
         commande.etat = etat.etat;
         commande.remarque = etat.remarque || "";
         Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
-        if (location.hash === "#/commande/" + id) dessinerRecu(vue, commande);
+        if (location.hash === "#/commande/" + id) {
+          if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
+          dessinerRecu(vue, commande);
+        }
       } else if (location.hash === "#/commande/" + id) {
         const attente = UI.$("#re-attente");
         if (attente) {
@@ -891,6 +983,20 @@ const VuePanier = (() => {
     }
   }
 
+  /* Les confettis de la DA : des points bleus et orange semés autour de
+     la coche. Posés une fois, immobiles — une fête qui s'agite sur un
+     reçu fatiguerait vite, et coûterait de la batterie pour rien. */
+  function confettis() {
+    const points = [
+      [-58, -30, 8, "b"], [-40, -56, 5, "o"], [-8, -66, 6, "o"], [30, -58, 5, "b"],
+      [56, -34, 9, "o"], [64, 4, 5, "b"], [52, 40, 6, "o"], [-62, 18, 6, "o"],
+      [-50, 48, 9, "b"], [-14, 64, 5, "o"], [22, 62, 7, "b"],
+    ];
+    return '<span class="re-confettis" aria-hidden="true">' + points.map(([x, y, d, c]) =>
+      '<i class="re-confetti-' + c + '" style="transform:translate(' + x + "px," + y + "px);width:" +
+        d + "px;height:" + d + 'px"></i>').join("") + "</span>";
+  }
+
   function dessinerRecu(vue, commande) {
     const etat = ETATS[commande.etat] || ETATS.a_payer;
     const payee = commande.etat === "payee";
@@ -910,7 +1016,29 @@ const VuePanier = (() => {
       })),
     }));
 
+    /* « COMMANDE CONFIRMÉE ! », L'ÉCRAN DE LA DA — mais seulement quand
+       c'est VRAI. Tant que la base n'a pas constaté le versement, c'est
+       « paiement en cours » : afficher la coche avant, ce serait annoncer
+       une commande que les boutiques n'ont peut-être jamais reçue. */
+    const connecte = typeof Compte !== "undefined" && Compte.connecte();
+    const heros = payee
+      ? '<section class="re-heros" aria-live="polite">' +
+          '<div class="re-heros-rond">' + confettis() + UI.icone("check") + "</div>" +
+          "<h2>Commande confirmée !</h2>" +
+          /* PAS D'E-MAIL : la maquette en promet un, BIZZOO n'en envoie
+             pas. Ce que le client recevra vraiment, c'est une
+             notification à chaque étape — s'il a un compte. */
+          "<p>Merci pour votre commande. " + (connecte
+            ? "Vous serez prévenu à chaque étape, jusqu'à la livraison."
+            : "Gardez le numéro <strong>" + Utils.echapper(commande.numero) +
+              "</strong> : c'est lui qui vous permet de la suivre.") + "</p>" +
+          '<a class="btn" href="#/mes-commandes">Voir mes commandes</a>' +
+          '<a class="btn btn-clair" href="#/">Retour à l\'accueil</a>' +
+        "</section>"
+      : "";
+
     vue.innerHTML =
+      heros +
       '<div class="carte re-entete">' +
         '<div class="re-numero">' + Utils.echapper(commande.numero) + "</div>" +
         '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.nom) + "</span>" +
@@ -925,9 +1053,11 @@ const VuePanier = (() => {
       (payee
         ? '<div class="carte pa-confirme">' + UI.icone("check") +
             "<div><strong>Paiement confirmé.</strong> " +
-            (groupes.length > 1 ? "Les boutiques concernées ont reçu" : "La boutique a reçu") +
-            " votre commande dans leur compte. Elles vous rappellent au " +
-            Utils.echapper(commande.client.indicatif + " " + commande.client.tel) +
+            (groupes.length > 1
+              ? "Les boutiques concernées ont reçu votre commande dans leur compte. " +
+                "Elles vous rappellent au "
+              : "La boutique a reçu votre commande dans son compte. Elle vous rappelle au ") +
+            Utils.echapper(Compte.telAffichage(commande.client.tel, commande.client.indicatif)) +
             " pour la remise.</div></div>"
         : '<div class="carte pa-avertissement" id="re-attente">' +
             '<span class="chargement-rond"></span>' +
@@ -965,13 +1095,15 @@ const VuePanier = (() => {
           "</div>"
         : "") +
 
-      '<div class="carte">' +
-        '<div class="btn-rangee">' +
-          '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
-            "Mes commandes</a>" +
-          '<a class="btn btn-clair" href="#/">Continuer mes achats</a>' +
-        "</div>" +
-      "</div>";
+      /* Payée, les deux boutons sont déjà en tête, sous la coche. */
+      (payee ? "" :
+        '<div class="carte">' +
+          '<div class="btn-rangee">' +
+            '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
+              "Mes commandes</a>" +
+            '<a class="btn btn-clair" href="#/">Continuer mes achats</a>' +
+          "</div>" +
+        "</div>");
   }
 
   /* =====================================================

@@ -242,41 +242,99 @@ const VueAccueil = (() => {
     }
   }
 
+  /* ---------- Couleurs venues de la base ----------
+     Une couleur saisie dans les réglages part dans un attribut « style ».
+     On n'y laisse passer qu'une couleur hexadécimale : le reste — une
+     faute de frappe comme une règle glissée exprès — retombe sur le bleu
+     de la DA. */
+  const couleurSure = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "").trim())
+    ? String(c).trim() : "#0047D9");
+
+  /* La teinte claire d'une couleur : le fond des ronds pastel de la DA.
+     Calculée ici plutôt qu'avec « color-mix » : un téléphone dont le
+     navigateur intégré n'a pas été mis à jour ne le connaît pas, et la
+     pastille resterait blanche. */
+  function teinteClaire(hex, part) {
+    const n = parseInt(couleurSure(hex).slice(1), 16);
+    const mele = (c) => Math.round(c * part + 255 * (1 - part));
+    return "rgb(" + mele(n >> 16) + "," + mele((n >> 8) & 255) + "," + mele(n & 255) + ")";
+  }
+
   /* ---------- Catégories ---------- */
+
+  /* LE NOM COURT, comme sur la DA : « Mode » pour « Mode & Accessoires »,
+     « Électronique » pour « Électronique & Informatique ». Sous un rond,
+     le nom entier se coupait en « Électronique &… ». Le nom complet reste
+     sur l'écran Catégories, et dans ce que lit un lecteur d'écran. */
+  function libelleCourt(nom) {
+    return String(nom || "").split(/\s+(?:&|et)\s+/i)[0].trim() || String(nom || "");
+  }
 
   /* L'ICÔNE ET LA COULEUR VIENNENT DE LA BASE, pas d'une devinette sur
      le nom : c'est l'enseigne qui les choisit, et la même pastille doit
-     se reconnaître d'un écran à l'autre. */
-  function carteCategorie(c, compte) {
+     se reconnaître d'un écran à l'autre. Sur l'accueil, elle se pose sur
+     un rond pastel — la DA y met des ronds clairs, pas des aplats. */
+  function rondCategorie(c) {
+    const couleur = couleurSure(c.couleur);
     return (
-      '<a class="cat-carte" href="#/categorie/' + Utils.echapper(c.id) + '">' +
-        '<span class="cat-rond cat-rond-couleur" style="background:' +
-          Utils.echapper(c.couleur || "#0B5CF5") + '">' +
-          UI.icone(c.icone || "categories") + "</span>" +
-        '<span class="cat-nom">' + Utils.echapper(c.nom) + "</span>" +
-        (compte
-          ? '<span class="cat-compte">' + compte + " article" + (compte > 1 ? "s" : "") + "</span>"
-          : '<span class="cat-compte">à découvrir</span>') +
+      '<a class="cat-rond-lien" href="#/categorie/' + Utils.echapper(c.id) + '" aria-label="' +
+        Utils.echapper(c.nom) + '">' +
+        '<span class="cat-rond-da" style="background:' + teinteClaire(couleur, .16) +
+          ";color:" + couleur + '">' + UI.icone(c.icone || "categories") + "</span>" +
+        '<span class="cat-rond-nom" aria-hidden="true">' +
+          Utils.echapper(libelleCourt(c.nom)) + "</span>" +
       "</a>"
     );
   }
 
-
   /* ---------- Les boutiques de l'enseigne ---------- */
 
-  /** La vignette d'une boutique : son logo, ou son icône sur sa couleur. */
-  function carteBoutique(b, compte) {
+  /* LE LOGO DANS UN CARRÉ AUX COINS RONDS, celui de la DA — sur la tuile
+     de l'accueil, dans la liste et en tête de la fiche. Un rond coupait
+     les logos carrés, qui sont la plupart. */
+  function logoBoutique(b, classe) {
+    return b.logo
+      ? '<span class="bou-logo' + (classe ? " " + classe : "") + '"><img src="' +
+          Utils.echapper(b.logo) + '" alt="" loading="lazy"></span>'
+      : '<span class="bou-logo bou-logo-icone' + (classe ? " " + classe : "") +
+          '" style="background:' + couleurSure(b.couleur) + '">' + UI.icone(b.icone) + "</span>";
+  }
+
+  /** La tuile de l'accueil : le logo, et le nom dessous. */
+  function tuileBoutique(b) {
     return (
-      '<a class="bou-carte" href="#/boutique/' + Utils.echapper(b.id) + '" data-boutique="' +
+      '<a class="bou-tuile" href="#/boutique/' + Utils.echapper(b.id) + '" data-boutique="' +
         Utils.echapper(b.id) + '">' +
-        (b.logo
-          ? '<span class="bou-rond bou-rond-photo"><img src="' + Utils.echapper(b.logo) +
-            '" alt="" loading="lazy"></span>'
-          : '<span class="bou-rond" style="background:' + Utils.echapper(b.couleur) + '">' +
-            UI.icone(b.icone) + "</span>") +
-        '<span class="bou-carte-nom">' + Utils.echapper(b.nom) + "</span>" +
-        '<span class="bou-carte-sous">' +
-          Utils.echapper(b.secteur || (compte + " produit" + (compte > 1 ? "s" : ""))) + "</span>" +
+        logoBoutique(b) +
+        '<span class="bou-tuile-nom">' + Utils.echapper(b.nom) + "</span>" +
+      "</a>"
+    );
+  }
+
+  const fmtDistance = (km) => (km < 1
+    ? Math.max(50, Math.round(km * 1000 / 50) * 50) + " m"
+    : (km < 10 ? km.toFixed(1).replace(".", ",") : String(Math.round(km))) + " km");
+
+  /** Une ligne de « Nos boutiques » : logo, nom, secteur, note, chevron. */
+  function ligneBoutique(b, distance) {
+    return (
+      '<a class="bou-ligne" href="#/boutique/' + Utils.echapper(b.id) + '" data-boutique="' +
+        Utils.echapper(b.id) + '">' +
+        logoBoutique(b, "bou-logo-liste") +
+        '<span class="bou-ligne-mots">' +
+          '<span class="bou-ligne-nom">' + Utils.echapper(b.nom) + "</span>" +
+          (b.secteur ? '<span class="bou-ligne-sous">' + Utils.echapper(b.secteur) + "</span>" : "") +
+          '<span class="bou-ligne-pied">' +
+            /* PAS D'AVIS, PAS DE NOTE. On le dit, plutôt que d'afficher
+               un zéro qui passerait pour une mauvaise note. */
+            (UI.noteCourte(b) || '<span class="bou-sans-avis">Pas encore d\'avis</span>') +
+            (typeof distance === "number"
+              ? '<span class="bou-distance">' + UI.icone("lieu", "ic-sm") +
+                  "à " + fmtDistance(distance) + "</span>"
+              : "") +
+          "</span>" +
+        "</span>" +
+        UI.icone("chevron", "ic-sm") +
       "</a>"
     );
   }
@@ -284,57 +342,50 @@ const VueAccueil = (() => {
   /* ---------- Vue ---------- */
 
   /**
-   * L'accueil de l'application : d'abord ce que les boutiques mettent en
-   * avant — images et produits confondus —, puis les boutiques elles-mêmes.
-   * On choisit la sienne, et tout l'écran suivant ne parle plus que d'elle.
+   * L'accueil de BIZZOO, dans l'ordre de la DA : la recherche, les
+   * catégories en ronds, la bannière, puis les boutiques partenaires.
+   * L'offre du jour, la publicité et les populaires viennent après.
    */
   async function afficher(vue) {
     if (!Catalogue.multiBoutiques()) return accueilBoutique(vue, true);
 
     /* La boutique a déjà été quittée par le routeur, qui devait
        trancher avant que la barre d'onglets ne se règle. */
-    UI.entete({ accueil: true, actions:
-      '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
-        UI.icone("actualiser") + "</button>" +
-      '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
+    UI.entete({ accueil: true });
 
     const boutiques = Catalogue.boutiques();
-    const comptes = Catalogue.nombreParBoutique();
 
-    /* Le slider de l'accueil ne montre que ce que BIZZOO y met. */
-    let html = htmlSlider(Catalogue.slidesGeneral(), []);
+    /* LA RECHERCHE EN TÊTE, comme sur la DA. Elle n'est plus un onglet :
+       c'est ici qu'on la cherche, avant même de savoir chez qui aller. */
+    let html = UI.recherchePilule("Rechercher un produit, une boutique…");
     html += htmlEtatCatalogue();
-    html += htmlOffreDuJour();
 
-    /* LES CATÉGORIES D'ABORD, et pas toutes : quinze lignes sur un
-       accueil, c'est n'en montrer aucune. L'enseigne en désigne huit,
-       qui tiennent sur deux rangées de quatre.
-
-       C'est par là qu'on cherche quand on ne sait pas encore chez qui
-       acheter — donc en tête. Les boutiques viennent juste après :
-       elles répondent à l'autre question, « qui vend ici ? », et on se
-       la pose en second. */
+    /* LES CATÉGORIES, et pas toutes : quinze ronds sur un accueil, c'est
+       n'en montrer aucun. L'enseigne en désigne huit, qui tiennent sur
+       deux rangées de quatre. C'est par là qu'on cherche quand on ne sait
+       pas encore chez qui acheter — donc en tête. */
     const misesEnAvant = Catalogue.categoriesEnAvant();
     const toutes = Catalogue.categoriesBizzoo();
     const vedettes = misesEnAvant.length ? misesEnAvant : toutes.slice(0, 8);
     if (vedettes.length) {
-      /* « Tout voir » est dans le titre de section : un second bouton
-         « Voir toutes les catégories » sous la grille menait au même
-         écran, et deux portes côte à côte vers le même endroit font
-         hésiter au lieu d'aider. */
-      html += UI.titreSection("Catégories", "#/categories");
-      html += '<div class="cat-grille">' +
-        vedettes.map((r) => carteCategorie(r.categorie, r.compte)).join("") +
-      "</div>";
+      html += '<nav class="cat-ronds" aria-label="Catégories">' +
+        vedettes.map((r) => rondCategorie(r.categorie)).join("") + "</nav>";
     }
 
-    html += UI.titreSection("Nos boutiques");
+    /* La bannière : le slider de BIZZOO, et lui seul. */
+    html += htmlSlider(Catalogue.slidesGeneral(), []);
+
+    /* « NOS BOUTIQUES PARTENAIRES », le titre de la DA, JUSTE APRÈS LA
+       BANNIÈRE : la DA n'intercale rien entre les deux. « Tout voir »
+       ouvre la liste entière, avec ses notes et ses filtres. */
+    html += UI.titreSection("Nos boutiques partenaires", boutiques.length ? "#/boutiques" : "");
     html += boutiques.length
-      ? '<div class="bou-grille">' +
-          boutiques.map((b) => carteBoutique(b, comptes[b.id] || 0)).join("") +
-        "</div>"
+      ? '<div class="bou-tuiles">' + boutiques.map(tuileBoutique).join("") + "</div>"
       : UI.vide("magasin", "Les boutiques arrivent bientôt",
           "Elles s'afficheront ici dès leur ouverture.");
+
+    /* L'offre du jour vient ensuite, sous les boutiques. */
+    html += htmlOffreDuJour();
 
     /* Pas de ventes flash ici : une vente flash appartient à la
        boutique qui la fait, et s'annonce sur son écran à elle. Ce que
@@ -348,7 +399,6 @@ const VueAccueil = (() => {
 
     vue.innerHTML = html;
     demarrerSlider();
-    brancherActualiser();
     brancherPublicite();
 
     /* LA RANGÉE DES POPULAIRES ARRIVE APRÈS, et c'est voulu : elle
@@ -365,6 +415,121 @@ const VueAccueil = (() => {
       vue.insertAdjacentHTML("beforeend",
         UI.titreSection("Produits populaires") + UI.rangeeProduits(liste));
     }).catch(() => { /* la rangée s'abstient, le reste tient debout */ });
+  }
+
+  /* ---------- « Nos boutiques » ----------
+     La liste entière, et trois façons de la ranger — celles de la DA.
+
+       Toutes          l'ordre choisi par l'enseigne ;
+       Top             les mieux notées d'abord, et seulement celles qui
+                       ONT une note : ranger « sans avis » au milieu des
+                       notes ferait croire à une mauvaise note ;
+       Proches de moi  par distance, pour les boutiques qui ont posé leur
+                       adresse sur la carte. Les autres viennent après,
+                       sans distance — on ne l'invente pas. */
+
+  let rangement = "toutes";
+
+  const FILTRES_BOUTIQUES = [
+    { cle: "toutes", nom: "Toutes" },
+    { cle: "top", nom: "Top" },
+    { cle: "proches", nom: "Proches de moi" },
+  ];
+
+  /* La distance à vol d'oiseau. Elle n'est pas le trajet, et l'écran ne
+     prétend pas le contraire : « à 2,3 km » se lit comme une idée de
+     l'éloignement, pas comme un itinéraire. */
+  function distanceKm(a, b) {
+    const rad = (x) => x * Math.PI / 180;
+    const dLat = rad(b.latitude - a.latitude);
+    const dLng = rad(b.longitude - a.longitude);
+    const h = Math.sin(dLat / 2) ** 2 +
+      Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  async function boutiques(vue) {
+    UI.entete({ titre: "Nos boutiques", retour: true });
+    vue.innerHTML =
+      '<div class="puces puces-da" id="bou-filtres">' +
+        FILTRES_BOUTIQUES.map((f) =>
+          '<button type="button" class="puce' + (f.cle === rangement ? " active" : "") +
+            '" data-filtre="' + f.cle + '" aria-pressed="' + (f.cle === rangement) + '">' +
+            Utils.echapper(f.nom) + "</button>").join("") +
+      "</div>" +
+      '<div class="carte bou-liste" id="bou-liste"></div>';
+
+    const zone = UI.$("#bou-liste", vue);
+    const puces = UI.$$("#bou-filtres [data-filtre]", vue);
+
+    const choisir = (cle) => {
+      rangement = cle;
+      for (const p of puces) {
+        p.classList.toggle("active", p.dataset.filtre === cle);
+        p.setAttribute("aria-pressed", String(p.dataset.filtre === cle));
+      }
+    };
+
+    async function dessiner(cle) {
+      const liste = Catalogue.boutiques().slice();
+      if (!liste.length) {
+        zone.innerHTML = UI.vide("magasin", "Les boutiques arrivent bientôt",
+          "Elles s'afficheront ici dès leur ouverture.");
+        return;
+      }
+
+      if (cle === "top") {
+        const notees = liste.filter((b) => b.nbAvis && b.note !== null)
+          .sort((x, y) => (y.note - x.note) || (y.nbAvis - x.nbAvis));
+        zone.innerHTML = notees.length
+          ? notees.map((b) => ligneBoutique(b)).join("")
+          : '<p class="aide" style="margin:0">Aucune boutique n\'a encore reçu d\'avis. ' +
+            "Les mieux notées apparaîtront ici.</p>";
+        return;
+      }
+
+      if (cle === "proches") {
+        zone.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
+          "Recherche de votre position…</div>";
+        let ici;
+        try {
+          ici = await Compte.positionActuelle();
+        } catch (err) {
+          /* REFUSÉE OU INTROUVABLE : on le dit, et on revient à la liste
+             entière plutôt que de laisser un écran vide. */
+          UI.toast(err.message, "err");
+          choisir("toutes");
+          return dessiner("toutes");
+        }
+        if (rangement !== "proches") return;   // le client a changé d'avis entre-temps
+        const situees = liste.filter((b) => b.latitude !== null && b.longitude !== null)
+          .map((b) => ({ b, d: distanceKm(ici, b) }))
+          .sort((x, y) => x.d - y.d);
+        const ailleurs = liste.filter((b) => b.latitude === null || b.longitude === null);
+        zone.innerHTML =
+          situees.map((x) => ligneBoutique(x.b, x.d)).join("") +
+          (ailleurs.length
+            ? (situees.length
+                ? '<p class="aide bou-liste-note">Ces boutiques n\'ont pas encore placé ' +
+                  "leur adresse sur la carte :</p>"
+                : '<p class="aide bou-liste-note">Aucune boutique n\'a encore placé son ' +
+                  "adresse sur la carte.</p>") +
+              ailleurs.map((b) => ligneBoutique(b)).join("")
+            : "");
+        return;
+      }
+
+      zone.innerHTML = liste.map((b) => ligneBoutique(b)).join("");
+    }
+
+    for (const p of puces) {
+      p.onclick = () => {
+        if (p.dataset.filtre === rangement && p.dataset.filtre !== "proches") return;
+        choisir(p.dataset.filtre);
+        dessiner(p.dataset.filtre);
+      };
+    }
+    await dessiner(rangement);
   }
 
   /**
@@ -396,7 +561,7 @@ const VueAccueil = (() => {
     }
     if (Catalogue.modeDemo()) {
       return '<div class="note-hors-ligne">' + UI.icone("alerte", "ic-sm") +
-        " Catalogue de démonstration — la connexion à la boutique se règle dans l'onglet Infos.</div>";
+        " Catalogue de démonstration — la connexion se règle dans Compte → À propos de BIZZOO.</div>";
     }
     return "";
   }
@@ -473,47 +638,151 @@ const VueAccueil = (() => {
     });
   }
 
-  function brancherActualiser() {
-    const btnActualiser = UI.$("#accueil-actualiser");
-    if (!btnActualiser) return;
-    btnActualiser.onclick = async () => {
-      btnActualiser.disabled = true;
-      btnActualiser.classList.add("tourne");
-      const change = await Live.verifier();
-      btnActualiser.disabled = false;
-      btnActualiser.classList.remove("tourne");
-      if (!change) UI.toast("Catalogue déjà à jour", "ok");
-    };
-  }
-
-  /** L'accueil d'une boutique : on y entre depuis la grille des icônes. */
-  async function boutique(vue, id) {
+  /** La fiche d'une boutique : on y entre depuis l'accueil ou la liste. */
+  async function boutique(vue, id, params) {
     const cible = Catalogue.choisirBoutique(id);
     if (!cible) {
       UI.entete({ titre: "Boutique", retour: true });
       vue.innerHTML = UI.vide("magasin", "Boutique introuvable",
         "Elle a peut-être fermé.",
-        '<a class="btn btn-clair" href="#/">Voir les boutiques</a>');
+        '<a class="btn btn-clair" href="#/boutiques">Voir les boutiques</a>');
       return;
     }
-    return accueilBoutique(vue, false);
+    return ficheBoutique(vue, cible, (params && params.onglet) || "produits");
   }
 
-  async function accueilBoutique(vue, enseigne) {
-    const b = Catalogue.boutique();
-    UI.entete(enseigne
-      ? { accueil: true, actions:
-          '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
-            UI.icone("actualiser") + "</button>" +
-          '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" }
-      /* Le logo de la boutique à gauche de son nom : on sait chez qui
-         l'on est sans avoir à lire. */
-      : { titre: b.nom, sous: b.slogan || b.description || "", retour: true,
-          vignette: UI.vignetteBoutique(Catalogue.boutiqueChoisie()), actions:
-          '<button type="button" class="btn-ic" id="accueil-actualiser" aria-label="Actualiser le catalogue">' +
-            UI.icone("actualiser") + "</button>" +
-          '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' + UI.icone("recherche") + "</a>" });
+  /* ---------- Les atouts, sous le nom ----------
+     LES PROMESSES DE BIZZOO, PAS CELLES DE LA BOUTIQUE. La maquette
+     montre « Produits certifiés » et « Service pro » : écrits sur toutes
+     les fiches, ils diraient d'un vendeur de voitures comme d'un vendeur
+     de cosmétiques une chose que personne n'a vérifiée. On prend donc
+     les trois promesses que la DA elle-même porte sur ses supports de
+     communication — elles sont celles de l'enseigne, et chacune répond à
+     quelque chose qui existe : les livreurs, le SAV avec recours, le
+     paiement en ligne. Le paiement ne s'annonce que s'il est ouvert. */
+  function atouts() {
+    const liste = [
+      { icone: "voiture", texte: "Livraison rapide" },
+      Paiement.disponible() ? { icone: "check", texte: "Paiement sécurisé" } : null,
+      { icone: "outils", texte: "SAV irréprochable" },
+    ].filter(Boolean);
+    return '<div class="bou-atouts">' + liste.map((a) =>
+      '<span class="bou-atout"><span class="bou-atout-rond">' + UI.icone(a.icone, "ic-sm") +
+        "</span>" + Utils.echapper(a.texte) + "</span>").join("") + "</div>";
+  }
 
+  const ONGLETS_FICHE = [
+    { cle: "produits", nom: "Produits" },
+    { cle: "avis", nom: "Avis" },
+    { cle: "apropos", nom: "À propos" },
+  ];
+
+  /**
+   * LA FICHE DE LA DA : la couverture, la fiche qui la chevauche — logo,
+   * nom, note, slogan, atouts —, « Suivre », puis trois onglets.
+   */
+  async function ficheBoutique(vue, b, onglet) {
+    /* Pas de titre dans l'en-tête : le nom est juste dessous, en grand.
+       Le retour, la cloche et le panier suffisent — c'est l'en-tête de
+       la DA. */
+    UI.entete({ titre: "", retour: true });
+
+    const couverture = (b.photos && b.photos[0]) || "";
+    const suivie = typeof Favoris !== "undefined" && Favoris.aBoutique(b.id);
+
+    vue.innerHTML =
+      '<div class="bou-couverture' + (couverture ? "" : " bou-couverture-vide") + '">' +
+        (couverture
+          ? '<img src="' + Utils.echapper(couverture) + '" alt="">'
+          : '<span class="bou-couverture-motif">' + UI.motSymbole("clair") + "</span>") +
+      "</div>" +
+      '<section class="bou-fiche">' +
+        '<div class="bou-fiche-tete">' +
+          logoBoutique(b, "bou-logo-fiche") +
+          '<div class="bou-fiche-mots">' +
+            "<h1 class=\"bou-fiche-nom\">" + Utils.echapper(b.nom) + "</h1>" +
+            (UI.noteCourte(b) || '<span class="bou-sans-avis">Pas encore d\'avis</span>') +
+          "</div>" +
+        "</div>" +
+        (b.slogan || b.description
+          ? '<p class="bou-fiche-slogan">' + Utils.echapper(b.slogan || b.description) + "</p>"
+          : "") +
+        atouts() +
+        '<button type="button" class="btn' + (suivie ? " btn-clair" : "") + '" id="bou-suivre" ' +
+          'aria-pressed="' + suivie + '">' +
+          (suivie ? UI.icone("check") + "Boutique suivie" : "Suivre") + "</button>" +
+        '<div class="bou-onglets" role="tablist">' +
+          ONGLETS_FICHE.map((o) =>
+            '<button type="button" role="tab" class="bou-onglet' + (o.cle === onglet ? " actif" : "") +
+              '" data-onglet="' + o.cle + '" aria-selected="' + (o.cle === onglet) + '">' +
+              Utils.echapper(o.nom) + "</button>").join("") +
+        "</div>" +
+      "</section>" +
+      '<div id="bou-contenu"></div>';
+
+    brancherSuivre(b);
+
+    const contenu = UI.$("#bou-contenu", vue);
+    const montrer = (cle) => {
+      for (const bouton of UI.$$(".bou-onglet", vue)) {
+        const oui = bouton.dataset.onglet === cle;
+        bouton.classList.toggle("actif", oui);
+        bouton.setAttribute("aria-selected", String(oui));
+      }
+      arreterSlider();
+      if (cle === "avis") {
+        contenu.innerHTML = VueAvis.bloc("Avis sur cette boutique");
+        VueAvis.remplir({ boutique: b.id }, async () => { await Catalogue.rafraichir(); });
+      } else if (cle === "apropos") {
+        VueInfos.aPropos(contenu);
+      } else {
+        contenu.innerHTML = htmlProduitsDeLaBoutique(true);
+        demarrerSlider();
+      }
+    };
+    for (const bouton of UI.$$(".bou-onglet", vue)) {
+      bouton.onclick = () => montrer(bouton.dataset.onglet);
+    }
+    montrer(ONGLETS_FICHE.some((o) => o.cle === onglet) ? onglet : "produits");
+  }
+
+  /* « Suivre » : la boutique entre dans la liste de celles qu'on suit
+     (Favoris). Sans compte, on invite à s'en ouvrir un, et l'on revient
+     ici ensuite — pas sur l'accueil. */
+  function brancherSuivre(b) {
+    const bouton = UI.$("#bou-suivre");
+    if (!bouton) return;
+    bouton.onclick = async () => {
+      if (typeof Compte === "undefined" || !Compte.connecte()) {
+        UI.toast("Connectez-vous pour suivre une boutique.", "err");
+        if (typeof VueCompte !== "undefined") VueCompte.revenirVers("#/boutique/" + b.id);
+        location.hash = "#/connexion";
+        return;
+      }
+      bouton.disabled = true;
+      try {
+        const suit = await Favoris.basculerBoutique(b.id);
+        bouton.classList.toggle("btn-clair", suit);
+        bouton.setAttribute("aria-pressed", String(suit));
+        bouton.innerHTML = suit ? UI.icone("check") + "Boutique suivie" : "Suivre";
+        UI.toast(suit ? "Vous suivez " + b.nom + "." : "Vous ne suivez plus " + b.nom + ".", "ok");
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+      bouton.disabled = false;
+    };
+  }
+
+  /* L'onglet « Produits » : ce que la boutique met en avant, ses rayons,
+     ses promotions — et tout son catalogue, en vignettes, comme la DA.
+
+     SUR LA FICHE (« surLaFiche »), LES VIGNETTES D'ABORD : la DA les
+     pose juste sous les onglets, et l'onglet « Produits » leur sert de
+     titre. La vitrine de la boutique — ses bannières, ses ventes flash,
+     ses promotions, ses rayons — vient dessous. Quand BIZZOO ne compte
+     qu'une boutique, cette même page est l'accueil : la bannière reste
+     alors en tête, comme sur l'accueil de la DA. */
+  function htmlProduitsDeLaBoutique(surLaFiche) {
     const slides = Catalogue.slides();
     const enAvant = Catalogue.misEnAvant();
     /* LES RAYONS DE CETTE BOUTIQUE. « Catalogue.categories() » rendrait
@@ -522,41 +791,63 @@ const VueAccueil = (() => {
        elle a quelque chose. */
     const mesRayons = Catalogue.rayonsDeLaBoutique();
     const promos = Catalogue.promotions().slice(0, 8);
-    const nouveautes = Catalogue.nouveautes(8);
-    const boutique = Catalogue.boutique();
+    const tous = Catalogue.produits();
 
-    let html = "";
+    const etat = htmlEtatCatalogue();
+    const banniere = htmlSlider(slides, enAvant);
 
-    html += htmlSlider(slides, enAvant);
-    html += htmlEtatCatalogue();
-
-    if (mesRayons.length) {
-      html += UI.titreSection("Rayons", "#/categories");
-      html += mesRayons.slice(0, 6).map((r) => UI.ligneSousRayon(r, r.categorieId)).join("");
-    }
-
-    /* Les ventes flash de cette boutique : elles n'appartiennent
-       qu'à elle, et ne remontent plus sur l'accueil de BIZZOO. */
-    const flash = Catalogue.ventesFlash();
-    if (flash.length) {
-      html += UI.titreSection("Ventes flash");
-      html += UI.rangeeProduits(flash);
-    }
-
-    if (promos.length) {
-      html += UI.titreSection("Promotions", "#/promos");
-      html += UI.rangeeProduits(promos);
-    }
-
-    if (nouveautes.length) {
-      html += UI.titreSection("Nouveautés");
-      html += UI.rangeeProduits(nouveautes);
-    }
-
-    if (!Catalogue.produits().length) {
-      html += UI.vide("boite", "Le catalogue arrive bientôt",
+    if (!tous.length) {
+      return banniere + etat + UI.vide("boite", "Le catalogue arrive bientôt",
         "Les produits publiés par la boutique s'afficheront ici.");
     }
+
+    let vitrine = "";
+    /* Les ventes flash de cette boutique : elles n'appartiennent
+       qu'à elle, et ne remontent pas sur l'accueil de BIZZOO. */
+    const flash = Catalogue.ventesFlash();
+    if (flash.length) {
+      vitrine += UI.titreSection("Ventes flash");
+      vitrine += UI.rangeeProduits(flash);
+    }
+    if (promos.length) {
+      vitrine += UI.titreSection("Promotions", "#/promos");
+      vitrine += UI.rangeeProduits(promos);
+    }
+    if (mesRayons.length) {
+      vitrine += UI.titreSection("Rayons");
+      vitrine += mesRayons.slice(0, 6).map((r) => UI.ligneSousRayon(r, r.categorieId)).join("");
+    }
+
+    /* TOUT LE CATALOGUE EN VIGNETTES, trois par rangée, comme la DA.
+       Au-delà de neuf, la liste complète s'ouvre à part, avec ses tris
+       — une fiche de boutique n'a pas à dérouler deux cents photos. */
+    const vignettes = '<div class="bou-vignettes">' + tous.slice(0, 9).map((p) =>
+      '<a class="bou-vignette" href="#/produit/' + Utils.echapper(p.id) + '" aria-label="' +
+        Utils.echapper(p.nom) + '">' + UI.imageProduit(p, "bou-vignette-photo") + "</a>").join("") +
+      "</div>";
+
+    if (surLaFiche) {
+      return etat + vignettes +
+        (tous.length > 9
+          ? '<a class="btn btn-clair bou-tout-voir" href="#/produits">Voir les ' +
+              tous.length + " produits</a>"
+          : "") +
+        banniere + vitrine;
+    }
+    return banniere + etat + vitrine +
+      UI.titreSection("Tous les produits", tous.length > 9 ? "#/produits" : "",
+        "Tout voir (" + tous.length + ")") + vignettes;
+  }
+
+  /**
+   * L'accueil quand BIZZOO ne compte qu'UNE boutique : elle EST
+   * l'enseigne, et son catalogue est l'accueil.
+   */
+  async function accueilBoutique(vue) {
+    UI.entete({ accueil: true });
+    const boutique = Catalogue.boutique();
+    let html = UI.recherchePilule("Rechercher un produit…");
+    html += htmlProduitsDeLaBoutique();
 
     if (boutique.whatsapp) {
       const message = "Bonjour " + boutique.nom + ", je souhaite un renseignement.";
@@ -572,9 +863,8 @@ const VueAccueil = (() => {
 
     vue.innerHTML = html;
     demarrerSlider();
-    brancherActualiser();
     brancherPublicite();
   }
 
-  return { afficher, boutique, arreterSlider };
+  return { afficher, boutiques, boutique, arreterSlider };
 })();

@@ -38,13 +38,21 @@
   --bleu-100:#D6E2FB;
   --bleu-50:#EDF2FE;
 
-  /* L'ORANGE DE LA DA. Il sert de FOND et porte le texte sombre :
-     blanc sur cet orange donne 2,36:1, illisible au soleil sur un
-     écran d'entrée de gamme. Le même orange avec la couleur de texte
-     de la DA donne 6,21:1. En TEXTE sur fond clair, c'est l'orange
-     foncé — l'orange vif y tomberait au même 2,36:1. */
+  /* L'ORANGE DE LA DA, et le texte qu'il porte : BLANC, comme sur la
+     DA corrigée — ses trois boutons, sa pastille de remise, sa cloche.
+
+     CE N'EST PAS LE CHOIX LE PLUS LISIBLE, et il faut le savoir : blanc
+     sur cet orange donne 2,36:1, sous le seuil des règles
+     d'accessibilité ; le texte sombre de la DA y donnait 6,21:1, et la
+     version précédente l'employait pour cette raison. La marque a
+     tranché pour le blanc. Ce jeton est le seul endroit à changer pour
+     revenir au sombre : « #1F2937 », et tous les composants orange
+     suivent.
+
+     En TEXTE sur fond clair, c'est l'orange foncé — l'orange vif y
+     tomberait au même 2,36:1. */
   --orange:#FF8A00;
-  --orange-texte:#1F2937;
+  --orange-texte:#FFFFFF;
   --orange-fonce:#A85800;
   --orange-clair:#FFF1DE;
   --ambre:#FFA808;
@@ -114,7 +122,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   border-bottom:1px solid var(--trait);
 }
 .topbar-ligne{display:flex;align-items:center;gap:12px;min-height:40px}
-.topbar h1{font-size:18px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* LE TITRE D'ÉCRAN EN BLEU NUIT, comme « Catégories », « Nos
+   boutiques » ou « Mon panier » sur la DA : plus sombre que le bleu
+   des titres de section, pour que l'écran et ses rubriques ne se
+   confondent pas. */
+.topbar h1{font-size:20px;font-weight:700;letter-spacing:-.3px;color:var(--bleu-900);
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topbar .sous{font-size:12.5px;color:var(--encre-douce);margin-top:2px}
 
 /* ---------- L'en-tête d'une boutique, sur deux lignes ----------
@@ -160,8 +173,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   background:var(--fond);color:var(--encre);
 }
 .btn-ic:active{transform:scale(.94)}
-/* L'en-tête est blanc : un bouton blanc sur blanc ne se voit plus. */
-.topbar .btn-ic{color:var(--encre)}
+/* DANS L'EN-TÊTE, DES ICÔNES NUES ET BLEUES, comme la DA : le retour,
+   la cloche, le panier. Les ronds gris d'avant faisaient quatre
+   boutons côte à côte, et un en-tête chargé de boutons se lit comme
+   une barre d'outils, pas comme une vitrine. La cible tactile garde
+   ses 38 px : c'est le fond qui disparaît, pas la zone du doigt. */
+.topbar .btn-ic{background:transparent;color:var(--bleu)}
+.topbar .btn-ic .ic{width:24px;height:24px;stroke-width:1.9}
 /* Le logo de la boutique, à gauche de son nom. */
 .topbar-vignette{
   flex:none;width:38px;height:38px;border-radius:11px;
@@ -245,9 +263,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   backdrop-filter:blur(12px);
   border-top:1px solid var(--trait);
 }
+/* QUATRE ONGLETS, COMME LA DA : Accueil, Catégories, Favoris, Compte.
+   Il y en avait jusqu'à six, et le texte descendait à 9,5 px pour
+   tenir. À quatre, chacun retrouve une taille qui se lit. */
 .tabbar a{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  height:100%;font-size:9.5px;font-weight:600;color:var(--encre-tres-douce);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  height:100%;font-size:11px;font-weight:500;color:var(--encre-tres-douce);
   min-width:0;padding:0 2px;
 }
 .tabbar a[hidden]{display:none}
@@ -279,13 +300,37 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .tabbar a span{
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.tabbar .ic{width:21px;height:21px}
-/* Le vert de WhatsApp : ce dernier onglet quitte l'application, et
-   c'est la couleur qui le dit avant qu'on ait lu le mot. */
-.tabbar .tab-contact{color:var(--wa)}
-.tabbar .tab-contact .ic{stroke-width:2}
-.tabbar a.actif{color:var(--bleu-700)}
-.tabbar a.actif .ic{stroke-width:2}
+.tabbar .ic{width:23px;height:23px}
+/* L'ONGLET ACTIF EST PLEIN ET BLEU, les autres sont des contours gris :
+   c'est ce que montre la DA, et c'est la forme — pas seulement la
+   couleur — qui dit où l'on est. Un daltonien distingue un dessin plein
+   d'un dessin creux ; il ne distingue pas toujours deux teintes. */
+.tabbar a.actif{color:var(--bleu);font-weight:600}
+.tabbar a.actif .ic{stroke-width:2;fill:currentColor}
+
+/* ---------- Les écrans de parcours, sans barre du bas ----------
+   LA DA NE MONTRE LA BARRE QUE SUR LES ÉCRANS OÙ L'ON CIRCULE —
+   Accueil, Catégories, Nos boutiques. La fiche d'une boutique, celle
+   d'un produit, le panier, le paiement et la confirmation n'en ont pas :
+   ils ont un retour en haut, et UNE action en bas. Deux barres fixes
+   l'une sur l'autre mangeraient un tiers d'un petit écran. */
+body.sans-onglets .tabbar{display:none}
+body.sans-onglets .vue{padding-bottom:calc(var(--safe-b) + 28px)}
+body.sans-onglets.avec-action .vue{padding-bottom:calc(var(--safe-b) + 108px)}
+body.sans-onglets .contact-flottant{bottom:calc(var(--safe-b) + 16px)}
+body.sans-onglets.avec-action .contact-flottant{bottom:calc(var(--safe-b) + 96px)}
+
+/* L'action du bas : « Ajouter au panier », « Passer la commande »,
+   « Payer ». Fixée, pour qu'on n'ait pas à la chercher au fond d'une
+   longue fiche. */
+.barre-action{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;
+  padding:12px 16px calc(var(--safe-b) + 12px);
+  background:rgba(255,255,255,.97);backdrop-filter:blur(12px);
+  box-shadow:0 -10px 28px -18px rgba(0,27,82,.45);
+}
+.barre-action-dedans{max-width:720px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.barre-action .btn{flex:1}
 
 /* ---------- Cartes & boutons ---------- */
 .carte{
@@ -302,11 +347,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 
 .btn{
-  /* BOUTON PRINCIPAL DE LA DA : bleu plein, texte blanc (7,23:1),
-     coins arrondis. Le dégradé d'avant venait d'une autre charte ;
-     la DA montre un aplat. */
+  /* BOUTON PRINCIPAL DE LA DA : bleu plein, texte blanc (7,23:1).
+     EN PILULE, comme les trois boutons de la DA corrigée : les coins
+     de 13 px d'avant en faisaient des rectangles adoucis, que la
+     maquette ne montre nulle part. */
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  min-height:48px;padding:10px 18px;border:0;border-radius:13px;
+  min-height:50px;padding:10px 22px;border:0;border-radius:999px;
   background:var(--bleu);
   color:#fff;font-weight:600;font-size:15px;
   box-shadow:0 10px 22px -12px rgba(0,71,217,.6);
@@ -318,11 +364,18 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   background:var(--blanc);color:var(--bleu);box-shadow:none;
   border:1.5px solid var(--bleu);
 }
-/* BOUTON ORANGE DE LA DA : l'action qui engage — ajouter au panier,
-   passer la commande. Il porte le texte sombre, pas du blanc : voir la
-   note sur l'orange dans les jetons de design. */
+/* BOUTON ORANGE DE LA DA : l'action qui ACHÈTE — « Ajouter au panier »
+   et « Passer la commande » depuis le panier. Partout ailleurs, même
+   pour payer, la DA prend le bleu.
+
+   TEXTE BLANC, COMME LA DA. Blanc sur cet orange donne 2,36:1 : c'est
+   moins que ce que demandent les règles d'accessibilité, et la version
+   précédente écrivait en sombre pour cette raison. La DA corrigée
+   redonne du blanc, c'est la marque qui tranche. On compense ce qui
+   peut l'être sans toucher à la couleur : texte GRAS et un peu plus
+   grand, qui se lisent mieux au soleil qu'un texte mi-gras. */
 .btn-orange{
-  background:var(--orange);color:var(--orange-texte);
+  background:var(--orange);color:var(--orange-texte);font-weight:700;font-size:15.5px;
   box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
 }
 /* LIEN TEXTE DE LA DA : souligné, bleu, sans fond ni cadre. */
@@ -340,11 +393,17 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   margin:20px 2px 10px;
 }
 .vue > .section-titre:first-child{margin-top:2px}
-.section-titre h2{font-size:17px;font-weight:800;letter-spacing:-.2px}
+/* LES RUBRIQUES EN BLEU, comme « Nos boutiques partenaires » et
+   « Méthode de paiement » sur la DA. Le titre de l'écran, lui, est en
+   bleu nuit : deux teintes pour deux niveaux, sans avoir à grossir. */
+.section-titre h2{font-size:16.5px;font-weight:700;letter-spacing:-.2px;color:var(--bleu)}
 .section-lien{
   display:inline-flex;align-items:center;gap:2px;
-  font-size:12.5px;font-weight:700;color:var(--bleu-700);
+  font-size:12.5px;font-weight:600;color:var(--bleu);
 }
+/* Un titre de carte qui ouvre une liste à choisir — la méthode de
+   paiement — prend le bleu des rubriques. Les autres restent sombres. */
+.carte-titre-bleu{color:var(--bleu)}
 
 .aide{font-size:12.5px;color:var(--encre-tres-douce);line-height:1.5}
 /* « a{color:inherit} » rend les liens invisibles dans un texte d'aide :
@@ -557,7 +616,7 @@ video.slide-img{background:#000}
   background:var(--blanc);border:1px solid var(--trait);
   font-size:12.5px;font-weight:700;color:var(--encre-douce);
 }
-.puce.active{background:var(--bleu-700);border-color:var(--bleu-700);color:#fff}
+.puce.active{background:var(--bleu);border-color:var(--bleu);color:#fff}
 
 /* Sous-catégories d'un rayon : elles restent sous la barre du haut
    pendant qu'on fait défiler les produits, à portée du pouce. Le
@@ -576,18 +635,23 @@ video.slide-img{background:#000}
 
 /* ---------- Prix & badges ---------- */
 .prix{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
-.prix-actuel{font-size:14.5px;font-weight:800;color:var(--orange-fonce)}
-.prix-grand .prix-actuel{font-size:22px}
+/* LE PRIX EST BLEU, comme « 299 000 FCFA » sur la fiche produit de la
+   DA. L'orange-brun d'avant le confondait avec la pastille de remise
+   posée juste à côté : deux choses orange, dont une seule est un prix. */
+.prix-actuel{font-size:14.5px;font-weight:700;color:var(--bleu)}
+.prix-grand .prix-actuel{font-size:23px}
 .prix-ancien{font-size:11.5px;color:var(--encre-tres-douce)}
 .prix-grand .prix-ancien{font-size:14px}
 
 .badge{
   display:inline-flex;align-items:center;gap:4px;
   padding:4px 9px;border-radius:999px;
-  font-size:11px;font-weight:800;
+  font-size:11px;font-weight:700;
 }
 .badge-avant{background:var(--ambre-clair);color:var(--orange-fonce)}
-.badge-promo{background:var(--orange);color:var(--orange-texte)}
+/* LA REMISE : pilule orange, texte blanc — celle de la DA. Même choix
+   que pour le bouton orange, et même compensation : le chiffre est gras. */
+.badge-promo{background:var(--orange);color:var(--orange-texte);font-weight:800}
 .badge-flash{background:var(--ambre);color:var(--bleu-900)}
 /* Le prix d'un revendeur n'est pas une promotion : il ne crie pas comme
    une affiche de soldes, il dit simplement à qui ce prix appartient. */
@@ -728,12 +792,13 @@ a.pub-carte:active{transform:scale(.98)}
 }
 
 /* ---------- Fiche produit ---------- */
+/* LA PHOTO SUR BLANC, SANS CADRE NI OMBRE, comme la DA : le produit
+   posé sur la page, pas dans une boîte. Carrée et jamais rognée. */
 .fiche-img{
   position:relative;
   aspect-ratio:1/1;width:100%;
   background:var(--blanc);
   border-radius:var(--r-lg);overflow:hidden;
-  box-shadow:var(--ombre);
   display:flex;align-items:center;justify-content:center;
   min-height:0;
 }
@@ -749,9 +814,33 @@ a.pub-carte:active{transform:scale(.98)}
 .fiche-carrousel::-webkit-scrollbar{display:none}
 .fiche-carrousel .fiche-img{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;border-radius:0;box-shadow:none}
 .fiche-points{margin-top:10px}
-.fiche-infos{display:flex;flex-direction:column;gap:9px}
-.fiche-badges{display:flex;gap:6px;flex-wrap:wrap}
-.fiche-nom{font-size:19px;font-weight:800;letter-spacing:-.2px;line-height:1.3}
+/* Le nom, le prix, la note : sans carte autour, comme sur la DA. */
+.fiche-infos{display:flex;flex-direction:column;gap:9px;padding:4px 2px 2px}
+.fiche-badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fiche-nom{font-size:19px;font-weight:700;letter-spacing:-.2px;line-height:1.3;color:var(--encre)}
+.fiche-prix-ligne{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fiche-prix-ligne .badge-promo{font-size:12px;padding:4px 10px}
+.fiche-ref{font-size:12px;color:var(--encre-tres-douce);font-weight:600}
+/* LES SPÉCIFICATIONS DE LA DA : la clé en gris à gauche, la valeur à
+   droite, une ligne par caractéristique. */
+.fiche-specs{
+  display:grid;grid-template-columns:minmax(92px,max-content) 1fr;
+  gap:9px 16px;margin:0;font-size:13.5px;
+}
+.fiche-specs dt{color:var(--encre-douce)}
+.fiche-specs dd{margin:0;color:var(--encre);font-weight:500;overflow-wrap:anywhere}
+/* Le cœur dans l'en-tête : une icône bleue parmi les autres, et plus
+   une pastille flottante. Plein et orange quand le produit est gardé. */
+.topbar .coeur-entete{
+  position:static;width:38px;height:38px;border:0;border-radius:12px;
+  background:transparent;backdrop-filter:none;color:var(--bleu);
+}
+.topbar .coeur-entete .ic{width:24px;height:24px;stroke-width:1.9}
+/* Le compteur de la barre du bas : le « − 1 + » gris de la DA. */
+.pa-compteur-da{
+  flex:none;background:var(--fond);border-radius:999px;padding:3px;
+}
+.pa-compteur-da button{background:var(--blanc)}
 .fiche-reference{
   font-size:12px;font-weight:700;letter-spacing:.06em;
   color:var(--encre-tres-douce);margin:-4px 0 2px;
@@ -803,19 +892,26 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .pastille-video .ic-sm{width:15px;height:15px}
 
-/* ---------- Recherche ---------- */
-.recherche-boite{
+/* ---------- Recherche ----------
+   LA PILULE DE LA DA : fond gris très clair, trait fin, loupe à
+   gauche, coins tout ronds. La même pour le champ où l'on tape et pour
+   la porte de l'accueil, qui ne fait que mener à la recherche — les
+   deux doivent se reconnaître comme une seule chose. */
+.recherche-boite,.recherche-pilule{
   display:flex;align-items:center;gap:10px;
-  background:var(--blanc);border:1.5px solid var(--trait);
-  border-radius:14px;padding:4px 14px;
-  box-shadow:var(--ombre);
+  background:var(--fond);border:1px solid var(--trait);
+  border-radius:999px;padding:3px 18px;
   color:var(--encre-tres-douce);
 }
-.recherche-boite:focus-within{border-color:var(--bleu)}
+.recherche-boite:focus-within{border-color:var(--bleu);background:var(--blanc)}
 .recherche-boite input{
   flex:1;border:0;outline:none;background:none;
-  min-height:46px;font-size:15px;color:var(--encre);
+  min-height:44px;font-size:14.5px;color:var(--encre);
 }
+.recherche-pilule{min-height:48px;font-size:14px;text-decoration:none}
+.recherche-pilule span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recherche-pilule .ic{color:var(--encre-douce)}
+.recherche-pilule:active{transform:scale(.99)}
 
 /* ---------- Infos boutique ---------- */
 .carte-boutique{display:flex;flex-direction:column;align-items:flex-start;gap:12px}
@@ -1007,11 +1103,13 @@ a.pub-carte:active{transform:scale(.98)}
 .p-panier-ligne{display:flex;align-items:center;gap:12px}
 .p-panier-ligne .btn{flex:1;margin:0}
 .p-panier-dedans{
-  display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
   padding:9px 12px;border-radius:var(--r-sm);
   background:var(--vert-clair);color:var(--vert);
-  font-size:13px;font-weight:700;
+  font-size:13px;font-weight:600;text-decoration:none;
 }
+.p-panier-dedans[hidden]{display:none}
+.p-panier-dedans span{flex:1;min-width:0}
 
 /* Le compteur — moins, quantité, plus — partagé par la fiche et le panier. */
 .pa-compteur{display:flex;align-items:center;gap:2px}
@@ -1628,3 +1726,262 @@ a.pub-carte:active{transform:scale(.98)}
   flex:none;width:9px;height:9px;border-radius:50%;
   background:var(--bleu);margin-top:6px;
 }
+
+/* =========================================================
+   LA DA CORRIGÉE — l'accueil, les boutiques, la fiche
+   ========================================================= */
+
+/* ---------- Les catégories en ronds, sur l'accueil ----------
+   Des ronds pastel sans cadre, le nom court dessous : ceux de la DA.
+   Les cartes blanches d'avant faisaient huit boîtes sous huit boîtes. */
+.cat-ronds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 8px}
+.cat-rond-lien{
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  min-width:0;text-decoration:none;color:var(--encre);
+}
+.cat-rond-da{
+  width:62px;height:62px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;flex:none;
+}
+.cat-rond-da .ic{width:27px;height:27px;stroke-width:1.8}
+.cat-rond-nom{
+  font-size:12px;font-weight:500;max-width:100%;text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.cat-rond-lien:active .cat-rond-da{transform:scale(.95)}
+
+/* ---------- Le logo d'une boutique ----------
+   Un carré aux coins ronds, comme sur la DA — un rond coupait les
+   logos carrés, qui sont la plupart. */
+.bou-logo{
+  display:flex;align-items:center;justify-content:center;flex:none;
+  width:64px;height:64px;border-radius:17px;overflow:hidden;
+  background:var(--blanc);color:#fff;
+  box-shadow:0 6px 16px -10px rgba(0,27,82,.55),0 0 0 1px var(--trait);
+}
+.bou-logo img{width:100%;height:100%;object-fit:cover;display:block}
+.bou-logo-icone{box-shadow:0 6px 16px -10px rgba(0,27,82,.55)}
+.bou-logo-icone .ic{width:28px;height:28px}
+
+/* ---------- Les tuiles « Nos boutiques partenaires » ---------- */
+.bou-tuiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.bou-tuile{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  min-width:0;padding:14px 6px 12px;border-radius:var(--r);
+  background:var(--blanc);box-shadow:var(--ombre);
+  text-decoration:none;color:var(--encre);
+}
+.bou-tuile-nom{
+  font-size:12px;font-weight:600;line-height:1.25;text-align:center;
+  max-width:100%;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.bou-tuile:active{transform:scale(.98)}
+
+/* ---------- La liste « Nos boutiques » ---------- */
+.puces-da .puce{padding:9px 18px;font-size:13px;font-weight:600}
+.bou-liste{padding:6px 14px}
+.bou-ligne{
+  display:flex;align-items:center;gap:13px;padding:12px 0;
+  text-decoration:none;color:var(--encre);
+}
+.bou-ligne + .bou-ligne{border-top:1px solid var(--trait)}
+.bou-ligne > .ic{color:var(--encre-tres-douce);flex:none}
+.bou-logo-liste{width:58px;height:58px;border-radius:15px}
+.bou-ligne-mots{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+/* LE NOM EN BLEU, comme dans la liste de la DA : c'est lui qu'on lit. */
+.bou-ligne-nom{
+  font-size:15px;font-weight:600;color:var(--bleu);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.bou-ligne-sous{
+  font-size:12.5px;color:var(--encre-douce);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.bou-ligne-pied{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:1px}
+.bou-sans-avis{font-size:12px;color:var(--encre-tres-douce)}
+.bou-distance{display:inline-flex;align-items:center;gap:3px;font-size:12px;
+  font-weight:600;color:var(--encre-douce)}
+.bou-distance .ic{width:14px;height:14px}
+.bou-liste-note{margin:14px 0 2px;padding-top:12px;border-top:1px solid var(--trait)}
+
+/* ---------- La note de la DA : une étoile, le chiffre, les avis ---------- */
+.note-courte{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;
+  color:var(--encre-douce)}
+.note-courte .ic{width:15px;height:15px;color:var(--orange);fill:var(--orange);stroke:var(--orange)}
+.note-courte strong{font-weight:700;color:var(--orange-fonce)}
+
+/* ---------- La fiche d'une boutique ----------
+   LA COUVERTURE DÉBORDE LA MARGE DE LA VUE, bord à bord, et la fiche
+   blanche la chevauche, coins arrondis en haut : la mise en page de la
+   DA. Sans photo déposée, un aplat bleu porte le mot BIZZOO plutôt
+   qu'un trou gris. */
+.bou-couverture{
+  margin:-16px -16px 0;height:190px;overflow:hidden;position:relative;
+  background:linear-gradient(135deg,var(--bleu),var(--bleu-800));
+}
+.bou-couverture img{width:100%;height:100%;object-fit:cover;display:block}
+.bou-couverture-vide{display:flex;align-items:center;justify-content:center}
+.bou-couverture-motif .logo-mot{font-size:40px;opacity:.9}
+.vue > .bou-fiche{margin-top:-28px}
+.bou-fiche{
+  position:relative;margin:0 -16px;padding:18px 16px 4px;
+  background:var(--blanc);border-radius:24px 24px 0 0;
+}
+.bou-fiche-tete{display:flex;align-items:center;gap:14px}
+.bou-logo-fiche{width:72px;height:72px;border-radius:19px;margin-top:-4px}
+.bou-fiche-mots{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.bou-fiche-nom{font-size:21px;font-weight:700;line-height:1.2;color:var(--bleu);
+  overflow-wrap:anywhere}
+/* TROIS LIGNES AU PLUS : faute de slogan, c'est la description qui
+   s'écrit ici, et elle peut faire deux cents caractères — elle
+   repousserait « Suivre » et les onglets sous le pli. */
+.bou-fiche-slogan{margin:14px 0 0;font-size:14px;color:var(--encre);line-height:1.45;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+/* Les atouts : de petites pilules grises, une pastille orange devant. */
+.bou-atouts{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 16px}
+.bou-atout{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:6px 12px 6px 6px;border-radius:999px;
+  background:var(--fond);font-size:12px;font-weight:500;color:var(--encre-douce);
+}
+.bou-atout-rond{
+  width:22px;height:22px;border-radius:50%;flex:none;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--orange-clair);color:var(--orange-fonce);
+}
+.bou-atout-rond .ic{width:13px;height:13px;stroke-width:2.2}
+/* Les trois onglets de la fiche : le texte seul, l'actif souligné de
+   bleu — la DA ne met pas de pilules ici, et c'est ce qui les distingue
+   des filtres de la liste. */
+.bou-onglets{display:flex;margin:18px -16px 0;border-bottom:1px solid var(--trait)}
+.bou-onglet{
+  flex:1;background:none;border:0;padding:13px 4px 12px;
+  font-size:14px;font-weight:500;color:var(--encre-tres-douce);
+  border-bottom:3px solid transparent;margin-bottom:-1px;
+}
+.bou-onglet.actif{color:var(--bleu);font-weight:600;border-bottom-color:var(--bleu)}
+.vue > #bou-contenu{margin-top:16px}
+#bou-contenu > * + *{margin-top:14px}
+/* Tout le catalogue en vignettes, trois par rangée, comme la DA. */
+.bou-vignettes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.bou-vignette{
+  display:block;aspect-ratio:1/1;border-radius:14px;overflow:hidden;
+  background:var(--fond);
+}
+.bou-vignette-photo{width:100%;height:100%;object-fit:cover;display:block}
+.bou-vignette .img-absente{display:flex;align-items:center;justify-content:center;height:100%}
+/* Au-delà de neuf vignettes, la liste complète s'ouvre à part. */
+.bou-tout-voir{display:flex;width:100%}
+
+/* =========================================================
+   LA DA CORRIGÉE — le panier, le paiement, la confirmation
+   ========================================================= */
+
+/* « Supprimer tout », en toutes lettres dans l'en-tête du panier. */
+.lien-entete{
+  background:none;border:0;padding:8px 2px;
+  font-size:13px;font-weight:500;color:var(--encre-tres-douce);white-space:nowrap;
+}
+
+/* ---------- Le panier ----------
+   Une ligne de la DA : la photo, le nom, le prix, le compteur gris, et
+   la corbeille à droite. */
+.pa-ligne{align-items:center}
+.pa-ligne-corps{gap:5px}
+.pa-ligne-nom{font-weight:500}
+.pa-ligne-prix{color:var(--encre);font-weight:600}
+.pa-ligne-sous{font-weight:500;color:var(--encre-douce)}
+.pa-ligne .pa-compteur-da{align-self:flex-start;margin-top:2px}
+.pa-compteur-da button{width:30px;height:30px;border:0;border-radius:50%;font-size:17px}
+.pa-compteur-da > span{min-width:30px;font-size:14px;font-weight:600}
+.pa-corbeille{
+  flex:none;align-self:center;width:38px;height:38px;border:0;border-radius:12px;
+  background:transparent;color:var(--encre-tres-douce);
+  display:flex;align-items:center;justify-content:center;
+}
+.pa-corbeille:active{transform:scale(.92);color:var(--rouge)}
+.pa-groupe-titre{font-size:12px;font-weight:700;color:var(--encre-douce);letter-spacing:.03em}
+
+/* Le récapitulatif : sous-total et livraison en gris, le total en bleu. */
+.pa-recap{display:flex;flex-direction:column;gap:9px}
+.pa-recap-ligne{display:flex;justify-content:space-between;gap:14px;font-size:13.5px;
+  color:var(--encre-douce)}
+.pa-recap-ligne span:last-child{text-align:right;color:var(--encre)}
+.pa-recap-total{padding-top:11px;margin-top:3px;border-top:1px solid var(--trait);
+  font-size:15px;font-weight:600;color:var(--encre)}
+.pa-recap-total strong{font-size:18px;font-weight:700;color:var(--bleu)}
+
+/* ---------- La méthode de paiement ----------
+   Une tuile colorée, le nom, un bouton radio à droite : la liste de la
+   DA. Le radio se remplit de bleu quand la ligne est choisie. */
+.pay-methodes{display:flex;flex-direction:column;gap:8px}
+.pay-methode{
+  display:flex;align-items:center;gap:13px;width:100%;text-align:left;
+  padding:11px 13px;border-radius:14px;
+  background:var(--blanc);border:1px solid var(--trait);color:var(--encre);
+}
+.pay-methode.active{border-color:var(--bleu);box-shadow:0 0 0 3px var(--bleu-50)}
+.pay-methode:disabled{opacity:1;cursor:default}
+.pay-tuile{
+  width:40px;height:40px;border-radius:11px;flex:none;
+  display:flex;align-items:center;justify-content:center;color:#fff;
+}
+.pay-tuile .ic{width:21px;height:21px}
+.pay-tuile-orange{background:var(--orange)}
+.pay-tuile-bleu{background:var(--bleu)}
+.pay-tuile-nuit{background:var(--bleu-900)}
+.pay-mots{flex:1;min-width:0;display:flex;flex-direction:column}
+.pay-mots strong{font-size:14.5px;font-weight:600}
+.pay-mots small{font-size:12px;color:var(--encre-tres-douce)}
+.pay-radio{
+  width:22px;height:22px;border-radius:50%;flex:none;
+  border:2px solid var(--trait);background:var(--blanc);
+}
+.pay-methode.active .pay-radio{border-color:var(--bleu);background:var(--bleu);
+  box-shadow:inset 0 0 0 4px var(--blanc)}
+
+/* ---------- L'adresse de livraison, résumée ---------- */
+.co-adresse-tete{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-bottom:10px}
+.co-modifier{background:none;border:0;padding:4px 0;font-size:13.5px}
+.co-resume{display:flex;flex-direction:column;gap:3px;font-size:13.5px;color:var(--encre-douce)}
+.co-resume strong{font-size:14.5px;font-weight:600;color:var(--encre)}
+.co-resume[hidden],.co-formulaire[hidden],.co-modifier[hidden]{display:none}
+
+/* ---------- « Commande confirmée ! » ----------
+   Le rond bleu et sa coche blanche, les confettis autour, le titre, le
+   merci, puis les deux boutons de la DA. */
+.re-heros{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  padding:30px 12px 6px;
+}
+.re-heros-rond{
+  position:relative;width:96px;height:96px;border-radius:50%;
+  background:var(--bleu);color:#fff;margin:26px 0 26px;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 16px 34px -14px rgba(0,71,217,.7);
+}
+.re-heros-rond > .ic{width:46px;height:46px;stroke-width:2.8;position:relative;z-index:1}
+.re-confettis{position:absolute;left:50%;top:50%;width:0;height:0}
+.re-confettis i{position:absolute;left:0;top:0;border-radius:50%;margin:-3px 0 0 -3px}
+.re-confetti-b{background:var(--bleu)}
+.re-confetti-o{background:var(--orange)}
+.re-heros h2{font-size:21px;font-weight:700;color:var(--encre);margin:0 0 10px}
+.re-heros p{margin:0 0 22px;font-size:14px;line-height:1.55;color:var(--encre-douce);max-width:320px}
+.re-heros .btn + .btn{margin-top:10px}
+@media (prefers-reduced-motion:no-preference){
+  .re-heros-rond{animation:re-apparait .45s cubic-bezier(.2,1.4,.4,1) both}
+}
+@keyframes re-apparait{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* L'actualisation du catalogue, sous « Compte » : l'icône tourne tant
+   que la base n'a pas répondu. */
+.ic.tourne-seul{animation:tourner .8s linear infinite}
+.cp-bizzoo{padding-top:6px;padding-bottom:6px}
+
+/* L'invitation à se connecter, sur l'écran de paiement : une ligne. */
+.co-invite{margin:2px 2px 0;font-size:13px;color:var(--encre-douce)}
+/* Le code du produit parmi les pastilles : lisible, pas criard. */
+.fiche-badges .fiche-code{margin:0;padding:3px 8px;font-size:11.5px;font-weight:700;
+  letter-spacing:.04em}

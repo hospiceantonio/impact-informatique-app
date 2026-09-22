@@ -9,8 +9,11 @@ const VueInfos = (() => {
     /* Tant qu'aucune boutique n'est choisie, c'est l'enseigne qui parle :
        BIZZOO a ses propres coordonnées. */
     const enseigne = b.estEnseigne;
-    UI.entete({ titre: enseigne ? "Infos" : "Infos boutique",
-      sous: b.slogan || (enseigne ? "" : b.nom) });
+    /* On y entre depuis l'écran du compte : c'est « À propos de
+       BIZZOO ». Les coordonnées d'UNE boutique sont dans l'onglet
+       « À propos » de sa fiche. */
+    UI.entete({ titre: enseigne ? "À propos de BIZZOO" : "Infos boutique",
+      sous: enseigne ? "" : b.nom, retour: true });
 
     let html = UI.bandeauBoutique();
 
@@ -29,28 +32,87 @@ const VueInfos = (() => {
         (b.slogan ? '<span class="chip-slogan">' + Utils.echapper(b.slogan) + "</span>" : "") +
       "</div>";
 
-    if (b.photos && b.photos.length) {
+    html += htmlPhotos(b, enseigne) + htmlVideo(b) + htmlContacts(b);
+
+    /* Depuis l'enseigne, on redescend vers les boutiques et leurs
+       coordonnées à elles. */
+    if (enseigne && Catalogue.boutiques().length) {
       html +=
         '<div class="carte">' +
-          '<div class="carte-titre">' + (enseigne ? "En images" : "Notre boutique") + "</div>" +
-          '<div class="boutique-photos">' +
-            b.photos.map((url, i) =>
-              '<img src="' + Utils.echapper(url) + '" alt="Photo de la boutique ' + (i + 1) +
-              '" data-photo-boutique="' + i + '"' + (i > 0 ? ' loading="lazy"' : "") + ">").join("") +
-          "</div>" +
+          '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Nos boutiques</div>" +
+          '<p class="aide" style="margin:0 0 12px">Chaque boutique a ses propres horaires, ' +
+            "son adresse et son numéro. Ouvrez-en une pour les voir.</p>" +
+          Catalogue.boutiques().map((x) =>
+            '<a class="ligne-info" href="#/boutique/' + Utils.echapper(x.id) + '">' +
+              (x.logo
+                ? '<span class="bou-rond bou-rond-photo"><img src="' + Utils.echapper(x.logo) + '" alt=""></span>'
+                : '<span class="bou-rond" style="background:' + Utils.echapper(x.couleur) + '">' +
+                  UI.icone(x.icone) + "</span>") +
+              "<span><strong>" + Utils.echapper(x.nom) + "</strong><br><small>" +
+                Utils.echapper(x.secteur || "Voir la boutique") + "</small></span>" +
+              UI.icone("chevron", "ic-sm") +
+            "</a>").join("") +
         "</div>";
     }
 
-    /* La visite filmée, si le gérant en a déposé une. */
-    if (b.video) {
-      html +=
-        '<div class="carte">' +
-          '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation</div>" +
-          '<video class="video-lecture" src="' + Utils.echapper(b.video) +
-          '" controls preload="metadata" playsinline></video>' +
-        "</div>";
+    html += htmlReseaux(b);
+    html += htmlFin();
+
+    vue.innerHTML = html;
+
+    /* Les avis de la boutique : ce que les acheteurs disent d'ELLE. Sur
+       l'écran de l'enseigne il n'y a rien à noter — BIZZOO ne vend pas,
+       ce sont ses boutiques qui vendent. */
+    if (!enseigne && b.id) {
+      UI.$("#vue").insertAdjacentHTML("beforeend", VueAvis.bloc("Avis sur cette boutique"));
+      VueAvis.remplir({ boutique: b.id }, async () => { await Catalogue.rafraichir(); });
     }
 
+    brancherPhotos(vue, b);
+    brancherFin();
+  }
+
+  /* ---------- Les morceaux ----------
+     L'écran « Infos » et l'onglet « À propos » de la fiche d'une
+     boutique montrent les mêmes choses — photos, vidéo, coordonnées,
+     réseaux. Ils sont écrits une fois, ici, et les deux s'en servent :
+     deux copies finiraient par dire deux adresses différentes. */
+
+  function htmlPhotos(b, enseigne) {
+    if (!b.photos || !b.photos.length) return "";
+    return (
+      '<div class="carte">' +
+        '<div class="carte-titre">' + (enseigne ? "En images" : "Notre boutique") + "</div>" +
+        '<div class="boutique-photos">' +
+          b.photos.map((url, i) =>
+            '<img src="' + Utils.echapper(url) + '" alt="Photo de la boutique ' + (i + 1) +
+            '" data-photo-boutique="' + i + '"' + (i > 0 ? ' loading="lazy"' : "") + ">").join("") +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  /* La visite filmée, si le gérant en a déposé une. */
+  function htmlVideo(b) {
+    if (!b.video) return "";
+    return (
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Vidéo de présentation</div>" +
+        '<video class="video-lecture" src="' + Utils.echapper(b.video) +
+        '" controls preload="metadata" playsinline></video>' +
+      "</div>"
+    );
+  }
+
+  function brancherPhotos(zone, b) {
+    const serie = (b.photos || []).map((src) => ({ src }));
+    for (const img of UI.$$("[data-photo-boutique]", zone)) {
+      img.addEventListener("click", () =>
+        UI.ouvrirVisionneuse(serie, Number(img.dataset.photoBoutique) || 0));
+    }
+  }
+
+  function htmlContacts(b) {
     const contacts = [];
     if (b.whatsapp) {
       contacts.push(
@@ -153,55 +215,41 @@ const VueInfos = (() => {
         "</a>");
     }
 
-    html += '<div class="carte">' +
-      '<div class="carte-titre">Nous contacter</div>' +
-      (contacts.length
-        ? contacts.join("")
-        : '<p class="aide" style="margin:0">Les coordonnées seront bientôt disponibles.</p>') +
-    "</div>";
+    return (
+      '<div class="carte">' +
+        '<div class="carte-titre">Nous contacter</div>' +
+        (contacts.length
+          ? contacts.join("")
+          : '<p class="aide" style="margin:0">Les coordonnées seront bientôt disponibles.</p>') +
+      "</div>"
+    );
+  }
 
-    /* Depuis l'enseigne, on redescend vers les boutiques et leurs
-       coordonnées à elles. */
-    if (enseigne && Catalogue.boutiques().length) {
-      html +=
-        '<div class="carte">' +
-          '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Nos boutiques</div>" +
-          '<p class="aide" style="margin:0 0 12px">Chaque boutique a ses propres horaires, ' +
-            "son adresse et son numéro. Ouvrez-en une pour les voir.</p>" +
-          Catalogue.boutiques().map((x) =>
-            '<a class="ligne-info" href="#/boutique/' + Utils.echapper(x.id) + '">' +
-              (x.logo
-                ? '<span class="bou-rond bou-rond-photo"><img src="' + Utils.echapper(x.logo) + '" alt=""></span>'
-                : '<span class="bou-rond" style="background:' + Utils.echapper(x.couleur) + '">' +
-                  UI.icone(x.icone) + "</span>") +
-              "<span><strong>" + Utils.echapper(x.nom) + "</strong><br><small>" +
-                Utils.echapper(x.secteur || "Voir la boutique") + "</small></span>" +
-              UI.icone("chevron", "ic-sm") +
-            "</a>").join("") +
-        "</div>";
-    }
-
+  function htmlReseaux(b) {
     const reseaux = ["facebook", "instagram", "tiktok", "youtube", "snapchat"]
       .map((cle) => ({ cle, lien: Utils.lienReseau(cle, b[cle]) }))
       .filter((r) => r.lien);
+    if (!reseaux.length) return "";
+    return (
+      '<div class="carte">' +
+        '<div class="carte-titre">Suivez-nous</div>' +
+        '<p class="aide" style="margin:0 0 14px">Arrivages, promotions et nouveautés en avant-première.</p>' +
+        '<div class="reseaux">' +
+          reseaux.map((r) =>
+            '<a class="reseau reseau-' + r.cle + '" target="_blank" rel="noopener" href="' +
+              Utils.echapper(r.lien) + '">' +
+              '<span class="reseau-rond">' + UI.icone(r.cle) + "</span>" +
+              "<span>" + Utils.echapper(Utils.RESEAUX[r.cle].nom) + "</span>" +
+            "</a>").join("") +
+        "</div>" +
+      "</div>"
+    );
+  }
 
-    if (reseaux.length) {
-      html +=
-        '<div class="carte">' +
-          '<div class="carte-titre">Suivez-nous</div>' +
-          '<p class="aide" style="margin:0 0 14px">Arrivages, promotions et nouveautés en avant-première.</p>' +
-          '<div class="reseaux">' +
-            reseaux.map((r) =>
-              '<a class="reseau reseau-' + r.cle + '" target="_blank" rel="noopener" href="' +
-                Utils.echapper(r.lien) + '">' +
-                '<span class="reseau-rond">' + UI.icone(r.cle) + "</span>" +
-                "<span>" + Utils.echapper(Utils.RESEAUX[r.cle].nom) + "</span>" +
-              "</a>").join("") +
-          "</div>" +
-        "</div>";
-    }
-
-    html +=
+  /* L'installation, le réglage de la base en démonstration, et le mot
+     de la fin : cela appartient à l'application, pas à une boutique. */
+  function htmlFin() {
+    let html =
       '<div class="carte" id="carte-installation">' +
         '<div class="carte-titre">Installer l\'application</div>' +
         '<p class="aide" style="margin:0 0 12px">Gardez le catalogue dans votre poche : il s\'ouvre en plein écran et reste consultable même sans connexion.</p>' +
@@ -237,23 +285,10 @@ const VueInfos = (() => {
           'Tél : <a href="' + Utils.echapper(Utils.lienTel("0196202098", "229")) + '">01 96 20 20 98</a><br>' +
           '<a href="https://www.creatisinter.com" target="_blank" rel="noopener">www.creatisinter.com</a></div>' +
       "</div>";
+    return html;
+  }
 
-    vue.innerHTML = html;
-
-    /* Les avis de la boutique : ce que les acheteurs disent d'ELLE. Sur
-       l'écran de l'enseigne il n'y a rien à noter — BIZZOO ne vend pas,
-       ce sont ses boutiques qui vendent. */
-    if (!enseigne && b.id) {
-      UI.$("#vue").insertAdjacentHTML("beforeend", VueAvis.bloc("Avis sur cette boutique"));
-      VueAvis.remplir({ boutique: b.id }, async () => { await Catalogue.rafraichir(); });
-    }
-
-    const serieBoutique = (b.photos || []).map((src) => ({ src }));
-    for (const img of UI.$$("[data-photo-boutique]", vue)) {
-      img.addEventListener("click", () =>
-        UI.ouvrirVisionneuse(serieBoutique, Number(img.dataset.photoBoutique) || 0));
-    }
-
+  function brancherFin() {
     const btnConfig = UI.$("#cfg-enregistrer");
     if (btnConfig) {
       btnConfig.onclick = () => {
@@ -271,7 +306,7 @@ const VueInfos = (() => {
 
     /* Bouton d'installation direct quand le navigateur le permet. */
     const zone = UI.$("#zone-installer");
-    if (App.evenementInstallation) {
+    if (zone && App.evenementInstallation) {
       zone.innerHTML = '<button type="button" class="btn" id="btn-installer">' +
         UI.icone("installer") + "Installer maintenant</button>";
       UI.$("#btn-installer").onclick = async () => {
@@ -288,5 +323,22 @@ const VueInfos = (() => {
     }
   }
 
-  return { afficher };
+  /**
+   * L'onglet « À propos » de la fiche d'une boutique : sa présentation,
+   * ses photos, sa vidéo, ses coordonnées et ses réseaux. Le nom, le
+   * logo et la note sont déjà en tête de la fiche ; les avis ont leur
+   * propre onglet.
+   */
+  function aPropos(zone) {
+    const b = Catalogue.boutique();
+    zone.innerHTML =
+      (b.description
+        ? '<div class="carte"><div class="carte-titre">Présentation</div>' +
+            '<p class="boutique-desc" style="margin:0">' + Utils.echapper(b.description) + "</p></div>"
+        : "") +
+      htmlPhotos(b, false) + htmlVideo(b) + htmlContacts(b) + htmlReseaux(b);
+    brancherPhotos(zone, b);
+  }
+
+  return { afficher, aPropos };
 })();

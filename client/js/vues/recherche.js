@@ -27,8 +27,11 @@ const VueRecherche = (() => {
   }
 
   async function afficher(vue) {
+    /* On y entre par la barre de l'accueil, plus par un onglet : un
+       retour ramène d'où l'on vient. */
     UI.entete({
       titre: "Recherche",
+      retour: true,
       sous: Catalogue.multiBoutiques()
         ? "Dans toutes les boutiques, en quelques lettres"
         : "Trouvez votre matériel en quelques lettres",
