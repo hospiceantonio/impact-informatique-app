@@ -1,7 +1,7 @@
 {
   "name": "BIZZOO",
   "short_name": "BIZZOO",
-  "description": "BIZZOO réunit les boutiques de votre ville : informatique, électronique et bien d'autres secteurs. Parcourez leurs catalogues et commandez par WhatsApp.",
+  "description": "BIZZOO réunit les boutiques de votre ville : informatique, électronique et bien d'autres secteurs. Parcourez leurs catalogues, commandez et payez par Mobile Money.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",

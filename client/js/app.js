@@ -48,7 +48,9 @@ const App = { evenementInstallation: null };
        téléphone et pas d'adresse e-mail. */
     { motif: /^\/connexion-tel$/, vue: (v) => VueCompte.connexionTel(v), onglet: "/compte" },
     { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v), onglet: "/compte" },
-    { motif: /^\/mot-de-passe$/, vue: (v) => VueCompte.motDePasse(v), onglet: "/compte" },
+    { motif: /^\/mot-de-passe$/, vue: (v, m, p) => VueCompte.motDePasse(v, p), onglet: "/compte" },
+    /* Là où ramène le lien de « Mot de passe oublié » (Compte.lireRetourEmail). */
+    { motif: /^\/nouveau-mot-de-passe$/, vue: (v) => VueCompte.nouveauMotDePasse(v), onglet: "/compte" },
     { motif: /^\/compte$/, vue: (v) => VueCompte.monCompte(v), onglet: "/compte" },
     /* LES FAVORIS SONT UN ONGLET, comme sur la DA. */
     { motif: /^\/favoris$/, vue: (v) => VueFavoris.afficher(v), onglet: "/favoris" },
@@ -378,6 +380,11 @@ const App = { evenementInstallation: null };
   }
 
   async function demarrer() {
+    /* LE RETOUR D'UN LIEN REÇU PAR E-MAIL, lu avant tout le reste : le
+       jeton quitte la barre d'adresse sur-le-champ, et le premier écran
+       dessiné est le bon — « Nouveau mot de passe », pas l'accueil. */
+    if (typeof Compte !== "undefined") Compte.lireRetourEmail();
+
     /* Le navigateur ne se mêle pas du défilement : l'application gère. */
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     UI.entete({ accueil: true });

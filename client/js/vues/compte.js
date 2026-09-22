@@ -451,9 +451,17 @@ const VueCompte = (() => {
 
   /* ---------- Mot de passe oublié ---------- */
 
-  function motDePasse(vue) {
+  function motDePasse(vue, params) {
     UI.entete({ titre: "Mot de passe oublié", retour: true });
+    /* Revenu d'un lien qui n'a pas abouti : on le dit d'abord, en
+       clair, et le formulaire juste dessous en renvoie un neuf. */
+    const perime = params && params.lien === "perime";
     vue.innerHTML =
+      (perime
+        ? '<div class="carte pa-avertissement" id="cp-lien-perime">' + UI.icone("alerte", "ic-sm") +
+            "<div><strong>Ce lien n'est plus valable.</strong> Il a expiré, ou il a " +
+            "déjà servi. Demandez-en un nouveau ci-dessous.</div></div>"
+        : "") +
       '<div class="carte">' +
         '<p class="aide" style="margin:0 0 10px">Nous vous enverrons un lien pour ' +
           "choisir un nouveau mot de passe.</p>" +
@@ -480,6 +488,56 @@ const VueCompte = (() => {
           "<div>Si un compte existe avec cette adresse, le lien vient d'y être " +
           "envoyé. Pensez à regarder les indésirables.</div></div>" +
         '<a class="btn btn-clair" href="#/connexion">Retour à la connexion</a>';
+    });
+  }
+
+  /* ---------- Le nouveau mot de passe ----------
+     On y arrive par le lien de « Mot de passe oublié » : la session que
+     le lien apporte est déjà ouverte (Compte.lireRetourEmail). Sans
+     elle, il n'y a rien à changer ici, et l'on renvoie en demander un.
+
+     PAS DE FLÈCHE DE RETOUR : l'écran d'avant, c'est la messagerie, ou
+     la page de Supabase qui a vérifié le lien — y revenir rejouerait un
+     lien déjà consommé. */
+  function nouveauMotDePasse(vue) {
+    UI.entete({ titre: "Nouveau mot de passe" });
+    if (!Compte.connecte()) {
+      location.hash = "#/mot-de-passe?lien=perime";
+      return;
+    }
+    const qui = Compte.courriel();
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<p class="aide" style="margin:0 0 10px">Choisissez le mot de passe de votre compte' +
+          (qui ? " <strong>" + Utils.echapper(qui) + "</strong>" : "") + ".</p>" +
+        '<div class="champ"><label for="cp-nouveau">Nouveau mot de passe</label>' +
+          '<input id="cp-nouveau" type="password" autocomplete="new-password" ' +
+            'placeholder="Six caractères au minimum"></div>' +
+        '<div class="champ"><label for="cp-encore">Le même, une seconde fois</label>' +
+          '<input id="cp-encore" type="password" autocomplete="new-password"></div>' +
+        '<button type="button" class="btn" id="cp-changer">' + UI.icone("check") +
+          "Enregistrer le mot de passe</button>" +
+      "</div>" +
+      '<p class="aide" style="text-align:center"><a href="#/">Plus tard</a></p>';
+
+    UI.$("#cp-changer").addEventListener("click", async () => {
+      const nouveau = UI.$("#cp-nouveau").value;
+      if (nouveau.length < 6) return UI.toast("Six caractères au minimum.", "alerte");
+      /* Tapé à l'aveugle, sur un téléphone : une seconde saisie évite de
+         fermer la porte avec une clé qu'on n'a jamais vue. */
+      if (UI.$("#cp-encore").value !== nouveau) {
+        return UI.toast("Les deux saisies ne sont pas identiques.", "alerte");
+      }
+      const bouton = UI.$("#cp-changer");
+      bouton.disabled = true;
+      try {
+        await Compte.changerMotDePasse(nouveau);
+        UI.toast("Mot de passe enregistré. Vous êtes connecté.", "ok");
+        location.hash = "#/compte";
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
+      }
     });
   }
 
@@ -901,6 +959,6 @@ const VueCompte = (() => {
   }
 
   return {
-    connexion, connexionTel, inscription, motDePasse, monCompte, revenirVers,
+    connexion, connexionTel, inscription, motDePasse, nouveauMotDePasse, monCompte, revenirVers,
   };
 })();

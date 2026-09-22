@@ -7,12 +7,35 @@
 <meta name="description" content="BIZZOO réunit les boutiques de votre ville : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money. Sur le web ou dans l'application Android.">
 <meta name="theme-color" content="#0047D9">
 <link rel="icon" href="client/icons/icon-192.png">
+<link rel="apple-touch-icon" href="client/icons/apple-touch-icon.png">
+<!-- L'ADRESSE OFFICIELLE. Le même site vit aussi sur GitHub Pages : cette
+     ligne dit aux moteurs de recherche laquelle des deux compte. -->
+<link rel="canonical" href="https://www.bizzoomarket.com/">
 
-<!-- Ce que Facebook et WhatsApp montrent quand on partage le lien. -->
-<meta property="og:title" content="BIZZOO — Plus de boutiques, un seul endroit !">
-<meta property="og:description" content="Toutes vos boutiques préférées dans une seule application. Commandez et payez par Mobile Money.">
-<meta property="og:image" content="client/icons/icon-512.png">
+<!-- Ce que WhatsApp et Facebook montrent quand on partage le lien.
+     LES ADRESSES SONT ENTIÈRES, et c'est voulu : un chemin relatif
+     (« vitrine/partage.jpg ») est ignoré, et l'aperçu part sans image. -->
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="BIZZOO">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:url" content="https://www.bizzoomarket.com/">
+<meta property="og:title" content="BIZZOO — Vos boutiques préférées dans une seule app !">
+<meta property="og:description" content="Les boutiques de votre ville réunies : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money.">
+<meta property="og:image" content="https://www.bizzoomarket.com/vitrine/partage.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="BIZZOO, vos boutiques préférées dans une seule app — l'accueil de l'application">
+<meta name="twitter:card" content="summary_large_image">
+
+<!-- LE RETOUR D'UN LIEN REÇU PAR E-MAIL (mot de passe oublié). Supabase
+     ramène le visiteur à l'adresse du site, avec ses jetons après le « # ».
+     C'est l'application qui sait les lire : on les lui passe tels quels,
+     avant que la vitrine ne s'affiche. -->
+<script>
+  if (/(^|[#&])(access_token|error_code)=/.test(location.hash)) {
+    location.replace("client/" + location.hash);
+  }
+</script>
 
 <style>
   /* LES POLICES VIENNENT DE L'APPLICATION CLIENTE : un seul jeu de

@@ -1,6 +1,7 @@
 # Déploie les versions web des applications sur GitHub Pages :
 #  - application client -> https://<compte>.github.io/impact-informatique-app/client/
 #  - application admin  -> https://<compte>.github.io/impact-informatique-app/admin/
+#  et fabrique le zip du même site pour l'hébergement de www.bizzoomarket.com.
 # ATTENTION, CECI NE S'ACTIVE PAS TOUT SEUL. « enablement: true » demande à
 # GitHub de CRÉER le site, et le jeton d'un workflow n'en a pas le droit :
 # le journal répond « Create Pages site failed — Resource not accessible by
@@ -11,6 +12,14 @@ name: Déployer sur GitHub Pages
 
 on:
   push:
+    branches: [main]
+  # LES APK ARRIVENT APRÈS LE CODE : leur workflow les construit, puis les
+  # pousse dans un commit « [skip ci] » qui ne relance rien. Sans ce
+  # déclencheur, le bouton « Télécharger l'application » du site servait
+  # l'APK de la version précédente jusqu'à la poussée suivante.
+  workflow_run:
+    workflows: ["Construire les APK Android"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -25,6 +34,8 @@ concurrency:
 
 jobs:
   deployer:
+    # Des APK ratés ne changent rien au site : pas de republication pour rien.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -40,17 +51,21 @@ jobs:
 
       - name: Assembler le site
         run: |
-          mkdir -p _site
-          # Ce qui part en ligne : l'accueil et les deux applications.
-          # Le reste — schéma de la base, captures, projet Android — n'a
-          # rien à faire sur un site que des clients ouvrent.
-          # LES APK RESTENT, et c'est nouveau : la vitrine propose de
-          # télécharger l'application, et un lien qui ne mène à rien
-          # vaut moins que pas de lien du tout.
-          rsync -a --exclude '.git' --exclude '.github' --exclude '_site' \
-            --exclude 'serve.ps1' --exclude 'tools' \
-            --exclude 'android' \
-            --exclude 'supabase' --exclude 'captures' ./ _site/
+          # CE QUI PART EN LIGNE EST NOMMÉ dans tools/assembler-site.sh :
+          # la vitrine, les deux applications, les APK, et les fichiers
+          # d'un site (404, robots, sitemap). Une liste blanche — l'ancienne
+          # copie « tout sauf » publiait aussi le README et skills/.
+          bash tools/assembler-site.sh _site
+          # Le même site, prêt pour l'hébergement de www.bizzoomarket.com :
+          # à télécharger dans l'onglet Actions, « bizzoo-site-hebergement ».
+          bash tools/assembler-site.sh --hebergement bizzoo-site.zip
+
+      - name: Garder le zip de l'hébergement
+        uses: actions/upload-artifact@v4
+        with:
+          name: bizzoo-site-hebergement
+          path: bizzoo-site.zip
+          retention-days: 30
 
       - name: Téléverser l'artefact Pages
         uses: actions/upload-pages-artifact@v3

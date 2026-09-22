@@ -1,0 +1,8 @@
+# BIZZOO — www.bizzoomarket.com
+# L'espace de gestion n'a rien à faire dans un moteur de recherche (il
+# porte aussi une balise « noindex »), ni le fichier de l'application.
+User-agent: *
+Disallow: /admin/
+Disallow: /apk/
+
+Sitemap: https://www.bizzoomarket.com/sitemap.xml

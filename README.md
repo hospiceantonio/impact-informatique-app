@@ -110,6 +110,184 @@ La bascule est vérifiée à 1023 et à 1024 px, des deux côtés.
 > Si le premier déploiement échoue, vérifier une fois dans
 > `Settings → Pages` que la source est « GitHub Actions ».
 
+L'adresse **officielle** est `https://www.bizzoomarket.com` (section
+suivante) ; GitHub Pages en reste une copie, qui le dit aux moteurs de
+recherche par la balise `canonical`.
+
+## Mettre le site en ligne — www.bizzoomarket.com
+
+Le domaine pointe déjà sur un hébergement classique (www et ftp sur le
+même serveur, la messagerie ailleurs). Le site s'y dépose tel quel : ce
+sont des fichiers, sans base de données ni PHP — la base reste celle de
+Supabase.
+
+### Ce qui part en ligne, et rien d'autre
+
+`tools/assembler-site.sh` assemble le site à partir d'une **liste
+blanche** : la vitrine (`index.html`, `vitrine/`), les deux applications
+(`client/`, `admin/`), les APK (`apk/`), et les fichiers d'un site en
+ligne (`404.html`, `robots.txt`, `sitemap.xml`).
+
+**Avant, c'était une copie « tout sauf ».** Le README — l'architecture,
+la place de chaque secret —, le dossier `skills/` et son code
+d'intégration du paiement, le lanceur Windows : tout partait sur GitHub
+Pages avec le reste, et un fichier ajouté demain au dépôt serait parti
+de même. Le script refuse maintenant de finir si le site contient un
+fichier de ce genre (`.md`, `.sql`, `.sh`, `.bat`…), ou quelque chose qui
+ressemble à une clé secrète : `sb_secret_…`, un jeton FeexPay `fp_…`,
+une clé privée — et l'ancienne clé `service_role`, que le script décode
+pour la reconnaître, puisqu'un jeton JWT ne se trahit pas à l'œil. La
+clé publiable de `config.js` est faite pour être lue : elle passe.
+
+```bash
+bash tools/assembler-site.sh                          # _site/, pour GitHub Pages
+bash tools/assembler-site.sh --hebergement            # bizzoo-site.zip, pour l'hébergement
+```
+
+Le zip est aussi fabriqué à chaque publication : **Actions → « Déployer
+sur GitHub Pages » → la dernière exécution → Artifacts →
+`bizzoo-site-hebergement`** (GitHub l'emballe dans un second zip).
+
+**La publication repart quand les APK sont prêts.** Ils sont construits
+après le code, et poussés dans un commit `[skip ci]` qui ne relançait
+rien : le bouton « Télécharger l'application » servait l'APK de la
+version précédente jusqu'à la poussée suivante. Le site se republie
+maintenant à la fin de « Construire les APK Android » — le zip de cette
+exécution-là est donc celui qui porte les bons APK.
+
+### Déposer le site sur l'hébergement
+
+1. **Activer le certificat SSL** (Let's Encrypt, gratuit chez tous les
+   hébergeurs) pour `bizzoomarket.com` **et** `www.bizzoomarket.com`.
+   Sans HTTPS, l'application ne s'installe pas et la position ne se lit
+   pas : le `.htaccess` y envoie donc tout le monde.
+2. **Sauvegarder** ce qu'il y a aujourd'hui dans `public_html` : ce sera
+   remplacé.
+3. **Téléverser `bizzoo-site.zip` dans `public_html`** avec le
+   gestionnaire de fichiers de l'hébergeur, puis **« Extraire »** sur
+   place. Extraire sur le serveur garde le `.htaccess`, que certains
+   logiciels FTP cachent et oublient.
+4. **Vérifier** : `https://www.bizzoomarket.com/` s'ouvre ;
+   `http://bizzoomarket.com` y mène ; « Ouvrir la boutique » ;
+   `/admin/` ; une adresse inventée montre la page 404 de BIZZOO ;
+   « Télécharger l'application » propose d'installer l'APK.
+5. **À chaque nouvelle version**, recommencer l'étape 3 avec le zip du
+   jour.
+
+> **Autre voie, GitHub Pages sur le domaine.** `Settings → Pages →
+> Custom domain : www.bizzoomarket.com`, puis chez le registraire un
+> enregistrement `CNAME www → hospiceantonio.github.io` (et, pour
+> `bizzoomarket.com`, les quatre `A` de GitHub : 185.199.108.153,
+> 185.199.109.153, 185.199.110.153, 185.199.111.153). Le site se publie
+> alors tout seul à chaque poussée — mais il quitte l'hébergement
+> actuel. Ne pas toucher aux enregistrements `MX` de la messagerie.
+
+### Le réglage Supabase sans lequel « mot de passe oublié » ne mène à rien
+
+Le lien envoyé par e-mail ramène le client à la **Site URL** du projet.
+Dans le tableau de bord Supabase : **Authentication → URL
+Configuration** :
+
+| | |
+|---|---|
+| Site URL | `https://www.bizzoomarket.com/client/` |
+| Redirect URLs | `https://www.bizzoomarket.com/**` (et `https://hospiceantonio.github.io/impact-informatique-app/**` si la copie sert encore) |
+
+### Le lien « mot de passe oublié » aboutit enfin
+
+Supabase vérifie le lien, puis ramène le client au site avec une session
+toute prête après le `#` (`#access_token=…&type=recovery`), ou une
+erreur quand le lien a expiré (`#error_code=otp_expired`). **Personne ne
+lisait ces morceaux** : le routeur les prenait pour un écran inconnu et
+renvoyait à l'accueil. Le jeton était perdu, et le client ne pouvait
+jamais choisir un nouveau mot de passe — un lien était pourtant parti le
+22 septembre.
+
+`Compte.lireRetourEmail()` les lit maintenant avant le premier écran :
+
+- **le lien valable** ouvre « Nouveau mot de passe » (deux saisies, six
+  caractères au moins), sans flèche de retour — l'écran d'avant
+  rejouerait un lien déjà consommé. Le mot de passe part par
+  `PUT /auth/v1/user`, au nom du compte du lien, puis « Mon compte »
+  s'ouvre ;
+- **le lien périmé** revient sur « Mot de passe oublié », qui le dit en
+  clair et en renvoie un neuf ;
+- **l'adresse est nettoyée sur-le-champ** : un jeton laissé dans la
+  barre d'adresse finit dans une capture d'écran, ou dans un lien
+  partagé ;
+- **la vitrine passe la main** : si la Site URL mène à la racine du site
+  plutôt qu'à `/client/`, elle transmet le lien à l'application.
+
+Au passage : au rafraîchissement de la session (toutes les heures), le
+numéro d'un compte créé par SMS était perdu, et « Mon compte » affichait
+un identifiant vide. Il est gardé.
+
+### Le .htaccess
+
+`hebergement/htaccess`, copié en `.htaccess` dans le zip :
+
+- **une seule adresse** : `http://` et `bizzoomarket.com` mènent à
+  `https://www.bizzoomarket.com`, en un seul saut ;
+- **sécurité** : `nosniff`, `SAMEORIGIN` (le site ne se laisse pas
+  encadrer par un autre), la position permise, la caméra et le micro
+  non, HTTPS obligatoire six mois (sans les sous-domaines : la
+  messagerie a les siens) ;
+- **cache** : les pages et le code se revalident à chaque visite — leurs
+  noms ne changent pas d'une version à l'autre —, les images une
+  semaine, les polices un an, l'APK jamais ;
+- **types** : l'APK part en `application/vnd.android.package-archive` —
+  sans quoi Android l'enregistre comme un fichier inconnu et ne propose
+  pas de l'installer —, les polices et le manifeste avec les leurs.
+
+**Un `.htaccess` fautif, c'est tout le site en erreur 500.** Chaque
+module est donc entouré de `<IfModule>`, et aucune directive ne demande
+plus que `AllowOverride FileInfo` : pas d'`Options -Indexes`, pas de
+`mod_expires`, que certains hébergeurs refusent — le cache passe par des
+en-têtes. En cas de « trop de redirections », l'hébergeur passe le HTTPS
+par un chemin que les conditions ne voient pas : retirer les trois
+lignes du bloc HTTPS.
+
+### Ce que voient les moteurs et les messageries
+
+- **l'aperçu d'un lien partagé** (WhatsApp, Facebook) : une image
+  1200 × 630 aux couleurs de la DA (`vitrine/partage.jpg`, 89 Ko —
+  WhatsApp renonce au-delà de 300), en **adresse entière** : l'ancienne,
+  en chemin relatif, était ignorée, et le lien partait sans image ;
+- `canonical`, `robots.txt`, `sitemap.xml` ;
+- **l'admin hors des moteurs** : `noindex` sur la page, `Disallow` dans
+  `robots.txt` ;
+- une **page 404** aux couleurs de BIZZOO. Elle s'affiche à n'importe
+  quelle profondeur (`/une/adresse/inconnue`) : ses liens partent donc de
+  la racine — celle de `www.bizzoomarket.com`, ou celle du dépôt sur
+  GitHub Pages ;
+- les descriptions disent « commandez et payez par Mobile Money », et
+  plus « par WhatsApp ».
+
+### Le banc de la mise en ligne
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-mise-en-ligne.mjs
+```
+
+Quatre-vingt-huit constats. Le banc assemble le site, puis l'ouvre aux
+deux adresses — `https://www.bizzoomarket.com` et le sous-dossier de
+GitHub Pages — servies par lui-même : aucune requête ne sort. Il suit le
+lien « mot de passe oublié » de bout en bout, et démarre un **vrai
+Apache** réglé comme l'hébergeur le plus avare (`AllowOverride FileInfo`,
+une table de types sans APK ni woff2) pour y éprouver le `.htaccess`.
+Cette dernière partie est sautée si Apache est absent
+(`apt install apache2`).
+
+Seize sabotages le font tomber, chacun sur le constat attendu : le
+README publié (garde-fou du script retiré), un `.bat` publié, une clé
+`sb_secret_`, une clé `service_role`, l'image de partage en chemin
+relatif, l'admin indexable, le lien jamais lu, le jeton laissé dans
+l'adresse, la vitrine qui ne passe plus la main, le numéro perdu au
+rafraîchissement, un lien relatif dans la page 404, `Options -Indexes`
+dans le `.htaccess` (dix-huit constats d'un coup : erreur 500), la
+redirection vers `www` retirée, et les types de l'APK, des polices et du
+manifeste oubliés.
+
 ## La charte graphique
 
 La charte de BIZZOO s'applique aux deux applications et à la vitrine.
@@ -2363,10 +2541,14 @@ impact-informatique-app/
 │   ├── preparer-assets.js    # Copie les fichiers web dans les APK
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
-├── index.html                # L'accueil du site : les deux portes, boutique et admin
+├── index.html                # La vitrine : l'accueil du site
+├── vitrine/                  # Ses captures, et l'image de l'aperçu partagé
+├── 404.html / robots.txt / sitemap.xml   # Ce qu'attend un site en ligne
+├── hebergement/htaccess      # Le .htaccess de www.bizzoomarket.com (Apache, LiteSpeed)
 ├── DEMARRER-BIZZOO.bat       # Windows : double-cliquer pour tout ouvrir en local
 ├── serve.ps1                 # Le serveur local que le .bat appelle (Windows)
 └── tools/
+    ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)

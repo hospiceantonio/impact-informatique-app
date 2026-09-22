@@ -1,0 +1,103 @@
+# =========================================================
+#  BIZZOO — www.bizzoomarket.com
+#  Réglages du serveur, pour un hébergement Apache ou LiteSpeed.
+# =========================================================
+#  Ce fichier est copié en « .htaccess » à la racine du zip par
+#  tools/assembler-site.sh --hebergement. Il se dépose avec le reste
+#  du site dans public_html.
+#
+#  UN .htaccess FAUTIF, C'EST TOUT LE SITE EN ERREUR 500. D'où deux
+#  règles tenues ici :
+#    — chaque module est entouré de <IfModule> : absent chez
+#      l'hébergeur, il est sauté au lieu de tout faire tomber ;
+#    — aucune directive ne demande plus que « AllowOverride FileInfo ».
+#      « Options -Indexes » et mod_expires en demandent davantage, et
+#      certains hébergeurs le refusent : le cache passe donc par des
+#      en-têtes, et les dossiers sans index.html restent listables
+#      (ils ne contiennent que des fichiers publics).
+# =========================================================
+
+AddDefaultCharset UTF-8
+ErrorDocument 404 /404.html
+
+# ---------------------------------------------------------
+#  Une seule adresse : https://www.bizzoomarket.com
+# ---------------------------------------------------------
+#  Le service worker (l'application hors connexion) et la géolocalisation
+#  n'existent qu'en HTTPS : sans lui, le site s'ouvrirait à moitié.
+#  ACTIVER LE CERTIFICAT SSL DE L'HÉBERGEMENT AVANT DE DÉPOSER CE FICHIER.
+#  En cas de « trop de redirections », supprimer les trois lignes du
+#  bloc HTTPS : l'hébergeur passe alors le HTTPS par un chemin que
+#  ces conditions ne voient pas.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # bizzoomarket.com → www.bizzoomarket.com, en un seul saut.
+  RewriteCond %{HTTP_HOST} ^bizzoomarket\.com$ [NC]
+  RewriteRule ^ https://www.bizzoomarket.com%{REQUEST_URI} [L,R=301,NE]
+
+  # HTTP → HTTPS.
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,NE]
+</IfModule>
+
+# ---------------------------------------------------------
+#  Les types, pour que le navigateur sache quoi faire
+# ---------------------------------------------------------
+#  Sans le premier, Android enregistre l'APK comme un fichier inconnu
+#  et ne propose pas de l'installer.
+<IfModule mod_mime.c>
+  AddType application/vnd.android.package-archive .apk
+  AddType application/manifest+json .webmanifest
+  AddType font/woff2 .woff2
+  AddType image/webp .webp
+  AddCharset UTF-8 .html .css .js .json .webmanifest .txt .xml
+</IfModule>
+
+# ---------------------------------------------------------
+#  Sécurité
+# ---------------------------------------------------------
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  # Le site ne se laisse pas encadrer par un autre (hameçonnage).
+  Header always set X-Frame-Options "SAMEORIGIN"
+  # La position sert (boutiques proches, adresse d'un revendeur) ; la
+  # caméra et le micro, jamais.
+  Header always set Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+  # Six mois de HTTPS obligatoire, en HTTPS seulement. Sans
+  # « includeSubDomains » : la messagerie a ses propres adresses.
+  Header always set Strict-Transport-Security "max-age=15552000" env=HTTPS
+
+  # ---- Le cache ----
+  # Les pages et le code gardent leur nom d'une version à l'autre : le
+  # navigateur redemande donc à chaque fois s'ils ont changé (réponse
+  # courte, « 304 », quand rien n'a bougé). L'application installée, elle,
+  # se sert de son service worker et n'attend pas le réseau.
+  <FilesMatch "\.(html|js|css|webmanifest|json|txt|xml)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  # Les images peuvent changer (captures de la vitrine) : une semaine.
+  <FilesMatch "\.(png|jpe?g|webp|svg|ico)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+  # Les polices ne changent jamais.
+  <FilesMatch "\.woff2$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  # L'APK garde son nom d'une version à l'autre : jamais de vieille copie.
+  <FilesMatch "\.apk$">
+    Header set Cache-Control "no-cache"
+    Header set Content-Disposition "attachment"
+  </FilesMatch>
+</IfModule>
+
+# ---------------------------------------------------------
+#  Compression du texte (LiteSpeed le fait déjà de lui-même)
+# ---------------------------------------------------------
+<IfModule mod_deflate.c>
+  <IfModule mod_filter.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/plain text/xml application/xml application/javascript text/javascript application/json application/manifest+json image/svg+xml
+  </IfModule>
+</IfModule>

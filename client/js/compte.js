@@ -224,6 +224,9 @@ const Compte = (() => {
       if (code === "user_already_exists" || /already registered/i.test(texte)) {
         throw new Error("Un compte existe déjà avec cet e-mail. Connectez-vous.");
       }
+      if (code === "same_password") {
+        throw new Error("C'est votre mot de passe actuel. Choisissez-en un autre.");
+      }
       if (code === "weak_password" || /password/i.test(texte) && /least|court/i.test(texte)) {
         throw new Error("Mot de passe trop court : six caractères au minimum.");
       }
@@ -279,6 +282,10 @@ const Compte = (() => {
         refresh_token: d.refresh_token || session.refresh_token,
         expire_a: d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000,
         email: session.email,
+        /* Le numéro survit au rafraîchissement : sans lui, un compte créé
+           par SMS retombait, au bout d'une heure, sur l'identifiant vide
+           que « depuisReponse » s'applique justement à éviter. */
+        tel: session.tel || "",
       });
       return session;
     } catch (err) {
@@ -419,6 +426,62 @@ const Compte = (() => {
   /** Renvoyer le courriel de réinitialisation. */
   async function motDePasseOublie(email) {
     await appelAuth("recover", { email: String(email || "").trim() });
+  }
+
+  /* ---------- Le retour d'un lien reçu par e-mail ----------
+
+     « Mot de passe oublié » envoie un lien. Supabase le vérifie, puis
+     ramène le client à l'adresse du site (sa « Site URL ») avec, après
+     le « # », une session toute prête :
+
+       #access_token=…&refresh_token=…&expires_in=3600&type=recovery
+
+     ou, quand le lien a expiré ou a déjà servi :
+
+       #error=access_denied&error_code=otp_expired&error_description=…
+
+     SANS CETTE LECTURE, LE LIEN NE MENAIT À RIEN : le routeur prenait ces
+     morceaux pour un écran inconnu et renvoyait à l'accueil. Le jeton
+     était perdu, et le client ne pouvait jamais choisir son nouveau mot
+     de passe.
+
+     Rend l'écran où aller, ou null s'il n'y avait rien à lire. Le
+     démarrage l'appelle AVANT le premier écran, et l'adresse est nettoyée
+     sur-le-champ : un jeton laissé dans la barre d'adresse finit dans une
+     capture d'écran, ou dans un lien qu'on partage. */
+  function lireRetourEmail() {
+    const brut = String(location.hash || "").replace(/^#\/?/, "");
+    if (!/(^|&)(access_token|error_code|error)=/.test(brut)) return null;
+    const p = new URLSearchParams(brut);
+    let ecran;
+    if (p.get("access_token")) {
+      const c = contenuDe(p.get("access_token")) || {};
+      depuisReponse({
+        access_token: p.get("access_token"),
+        refresh_token: p.get("refresh_token") || "",
+        expires_in: Number(p.get("expires_in")) || 3600,
+        expires_at: Number(p.get("expires_at")) || 0,
+        user: { email: c.email || "", phone: c.phone || "" },
+      }, c.email || "");
+      ecran = p.get("type") === "recovery" ? "#/nouveau-mot-de-passe" : "#/compte";
+    } else {
+      /* Le lien n'a pas abouti. Le message anglais de Supabase ne sert à
+         personne : l'écran dit en clair ce qui s'est passé, et quoi faire. */
+      ecran = "#/mot-de-passe?lien=perime";
+    }
+    try {
+      history.replaceState(history.state, "", location.pathname + location.search + ecran);
+    } catch (_) {
+      location.hash = ecran;
+    }
+    return ecran;
+  }
+
+  /** Le nouveau mot de passe, sur la session ouverte par le lien. */
+  async function changerMotDePasse(nouveau) {
+    const s = await assurerSession();
+    if (!s) throw new Error("Ce lien n'est plus valable. Demandez-en un nouveau.");
+    await appelAuth("user", { password: String(nouveau || "") }, true, "PUT");
   }
 
   /* ---------- Entrer, ou se vérifier, par SMS ----------
@@ -808,11 +871,10 @@ const Compte = (() => {
     return fiche;
   }
 
-  /** Le contenu du jeton lui-même : identifiant, et métadonnées du compte. */
-  function contenuDuJeton() {
-    if (!session || !session.access_token) return null;
+  /** Le contenu d'un jeton : identifiant, adresse, métadonnées du compte. */
+  function contenuDe(jeton) {
     try {
-      let charge = session.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      let charge = String(jeton).split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
       charge += "===".slice((charge.length + 3) % 4);
       const brut = atob(charge);
       const octets = Uint8Array.from(brut, (c) => c.charCodeAt(0));
@@ -820,6 +882,11 @@ const Compte = (() => {
     } catch (_) {
       return null;
     }
+  }
+
+  /** Le contenu du jeton de la session en cours. */
+  function contenuDuJeton() {
+    return session && session.access_token ? contenuDe(session.access_token) : null;
   }
 
   /** L'identifiant du compte, lu dans le jeton lui-même (champ « sub »). */
@@ -1012,6 +1079,7 @@ const Compte = (() => {
   return {
     connecte, courriel, identite, identifiant, moi, charger,
     inscrire, connecter, deconnecter, motDePasseOublie,
+    lireRetourEmail, changerMotDePasse,
     enregistrer, assurerSession, jeton, surChangement,
     etatRevendeur, estRevendeur, estRevendeurEnAttente, motifRevendeur,
     demanderRevendeur, annulerRevendeur, enregistrerPosition, chargerPrix,
