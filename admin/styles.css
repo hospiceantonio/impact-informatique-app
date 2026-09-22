@@ -240,8 +240,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   border:1.5px solid var(--bleu);
 }
 /* BOUTON ORANGE DE LA DA : l'action qui engage — ajouter au panier,
-   passer la commande. Il porte le texte sombre, pas du blanc : voir la
-   note sur l'orange dans les jetons de design. */
+   passer la commande. Texte blanc et gras, comme la DA corrigée : voir
+   la note sur « --orange-texte » dans les jetons de design. */
 .btn-orange{
   background:var(--orange);color:var(--orange-texte);font-weight:700;
   box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
@@ -1016,67 +1016,134 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .badge-nouvelle{background:var(--orange);color:var(--orange-texte)}
 .badge-annulee{background:var(--fond);color:var(--encre-tres-douce)}
 
-.cmd-carte{border-left:3px solid var(--vert)}
+/* =========================================================
+   UNE COMMANDE, UNE CARTE SERRÉE
+   =========================================================
+   Une commande de trois articles prenait tout un écran de téléphone
+   (685 px) : noms de produits cassés mot par mot, montants coupés en
+   deux, un bandeau « Payée » et deux grands boutons sur chaque carte.
+   La règle, maintenant :
+     — rien ne se coupe à contretemps : le NOM d'un article tient sur
+       une ligne (il se déplie d'un appui), un MONTANT ne se casse
+       jamais ;
+     — le paiement tient sur la ligne de l'heure ; seul ce qui demande
+       de l'attention garde un bandeau ;
+     — WhatsApp vit à côté du numéro, et les gros boutons ne restent
+       que pour les gestes rares (confier, confirmer à la main) ;
+     — à l'ordinateur, le client et les articles côte à côte. */
+.cmd-carte{border-left:3px solid var(--vert);padding:13px 14px}
 /* Tout est remis : la carte s'efface sans disparaître. */
 .cmd-soldee{border-left-color:var(--trait);opacity:.72}
 
-.cmd-entete{
-  display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
-  padding-bottom:12px;border-bottom:1px solid var(--trait);
+.cmd-entete{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.cmd-gauche{min-width:0}
+.cmd-titre{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px}
+.cmd-numero{font-size:14px;font-weight:800;letter-spacing:.04em;margin-right:2px}
+.cmd-titre .badge{padding:3px 8px;font-size:10.5px}
+.cmd-somme{flex:none;text-align:right}
+.cmd-montant{font-size:15.5px;font-weight:800;line-height:1.3;color:var(--orange-fonce);white-space:nowrap}
+.cmd-part{font-size:11px;color:var(--encre-tres-douce);white-space:nowrap}
+.cmd-meta{
+  display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;margin-top:3px;
+  font-size:12px;color:var(--encre-tres-douce);
 }
-.cmd-numero{font-size:15px;font-weight:800;letter-spacing:.06em}
-.cmd-quand{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
-.cmd-montant{font-size:18px;font-weight:800;color:var(--orange-fonce)}
-.cmd-part{font-size:11.5px;color:var(--encre-tres-douce);margin-top:2px}
+.cmd-paye{display:inline-flex;align-items:center;gap:4px;color:var(--vert);font-weight:600}
+.cmd-paye .ic-sm{width:14px;height:14px}
+.cmd-revendeur{display:inline-flex;align-items:center;gap:4px;color:var(--vert);font-weight:600}
+.cmd-revendeur .ic-sm{width:13px;height:13px}
 
+/* Ce qui demande de l'attention garde son bandeau. */
 .cmd-etat{
   display:flex;align-items:flex-start;gap:7px;
-  margin-top:12px;padding:8px 11px;border-radius:var(--r-sm);
-  font-size:12.5px;font-weight:700;line-height:1.45;
+  margin-top:10px;padding:7px 10px;border-radius:var(--r-sm);
+  font-size:12px;font-weight:600;line-height:1.45;
 }
 .cmd-etat .ic{flex:none;margin-top:1px}
-.cmd-etat-payee{background:var(--vert-clair);color:var(--vert)}
 .cmd-etat-attente{background:var(--bleu-50);color:var(--bleu-700)}
 .cmd-etat-alerte{background:var(--rouge-clair);color:var(--rouge-fonce)}
 
-.cmd-client{
-  margin-top:12px;padding:11px 13px;
-  background:var(--fond);border-radius:var(--r-sm);
-  display:flex;flex-direction:column;gap:7px;font-size:13px;
-}
-.cmd-client .ic-sm{flex:none;color:var(--encre-tres-douce);margin-right:7px}
-.cmd-client-nom{display:flex;align-items:center;font-weight:700}
-.cmd-client-tel{
-  display:flex;align-items:center;color:var(--bleu-700);
-  font-weight:700;text-decoration:none;
-}
-.cmd-client-adresse{display:flex;align-items:flex-start;color:var(--encre-douce)}
-.cmd-note{
-  font-size:12.5px;font-style:italic;color:var(--encre-douce);
-  padding-top:7px;border-top:1px dashed var(--trait);
+/* « minmax(0,1fr) », PAS « 1fr » : une colonne de grille s'élargit
+   sinon jusqu'au plus long nom d'article — celui qu'on vient justement
+   d'empêcher de passer à la ligne — et toute la page déborde. */
+.cmd-corps{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:10px}
+.cmd-lignes,.cmd-client{min-width:0}
+@media (min-width:1024px){
+  .cmd-corps{grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:18px;align-items:start}
 }
 
-.cmd-lignes{margin-top:6px}
-.cmd-ligne{
-  display:flex;align-items:center;gap:12px;
-  padding:11px 0;border-bottom:1px solid var(--trait);
+.cmd-client{
+  padding:9px 11px;background:var(--fond);border-radius:var(--r-sm);
+  display:flex;flex-direction:column;gap:5px;font-size:12.5px;line-height:1.4;
 }
+.cmd-client .ic-sm{flex:none;width:14px;height:14px;color:var(--encre-tres-douce);margin-right:6px}
+.cmd-client-nom{display:flex;align-items:center;font-weight:700;color:var(--encre)}
+.cmd-client-contact{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}
+.cmd-client-tel{
+  display:inline-flex;align-items:center;white-space:nowrap;
+  color:var(--bleu-700);font-weight:700;text-decoration:none;
+}
+.cmd-wa{
+  display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:999px;
+  background:#1FAF54;color:#fff;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap;
+}
+.cmd-client .cmd-wa .ic-sm{color:#fff;margin:0}
+.cmd-client-adresse{display:flex;align-items:flex-start;color:var(--encre-douce)}
+.cmd-client-adresse .ic-sm{margin-top:2px}
+.cmd-note{
+  font-size:12px;font-style:italic;color:var(--encre-douce);
+  padding-top:5px;border-top:1px dashed var(--trait);
+}
+
+.cmd-lignes{display:flex;flex-direction:column}
+.cmd-ligne{padding:8px 0;border-bottom:1px solid var(--trait)}
+.cmd-ligne:first-child{padding-top:2px}
 .cmd-ligne:last-child{border-bottom:0;padding-bottom:0}
-.cmd-ligne-corps{flex:1;min-width:0}
-.cmd-ligne-nom{font-size:13.5px;font-weight:700}
-.cmd-quantite{color:var(--orange-fonce)}
-.cmd-ligne-sous{font-size:12px;color:var(--encre-tres-douce);margin-top:3px}
-.cmd-ligne-etat{
-  flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;
+.cmd-ligne-haut{display:flex;align-items:baseline;gap:6px}
+.cmd-quantite{flex:none;font-size:12.5px;font-weight:800;color:var(--orange-fonce)}
+/* Le nom : une ligne, et « … » s'il est long. C'est un bouton : un appui
+   le déplie, un second le replie. */
+.cmd-ligne-nom{
+  flex:1;min-width:0;padding:0;border:0;background:none;cursor:pointer;
+  font:inherit;font-size:13px;font-weight:600;line-height:1.4;color:var(--encre);text-align:left;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.cmd-ligne-nom[aria-expanded="true"]{white-space:normal}
+.cmd-ligne-prix{flex:none;font-size:12.5px;font-weight:700;color:var(--encre-douce);white-space:nowrap}
+.cmd-ligne-bas{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:6px 8px;margin-top:5px;
+}
+.cmd-ligne-refs{display:flex;align-items:center;gap:6px;min-width:0;font-size:11.5px;color:var(--encre-tres-douce)}
+.cmd-ligne-refs .code-produit{font-size:11px;padding:1px 6px}
+.cmd-ref{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmd-ligne-etat{display:flex;align-items:center;gap:6px;margin-left:auto}
+.cmd-ligne-etat .badge{padding:3px 8px;font-size:10.5px}
 .btn-mini{
   border:1px solid var(--bleu-100);border-radius:999px;
   background:var(--bleu-50);color:var(--bleu-700);
-  padding:5px 11px;font-size:11.5px;font-weight:800;font-family:inherit;
+  padding:4px 10px;font-size:11px;font-weight:700;font-family:inherit;
   white-space:nowrap;
 }
 .btn-mini:active{transform:scale(.95)}
 .btn-mini:disabled{opacity:.5}
+
+/* Les gestes rares : des boutons, mais pas des boutons d'accueil. */
+.cmd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+/* « width:auto » : le bouton de base fait toute la largeur, et une rangée
+   de deux se serait empilée. Au téléphone, « flex:1 » le fait remplir
+   quand même sa rangée. */
+.cmd-actions .btn{width:auto;flex:1 1 auto;min-height:40px;padding:8px 14px;font-size:13.5px;box-shadow:none}
+.cmd-actions .btn .ic{width:18px;height:18px}
+/* À l'ordinateur, un bouton à sa taille, à droite — pas une barre de
+   950 px sous la carte. */
+@media (min-width:1024px){
+  .cmd-actions{justify-content:flex-end}
+  .cmd-actions .btn{flex:0 0 auto;min-width:220px}
+}
+.cmd-aide{margin:8px 0 0;font-size:12px}
+/* Le résumé du haut, à la taille d'un résumé. */
+.cmd-resume{padding:12px 14px}
+.cmd-resume .carte-titre{font-size:14px;margin-bottom:4px}
 
 /* ---------- Le code d'un produit ---------- */
 /* Un numéro donné par la base, jamais saisi. On le montre comme ce
@@ -1358,13 +1425,15 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Ce que le client a confirmé ----------
    Sous l'état de la ligne : votre déclaration d'un côté, la sienne de
-   l'autre. Les deux ensemble closent la commande. */
+   l'autre. Les deux ensemble closent la commande. Une ligne à part, à
+   droite, sous le badge qu'elle complète. */
 .cmd-confirme{
-  display:inline-flex;align-items:center;gap:5px;
-  margin-top:6px;font-size:11.5px;font-weight:700;color:var(--vert);
+  display:flex;align-items:center;justify-content:flex-end;gap:5px;
+  margin-top:4px;font-size:11.5px;font-weight:600;color:var(--vert);
 }
+.cmd-confirme .ic-sm{width:14px;height:14px}
 .cmd-attente-client{
-  display:inline-block;margin-top:6px;
+  margin-top:4px;text-align:right;
   font-size:11.5px;color:var(--encre-tres-douce);
 }
 

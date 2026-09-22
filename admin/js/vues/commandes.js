@@ -11,7 +11,26 @@
    ========================================================= */
 const VueCommandes = (() => {
 
-  /** « il y a 5 min », « il y a 2 h », « hier », sinon la date. */
+  /**
+   * « aujourd'hui à 21:19 », « hier à 21:19 », sinon « 20 sept. à 21:19 »
+   * — l'année seulement quand ce n'est pas celle-ci. COURT, parce que ça
+   * doit tenir sur la ligne d'un article : « 20 septembre 2026 à 21:19 »
+   * la cassait en deux.
+   */
+  function quandCourt(horodatage) {
+    const d = new Date(horodatage);
+    if (isNaN(d.getTime())) return "";
+    const heure = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    const jour = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const ecart = Math.round((jour(new Date()) - jour(d)) / 86400000);
+    if (ecart === 0) return "aujourd'hui à " + heure;
+    if (ecart === 1) return "hier à " + heure;
+    const format = { day: "numeric", month: "short" };
+    if (d.getFullYear() !== new Date().getFullYear()) format.year = "numeric";
+    return d.toLocaleDateString("fr-FR", format) + " à " + heure;
+  }
+
+  /** « il y a 5 min », « il y a 2 h », « hier », sinon la date courte. */
   function depuis(ms) {
     const minutes = Math.round((Date.now() - ms) / 60000);
     if (minutes < 1) return "à l'instant";
@@ -19,7 +38,7 @@ const VueCommandes = (() => {
     const heures = Math.floor(minutes / 60);
     if (heures < 24) return "il y a " + heures + " h";
     if (heures < 48) return "hier";
-    return Utils.fmtDateHeure(new Date(ms).toISOString());
+    return quandCourt(ms);
   }
 
   /** Le récapitulatif de SA part, prêt à partir sur le WhatsApp du client. */
@@ -35,38 +54,54 @@ const VueCommandes = (() => {
       "\n\nQuand souhaitez-vous la recevoir ?";
   }
 
+  /* ---------- Un article ----------
+     DEUX RANGÉES, CHACUNE À SON AFFAIRE.
+
+       la première est au PRODUIT : combien, quoi, pour combien ;
+       la seconde au TRAVAIL : ses repères, où il en est, le geste suivant.
+
+     Avant, l'état et son bouton se tenaient À CÔTÉ du nom et lui
+     prenaient la moitié de la largeur : sur un téléphone, « Chargeur
+     rapide USB-C 25 W Samsung d'origine » se cassait mot par mot sur
+     sept lignes, et le montant se coupait en « 24 000 » / « FCFA ».
+     Le nom tient maintenant sur UNE ligne ; tronqué, il se déplie d'un
+     appui — c'est un bouton, et un lecteur d'écran le lit en entier. */
   function htmlLigne(l, devise) {
     const etat = Store.ETATS_LIGNE[l.etat] || Store.ETATS_LIGNE.nouvelle;
     const suite = Store.SUITE_LIGNE[l.etat];
     return (
       '<div class="cmd-ligne">' +
-        '<div class="cmd-ligne-corps">' +
-          '<div class="cmd-ligne-nom">' + Utils.echapper(l.nom) +
-            ' <span class="cmd-quantite">× ' + l.quantite + "</span></div>" +
-          '<div class="cmd-ligne-sous">' +
-            (l.code ? '<span class="code-produit">' + Utils.echapper(l.code) + "</span> · " : "") +
-            (l.reference ? "Réf. " + Utils.echapper(l.reference) + " · " : "") +
-            Utils.echapper(Utils.fmtMontant(l.prix * l.quantite, devise)) +
-          "</div>" +
+        '<div class="cmd-ligne-haut">' +
+          '<span class="cmd-quantite">' + l.quantite + "×</span>" +
+          '<button type="button" class="cmd-ligne-nom" data-deplier aria-expanded="false" title="' +
+            Utils.echapper(l.nom) + '">' + Utils.echapper(l.nom) + "</button>" +
+          '<span class="cmd-ligne-prix">' +
+            Utils.echapper(Utils.fmtMontant(l.prix * l.quantite, devise)) + "</span>" +
         "</div>" +
-        '<div class="cmd-ligne-etat">' +
-          '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.nom) + "</span>" +
-          (suite
-            ? '<button type="button" class="btn-mini" data-avancer="' + Utils.echapper(l.id) +
-              '" data-etat="' + suite + '">' + Utils.echapper(etat.suivant) + "</button>"
-            : "") +
-          /* CE QUE LE CLIENT A DIT, quand il l'a dit. « Remise » est
-             votre déclaration ; ceci est la sienne. Les deux ensemble
-             closent la commande — et le jour d'un litige, c'est cette
-             ligne-là qu'on regarde. La base vous interdit de la poser
-             vous-même, et c'est ce qui lui donne sa valeur. */
-          (l.confirmeLe
-            ? '<span class="cmd-confirme">' + UI.icone("check", "ic-sm") +
-              "Reçu confirmé " + Utils.echapper(Utils.fmtDateHeure(l.confirmeLe)) + "</span>"
-            : l.etat === "remise"
-              ? '<span class="cmd-attente-client">En attente de sa confirmation</span>'
+        '<div class="cmd-ligne-bas">' +
+          '<span class="cmd-ligne-refs">' +
+            (l.code ? '<span class="code-produit">' + Utils.echapper(l.code) + "</span>" : "") +
+            (l.reference ? '<span class="cmd-ref">Réf. ' + Utils.echapper(l.reference) + "</span>" : "") +
+          "</span>" +
+          '<span class="cmd-ligne-etat">' +
+            '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.nom) + "</span>" +
+            (suite
+              ? '<button type="button" class="btn-mini" data-avancer="' + Utils.echapper(l.id) +
+                '" data-etat="' + suite + '">' + Utils.echapper(etat.suivant) + "</button>"
               : "") +
+          "</span>" +
         "</div>" +
+        /* CE QUE LE CLIENT A DIT, quand il l'a dit. « Remise » est
+           votre déclaration ; ceci est la sienne. Les deux ensemble
+           closent la commande — et le jour d'un litige, c'est cette
+           ligne-là qu'on regarde. La base vous interdit de la poser
+           vous-même, et c'est ce qui lui donne sa valeur. */
+        (l.confirmeLe
+          ? '<div class="cmd-confirme">' + UI.icone("check", "ic-sm") +
+            "Reçu confirmé par le client " + Utils.echapper(quandCourt(l.confirmeLe)) + "</div>"
+          : l.etat === "remise"
+            ? '<div class="cmd-attente-client">En attente de sa confirmation</div>'
+            : "") +
       "</div>"
     );
   }
@@ -167,102 +202,124 @@ const VueCommandes = (() => {
     const soldee = c.lignes.every((l) => l.etat === "remise" || l.etat === "annulee");
     const statut = Store.statutCommande(c);
 
+    /* CONFIER LA COURSE. Ne s'offre que sur une commande PRÊTE : tant
+       qu'elle n'est pas préparée, il n'y a rien à donner à porter, et la
+       base refuse d'ailleurs. La liste des livreurs ne se lit qu'au
+       moment où l'on veut confier, pas à chaque ouverture de l'écran. */
+    const confiable = c.lignes.some((l) => l.etat === "preparee" || l.etat === "en_livraison");
+    const aConfirmer = attendue && Supabase.estSuper() && c.transactionAnnoncee;
+
     return (
       /* L'identifiant sur la carte : c'est par lui qu'une notification
          retrouve SA commande dans une liste de quarante. */
       '<div class="carte cmd-carte' + (soldee ? " cmd-soldee" : "") +
         '" data-commande="' + Utils.echapper(c.id) + '">' +
+
+        /* ---- L'en-tête, en deux colonnes : à gauche le numéro, où en est
+           la commande, et l'heure ; en face le montant, qui ne se coupe
+           plus en « 142 000 » / « FCFA ». */
         '<div class="cmd-entete">' +
-          "<div><div class=\"cmd-numero\">" + Utils.echapper(c.numero) +
-            /* Une commande partie au prix revendeur le dit : c'est ce
-               qui explique un montant plus bas que d'habitude pour la
-               même marchandise. La boutique, elle, touche autant — c'est
-               BIZZOO qui laisse sa marge. */
-            (c.revendeur
-              ? ' <span class="badge badge-revendeur">' + UI.icone("personne", "ic-sm") +
-                "Revendeur</span>"
-              : "") +
-            /* OÙ EN EST LA COMMANDE, d'un coup d'œil. Les badges par
-               ligne disent où en est chaque article ; sur une commande
-               de cinq articles, cela faisait cinq badges à lire pour
-               répondre à la seule question qui compte au téléphone.
-               Celui-ci la résume — et porte les mêmes mots que l'écran
-               du client, pour qu'on parle de la même chose. */
-            (statut
-              ? ' <span class="badge ' + statut.classe + '">' +
-                Utils.echapper(statut.mot) + "</span>"
-              : "") + "</div>" +
-            '<div class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</div></div>" +
-          '<div style="text-align:right">' +
-            '<div class="cmd-montant">' +
-              Utils.echapper(Utils.fmtMontant(c.montant, c.devise)) + "</div>" +
+          '<div class="cmd-gauche">' +
+            '<div class="cmd-titre">' +
+              '<span class="cmd-numero">' + Utils.echapper(c.numero) + "</span>" +
+              /* OÙ EN EST LA COMMANDE, d'un coup d'œil. Les badges par
+                 ligne disent où en est chaque article ; sur une commande
+                 de cinq articles, cela faisait cinq badges à lire pour
+                 répondre à la seule question qui compte au téléphone.
+                 Celui-ci la résume — et porte les mêmes mots que l'écran
+                 du client, pour qu'on parle de la même chose. */
+              (statut
+                ? '<span class="badge ' + statut.classe + '">' + Utils.echapper(statut.mot) + "</span>"
+                : "") +
+            "</div>" +
+            /* LE PAIEMENT TIENT SUR LA LIGNE DE L'HEURE. Un bandeau vert
+               sur chaque carte redisait ce que le titre de la pile dit
+               déjà : ces commandes-là sont payées. Seul ce qui demande de
+               l'attention garde un bandeau : l'attente, l'échec, une
+               remarque. */
+            '<div class="cmd-meta"><span class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</span> " +
+              (payee
+                ? '<span class="cmd-paye">' + UI.icone("check", "ic-sm") +
+                  (c.confirmePar
+                    ? "payée, confirmée à la main par " + Utils.echapper(c.confirmePar)
+                    : "payée par " + Utils.echapper(c.agregateur)) + "</span>"
+                : "") +
+              /* Une commande partie au prix revendeur le dit : c'est ce
+                 qui explique un montant plus bas que d'habitude pour la
+                 même marchandise. La boutique, elle, touche autant — c'est
+                 BIZZOO qui laisse sa marge. */
+              (c.revendeur
+                ? '<span class="cmd-revendeur">' + UI.icone("personne", "ic-sm") + "Revendeur</span>"
+                : "") +
+            "</div>" +
+          "</div>" +
+          '<div class="cmd-somme">' +
+            '<div class="cmd-montant">' + Utils.echapper(Utils.fmtMontant(c.montant, c.devise)) + "</div>" +
             (c.montant !== c.total
-              ? '<div class="cmd-part">sur ' +
-                Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + " au total</div>"
+              ? '<div class="cmd-part">sur ' + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</div>"
               : "") +
           "</div>" +
         "</div>" +
-
         (payee
-          ? '<div class="cmd-etat cmd-etat-payee">' + UI.icone("check", "ic-sm") +
-              "<span>Payée" + (c.payeLe ? " " + Utils.echapper(depuis(c.payeLe)) : "") +
-              (c.confirmePar
-                ? " — confirmée à la main par " + Utils.echapper(c.confirmePar)
-                : " — confirmée par KkiaPay") + "</span></div>"
+          ? ""
           : '<div class="cmd-etat cmd-etat-attente">' + UI.icone("horloge", "ic-sm") +
               "<span>" + (c.etat === "annulee" ? "Annulée"
                 : c.etat === "echouee" ? "Paiement non abouti"
                 : c.transactionAnnoncee
-                  ? "Le client dit avoir payé — non confirmé par KkiaPay"
+                  ? "Le client dit avoir payé — non confirmé par " + Utils.echapper(c.agregateur)
                   : "En attente de paiement") + "</span></div>") +
-
         (c.remarque
           ? '<div class="cmd-etat cmd-etat-alerte">' + UI.icone("alerte", "ic-sm") +
             "<span>" + Utils.echapper(c.remarque) + "</span></div>"
           : "") +
 
-        '<div class="cmd-client">' +
-          '<div class="cmd-client-nom">' + UI.icone("personne", "ic-sm") +
-            Utils.echapper(c.client.nom || "Client") + "</div>" +
-          '<a class="cmd-client-tel" href="' + Utils.echapper(Utils.lienTel(c.client.tel, c.client.indicatif)) + '">' +
-            UI.icone("tel", "ic-sm") + Utils.echapper(tel) + "</a>" +
-          (c.client.adresse
-            ? '<div class="cmd-client-adresse">' + UI.icone("carte", "ic-sm") +
-              Utils.echapper(c.client.adresse) + "</div>"
-            : "") +
-          (c.note
-            ? '<div class="cmd-note">« ' + Utils.echapper(c.note) + " »</div>"
-            : "") +
+        /* ---- Le client et les articles. À l'ordinateur, côte à côte :
+           la largeur est là, et la carte en devient deux fois moins haute. */
+        '<div class="cmd-corps">' +
+          '<div class="cmd-client">' +
+            '<div class="cmd-client-nom">' + UI.icone("personne", "ic-sm") +
+              Utils.echapper(c.client.nom || "Client") + "</div>" +
+            /* LES DEUX FAÇONS DE LE JOINDRE, SUR LA MÊME LIGNE : l'appel et
+               WhatsApp. Le message part tout rédigé — le récapitulatif de
+               SA part. Il occupait un grand bouton plein écran en bas de
+               chaque carte. */
+            '<div class="cmd-client-contact">' +
+              '<a class="cmd-client-tel" href="' +
+                Utils.echapper(Utils.lienTel(c.client.tel, c.client.indicatif)) + '">' +
+                UI.icone("tel", "ic-sm") + Utils.echapper(tel) + "</a>" +
+              '<a class="cmd-wa" target="_blank" rel="noopener" aria-label="Écrire au client sur WhatsApp" href="' +
+                Utils.echapper(Utils.lienWhatsApp(c.client.tel, messageClient(c), c.client.indicatif)) +
+                '">' + UI.icone("whatsapp", "ic-sm") + "WhatsApp</a>" +
+            "</div>" +
+            (c.client.adresse
+              ? '<div class="cmd-client-adresse">' + UI.icone("carte", "ic-sm") +
+                "<span>" + Utils.echapper(c.client.adresse) + "</span></div>"
+              : "") +
+            (c.note
+              ? '<div class="cmd-note">« ' + Utils.echapper(c.note) + " »</div>"
+              : "") +
+          "</div>" +
+          '<div class="cmd-lignes">' + c.lignes.map((l) => htmlLigne(l, c.devise)).join("") + "</div>" +
         "</div>" +
 
-        '<div class="cmd-lignes">' + c.lignes.map((l) => htmlLigne(l, c.devise)).join("") + "</div>" +
-
-        /* CONFIER LA COURSE. Ne s'offre que sur une commande PRÊTE :
-           tant qu'elle n'est pas préparée, il n'y a rien à donner à
-           porter, et la base refuse d'ailleurs. Le bouton se remplit à
-           la demande — la liste des livreurs ne se lit qu'au moment où
-           l'on veut confier, pas à chaque ouverture de l'écran. */
-        (c.lignes.some((l) => l.etat === "preparee" || l.etat === "en_livraison")
-          ? '<button type="button" class="btn btn-clair" style="margin-top:12px" ' +
-            'data-confier="' + Utils.echapper(c.id) + '">' + UI.icone("voiture") +
-            "Confier à un livreur</button>"
+        (confiable || aConfirmer
+          ? '<div class="cmd-actions">' +
+              (confiable
+                ? '<button type="button" class="btn btn-clair" data-confier="' +
+                  Utils.echapper(c.id) + '">' + UI.icone("voiture") + "Confier à un livreur</button>"
+                : "") +
+              (aConfirmer
+                ? '<button type="button" class="btn btn-clair" data-confirmer="' +
+                  Utils.echapper(c.id) + '">' + UI.icone("check") +
+                  "Confirmer le paiement à la main</button>"
+                : "") +
+            "</div>"
           : "") +
-
-        '<div class="btn-rangee" style="margin-top:12px">' +
-          '<a class="btn btn-wa" target="_blank" rel="noopener" href="' +
-            Utils.echapper(Utils.lienWhatsApp(c.client.tel, messageClient(c), c.client.indicatif)) +
-            '">' + UI.icone("whatsapp") + "Écrire au client</a>" +
-          (attendue && Supabase.estSuper() && c.transactionAnnoncee
-            ? '<button type="button" class="btn btn-clair" data-confirmer="' +
-                Utils.echapper(c.id) + '">' + UI.icone("check") +
-                "Confirmer le paiement à la main</button>"
-            : "") +
-        "</div>" +
         (attendue && c.transactionAnnoncee
-          ? '<p class="aide" style="margin:10px 0 0">Transaction annoncée par le client : ' +
+          ? '<p class="aide cmd-aide">Transaction annoncée par le client : ' +
             "<strong>" + Utils.echapper(c.transactionAnnoncee) + "</strong>. C'est une " +
             "affirmation, pas une preuve : retrouvez-la dans votre tableau de bord " +
-            "KkiaPay avant de confirmer.</p>"
+            Utils.echapper(c.agregateur) + " avant de confirmer.</p>"
           : "") +
       "</div>"
     );
@@ -323,14 +380,13 @@ const VueCommandes = (() => {
     }
 
     vue.innerHTML =
-      '<div class="carte carte-publier">' +
+      '<div class="carte carte-publier cmd-resume">' +
         '<div class="carte-titre">' + UI.icone("boite", "ic-sm") + " " +
           (aFaire.length
             ? aFaire.length + " commande" + (aFaire.length > 1 ? "s" : "") + " à préparer"
             : "Rien à préparer") + "</div>" +
-        '<p class="aide" style="margin:0">Faites avancer chaque article — vue, préparée, ' +
-          "remise — pour savoir où vous en êtes. Les prix sont figés : ce qui a été vendu " +
-          "est vendu.</p>" +
+        '<p class="aide" style="margin:0">Faites avancer chaque article : vue, préparée, ' +
+          "en livraison, remise. Les prix sont figés.</p>" +
       "</div>" +
       (aFaire.length ? aFaire.map(htmlCommande).join("") : "") +
       (enRoute.length
@@ -359,6 +415,12 @@ const VueCommandes = (() => {
         carte.scrollIntoView({ block: "center", behavior: "smooth" });
         setTimeout(() => carte.classList.remove("cmd-visee"), 2600);
       }
+    }
+
+    /* Le nom d'un article, tronqué sur sa ligne, se déplie d'un appui. */
+    for (const nom of UI.$$("[data-deplier]", vue)) {
+      nom.onclick = () => nom.setAttribute("aria-expanded",
+        String(nom.getAttribute("aria-expanded") !== "true"));
     }
 
     for (const bouton of UI.$$("[data-avancer]", vue)) {

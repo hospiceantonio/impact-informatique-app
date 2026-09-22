@@ -1616,6 +1616,72 @@ Un quatrième sabotage — annoncer le palier le **plus** avancé au lieu
 du moins avancé — fait tomber les deux constats de la règle des deux
 boutiques.
 
+## L'écran Commandes de l'admin : serré, et rien de perdu
+
+**Ce qui n'allait pas.** Une commande de trois articles prenait tout un
+écran de téléphone (685 px). L'état d'un article et son bouton se
+tenaient **à côté** du nom et lui prenaient la moitié de la largeur :
+« Chargeur rapide USB-C 25 W Samsung d'origine » se cassait mot par mot
+sur sept lignes. Les montants se coupaient en « 142 000 » / « FCFA ».
+Chaque carte portait un bandeau vert « Payée — confirmée par KkiaPay »
+et deux grands boutons de 50 px. Et « KkiaPay » était **faux** : le
+paiement actif est FeexPay.
+
+**Ce qui a changé** (`admin/js/vues/commandes.js`, `admin/styles.css`) :
+
+- **un article, deux rangées** : la première au produit — quantité,
+  nom, montant —, la seconde au travail — code, référence, état, geste
+  suivant. Le nom tient sur **une ligne** ; tronqué, il se déplie d'un
+  appui (c'est un bouton, et son nom entier est aussi en titre) ;
+- **l'en-tête en deux colonnes** : le numéro, le statut et l'heure à
+  gauche ; le montant en face, qui ne se coupe plus ;
+- **le paiement sur la ligne de l'heure** : « il y a 12 min · payée par
+  FeexPay ». Seul ce qui demande de l'attention garde un bandeau :
+  l'attente, l'échec, une remarque ;
+- **l'agrégateur est le bon** : une commande qui porte une référence
+  FeexPay (`fournisseur_ref`) dit « FeexPay », les autres « KkiaPay »,
+  et une confirmation à la main dit par qui ;
+- **WhatsApp à côté du numéro** : les deux façons de joindre le client
+  sur la même ligne, le message toujours rédigé. Le grand bouton « Écrire
+  au client » a disparu du bas de la carte ;
+- « **Confier à un livreur** » en bouton compact (40 px), seulement
+  quand quelque chose est prêt à partir ; « Revendeur » sur la ligne de
+  l'heure ; des dates courtes (« 20 sept. à 21:31 ») ;
+- des **libellés à leur taille** : numéro 14 px, montant 15,5 px, nom
+  d'article 13 px, badges 10,5 px ;
+- **à l'ordinateur**, le client à gauche et les articles à droite.
+
+| | Avant | Après |
+|---|---|---|
+| Trois articles, téléphone | 685 px | 408 px |
+| Un article, téléphone | 470 à 560 px | 280 à 300 px |
+| Trois articles, ordinateur | 582 px | 266 px |
+
+> **Le piège de la grille.** Un nom qui ne passe plus à la ligne élargit
+> sa colonne de grille jusqu'à sa longueur entière — et toute la page
+> déborde à 671 px sur un téléphone de 390. D'où `minmax(0, 1fr)` et
+> `min-width: 0` : il en faut au moins un des deux.
+
+### Le banc
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-commandes-admin.mjs
+```
+
+Quarante constats, de 320 à 1280 px : rien ne déborde, un nom par
+ligne qui se déplie et se replie, aucun montant coupé (au plus serré :
+320 px), des hauteurs bornées, les tailles des libellés, le bon
+agrégateur, et **rien de perdu** — numéro, statut, montant, nom, appel,
+WhatsApp et son récapitulatif, adresse, note, code, référence, état,
+geste suivant, quantités, « Confier » au bon moment, « Revendeur », la
+part d'une commande partagée, la réception confirmée par le client.
+
+Onze sabotages le font tomber : le nom qui repasse à la ligne, la grille
+sans ses deux protections, « KkiaPay » pour tout le monde, le bouton en
+pleine largeur, le montant à 18 px, le montant sans ses deux protections,
+WhatsApp retiré, le bandeau « Payée » revenu, le dépliage retiré, la
+date longue revenue, « Confier » offert trop tôt.
+
 ## L'accueil de BIZZOO : le slogan, les boutiques, le site
 
 ### Le slogan sous le logo — celui de BIZZOO, pas celui d'une boutique

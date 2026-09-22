@@ -1753,6 +1753,11 @@ const Store = (() => {
          seulement AFFIRMÉ : deux choses différentes, deux colonnes. */
       transactionId: l.transaction_id || "",
       transactionAnnoncee: l.transaction_annoncee || "",
+      /* QUI A ENCAISSÉ. Une commande passée par FeexPay porte la référence
+         que FeexPay a donnée à la tentative ; celles de KkiaPay n'en ont
+         pas. L'écran disait « confirmée par KkiaPay » à toutes — y compris
+         quand l'enseigne encaisse par FeexPay. */
+      agregateur: l.fournisseur_ref ? "FeexPay" : "KkiaPay",
       confirmePar: l.confirme_par || "",
       remarque: l.remarque || "",
       annonceLe: l.annonce_le ? Date.parse(l.annonce_le) || 0 : 0,
