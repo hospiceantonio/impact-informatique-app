@@ -635,8 +635,16 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cat-pastille{
   flex:none;width:38px;height:38px;border-radius:50%;
   display:inline-flex;align-items:center;justify-content:center;color:#fff;
+  position:relative;overflow:hidden;
 }
 .cat-pastille .ic{width:20px;height:20px}
+/* La photo, quand la catégorie en a une, recouvre l'icône : si elle ne
+   se charge pas, elle s'efface et l'icône reparaît (voir « data-secours »). */
+.cat-pastille img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+/* L'aperçu dans la fiche : rond, comme chez le client — on voit tout de
+   suite ce que les coins perdront. La croix reste dans le coin carré. */
+.cat-photo-boite{overflow:visible;background:none}
+.cat-photo-boite img{border-radius:50%;box-shadow:0 0 0 1px var(--trait)}
 .cat-bloc-nom{flex:1;min-width:0;font-size:14.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cat-bloc-compte{flex:none;font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
 .cat-bloc-sous{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}

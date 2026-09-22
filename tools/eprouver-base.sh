@@ -17,6 +17,9 @@
 set -euo pipefail
 
 RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Les essais SQL lisent parfois un fichier du dépôt (l'état des lieux du
+# stockage, par exemple) : ils le trouvent par là.
+export RACINE
 PORT="${PGPORT_ESSAI:-5433}"
 SOCLE="${TMPDIR:-/tmp}/bizzoo-essai-$$"
 export PGHOST="$SOCLE/socket"
@@ -77,7 +80,7 @@ fi
 
 lancer() {
   if [ -n "$COMME" ]; then
-    su "$COMME" -c "PATH='$PATH' $*"
+    su "$COMME" -c "PATH='$PATH' RACINE='$RACINE' $*"
   else
     eval "$@"
   fi

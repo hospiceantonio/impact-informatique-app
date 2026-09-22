@@ -55,6 +55,8 @@ utilises as (
   union select unnest(b.photos) from public.boutiques b
   union select s.image from public.slides    s where coalesce(s.image, '') <> ''
   union select s.video from public.slides    s where coalesce(s.video, '') <> ''
+  -- La photo du rond d'une catégorie, sur l'accueil de tous les clients.
+  union select c.image from public.categories c where coalesce(c.image, '') <> ''
   -- La boutique d'origine, celle d'avant les boutiques multiples : elle
   -- existe toujours, et ses photos aussi.
   union select o.video from public.boutique  o where coalesce(o.video, '') <> ''

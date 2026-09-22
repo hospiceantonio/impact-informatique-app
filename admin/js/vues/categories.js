@@ -51,10 +51,16 @@ const VueCategories = (() => {
     valeur && !liste.some(([cle]) => cle === valeur)
       ? liste.concat([[valeur, etiquette]]) : liste;
 
+  /* LA PHOTO PAR-DESSUS L'ICÔNE, comme chez le client : tant qu'elle
+     charge, et si elle ne vient pas, c'est l'icône qu'on voit. */
   function pastille(c, classe) {
     return '<span class="cat-pastille ' + (classe || "") + '" style="background:' +
       Utils.echapper(c.couleur || "#0B5CF5") + '">' +
-      UI.icone(c.icone || "categories") + "</span>";
+      UI.icone(c.icone || "categories") +
+      (c.image
+        ? '<img src="' + Utils.echapper(Supabase.urlImage(c.image)) + '" alt="" data-secours>'
+        : "") +
+      "</span>";
   }
 
   async function afficher(vue) {
@@ -210,6 +216,51 @@ const VueCategories = (() => {
   /** Sous-catégories en cours d'édition : [{ id?, nom }] */
   let sousTravail = [];
 
+  /** La photo en cours d'édition : { chemin } (en ligne), { dataUrl }
+   *  (nouvelle), ou null (aucune). */
+  let photoTravail = null;
+
+  /* LA PHOTO DU ROND, facultative. Même geste que le logo d'une
+     boutique : un carré pour la choisir, la croix pour la retirer. */
+  function brancherPhoto(corps) {
+    const zone = UI.$("#cat-photo", corps);
+
+    const rendre = () => {
+      const apercu = photoTravail
+        ? (photoTravail.dataUrl || Supabase.urlImage(photoTravail.chemin))
+        : "";
+      zone.innerHTML = apercu
+        ? '<div class="photo-boite cat-photo-boite">' +
+            '<img src="' + Utils.echapper(apercu) + '" alt="Photo de la catégorie">' +
+            '<button type="button" class="photo-retirer" id="cat-photo-retirer" ' +
+              'aria-label="Retirer la photo">' + UI.icone("fermer", "ic-sm") + "</button>" +
+          "</div>"
+        : '<label class="photo-ajout">' + UI.icone("camera") + "<span>Ajouter</span>" +
+            '<input type="file" accept="image/*" hidden id="cat-photo-fichier"></label>';
+
+      const champ = UI.$("#cat-photo-fichier", zone);
+      if (champ) {
+        champ.addEventListener("change", async () => {
+          const fichier = champ.files && champ.files[0];
+          if (!fichier) return;
+          try {
+            /* 480 px suffisent : le plus grand rond en fait 62 à l'écran,
+               soit moins de 250 points sur l'écran le plus fin. */
+            const { dataUrl } = await Utils.compresserImage(fichier, 480, 0.82);
+            photoTravail = { dataUrl };
+          } catch (err) {
+            UI.toast(err.message || "Image illisible", "err");
+          }
+          rendre();
+        });
+      }
+      const retirer = UI.$("#cat-photo-retirer", zone);
+      if (retirer) retirer.onclick = () => { photoTravail = null; rendre(); };
+    };
+
+    rendre();
+  }
+
   function htmlSous() {
     return sousTravail.map((s, i) =>
       '<div class="sous-ligne">' +
@@ -222,6 +273,7 @@ const VueCategories = (() => {
 
   function formulaire(categorie, auTermine) {
     sousTravail = ((categorie && categorie.sousCategories) || []).map((s) => ({ id: s.id, nom: s.nom }));
+    photoTravail = categorie && categorie.image ? { chemin: categorie.image } : null;
 
     const corps = UI.ouvrirFeuille(
       categorie ? "Modifier la catégorie" : "Nouvelle catégorie",
@@ -252,6 +304,15 @@ const VueCategories = (() => {
         "</div>" +
         '<div class="aide">L\'icône et la couleur composent la pastille ronde de ' +
           "l'écran « Catégories », chez le client.</div>" +
+      "</div>" +
+
+      '<div class="champ">' +
+        "<label>Photo du rond (facultative)</label>" +
+        '<div class="photos-zone" id="cat-photo"></div>' +
+        '<div class="aide">Elle remplit le rond de la catégorie, sur l\'accueil et ' +
+          "l'écran « Catégories ». Choisissez une photo carrée, le sujet au centre : " +
+          "les coins seront coupés. Sans photo — ou si elle ne se charge pas —, " +
+          "c'est l'icône et sa couleur qu'on voit.</div>" +
       "</div>" +
 
       UI.interrupteur({ id: "cat-avant", label: "Montrer sur l'accueil",
@@ -291,6 +352,8 @@ const VueCategories = (() => {
       return actif ? actif.dataset[attribut] : defaut;
     };
 
+    brancherPhoto(corps);
+
     const zoneSous = UI.$("#cat-sous", corps);
 
     const lireSaisies = () => {
@@ -321,6 +384,11 @@ const VueCategories = (() => {
 
     UI.$("#cat-enregistrer", corps).onclick = async () => {
       lireSaisies();
+      /* UN SEUL ENVOI À LA FOIS : la photo part au stockage avant la
+         ligne, et un second appui pendant ce temps en déposerait une
+         seconde. */
+      const bouton = UI.$("#cat-enregistrer", corps);
+      bouton.disabled = true;
       try {
         /* RETIRER UN RAYON DÉCLASSE LES PRODUITS QUI S'Y TROUVENT, et
            dans toutes les boutiques du secteur : on compte d'abord. */
@@ -343,6 +411,7 @@ const VueCategories = (() => {
           icone: choisi("#cat-icones", "icone", "categories"),
           couleur: choisi("#cat-couleurs", "couleur", "#0B5CF5"),
           enAvant: UI.$("#cat-avant", corps).checked,
+          photo: photoTravail,
           sousCategories: sousTravail,
         });
         UI.feuilleSansRappel();
@@ -350,6 +419,7 @@ const VueCategories = (() => {
         UI.toast(categorie ? "Catégorie modifiée" : "Catégorie créée", "ok");
         auTermine();
       } catch (err) {
+        bouton.disabled = false;
         UI.toast(err.message || "Enregistrement impossible", "err");
       }
     };

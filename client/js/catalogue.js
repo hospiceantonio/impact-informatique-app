@@ -260,6 +260,9 @@ const Catalogue = (() => {
              garde alors l'icône passe-partout plutôt qu'un rond vide. */
           icone: cat.icone || "categories",
           couleur: cat.couleur || "#0B5CF5",
+          /* La photo du rond, posée par l'enseigne ; sans elle — ou sur
+             une base qui n'a pas encore la colonne —, l'icône suffit. */
+          image: cat.image ? urlImagePublique(cat.image) : "",
           enAvant: cat.en_avant === true,
           ordre: cat.ordre || 0,
           sousCategories: (cat.sous_categories || [])

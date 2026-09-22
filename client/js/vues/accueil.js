@@ -280,7 +280,13 @@ const VueAccueil = (() => {
       '<a class="cat-rond-lien" href="#/categorie/' + Utils.echapper(c.id) + '" aria-label="' +
         Utils.echapper(c.nom) + '">' +
         '<span class="cat-rond-da" style="background:' + teinteClaire(couleur, .16) +
-          ";color:" + couleur + '">' + UI.icone(c.icone || "categories") + "</span>" +
+          ";color:" + couleur + '">' + UI.icone(c.icone || "categories") +
+          /* LA PHOTO PAR-DESSUS L'ICÔNE : tant qu'elle charge, et si elle
+             ne vient pas (hors connexion), c'est l'icône qu'on voit. */
+          (c.image
+            ? '<img src="' + Utils.echapper(c.image) + '" alt="" loading="lazy" data-secours>'
+            : "") +
+        "</span>" +
         '<span class="cat-rond-nom" aria-hidden="true">' +
           Utils.echapper(libelleCourt(c.nom)) + "</span>" +
       "</a>"

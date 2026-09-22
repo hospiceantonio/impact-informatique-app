@@ -136,6 +136,18 @@ const UI = (() => {
 
   document.addEventListener("notifs:maj", majCloche);
 
+  /* UNE IMAGE « DE SECOURS » QUI NE VIENT PAS S'EFFACE : ce qu'elle
+     recouvrait — l'icône d'une catégorie — reparaît, au lieu du
+     carré d'image cassée. Hors connexion, c'est le cas de toute photo
+     que le téléphone n'a jamais vue. L'erreur d'une image ne remonte
+     pas jusqu'au document ; on l'attrape donc à la descente (« true »),
+     une fois pour tous les écrans, sans attribut « onerror » dans le
+     HTML. */
+  document.addEventListener("error", (ev) => {
+    const cible = ev.target;
+    if (cible && cible.tagName === "IMG" && cible.hasAttribute("data-secours")) cible.remove();
+  }, true);
+
   /**
    * La barre du haut. `vignette` pose une pastille à gauche du titre :
    * c'est par elle qu'une boutique met son logo à côté de son nom, pour
@@ -928,7 +940,12 @@ const UI = (() => {
     return (
       '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
         '<span class="cat-rond cat-rond-couleur" style="background:' + couleur + '">' +
-          icone(r.categorie.icone || "categories") + "</span>" +
+          icone(r.categorie.icone || "categories") +
+          /* La photo recouvre l'icône, comme sur l'accueil. */
+          (r.categorie.image
+            ? '<img src="' + e(r.categorie.image) + '" alt="" loading="lazy" data-secours>'
+            : "") +
+        "</span>" +
         '<span class="cat-ligne-corps">' +
           '<span class="cat-ligne-nom">' + e(r.categorie.nom) + "</span>" +
         "</span>" +

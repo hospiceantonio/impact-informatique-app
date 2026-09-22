@@ -109,6 +109,16 @@ const UI = (() => {
 
   document.addEventListener("notifs:maj", majCloche);
 
+  /* UNE IMAGE « DE SECOURS » QUI NE VIENT PAS S'EFFACE : ce qu'elle
+     recouvrait — l'icône d'une catégorie — reparaît, au lieu du
+     carré d'image cassée. L'erreur d'une image ne remonte pas jusqu'au
+     document ; on l'attrape donc à la descente (« true »), une fois
+     pour toutes les pages, sans attribut « onerror » dans le HTML. */
+  document.addEventListener("error", (ev) => {
+    const cible = ev.target;
+    if (cible && cible.tagName === "IMG" && cible.hasAttribute("data-secours")) cible.remove();
+  }, true);
+
   function icone(nom, classe) {
     return '<svg class="ic' + (classe ? " " + classe : "") + '" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-' + nom + '"/></svg>';
   }

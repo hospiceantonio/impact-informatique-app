@@ -2190,6 +2190,9 @@ const Store = (() => {
       nom: c.nom,
       icone: c.icone || "categories",
       couleur: c.couleur || "#0B5CF5",
+      /* Le CHEMIN de la photo du rond, dans le seau, ou « ». Une base
+         pas encore mise à jour n'a pas la colonne : pas de photo. */
+      image: c.image || "",
       enAvant: c.en_avant === true,
       ordre: c.ordre || 0,
       sousCategories: (c.sous_categories || [])
@@ -2237,6 +2240,32 @@ const Store = (() => {
       couleur: (donnees.couleur || "#0B5CF5").trim() || "#0B5CF5",
       en_avant: donnees.enAvant === true,
     };
+
+    /* LA PHOTO DU ROND. `donnees.photo` vaut { dataUrl } pour une
+       nouvelle, { chemin } pour garder celle en place, null pour la
+       retirer ; absente, on n'y touche pas.
+
+       Dans « enseigne/categories/ » et nulle part ailleurs : le stockage
+       y réserve le dépôt au superadministrateur, et la base refuse tout
+       autre chemin. Le fichier part AVANT la ligne, pour que la ligne ne
+       désigne jamais une photo qui n'existe pas.
+
+       L'ANCIENNE PHOTO RESTE DANS LE STOCKAGE, comme celle d'un écran
+       retiré du slider : annuler depuis le journal remet l'ancien
+       chemin, et il faut que le fichier soit encore là. Plus rien ne la
+       désignant, le ménage du stockage la proposera à la suppression. */
+    if (donnees.photo && donnees.photo.dataUrl) {
+      const chemin = "enseigne/categories/" + Utils.uid("cat") + ".jpg";
+      await Supabase.televerserImage(chemin, donnees.photo.dataUrl);
+      pastille.image = chemin;
+    } else if (donnees.photo === null) {
+      pastille.image = "";
+    } else if (donnees.photo && donnees.photo.chemin !== undefined) {
+      pastille.image = donnees.photo.chemin || "";
+    }
+    /* Rien de changé, rien d'écrit : une base pas encore mise à jour
+       n'a pas la colonne, et refuserait jusqu'au renommage. */
+    if (pastille.image === (existante ? existante.image : "")) delete pastille.image;
 
     if (existante) {
       await Supabase.requete("PATCH", "categories?id=eq." + encodeURIComponent(id),
@@ -2287,9 +2316,16 @@ const Store = (() => {
     ]);
     for (const sousId of idsSous) retour.ids.push({ table: "sous_categories", id: String(sousId) });
 
+    /* Ce que la photo est devenue, dit au journal : c'est là qu'on
+       cherchera la ligne à annuler si la nouvelle déplaît. */
+    const photoAvant = existante ? existante.image : "";
+    const photoApres = pastille.image === undefined ? photoAvant : pastille.image;
+    const motPhoto = photoApres === photoAvant ? ""
+      : (!photoApres ? ", photo retirée" : (photoAvant ? ", photo changée" : ", photo ajoutée"));
+
     journaliser("categorie", existante ? "modification" : "ajout",
       (existante ? "Catégorie modifiée : " : "Nouvelle catégorie : ") + nom +
-      " (" + voulues.length + " sous-catégorie" + (voulues.length > 1 ? "s" : "") + ")", nom,
+      " (" + voulues.length + " sous-catégorie" + (voulues.length > 1 ? "s" : "") + motPhoto + ")", nom,
       retour);
     return lireCategorie(id);
   }

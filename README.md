@@ -705,7 +705,7 @@ Un seul seau, `produits`, et ce n'est pas lui qui sépare : c'est le
 | *(racine)* | photos et vidéos des produits | toute l'équipe |
 | `boutique/`, `boutiques/` | logos et devantures | administrateurs |
 | `slider/` | slider d'une boutique | administrateurs |
-| `enseigne/` | slider et publicité BIZZOO | superadministrateur |
+| `enseigne/` | slider et publicité BIZZOO, photos des catégories (`enseigne/categories/`) | superadministrateur |
 
 [`supabase/etat-du-stockage.sql`](supabase/etat-du-stockage.sql) ne
 modifie rien et répond en **une seule requête** — l'éditeur SQL de
@@ -1477,6 +1477,103 @@ les portes en 38 constats, et 58 de plus au navigateur. Quatre sabotages
 les font tomber : rendre la liste à l'équipe, retirer le contrôle du
 secteur, laisser passer la catégorie soufflée par l'application,
 permettre le changement de secteur à la main.
+
+## La photo d'une catégorie
+
+Sur la DA, les ronds des catégories de l'accueil portent une **photo**.
+Chaque catégorie en reçoit maintenant une, **facultative**, que le
+superadministrateur pose dans l'application admin :
+**Catégories → Modifier → Photo du rond (facultative)**. La même photo
+remplit la pastille de l'écran « Catégories », chez le client, et celle
+de la liste dans l'admin.
+
+**Aucune photo n'est posée d'office.** Celles de la maquette sont des
+illustrations, trop petites une fois découpées pour un rond de 62 px sur
+un écran fin ; en inventer d'autres, ce serait montrer aux clients des
+rayons qui ne ressemblent pas à ce que vendent vos boutiques. Tant que
+l'enseigne n'en a pas choisi, chaque rond garde son **icône et sa
+couleur**, comme avant.
+
+### Poser, remplacer, retirer
+
+- **Ajouter** : le carré « Ajouter » de la fiche. L'aperçu est **rond**,
+  comme chez le client : on voit tout de suite ce que les coins perdront.
+  Une photo carrée, le sujet au centre, convient le mieux.
+- **Remplacer** : la croix, puis « Ajouter ».
+- **Retirer** : la croix, puis « Enregistrer ». Le rond retrouve son
+  icône.
+
+L'application **réduit la photo à 480 px** et l'enregistre en JPEG avant
+de l'envoyer — une photo de téléphone de plusieurs Mo n'en garde que
+quelques dizaines de Ko : le plus grand rond n'a pas besoin de plus, même
+sur l'écran le plus fin.
+
+### L'icône en secours
+
+La photo se pose **par-dessus l'icône**, qui reste dessous. Tant qu'elle
+charge, on voit l'icône ; si elle ne vient pas — hors connexion, sur un
+téléphone qui ne l'a jamais vue, ou fichier retiré du stockage —, elle
+**s'efface** et l'icône reste. Jamais un carré d'image cassée à l'accueil.
+Une seule écoute par application, posée une fois pour tous les écrans
+(`data-secours`), sans attribut `onerror` dans le HTML.
+
+### Ce que la base garde
+
+- **Un chemin, jamais une adresse**, dans un seul dossier :
+  `enseigne/categories/`. La règle `categories_image_chemin` refuse tout
+  le reste — une adresse internet, un autre dossier, un `..` — même au
+  superadministrateur : ce n'est pas une question de droit, c'est la
+  forme de la donnée. Une adresse libre ferait charger à l'accueil de
+  tous les clients une image posée n'importe où.
+- **L'enseigne seule la pose**, comme elle seule écrit la liste ; le
+  stockage réserve déjà `enseigne/` au superadministrateur. Aucune règle
+  de stockage n'a changé.
+- **Le fichier part avant la ligne** : la ligne ne désigne jamais une
+  photo qui n'existe pas. Un envoi refusé n'écrit rien, et la fiche reste
+  ouverte. Un double appui sur « Enregistrer » n'envoie qu'une photo.
+- **Un nouveau nom à chaque photo.** Les téléphones gardent les photos en
+  cache ; réutiliser un nom leur ferait montrer l'ancienne indéfiniment.
+- **L'ancienne photo reste au stockage.** Annuler depuis le journal
+  remet l'ancien chemin, et le fichier doit encore y être. Plus rien ne
+  la désignant, [`etat-du-stockage.sql`](supabase/etat-du-stockage.sql)
+  la liste parmi les **orphelins**, et `menage-stockage.ps1` l'enlèvera
+  au prochain ménage — alors que la photo **en place**, elle, figure
+  dans la liste des fichiers utilisés et n'est jamais proposée à la
+  suppression.
+
+À coller dans Supabase : [`categories-photos.sql`](supabase/categories-photos.sql)
+(déjà appliqué sur la base en ligne).
+
+### Le banc
+
+[`tests/99o-categories-photos.sql`](supabase/tests/99o-categories-photos.sql)
+force les portes en 21 constats — dont l'état des lieux du stockage
+**tel qu'il part chez le gérant**, lu dans le dépôt : c'est sa liste
+d'orphelins qu'on éprouve, pas une copie.
+[`tools/banc-categories-photos.mjs`](tools/banc-categories-photos.mjs) en
+ajoute 71 au navigateur, dans les deux applications : la photo remplit
+le rond et se trouve par-dessus l'icône (mesuré), l'icône revient quand
+la photo manque, rien ne déborde à 320 px, le chemin est échappé ; dans
+l'admin, ce qui part au stockage et vers la base, corps compris.
+
+Dix-neuf sabotages, un par un, et chacun fait tomber au moins un
+constat. En base : retirer la règle du premier caractère (« .. » passe),
+oublier la photo dans l'état des lieux du stockage (elle devient
+« supprimable »). Au navigateur : ne plus effacer une image cassée — chez
+le client comme dans l'admin —, ne plus découper le rond, poser la photo
+sous l'icône ou à côté, ne plus échapper le chemin, oublier l'écran
+« Catégories », déposer hors de `enseigne/categories/`, écrire la ligne
+avant la fin de l'envoi, effacer l'ancienne photo, retirer le verrou du
+bouton, écrire la colonne inchangée, envoyer la photo sans la réduire,
+continuer après un envoi refusé, ne plus montrer la photo dans la liste
+de l'admin, taire la photo au journal. Le dix-neuvième — ne plus découper
+la pastille de l'admin — fait plus qu'échouer : la photo, libérée, recouvre
+toute la carte et **bloque le bouton « Modifier »**. La découpe évite
+aussi cela.
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-categories-photos.mjs
+```
 
 ## « Marquer vue » refusé : le retour, pas l'écriture
 
@@ -2568,6 +2665,7 @@ impact-informatique-app/
 │   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
 │   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, aucun montant
 │   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
+│   ├── categories-photos.sql        # La photo du rond d'une catégorie : un chemin, un seul dossier
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins

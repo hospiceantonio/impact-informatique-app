@@ -185,6 +185,8 @@ create table if not exists public.categories (
   -- s'affiche hors connexion.
   icone       text not null default 'categories',
   couleur     text not null default '#0B5CF5',
+  -- LA PHOTO DU ROND, facultative (voir plus bas).
+  image       text not null default '',
   -- Les quinze ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
   -- les autres attendent derrière « Voir toutes les catégories ».
   en_avant    boolean not null default false,
@@ -194,6 +196,26 @@ create table if not exists public.categories (
 alter table public.categories add column if not exists icone    text not null default 'categories';
 alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
 alter table public.categories add column if not exists en_avant boolean not null default false;
+
+-- LA PHOTO DU ROND, comme sur la DA : sur l'accueil et l'écran
+-- « Catégories », elle remplit la pastille ; sans elle, l'icône et sa
+-- couleur restent — et elles reviennent aussi quand la photo ne se
+-- charge pas (hors connexion).
+--
+-- UN CHEMIN DANS LE SEAU, JAMAIS UNE ADRESSE, et dans un seul dossier :
+-- « enseigne/categories/ ». C'est celui que le stockage réserve au
+-- superadministrateur (voir « peut_deposer »), comme la liste elle-même
+-- lui est réservée. Une adresse libre ferait charger à l'accueil de
+-- tous les clients une image posée n'importe où.
+alter table public.categories add column if not exists image text not null default '';
+alter table public.categories drop constraint if exists categories_image_chemin;
+alter table public.categories add constraint categories_image_chemin
+  -- Le dossier, puis un nom qui commence par une lettre ou un chiffre
+  -- et ne contient rien hors de [A-Za-z0-9._-] : ni « / » pour
+  -- descendre, ni « : » pour une adresse, ni « .. » pour remonter.
+  check (image = '' or (image like 'enseigne/categories/_%'
+                        and substr(image, 21, 1) ~ '[A-Za-z0-9]'
+                        and substr(image, 21) !~ '[^A-Za-z0-9._-]'));
 
 create table if not exists public.sous_categories (
   id           text primary key,

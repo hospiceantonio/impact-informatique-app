@@ -1742,8 +1742,19 @@ a.pub-carte:active{transform:scale(.98)}
 .cat-rond-da{
   width:62px;height:62px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;flex:none;
+  position:relative;overflow:hidden;
 }
 .cat-rond-da .ic{width:27px;height:27px;stroke-width:1.8}
+/* LA PHOTO DU ROND, celle de la DA, quand l'enseigne en a posé une :
+   elle recouvre l'icône, qui reste dessous. Tant qu'elle charge on voit
+   l'icône ; si elle ne vient pas, elle s'efface (« data-secours ») et
+   l'icône reste. Même chose sur l'écran « Catégories ». */
+.cat-rond-da img,
+.cat-rond-couleur img{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;border-radius:inherit;
+}
+.cat-rond-couleur{position:relative;overflow:hidden}
 .cat-rond-nom{
   font-size:12px;font-weight:500;max-width:100%;text-align:center;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;

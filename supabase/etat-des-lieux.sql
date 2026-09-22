@@ -614,7 +614,18 @@ with controles(rang, element, ok) as (values
   (109, 'Qui rend un ordre, et aucun chiffre de vente', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'produits_populaires'
-         and pg_get_function_result(p.oid) = 'TABLE(produit_id text)'))
+         and pg_get_function_result(p.oid) = 'TABLE(produit_id text)')),
+
+  -- ---------- La photo d'une catégorie ----------
+  (110, 'La photo d''une catégorie (categories.image)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'categories' and column_name = 'image')),
+  -- Un chemin dans le dossier de l'enseigne, jamais une adresse : sinon
+  -- l'accueil de tous les clients irait chercher une image n'importe où.
+  (111, 'Qui ne vient que du dossier de l''enseigne', exists (
+      select 1 from pg_constraint
+       where conname = 'categories_image_chemin'
+         and conrelid = 'public.categories'::regclass))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
