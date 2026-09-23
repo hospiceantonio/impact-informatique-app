@@ -51,14 +51,48 @@ const VueCategories = (() => {
     valeur && !liste.some(([cle]) => cle === valeur)
       ? liste.concat([[valeur, etiquette]]) : liste;
 
+  /* LES ILLUSTRATIONS QUI VOYAGENT AVEC L'APPLICATION : un objet sur le
+     fond pastel de sa catégorie, comme sur la DA. Elles sont dans les
+     deux applications (« img/categories/ ») et s'affichent sans réseau.
+     Les quinze premières sont celles que la liste de BIZZOO reçoit à sa
+     création ; les autres, d'autres choix pour les mêmes secteurs.
+     Composées par « tools/illustrations-categories.py ». */
+  const ILLUSTRATIONS = [
+    ["robe", "Robe"], ["ordinateur", "Ordinateur"], ["voiture", "Voiture"],
+    ["maison", "Maison"], ["rouge-a-levres", "Rouge à lèvres"], ["marmite", "Marmite"],
+    ["chariot", "Chariot"], ["ecran", "Écran"], ["nounours", "Nounours"],
+    ["ballon", "Ballon"], ["briques", "Briques"], ["livres", "Livres"],
+    ["bague", "Bague"], ["chien", "Chien"], ["boite-a-outils", "Boîte à outils"],
+    ["t-shirt", "T-shirt"], ["telephone", "Téléphone"], ["moto", "Moto"],
+    ["plante", "Plante"], ["burger", "Burger"], ["panier", "Panier"],
+    ["outils", "Outils"], ["mallette", "Mallette"], ["poignee-de-main", "Poignée de main"],
+  ];
+  const DOSSIER_ILLUSTRATIONS = "img/categories/";
+
+  /* Une illustration se lit à côté de la page ; une photo déposée par
+     l'enseigne, dans le seau. */
+  const urlPhoto = (chemin) =>
+    !chemin ? "" : (chemin.startsWith(DOSSIER_ILLUSTRATIONS) ? chemin : Supabase.urlImage(chemin));
+
   /* LA PHOTO PAR-DESSUS L'ICÔNE, comme chez le client : tant qu'elle
-     charge, et si elle ne vient pas, c'est l'icône qu'on voit. */
+     charge, et si elle ne vient pas, c'est l'icône qu'on voit.
+
+     AVEC UNE PHOTO, LA PASTILLE PASSE AU PASTEL, comme le rond de
+     l'accueil : sous la photo, un aplat foncé débordait d'un liseré au
+     bord du cercle — le navigateur adoucit ce bord sur les deux à la
+     fois. */
   function pastille(c, classe) {
-    return '<span class="cat-pastille ' + (classe || "") + '" style="background:' +
-      Utils.echapper(c.couleur || "#0B5CF5") + '">' +
+    const couleur = /^#[0-9a-f]{6}$/i.test(c.couleur || "") ? c.couleur : "#0B5CF5";
+    const n = parseInt(couleur.slice(1), 16);
+    const pastel = (v) => Math.round(v * .16 + 255 * .84);
+    const fond = c.image
+      ? "background:rgb(" + pastel(n >> 16) + "," + pastel((n >> 8) & 255) + "," +
+          pastel(n & 255) + ");color:" + couleur
+      : "background:" + couleur;
+    return '<span class="cat-pastille ' + (classe || "") + '" style="' + fond + '">' +
       UI.icone(c.icone || "categories") +
       (c.image
-        ? '<img src="' + Utils.echapper(Supabase.urlImage(c.image)) + '" alt="" data-secours>'
+        ? '<img src="' + Utils.echapper(urlPhoto(c.image)) + '" alt="" data-secours>'
         : "") +
       "</span>";
   }
@@ -216,19 +250,29 @@ const VueCategories = (() => {
   /** Sous-catégories en cours d'édition : [{ id?, nom }] */
   let sousTravail = [];
 
-  /** La photo en cours d'édition : { chemin } (en ligne), { dataUrl }
-   *  (nouvelle), ou null (aucune). */
+  /** La photo en cours d'édition : { chemin } (en ligne, ou une
+   *  illustration), { dataUrl } (nouvelle), ou null (aucune). */
   let photoTravail = null;
 
   /* LA PHOTO DU ROND, facultative. Même geste que le logo d'une
-     boutique : un carré pour la choisir, la croix pour la retirer. */
+     boutique : un carré pour la choisir, la croix pour la retirer —
+     et, dessous, les illustrations de l'application, d'un appui. */
   function brancherPhoto(corps) {
     const zone = UI.$("#cat-photo", corps);
+    const galerie = UI.$("#cat-illustrations", corps);
 
     const rendre = () => {
       const apercu = photoTravail
-        ? (photoTravail.dataUrl || Supabase.urlImage(photoTravail.chemin))
+        ? (photoTravail.dataUrl || urlPhoto(photoTravail.chemin))
         : "";
+      /* L'illustration choisie s'allume dans la galerie : « actif »,
+         comme les icônes et les couleurs de la même fiche. */
+      const choisie = photoTravail && photoTravail.chemin ? photoTravail.chemin : "";
+      for (const b of UI.$$("[data-illustration]", galerie)) {
+        const actif = DOSSIER_ILLUSTRATIONS + b.dataset.illustration + ".jpg" === choisie;
+        b.classList.toggle("actif", actif);
+        b.setAttribute("aria-pressed", actif ? "true" : "false");
+      }
       zone.innerHTML = apercu
         ? '<div class="photo-boite cat-photo-boite">' +
             '<img src="' + Utils.echapper(apercu) + '" alt="Photo de la catégorie">' +
@@ -257,6 +301,18 @@ const VueCategories = (() => {
       const retirer = UI.$("#cat-photo-retirer", zone);
       if (retirer) retirer.onclick = () => { photoTravail = null; rendre(); };
     };
+
+    galerie.innerHTML = ILLUSTRATIONS.map(([nom, libelle]) =>
+      '<button type="button" class="choix-illustration" data-illustration="' + nom + '" ' +
+        'aria-label="' + Utils.echapper(libelle) + '" title="' + Utils.echapper(libelle) + '">' +
+        '<img src="' + DOSSIER_ILLUSTRATIONS + nom + '.jpg" alt="" loading="lazy">' +
+      "</button>").join("");
+    for (const b of UI.$$("[data-illustration]", galerie)) {
+      b.onclick = () => {
+        photoTravail = { chemin: DOSSIER_ILLUSTRATIONS + b.dataset.illustration + ".jpg" };
+        rendre();
+      };
+    }
 
     rendre();
   }
@@ -313,6 +369,9 @@ const VueCategories = (() => {
           "l'écran « Catégories ». Choisissez une photo carrée, le sujet au centre : " +
           "les coins seront coupés. Sans photo — ou si elle ne se charge pas —, " +
           "c'est l'icône et sa couleur qu'on voit.</div>" +
+        '<div class="aide" style="margin-top:12px">Ou une illustration de BIZZOO, ' +
+          "d'un appui — elle voyage avec l'application et s'affiche même sans réseau :</div>" +
+        '<div class="choix-illustrations" id="cat-illustrations"></div>' +
       "</div>" +
 
       UI.interrupteur({ id: "cat-avant", label: "Montrer sur l'accueil",

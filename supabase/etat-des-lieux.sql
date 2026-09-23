@@ -625,7 +625,14 @@ with controles(rang, element, ok) as (values
   (111, 'Qui ne vient que du dossier de l''enseigne', exists (
       select 1 from pg_constraint
        where conname = 'categories_image_chemin'
-         and conrelid = 'public.categories'::regclass))
+         and conrelid = 'public.categories'::regclass)),
+  -- Ou des illustrations qui voyagent avec l'application. Une règle
+  -- d'avant les refuserait : l'enseigne ne pourrait plus en choisir une.
+  (112, 'Ou des illustrations fournies avec l''application', exists (
+      select 1 from pg_constraint
+       where conname = 'categories_image_chemin'
+         and conrelid = 'public.categories'::regclass
+         and pg_get_constraintdef(oid) like '%img/categories/%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

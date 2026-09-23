@@ -199,6 +199,11 @@ const Catalogue = (() => {
       const b = (boutiques && boutiques[0]) || {};
       const urlImagePublique = (chemin) =>
         c.url + "/storage/v1/object/public/produits/" + chemin;
+      /* LE ROND D'UNE CATÉGORIE : une illustration qui voyage avec
+         l'application (« img/categories/… ») se lit sur place, sans
+         réseau ; une photo déposée par l'enseigne, dans le seau. */
+      const urlImageCategorie = (chemin) =>
+        /^img\/categories\//.test(chemin) ? chemin : urlImagePublique(chemin);
       return {
         application: "impact-catalogue",
         version: 2,
@@ -262,7 +267,7 @@ const Catalogue = (() => {
           couleur: cat.couleur || "#0B5CF5",
           /* La photo du rond, posée par l'enseigne ; sans elle — ou sur
              une base qui n'a pas encore la colonne —, l'icône suffit. */
-          image: cat.image ? urlImagePublique(cat.image) : "",
+          image: cat.image ? urlImageCategorie(cat.image) : "",
           enAvant: cat.en_avant === true,
           ordre: cat.ordre || 0,
           sousCategories: (cat.sous_categories || [])

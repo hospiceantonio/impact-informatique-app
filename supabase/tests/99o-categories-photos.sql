@@ -3,10 +3,12 @@
 --
 -- CE QU'ON AJOUTE. Sur la DA, les ronds des catégories de
 -- l'accueil portent une photo. Une colonne « image » la
--- range : un CHEMIN dans le seau, dans le seul dossier
--- « enseigne/categories/ ».
+-- range : un CHEMIN, dans le seau (« enseigne/categories/ »,
+-- une photo déposée depuis l'admin) ou dans l'application
+-- (« img/categories/ », les illustrations qui voyagent avec
+-- elle).
 --
--- Cinq choses à prouver :
+-- Sept choses à prouver :
 --
 --   1. L'ENSEIGNE SEULE LA POSE, comme elle seule écrit la
 --      liste. Une boutique ne change pas le rond de tout le
@@ -22,7 +24,13 @@
 --      L'état des lieux du stockage liste ce qui est
 --      « supprimable » ; une photo de catégorie oubliée dans sa
 --      liste y serait annoncée alors qu'elle est à l'écran — et
---      une suppression ne se rattrape pas.
+--      une suppression ne se rattrape pas ;
+--   6. LES ILLUSTRATIONS DE L'APPLICATION EXISTENT : chacune de
+--      celles que la base désigne est un vrai fichier, dans
+--      l'application cliente ET dans l'admin — sinon le rond
+--      retombe sur son icône sans que personne ne sache pourquoi ;
+--   7. REJOUER LE FICHIER NE DÉFAIT RIEN : une illustration que
+--      l'enseigne a retirée ne revient pas toute seule.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -40,11 +48,19 @@ select essai.titre('Le décor : les catégories telles qu''elles sont');
 select essai.verifie(
   exists (select 1 from public.categories where id = 'cat_mode'),
   'la catégorie « Mode » existe');
--- LE JOUR DE LA MISE À JOUR, AUCUNE N'A DE PHOTO : le rond garde son
--- icône. Une valeur nulle obligerait chaque écran à s'en méfier.
+-- CHAQUE CATÉGORIE DE BIZZOO ARRIVE AVEC SON ILLUSTRATION, celle qui
+-- voyage avec l'application. Une valeur nulle obligerait chaque écran
+-- à s'en méfier.
+select essai.egal(
+  (select count(*)::text from public.categories
+    where id like 'cat\_%' and image like 'img/categories/%.jpg'),
+  '15', 'les quinze de BIZZOO arrivent avec leur illustration');
 select essai.verifie(
-  not exists (select 1 from public.categories where image is null or image <> ''),
-  'aucune n''a encore de photo, et aucune n''est nulle');
+  not exists (select 1 from public.categories where image is null),
+  'aucune n''est nulle');
+
+-- On garde les images telles qu'elles sont, pour les rendre à la fin.
+create temp table essai_images_avant as select id, image from public.categories;
 
 -- ---------------------------------------------------------
 select essai.titre('1. L''enseigne seule pose la photo');
@@ -117,6 +133,44 @@ select essai.egal(
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
+select essai.titre('2 bis. Ou une illustration de l''application');
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+-- CHOISIR UNE AUTRE ILLUSTRATION, c'est ce que propose la galerie de la
+-- fiche : la moto plutôt que la voiture, pour « Auto & Moto ».
+update public.categories set image = 'img/categories/moto.jpg' where id = 'cat_auto';
+select essai.egal(
+  (select image from public.categories where id = 'cat_auto'),
+  'img/categories/moto.jpg', 'l''enseigne choisit une autre illustration');
+-- LE DOSSIER DE L'APPLICATION, ET RIEN D'AUTRE : l'écran lit ce chemin
+-- tel quel, à côté de sa page. Ni remonter vers ses fichiers, ni
+-- sortir du dossier.
+select essai.refuse(
+  $$update public.categories set image = 'img/categories/../../index.html' where id = 'cat_auto'$$,
+  'on ne remonte pas vers les fichiers de l''application');
+select essai.refuse(
+  $$update public.categories set image = 'img/categories/.moto.jpg' where id = 'cat_auto'$$,
+  'ni vers un fichier caché');
+select essai.refuse(
+  $$update public.categories set image = 'img/categories/' where id = 'cat_auto'$$,
+  'ni le dossier sans fichier');
+select essai.refuse(
+  $$update public.categories set image = 'img/moto.jpg' where id = 'cat_auto'$$,
+  'ni un autre dossier de l''application');
+select essai.refuse(
+  $$update public.categories set image = 'icons/icon-512.png' where id = 'cat_auto'$$,
+  'ni une autre image qu''elle contient');
+update public.categories set image = 'img/categories/voiture.jpg' where id = 'cat_auto';
+reset role; select essai.personne();
+
+-- UNE BOUTIQUE N'Y TOUCHE PAS DAVANTAGE.
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.sans_effet(
+  $$update public.categories set image = 'img/categories/moto.jpg' where id = 'cat_auto'$$,
+  'l''administrateur d''une boutique ne change pas l''illustration');
+reset role; select essai.personne();
+
+-- ---------------------------------------------------------
 select essai.titre('3. Le fichier aussi est réservé');
 
 select essai.devenir(:ENSEIGNE::uuid);
@@ -163,6 +217,59 @@ select essai.verifie(
              and "quoi" = 'produits/enseigne/categories/cat_mode_0.jpg'),
   'l''ancienne, que plus rien ne désigne, l''est');
 
--- On rend la base comme on l'a trouvée.
 delete from storage.objects where name like 'enseigne/categories/cat_mode_%';
-update public.categories set image = '' where id = 'cat_mode';
+
+-- ---------------------------------------------------------
+select essai.titre('6. Les illustrations désignées existent, dans les deux applications');
+
+-- CE QUE CONTIENNENT LES DEUX DOSSIERS, lus sur le disque : une
+-- illustration que la base désigne et qu'aucune application n'embarque
+-- laisserait le rond sur son icône, sans que personne ne sache pourquoi.
+\set illus_client `ls "$RACINE/client/img/categories" | tr '\n' ' '`
+\set illus_admin `ls "$RACINE/admin/img/categories" | tr '\n' ' '`
+select essai.verifie(
+  not exists (select 1 from essai_images_avant a
+               where a.image like 'img/categories/%'
+                 and position(' ' || substr(a.image, 16) || ' ' in ' ' || :'illus_client') = 0),
+  'chacune est un fichier de l''application cliente');
+select essai.verifie(
+  not exists (select 1 from essai_images_avant a
+               where a.image like 'img/categories/%'
+                 and position(' ' || substr(a.image, 16) || ' ' in ' ' || :'illus_admin') = 0),
+  'et de l''admin');
+
+-- ---------------------------------------------------------
+select essai.titre('7. Rejouer le fichier ne défait rien');
+
+-- L'enseigne a retiré l'illustration de « Maison » (plus haut) et posé
+-- sa photo sur « Mode ». Rejouer « categories-photos.sql » — ce que fait
+-- quiconque le recolle — ne doit rien remettre.
+update public.categories set image = 'enseigne/categories/cat_mode_1.jpg' where id = 'cat_mode';
+\set fichier `echo "$RACINE/supabase/categories-photos.sql"`
+\o /dev/null
+set client_min_messages = warning;
+\i :fichier
+set client_min_messages = notice;
+\o
+select essai.egal(
+  (select image from public.categories where id = 'cat_maison'), '',
+  'l''illustration retirée ne revient pas');
+select essai.egal(
+  (select image from public.categories where id = 'cat_mode'),
+  'enseigne/categories/cat_mode_1.jpg', 'la photo posée reste');
+
+-- Sur une base qui n'a encore AUCUNE image — la base en ligne le jour
+-- de la mise à jour —, le même fichier pose les quinze.
+update public.categories set image = '';
+\o /dev/null
+set client_min_messages = warning;
+\i :fichier
+set client_min_messages = notice;
+\o
+select essai.egal(
+  (select count(*)::text from public.categories where image like 'img/categories/%'),
+  '15', 'sur une base sans image, il pose les quinze illustrations');
+
+-- On rend la base comme on l'a trouvée.
+update public.categories c set image = a.image
+  from essai_images_avant a where a.id = c.id;

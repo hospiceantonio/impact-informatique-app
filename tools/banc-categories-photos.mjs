@@ -25,7 +25,12 @@
      6. L'ANCIENNE PHOTO N'EST PAS EFFACÉE : annuler depuis le journal
         remet l'ancien chemin, et le fichier doit encore y être ;
      7. UNE BOUTIQUE VOIT la photo de son secteur, sans pouvoir la
-        changer.
+        changer ;
+     8. LES ILLUSTRATIONS QUI VOYAGENT AVEC L'APPLICATION : la liste
+        de BIZZOO telle que schema.sql la sème montre chacune la
+        sienne, lue à côté de la page et jamais dans le seau ; dans
+        l'admin, la galerie les propose toutes, d'un appui, sans rien
+        envoyer au stockage.
 
    CE QUE LE BANC REGARDE : ce qui est à l'écran — mesuré — et ce qui
    PART vers la base et le stockage, corps compris.
@@ -33,6 +38,7 @@
      PLAYWRIGHT=<chemin>/playwright-core/index.js BANC_URL=… node tools/banc-categories-photos.mjs
    ========================================================= */
 import { deflateSync, crc32 } from "node:zlib";
+import { readFileSync } from "node:fs";
 
 let chromium;
 try {
@@ -177,12 +183,22 @@ const lireRonds = (page, selecteur) => page.evaluate((sel) => {
       icone: !!(ic && ic.getBoundingClientRect().width > 0),
       attributs: img ? [...img.attributes].map((a) => a.name) : [],
       largeur: Math.round(r.width),
+      fond: style.backgroundColor,
     };
   });
 }, selecteur);
 
 const deborde = (page) => page.evaluate(() =>
   document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+
+/* Le pastel d'une couleur, tel que l'accueil le calcule. Sous une photo,
+   la pastille doit l'avoir : un aplat foncé déborde d'un liseré au bord
+   du cercle, que le navigateur adoucit sur les deux à la fois. */
+const pastel = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  const m = (c) => Math.round(c * .16 + 255 * .84);
+  return "rgb(" + m(n >> 16) + ", " + m((n >> 8) & 255) + ", " + m(n & 255) + ")";
+};
 
 for (const L of [390, 320]) {
   titre("L'accueil à " + L + " px : la photo dans le rond");
@@ -238,6 +254,55 @@ titre("Une base qui n'a pas encore la colonne");
   await ctx.close();
 }
 
+/* LA LISTE DE BIZZOO TELLE QUE LA BASE LA SÈME, lue dans schema.sql :
+   c'est SA correspondance catégorie → illustration qu'on éprouve, pas
+   une copie qui pourrait s'en écarter. */
+const SEMENCE = [...readFileSync(new URL("../supabase/schema.sql", import.meta.url), "utf8")
+  .matchAll(/\('(cat_\w+)',\s*null,\s*'([^']+)',\s*'(\w+)',\s*'(#[0-9A-Fa-f]{6})',\s*(true|false),\s*(\d+),\s*'(img\/categories\/[^']+)'\)/g)]
+  .map((m) => ({ id: m[1], nom: m[2], icone: m[3], couleur: m[4], en_avant: m[5] === "true",
+    ordre: Number(m[6]), image: m[7], sous_categories: [] }));
+
+titre("Les illustrations de l'application : la liste de BIZZOO, sans réseau");
+{
+  ok(SEMENCE.length === 15, "schema.sql sème quinze catégories, chacune son illustration (" + SEMENCE.length + ")");
+  for (const L of [390, 320]) {
+    const { page, ctx: c, erreurs } = await ouvrirClient(L, { categories: SEMENCE });
+    const demandes = await page.evaluate(() => performance.getEntriesByType("resource")
+      .map((e) => e.name).filter((n) => /categories\//.test(n)));
+    const ronds = await lireRonds(page, ".cat-rond-da");
+    const vedettes = SEMENCE.filter((x) => x.en_avant);
+    ok(ronds.length === vedettes.length, L + " px : les " + vedettes.length + " de l'accueil (" + ronds.length + ")");
+    ok(ronds.every((r, i) => r.photo === vedettes[i].image),
+      "chaque rond porte l'illustration que la base lui donne");
+    ok(ronds.every((r) => r.chargee && r.auDessus && r.couvre && r.coupe),
+      "toutes chargées, par-dessus l'icône, et le rond entier");
+    ok(demandes.length >= vedettes.length &&
+       demandes.every((n) => n.startsWith(BASE + "/client/img/categories/")),
+      "lues à côté de la page, jamais dans le seau (" + demandes.length + " fichiers)");
+    ok(!(await deborde(page)), "rien ne déborde");
+    ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+    if (L === 390) {
+      await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-illustrations-accueil.png",
+        clip: await page.evaluate(() => {
+          const r = document.querySelector(".cat-ronds").getBoundingClientRect();
+          return { x: 0, y: Math.max(0, r.top + scrollY - 70), width: innerWidth, height: r.height + 90 };
+        }) }).catch(() => {});
+    }
+    await c.close();
+  }
+  const { page, ctx, erreurs } = await ouvrirClient(360, { categories: SEMENCE, route: "#/categories" });
+  const lignes = await lireRonds(page, ".cat-ligne .cat-rond-couleur");
+  ok(lignes.length === 15 && lignes.every((r) => r.chargee && r.auDessus && r.couvre),
+    "l'écran « Catégories » : les quinze pastilles portent leur illustration (" + lignes.length + ")");
+  const triees = SEMENCE.slice().sort((a, b) => a.ordre - b.ordre);
+  ok(lignes.every((r, i) => r.fond === pastel(triees[i].couleur)),
+    "sous l'illustration, la pastille est pastel : pas de liseré foncé au bord du cercle");
+  ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-illustrations-liste.png" })
+    .catch(() => {});
+  await ctx.close();
+}
+
 titre("Le chemin est échappé, même si la base le laissait passer");
 {
   const piege = CAT.map((c, i) => i === 0
@@ -260,6 +325,9 @@ const CAT_ADMIN = () => [
     image: "enseigne/categories/cat_cassee1.jpg", en_avant: true, ordre: 2, sous_categories: [] },
   { id: "cat_maison", nom: "Maison & Jardin", icone: "maison", couleur: "#0F9D58",
     image: "", en_avant: false, ordre: 3, sous_categories: [] },
+  /* Une illustration qui voyage avec l'application. */
+  { id: "cat_auto", nom: "Auto & Moto", icone: "voiture", couleur: "#001450",
+    image: "img/categories/voiture.jpg", en_avant: true, ordre: 4, sous_categories: [] },
 ];
 
 async function ouvrirAdmin({ role = "superadministrateur", refuser = false } = {}) {
@@ -328,12 +396,86 @@ titre("Admin : la liste montre la photo, et l'icône en secours");
 {
   const { page, ctx, erreurs } = await ouvrirAdmin();
   const p = await lireRonds(page, ".cat-bloc .cat-pastille");
-  ok(p.length === 3, "trois catégories (" + p.length + ")");
+  ok(p.length === 4, "quatre catégories (" + p.length + ")");
   ok(p[0] && p[0].chargee && p[0].auDessus && p[0].couvre && p[0].coupe,
     "la pastille de « Mode » montre sa photo, ronde, par-dessus l'icône");
   ok(p[1] && p[1].photo === null && p[1].icone, "celle qui ne se charge pas s'efface : l'icône reste");
   ok(p[2] && p[2].photo === null && p[2].icone, "« Maison », sans photo, garde son icône");
+  ok(p[3] && p[3].photo === "img/categories/voiture.jpg" && p[3].chargee && p[3].auDessus,
+    "« Auto & Moto » montre son illustration, lue dans l'application");
+  ok(p[3] && p[3].fond === pastel("#001450") && p[2] && p[2].fond === "rgb(15, 157, 88)",
+    "sous une image la pastille est pastel ; sans image, pleine (" + (p[3] && p[3].fond) + ")");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("Admin : choisir une autre illustration, d'un appui");
+{
+  const { page, ctx, erreurs, envois, ecritures } = await ouvrirAdmin();
+  await modifier(page, "cat_auto");
+  await page.waitForTimeout(800);
+  const g = await page.evaluate(() => {
+    const boutons = [...document.querySelectorAll("#cat-illustrations [data-illustration]")];
+    return {
+      nombre: boutons.length,
+      chargees: boutons.filter((b) => { const i = b.querySelector("img"); return i && i.complete && i.naturalWidth > 0; }).length,
+      actives: boutons.filter((b) => b.classList.contains("actif")).map((b) => b.dataset.illustration),
+      pressee: (document.querySelector('#cat-illustrations [aria-pressed="true"]') || {}).dataset,
+      apercu: (document.querySelector(".cat-photo-boite img") || {}).getAttribute
+        ? document.querySelector(".cat-photo-boite img").getAttribute("src") : "",
+    };
+  });
+  ok(g.nombre === 24, "la galerie propose vingt-quatre illustrations (" + g.nombre + ")");
+  ok(g.chargees === g.nombre, "toutes existent dans l'admin, et se chargent (" + g.chargees + ")");
+  ok(g.actives.join() === "voiture" && g.apercu === "img/categories/voiture.jpg",
+    "celle en place est allumée, et en aperçu (" + g.actives.join() + ")");
+  await page.click('[data-illustration="moto"]');
+  const apres = await page.evaluate(() => ({
+    actives: [...document.querySelectorAll("#cat-illustrations .actif")].map((b) => b.dataset.illustration),
+    apercu: document.querySelector(".cat-photo-boite img").getAttribute("src"),
+  }));
+  ok(apres.actives.join() === "moto" && apres.apercu === "img/categories/moto.jpg",
+    "un appui sur la moto : elle s'allume, et passe en aperçu");
+  await page.evaluate(() => document.querySelector("#cat-photo").scrollIntoView({ block: "start" }));
+  await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-illustrations-admin.png" })
+    .catch(() => {});
+  await enregistrer(page);
+  const patch = patchDe(ecritures, "cat_auto")[0];
+  ok(patch && patch.corps && patch.corps.image === "img/categories/moto.jpg",
+    "la ligne désigne l'illustration choisie");
+  ok(!envois.length, "rien ne part au stockage : elle est déjà dans l'application");
+  ok(journal(ecritures).some((l) => /photo changée/.test(l)), "le journal le dit : « photo changée »");
+  ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("Admin : une nouvelle catégorie, avec une illustration");
+{
+  const { page, ctx, envois, ecritures } = await ouvrirAdmin();
+  await page.click("#cat-ajouter");
+  await page.waitForSelector("#cat-illustrations [data-illustration]", { timeout: 4000 });
+  ok(await page.evaluate(() => !document.querySelector("#cat-illustrations .actif")),
+    "aucune n'est allumée d'avance : une nouvelle catégorie n'a pas de photo");
+  await page.fill("#cat-nom", "Jardinage");
+  await page.click('[data-illustration="plante"]');
+  await enregistrer(page);
+  const post = ecritures.find((e) => e.methode === "POST" && e.table === "categories");
+  ok(post && post.corps && post.corps.image === "img/categories/plante.jpg" && !envois.length,
+    "elle naît avec la plante, sans rien envoyer au stockage");
+  await ctx.close();
+}
+
+titre("Admin : retirer une illustration");
+{
+  const { page, ctx, envois, ecritures } = await ouvrirAdmin();
+  await modifier(page, "cat_auto");
+  await page.click("#cat-photo-retirer");
+  ok(await page.evaluate(() => !document.querySelector("#cat-illustrations .actif")),
+    "la croix l'éteint aussi dans la galerie");
+  await enregistrer(page);
+  const patch = patchDe(ecritures, "cat_auto")[0];
+  ok(patch && patch.corps && patch.corps.image === "" && !envois.length,
+    "la ligne est vidée : le rond retrouve son icône");
   await ctx.close();
 }
 

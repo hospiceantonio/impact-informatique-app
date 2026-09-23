@@ -937,9 +937,19 @@ const UI = (() => {
   function ligneRayon(r) {
     const couleur = /^#[0-9a-f]{6}$/i.test(String(r.categorie.couleur || "").trim())
       ? r.categorie.couleur.trim() : "#0047D9";
+    /* AVEC UNE PHOTO, LA PASTILLE PASSE AU PASTEL, comme le rond de
+       l'accueil. Sous la photo, un aplat foncé débordait d'un liseré au
+       bord du cercle — le navigateur adoucit ce bord sur les deux à la
+       fois. Si la photo ne vient pas, l'icône reste, dans sa couleur. */
+    const n = parseInt(couleur.slice(1), 16);
+    const pastel = (c) => Math.round(c * .16 + 255 * .84);
+    const fond = r.categorie.image
+      ? "background:rgb(" + pastel(n >> 16) + "," + pastel((n >> 8) & 255) + "," +
+          pastel(n & 255) + ");color:" + couleur
+      : "background:" + couleur;
     return (
       '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
-        '<span class="cat-rond cat-rond-couleur" style="background:' + couleur + '">' +
+        '<span class="cat-rond cat-rond-couleur" style="' + fond + '">' +
           icone(r.categorie.icone || "categories") +
           /* La photo recouvre l'icône, comme sur l'accueil. */
           (r.categorie.image

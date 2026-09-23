@@ -202,20 +202,32 @@ alter table public.categories add column if not exists en_avant boolean not null
 -- couleur restent — et elles reviennent aussi quand la photo ne se
 -- charge pas (hors connexion).
 --
--- UN CHEMIN DANS LE SEAU, JAMAIS UNE ADRESSE, et dans un seul dossier :
--- « enseigne/categories/ ». C'est celui que le stockage réserve au
--- superadministrateur (voir « peut_deposer »), comme la liste elle-même
--- lui est réservée. Une adresse libre ferait charger à l'accueil de
--- tous les clients une image posée n'importe où.
+-- UN CHEMIN, JAMAIS UNE ADRESSE, et dans l'un de deux dossiers :
+--
+--   « enseigne/categories/ », dans le seau : la photo que l'enseigne
+--     dépose depuis l'admin. C'est le dossier que le stockage réserve
+--     au superadministrateur (voir « peut_deposer »), comme la liste
+--     elle-même lui est réservée ;
+--   « img/categories/ », dans l'application : les illustrations qui
+--     voyagent avec elle — dans l'APK comme sur le site —, et
+--     s'affichent donc sans réseau. Chaque catégorie de BIZZOO en
+--     reçoit une à sa création (voir la liste plus bas).
+--
+-- Une adresse libre ferait charger à l'accueil de tous les clients une
+-- image posée n'importe où.
 alter table public.categories add column if not exists image text not null default '';
 alter table public.categories drop constraint if exists categories_image_chemin;
 alter table public.categories add constraint categories_image_chemin
   -- Le dossier, puis un nom qui commence par une lettre ou un chiffre
   -- et ne contient rien hors de [A-Za-z0-9._-] : ni « / » pour
   -- descendre, ni « : » pour une adresse, ni « .. » pour remonter.
-  check (image = '' or (image like 'enseigne/categories/_%'
-                        and substr(image, 21, 1) ~ '[A-Za-z0-9]'
-                        and substr(image, 21) !~ '[^A-Za-z0-9._-]'));
+  check (image = ''
+         or (image like 'enseigne/categories/_%'
+             and substr(image, 21, 1) ~ '[A-Za-z0-9]'
+             and substr(image, 21) !~ '[^A-Za-z0-9._-]')
+         or (image like 'img/categories/_%'
+             and substr(image, 16, 1) ~ '[A-Za-z0-9]'
+             and substr(image, 16) !~ '[^A-Za-z0-9._-]'));
 
 create table if not exists public.sous_categories (
   id           text primary key,
@@ -5600,22 +5612,26 @@ grant execute on function public.produits_populaires(int) to anon, authenticated
 -- « en_avant » désigne les huit de l'accueil. Les quinze ne tiennent
 -- pas sur un premier écran, et les montrer toutes reviendrait à n'en
 -- montrer aucune.
-insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre) values
-  ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1),
-  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2),
-  ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3),
-  ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4),
-  ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5),
-  ('cat_restauration', null, 'Restauration & Alimentation',        'couverts', '#F96302', true,   6),
-  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'chariot',  '#E62329', true,   7),
-  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'ecran', '#0B7C8C', false, 8),
-  ('cat_bebe',         null, 'Bébé & Enfant',                      'cadeau',   '#3F51B5', false,  9),
-  ('cat_sport',        null, 'Sport & Loisirs',                    'ballon',   '#9A6B00', false, 10),
-  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'outils',   '#546E7A', false, 11),
-  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livre',    '#7A4A32', false, 12),
-  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'diamant',  '#6C3FBF', false, 13),
-  ('cat_animaux',      null, 'Animaux',                            'patte',    '#0F9D58', false, 14),
-  ('cat_services',     null, 'Services',                           'sacoche',  '#0B7C8C', true,  15)
+--
+-- « image » : l'illustration de son rond, celle qui voyage avec
+-- l'application (« client/img/categories/ »). Une base déjà en place
+-- les reçoit par « categories-photos.sql ».
+insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
+  ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1, 'img/categories/robe.jpg'),
+  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2, 'img/categories/ordinateur.jpg'),
+  ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3, 'img/categories/voiture.jpg'),
+  ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4, 'img/categories/maison.jpg'),
+  ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5, 'img/categories/rouge-a-levres.jpg'),
+  ('cat_restauration', null, 'Restauration & Alimentation',        'couverts', '#F96302', true,   6, 'img/categories/marmite.jpg'),
+  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'chariot',  '#E62329', true,   7, 'img/categories/chariot.jpg'),
+  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'ecran', '#0B7C8C', false, 8, 'img/categories/ecran.jpg'),
+  ('cat_bebe',         null, 'Bébé & Enfant',                      'cadeau',   '#3F51B5', false,  9, 'img/categories/nounours.jpg'),
+  ('cat_sport',        null, 'Sport & Loisirs',                    'ballon',   '#9A6B00', false, 10, 'img/categories/ballon.jpg'),
+  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'outils',   '#546E7A', false, 11, 'img/categories/briques.jpg'),
+  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livre',    '#7A4A32', false, 12, 'img/categories/livres.jpg'),
+  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'diamant',  '#6C3FBF', false, 13, 'img/categories/bague.jpg'),
+  ('cat_animaux',      null, 'Animaux',                            'patte',    '#0F9D58', false, 14, 'img/categories/chien.jpg'),
+  ('cat_services',     null, 'Services',                           'sacoche',  '#0B7C8C', true,  15, 'img/categories/boite-a-outils.jpg')
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values

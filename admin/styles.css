@@ -733,6 +733,15 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   box-shadow:0 0 0 1.5px var(--trait);
 }
 .choix-couleur.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--encre)}
+/* Les illustrations de la fiche d'une catégorie : rondes, comme le rond
+   qu'elles rempliront, et l'élue cerclée comme une couleur choisie. */
+.choix-illustrations{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.choix-illustration{
+  width:46px;height:46px;border-radius:999px;padding:0;overflow:hidden;
+  border:3px solid transparent;box-shadow:0 0 0 1.5px var(--trait);background:var(--blanc);
+}
+.choix-illustration img{display:block;width:100%;height:100%;object-fit:cover;border-radius:999px}
+.choix-illustration.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--bleu)}
 
 /* ---------- Enseigne ou boutique : la bascule des réglages ---------- */
 .cible-choix{display:grid;grid-template-columns:1fr 1fr;gap:9px}

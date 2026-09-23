@@ -1487,21 +1487,52 @@ superadministrateur pose dans l'application admin :
 remplit la pastille de l'écran « Catégories », chez le client, et celle
 de la liste dans l'admin.
 
-**Aucune photo n'est posée d'office.** Celles de la maquette sont des
-illustrations, trop petites une fois découpées pour un rond de 62 px sur
-un écran fin ; en inventer d'autres, ce serait montrer aux clients des
-rayons qui ne ressemblent pas à ce que vendent vos boutiques. Tant que
-l'enseigne n'en a pas choisi, chaque rond garde son **icône et sa
-couleur**, comme avant.
+### Les illustrations de BIZZOO
+
+Chaque catégorie de la liste porte d'office une **illustration** : un
+objet en 3D sur le fond pastel de sa couleur, comme les ronds de la DA —
+une robe pour la Mode, un ordinateur pour le High-Tech, une voiture pour
+l'Auto & Moto, une maison, un rouge à lèvres, une marmite, un chariot,
+une boîte à outils pour les Services… Vingt-quatre en tout : une par
+catégorie, et neuf autres au choix (une moto, un téléphone, une plante…).
+
+Ce ne sont **pas des photos de vos produits**, et rien ne le prétend :
+les images de la maquette elle-même font 29 px une fois découpées, trop
+peu pour un rond de 62 px, et les banques de photos ne sont pas
+joignables d'ici. Les objets sont les **Fluent Emoji 3D de Microsoft**,
+sous licence MIT (libres, usage commercial compris) ; l'avis de licence
+les accompagne (`img/categories/LICENCE.txt`), et
+[`tools/illustrations-categories.py`](tools/illustrations-categories.py)
+les recompose à l'identique.
+
+Elles **voyagent avec l'application** — dans l'APK comme sur le site,
+dans `client/img/categories/` et `admin/img/categories/` — et la base
+les désigne par leur chemin (`img/categories/robe.jpg`). L'accueil les
+montre donc **sans réseau**, dès la première ouverture : elles sont dans
+la coquille hors connexion des deux applications, et le contrôle de la
+coquille refuse une illustration oubliée.
+
+La base en ligne les a reçues par
+[`categories-photos.sql`](supabase/categories-photos.sql) — **une seule
+fois** : tant qu'aucune catégorie n'a d'image. Recoller le fichier ne
+remet jamais une illustration que l'enseigne a retirée ou remplacée.
 
 ### Poser, remplacer, retirer
 
-- **Ajouter** : le carré « Ajouter » de la fiche. L'aperçu est **rond**,
-  comme chez le client : on voit tout de suite ce que les coins perdront.
-  Une photo carrée, le sujet au centre, convient le mieux.
-- **Remplacer** : la croix, puis « Ajouter ».
+- **Choisir une illustration** : dans la fiche, sous « Photo du rond »,
+  la galerie les montre toutes, rondes ; un appui suffit. Celle en place
+  est cerclée de bleu. Rien ne part au stockage : elle est déjà dans
+  l'application.
+- **Mettre une vraie photo** : le carré « Ajouter » de la fiche. L'aperçu
+  est **rond**, comme chez le client : on voit tout de suite ce que les
+  coins perdront. Une photo carrée, le sujet au centre, convient le mieux.
+- **Remplacer** : la croix, puis « Ajouter » ou une illustration.
 - **Retirer** : la croix, puis « Enregistrer ». Le rond retrouve son
   icône.
+
+Quand une image est posée, la pastille de l'écran « Catégories » passe au
+**pastel**, comme le rond de l'accueil : sous l'image, l'aplat foncé
+d'avant débordait d'un fin liseré au bord du cercle.
 
 L'application **réduit la photo à 480 px** et l'enregistre en JPEG avant
 de l'envoyer — une photo de téléphone de plusieurs Mo n'en garde que
@@ -1519,9 +1550,11 @@ Une seule écoute par application, posée une fois pour tous les écrans
 
 ### Ce que la base garde
 
-- **Un chemin, jamais une adresse**, dans un seul dossier :
-  `enseigne/categories/`. La règle `categories_image_chemin` refuse tout
-  le reste — une adresse internet, un autre dossier, un `..` — même au
+- **Un chemin, jamais une adresse**, dans l'un de deux dossiers :
+  `enseigne/categories/` (une photo, dans le seau) ou `img/categories/`
+  (une illustration, dans l'application). La règle
+  `categories_image_chemin` refuse tout le reste — une adresse internet,
+  un autre dossier, un `..`, un fichier caché — même au
   superadministrateur : ce n'est pas une question de droit, c'est la
   forme de la donnée. Une adresse libre ferait charger à l'accueil de
   tous les clients une image posée n'importe où.
@@ -1542,19 +1575,24 @@ Une seule écoute par application, posée une fois pour tous les écrans
   suppression.
 
 À coller dans Supabase : [`categories-photos.sql`](supabase/categories-photos.sql)
-(déjà appliqué sur la base en ligne).
+(déjà appliqué sur la base en ligne, illustrations comprises).
 
 ### Le banc
 
 [`tests/99o-categories-photos.sql`](supabase/tests/99o-categories-photos.sql)
-force les portes en 21 constats — dont l'état des lieux du stockage
+force les portes en 34 constats — dont l'état des lieux du stockage
 **tel qu'il part chez le gérant**, lu dans le dépôt : c'est sa liste
-d'orphelins qu'on éprouve, pas une copie.
+d'orphelins qu'on éprouve, pas une copie. Il lit aussi les deux dossiers
+d'illustrations sur le disque : chacune de celles que la base désigne
+doit y être, dans le client **et** dans l'admin. Et il recolle
+`categories-photos.sql` pour prouver qu'un choix de l'enseigne survit.
 [`tools/banc-categories-photos.mjs`](tools/banc-categories-photos.mjs) en
-ajoute 71 au navigateur, dans les deux applications : la photo remplit
+ajoute 101 au navigateur, dans les deux applications : la photo remplit
 le rond et se trouve par-dessus l'icône (mesuré), l'icône revient quand
-la photo manque, rien ne déborde à 320 px, le chemin est échappé ; dans
-l'admin, ce qui part au stockage et vers la base, corps compris.
+la photo manque, rien ne déborde à 320 px, le chemin est échappé ; la
+liste que `schema.sql` sème montre ses quinze illustrations, lues à côté
+de la page et jamais dans le seau ; dans l'admin, la galerie, et ce qui
+part au stockage et vers la base, corps compris.
 
 Dix-neuf sabotages, un par un, et chacun fait tomber au moins un
 constat. En base : retirer la règle du premier caractère (« .. » passe),
@@ -1570,6 +1608,15 @@ de l'admin, taire la photo au journal. Le dix-neuvième — ne plus découper
 la pastille de l'admin — fait plus qu'échouer : la photo, libérée, recouvre
 toute la carte et **bloque le bouton « Modifier »**. La découpe évite
 aussi cela.
+
+Onze de plus pour les illustrations. En base : laisser passer un fichier
+caché, reposer les illustrations à chaque relecture du fichier (celle que
+l'enseigne a retirée revient), retirer une illustration de l'admin. Au
+navigateur : chercher les illustrations dans le seau — chez le client
+comme dans l'admin —, oublier le dossier dans la galerie, ne plus y
+allumer le choix, remettre l'aplat foncé sous l'image — des deux côtés —,
+retirer une illustration de l'admin. Et à la coquille hors connexion,
+en oublier une dans la liste.
 
 ```bash
 PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-categories-photos.mjs
@@ -2680,6 +2727,7 @@ impact-informatique-app/
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
+│   ├── img/categories/       # Les illustrations des ronds (Fluent Emoji 3D, MIT)
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
 │       ├── compte.js         # Le compte du client : session, fiche, demande de revendeur
@@ -2692,6 +2740,7 @@ impact-informatique-app/
 ├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
+│   ├── img/categories/       # Les mêmes illustrations, pour la liste et la galerie
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
@@ -2716,6 +2765,7 @@ impact-informatique-app/
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
+    ├── illustrations-categories.py # Les illustrations des ronds de catégories
     ├── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
     ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)

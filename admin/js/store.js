@@ -2242,8 +2242,10 @@ const Store = (() => {
     };
 
     /* LA PHOTO DU ROND. `donnees.photo` vaut { dataUrl } pour une
-       nouvelle, { chemin } pour garder celle en place, null pour la
-       retirer ; absente, on n'y touche pas.
+       nouvelle, { chemin } pour garder celle en place ou choisir une
+       illustration de l'application (« img/categories/… », rien à
+       envoyer : elle y est déjà), null pour la retirer ; absente, on
+       n'y touche pas.
 
        Dans « enseigne/categories/ » et nulle part ailleurs : le stockage
        y réserve le dépôt au superadministrateur, et la base refuse tout

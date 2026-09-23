@@ -47,11 +47,18 @@ verifier() {
   liste="$(sed -n '/^const FICHIERS = \[/,/^\];/p' "$sw" \
            | grep -o '"\./[^"]*"' | sed 's/"\.\///; s/"//' | sort -u)"
 
+  # Les illustrations des catégories : ce sont les ronds de l'accueil,
+  # et elles doivent être là dès la première ouverture hors connexion.
+  local illustrations=""
+  if [ -d "$RACINE/$app/img/categories" ]; then
+    illustrations="$(cd "$RACINE/$app" && ls img/categories/*.jpg 2>/dev/null | sort -u || true)"
+  fi
+
   local manquants=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     grep -qxF "$f" <<<"$liste" || manquants+="  $f"$'\n'
-  done <<<"$scripts"
+  done <<<"$(printf '%s\n%s\n' "$scripts" "$illustrations")"
 
   # Et l'inverse : un fichier listé qui n'existe plus fait échouer
   # « cache.addAll » en entier, donc le cache complet.
@@ -65,7 +72,7 @@ verifier() {
   if [ -n "$manquants" ] || [ -n "$fantomes" ]; then
     rouge "$app/sw.js ne décrit pas l'application :"
     [ -n "$manquants" ] && {
-      echo "  Chargés par index.html mais ABSENTS de la liste —"
+      echo "  Chargés par index.html, ou illustrations, mais ABSENTS de la liste —"
       echo "  ils ne seront pas mis en cache, et manqueront hors connexion :"
       printf '%s' "$manquants"
     }
@@ -76,7 +83,7 @@ verifier() {
     }
     ECHECS=$((ECHECS + 1))
   else
-    gris "$app : $(wc -l <<<"$scripts") script(s), tous dans la coquille."
+    gris "$app : $(wc -l <<<"$scripts") script(s) et $(grep -c . <<<"$illustrations" || true) illustration(s), tous dans la coquille."
   fi
 }
 

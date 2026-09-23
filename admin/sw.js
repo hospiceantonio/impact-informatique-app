@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v72";
+const VERSION = "impact-admin-v73";
 
 const FICHIERS = [
   "./",
@@ -50,6 +50,32 @@ const FICHIERS = [
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
   "./icons/apple-touch-icon.png",
+  /* Les illustrations des catégories : la liste et la fiche de
+     l'admin les montrent, et la galerie de la fiche les propose. */
+  "./img/categories/robe.jpg",
+  "./img/categories/ordinateur.jpg",
+  "./img/categories/voiture.jpg",
+  "./img/categories/maison.jpg",
+  "./img/categories/rouge-a-levres.jpg",
+  "./img/categories/marmite.jpg",
+  "./img/categories/chariot.jpg",
+  "./img/categories/ecran.jpg",
+  "./img/categories/nounours.jpg",
+  "./img/categories/ballon.jpg",
+  "./img/categories/briques.jpg",
+  "./img/categories/livres.jpg",
+  "./img/categories/bague.jpg",
+  "./img/categories/chien.jpg",
+  "./img/categories/boite-a-outils.jpg",
+  "./img/categories/t-shirt.jpg",
+  "./img/categories/telephone.jpg",
+  "./img/categories/moto.jpg",
+  "./img/categories/plante.jpg",
+  "./img/categories/burger.jpg",
+  "./img/categories/panier.jpg",
+  "./img/categories/outils.jpg",
+  "./img/categories/mallette.jpg",
+  "./img/categories/poignee-de-main.jpg",
 ];
 
 self.addEventListener("install", (ev) => {
