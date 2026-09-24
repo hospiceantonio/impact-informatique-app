@@ -527,7 +527,7 @@ et `authenticated`, schéma `auth`, stockage, temps réel), charge
 `schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
 qu'il se rejoue —, **rejoue ensuite chaque fichier de `supabase/` comme
 le fait l'éditeur SQL** (tout d'un bloc, sans compte connecté), puis
-essaie de forcer chaque porte. Plus de 760 constats, plus les 101
+essaie de forcer chaque porte. Près de 970 constats, plus les 114
 contrôles de l'état des lieux ; la sortie nomme celui qui cède.
 
 Pourquoi un vrai moteur : les tests des applications simulent la base.
@@ -572,6 +572,19 @@ Sept règles pour que ce banc garde sa valeur :
   `alter table … add column if not exists`. Le banc refait son chemin
   (l'ancien `schema.sql`, puis les fichiers envoyés) et compare colonne
   par colonne à une base neuve : il nomme celles qui manqueraient.
+  **Les colonnes ne suffisent pas** : la base en ligne les avait toutes,
+  et pourtant pas la règle du stock — posée dans le corps du
+  `create table` — ni la fermeture de quatre fonctions à `anon`. Le banc
+  compare donc aussi, à la lettre, **chaque règle** (`pg_constraint`) et
+  **chaque droit d'exécution** des visiteurs et des comptes connectés.
+- **Et dans l'autre sens : `schema.sql` seul doit arriver au même
+  point.** C'est lui qui installe une base neuve ; ce qu'un fichier à
+  coller pose doit donc s'y trouver aussi. Le banc monte une troisième
+  base avec `schema.sql` et rien d'autre, et la compare — colonnes,
+  règles, droits — à celle qui a tout reçu. Le premier jour, il a trouvé
+  `est_equipe()` ouverte aux visiteurs dans `schema.sql` seul, alors
+  qu'un fichier à coller la fermait : la base en ligne était juste, une
+  base neuve ne l'aurait pas été.
 - **Un fichier qui pose une fonction pose aussi les colonnes qu'elle
   remplit — même celles qu'il n'a pas inventées.** PostgreSQL ne relit le
   corps d'une fonction qu'au moment de l'*exécuter* : un fichier peut donc
@@ -2222,7 +2235,7 @@ rang.
 ## Paiement en ligne
 
 Le client remplit un panier, valide, paie par **Mobile Money** (MTN,
-Moov, Celtiis) ou par carte, et la commande arrive dans le compte
+Moov, Celtiis) — ou par carte, avec KkiaPay seulement —, et la commande arrive dans le compte
 administrateur de **chaque boutique concernée** — chacune ne voit que ses
 lignes à elle. Tant que le paiement n'est pas ouvert, le panier
 fonctionne quand même : la commande part sur WhatsApp, comme avant.
@@ -2238,7 +2251,14 @@ soit. **Ils ne fonctionnent pas pareil, et c'est ce qui explique tout :**
 | Ce que l'app porte | une clé **publique** | **rien** |
 | Qui ouvre le paiement | l'app (widget) | **notre Edge Function** |
 | Ce qui prouve l'encaissement | une notification **signée** | notre serveur **interroge** FeexPay |
-| Frais (Bénin) | selon contrat | **1,7 %** Mobile Money, **4,5 %** carte |
+| Frais (Bénin) | selon contrat | **1,7 %** Mobile Money |
+| Carte bancaire | par le widget | annoncée (4,5 %), mais **absente de l'API V2** |
+
+La carte, chez FeexPay, n'existe que sur leur plaquette : l'API V2 n'a
+aucune adresse pour elle, et leur propre SDK V2 la désactive en
+répondant « Les paiements par cartes sont momentanément indisponibles ».
+Tant que FeexPay encaisse pour BIZZOO, les clients paient donc par
+Mobile Money — l'écran des réglages le dit à l'enseigne.
 
 FeexPay n'envoie **aucune notification signée** — rien qu'un
 `callback_url`, c'est-à-dire une redirection de navigateur, fabriquée
@@ -2490,6 +2510,23 @@ Deux pièges qui coûtent des heures :
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
   `user.phone` et le renvoyer tel quel échoue, toujours.
 
+**Tant que ces quatre gestes ne sont pas faits, les chemins par SMS se
+retirent d'eux-mêmes.** En ligne, le fournisseur « Phone » était éteint,
+et pourtant « Entrer avec mon numéro », « Vérifier par SMS » et
+l'invitation de Mes commandes s'affichaient — pour mener tous au même
+refus, en anglais : « Unsupported phone provider ». L'application
+demande désormais à Supabase ce qui est ouvert (`GET /auth/v1/settings`,
+une lecture publique) et retire tout élément marqué `data-sms` quand la
+réponse est **non**. Dans le doute — réseau coupé, réponse illisible —,
+elle **montre** : un refus bien dit coûte moins qu'un chemin caché à
+tort. Un ancien lien vers « Entrer avec mon numéro » dit que ce n'est
+pas encore ouvert et montre les autres portes, et le refus anglais se
+traduit s'il arrive quand même. La question ne se pose qu'une fois par
+ouverture de l'application : le jour où l'enseigne active le SMS, les
+chemins reviennent au lancement suivant, sans nouvelle version.
+[`tools/banc-sms-ferme.mjs`](tools/banc-sms-ferme.mjs) l'éprouve :
+trente-deux constats, trois sabotages qui le font rougir.
+
 ## Deux applications, un seul point d'entrée
 
 Les deux applications restent **séparées**, et c'est délibéré :
@@ -2671,6 +2708,61 @@ C'est délibéré : cette règle force une inscription, elle ne protège rien.
 Un accident doit laisser la boutique vendre, pas verrouiller la caisse un
 samedi soir sans personne pour la rouvrir.
 
+## Le bilan de santé (3.48.0)
+
+Un contrôle général de l'application, en deux temps : **tout rejouer**
+ici (la base sur un vrai PostgreSQL, les deux fonctions de paiement,
+la passerelle SMS, le ménage du stockage, chaque banc du navigateur),
+puis **ausculter la base en ligne** — sans rien y écrire — et la
+comparer au dépôt, objet par objet.
+
+Ce qui était sain : chaque fonction de la base en ligne est **identique**
+à celle du dépôt, de même que les règles d'accès, les déclencheurs et les
+index ; les trois fonctions de paiement déployées sont celles du dépôt,
+à la lettre ; les commandes sont cohérentes à tous les niveaux — lignes,
+totaux, états, versements —, sans paiement resté en suspens.
+
+Ce qui ne l'était pas, et ce qui a été fait :
+
+| Trouvé | Corrigé |
+|---|---|
+| **Deux produits en double**, créés à 1,9 et 6,4 secondes d'écart, même référence, même photo : un double appui sur « Ajouter le produit » | Le bouton se grise pendant l'envoi. Même verrou sur « Supprimer » (dont le refus ne se disait nulle part), « Mettre en avant », les codes promo et chaque « Enregistrer » des réglages — où un double appui déposait deux demandes de validation |
+| **Une photo partagée** par les deux jumeaux : la retirer de l'un l'aurait effacée sous les yeux de l'autre | Avant d'effacer un fichier, on demande à la base si un autre produit le montre encore. Au moindre doute, on garde : le ménage du stockage rattrape un fichier de trop, rien ne rattrape un fichier perdu |
+| **La règle du stock absente** de la base en ligne (un stock négatif passait) | [`stock-et-droits.sql`](supabase/stock-et-droits.sql), **appliqué en ligne** |
+| **Quatre actions d'administration appelables sans compte** — supprimer un compte, changer un mot de passe, approuver ou refuser une demande. Refusées de l'intérieur, mais la porte était ouverte | Même fichier : fermées aux visiteurs, ouvertes à l'équipe. Les appels du client sans compte — commander, suivre, signaler un paiement, essayer un code — restent ouverts |
+| **`est_equipe()` ouverte aux visiteurs** dans `schema.sql` seul, fermée partout ailleurs | `schema.sql` aligné ; le banc compare désormais une base installée par lui seul |
+| **Les chemins par SMS** menaient à un refus en anglais : le SMS n'est pas branché | Ils se retirent tant qu'il ne l'est pas (section « Vérification du numéro ») |
+| **« 4,5 % par carte »** dans les réglages : l'API V2 de FeexPay n'a pas de carte | Le texte dit ce qui est vrai |
+
+[`tests/99p-stock-et-droits.sql`](supabase/tests/99p-stock-et-droits.sql)
+éprouve le fichier en base — refus **par la règle** et non par un autre
+verrou, refus **à la porte** et non de l'intérieur, base en service
+réparée sous le même nom qu'une base neuve ;
+[`tools/banc-envoi-unique.mjs`](tools/banc-envoi-unique.mjs), au
+navigateur, les doubles appuis et les photos partagées. Chaque
+correction a été sabotée à son tour : le banc rougit à chaque fois.
+
+**Ce qui reste à faire, et qui ne se fait pas depuis le code** — dans
+le tableau de bord de Supabase ou dans l'admin :
+
+1. **Authentication → URL Configuration** : l'adresse du site et les
+   adresses de retour (section « Le réglage Supabase sans lequel « mot de
+   passe oublié » ne mène à rien »). Les journaux montrent encore
+   `localhost:3000` : un client qui demande un nouveau mot de passe
+   reçoit un lien qui ne mène nulle part.
+2. **Le SMS**, en quatre gestes (section « Vérification du numéro ») —
+   les chemins reviendront d'eux-mêmes.
+3. **Dans l'admin**, supprimer les deux jumeaux — codes **100221** et
+   **100242**. La suppression garde les photos : l'original ne perd rien.
+4. Reposer la photo manquante de **100154** (PlayStation Portal Remote
+   Player), et donner un rayon à **100156** (Jetour traveller), qui
+   n'apparaît sous aucune catégorie.
+5. Facultatif : **Authentication → Passwords → protection contre les mots
+   de passe compromis** (selon l'offre Supabase).
+
+Les avis de performance de Supabase (index, relectures de règles) ne
+pèsent qu'à grande échelle : rien n'y presse au volume actuel.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -2714,6 +2806,7 @@ impact-informatique-app/
 │   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
 │   ├── categories-photos.sql        # La photo du rond d'une catégorie : un chemin, un seul dossier
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
+│   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
@@ -2763,6 +2856,7 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique et sms-ferme
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── illustrations-categories.py # Les illustrations des ronds de catégories

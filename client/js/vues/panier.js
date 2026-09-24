@@ -276,7 +276,7 @@ const VuePanier = (() => {
       '<div class="carte">' +
         '<a class="btn" href="#/inscription" data-vers-compte>' +
           UI.icone("compte") + "Créer mon compte</a>" +
-        '<a class="btn btn-clair" href="#/connexion-tel" data-vers-compte ' +
+        '<a class="btn btn-clair" href="#/connexion-tel" data-vers-compte data-sms ' +
           'style="margin-top:10px">' + UI.icone("telephone") +
           "Entrer avec mon numéro</a>" +
         '<p class="aide" style="margin:12px 0 0">Vous avez déjà un compte ? ' +
@@ -292,6 +292,7 @@ const VuePanier = (() => {
     for (const lien of UI.$$("[data-vers-compte]", vue)) {
       lien.addEventListener("click", () => VueCompte.revenirVers("#/commande"));
     }
+    Compte.masquerSiSmsFerme(vue);
   }
 
   /* =====================================================
@@ -1315,6 +1316,7 @@ const VuePanier = (() => {
       invitation(connecte, local.filter((c) => !vues.has(c.id)));
 
     brancherRecus(vue, liste);
+    Compte.masquerSiSmsFerme(vue);
   }
 
   /**
@@ -1339,7 +1341,9 @@ const VuePanier = (() => {
     if (!orphelines.length) return "";
     const moi = Compte.moi();
     if (moi && moi.tel_verifie) return "";
-    return '<div class="carte">' +
+    /* « data-sms » : tant que le SMS n'est pas ouvert, la vérification
+       n'aboutirait pas — la carte se retire plutôt que d'y envoyer. */
+    return '<div class="carte" data-sms>' +
       '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
         " " + orphelines.length + " commande" + (orphelines.length > 1 ? "s" : "") +
         " sur ce téléphone seulement</div>" +

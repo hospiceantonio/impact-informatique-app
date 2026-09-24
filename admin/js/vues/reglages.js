@@ -561,7 +561,9 @@ const VueReglages = (() => {
               '<p class="aide" style="margin:0 0 12px"><strong>FeexPay n\'a pas de mode essai.</strong> ' +
                 "Son bac à sable annonce un succès sans rien encaisser — s'y fier laisserait " +
                 "n'importe qui se déclarer payé. Éprouvez avec un petit montant réel. " +
-                "Frais au Bénin : 1,7 % en Mobile Money, 4,5 % par carte.</p>" +
+                "Frais au Bénin : 1,7 % en Mobile Money. La carte bancaire, que FeexPay annonce " +
+                "à 4,5 %, n'est pas ouverte dans son API actuelle : vos clients paient par " +
+                "Mobile Money (MTN, Moov, Celtiis).</p>" +
             "</div>" +
 
             /* ---- KkiaPay ---- */
@@ -867,8 +869,21 @@ const VueReglages = (() => {
       montrerApercuSite();
     }
 
+    /* UN SEUL ENVOI À LA FOIS, sur chaque bouton de cet écran. Ce qui
+       demande un accord part en DEMANDE : un double appui en déposait
+       deux, que le superadmin avait ensuite à valider l'une après
+       l'autre — et un logo changé partait deux fois au stockage. */
+    const unSeulEnvoi = async (bouton, action) => {
+      bouton.disabled = true;
+      try {
+        await action();
+      } finally {
+        bouton.disabled = false;
+      }
+    };
+
     /* ---------- Boutique ---------- */
-    UI.$("#r-enregistrer").onclick = async () => {
+    UI.$("#r-enregistrer").onclick = () => unSeulEnvoi(UI.$("#r-enregistrer"), async () => {
       const nom = UI.$("#r-nom").value.trim();
       if (!nom) {
         UI.toast((surEnseigne ? "Le nom de l'enseigne" : "Le nom de la boutique") +
@@ -905,7 +920,7 @@ const VueReglages = (() => {
       } catch (err) {
         UI.toast(err.message, "err");
       }
-    };
+    });
 
     /* ---------- Autres numéros ---------- */
     telsTravail = (r.telephones || []).map((t) => ({ ...t }));
@@ -935,7 +950,7 @@ const VueReglages = (() => {
       if (champs.length) champs[champs.length - 1].focus();
     };
 
-    UI.$("#r-tels-enregistrer").onclick = async () => {
+    UI.$("#r-tels-enregistrer").onclick = () => unSeulEnvoi(UI.$("#r-tels-enregistrer"), async () => {
       lireTelephones(zoneTels);
       const vides = telsTravail.filter((t) => !/\d/.test(t.numero)).length;
       try {
@@ -950,7 +965,7 @@ const VueReglages = (() => {
       } catch (err) {
         UI.toast(err.message, "err");
       }
-    };
+    });
 
     /* ---------- Autres adresses ---------- */
     adressesTravail = (r.adresses || []).map((a) => ({ ...a }));
@@ -992,7 +1007,7 @@ const VueReglages = (() => {
       if (champs.length) champs[champs.length - 1].focus();
     };
 
-    UI.$("#r-adresses-enregistrer").onclick = async () => {
+    UI.$("#r-adresses-enregistrer").onclick = () => unSeulEnvoi(UI.$("#r-adresses-enregistrer"), async () => {
       lireAdresses(zoneAdresses);
       const vides = adressesTravail.filter((a) => !String(a.texte || "").trim()).length;
       try {
@@ -1007,7 +1022,7 @@ const VueReglages = (() => {
       } catch (err) {
         UI.toast(err.message, "err");
       }
-    };
+    });
 
     /* ---------- Localisation ---------- */
     const RESEAUX = [
@@ -1048,7 +1063,7 @@ const VueReglages = (() => {
     }
     montrerApercuReseaux();
 
-    UI.$("#rs-enregistrer").onclick = async () => {
+    UI.$("#rs-enregistrer").onclick = () => unSeulEnvoi(UI.$("#rs-enregistrer"), async () => {
       try {
         const maj = {};
         for (const [cle] of RESEAUX) maj[cle] = UI.$("#rs-" + cle).value.trim();
@@ -1057,7 +1072,7 @@ const VueReglages = (() => {
       } catch (err) {
         UI.toast(err.message, "err");
       }
-    };
+    });
 
     const zoneLoc = UI.$("#loc-resultat");
     const direLoc = (texte, type) => {
@@ -1099,7 +1114,7 @@ const VueReglages = (() => {
       }
     });
 
-    UI.$("#loc-enregistrer").onclick = async () => {
+    UI.$("#loc-enregistrer").onclick = () => unSeulEnvoi(UI.$("#loc-enregistrer"), async () => {
       const lat = UI.$("#loc-lat").value.trim();
       const lng = UI.$("#loc-lng").value.trim();
       if (!lat && !lng) {
@@ -1125,7 +1140,7 @@ const VueReglages = (() => {
       } catch (err) {
         UI.toast(err.message, "err");
       }
-    };
+    });
 
     /* ---------- Enseigne ou boutique : la bascule ---------- */
     for (const bouton of UI.$$("[data-cible]", vue)) {

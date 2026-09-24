@@ -729,7 +729,16 @@ const VueProduits = (() => {
     }
     recalculerPrix();
 
-    UI.$("#p-enregistrer").onclick = async () => {
+    const btnEnregistrer = UI.$("#p-enregistrer");
+    btnEnregistrer.onclick = async () => {
+      /* UN SEUL ENVOI À LA FOIS. Deux appuis rapprochés — ou un réseau
+         lent qui pousse à réappuyer — créaient DEUX produits, avec la même
+         référence et les mêmes photos : c'est arrivé en ligne, à deux et
+         six secondes d'écart. Le contrôle de la référence ne les arrêtait
+         pas, puisque chaque envoi le passait avant que l'autre n'écrive.
+         Le bouton ne revient qu'en cas d'échec : après un succès, on
+         quitte l'écran. */
+      btnEnregistrer.disabled = true;
       try {
         const produit = await Store.sauverProduit({
           id: existant ? existant.id : null,
@@ -757,6 +766,7 @@ const VueProduits = (() => {
         UI.toast(existant ? "Produit modifié" : "Produit ajouté", "ok");
         location.hash = "#/produit/" + produit.id;
       } catch (err) {
+        btnEnregistrer.disabled = false;
         UI.toast(err.message || "Enregistrement impossible", "err");
       }
     };
@@ -772,9 +782,17 @@ const VueProduits = (() => {
           danger: true,
         });
         if (!ok) return;
-        await Store.supprimerProduit(existant.id);
-        UI.toast("Produit supprimé");
-        location.hash = "#/produits";
+        /* Un refus — un droit qui manque, un réseau coupé — ne se
+           disait nulle part : l'écran restait là, sans un mot. */
+        btnSupprimer.disabled = true;
+        try {
+          await Store.supprimerProduit(existant.id);
+          UI.toast("Produit supprimé");
+          location.hash = "#/produits";
+        } catch (err) {
+          btnSupprimer.disabled = false;
+          UI.toast(err.message || "Suppression impossible", "err");
+        }
       };
     }
   }
@@ -921,12 +939,17 @@ const VueProduits = (() => {
     if (!peutModifier) return;
 
     if (admin) {
-      UI.$("#p-basculer-avant").onclick = async () => {
+      const basculer = UI.$("#p-basculer-avant");
+      basculer.onclick = async () => {
+        /* Un double appui basculait deux fois : le produit revenait à
+           son état de départ, et le message disait le contraire. */
+        basculer.disabled = true;
         try {
           const maj = await Store.basculerEnAvant(p.id);
           UI.toast(maj.enAvant ? "Ajouté au slider client" : "Retiré du slider", "ok");
           detail(vue, p.id);
         } catch (err) {
+          basculer.disabled = false;
           UI.toast(err.message, "err");
         }
       };

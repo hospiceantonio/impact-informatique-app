@@ -632,7 +632,25 @@ with controles(rang, element, ok) as (values
       select 1 from pg_constraint
        where conname = 'categories_image_chemin'
          and conrelid = 'public.categories'::regclass
-         and pg_get_constraintdef(oid) like '%img/categories/%'))
+         and pg_get_constraintdef(oid) like '%img/categories/%')),
+
+  -- ---------- Le bilan de santé ----------
+  -- Un stock ne descend jamais sous zéro. Une base en service a reçu la
+  -- colonne après coup, sans sa règle : c'était le cas de la base en ligne.
+  (113, 'Le stock ne descend jamais sous zéro', exists (
+      select 1 from pg_constraint
+       where conname = 'produits_stock_check'
+         and conrelid = 'public.produits'::regclass)),
+  -- Les quatre actions d'administration, fermées aux visiteurs AVANT même
+  -- le contrôle du dedans. Supabase accorde chaque fonction à « anon »
+  -- nommément : l'oublier laissait un visiteur tenter l'appel.
+  (114, 'Les actions d''administration fermées aux visiteurs', (
+      select count(*) = 4
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and p.proname in ('supprimer_compte', 'changer_mot_de_passe',
+                           'approuver_demande', 'refuser_demande')
+         and not has_function_privilege('anon', p.oid, 'EXECUTE')))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

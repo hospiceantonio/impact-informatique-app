@@ -2461,6 +2461,39 @@ const Store = (() => {
   }
 
   /**
+   * Parmi des fichiers qu'on s'apprête à effacer, ceux qu'AUCUN AUTRE
+   * produit ne désigne. Deux fiches peuvent partager une photo : un
+   * double envoi en a créé en ligne, jumelles jusqu'au fichier, et
+   * retirer la photo de l'une l'effaçait sous les yeux de l'autre.
+   *
+   * Au moindre doute — réseau coupé, réponse illisible, nom de fichier
+   * inattendu — on n'efface rien : un fichier de trop se rattrape au
+   * ménage du stockage, un fichier perdu ne se rattrape pas.
+   */
+  async function sansAutreUsage(chemins, produitId) {
+    const surs = (chemins || []).filter((c) => /^[A-Za-z0-9._\/-]+$/.test(c));
+    if (!surs.length) return [];
+    /* Entre guillemets : la forme d'une liste que la base lit sans
+       ambiguïté, pour un tableau (ov) comme pour une valeur (in). */
+    const liste = surs.map((c) => '"' + c + '"').join(",");
+    const autres = "produits?id=neq." + encodeURIComponent(produitId);
+    try {
+      const [photos, videos] = await Promise.all([
+        Supabase.requete("GET", autres + "&select=images&images=ov." +
+          encodeURIComponent("{" + liste + "}")),
+        Supabase.requete("GET", autres + "&select=video&video=in." +
+          encodeURIComponent("(" + liste + ")")),
+      ]);
+      const pris = new Set();
+      for (const l of photos || []) for (const c of l.images || []) pris.add(c);
+      for (const l of videos || []) if (l.video) pris.add(l.video);
+      return surs.filter((c) => !pris.has(c));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
    * Crée ou met à jour un produit.
    * `photosFinales` : liste ordonnée [{ id, chemin?, dataUrl? }] —
    * `chemin` pour une photo déjà en ligne, `dataUrl` pour une nouvelle.
@@ -2584,7 +2617,7 @@ const Store = (() => {
     if (existant) {
       const retirees = (existant.images || []).filter((chemin) => !chemins.includes(chemin));
       if (existant.video && existant.video !== cheminVideo) retirees.push(existant.video);
-      await Supabase.supprimerImages(retirees);
+      await Supabase.supprimerImages(await sansAutreUsage(retirees, existant.id));
     }
 
     const surCommande = !!donnees.surCommande;

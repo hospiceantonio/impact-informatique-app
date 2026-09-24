@@ -256,12 +256,17 @@ const VueCodes = (() => {
       if (mode === "pourcent" && valeur > 100) {
         return UI.toast("Une remise ne dépasse pas 100 %.", "err");
       }
+      /* Un seul envoi à la fois : un double appui écrivait deux fois,
+         et deux lignes au journal. */
+      const bouton = UI.$("#cd-enregistrer", corps);
+      bouton.disabled = true;
       try {
         await Store.enregistrerCode(maj);
         UI.fermerFeuille();
         UI.toast("Code enregistré.");
         afficher(vue);
       } catch (err) {
+        bouton.disabled = false;
         UI.toast(err.message, "err");
       }
     };

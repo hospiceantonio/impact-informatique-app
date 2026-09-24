@@ -234,6 +234,17 @@ const Compte = (() => {
           || code === "over_sms_send_rate_limit" || reponse.status === 429) {
         throw new Error("Trop de tentatives. Patientez une minute.");
       }
+      /* LE SMS N'EST PAS OUVERT chez Supabase : fournisseur « Phone »
+         éteint. GoTrue le dit en anglais — « Unsupported phone
+         provider » —, et c'est ce que lisait le client en ligne. Il doit
+         plutôt savoir par où passer. Avant les refus suivants : ce n'est
+         ni son code ni son numéro qui est en cause. */
+      if (code === "phone_provider_disabled" || code === "sms_provider_disabled"
+          || /unsupported phone provider|phone (logins|signups) (are )?disabled/i.test(texte)) {
+        smsOuvert = false;
+        throw new Error("Les codes par SMS ne sont pas encore ouverts chez BIZZOO. " +
+          "Réessayez plus tard — pour entrer, utilisez votre e-mail et votre mot de passe.");
+      }
       /* Les refus propres au SMS. Le premier est le plus important : un
          code expiré ou mal tapé ne doit pas se lire « identifiants
          invalides », sinon le client va chercher son mot de passe. */
@@ -501,6 +512,58 @@ const Compte = (() => {
 
      Dans les deux cas, c'est GoTrue qui écrit la vérité. L'application
      ne fait que demander. */
+
+  /* ---------- Le SMS est-il ouvert ? ----------
+
+     Tant que la connexion par téléphone n'est pas branchée chez Supabase
+     — fournisseur « Phone » éteint, passerelle pas encore reliée —,
+     « Entrer avec mon numéro » et « Vérifier par SMS » menaient à un
+     refus, en anglais. C'était le cas en ligne. On demande donc à
+     Supabase ce qui est ouvert : une lecture publique, sans compte, qui
+     ne dit rien de personne.
+
+     Trois réponses : vrai, faux, ou null quand on ne sait pas (hors
+     connexion, base injoignable). DANS LE DOUTE, ON MONTRE : cacher à
+     tort un chemin qui marche coûte plus cher qu'un refus bien dit.
+     Seule une vraie réponse se garde, et le temps d'une ouverture de
+     l'application seulement : l'enseigne peut ouvrir le SMS demain. */
+  let smsOuvert = null;
+  let smsQuestion = null;
+  function smsDisponible() {
+    if (smsOuvert !== null) return Promise.resolve(smsOuvert);
+    if (smsQuestion) return smsQuestion;
+    const c = Catalogue.configuration();
+    if (!c) return Promise.resolve(null);
+    const coupure = typeof AbortController === "function" ? new AbortController() : null;
+    const delai = coupure ? setTimeout(() => coupure.abort(), 5000) : null;
+    const fin = (ouvert) => {
+      if (delai) clearTimeout(delai);
+      smsQuestion = null;
+      if (typeof ouvert === "boolean") smsOuvert = ouvert;
+      return typeof ouvert === "boolean" ? ouvert : null;
+    };
+    /* « no-store » : jamais une réponse d'hier. Le jour où l'enseigne
+       ouvre le SMS, le lancement suivant doit le voir. */
+    smsQuestion = fetch(c.url + "/auth/v1/settings", {
+      headers: { "apikey": c.cle },
+      cache: "no-store",
+      ...(coupure ? { signal: coupure.signal } : {}),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => fin(d && d.external ? d.external.phone : null))
+      .catch(() => fin(null));
+    return smsQuestion;
+  }
+
+  /**
+   * Retire de l'écran ce qui mène au SMS — tout élément marqué
+   * « data-sms » —, quand Supabase dit qu'il est fermé. On RETIRE plutôt
+   * que de griser : un bouton qui ne mène nulle part n'apprend rien.
+   */
+  async function masquerSiSmsFerme(racine) {
+    if (await smsDisponible() !== false) return;
+    for (const el of (racine || document).querySelectorAll("[data-sms]")) el.remove();
+  }
 
   /** Porte 1 — demander un code pour entrer par son numéro. */
   async function demanderCodeConnexion(tel, nom) {
@@ -1086,6 +1149,7 @@ const Compte = (() => {
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
+    smsDisponible, masquerSiSmsFerme,
     confirmerReception,
     mesCommandes, commande, statutLivraison, paliersLivraison, rpc, rest,
     chargerRegles, compteExige, reglesConnues,

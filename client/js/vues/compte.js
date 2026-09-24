@@ -92,8 +92,10 @@ const VueCompte = (() => {
       "</div>" +
       /* Sans mot de passe à retenir, et sans adresse e-mail à avoir : au
          Bénin, beaucoup de clients ont un numéro et pas de courriel.
-         Fermer la porte à ceux-là, c'est fermer la boutique. */
-      '<div class="carte">' +
+         Fermer la porte à ceux-là, c'est fermer la boutique. Mais tant
+         que le SMS n'est pas ouvert chez Supabase, la carte se retire :
+         elle ne menait qu'à un refus. */
+      '<div class="carte" data-sms>' +
         '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
           " Sans mot de passe</div>" +
         '<p class="aide" style="margin:0 0 10px">Recevez un code par SMS sur ' +
@@ -110,6 +112,7 @@ const VueCompte = (() => {
       "</div>" +
       carteBizzoo();
     brancherCarteBizzoo();
+    Compte.masquerSiSmsFerme(vue);
 
     const entrer = async () => {
       const email = UI.$("#cp-email").value.trim();
@@ -357,6 +360,25 @@ const VueCompte = (() => {
           '<a href="#/connexion">Se connecter autrement</a></p>' +
       "</div>";
 
+    /* Arrivé ici par un ancien lien alors que le SMS est fermé : on le
+       dit, et on montre les autres portes, plutôt qu'un formulaire qui
+       n'aboutirait pas. Seulement si le formulaire est encore là — le
+       client a pu, entre-temps, recevoir son code ou changer d'écran. */
+    Compte.smsDisponible().then((ouvert) => {
+      if (ouvert !== false || !UI.$("#cp-envoyer", vue)) return;
+      vue.innerHTML =
+        '<div class="carte" id="cp-sms-ferme">' +
+          '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
+            " Pas encore ouvert</div>" +
+          '<p class="aide" style="margin:0 0 10px">Les codes par SMS ne sont pas encore ' +
+            "ouverts chez BIZZOO. En attendant, entrez avec votre e-mail et votre " +
+            "mot de passe.</p>" +
+          '<a class="btn" href="#/connexion">' + UI.icone("check") + "Se connecter</a>" +
+          '<a class="btn btn-clair" href="#/inscription" style="margin-top:10px">' +
+            UI.icone("compte") + "Créer mon compte</a>" +
+        "</div>";
+    });
+
     UI.$("#cp-envoyer").addEventListener("click", async () => {
       const tel = UI.$("#cp-tel").value;
       const bouton = UI.$("#cp-envoyer");
@@ -581,11 +603,11 @@ const VueCompte = (() => {
           (moi.tel_verifie
             ? '<p class="aide cp-verifie" style="margin:6px 0 0">' + UI.icone("check", "ic-sm") +
               " Numéro vérifié. Il sert à retrouver vos commandes.</p>"
-            : '<p class="aide" style="margin:6px 0 0">Un numéro vérifié vous rend les ' +
+            : '<div data-sms><p class="aide" style="margin:6px 0 0">Un numéro vérifié vous rend les ' +
               "commandes passées avec lui, avant même d'avoir un compte.</p>" +
               '<button type="button" class="btn btn-clair" id="cp-verifier" ' +
                 'style="margin-top:8px">' + UI.icone("telephone") +
-                "Vérifier par SMS</button>") +
+                "Vérifier par SMS</button></div>") +
         "</div>" +
         '<div class="champ"><label for="cp-adresse">Adresse de livraison</label>' +
           '<input id="cp-adresse" type="text" autocomplete="street-address" value="' +
@@ -626,6 +648,7 @@ const VueCompte = (() => {
     brancherEspaceVendeur(vue);
     brancherOuRevendeur(vue);
     brancherVerification(vue, moi);
+    Compte.masquerSiSmsFerme(vue);
 
     UI.$("#cp-enregistrer").addEventListener("click", async () => {
       const bouton = UI.$("#cp-enregistrer");

@@ -323,6 +323,22 @@ end $$;
 update public.produits set disponible = (sur_commande or stock > 0)
 where disponible <> (sur_commande or stock > 0);
 
+-- LE STOCK NE DESCEND JAMAIS SOUS ZÉRO. Une base neuve porte la règle
+-- dans son « create table » ; une base en service, qui a reçu la colonne
+-- par l'« alter table » ci-dessus, ne la portait pas — c'était le cas de
+-- la base en ligne. Même nom que sur une base neuve, pour que les deux
+-- se ressemblent. Une boutique n'a pas « moins deux » pièces : un stock
+-- négatif se ramène d'abord à zéro.
+update public.produits set stock = 0 where stock < 0;
+do $$
+begin
+  if not exists (select 1 from pg_constraint
+                  where conrelid = 'public.produits'::regclass
+                    and conname = 'produits_stock_check') then
+    alter table public.produits add constraint produits_stock_check check (stock >= 0);
+  end if;
+end $$;
+
 -- ---------- Le code d'un produit ----------
 -- Un numéro, rien que des chiffres, donné par la base à la création.
 -- Il ne se choisit pas, ne se corrige pas, ne se réutilise pas — pas
@@ -751,6 +767,13 @@ $$;
 grant execute on function public.peut_modifier_produits() to authenticated;
 grant execute on function public.role_courant() to authenticated;
 grant execute on function public.est_admin() to authenticated;
+-- Fermée aux visiteurs, comme « categories-bizzoo.sql » la pose sur une
+-- base en service : schema.sql seul la laissait ouverte à « anon », et
+-- une base neuve n'arrivait pas où arrive la base en ligne. Les règles
+-- qui l'appellent directement ne valent que pour un compte connecté ;
+-- les autres passent par une fonction de confiance, qui l'exécute en
+-- son nom propre.
+revoke all on function public.est_equipe() from public, anon, authenticated;
 grant execute on function public.est_equipe() to authenticated;
 revoke all on function public.est_livreur() from public, anon, authenticated;
 grant execute on function public.est_livreur() to authenticated;
@@ -903,8 +926,11 @@ begin
 end $$;
 
 -- Personne d'autre qu'un compte connecté ne peut même tenter l'appel.
-revoke all on function public.supprimer_compte(uuid) from public;
-revoke all on function public.changer_mot_de_passe(uuid, text) from public;
+-- « anon » est nommé : Supabase lui accorde chaque fonction nommément,
+-- et « retirer à public » ne lui retirait rien — un visiteur pouvait
+-- tenter l'appel, que seul le contrôle du dedans arrêtait.
+revoke all on function public.supprimer_compte(uuid) from public, anon;
+revoke all on function public.changer_mot_de_passe(uuid, text) from public, anon;
 grant execute on function public.supprimer_compte(uuid) to authenticated;
 grant execute on function public.changer_mot_de_passe(uuid, text) to authenticated;
 
@@ -2218,8 +2244,10 @@ begin
   if not found then raise exception 'Demande introuvable ou déjà traitée'; end if;
 end $$;
 
-revoke all on function public.approuver_demande(text) from public;
-revoke all on function public.refuser_demande(text, text) from public;
+-- « anon » nommé, pour la même raison que plus haut : sans cela, un
+-- visiteur pouvait tenter l'appel.
+revoke all on function public.approuver_demande(text) from public, anon;
+revoke all on function public.refuser_demande(text, text) from public, anon;
 grant execute on function public.approuver_demande(text) to authenticated;
 grant execute on function public.refuser_demande(text, text) to authenticated;
 

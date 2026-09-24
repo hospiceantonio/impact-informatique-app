@@ -142,6 +142,27 @@ for migration in "$RACINE"/supabase/*.sql; do
   fi
 done
 
+# ---------- Ce qu'on compare d'une base à l'autre ----------
+# Les colonnes d'abord.
+INVENTAIRE="select table_name || '.' || column_name from information_schema.columns
+            where table_schema = 'public' order by 1;"
+# LES COLONNES NE SUFFISENT PAS. La base en ligne avait toutes les
+# siennes, et pourtant pas la règle du stock — posée dans le corps du
+# « create table », que sa base n'a jamais relu —, ni la fermeture de
+# quatre fonctions à « anon ». Les règles et les droits se comparent
+# donc aussi, à la lettre.
+REGLES="select 'regle ' || c.relname || '.' || k.conname || ' : ' || pg_get_constraintdef(k.oid)
+          from pg_constraint k join pg_class c on c.oid = k.conrelid
+          join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = 'public'
+        union all
+        select 'droit ' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') :' ||
+               case when has_function_privilege('anon', p.oid, 'EXECUTE') then ' anon' else '' end ||
+               case when has_function_privilege('authenticated', p.oid, 'EXECUTE') then ' authenticated' else '' end
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.prokind = 'f'
+         order by 1;"
+
 # ---------- Une base DÉJÀ EN SERVICE ----------
 # Le gérant n'installe pas la base : il l'a déjà. Chez lui, « create table
 # if not exists » ne fait rien du tout — une colonne ajoutée depuis dans le
@@ -178,8 +199,6 @@ else
     fi
   done
 
-  INVENTAIRE="select table_name || '.' || column_name from information_schema.columns
-              where table_schema = 'public' order by 1;"
   lancer "$PSQL -t -A -c \"$INVENTAIRE\"" > "$NEUVE" 2>/dev/null
   lancer "$PSQL_SERVICE -t -A -c \"$INVENTAIRE\"" > "$SERVICE" 2>/dev/null
   if ! diff -q "$NEUVE" "$SERVICE" >/dev/null; then
@@ -190,8 +209,49 @@ else
     rouge "le corps d'un « create table if not exists » n'est jamais lu."
     exit 1
   fi
-  vert "  la base du gérant arrive exactement où arrive une base neuve ✔"
+
+  lancer "$PSQL -t -A -c \"$REGLES\"" > "$NEUVE" 2>/dev/null
+  lancer "$PSQL_SERVICE -t -A -c \"$REGLES\"" > "$SERVICE" 2>/dev/null
+  if [ ! -s "$NEUVE" ] || ! diff -q "$NEUVE" "$SERVICE" >/dev/null; then
+    echo
+    rouge "La base du gérant n'a pas les mêmes règles ou les mêmes droits qu'une base neuve :"
+    diff "$NEUVE" "$SERVICE" | sed -n 's/^< /  neuve    /p;s/^> /  gérant   /p' | head -12
+    rouge "Une règle posée dans un « create table », un droit retiré dans"
+    rouge "schema.sql : il leur faut aussi un fichier à coller, ou le gérant"
+    rouge "ne les aura jamais."
+    exit 1
+  fi
+  vert "  la base du gérant arrive exactement où arrive une base neuve — colonnes, règles et droits ✔"
 fi
+
+# ---------- schema.sql SEUL ----------
+# L'autre sens. Une base neuve s'installe avec schema.sql et lui seul :
+# ce qu'un fichier à coller pose doit donc s'y trouver aussi. Sinon la
+# base neuve naîtrait sans — et personne ne le verrait, puisque le banc
+# rejoue toujours les deux ensemble.
+echo
+gris "Une base neuve, installée avec schema.sql seul :"
+SEULE="$SOCLE/seule.txt"
+lancer "createdb -h '$PGHOST' -p $PORT seule" >/dev/null 2>&1 || true
+PSQL_SEULE="psql -h '$PGHOST' -p $PORT -d seule -v ON_ERROR_STOP=1 --no-psqlrc -c 'set client_min_messages = warning' -q"
+lancer "$PSQL_SEULE -f '$RACINE/supabase/tests/00-plateforme.sql'" >/dev/null 2>&1
+lancer "$PSQL_SEULE -c \"insert into auth.users (id, email) values
+  ('11111111-1111-1111-1111-111111111111', 'enseigne@bizzoo.bj')
+  on conflict do nothing;\"" >/dev/null 2>&1
+lancer "$PSQL_SEULE -f '$RACINE/supabase/schema.sql'" >/dev/null 2>&1
+for requete in "$INVENTAIRE" "$REGLES"; do
+  lancer "$PSQL -t -A -c \"$requete\"" > "$NEUVE" 2>/dev/null
+  lancer "$PSQL_SEULE -t -A -c \"$requete\"" > "$SEULE" 2>/dev/null
+  if [ ! -s "$NEUVE" ] || ! diff -q "$NEUVE" "$SEULE" >/dev/null; then
+    echo
+    rouge "schema.sql seul n'arrive pas où arrivent schema.sql et les fichiers à coller :"
+    diff "$NEUVE" "$SEULE" | sed -n 's/^< /  avec les fichiers  /p;s/^> /  schema.sql seul    /p' | head -12
+    rouge "Ce qu'un fichier à coller pose doit aussi être dans schema.sql :"
+    rouge "c'est lui qui installe une base neuve."
+    exit 1
+  fi
+done
+vert "  schema.sql seul arrive au même point — colonnes, règles et droits ✔"
 
 # Les comptes suivants naissent modérateurs et inactifs, comme ceux que
 # l'on crée depuis l'application : c'est à l'enseigne de les élever.
