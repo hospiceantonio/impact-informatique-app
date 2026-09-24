@@ -644,18 +644,23 @@ const Catalogue = (() => {
   }
 
 
+  /** Les derniers arrivés d'abord ; à date égale, du moins cher au plus cher. */
+  const parNouveaute = (a, b) => (b.creeLe || 0) - (a.creeLe || 0) || parPrixCroissant(a, b);
+
   /**
    * Tout ce que l'enseigne vend, boutiques ouvertes confondues : c'est
    * l'onglet Produits. Une boutique peut être demandée pour n'en garder
-   * qu'elle — les puces en haut de l'écran.
+   * qu'elle — les puces en haut de l'écran. `tri` : « recents » pour les
+   * derniers arrivés d'abord (« Nos produits » de l'accueil), sinon du
+   * moins cher au plus cher.
    */
-  function produitsDeLEnseigne(idBoutique) {
+  function produitsDeLEnseigne(idBoutique, tri) {
     const ouvertes = {};
     boutiques().forEach((b) => { ouvertes[b.id] = true; });
     return tousProduits()
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
       .filter((p) => !idBoutique || p.boutiqueId === idBoutique)
-      .sort(parPrixCroissant);
+      .sort(tri === "recents" ? parNouveaute : parPrixCroissant);
   }
 
   /**

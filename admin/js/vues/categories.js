@@ -121,10 +121,11 @@ const VueCategories = (() => {
         UI.icone("plus") + "Nouvelle catégorie</button>" +
       '<div class="carte carte-publier" style="margin-top:12px">' +
         '<div class="carte-titre">' + UI.icone("accueil", "ic-sm") + " " +
-          enAvant + " sur l'accueil</div>" +
-        '<p class="aide" style="margin:0">Les catégories « en avant » s\'affichent ' +
-          "directement sur l'accueil de l'application cliente ; les autres attendent " +
-          "derrière « Voir toutes les catégories ». Huit tiennent bien sur un écran.</p>" +
+          enAvant + " en tête de l'accueil</div>" +
+        '<p class="aide" style="margin:0">L\'accueil de l\'application cliente montre ' +
+          "toujours huit catégories. Celles « en avant » passent en premier, dans cet " +
+          "ordre ; s'il en manque, les suivantes de la liste complètent — celles qui ont " +
+          "des produits d'abord. Toutes restent dans l'onglet « Catégories ».</p>" +
       "</div>";
 
     if (categories.length) {

@@ -25,6 +25,10 @@ const App = { evenementInstallation: null };
     /* Les produits d'une boutique : l'onglet « Produits » de sa fiche y
        mène aussi, pour qui veut la liste entière avec ses tris. */
     { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/" },
+    /* « Nos produits » : le « Voir tout » de l'accueil. Tout le
+       catalogue de BIZZOO en galerie, les derniers arrivés d'abord. */
+    { motif: /^\/nos-produits$/, vue: (v) => VueProduits.afficher(v, { galerie: true }),
+      onglet: "/" },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]),
       sansOnglets: true },
     /* La recherche n'est plus un onglet : c'est la barre-pilule de
@@ -144,6 +148,7 @@ const App = { evenementInstallation: null };
     }
     UI.fermerVisionneuse();
     VueAccueil.arreterSlider();
+    VueProduits.arreter();
 
     const route = ROUTES.find((r) => r.motif.test(chemin));
     if (!route) {
@@ -202,7 +207,11 @@ const App = { evenementInstallation: null };
     /* « Catégories » aussi : c'est le menu de BIZZOO, le même partout.
        Entré dans une boutique puis passé à cet onglet, on ne doit pas
        tomber sur les seuls rayons de la boutique quittée. */
-    if (chemin === "/" || chemin === "/infos" || chemin === "/categories") {
+    /* « Nos produits » aussi : c'est la galerie de toute l'enseigne. Un
+       produit ouvert depuis elle fait entrer dans SA boutique ; au retour,
+       la galerie ne doit pas se retrouver réduite à celle-là. */
+    if (chemin === "/" || chemin === "/infos" || chemin === "/categories" ||
+        chemin === "/nos-produits") {
       Catalogue.quitterBoutique();
     }
     const laBoutique = /^\/boutique\/([^/]+)$/.exec(chemin);

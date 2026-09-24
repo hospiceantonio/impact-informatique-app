@@ -11,12 +11,13 @@
       paraît que lorsque le bandeau orange se tait : en
       mono-boutique celui-ci porte déjà le même texte.
 
-   2. LES BOUTIQUES PAR TROIS. Une case de grille vaut
-      « min-width:auto » par défaut : un nom d'un seul long mot
-      élargit sa colonne et la page se met à défiler de côté. Le
-      constat porte donc sur la LARGEUR DE LA PAGE à 320 px, pas
-      seulement sur le nombre de cartes par rangée — compter trois
-      cartes aurait été vert pendant que la page débordait.
+   2. LES BOUTIQUES PAR QUATRE (par trois jusqu'à la 3.49.0). Une
+      case de grille vaut « min-width:auto » par défaut : un nom
+      d'un seul long mot élargit sa colonne et la page se met à
+      défiler de côté. Le constat porte donc sur la LARGEUR DE LA
+      PAGE à 320 px, pas seulement sur le nombre de cartes par
+      rangée — compter les cartes aurait été vert pendant que la
+      page débordait.
 
    3. LE SITE WEB. Ce qui n'est pas une adresse ne doit pas
       devenir un lien : « mon site » donnerait « https://mon site »,
@@ -106,8 +107,8 @@ async function ouvrir(largeur, { unique = false } = {}) {
 /* Combien de cartes par rangée : on relève le « top » de chacune. */
 const parRangee = (page) => page.evaluate(() => {
   const par = new Map();
-  /* LES TUILES DE LA DA : même règle qu'avant — trois par rangée —,
-     posée sur les nouvelles « bou-tuile » qui ont remplacé les cartes. */
+  /* LES TUILES DE LA DA — quatre par rangée depuis la 3.50.0, à la
+     demande de l'enseigne. */
   for (const c of document.querySelectorAll(".bou-tuiles .bou-tuile")) {
     const y = Math.round(c.getBoundingClientRect().top);
     par.set(y, (par.get(y) || 0) + 1);
@@ -115,12 +116,12 @@ const parRangee = (page) => page.evaluate(() => {
   return [...par.entries()].sort((a, b) => a[0] - b[0]).map((x) => x[1]);
 });
 
-titre("Les boutiques vont par trois");
+titre("Les boutiques vont par quatre");
 for (const L of [320, 360, 390, 430]) {
   const { page, ctx } = await ouvrir(L);
   const r = await parRangee(page);
-  ok(r.length > 0 && r.slice(0, -1).every((n) => n === 3),
-    "à " + L + " px, trois par rangée (" + r.join("+") + ")");
+  ok(r.length > 0 && r.slice(0, -1).every((n) => n === 4),
+    "à " + L + " px, quatre par rangée (" + r.join("+") + ")");
   await ctx.close();
 }
 

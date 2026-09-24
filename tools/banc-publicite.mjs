@@ -47,7 +47,10 @@ const nav = await chromium.launch({
    seule catégorie et une seule boutique, l'accueil tenait dans la
    fenêtre, « scrollTo » ne faisait rien, et le sabotage passait
    inaperçu. La grille des boutiques étant passée à trois colonnes,
-   l'accueil a encore raccourci — d'où ce décor, qui le rallonge. */
+   l'accueil a encore raccourci — d'où ce décor, qui le rallonge.
+   Depuis la 3.50.0, la publicité passe AVANT les boutiques, juste sous
+   le slider et les catégories : c'est désormais la bannière du haut —
+   il y en a une en service — qui la pousse sous le pli. */
 const CAT = Array.from({ length: 8 }, (_, i) => ({
   id: i === 0 ? "cat_h" : "cat_" + i, nom: i === 0 ? "High-Tech" : "Rayon " + i,
   icone: "portable", couleur: "#0B5CF5", en_avant: true, ordre: i + 1,
@@ -69,6 +72,9 @@ const PR = [{ id:"prod_hp", boutique_id:"bou_tech", nom:"Ordinateur HP", code:"0
    chaîne doit s'arrêter. */
 function slides(avecImage) {
   const l = [
+    /* La bannière de l'enseigne, en tête de l'accueil, comme en service. */
+    { id:"s0", portee:"enseigne", actif:true, ordre:1, titre:"Bannière",
+      video:"", image:"banniere.png", produit_id:null },
     { id:"s1", portee:"publicite", actif:true, ordre:1, titre:"Pub une",
       video:"pub1.webm", image:"", produit_id:null },
     { id:"s2", portee:"publicite", actif:true, ordre:2, titre:"Pub deux",

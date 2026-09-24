@@ -211,16 +211,18 @@ titre("3. L'accueil dans l'ordre de la DA, et « Nos boutiques »");
     };
   });
   ok(m.pilule === 0, "la recherche est en tête, comme la DA");
-  ok(m.ronds > m.pilule, "les catégories en ronds viennent juste après");
+  /* L'ORDRE VOULU PAR L'ENSEIGNE (3.50.0) : le slider en haut, puis
+     les catégories — la bannière ne passe plus après les ronds. */
+  ok(m.slider === m.pilule + 1 && m.ronds === m.slider + 1,
+    "le slider juste sous la recherche, les catégories en ronds juste sous le slider");
   ok(m.lien === "#/recherche", "la barre de recherche mène à la recherche");
   ok(m.noms.join(",") === "Mode,Électronique,Maison,Beauté",
     "les ronds portent le nom court (" + m.noms.join(", ") + ")");
   ok(m.titre.includes("Nos boutiques partenaires"), "« Nos boutiques partenaires », le titre de la DA");
-  /* LA DA N'INTERCALE RIEN entre la bannière et les boutiques : ce qui
-     s'y glisse les repousse sous le premier écran. */
-  ok(m.slider > m.ronds && m.titreBoutiques === m.slider + 1,
-    "les boutiques suivent la bannière, sans rien entre les deux");
-  ok(m.offre > m.tuiles, "l'offre du jour vient ensuite, sous les boutiques");
+  /* L'offre du jour (et la publicité) passent AVANT les boutiques
+     partenaires depuis la 3.50.0 : c'est l'ordre demandé par l'enseigne. */
+  ok(m.offre > m.ronds && m.titreBoutiques > m.offre && m.tuiles === m.titreBoutiques + 1,
+    "l'offre du jour vient avant les boutiques partenaires, qui suivent leur titre");
   ok(m.toutVoir.includes("#/boutiques"), "et « Tout voir » ouvre la liste des boutiques");
   await ctx.close();
 }

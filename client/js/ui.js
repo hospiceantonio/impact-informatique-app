@@ -854,9 +854,9 @@ const UI = (() => {
 
   /* ---------- Divers ---------- */
 
-  function titreSection(titre, lien, texteLien) {
+  function titreSection(titre, lien, texteLien, id) {
     return (
-      '<div class="section-titre">' +
+      '<div class="section-titre"' + (id ? ' id="' + e(id) + '"' : "") + ">" +
         "<h2>" + e(titre) + "</h2>" +
         (lien ? '<a class="section-lien" href="' + e(lien) + '">' + e(texteLien || "Tout voir") + " " + icone("chevron", "ic-sm") + "</a>" : "") +
       "</div>"

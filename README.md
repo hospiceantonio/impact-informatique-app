@@ -1876,6 +1876,11 @@ vingtaine sur les plus petits.**
 
 ### Les boutiques par trois
 
+> **Depuis la 3.50.0, elles vont par quatre** (section « L'accueil
+> réordonné et la galerie « Nos produits » »). Ce qui suit reste la
+> leçon de ce passage, et vaut toujours : `min-width:0`, la largeur de
+> la page mesurée, deux lignes réservées au nom.
+
 `.bou-grille` passe de deux à trois colonnes, et l'icône de 64 à
 48 px. C'est le plus petit téléphone qui commande : à 320 px la
 colonne fait 288, et trois cartes avec deux écarts de 8 px n'en
@@ -2861,6 +2866,69 @@ la garde de la saisie, celle du formulaire, la relecture silencieuse,
 l'annulation, le plafond du panier, le message gardé, la photo effacée
 avant la fiche : le banc rougit à chaque fois.
 
+## L'accueil réordonné et la galerie « Nos produits » (3.50.0)
+
+L'accueil de BIZZOO, de haut en bas :
+
+| | Bloc | Ce qui a changé |
+|---|---|---|
+| 1 | La recherche | Rien : c'est la porte d'entrée, pas un contenu — elle reste tout en haut |
+| 2 | **Le slider** | Il passe **en tête des contenus** (il venait après les catégories) |
+| 3 | **Huit catégories** | Toujours huit, deux rangées de quatre — il n'y en avait que quatre |
+| 4 | L'offre du jour, puis la publicité | Elles passent **avant** les boutiques (elles venaient après) |
+| 5 | Nos boutiques partenaires | **Quatre par rangée** (trois auparavant) |
+| 6 | Produits populaires | Inchangés : seulement quand il y a eu des ventes, juste avant « Nos produits » |
+| 7 | **Nos produits** | Nouveau : les huit derniers arrivés, et le bouton **« Voir tout — N produits »** |
+
+**Pourquoi quatre catégories seulement ?** L'accueil ne montrait que
+celles que l'enseigne a mises « en avant », et la base en ligne n'en a
+que quatre sur quinze. Il en montre désormais toujours huit : celles
+de l'enseigne d'abord, dans son ordre ; les places qui restent vont à
+celles qui ont des produits — un rond qui mène à un écran vide est un
+détour pour rien —, puis aux autres, dans l'ordre de la liste. Aucune
+donnée n'a été touchée ; l'admin l'explique au-dessus de la liste des
+catégories.
+
+**Les boutiques par quatre.** Le logo suit la largeur de la tuile,
+60 px au plus : 46 px sur un téléphone de 320 px, 56 px sur un de 360,
+toujours carré et avec de l'air autour. Deux lignes restent réservées
+au nom, pour que toutes les tuiles aient la même hauteur. Un nom d'un
+seul mot tient sur **une** ligne et finit par « … » s'il déborde :
+« JouJoutheque » se coupait en « JouJoutheq / ue ».
+
+### La galerie « Nos produits »
+
+« Voir tout » ouvre `#/nos-produits` : tout le catalogue des boutiques
+ouvertes, **les derniers arrivés d'abord** — les huit cartes de
+l'accueil sont les huit premières de la galerie, dans le même ordre.
+
+- **Elle se remplit en défilant.** Vingt cartes d'abord ; les vingt
+  suivantes arrivent quand le pouce approche du bas, 900 px avant qu'il
+  ne l'atteigne. Deux cent cinquante cartes d'un coup, c'était deux
+  cent cinquante photos demandées ensemble sur un forfait mobile.
+- **Chaque photo ne se charge qu'à l'approche** (`loading="lazy"`) :
+  à l'ouverture, une quinzaine sur soixante-cinq.
+- **Un très grand écran se remplit tout seul.** Le guetteur de
+  défilement ne prévient qu'au moment où le bas *entre* en vue ; resté
+  en vue après un lot, il se taisait, et la galerie attendait un
+  défilement qui ne viendrait pas. On le relance après chaque lot.
+- **Un bouton « Afficher plus »** prend le relais sur un navigateur qui
+  ne sait pas guetter le défilement.
+- **Le retour d'une fiche produit retombe au même endroit.** Les cartes
+  déjà vues sont reposées d'emblée — sans elles, la hauteur où revenir
+  n'existerait plus. Et la galerie reste celle de **toutes** les
+  boutiques : ouvrir un produit fait entrer dans sa boutique, la
+  galerie en ressort au retour.
+
+Le catalogue d'une boutique (`#/produits`, « Voir les N produits » sur
+sa fiche) se remplit de la même façon, du moins cher au plus cher.
+
+[`tools/banc-accueil-galerie.mjs`](tools/banc-accueil-galerie.mjs)
+éprouve tout cela en 64 constats, de 320 à 1 280 px. Six sabotages le
+font tomber : les catégories à la une seules, trois boutiques par
+rangée, le nom coupé en deux, le guetteur non relancé, les cartes vues
+non reposées, la boutique du produit gardée au retour.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -2955,7 +3023,7 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
-    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme et stock
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock et accueil-galerie
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── illustrations-categories.py # Les illustrations des ronds de catégories

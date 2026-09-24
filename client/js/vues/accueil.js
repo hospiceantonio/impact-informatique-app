@@ -308,11 +308,17 @@ const VueAccueil = (() => {
 
   /** La tuile de l'accueil : le logo, et le nom dessous. */
   function tuileBoutique(b) {
+    /* UN NOM D'UN SEUL MOT se coupait en son milieu sur deux lignes
+       (« JouJoutheq / ue ») : quatre tuiles par rangée ne laissent pas
+       la place d'un long mot. Il tient donc sur une ligne, et finit par
+       « … » s'il déborde — comme le nom sous l'icône d'une application. */
+    const unMot = !/\s/.test(String(b.nom || "").trim());
     return (
       '<a class="bou-tuile" href="#/boutique/' + Utils.echapper(b.id) + '" data-boutique="' +
-        Utils.echapper(b.id) + '">' +
+        Utils.echapper(b.id) + '" aria-label="' + Utils.echapper(b.nom) + '">' +
         logoBoutique(b) +
-        '<span class="bou-tuile-nom">' + Utils.echapper(b.nom) + "</span>" +
+        '<span class="bou-tuile-nom' + (unMot ? " bou-tuile-nom-mot" : "") + '">' +
+          Utils.echapper(b.nom) + "</span>" +
       "</a>"
     );
   }
@@ -345,12 +351,56 @@ const VueAccueil = (() => {
     );
   }
 
+  /* ---------- Les huit catégories de l'accueil ----------
+     HUIT, TOUJOURS : deux rangées de quatre. Quinze ronds sur un
+     accueil, c'est n'en montrer aucun ; quatre laissaient la moitié de
+     la place vide — l'enseigne n'en avait mis que quatre « à la une ».
+
+     Celles qu'elle a mises à la une passent d'abord, dans son ordre.
+     Les places qui restent vont à celles qui ONT des produits — un rond
+     qui mène à un écran vide, c'est un détour pour rien —, puis aux
+     autres, toujours dans l'ordre de la liste de BIZZOO. */
+  const NB_CATEGORIES = 8;
+
+  function categoriesDeLAccueil() {
+    const toutes = Catalogue.categoriesBizzoo();
+    const alaUne = toutes.filter((r) => r.categorie.enAvant);
+    const reste = toutes.filter((r) => !r.categorie.enAvant);
+    return alaUne
+      .concat(reste.filter((r) => r.compte > 0), reste.filter((r) => !r.compte))
+      .slice(0, NB_CATEGORIES);
+  }
+
+  /* ---------- Nos produits ----------
+     Les derniers arrivés, toutes boutiques ouvertes confondues, et le
+     bouton qui ouvre TOUT le catalogue en galerie — dans le même ordre :
+     les huit cartes d'ici sont les huit premières de là-bas. Huit, c'est
+     deux rangées pleines sur un grand écran, quatre sur un téléphone. */
+  const NB_NOS_PRODUITS = 8;
+  const LIEN_GALERIE = "#/nos-produits";
+
+  function htmlNosProduits() {
+    const tous = Catalogue.produitsDeLEnseigne("", "recents");
+    if (!tous.length) return "";
+    return UI.titreSection("Nos produits", LIEN_GALERIE, "Tout voir", "accueil-nos-produits") +
+      UI.grilleProduits(tous.slice(0, NB_NOS_PRODUITS), { boutique: true }) +
+      '<a class="btn btn-clair accueil-voir-tout" id="accueil-voir-tout" href="' + LIEN_GALERIE + '">' +
+        "Voir tout — " + tous.length + " produit" + (tous.length > 1 ? "s" : "") +
+        " " + UI.icone("chevron", "ic-sm") + "</a>";
+  }
+
   /* ---------- Vue ---------- */
 
   /**
-   * L'accueil de BIZZOO, dans l'ordre de la DA : la recherche, les
-   * catégories en ronds, la bannière, puis les boutiques partenaires.
-   * L'offre du jour, la publicité et les populaires viennent après.
+   * L'accueil de BIZZOO, dans l'ordre voulu par l'enseigne :
+   *
+   *   la recherche — une porte, pas un bloc : elle reste tout en haut ;
+   *   le SLIDER, en tête des contenus ;
+   *   les HUIT catégories ;
+   *   l'offre du jour et la publicité ;
+   *   les boutiques partenaires, QUATRE par rangée ;
+   *   les produits populaires, quand il y a eu des ventes ;
+   *   et, pour finir, « Nos produits » et son « Voir tout ».
    */
   async function afficher(vue) {
     if (!Catalogue.multiBoutiques()) return accueilBoutique(vue, true);
@@ -361,28 +411,37 @@ const VueAccueil = (() => {
 
     const boutiques = Catalogue.boutiques();
 
-    /* LA RECHERCHE EN TÊTE, comme sur la DA. Elle n'est plus un onglet :
-       c'est ici qu'on la cherche, avant même de savoir chez qui aller. */
+    /* LA RECHERCHE RESTE EN TÊTE : ce n'est pas un contenu, c'est la
+       porte d'entrée — on la cherche avant même de savoir chez qui
+       aller, et elle ne doit pas se perdre sous la bannière. */
     let html = UI.recherchePilule("Rechercher un produit, une boutique…");
     html += htmlEtatCatalogue();
 
-    /* LES CATÉGORIES, et pas toutes : quinze ronds sur un accueil, c'est
-       n'en montrer aucun. L'enseigne en désigne huit, qui tiennent sur
-       deux rangées de quatre. C'est par là qu'on cherche quand on ne sait
-       pas encore chez qui acheter — donc en tête. */
-    const misesEnAvant = Catalogue.categoriesEnAvant();
-    const toutes = Catalogue.categoriesBizzoo();
-    const vedettes = misesEnAvant.length ? misesEnAvant : toutes.slice(0, 8);
+    /* LE SLIDER EN HAUT : les photos et vidéos de BIZZOO, et elles
+       seules. C'est la première chose qu'on voit en ouvrant l'application. */
+    html += htmlSlider(Catalogue.slidesGeneral(), []);
+
+    /* LES HUIT CATÉGORIES, juste sous la bannière : c'est par là qu'on
+       cherche quand on ne sait pas encore chez qui acheter. */
+    const vedettes = categoriesDeLAccueil();
     if (vedettes.length) {
       html += '<nav class="cat-ronds" aria-label="Catégories">' +
         vedettes.map((r) => rondCategorie(r.categorie)).join("") + "</nav>";
     }
 
-    /* La bannière : le slider de BIZZOO, et lui seul. */
-    html += htmlSlider(Catalogue.slidesGeneral(), []);
+    /* L'OFFRE DU JOUR ET LA PUBLICITÉ, AVANT LES BOUTIQUES. Pas de
+       ventes flash ici : une vente flash appartient à la boutique qui la
+       fait, et s'annonce sur son écran à elle. Ce que BIZZOO met en
+       avant à ce niveau, c'est sa publicité — composée dans ses
+       réglages, par le superadministrateur seul. */
+    html += htmlOffreDuJour();
+    const publicites = Catalogue.publicites();
+    if (publicites.length) {
+      html += UI.titreSection("Publicité");
+      html += htmlPublicite(publicites);
+    }
 
-    /* « NOS BOUTIQUES PARTENAIRES », le titre de la DA, JUSTE APRÈS LA
-       BANNIÈRE : la DA n'intercale rien entre les deux. « Tout voir »
+    /* « NOS BOUTIQUES PARTENAIRES », quatre par rangée. « Tout voir »
        ouvre la liste entière, avec ses notes et ses filtres. */
     html += UI.titreSection("Nos boutiques partenaires", boutiques.length ? "#/boutiques" : "");
     html += boutiques.length
@@ -390,18 +449,8 @@ const VueAccueil = (() => {
       : UI.vide("magasin", "Les boutiques arrivent bientôt",
           "Elles s'afficheront ici dès leur ouverture.");
 
-    /* L'offre du jour vient ensuite, sous les boutiques. */
-    html += htmlOffreDuJour();
-
-    /* Pas de ventes flash ici : une vente flash appartient à la
-       boutique qui la fait, et s'annonce sur son écran à elle. Ce que
-       BIZZOO met en avant à ce niveau, c'est sa publicité — composée
-       dans ses réglages, par le superadministrateur seul. */
-    const publicites = Catalogue.publicites();
-    if (publicites.length) {
-      html += UI.titreSection("Publicité");
-      html += htmlPublicite(publicites);
-    }
+    /* ET POUR FINIR, NOS PRODUITS, avec le bouton qui ouvre la galerie. */
+    html += htmlNosProduits();
 
     vue.innerHTML = html;
     demarrerSlider();
@@ -409,17 +458,22 @@ const VueAccueil = (() => {
 
     /* LA RANGÉE DES POPULAIRES ARRIVE APRÈS, et c'est voulu : elle
        demande un aller-retour à la base, et l'accueil ne doit pas
-       attendre après elle. Si la base est plus ancienne que ce
-       chantier, hors d'atteinte, ou qu'aucune vente n'a encore eu
-       lieu, la rangée ne s'affiche pas — l'accueil reste entier. */
+       attendre après elle. Elle se glisse AVANT « Nos produits », qui
+       reste le dernier mot de l'accueil. Si la base est hors d'atteinte,
+       ou qu'aucune vente n'a encore eu lieu, la rangée ne s'affiche pas —
+       l'accueil reste entier. */
     Catalogue.produitsPopulaires(8).then((liste) => {
       if (!liste.length) return;
       /* L'écran a pu changer pendant l'aller-retour : on ne pose pas
          une rangée sur une vue que le client a déjà quittée. */
       if (!document.body.contains(vue)) return;
       if (location.hash && !/^#\/?$/.test(location.hash)) return;
-      vue.insertAdjacentHTML("beforeend",
-        UI.titreSection("Produits populaires") + UI.rangeeProduits(liste));
+      if (UI.$("#accueil-populaires", vue)) return;   // déjà posée
+      const rangee = UI.titreSection("Produits populaires", "", "", "accueil-populaires") +
+        UI.rangeeProduits(liste);
+      const avant = UI.$("#accueil-nos-produits", vue);
+      if (avant) avant.insertAdjacentHTML("beforebegin", rangee);
+      else vue.insertAdjacentHTML("beforeend", rangee);
     }).catch(() => { /* la rangée s'abstient, le reste tient debout */ });
   }
 
