@@ -7,6 +7,11 @@
   const ROUTES = [
     { motif: /^\/$/, vue: (v) => VueAccueil.afficher(v), onglet: "/" },
     { motif: /^\/produits$/, vue: (v) => VueProduits.liste(v), onglet: "/produits" },
+    /* Le stock de la boutique, sur un seul écran. Toute l'équipe le lit ;
+       seul un compte qui modifie les produits y change un chiffre — la
+       base le refuse aux autres, l'écran ne fait que ne pas le proposer.
+       « ?filtre=rupture » arrive des notifications et de l'accueil. */
+    { motif: /^\/stock$/, vue: (v, m, p) => VueProduits.stock(v, p), onglet: "/produits" },
     { motif: /^\/produit\/nouveau$/, vue: (v) => VueProduits.formulaire(v) },
     { motif: /^\/produit\/([^/]+)\/modifier$/, vue: (v, m) => VueProduits.formulaire(v, m[1]) },
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduits.detail(v, m[1]) },

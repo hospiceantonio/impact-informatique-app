@@ -25,6 +25,10 @@ const VueNotifications = (() => {
     reception_confirmee:   { nom: "Réceptions confirmées", icone: "check" },
     commande_annulee:      { nom: "Annulations",        icone: "alerte" },
     course_confiee:        { nom: "Courses confiées",   icone: "voiture" },
+    /* Le stock, que chaque vente payée décompte toute seule. */
+    stock_epuise:          { nom: "Ruptures de stock",  icone: "boite" },
+    stock_insuffisant:     { nom: "Stock insuffisant",  icone: "alerte" },
+    stock_a_verifier:      { nom: "Stock à vérifier",   icone: "alerte" },
   };
   const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
 

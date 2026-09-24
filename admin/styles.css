@@ -325,6 +325,18 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:10px 8px;background:var(--blanc);
 }
 .stock-saisie input:focus{outline:none;border-color:var(--bleu);}
+/* Ce que dit la base au moment d'ouvrir la feuille. */
+.stock-actuel{margin:0 0 8px;font-size:13.5px;color:var(--encre-douce)}
+.stock-actuel strong{color:var(--encre)}
+
+/* ---------- L'écran Stock ----------
+   Le chiffre en gros, en bout de ligne : c'est lui qu'on cherche. La
+   couleur dit l'urgence avant qu'on ait lu le mot. */
+.stock-aide{padding:12px 14px}
+.stock-chiffre{font-size:20px;font-weight:800;line-height:1;color:var(--encre)}
+.stock-chiffre.stock-rupture{color:var(--rouge-fonce)}
+.stock-chiffre.stock-bas{color:var(--orange-fonce)}
+.stock-chiffre.stock-ok{color:#0B6E3E}
 
 /* ---------- Historique ---------- */
 .histo-jour{

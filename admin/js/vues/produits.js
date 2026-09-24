@@ -16,7 +16,11 @@ const VueProduits = (() => {
       Store.listerProduits(), Store.listerCategories(),
     ]);
 
-    UI.entete({ titre: "Produits", sous: produits.length + " produit" + (produits.length > 1 ? "s" : "") + " au catalogue" });
+    UI.entete({ titre: "Produits",
+      sous: produits.length + " produit" + (produits.length > 1 ? "s" : "") + " au catalogue",
+      /* Le stock de toute la boutique, sur un seul écran. */
+      actions: '<a class="btn-ic" href="#/stock" aria-label="Stock" title="Stock">' +
+        UI.icone("boite") + "</a>" });
 
     if (!produits.length) {
       vue.innerHTML = UI.vide("boite", "Aucun produit pour l'instant",
@@ -110,8 +114,22 @@ const VueProduits = (() => {
       ? Math.min(Store.APPRO_MAX, restant)
       : 3;
 
+    /* LE CHIFFRE MONTRÉ, sur lequel on écrit. Si une vente est payée
+       pendant que la feuille est ouverte, la base refuse d'écrire
+       par-dessus et rend le nouveau chiffre : on l'affiche, et le
+       prochain appui part de lui. */
+    let vu = p.stock;
+    const etatActuel = () => (p.surCommande
+      ? "Sur commande — sans stock"
+      : Store.enAppro(p)
+        ? "En approvisionnement — arrive " + Utils.delaiEnMots(Store.joursAppro(p))
+        : vu > 0 ? vu + " en stock" : "En rupture — 0 en stock");
+
     const corps = UI.ouvrirFeuille("Disponibilité — " + p.nom,
-      '<p class="aide" style="margin:0 0 14px">Combien de pièces reste-t-il en boutique ? ' +
+      '<p class="stock-actuel" id="stock-actuel">Actuellement : <strong>' +
+        Utils.echapper(etatActuel()) + "</strong></p>" +
+      '<p class="aide" style="margin:0 0 14px">Chaque vente payée se décompte toute seule. ' +
+        "Saisissez ici ce qui arrive, ou corrigez le chiffre après un comptage. " +
         "À zéro, vos clients voient « En rupture ». Un produit que vous ne tenez pas " +
         "en boutique se met « Sur commande » ; un produit qui arrive bientôt se met " +
         "« En approvisionnement ».</p>" +
@@ -158,19 +176,35 @@ const VueProduits = (() => {
     UI.$("#stock-moins", corps).onclick = () => { champ.value = Math.max(0, lire() - 1); };
     UI.$("#stock-plus", corps).onclick = () => { champ.value = lire() + 1; };
 
+    /* UN APPUI, UN ENVOI. Un double appui envoyait deux fois le même
+       chiffre ; avec la garde du stock, le second se serait heurté au
+       premier et aurait crié à un changement qui n'en était pas un. */
+    let enCours = false;
     const enregistrer = async (maj, message) => {
+      if (enCours) return;
+      enCours = true;
+      const boutons = UI.$$("button", corps);
+      for (const b of boutons) b.disabled = true;
       try {
         await Store.majDisponibilite(p.id, maj);
         UI.fermerFeuille();
         UI.toast(message, "ok");
         auTermine();
       } catch (err) {
+        if (err.stockActuel !== undefined) {
+          vu = err.stockActuel;
+          UI.$("#stock-actuel", corps).innerHTML = "Actuellement : <strong>" +
+            Utils.echapper(etatActuel()) + "</strong> — le chiffre vient de changer";
+        }
         UI.toast(err.message, "err");
+      } finally {
+        enCours = false;
+        for (const b of boutons) b.disabled = false;
       }
     };
     UI.$("#stock-enregistrer", corps).onclick = () => {
       const stock = lire();
-      enregistrer({ stock, surCommande: false },
+      enregistrer({ stock, surCommande: false, stockVu: vu },
         stock > 0 ? "Stock : " + stock + " en boutique" : "Produit passé « En rupture »");
     };
     UI.$("#stock-zero", corps).onclick = () =>
@@ -191,6 +225,189 @@ const VueProduits = (() => {
       retirerAppro.onclick = () =>
         enregistrer({ approJours: 0, stock: 0 }, "Approvisionnement annulé");
     }
+  }
+
+  /* =====================================================
+     L'écran Stock : toute la réserve de la boutique
+     ===================================================== */
+
+  /* Chaque vente payée se décompte toute seule. Ce qui reste à la
+     boutique, c'est de dire ce qui ARRIVE et de corriger ce qui s'est
+     perdu — et de voir ce qui manque avant que le client ne le voie.
+     Cet écran ne montre que cela : combien il en reste, produit par
+     produit, les plus urgents en tête. */
+
+  let filtreStock = "";
+  let termeStock = "";
+
+  const ETATS_STOCK = {
+    rupture:  { nom: "En rupture",           puce: "En rupture" },
+    bas:      { nom: "Bientôt épuisé",       puce: "Bientôt épuisés" },
+    ok:       { nom: "En stock",             puce: "En stock" },
+    appro:    { nom: "En approvisionnement", puce: "En approvisionnement" },
+    commande: { nom: "Sur commande",         puce: "Sur commande" },
+  };
+  /* L'ordre de la liste : ce qui manque, puis ce qui va manquer. */
+  const ORDRE_STOCK = ["rupture", "bas", "ok", "appro", "commande"];
+
+  function etatStock(p) {
+    const s = Store.statut(p);
+    if (s === "commande") return "commande";
+    if (s === "approvisionnement") return "appro";
+    if (s === "rupture") return "rupture";
+    return p.stock <= Store.STOCK_BAS ? "bas" : "ok";
+  }
+
+  function ligneStock(p, peutModifier) {
+    const e = Utils.echapper;
+    const etat = etatStock(p);
+    const compte = etat === "rupture" || etat === "bas" || etat === "ok";
+    const note = etat === "appro"
+      ? "Arrive " + Utils.delaiEnMots(Store.joursAppro(p))
+      : etat === "commande" ? "Sans stock" : ETATS_STOCK[etat].nom;
+    /* Sans le droit de modifier, la ligne ouvre la fiche, en lecture. */
+    return (
+      '<button type="button" class="ligne"' +
+        (peutModifier
+          ? ' data-stock="' + e(p.id) + '"'
+          : ' data-nav="#/produit/' + e(p.id) + '"') + ">" +
+        UI.vignetteProduit(p) +
+        '<span class="ligne-corps">' +
+          '<span class="ligne-titre">' + e(p.nom) + "</span>" +
+          '<span class="ligne-sous">' +
+            e([p.code, p.reference].filter(Boolean).join(" · ")) + "</span>" +
+        "</span>" +
+        '<span class="ligne-fin">' +
+          (compte
+            ? '<span class="stock-chiffre stock-' + etat + '">' + p.stock + "</span>"
+            : "") +
+          '<span class="ligne-stock' + (etat === "rupture" ? " ligne-stock-vide" : "") + '">' +
+            e(note) + "</span>" +
+        "</span>" +
+      "</button>"
+    );
+  }
+
+  async function stock(vue, params) {
+    const produits = await Store.listerProduits();
+    const peutModifier = Supabase.peutModifierProduits();
+
+    const combien = { rupture: 0, bas: 0, ok: 0, appro: 0, commande: 0 };
+    for (const p of produits) combien[etatStock(p)]++;
+
+    /* Venu d'une notification ou de l'accueil, le filtre vient avec :
+       « rupture » pose le doigt sur ce qui manque. */
+    if (params && params.filtre !== undefined) filtreStock = params.filtre;
+    if (!ETATS_STOCK[filtreStock]) filtreStock = "";
+
+    const alertes = [
+      combien.rupture ? combien.rupture + " en rupture" : "",
+      combien.bas ? combien.bas + " bientôt épuisé" + (combien.bas > 1 ? "s" : "") : "",
+    ].filter(Boolean);
+    UI.entete({ titre: "Stock", retour: true,
+      sous: !produits.length ? "Aucun produit"
+        : alertes.length ? alertes.join(" · ")
+        : "Tout est en stock",
+      actions: '<button type="button" class="btn-ic" id="stock-actualiser" ' +
+        'aria-label="Actualiser">' + UI.icone("actualiser") + "</button>" });
+    UI.$("#stock-actualiser").onclick = () => stock(vue);
+
+    if (!produits.length) {
+      vue.innerHTML = UI.vide("boite", "Aucun produit pour l'instant",
+        "Ajoutez un produit : son stock se suivra ici.",
+        '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>");
+      return;
+    }
+
+    /* Rupture et stock bas restent toujours à l'écran, même à zéro : un
+       « 0 » dit que tout va bien, une puce absente ne dit rien. */
+    const puces = ORDRE_STOCK.filter((k) =>
+      k === "rupture" || k === "bas" || combien[k] || filtreStock === k);
+
+    vue.innerHTML =
+      '<div class="carte stock-aide">' +
+        '<p class="aide" style="margin:0">' +
+          (peutModifier
+            ? "Chaque vente payée se décompte toute seule, et une commande annulée " +
+              "rend ses pièces. Touchez un produit pour saisir un arrivage ou " +
+              "corriger le chiffre après un comptage."
+            : "Chaque vente payée se décompte toute seule. Votre compte consulte " +
+              "le stock sans le modifier : demandez ce droit à l'administrateur.") +
+        "</p>" +
+      "</div>" +
+      '<div class="recherche-boite">' + UI.icone("recherche", "ic-sm") +
+        '<input id="stock-recherche" type="search" placeholder="Rechercher un produit…" ' +
+          'autocomplete="off" value="' + Utils.echapper(termeStock) + '">' +
+      "</div>" +
+      '<div class="puces" id="stock-filtres">' +
+        '<button type="button" class="puce' + (filtreStock ? "" : " active") +
+          '" data-filtre="">Tout (' + produits.length + ")</button>" +
+        puces.map((k) =>
+          '<button type="button" class="puce' + (filtreStock === k ? " active" : "") +
+          '" data-filtre="' + k + '">' + ETATS_STOCK[k].puce + " (" + combien[k] + ")</button>"
+        ).join("") +
+      "</div>" +
+      '<div id="stock-liste"></div>';
+
+    const zone = UI.$("#stock-liste");
+    const rendre = () => {
+      let visibles = filtreStock
+        ? produits.filter((p) => etatStock(p) === filtreStock)
+        : produits;
+      visibles = Store.chercherProduits(visibles, termeStock).slice().sort((a, b) =>
+        ORDRE_STOCK.indexOf(etatStock(a)) - ORDRE_STOCK.indexOf(etatStock(b)) ||
+        a.stock - b.stock ||
+        String(a.nom).localeCompare(String(b.nom), "fr"));
+      if (visibles.length) {
+        zone.innerHTML = '<div class="carte carte-liste">' +
+          visibles.map((p) => ligneStock(p, peutModifier)).join("") + "</div>";
+      } else if (!termeStock && (filtreStock === "rupture" || filtreStock === "bas")) {
+        zone.innerHTML = UI.vide("check",
+          filtreStock === "rupture" ? "Aucun produit en rupture" : "Aucun produit bientôt épuisé",
+          "Vos clients trouvent tout ce qu'ils cherchent.");
+      } else {
+        zone.innerHTML = UI.vide("recherche", "Aucun produit trouvé",
+          "Essayez un autre mot ou un autre filtre.");
+      }
+    };
+
+    UI.$("#stock-recherche").addEventListener("input", Utils.tempo((ev) => {
+      termeStock = ev.target.value;
+      rendre();
+    }, 200));
+
+    for (const b of UI.$$("#stock-filtres [data-filtre]")) {
+      b.onclick = () => {
+        filtreStock = b.dataset.filtre;
+        for (const x of UI.$$("#stock-filtres [data-filtre]")) x.classList.toggle("active", x === b);
+        rendre();
+      };
+    }
+
+    /* La liste a pu vieillir pendant qu'on la lisait : la feuille s'ouvre
+       sur le chiffre du moment, relu en base, pas sur celui de l'écran. */
+    zone.addEventListener("click", async (ev) => {
+      const ligne = ev.target.closest("[data-stock]");
+      if (!ligne || ligne.disabled) return;
+      const affiche = produits.find((x) => x.id === ligne.dataset.stock);
+      if (!affiche) return;
+      ligne.disabled = true;
+      let frais;
+      try {
+        frais = await Store.lireProduit(affiche.id);
+      } catch (_) {
+        frais = affiche;   // hors ligne : la garde du stock veillera à l'écriture
+      }
+      ligne.disabled = false;
+      if (!frais) {
+        UI.toast("Ce produit n'existe plus.", "err");
+        stock(vue);
+        return;
+      }
+      feuilleStock(frais, () => stock(vue));
+    });
+
+    rendre();
   }
 
   /* =====================================================
@@ -729,6 +946,11 @@ const VueProduits = (() => {
     }
     recalculerPrix();
 
+    /* LE STOCK TEL QU'ON L'A MONTRÉ. Les ventes le font baisser pendant
+       qu'on retouche la fiche : la base ne remplace que ce chiffre-là, et
+       seulement si on l'a changé (voir Store.sauverProduit). */
+    let stockVu = existant ? existant.stock : undefined;
+
     const btnEnregistrer = UI.$("#p-enregistrer");
     btnEnregistrer.onclick = async () => {
       /* UN SEUL ENVOI À LA FOIS. Deux appuis rapprochés — ou un réseau
@@ -757,6 +979,7 @@ const VueProduits = (() => {
              croire que l'application décide du classement. */
           sousCategorieId: UI.$("#p-souscategorie").value,
           stock: UI.$("#p-stock").value,
+          stockVu,
           surCommande: UI.$("#p-sur-commande").checked,
           approJours: UI.$("#p-appro").checked ? Number(UI.$("#p-appro-jours").value) : 0,
           /* Sans l'interrupteur à l'écran (modérateur), la mise en avant ne bouge pas. */
@@ -767,6 +990,21 @@ const VueProduits = (() => {
         location.hash = "#/produit/" + produit.id;
       } catch (err) {
         btnEnregistrer.disabled = false;
+        /* Une vente est passée pendant la retouche : on garde ce qui a
+           été tapé, on montre le chiffre du moment, et le prochain appui
+           part de lui. */
+        if (err.stockActuel !== undefined) {
+          stockVu = err.stockActuel;
+          let note = UI.$("#p-stock-change");
+          if (!note) {
+            note = document.createElement("div");
+            note.id = "p-stock-change";
+            note.className = "note-attente";
+            UI.$("#p-zone-stock").appendChild(note);
+          }
+          note.textContent = "Stock actuel en base : " + err.stockActuel +
+            ". Corrigez le champ si besoin, puis enregistrez.";
+        }
         UI.toast(err.message || "Enregistrement impossible", "err");
       }
     };
@@ -959,5 +1197,5 @@ const VueProduits = (() => {
     UI.$("#p-vente-flash").onclick = () => feuilleFlash(p, () => detail(vue, p.id));
   }
 
-  return { liste, formulaire, detail };
+  return { liste, stock, formulaire, detail };
 })();

@@ -527,7 +527,7 @@ et `authenticated`, schéma `auth`, stockage, temps réel), charge
 `schema.sql` **tel qu'il part chez le client** — deux fois, pour vérifier
 qu'il se rejoue —, **rejoue ensuite chaque fichier de `supabase/` comme
 le fait l'éditeur SQL** (tout d'un bloc, sans compte connecté), puis
-essaie de forcer chaque porte. Près de 970 constats, plus les 114
+essaie de forcer chaque porte. Plus de 1 000 constats, plus les 118
 contrôles de l'état des lieux ; la sortie nomme celui qui cède.
 
 Pourquoi un vrai moteur : les tests des applications simulent la base.
@@ -2441,10 +2441,13 @@ pas été confirmée par la banque.
 
 ### Ce qui n'est pas fait, volontairement
 
-- **Le stock ne se décrémente pas** à la vente. La boutique ajuste
-  elle-même après avoir remis la marchandise. Décrémenter marquerait le
-  produit comme modifié, et enverrait une notification « catalogue mis à
-  jour » à tous les clients à chaque vente.
+- ~~Le stock ne se décrémente pas à la vente.~~ **Il se décompte depuis
+  la 3.49.0** (section « Le stock suit les ventes »). La crainte d'alors
+  — chaque vente marquant le produit comme modifié, et envoyant « catalogue
+  mis à jour » à tous les clients — est écartée : le décompte ne touche
+  pas à `modifie_le`, et la vérification de fond d'Android ne regarde que
+  lui. Les applications ouvertes, elles, voient le nouveau chiffre par le
+  temps réel.
 - **Aucun message WhatsApp n'est envoyé automatiquement** à la boutique :
   cela demanderait l'API WhatsApp Business, qui est payante et suppose un
   numéro dédié. À la place, la commande arrive dans le compte
@@ -2763,6 +2766,101 @@ le tableau de bord de Supabase ou dans l'admin :
 Les avis de performance de Supabase (index, relectures de règles) ne
 pèsent qu'à grande échelle : rien n'y presse au volume actuel.
 
+## Le stock suit les ventes (3.49.0)
+
+Jusqu'ici, le stock ne bougeait que lorsque la boutique le changeait à
+la main. Une commande payée ne retirait rien : le produit restait
+« Disponible » après la dernière pièce vendue, et un client pouvait en
+commander dix quand il en restait deux — la base acceptait.
+
+### Ce que fait la base
+
+| Moment | Ce qui se passe |
+|---|---|
+| **Le client commande** | `creer_commande` additionne ce que le panier demande de chaque produit — deux lignes du même article comptent ensemble — et refuse au-delà du stock : « Plus que 2 en stock pour « Clavier Bluetooth » : réduisez la quantité dans votre panier. » Rien n'est enregistré. Un produit **sur commande** ou **en approvisionnement** n'a pas de limite : la boutique le fait venir |
+| **La commande est payée** | Un déclencheur ôte les pièces de chaque ligne au moment où la commande passe à « payée » — par l'agrégateur ou par la confirmation d'une boutique, c'est le même chemin. À zéro, le produit passe « En rupture ». Chaque ligne retient ce qu'elle a pris (`stock_pris`) : un paiement rejoué ne décompte pas deux fois |
+| **Deux clients paient la dernière pièce** | Le second paiement passe quand même : l'argent est encaissé, on ne le refuse pas après coup. Le stock s'arrête à zéro, jamais en dessous, et la boutique, l'enseigne et le superadministrateur reçoivent **« Stock insuffisant »**, qui ouvre la commande à régler avec le client |
+| **Une commande payée est annulée**, ou une seule de ses lignes | Les pièces reviennent au stock — exactement celles qui avaient été prises, et une seule fois |
+| **Le décompte échoue** (un produit que la base refuse d'écrire) | Le paiement passe ; **« Stock à vérifier »** part à la boutique et à l'enseigne |
+
+La dernière pièce vendue prévient la boutique (**« Rupture de stock »**,
+sans son, qui ouvre l'écran Stock sur ce qui manque) ; les deux autres
+alertes sonnent.
+
+Le fichier [`stock-ventes.sql`](supabase/stock-ventes.sql) a été
+**appliqué en ligne**. Les commandes payées **avant** lui ne sont pas
+repassées : leur stock a pu être corrigé à la main entre-temps, et la
+base ne peut pas le savoir. Une commande envoyée par **WhatsApp** n'est
+pas une commande de la base : elle ne décompte rien, la boutique corrige
+son stock dans l'écran Stock.
+
+### Ce que voit le client
+
+- **La fiche produit s'arrête au stock** : le « + » ne dépasse pas ce
+  qui reste, en comptant ce qui est déjà au panier, et « Plus que 3 en
+  stock » s'affiche à cinq pièces ou moins.
+- **Le panier se ramène au stock du moment** : une quantité devenue trop
+  grande — une autre vente est passée — est ramenée, et le panier le dit
+  jusqu'à ce que le client y touche ; un article épuisé reste affiché mais
+  grise « Passer la commande ». Le formulaire de commande ne s'ouvre pas
+  sur un panier que le stock ne couvre plus.
+- **Si la base refuse quand même** — une vente est passée pendant qu'il
+  remplissait le formulaire —, le client revient au panier, catalogue
+  relu, avec la phrase de la base. La relecture est silencieuse : avant,
+  « Catalogue mis à jour » recouvrait l'explication.
+
+### L'écran Stock de l'admin
+
+Trois chemins y mènent : l'icône boîte en haut de **Produits**, la carte
+**Stock** de l'accueil (pressante dès qu'il y a une rupture ou un stock
+bas), et les notifications de rupture. Tous les produits de la boutique,
+**le plus urgent en tête** — en rupture, bientôt épuisés (trois pièces
+ou moins), en stock, en approvisionnement, sur commande —, des filtres
+comptés, une recherche. Toucher un produit ouvre la saisie sur le
+chiffre du moment, relu en base : − et +, « En rupture », « Sur
+commande », le réassort annoncé.
+
+Toute l'équipe lit cet écran ; seuls les comptes qui modifient les
+produits y changent un chiffre — la base le refuse aux autres, l'écran
+ne fait que ne pas le proposer.
+
+### Une vente pendant qu'on saisit
+
+Le stock bouge désormais tout seul, et deux mains peuvent le toucher à
+la fois : la base qui décompte une vente, la boutique qui saisit un
+arrivage. Sans précaution, la seconde écrasait la première — et les
+pièces vendues revenaient en rayon.
+
+- **La saisie s'écrit sur le chiffre vu** (`stock=eq.N` dans la
+  requête) : si une vente est passée entre-temps, même à l'instant de
+  l'envoi, rien n'est écrit ; l'écran dit le nouveau chiffre, garde ce
+  qui a été tapé, et le prochain appui part de lui.
+- **Le formulaire du produit ne renvoie le stock que s'il a été
+  changé** : retoucher une description ne rend plus les pièces vendues
+  pendant qu'on écrivait.
+- **Défaire une retouche** dans l'historique garde le stock du moment ;
+  seule une action **sur** le stock — un chiffre saisi, une rupture, un
+  passage sur commande — remet l'ancien chiffre.
+- **Une photo retirée ne quitte le stockage qu'après l'écriture de la
+  fiche.** Elle partait avant : une écriture refusée — un stock qui a
+  bougé, un réseau coupé — laissait une fiche qui désignait une photo
+  effacée. Un fichier de trop, le ménage du stockage le rattrape ; un
+  fichier perdu, rien.
+
+### Les bancs
+
+[`tests/99q-stock-ventes.sql`](supabase/tests/99q-stock-ventes.sql)
+éprouve la base en 44 constats : l'excédent refusé (deux lignes du même
+produit comprises) sans rien laisser derrière, le décompte au paiement
+comme à la confirmation d'une boutique, le paiement rejoué, la survente,
+les deux annulations, le produit qui refuse l'écriture, et les droits —
+personne n'écrit `stock_pris`, personne ne rend du stock à la main.
+[`tools/banc-stock.mjs`](tools/banc-stock.mjs) éprouve les deux
+applications en 101 constats. Chaque garde a été sabotée à son tour —
+la garde de la saisie, celle du formulaire, la relecture silencieuse,
+l'annulation, le plafond du panier, le message gardé, la photo effacée
+avant la fiche : le banc rougit à chaque fois.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -2807,6 +2905,7 @@ impact-informatique-app/
 │   ├── categories-photos.sql        # La photo du rond d'une catégorie : un chemin, un seul dossier
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
+│   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
@@ -2856,7 +2955,7 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
-    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique et sms-ferme
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme et stock
     ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── illustrations-categories.py # Les illustrations des ronds de catégories
@@ -2902,10 +3001,11 @@ impact-informatique-app/
   calculent l'état ; rien n'est stocké en double.
   Dans l'admin : le stock se saisit dans le formulaire (le champ
   disparaît si le produit est sur commande ou en approvisionnement) et
-  se corrige d'un geste depuis la fiche — − / + / « En rupture » /
-  « Sur commande » / « Arrive dans N jours ». La liste des produits
-  affiche « Stock 12 », « Stock 0 » en rouge, « Sans stock » ou
-  « Arrive dans 3 jours ».
+  se corrige d'un geste depuis la fiche ou l'écran **Stock** — − / + /
+  « En rupture » / « Sur commande » / « Arrive dans N jours ». La liste
+  des produits affiche « Stock 12 », « Stock 0 » en rouge, « Sans
+  stock » ou « Arrive dans 3 jours ». Chaque vente payée se décompte
+  toute seule (section « Le stock suit les ventes »).
 - **Produit en cours d'approvisionnement**, avec un délai de **1 à
   8 jours décompté chaque jour**. Ce qu'on enregistre n'est pas un
   nombre de jours mais la **date d'arrivée** (`produits.appro_le`) :
@@ -2921,7 +3021,8 @@ impact-informatique-app/
   la carte porte le décompte dans son badge (elle n'a pas la place
   d'autre chose) et la fiche l'écrit en toutes lettres sur une bande
   ambre, sous le badge d'état.
-  Côté client, le nombre exact n'est jamais montré, et le message
+  Côté client, le nombre exact ne se montre qu'à cinq pièces ou moins
+  (« Plus que 3 en stock » — il décide de l'achat), et le message
   WhatsApp suit l'état : disponibilité, date de retour, ou délai de
   commande. Le clignotement du rouge s'arrête sous
   `prefers-reduced-motion`.

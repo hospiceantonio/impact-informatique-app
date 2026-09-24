@@ -650,7 +650,35 @@ with controles(rang, element, ok) as (values
        where n.nspname = 'public'
          and p.proname in ('supprimer_compte', 'changer_mot_de_passe',
                            'approuver_demande', 'refuser_demande')
-         and not has_function_privilege('anon', p.oid, 'EXECUTE')))
+         and not has_function_privilege('anon', p.oid, 'EXECUTE'))),
+
+  -- ---------- Le stock suit les ventes ----------
+  -- Une commande ne demande pas plus que le stock : refuser un produit
+  -- à zéro ne suffisait pas, dix pièces passaient quand il en restait trois.
+  (115, 'Une commande ne dépasse pas le stock', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.prosrc like '%en stock pour%')),
+  -- Une vente payée sort du stock, et ce qui a été pris se note sur la ligne.
+  (116, 'Le stock se décompte au paiement', exists (
+      select 1 from pg_trigger t
+       where t.tgrelid = 'public.commandes'::regclass and t.tgname = 'commandes_stock'
+         and not t.tgisinternal)
+    and exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'commande_lignes'
+                   and column_name = 'stock_pris')),
+  -- Une vente annulée rend ce qu'elle avait pris, et rien de plus.
+  (117, 'Une vente annulée rend son stock', exists (
+      select 1 from pg_trigger t
+       where t.tgrelid = 'public.commande_lignes'::regclass and t.tgname = 'lignes_stock'
+         and not t.tgisinternal)),
+  -- Rendre du stock sans annulation, ce serait en fabriquer : personne ne
+  -- l'appelle de l'extérieur.
+  (118, 'Et personne ne rend du stock à la main', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'stock_rendre'
+         and not has_function_privilege('anon', p.oid, 'EXECUTE')
+         and not has_function_privilege('authenticated', p.oid, 'EXECUTE')))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

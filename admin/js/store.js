@@ -200,6 +200,46 @@ const Store = (() => {
     approvisionnement: { nom: "En approvisionnement", teinte: "or" },
   };
 
+  /* « Bientôt épuisé » : il en reste, mais pas de quoi tenir longtemps.
+     L'écran Stock et l'accueil les signalent avant la rupture — c'est
+     le moment de commander chez le fournisseur, pas après. */
+  const STOCK_BAS = 3;
+
+  /* Les actions du journal qui portent SUR LE STOCK. Défaire l'une
+     d'elles remet le chiffre d'avant ; défaire toute autre retouche du
+     produit laisse le stock tel que les ventes l'ont laissé. */
+  const ACTIONS_DE_STOCK = ["stock", "retour_stock", "rupture", "sur_commande", "appro"];
+
+  /**
+   * Le stock a bougé depuis qu'on l'a affiché : une vente payée, une
+   * annulation, ou quelqu'un d'autre de l'équipe. On le dit, avec le
+   * chiffre du moment — l'écran s'en sert pour se remettre à jour.
+   */
+  function stockAChange(maintenant) {
+    const err = new Error("Le stock a changé pendant que vous le modifiiez (une vente payée, " +
+      "une annulation ou un autre membre de l'équipe) : il est maintenant de " + maintenant +
+      ". Vérifiez votre chiffre, puis enregistrez de nouveau.");
+    err.stockActuel = maintenant;
+    return err;
+  }
+
+  /**
+   * Une écriture gardée par le stock n'a touché aucune ligne : soit le
+   * stock a bougé entre la lecture et l'écriture, soit la base a refusé.
+   * On relit pour dire laquelle des deux — les confondre enverrait le
+   * gérant sur une fausse piste.
+   */
+  async function pourquoiRienNaBouge(id, vu) {
+    const maintenant = await lireProduit(id).catch(() => null);
+    if (!maintenant) return new Error("Produit introuvable : il a peut-être été supprimé.");
+    if (maintenant.stock !== vu) return stockAChange(maintenant.stock);
+    return new Error("Écriture refusée par la base : votre compte n'a pas le droit " +
+      "de modifier ce produit.");
+  }
+
+  /** Le stock d'un produit sur commande ou en réassort ne se compte pas. */
+  const modeDispo = (p) => (p.surCommande ? "commande" : enAppro(p) ? "appro" : "stock");
+
   /* Réassort en route : la date d'arrivée est posée et pas encore
      passée. Le décompte se fait tout seul — au lendemain de la date,
      le produit repasse « En rupture » sans que personne n'y touche. */
@@ -1119,7 +1159,21 @@ const Store = (() => {
       const precedent = avant.find((a) =>
         a.table === cible.table && String(a.ligne && a.ligne.id) === String(cible.id));
       if (precedent) {
-        await Supabase.requete("POST", cible.table + "?on_conflict=id", precedent.ligne,
+        let ligne = precedent.ligne;
+        /* LE STOCK A VÉCU DEPUIS. Chaque vente payée ôte ses pièces toute
+           seule : remettre la fiche d'hier remettrait aussi en rayon ce
+           qui est parti entre-temps, et la boutique vendrait ce qu'elle
+           n'a plus. Défaire une retouche du prix ou de la description
+           garde donc la disponibilité du moment ; seule une action SUR le
+           stock remet le chiffre d'avant. */
+        if (cible.table === "produits" && !ACTIONS_DE_STOCK.includes(entree.action)) {
+          const actuelle = await ligneBrute("produits", cible.id);
+          if (actuelle) {
+            ligne = { ...ligne, stock: actuelle.stock, disponible: actuelle.disponible,
+              sur_commande: actuelle.sur_commande, appro_le: actuelle.appro_le };
+          }
+        }
+        await Supabase.requete("POST", cible.table + "?on_conflict=id", ligne,
           { upsert: true });
       } else {
         await Supabase.requete("DELETE",
@@ -2586,7 +2640,43 @@ const Store = (() => {
     }
     if (!enAvant) ordreAvant = 0;
 
-    /* Photos : envoyer les nouvelles, retirer celles enlevées. */
+    const surCommande = !!donnees.surCommande;
+    /* Les deux options s'excluent : un produit qu'on ne tient jamais
+       n'est pas en cours de réassort. */
+    const approLe = !surCommande && donnees.approJours
+      ? dateApproDans(donnees.approJours)
+      : "";
+    const stock = surCommande || approLe ? 0 : lireStock(donnees.stock);
+
+    /* LE STOCK BOUGE TOUT SEUL depuis que chaque vente payée ôte ses
+       pièces, et ce formulaire a été rempli à l'ouverture. Renvoyer son
+       chiffre rendrait en silence les pièces vendues entre-temps — pour
+       une simple retouche de la description. Le stock ne part donc que
+       si on l'a changé, et seulement s'il n'a pas bougé depuis. Passer
+       en « Sur commande » ou en réassort le remet à zéro, comme avant :
+       celui-là ne se compte pas.
+       Tranché ICI, avant le moindre envoi de photo : un refus ne doit
+       rien laisser derrière lui. */
+    let garde = "";
+    let vu = null;
+    let stockInchange = false;
+    const mode = modeDispo({ surCommande, approLe });
+    if (existant && donnees.stockVu !== undefined && mode === modeDispo(existant)) {
+      vu = lireStock(donnees.stockVu);
+      if (mode !== "stock" || stock === vu) {
+        stockInchange = true;
+      } else if (existant.stock !== vu) {
+        throw stockAChange(existant.stock);
+      } else {
+        garde = "&stock=eq." + vu;
+      }
+    }
+
+    /* Photos : envoyer les nouvelles. Celles qu'on a retirées ne partent
+       du stockage qu'APRÈS l'écriture de la fiche : une écriture refusée
+       — un stock qui a bougé, un réseau coupé — laisserait sinon une
+       fiche qui désigne des photos effacées. Un fichier de trop, le
+       ménage du stockage le rattrape ; un fichier perdu, rien. */
     const photos = (photosFinales || []).slice(0, MAX_PHOTOS);
     const chemins = [];
     for (const photo of photos) {
@@ -2614,19 +2704,11 @@ const Store = (() => {
       await Supabase.televerserVideo(cheminVideo, video.fichier);
     }
 
-    if (existant) {
-      const retirees = (existant.images || []).filter((chemin) => !chemins.includes(chemin));
-      if (existant.video && existant.video !== cheminVideo) retirees.push(existant.video);
-      await Supabase.supprimerImages(await sansAutreUsage(retirees, existant.id));
-    }
+    const retirees = existant
+      ? (existant.images || []).filter((chemin) => !chemins.includes(chemin))
+          .concat(existant.video && existant.video !== cheminVideo ? [existant.video] : [])
+      : [];
 
-    const surCommande = !!donnees.surCommande;
-    /* Les deux options s'excluent : un produit qu'on ne tient jamais
-       n'est pas en cours de réassort. */
-    const approLe = !surCommande && donnees.approJours
-      ? dateApproDans(donnees.approJours)
-      : "";
-    const stock = lireStock(donnees.stock);
     const produit = {
       id: existant ? existant.id : Utils.uid("prod"),
       nom,
@@ -2640,7 +2722,7 @@ const Store = (() => {
          l'écran doit dire la même chose qu'elle. */
       categorieId: secteurBoutique.id,
       sousCategorieId,
-      stock: surCommande || approLe ? 0 : stock,
+      stock,
       surCommande,
       approLe,
       enAvant,
@@ -2650,11 +2732,26 @@ const Store = (() => {
     };
 
     const ligne = ligneDepuisProduit(produit);
+    /* Le stock non touché ne part pas : c'est celui de la base qui reste. */
+    if (stockInchange) {
+      delete ligne.stock;
+      delete ligne.disponible;
+    }
     /* La ligne d'avant, pour pouvoir revenir dessus. */
     const avant = existant ? await ligneBrute("produits", produit.id) : null;
     let lignes;
     if (existant) {
-      lignes = await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(produit.id), ligne);
+      lignes = await Supabase.requete("PATCH",
+        "produits?id=eq." + encodeURIComponent(produit.id) + garde, ligne);
+      /* La garde tient jusque dans l'écriture : une vente payée entre la
+         lecture et l'envoi ne passe pas non plus. */
+      if (garde && Array.isArray(lignes) && !lignes.length) {
+        throw await pourquoiRienNaBouge(produit.id, vu);
+      }
+      /* La fiche ne les désigne plus : les fichiers retirés peuvent partir. */
+      if (retirees.length) {
+        await Supabase.supprimerImages(await sansAutreUsage(retirees, existant.id));
+      }
       journaliser("produit", "modification",
         "Produit modifié : " + produit.nom + " — " + Utils.fmtMontant(produit.prix, reglages.devise),
         produit.reference || produit.nom,
@@ -2729,6 +2826,14 @@ const Store = (() => {
   async function majDisponibilite(id, maj) {
     const produit = await lireProduit(id);
     if (!produit) throw new Error("Produit introuvable.");
+    /* UN CHIFFRE SAISI SUR CELUI QU'ON A VU. Chaque vente payée ôte ses
+       pièces toute seule : si le stock a bougé depuis l'affichage, écrire
+       par-dessus rendrait en silence ce qui vient d'être vendu. On le dit
+       plutôt, avec le chiffre du moment. « stockVu » ne vaut que pour un
+       produit dont le stock se compte — pas sur commande, pas en réassort. */
+    const vu = maj.stockVu === undefined || modeDispo(produit) !== "stock"
+      ? null : lireStock(maj.stockVu);
+    if (vu !== null && vu !== produit.stock) throw stockAChange(produit.stock);
     const ligneAvant = await ligneBrute("produits", id);
     const surCommande = maj.surCommande !== undefined ? !!maj.surCommande : produit.surCommande;
     /* Les trois options s'excluent : dire l'une efface les autres. */
@@ -2743,13 +2848,19 @@ const Store = (() => {
       return produit;
     }
 
-    await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(id), {
+    /* La garde tient jusque dans l'écriture : une vente payée entre la
+       lecture ci-dessus et cette ligne-ci ne passe pas non plus. */
+    const ecrites = await Supabase.requete("PATCH", "produits?id=eq." + encodeURIComponent(id) +
+      (vu !== null ? "&stock=eq." + vu : ""), {
       stock,
       sur_commande: surCommande,
       appro_le: approLe || null,
       disponible: surCommande || stock > 0,
       modifie_le: new Date().toISOString(),
     });
+    if (vu !== null && Array.isArray(ecrites) && !ecrites.length) {
+      throw await pourquoiRienNaBouge(id, vu);
+    }
 
     const avant = statut(produit);
     const apres = statut({ stock, surCommande, approLe });
@@ -3192,7 +3303,7 @@ const Store = (() => {
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
-    listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS,
+    listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,
     annulerAction,
     enAppro, joursAppro, dateApproDans, APPRO_MIN, APPRO_MAX,
     enVenteFlash, majVenteFlash,

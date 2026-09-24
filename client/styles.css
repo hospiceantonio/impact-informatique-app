@@ -687,6 +687,18 @@ video.slide-img{background:#000}
   background:var(--ambre-clair);color:var(--orange-fonce);
   font-size:12.5px;font-weight:700;
 }
+/* Les dernières pièces, et dans le panier ce qui a dû bouger. */
+.stock-bas{
+  display:flex;align-items:center;gap:7px;
+  margin:10px 0 2px;padding:9px 12px;border-radius:var(--r-sm);
+  background:var(--orange-clair);color:var(--orange-fonce);
+  font-size:12.5px;font-weight:700;
+}
+.pa-ligne-stock{
+  display:flex;align-items:center;gap:6px;
+  margin-top:6px;font-size:12px;font-weight:700;color:var(--orange-fonce);
+}
+.pa-ligne-stock.pa-ligne-rupture{color:var(--rouge)}
 @keyframes clignoter{
   0%,100%{opacity:1}
   50%{opacity:.35}

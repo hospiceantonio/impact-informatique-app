@@ -4,6 +4,9 @@
    ========================================================= */
 const VueProduit = (() => {
 
+  /* À partir de combien de pièces on dit « Plus que N en stock ». */
+  const STOCK_BAS = 5;
+
   /** « dans 2 j 4 h », « dans 3 h 12 min », « dans 40 min ». */
   function dansCombien(ms) {
     const reste = Math.max(0, ms - Date.now());
@@ -73,20 +76,48 @@ const VueProduit = (() => {
     let quantite = 1;
     const poser = () => { affichage.textContent = String(quantite); };
 
+    /* PAS PLUS QUE CE QUI RESTE, en comptant ce qui est déjà dans le
+       panier : la base refuserait la commande au moment de payer. Un
+       produit « sur commande » ou qui arrive n'a pas cette limite. */
+    const plafond = Panier.plafond(p);
+    const reste = () => Math.max(0, plafond - Panier.quantiteDe(p.id));
+    const direLeStock = () => {
+      const dedans = Panier.quantiteDe(p.id);
+      UI.toast(dedans >= plafond
+        ? "Vous avez déjà les " + plafond + " pièce" + (plafond > 1 ? "s" : "") +
+          " en stock dans votre panier"
+        : "Plus que " + plafond + " en stock" +
+          (dedans ? " — vous en avez déjà " + dedans + " dans votre panier" : ""), "err");
+    };
+
     UI.$("#p-moins", barre).onclick = () => { quantite = Math.max(1, quantite - 1); poser(); };
     UI.$("#p-plus", barre).onclick = () => {
+      if (quantite + 1 > reste()) {
+        direLeStock();
+        return;
+      }
       quantite = Math.min(Panier.MAX_QUANTITE, quantite + 1);
       poser();
     };
 
     UI.$("#p-ajouter", barre).onclick = () => {
-      if (!Panier.ajouter(p.id, quantite)) {
+      const r = Panier.ajouter(p.id, quantite);
+      if (r.plein) {
         UI.toast("Votre panier est plein (" + Panier.MAX_ARTICLES + " produits différents)", "err");
         return;
       }
-      UI.toast(quantite > 1
-        ? quantite + " articles ajoutés au panier"
-        : "Ajouté au panier", "ok");
+      if (!r.ajoute) {
+        direLeStock();
+        quantite = 1;
+        poser();
+        return;
+      }
+      UI.toast(r.ajoute < quantite
+        ? "Il n'en restait que " + r.ajoute + " de plus : " + r.ajoute +
+          (r.ajoute > 1 ? " ajoutés" : " ajouté") + " au panier"
+        : r.ajoute > 1
+          ? r.ajoute + " articles ajoutés au panier"
+          : "Ajouté au panier", r.ajoute < quantite ? "err" : "ok");
       quantite = 1;
       poser();
       const dedans = UI.$("#p-deja");
@@ -210,6 +241,13 @@ const VueProduit = (() => {
           ? '<div class="appro-echeance">' + UI.icone("horloge", "ic-sm") +
             " En cours d'approvisionnement — arrive " +
             Utils.echapper(Utils.delaiEnMots(Catalogue.joursAppro(p))) + "</div>"
+          : "") +
+        /* Les dernières pièces : le client sait pourquoi le « + »
+           s'arrête — et qu'il vaut mieux ne pas trop attendre. Au-delà,
+           le nombre exact ne regarde que la boutique. */
+        (etat === "disponible" && p.stock <= STOCK_BAS
+          ? '<div class="stock-bas" id="p-stock-bas">' + UI.icone("alerte", "ic-sm") +
+            " Plus que " + p.stock + " en stock</div>"
           : "") +
         /* Déjà dans le panier : on le dit, pour qu'il ne l'ajoute pas
            deux fois par mégarde. Le bloc est posé caché et se montre

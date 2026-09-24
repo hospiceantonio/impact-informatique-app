@@ -95,6 +95,15 @@ const VuePanier = (() => {
      ===================================================== */
 
   async function afficher(vue) {
+    /* LE STOCK DU MOMENT, avant de rien dessiner. Une quantité devenue
+       trop grande depuis l'ajout — une autre vente est passée — se
+       ramène à ce qui reste, et on le dit. Un article épuisé reste
+       affiché, mais empêche de commander : la base le refuserait. */
+    Panier.ajusterAuStock();
+    /* Ce qui a été ramené — ici ou ailleurs, à l'instant ou tout à
+       l'heure — et que le client n'a pas encore touché. */
+    const ramenees = Panier.ramenees();
+    const ruptures = Panier.enRupture();
     const groupes = Panier.parBoutique();
     const devise = Panier.devise();
     const nombre = Panier.nombre();
@@ -123,6 +132,21 @@ const VuePanier = (() => {
     /* Une carte par boutique : chacune prépare et livre ce qui est à
        elle, et c'est ainsi que la commande lui parviendra. */
     let html = "";
+    if (ruptures.length || ramenees.length) {
+      html +=
+        '<div class="carte pa-avertissement" id="pa-stock">' + UI.icone("alerte", "ic-sm") +
+          "<div>" +
+            (ruptures.length
+              ? "Plus disponible : " + ruptures.map((l) => "« " + Utils.echapper(l.produit.nom) + " »")
+                  .join(", ") + ". Retirez-" + (ruptures.length > 1 ? "les" : "le") +
+                " pour passer la commande. "
+              : "") +
+            ramenees.map((r) =>
+              "« " + Utils.echapper(r.produit.nom) + " » : il n'en reste que " + r.apres +
+              ", la quantité est ramenée à " + r.apres + ".").join(" ") +
+          "</div>" +
+        "</div>";
+    }
     for (const groupe of groupes) {
       html +=
         '<div class="carte pa-groupe">' +
@@ -177,7 +201,8 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() ? " disabled" : "") + ">Passer la commande</button>");
+        (Panier.monnaiesMelangees() || ruptures.length ? " disabled" : "") +
+        ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {
       /* VIDER SE CONFIRME : trois produits choisis un à un ne doivent pas
@@ -196,12 +221,15 @@ const VuePanier = (() => {
         const action = bouton.dataset.panierAction;
         if (action === "retirer") Panier.retirer(id);
         if (action === "moins") Panier.regler(id, Panier.quantiteDe(id) - 1);
-        if (action === "plus") {
-          if (Panier.quantiteDe(id) >= Panier.MAX_QUANTITE) {
-            UI.toast("99 articles au maximum pour un même produit", "err");
-            return;
-          }
-          Panier.regler(id, Panier.quantiteDe(id) + 1);
+        if (action === "plus" && !Panier.regler(id, Panier.quantiteDe(id) + 1)) {
+          /* Pas plus que le stock — ni que 99, pour un produit qu'on
+             fait venir. */
+          const max = Panier.plafond(Catalogue.produit(id));
+          UI.toast(max >= Panier.MAX_QUANTITE
+            ? Panier.MAX_QUANTITE + " articles au maximum pour un même produit"
+            : max === 0 ? "Ce produit est en rupture : retirez-le pour commander"
+            : "Plus que " + max + " en stock", "err");
+          return;
         }
         afficher(vue);
       };
@@ -215,6 +243,16 @@ const VuePanier = (() => {
   function ligneHtml(l) {
     const p = l.produit;
     const devise = Catalogue.deviseDe(p);
+    /* Ce que le stock dit de cette ligne : épuisée, ou au plus juste —
+       le client comprend pourquoi le « + » ne monte plus. */
+    const max = Panier.plafond(p);
+    const noteStock = max === 0
+      ? '<div class="pa-ligne-stock pa-ligne-rupture">' + UI.icone("alerte", "ic-sm") +
+          "En rupture — retirez-le pour commander</div>"
+      : max < Panier.MAX_QUANTITE && l.quantite >= max
+        ? '<div class="pa-ligne-stock">' + UI.icone("alerte", "ic-sm") +
+            (max > 1 ? "Les " + max + " dernières pièces" : "La dernière pièce") + "</div>"
+        : "";
     return (
       '<div class="pa-ligne">' +
         '<a class="pa-ligne-img" href="#/produit/' + Utils.echapper(p.id) + '">' +
@@ -235,6 +273,7 @@ const VuePanier = (() => {
             '<button type="button" data-panier-action="plus" data-produit="' +
               Utils.echapper(p.id) + '" aria-label="Un de plus">+</button>' +
           "</div>" +
+          noteStock +
         "</div>" +
         '<button type="button" class="pa-corbeille" data-panier-action="retirer" data-produit="' +
           Utils.echapper(p.id) + '" aria-label="Retirer ' + Utils.echapper(p.nom) + '">' +
@@ -310,6 +349,22 @@ const VuePanier = (() => {
   async function commander(vue) {
     promo = { code: "", remise: 0 };
     if (Panier.vide()) {
+      location.hash = "#/panier";
+      return;
+    }
+    /* Un article épuisé depuis l'ajout, ou une quantité que le stock ne
+       couvre plus : le panier le dit et le montre. Ouvrir le formulaire
+       pour se faire refuser au bout serait le pire moment pour
+       l'apprendre — et payer un total qui a changé sous ses yeux, sans
+       qu'on le lui dise, ne vaut pas mieux. */
+    const ramenees = Panier.ajusterAuStock();
+    if (Panier.enRupture().length) {
+      UI.toast("Un article de votre panier n'est plus disponible", "err");
+      location.hash = "#/panier";
+      return;
+    }
+    if (ramenees.length) {
+      UI.toast("Le stock a changé : vérifiez les quantités de votre panier", "err");
       location.hash = "#/panier";
       return;
     }
@@ -756,6 +811,17 @@ const VuePanier = (() => {
       bouton.disabled = false;
       bouton.innerHTML = libelle;
       UI.toast(err.message || "La commande n'a pas pu être enregistrée", "err");
+      /* LE STOCK A BOUGÉ depuis que ce téléphone a lu le catalogue : une
+         autre vente est passée. On relit, et on retourne au panier, où
+         les quantités se ramènent à ce qui reste — les coordonnées
+         tapées sont déjà gardées. La relecture est SILENCIEUSE : sinon
+         l'écran de commande se redessinait d'abord et ramenait le
+         panier sans rien dire, puis « Catalogue mis à jour » recouvrait
+         le refus — le client ne savait plus pourquoi il était là. */
+      if (/en stock pour|n'est plus disponible/.test(err.message || "")) {
+        try { await Catalogue.rafraichir({ silencieux: true }); } catch (_) { /* on garde ce qu'on a */ }
+        location.hash = "#/panier";
+      }
       return;
     }
 

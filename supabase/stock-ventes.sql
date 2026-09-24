@@ -1,154 +1,60 @@
 -- =========================================================
--- BIZZOO — le compte, pour commander
+-- BIZZOO — le stock suit les ventes
 --
--- Jusqu'ici on commandait sans compte : on laissait son nom,
--- son numéro, et la commande partait. C'était voulu — on
--- n'arrête pas un client au moment où il sort son argent.
---
--- Ce fichier pose de quoi CHANGER D'AVIS, sans rien casser :
---
---   1. une règle rangée en base, « compte_obligatoire », que
---      vous seul basculez depuis l'application admin ;
---   2. le refus lui-même, DANS « creer_commande » — pas à
---      l'écran. Un écran qui cache un bouton ne ferme rien :
---      il suffit d'appeler la fonction directement.
---
--- ELLE ARRIVE ÉTEINTE. Exécuter ce fichier ne change donc
--- rien aujourd'hui : on commande exactement comme hier. Vous
--- l'allumerez le jour où une porte d'inscription est ouverte
--- pour de bon — sans quoi vous fermeriez la caisse à un
--- client qui n'a aucun moyen d'ouvrir un compte.
---
--- Ce qui ne bouge pas : le catalogue, la recherche, le
--- panier. Un visiteur regarde et remplit son panier sans
--- compte, comme avant ; on ne lui demande rien tant qu'il
--- n'a pas décidé d'acheter.
---
--- À exécuter dans Supabase :
+-- À exécuter UNE FOIS dans Supabase :
 --   Dashboard → SQL Editor → New query → coller tout → Run.
+-- Se rejoue sans dommage.
 --
--- Sans danger : relançable, et rien n'est supprimé.
+-- CE QUE ÇA CHANGE.
+--
+--   1. UNE COMMANDE NE DÉPASSE PLUS LE STOCK. La base refusait un
+--      produit à zéro, mais dix pièces passaient quand il en restait
+--      trois. Elle compte désormais par produit, et répond au client
+--      « Plus que 3 en stock pour … ». Un produit « sur commande » ou
+--      en approvisionnement garde sa liberté : la boutique le fait
+--      venir.
+--
+--   2. UNE VENTE PAYÉE SORT DU STOCK, toute seule, au moment où la
+--      commande passe à « payée » — par l'agrégateur ou par l'enseigne
+--      à la main. Ce qui a été pris se note sur la ligne de commande.
+--      À zéro, le produit passe « En rupture » chez les clients, et la
+--      boutique en est prévenue.
+--
+--   3. UN PAIEMENT NE S'ANNULE JAMAIS À CAUSE DU STOCK. Si deux
+--      clients paient la dernière pièce à une seconde d'écart, le
+--      second passe quand même — l'argent est déjà chez l'agrégateur —,
+--      le stock s'arrête à zéro, et la boutique, l'enseigne et le
+--      superadministrateur sont prévenus qu'il manque des pièces.
+--
+--   4. UNE VENTE ANNULÉE REND SON STOCK — ce qu'elle avait pris, ni
+--      plus ni moins.
+--
+-- Les commandes déjà payées avant ce fichier ne sont pas reprises :
+-- leur stock a pu être corrigé à la main depuis, et le décompter une
+-- seconde fois fausserait ce qui est juste.
 -- =========================================================
 
--- ---------------------------------------------------------
--- 1. La règle
--- ---------------------------------------------------------
-create table if not exists public.reglages (
-  id                 int primary key default 1 check (id = 1),
-  compte_obligatoire boolean not null default false,
-  maj_le             timestamptz not null default now()
-);
--- Sur une base qui a déjà cette table, le corps ci-dessus n'est jamais
--- relu : chaque colonne se repose donc une par une.
-alter table public.reglages
-  add column if not exists compte_obligatoire boolean not null default false;
-alter table public.reglages
-  add column if not exists maj_le timestamptz not null default now();
-insert into public.reglages (id) values (1) on conflict (id) do nothing;
+-- Ce qu'une ligne a réellement pris au stock : c'est ce qui se rend.
+alter table public.commande_lignes
+  add column if not exists stock_pris int not null default 0 check (stock_pris >= 0);
 
-alter table public.reglages enable row level security;
-drop policy if exists "reglages lecture"  on public.reglages;
-drop policy if exists "reglages ecriture" on public.reglages;
+-- ---------- La commande, bornée au stock ----------
+-- Avec ce qu'elle appelle, pour qu'une base qui n'aurait pas reçu les
+-- fichiers précédents dans l'ordre ne s'arrête pas à la première vente.
 
--- L'application doit CONNAÎTRE la règle avant de dessiner son bouton :
--- elle se lit donc sans compte. Il n'y a rien de secret là-dedans.
-create policy "reglages lecture" on public.reglages
-  for select to anon, authenticated using (true);
--- La changer ferme ou rouvre la caisse de toute l'enseigne : vous seul.
-create policy "reglages ecriture" on public.reglages
-  for update to authenticated
-  using (public.est_super()) with check (public.est_super());
-
--- Ni « insert » ni « delete » pour personne : la ligne est unique et ne
--- doit pas pouvoir disparaître. Une table sans ligne répondrait « pas de
--- règle », et la porte se rouvrirait toute seule.
-revoke all on public.reglages from anon, authenticated;
-grant select on public.reglages to anon, authenticated;
--- « revoke all » puis « grant » par colonne, dans cet ordre : un droit
--- par colonne posé sur un droit de table déjà accordé ne retire rien.
-grant update (compte_obligatoire, maj_le) on public.reglages to authenticated;
-
--- ---------------------------------------------------------
--- 2. La règle, lue par la base elle-même
--- ---------------------------------------------------------
--- « security definer » parce que « creer_commande » l'appelle pour un
--- visiteur sans compte, et qu'on préfère ne dépendre d'aucun droit de
--- lecture au moment de décider.
---
--- Si la ligne manquait malgré tout, la réponse est « non ». Ce choix est
--- délibéré : la règle force une inscription, elle ne protège rien. Un
--- accident doit laisser la boutique vendre, pas verrouiller la caisse un
--- samedi soir sans personne pour la rouvrir.
 create or replace function public.compte_exige() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select r.compte_obligatoire from public.reglages r where r.id = 1), false);
 $$;
+
 revoke all on function public.compte_exige() from public, anon, authenticated;
 grant execute on function public.compte_exige() to anon, authenticated;
 
--- ---------------------------------------------------------
--- 3. Le refus, là où il tient : dans « creer_commande »
--- ---------------------------------------------------------
--- La fonction ci-dessous est celle de « schema.sql », recopiée telle
--- quelle. Elle gagne deux choses : elle retient qu'un compte de l'équipe
--- N'EST PAS personne, et elle demande à « compte_exige() » si la porte
--- est fermée. Tout le reste — les prix pris en base, le stock, la
--- monnaie unique — est inchangé.
--- ---------------------------------------------------------
--- Ce dont les codes promo ont besoin, recopié ici
--- ---------------------------------------------------------
--- « creer_commande » applique désormais un code promo. Un fichier
--- qui pose une fonction pose aussi les fonctions qu'elle appelle :
--- collé seul sur une base d'avant les codes, celui-ci passerait sans
--- broncher et s'arrêterait à la première commande.
--- Sur une base qui les a déjà, ce bloc ne fait rien.
-
-alter table public.commandes add column if not exists code_promo text not null default '';
-alter table public.commandes add column if not exists remise bigint not null default 0;
-
-create table if not exists public.codes_promo (
-  code     text primary key,
-  libelle  text not null default '',
-  mode     text not null default 'pourcent'
-           check (mode in ('pourcent', 'montant')),
-  valeur   numeric(10,2) not null default 0,
-  -- Montant minimum de commande. Sans lui, « 20 % » s'applique aussi à
-  -- un panier de 500 francs.
-  minimum  bigint not null default 0,
-  -- 0 = sans limite. Voir « utilisations » plus bas : ce sont les
-  -- commandes PAYÉES qui comptent, pas les paniers abandonnés.
-  maximum  int not null default 0,
-  une_par_client boolean not null default true,
-  fin      date,
-  actif    boolean not null default true,
-  cree_le  timestamptz not null default now(),
-  cree_par text not null default ''
-);
-
-alter table public.codes_promo enable row level security;
-drop policy if exists "codes lecture" on public.codes_promo;
--- L'enseigne seule voit la liste. Un client ne doit PAS pouvoir lire la
--- table : il y trouverait tous les codes en cours, y compris ceux qui
--- ne lui étaient pas destinés. Il passe par « verifier_code », qui
--- répond sur un code qu'il connaît déjà et ne révèle rien d'autre.
-create policy "codes lecture" on public.codes_promo
-  for select to authenticated using (public.est_super());
-revoke all on public.codes_promo from anon, authenticated;
-grant select on public.codes_promo to authenticated;
-
--- Un code se tape à la main, sur un téléphone : « rentree2026 »,
--- « Rentrée 2026 », « RENTREE-2026 » doivent désigner le même code.
 create or replace function public.code_normalise(brut text) returns text
 language sql immutable as $$
   select left(regexp_replace(upper(coalesce(brut, '')), '[^A-Z0-9]', '', 'g'), 24);
 $$;
 
--- ---------- Ce que vaut une commande ----------
--- Le total, c'est la somme de ses lignes MOINS la remise d'un code
--- promo. La règle vit ici, en un seul endroit : le déclencheur des
--- lignes l'appelle, et l'application d'un code aussi. Deux endroits
--- finiraient par diverger, et un client paierait un montant que la
--- base n'aurait pas calculé.
 create or replace function public.commande_total(cible text) returns void
 language plpgsql security definer set search_path = public as $$
 declare avant text := coalesce(current_setting('bizzoo.interne', true), '');
@@ -167,16 +73,9 @@ begin
    where c.id = cible;
   perform set_config('bizzoo.interne', avant, true);
 end $$;
+
 revoke all on function public.commande_total(text) from public, anon, authenticated;
 
--- LA RÈGLE, EN UN SEUL ENDROIT. L'écran du panier l'appelle pour
--- annoncer la remise ; la caisse l'appelle pour l'appliquer. Deux
--- calculs séparés finiraient par diverger, et le client verrait un
--- montant puis en paierait un autre — c'est déjà la règle que suivent
--- « mes_prix » et « ligne_a_l_ecriture » pour les prix revendeur.
---
--- Rend un objet : { ok, remise, raison }. « raison » est écrite pour
--- être montrée telle quelle au client.
 create or replace function public.remise_du_code(
   brut text, sous_total bigint, marge bigint,
   qui uuid default null, tel text default '')
@@ -256,13 +155,12 @@ begin
   end if;
   return jsonb_build_object('ok', true, 'remise', brute, 'raison', '');
 end $$;
+
 revoke all on function public.remise_du_code(text, bigint, bigint, uuid, text)
   from public, anon, authenticated;
 
--- « drop » avant « create » : cette fonction a gagné un paramètre — le
--- code promo. Un paramètre par défaut n'en remplace pas une, il en crée
--- une seconde, et l'appel devient ambigu : « function is not unique ».
 drop function if exists public.creer_commande(jsonb, jsonb);
+
 create or replace function public.creer_commande(
   client jsonb, articles jsonb, code text default '')
 returns jsonb
@@ -448,19 +346,237 @@ end $$;
 revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
 grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
 
--- ---------- Vérification ----------
--- Trois lignes : la règle telle qu'elle est aujourd'hui, et le fait que
--- « creer_commande » sait désormais la lire.
+-- ---------- Qui prévenir ----------
+
+create or replace function public.equipe_de(cible text) returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(p.id), '{}'::uuid[])
+    from public.profils p
+   where p.actif and cible is not null and p.boutique_id = cible
+     and p.role in ('administrateur', 'moderateur');
+$$;
+
+create or replace function public.enseigne_des_commandes() returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(p.id), '{}'::uuid[])
+    from public.profils p
+   where p.actif and p.boutique_id is null and p.peut_commandes
+     and p.role in ('administrateur', 'moderateur');
+$$;
+
+create or replace function public.les_superadmins() returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(p.id), '{}'::uuid[])
+    from public.profils p
+   where p.actif and p.role = 'superadministrateur';
+$$;
+
+revoke all on function public.equipe_de(text)            from public, anon, authenticated;
+revoke all on function public.enseigne_des_commandes()   from public, anon, authenticated;
+revoke all on function public.les_superadmins()          from public, anon, authenticated;
+
+create or replace function public.notifier(
+  qui uuid[], quoi text, le_titre text, le_corps text,
+  le_lien text, la_commande text, la_boutique text, qui_sonne boolean)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int := 0;
+begin
+  if qui is null or array_length(qui, 1) is null then return 0; end if;
+  insert into public.notifications
+    (destinataire, type, titre, corps, lien, commande_id, boutique_id, sonne)
+  select u, quoi, coalesce(le_titre, ''), coalesce(le_corps, ''),
+         coalesce(le_lien, ''), la_commande, la_boutique, coalesce(qui_sonne, false)
+    from unnest(qui) as u
+   where u is not null
+  on conflict do nothing;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+
+revoke all on function public.notifier(uuid[], text, text, text, text, text, text, boolean)
+  from public, anon, authenticated;
+
+-- ---------- Le décompte, et le retour ----------
+
+create or replace function public.stock_rendre(ligne text) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  l record;
+begin
+  select cl.id, cl.produit_id, cl.stock_pris into l
+    from public.commande_lignes cl
+   where cl.id = ligne and cl.stock_pris > 0
+   for update;
+  if not found then return 0; end if;
+  begin
+    if l.produit_id is not null then
+      update public.produits
+         set stock = greatest(coalesce(stock, 0), 0) + l.stock_pris,
+             disponible = true
+       where id = l.produit_id;
+    end if;
+    update public.commande_lignes set stock_pris = 0 where id = l.id;
+  exception when others then
+    -- Une annulation ne se bloque pas pour autant : la trace reste, et
+    -- l'on pourra rendre plus tard.
+    raise warning 'stock_rendre(%) : %', ligne, sqlerrm;
+    return 0;
+  end;
+  return l.stock_pris;
+end $$;
+
+revoke all on function public.stock_rendre(text) from public, anon, authenticated;
+
+create or replace function public.commande_stock() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  l        record;
+  avant    int;
+  pris     int;
+  appro    boolean;
+  numero   text := coalesce(new.numero, '');
+  -- Par boutique, ce qu'il faudra lui dire. Une notification par
+  -- boutique et par commande, pas une par produit : trois articles
+  -- épuisés d'un coup se lisent en une ligne.
+  epuises  jsonb := '{}'::jsonb;
+  manques  jsonb := '{}'::jsonb;
+  ratees   jsonb := '{}'::jsonb;
+  b        text;
+  liste    text;
+begin
+  -- ---- Annulée après paiement : tout ce qui avait été pris revient ----
+  if old.etat = 'payee' and new.etat is distinct from 'payee' then
+    for l in select cl.id from public.commande_lignes cl
+              where cl.commande_id = new.id and cl.stock_pris > 0
+              order by cl.produit_id, cl.id loop
+      perform public.stock_rendre(l.id);
+    end loop;
+    return null;
+  end if;
+
+  if new.etat is distinct from 'payee' or old.etat = 'payee' then
+    return null;
+  end if;
+
+  -- ---- Payée : on prend ----
+  -- Dans l'ordre des produits : deux paiements simultanés verrouillent
+  -- leurs produits dans le même ordre, et ne s'attendent jamais en croix.
+  for l in select cl.id, cl.produit_id, coalesce(cl.boutique_id, '') as boutique,
+                  cl.nom, cl.quantite
+             from public.commande_lignes cl
+            where cl.commande_id = new.id and cl.etat <> 'annulee'
+              and cl.stock_pris = 0 and cl.produit_id is not null
+            order by cl.produit_id, cl.id loop
+    begin
+      select greatest(coalesce(p.stock, 0), 0),
+             (p.appro_le is not null and p.appro_le >= current_date)
+        into avant, appro
+        from public.produits p
+       where p.id = l.produit_id and not coalesce(p.sur_commande, false)
+       for update;
+      -- « Sur commande » : la boutique le fait venir, il n'y a rien à compter.
+      if not found then continue; end if;
+
+      pris := least(avant, l.quantite);
+      if pris > 0 then
+        update public.produits
+           set stock = avant - pris,
+               disponible = (avant - pris) > 0
+         where id = l.produit_id;
+        update public.commande_lignes set stock_pris = pris where id = l.id;
+      end if;
+
+      -- En approvisionnement, ce qui manque ARRIVE : c'est ce que la
+      -- boutique a annoncé, pas une vente de trop.
+      if pris < l.quantite and not appro then
+        manques := jsonb_set(manques, array[l.boutique],
+          coalesce(manques -> l.boutique, '[]'::jsonb) ||
+          to_jsonb(l.nom || ' (' || l.quantite || ' vendu' ||
+                   case when l.quantite > 1 then 's' else '' end ||
+                   ', ' || avant || ' en stock)'));
+      elsif pris > 0 and avant - pris = 0 then
+        epuises := jsonb_set(epuises, array[l.boutique],
+          coalesce(epuises -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+      end if;
+    exception when others then
+      -- Le produit refuse l'écriture — un rayon devenu incohérent, par
+      -- exemple. Le paiement, lui, passe : on le dit à qui peut corriger.
+      ratees := jsonb_set(ratees, array[l.boutique],
+        coalesce(ratees -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+      raise warning 'commande_stock(%) : % — %', new.id, l.nom, sqlerrm;
+    end;
+  end loop;
+
+  -- ---- Ce que la boutique doit savoir ----
+  -- Une notification ratée n'annule pas un paiement non plus.
+  begin
+    for b in select jsonb_object_keys(manques) loop
+      select string_agg(x, ', ') into liste from jsonb_array_elements_text(manques -> b) x;
+      perform public.notifier(
+        public.equipe_de(nullif(b, '')) || public.enseigne_des_commandes() || public.les_superadmins(),
+        'stock_insuffisant', 'Stock insuffisant',
+        'Commande ' || numero || ' payée, mais il manque des pièces : ' || liste ||
+          '. Voyez avec le client.',
+        '#/commandes/' || new.id, new.id, nullif(b, ''), true);
+    end loop;
+    for b in select jsonb_object_keys(epuises) loop
+      select string_agg(x, ', ') into liste from jsonb_array_elements_text(epuises -> b) x;
+      perform public.notifier(public.equipe_de(nullif(b, '')),
+        'stock_epuise', 'Rupture de stock',
+        liste || ' : plus aucune pièce après la commande ' || numero ||
+          '. Vos clients voient « En rupture ».',
+        '#/stock?filtre=rupture', new.id, nullif(b, ''), false);
+    end loop;
+    for b in select jsonb_object_keys(ratees) loop
+      select string_agg(x, ', ') into liste from jsonb_array_elements_text(ratees -> b) x;
+      perform public.notifier(
+        public.equipe_de(nullif(b, '')) || public.les_superadmins(),
+        'stock_a_verifier', 'Stock à vérifier',
+        'Commande ' || numero || ' payée, mais le stock de ' || liste ||
+          ' n''a pas pu être décompté. Corrigez-le à la main.',
+        '#/stock', new.id, nullif(b, ''), true);
+    end loop;
+  exception when others then
+    raise warning 'commande_stock(%) notifications : %', new.id, sqlerrm;
+  end;
+  return null;
+end $$;
+
+drop trigger if exists commandes_stock on public.commandes;
+create trigger commandes_stock
+  after update of etat on public.commandes
+  for each row execute function public.commande_stock();
+
+create or replace function public.ligne_stock() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.etat = 'annulee' and old.etat is distinct from 'annulee' and new.stock_pris > 0 then
+    perform public.stock_rendre(new.id);
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists lignes_stock on public.commande_lignes;
+create trigger lignes_stock
+  after update of etat on public.commande_lignes
+  for each row execute function public.ligne_stock();
+
+-- Vérification : la trace, le décompte, le retour, la borne — et
+-- personne qui rende du stock à la main.
 select
-  case when (select r.compte_obligatoire from public.reglages r where r.id = 1)
-       then 'ALLUMÉE — plus de commande sans compte'
-       else 'éteinte — on commande sans compte, comme avant' end   as "la règle",
-  case when exists (select 1 from pg_proc pr join pg_namespace n on n.oid = pr.pronamespace
-                     where n.nspname = 'public' and pr.proname = 'compte_exige')
-       then 'en place' else 'MANQUANTE' end                        as "compte_exige()",
-  case when (select pg_get_functiondef(pr.oid) from pg_proc pr
-               join pg_namespace n on n.oid = pr.pronamespace
-              where n.nspname = 'public' and pr.proname = 'creer_commande'
-              limit 1) like '%compte_exige%'
-       then 'la commande consulte la règle'
-       else 'NON : la commande ignore la règle' end                as "creer_commande";
+  exists (select 1 from information_schema.columns
+           where table_schema = 'public' and table_name = 'commande_lignes'
+             and column_name = 'stock_pris')                         as "Trace du stock pris",
+  exists (select 1 from pg_trigger
+           where tgrelid = 'public.commandes'::regclass
+             and tgname = 'commandes_stock')                         as "Décompte au paiement",
+  exists (select 1 from pg_trigger
+           where tgrelid = 'public.commande_lignes'::regclass
+             and tgname = 'lignes_stock')                            as "Retour à l'annulation",
+  exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public' and p.proname = 'creer_commande'
+             and p.prosrc like '%en stock pour%')                    as "Commande bornée au stock",
+  not has_function_privilege('anon', 'public.stock_rendre(text)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.stock_rendre(text)', 'EXECUTE')
+                                                                     as "Personne ne rend à la main";

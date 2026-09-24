@@ -756,6 +756,7 @@ declare
   sous_total bigint;
   marge    bigint;
   verdict  jsonb;
+  manque   record;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -821,6 +822,36 @@ begin
     insert into public.commande_lignes (id, commande_id, produit_id, quantite)
     values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
   end loop;
+
+  -- LA QUANTITÉ TIENT DANS LE STOCK. Refuser un produit à zéro ne
+  -- suffisait pas : dix pièces demandées quand il en restait trois
+  -- passaient, et la boutique découvrait après le paiement qu'elle ne
+  -- pourrait pas servir. On compte PAR PRODUIT, pas par ligne : deux
+  -- lignes du même article ne font pas deux stocks. Un produit « sur
+  -- commande » ou en approvisionnement n'a pas de plafond — la boutique
+  -- le fait venir, c'est ce qu'elle annonce.
+  --
+  -- Ce contrôle ne RÉSERVE rien : entre la commande et le paiement, un
+  -- autre client peut prendre les dernières pièces. C'est le paiement
+  -- qui décompte, et il sait quoi faire s'il n'en reste plus assez
+  -- (« commande_stock », plus bas).
+  -- « pr » et non « p » : « p » est déjà la variable de la boucle, et
+  -- PostgreSQL ne saurait pas lequel des deux on désigne.
+  select pr.nom, greatest(coalesce(pr.stock, 0), 0) as reste
+    into manque
+    from public.commande_lignes l
+    join public.produits pr on pr.id = l.produit_id
+   where l.commande_id = nouvelle
+     and not coalesce(pr.sur_commande, false)
+     and (pr.appro_le is null or pr.appro_le < current_date)
+   group by pr.id, pr.nom, pr.stock
+  having sum(l.quantite) > greatest(coalesce(pr.stock, 0), 0)
+   order by pr.nom
+   limit 1;
+  if found then
+    raise exception 'Plus que % en stock pour « % » : réduisez la quantité dans votre panier.',
+      manque.reste, manque.nom;
+  end if;
 
   if (select count(distinct d) from unnest(devises) d) > 1 then
     raise exception 'Ces produits ne se paient pas dans la même monnaie : commandez boutique par boutique.';

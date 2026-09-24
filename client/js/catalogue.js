@@ -400,8 +400,12 @@ const Catalogue = (() => {
    * Recharge le catalogue depuis la base sans rien casser à l'écran.
    * Émet "catalogue:maj" uniquement si quelque chose a changé.
    * Renvoie true dans ce cas.
+   *
+   * « silencieux » : l'appelant redessine lui-même, et a quelque chose
+   * à dire. Sans cela, l'écran se redessinait deux fois et « Catalogue
+   * mis à jour » recouvrait l'explication qu'on venait de donner.
    */
-  async function rafraichir() {
+  async function rafraichir(options) {
     const c = configuration();
     if (!c) return false;
     let frais;
@@ -416,7 +420,9 @@ const Catalogue = (() => {
     source = "reseau";
     ecrireCache(frais);
     signalerAndroid();
-    if (change) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    if (change && !(options && options.silencieux)) {
+      document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    }
     return change;
   }
 

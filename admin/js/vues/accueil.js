@@ -158,6 +158,37 @@ const VueAccueil = (() => {
         "</a>";
     }
 
+    /* ---- Le stock ----
+       Chaque vente payée se décompte toute seule : ce qui reste à voir,
+       c'est ce qui manque — avant que le client ne le voie. La carte se
+       fait pressante quand il y a une rupture ou un stock bas, et reste
+       un simple chemin vers l'écran Stock quand tout va bien. */
+    const ruptures = produits.filter((p) => Store.statut(p) === "rupture").length;
+    const stockBas = produits.filter((p) =>
+      Store.statut(p) === "disponible" && p.stock <= Store.STOCK_BAS).length;
+    if (produits.length) {
+      const pressant = ruptures || stockBas;
+      const quoi = [
+        ruptures ? ruptures + " produit" + (ruptures > 1 ? "s" : "") + " en rupture" : "",
+        stockBas ? stockBas + " bientôt épuisé" + (stockBas > 1 ? "s" : "") : "",
+      ].filter(Boolean).join(" · ");
+      html +=
+        '<a class="carte' + (pressant ? " carte-publier" : "") + '" id="carte-stock" href="#/stock' +
+          (ruptures ? "?filtre=rupture" : stockBas ? "?filtre=bas" : "") + '">' +
+          '<div class="carte-titre">' + UI.icone(pressant ? "alerte" : "boite", "ic-sm") + " " +
+            (pressant ? quoi : "Stock de la boutique") + "</div>" +
+          '<p class="aide" style="margin:0">' +
+            (pressant
+              ? "Chaque vente payée se décompte toute seule. Touchez pour voir ce qui manque" +
+                (Supabase.peutModifierProduits() ? " et saisir un arrivage." : ".")
+              : "Tout est en stock. Chaque vente payée se décompte toute seule" +
+                (Supabase.peutModifierProduits()
+                  ? " — touchez pour saisir un arrivage ou corriger un chiffre."
+                  : ".")) +
+          "</p>" +
+        "</a>";
+    }
+
     /* ---- Les ventes encaissées ----
        La question qu'on se pose en ouvrant l'application. Mais pas la
        même selon qui ouvre : l'enseigne veut savoir ce qu'elle garde,

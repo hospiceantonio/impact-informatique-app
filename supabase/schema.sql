@@ -3427,6 +3427,7 @@ declare
   sous_total bigint;
   marge    bigint;
   verdict  jsonb;
+  manque   record;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -3492,6 +3493,36 @@ begin
     insert into public.commande_lignes (id, commande_id, produit_id, quantite)
     values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
   end loop;
+
+  -- LA QUANTITÉ TIENT DANS LE STOCK. Refuser un produit à zéro ne
+  -- suffisait pas : dix pièces demandées quand il en restait trois
+  -- passaient, et la boutique découvrait après le paiement qu'elle ne
+  -- pourrait pas servir. On compte PAR PRODUIT, pas par ligne : deux
+  -- lignes du même article ne font pas deux stocks. Un produit « sur
+  -- commande » ou en approvisionnement n'a pas de plafond — la boutique
+  -- le fait venir, c'est ce qu'elle annonce.
+  --
+  -- Ce contrôle ne RÉSERVE rien : entre la commande et le paiement, un
+  -- autre client peut prendre les dernières pièces. C'est le paiement
+  -- qui décompte, et il sait quoi faire s'il n'en reste plus assez
+  -- (« commande_stock », plus bas).
+  -- « pr » et non « p » : « p » est déjà la variable de la boucle, et
+  -- PostgreSQL ne saurait pas lequel des deux on désigne.
+  select pr.nom, greatest(coalesce(pr.stock, 0), 0) as reste
+    into manque
+    from public.commande_lignes l
+    join public.produits pr on pr.id = l.produit_id
+   where l.commande_id = nouvelle
+     and not coalesce(pr.sur_commande, false)
+     and (pr.appro_le is null or pr.appro_le < current_date)
+   group by pr.id, pr.nom, pr.stock
+  having sum(l.quantite) > greatest(coalesce(pr.stock, 0), 0)
+   order by pr.nom
+   limit 1;
+  if found then
+    raise exception 'Plus que % en stock pour « % » : réduisez la quantité dans votre panier.',
+      manque.reste, manque.nom;
+  end if;
 
   if (select count(distinct d) from unnest(devises) d) > 1 then
     raise exception 'Ces produits ne se paient pas dans la même monnaie : commandez boutique par boutique.';
@@ -4479,6 +4510,197 @@ drop trigger if exists lignes_notifient on public.commande_lignes;
 create trigger lignes_notifient
   after update on public.commande_lignes
   for each row execute function public.notifier_ligne();
+
+-- ---------- Le stock suit les ventes ----------
+-- UNE VENTE PAYÉE SORT DU STOCK, et c'est la base qui la sort : ni
+-- l'application ni l'agrégateur n'ont à y penser, et le paiement à la
+-- main par l'enseigne passe par le même chemin. Le décompte se fait au
+-- passage à « payée », pas à la commande : une commande qu'on ne paie
+-- jamais n'a rien pris à personne, et la réserver bloquerait la
+-- dernière pièce pour un client parti.
+--
+-- CE QUI A ÉTÉ PRIS SE NOTE sur la ligne : c'est ce qui se rend si la
+-- vente est annulée, ni plus ni moins. Sans cette trace, une annulation
+-- rendrait ce qui avait été commandé — y compris des pièces qui
+-- n'avaient jamais été là.
+--
+-- UN PAIEMENT NE S'ANNULE JAMAIS À CAUSE DU STOCK. L'argent est déjà
+-- chez l'agrégateur : refuser l'écriture, ce serait un client débité et
+-- une commande qui reste « à payer ». Deux clients peuvent payer la
+-- dernière pièce à une seconde d'écart ; le second passe, le stock
+-- s'arrête à zéro, et la boutique est prévenue qu'il manque des pièces.
+alter table public.commande_lignes
+  add column if not exists stock_pris int not null default 0 check (stock_pris >= 0);
+
+-- Rendre au stock ce qu'une ligne avait pris. Une seule fois : la trace
+-- repasse à zéro, et un second appel ne rend rien.
+create or replace function public.stock_rendre(ligne text) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  l record;
+begin
+  select cl.id, cl.produit_id, cl.stock_pris into l
+    from public.commande_lignes cl
+   where cl.id = ligne and cl.stock_pris > 0
+   for update;
+  if not found then return 0; end if;
+  begin
+    if l.produit_id is not null then
+      update public.produits
+         set stock = greatest(coalesce(stock, 0), 0) + l.stock_pris,
+             disponible = true
+       where id = l.produit_id;
+    end if;
+    update public.commande_lignes set stock_pris = 0 where id = l.id;
+  exception when others then
+    -- Une annulation ne se bloque pas pour autant : la trace reste, et
+    -- l'on pourra rendre plus tard.
+    raise warning 'stock_rendre(%) : %', ligne, sqlerrm;
+    return 0;
+  end;
+  return l.stock_pris;
+end $$;
+-- Rien ni personne ne l'appelle de l'extérieur : rendre du stock sans
+-- annulation, ce serait en fabriquer.
+revoke all on function public.stock_rendre(text) from public, anon, authenticated;
+
+create or replace function public.commande_stock() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  l        record;
+  avant    int;
+  pris     int;
+  appro    boolean;
+  numero   text := coalesce(new.numero, '');
+  -- Par boutique, ce qu'il faudra lui dire. Une notification par
+  -- boutique et par commande, pas une par produit : trois articles
+  -- épuisés d'un coup se lisent en une ligne.
+  epuises  jsonb := '{}'::jsonb;
+  manques  jsonb := '{}'::jsonb;
+  ratees   jsonb := '{}'::jsonb;
+  b        text;
+  liste    text;
+begin
+  -- ---- Annulée après paiement : tout ce qui avait été pris revient ----
+  if old.etat = 'payee' and new.etat is distinct from 'payee' then
+    for l in select cl.id from public.commande_lignes cl
+              where cl.commande_id = new.id and cl.stock_pris > 0
+              order by cl.produit_id, cl.id loop
+      perform public.stock_rendre(l.id);
+    end loop;
+    return null;
+  end if;
+
+  if new.etat is distinct from 'payee' or old.etat = 'payee' then
+    return null;
+  end if;
+
+  -- ---- Payée : on prend ----
+  -- Dans l'ordre des produits : deux paiements simultanés verrouillent
+  -- leurs produits dans le même ordre, et ne s'attendent jamais en croix.
+  for l in select cl.id, cl.produit_id, coalesce(cl.boutique_id, '') as boutique,
+                  cl.nom, cl.quantite
+             from public.commande_lignes cl
+            where cl.commande_id = new.id and cl.etat <> 'annulee'
+              and cl.stock_pris = 0 and cl.produit_id is not null
+            order by cl.produit_id, cl.id loop
+    begin
+      select greatest(coalesce(p.stock, 0), 0),
+             (p.appro_le is not null and p.appro_le >= current_date)
+        into avant, appro
+        from public.produits p
+       where p.id = l.produit_id and not coalesce(p.sur_commande, false)
+       for update;
+      -- « Sur commande » : la boutique le fait venir, il n'y a rien à compter.
+      if not found then continue; end if;
+
+      pris := least(avant, l.quantite);
+      if pris > 0 then
+        update public.produits
+           set stock = avant - pris,
+               disponible = (avant - pris) > 0
+         where id = l.produit_id;
+        update public.commande_lignes set stock_pris = pris where id = l.id;
+      end if;
+
+      -- En approvisionnement, ce qui manque ARRIVE : c'est ce que la
+      -- boutique a annoncé, pas une vente de trop.
+      if pris < l.quantite and not appro then
+        manques := jsonb_set(manques, array[l.boutique],
+          coalesce(manques -> l.boutique, '[]'::jsonb) ||
+          to_jsonb(l.nom || ' (' || l.quantite || ' vendu' ||
+                   case when l.quantite > 1 then 's' else '' end ||
+                   ', ' || avant || ' en stock)'));
+      elsif pris > 0 and avant - pris = 0 then
+        epuises := jsonb_set(epuises, array[l.boutique],
+          coalesce(epuises -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+      end if;
+    exception when others then
+      -- Le produit refuse l'écriture — un rayon devenu incohérent, par
+      -- exemple. Le paiement, lui, passe : on le dit à qui peut corriger.
+      ratees := jsonb_set(ratees, array[l.boutique],
+        coalesce(ratees -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+      raise warning 'commande_stock(%) : % — %', new.id, l.nom, sqlerrm;
+    end;
+  end loop;
+
+  -- ---- Ce que la boutique doit savoir ----
+  -- Une notification ratée n'annule pas un paiement non plus.
+  begin
+    for b in select jsonb_object_keys(manques) loop
+      select string_agg(x, ', ') into liste from jsonb_array_elements_text(manques -> b) x;
+      perform public.notifier(
+        public.equipe_de(nullif(b, '')) || public.enseigne_des_commandes() || public.les_superadmins(),
+        'stock_insuffisant', 'Stock insuffisant',
+        'Commande ' || numero || ' payée, mais il manque des pièces : ' || liste ||
+          '. Voyez avec le client.',
+        '#/commandes/' || new.id, new.id, nullif(b, ''), true);
+    end loop;
+    for b in select jsonb_object_keys(epuises) loop
+      select string_agg(x, ', ') into liste from jsonb_array_elements_text(epuises -> b) x;
+      perform public.notifier(public.equipe_de(nullif(b, '')),
+        'stock_epuise', 'Rupture de stock',
+        liste || ' : plus aucune pièce après la commande ' || numero ||
+          '. Vos clients voient « En rupture ».',
+        '#/stock?filtre=rupture', new.id, nullif(b, ''), false);
+    end loop;
+    for b in select jsonb_object_keys(ratees) loop
+      select string_agg(x, ', ') into liste from jsonb_array_elements_text(ratees -> b) x;
+      perform public.notifier(
+        public.equipe_de(nullif(b, '')) || public.les_superadmins(),
+        'stock_a_verifier', 'Stock à vérifier',
+        'Commande ' || numero || ' payée, mais le stock de ' || liste ||
+          ' n''a pas pu être décompté. Corrigez-le à la main.',
+        '#/stock', new.id, nullif(b, ''), true);
+    end loop;
+  exception when others then
+    raise warning 'commande_stock(%) notifications : %', new.id, sqlerrm;
+  end;
+  return null;
+end $$;
+
+-- « of etat » : le total qui suit ses lignes réécrit aussi la commande,
+-- et ne doit rien décompter.
+drop trigger if exists commandes_stock on public.commandes;
+create trigger commandes_stock
+  after update of etat on public.commandes
+  for each row execute function public.commande_stock();
+
+-- Une ligne annulée à part — une boutique qui ne peut pas servir sa
+-- part — rend ce qu'elle avait pris.
+create or replace function public.ligne_stock() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.etat = 'annulee' and old.etat is distinct from 'annulee' and new.stock_pris > 0 then
+    perform public.stock_rendre(new.id);
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists lignes_stock on public.commande_lignes;
+create trigger lignes_stock
+  after update of etat on public.commande_lignes
+  for each row execute function public.ligne_stock();
 
 -- ---------- Ce que l'application demande ----------
 -- Combien n'ai-je pas lu ? Une seule question, une seule réponse : la
