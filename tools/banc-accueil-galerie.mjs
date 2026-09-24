@@ -83,7 +83,11 @@ const A_LA_UNE = [2, 5, 11, 13];
 const CATEGORIES = Array.from({ length: 15 }, (_, i) => ({
   id: "cat_" + (i + 1), nom: "Rayon " + String(i + 1).padStart(2, "0"),
   icone: "categories", couleur: "#0B5CF5", image: "",
-  en_avant: A_LA_UNE.includes(i + 1), ordre: i + 1, sous_categories: [],
+  en_avant: A_LA_UNE.includes(i + 1), ordre: i + 1,
+  /* La 2 a deux rayons : ouverte, elle montre d'abord leur liste. */
+  sous_categories: i + 1 === 2
+    ? [{ id: "sc_2a", nom: "Ordinateurs", ordre: 1 }, { id: "sc_2b", nom: "Écrans", ordre: 2 }]
+    : [],
 }));
 /* Des produits dans 2, 5, 7, 9 et 14 : les places libres iront à 7, 9
    et 14 (ils ont des produits), puis à 1 (le premier des vides). */
@@ -102,7 +106,9 @@ const PRODUITS = Array.from({ length: NB }, (_, i) => ({
   prix: 1000 + ((i * 37) % 50) * 500,
   ancien_prix: i === 7 ? 25000 : null,
   boutique_id: "bou_" + (i % BOUTIQUES.length),
-  categorie_id: RAYONS_PLEINS[i % RAYONS_PLEINS.length], sous_categorie_id: null,
+  categorie_id: RAYONS_PLEINS[i % RAYONS_PLEINS.length],
+  sous_categorie_id: RAYONS_PLEINS[i % RAYONS_PLEINS.length] === "cat_2"
+    ? (i % 2 ? "sc_2a" : "sc_2b") : null,
   stock: 5, disponible: true, sur_commande: false, appro_le: null, flash_fin: null,
   images: ["pho_" + i + ".png"], video: "", en_avant: false, ordre_avant: 0,
   cree_le: new Date(t0 + i * 60000).toISOString(),
@@ -473,6 +479,55 @@ titre("5. Le catalogue d'une boutique se remplit de la même façon");
   const tous = PRODUITS.filter((p) => p.boutique_id === "bou_0");
   ok(m.n === Math.min(20, tous.length) && m.etiquettes === 0 && /Produits/.test(m.titre),
     "la boutique visitée seule, par lot (" + m.n + " sur " + tous.length + "), sans étiquette de boutique");
+  ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+/* ================================================================== */
+titre("6. La loupe, sur chaque écran où l'on parcourt des produits");
+{
+  /* LE CHEMIN SIGNALÉ, tel quel : l'accueil, un rond de catégorie, et
+     plus de recherche. Sur l'accueil elle est la pilule du haut ; entré
+     dans la catégorie, elle doit être la loupe de l'en-tête. */
+  const { page, ctx, erreurs } = await ouvrir();
+  const loupe = () => page.evaluate(() => {
+    const a = document.querySelector('#topbar a.btn-ic[href="#/recherche"]');
+    return a ? a.getAttribute("aria-label") : "";
+  });
+  await page.click('.cat-ronds a[href="#/categorie/cat_2"]');
+  await page.waitForTimeout(1100);
+  ok(await page.evaluate(() => location.hash) === "#/categorie/cat_2" &&
+     !!(await page.$(".sous-rayon, .ligne-sous-rayon, a[href^='#/categorie/cat_2?sc=']")),
+    "un rond de l'accueil ouvre la catégorie, sur la liste de ses rayons");
+  ok(/Rechercher/.test(await loupe()), "la loupe est là, dans l'en-tête de la catégorie");
+  await page.click('a[href="#/categorie/cat_2?sc=tout"]');
+  await page.waitForTimeout(1100);
+  ok(!!(await page.$("#vue .p-grille .p-carte")) && /Rechercher/.test(await loupe()),
+    "entré dans les produits de la catégorie, la loupe y est toujours");
+  await page.click('#topbar a.btn-ic[href="#/recherche"]');
+  await page.waitForTimeout(1000);
+  ok(await page.evaluate(() => location.hash) === "#/recherche" && !!(await page.$("#recherche-champ")),
+    "la toucher ouvre la recherche");
+  await page.goBack();
+  await page.waitForTimeout(1000);
+  ok(await page.evaluate(() => location.hash) === "#/categorie/cat_2?sc=tout",
+    "et le retour ramène aux produits de la catégorie");
+
+  /* Et partout ailleurs où l'on parcourt : aucun écran ne l'oublie. */
+  const ecrans = [
+    ["#/categorie/cat_2?sc=sc_2a", "un rayon d'une catégorie"],
+    ["#/categorie/cat_7", "une catégorie sans rayon (grille directe)"],
+    ["#/promos", "les promotions"],
+    ["#/categories", "l'onglet « Catégories »"],
+    ["#/boutiques", "la liste des boutiques"],
+    ["#/boutique/bou_0", "la fiche d'une boutique"],
+    ["#/produits", "le catalogue d'une boutique"],
+    ["#/nos-produits", "la galerie « Nos produits »"],
+  ];
+  for (const [hash, quoi] of ecrans) {
+    await aller(page, hash, 1000);
+    ok(/Rechercher/.test(await loupe()), quoi + " : la loupe est dans l'en-tête");
+  }
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

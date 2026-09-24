@@ -877,6 +877,17 @@ const UI = (() => {
     );
   }
 
+  /* ---------- La loupe, ailleurs que sur l'accueil ----------
+     La recherche n'est plus un onglet : sur l'accueil, c'est la pilule ;
+     partout où l'on parcourt des produits ou des boutiques, c'est cette
+     loupe, en tête d'écran. Elle manquait dans une catégorie : entré par
+     un rond de l'accueil, on ne pouvait plus chercher qu'en y revenant.
+     Une seule fonction, pour qu'aucun écran ne l'oublie plus. */
+  function boutonRecherche() {
+    return '<a class="btn-ic" href="#/recherche" aria-label="Rechercher un produit">' +
+      icone("recherche") + "</a>";
+  }
+
   /* ---------- L'action du bas d'un écran de parcours ----------
      « Ajouter au panier », « Passer la commande », « Payer » : fixée au
      bas de l'écran, à la place de la barre d'onglets que ces écrans
@@ -1017,6 +1028,6 @@ const UI = (() => {
     coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, noteCourte,
     pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
-    titreSection, vide, recherchePilule, barreAction, retirerAction,
+    titreSection, vide, recherchePilule, boutonRecherche, barreAction, retirerAction,
   };
 })();

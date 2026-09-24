@@ -59,8 +59,7 @@ const VueProduits = (() => {
         ? produits.length + " produit" + (produits.length > 1 ? "s" : "") +
           (toutesBoutiques ? " dans toutes les boutiques" : "")
         : "",
-      actions: '<a class="btn-ic" href="#/recherche" aria-label="Rechercher">' +
-        UI.icone("recherche") + "</a>",
+      actions: UI.boutonRecherche(),
     });
 
     const bandeau = toutesBoutiques ? "" : UI.bandeauBoutique();

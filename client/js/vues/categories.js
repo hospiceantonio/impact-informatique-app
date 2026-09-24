@@ -30,9 +30,7 @@ const VueCategories = (() => {
 
     /* Le titre seul, et la loupe qui mène à la recherche des PRODUITS :
        le champ juste dessous, lui, ne cherche que parmi les catégories. */
-    UI.entete({ titre: "Catégories",
-      actions: '<a class="btn-ic" href="#/recherche" aria-label="Rechercher un produit">' +
-        UI.icone("recherche") + "</a>" });
+    UI.entete({ titre: "Catégories", actions: UI.boutonRecherche() });
 
     if (!rayons.length) {
       vue.innerHTML = UI.vide("categories", "Aucune catégorie pour l'instant",
@@ -71,7 +69,8 @@ const VueCategories = (() => {
      BIZZOO où elle se range, et seulement ceux qu'elle tient. */
   function rayonsDeLaBoutique(vue) {
     const rayons = Catalogue.rayonsDeLaBoutique();
-    UI.entete({ titre: "Catégories", sous: "Tout le catalogue, classé par rayon" });
+    UI.entete({ titre: "Catégories", sous: "Tout le catalogue, classé par rayon",
+      actions: UI.boutonRecherche() });
 
     if (!rayons.length) {
       vue.innerHTML = UI.bandeauBoutique() +
@@ -87,11 +86,16 @@ const VueCategories = (() => {
 
   async function rayon(vue, id, params) {
     const c = Catalogue.categorie(id);
+    /* LA LOUPE À CHAQUE ÉTAGE : la liste des rayons comme la grille des
+       produits. On y arrive le plus souvent par un rond de l'accueil, où
+       la recherche était la pilule du haut — elle ne doit pas disparaître
+       en entrant. */
+    const loupe = UI.boutonRecherche();
     if (!c) {
       vue.innerHTML = UI.vide("alerte", "Catégorie introuvable",
         "Elle a peut-être été retirée du catalogue.",
         '<a class="btn btn-clair" href="#/categories">Voir les catégories</a>');
-      UI.entete({ titre: "Catégorie", retour: true });
+      UI.entete({ titre: "Catégorie", retour: true, actions: loupe });
       return;
     }
 
@@ -109,7 +113,7 @@ const VueCategories = (() => {
     const toutVoir = !!(params && params.sc === "tout");
     if (!scActive && !toutVoir && rayons.length > 1) {
       const total = Catalogue.produitsDeCategorie(c.id).length;
-      UI.entete({ titre: c.nom, retour: true,
+      UI.entete({ titre: c.nom, retour: true, actions: loupe,
         sous: rayons.length + " rayon" + (rayons.length > 1 ? "s" : "") });
       vue.innerHTML =
         rayons.map((r) => UI.ligneSousRayon(r, c.id)).join("") +
@@ -124,7 +128,7 @@ const VueCategories = (() => {
       ? (rayons.find((r) => r.sousCategorie.id === scActive) || {}).sousCategorie
       : null;
 
-    UI.entete({ titre: nomRayon ? nomRayon.nom : c.nom, retour: true,
+    UI.entete({ titre: nomRayon ? nomRayon.nom : c.nom, retour: true, actions: loupe,
       sous: produits.length + " article" + (produits.length > 1 ? "s" : "") +
         (nomRayon ? " · " + c.nom : "") });
 
@@ -156,7 +160,7 @@ const VueCategories = (() => {
 
   async function promos(vue) {
     const produits = Catalogue.promotions();
-    UI.entete({ titre: "Promotions", retour: true,
+    UI.entete({ titre: "Promotions", retour: true, actions: UI.boutonRecherche(),
       sous: produits.length ? "Profitez-en, stocks limités" : "" });
 
     vue.innerHTML = produits.length

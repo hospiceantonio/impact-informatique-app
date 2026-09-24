@@ -2929,6 +2929,23 @@ font tomber : les catégories à la une seules, trois boutiques par
 rangée, le nom coupé en deux, le guetteur non relancé, les cartes vues
 non reposées, la boutique du produit gardée au retour.
 
+### La loupe, sur chaque écran où l'on parcourt (3.51.0)
+
+La recherche n'est plus un onglet : sur l'accueil, c'est la pilule du
+haut ; ailleurs, une loupe dans l'en-tête. **Elle manquait dans une
+catégorie** : entré par un rond de l'accueil, on ne pouvait plus
+chercher qu'en y revenant. Elle manquait aussi sur les promotions, la
+liste des boutiques et la fiche d'une boutique.
+
+Elle vient maintenant d'une seule fonction, `UI.boutonRecherche()`,
+posée sur tous ces écrans — la catégorie (liste de ses rayons comme
+grille de ses produits), un rayon, les promotions, l'onglet
+« Catégories », « Nos boutiques », la fiche d'une boutique, son
+catalogue et la galerie « Nos produits ». Le banc suit le chemin
+signalé — l'accueil, un rond, les produits de la catégorie, la loupe,
+la recherche, le retour — puis passe chaque écran en revue (78 constats
+en tout) ; retirer la loupe de la catégorie le fait tomber.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).

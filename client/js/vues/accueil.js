@@ -509,7 +509,7 @@ const VueAccueil = (() => {
   }
 
   async function boutiques(vue) {
-    UI.entete({ titre: "Nos boutiques", retour: true });
+    UI.entete({ titre: "Nos boutiques", retour: true, actions: UI.boutonRecherche() });
     vue.innerHTML =
       '<div class="puces puces-da" id="bou-filtres">' +
         FILTRES_BOUTIQUES.map((f) =>
@@ -743,9 +743,10 @@ const VueAccueil = (() => {
    */
   async function ficheBoutique(vue, b, onglet) {
     /* Pas de titre dans l'en-tête : le nom est juste dessous, en grand.
-       Le retour, la cloche et le panier suffisent — c'est l'en-tête de
-       la DA. */
-    UI.entete({ titre: "", retour: true });
+       Le retour, la cloche et le panier — ceux de la DA —, et la loupe :
+       on parcourt ici des produits, et la recherche ne doit pas
+       disparaître dès qu'on entre chez quelqu'un. */
+    UI.entete({ titre: "", retour: true, actions: UI.boutonRecherche() });
 
     const couverture = (b.photos && b.photos[0]) || "";
     const suivie = typeof Favoris !== "undefined" && Favoris.aBoutique(b.id);
