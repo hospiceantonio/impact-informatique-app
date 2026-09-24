@@ -2946,6 +2946,91 @@ signalé — l'accueil, un rond, les produits de la catégorie, la loupe,
 la recherche, le retour — puis passe chaque écran en revue (78 constats
 en tout) ; retirer la loupe de la catégorie le fait tomber.
 
+## La nouvelle icône : le B au chariot (3.52.0)
+
+L'œuvre officielle est désormais une **tuile bleue en dégradé**, un
+**B blanc** qui dessine un chariot, et ses **deux roues orange**
+([`tools/bizzoo-icone.png`](tools/bizzoo-icone.png), 1 280 px). Elle
+remplace le sac de courses partout : l'écran d'accueil du téléphone
+(Android, iPhone, ordinateur), l'onglet du navigateur, l'écran de
+connexion de l'admin, la vignette d'un produit sans photo —
+`UI.marque()` affiche le fichier d'icône lui-même.
+
+`node tools/make-icons.js` en tire les 48 images des deux applications,
+et la silhouette des notifications :
+
+| Forme | Où | Ce qu'on y voit |
+|---|---|---|
+| Tuile | PWA 192 et 512, Android d'avant la version 8 | L'œuvre, coins arrondis compris |
+| Carré plein | iPhone (`apple-touch-icon`) | Le dégradé jusque dans les coins : l'iPhone arrondit lui-même |
+| Maskable | L'application web installée sur Android | Le motif dans le disque de 40 % que tout masque respecte |
+| Ronde | Android, lanceurs à icônes rondes | Le carré plein, découpé en disque |
+| Adaptative | Android 8 et plus | Deux calques : le dégradé derrière, le B et ses roues devant |
+| Notification | La barre d'état d'Android | La silhouette du B et de ses roues, en blanc |
+
+**On ne redessine rien : on sépare.** Une icône ronde ou adaptative
+demande un dégradé qui se prolonge au-delà de la tuile, et un B sur un
+calque à lui. Le script **mesure** le dégradé sur l'œuvre — un plan par
+couleur, ajusté aux moindres carrés sur les pixels bleus, de `#3F7DFF`
+en haut à gauche à `#0A1F6B` en bas à droite — et l'orange de chaque
+roue, qui a son propre dégradé. Chaque pixel du motif est lu comme un
+mélange du fond et de sa couleur pure : on en déduit son opacité, et le
+B garde ses bords adoucis.
+
+**L'œuvre est arrivée compressée avec perte** (WebP). Ce format garde la
+luminance à pleine résolution, mais la couleur à demi-résolution : d'où
+un liseré délavé de 1 à 2 px autour du B, plus sombre autour des roues.
+On l'a d'abord pris pour une ombre portée ; la mesure dit le contraire.
+Au-delà de 3 px du motif, l'œuvre ne s'écarte pas du dégradé de plus de
+3 niveaux, et dans le liseré la luminance est intacte : seule la couleur
+a bavé. L'opacité se lit donc dans la **luminance**, et toutes les
+formes — la tuile carrée comprise — sont recomposées depuis les deux
+calques. Le liseré disparaît, et les icônes se ressemblent toutes.
+
+**Le script vérifie ce qu'il livre**, et s'arrête plutôt que de livrer
+faux :
+- les deux calques recomposés redonnent l'œuvre : 0,34 niveau d'écart
+  de luminance en moyenne, 9 au pire hors des bords du motif (au ras du
+  bord de la tuile). Une copie de l'œuvre à laquelle on a ajouté une
+  ombre portée est refusée (29 niveaux) ;
+- le motif tient dans ce que chaque téléphone laisse voir : le calque
+  adaptatif fait 108 dp, le téléphone en montre 72 et garantit un disque
+  de 66 dp ; la tuile est posée sur les 72 dp, son motif tombe dans le
+  disque ;
+- la pastille de l'admin tient dans sa forme, sans toucher le B ni les
+  roues.
+
+**L'icône adaptative a maintenant un fond en dégradé.** Son calque de
+fond était une couleur, le blanc (`@color/ic_launcher_fond`) : le B
+blanc y aurait disparu. C'est désormais l'image
+`@mipmap/ic_launcher_fond`, calculée pixel par pixel à chaque densité —
+un dégradé n'a pas à être rééchantillonné. Toujours pas de calque
+`monochrome` : les téléphones réglés en « icônes thématisées » en
+feraient une silhouette d'une seule couleur, sans le bleu ni l'orange
+de BIZZOO.
+
+**BIZZOO Admin garde sa pastille « réglages »** — une roue dentée
+blanche sur bleu nuit, cerclée de blanc — dans le coin bas-gauche, le
+seul que le B laisse libre. Grande sur la tuile, elle se fait plus
+petite sous un masque rond ou adaptatif, pour rester dans la zone sûre.
+
+**La notification montre le B.** La petite icône de la barre d'état
+était le sac ; c'est la silhouette du B et de ses deux roues, tracée
+depuis l'œuvre (contour de l'opacité, simplifié), les deux trous du B
+laissés vides. Android n'en garde que la forme, en blanc.
+
+Pour régénérer après un changement d'œuvre :
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js CHROMIUM=<chemin de chrome> \
+  node tools/make-icons.js
+```
+
+Le script affiche son bilan : le dégradé mesuré, les roues, les écarts,
+la place de la pastille, la silhouette. Sur le téléphone, l'icône
+change en installant le nouvel APK ; pour l'application web installée,
+le navigateur la reprend à son rythme.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -3041,10 +3126,10 @@ impact-informatique-app/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock et accueil-galerie
-    ├── bizzoo-icone.jpg      # L'œuvre officielle — source de toutes les icônes
+    ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── illustrations-categories.py # Les illustrations des ronds de catégories
-    ├── make-icons.js         # Icônes PWA + Android (node tools/make-icons.js)
+    ├── make-icons.js         # Icônes PWA + Android + notification (node tools/make-icons.js)
     ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)
 ```
@@ -3236,7 +3321,9 @@ impact-informatique-app/
   compter autrement. L'ouvrir fait entrer dans sa boutique, par le même
   chemin qu'un lien partagé sur WhatsApp.
 - **La charte graphique vient de l'icône.** Les couleurs des deux
-  applications sont relevées sur l'œuvre BIZZOO (`tools/bizzoo-icone.jpg`) :
+  applications ont été relevées sur la première œuvre BIZZOO, le sac de
+  courses — remplacé en 3.52.0 par le B au chariot, de la même famille
+  de bleu et d'orange ; la charte, elle, n'a pas bougé :
   le **bleu vif** du fond (`--bleu`, #0B5CF5), le **bleu nuit** du sac
   (`--bleu-900`, #001450), l'**orange** de la vague (`--orange`, #F96302)
   et l'**ambre** de l'anse (`--ambre`, #FFA808). Une règle de lisibilité
@@ -3248,41 +3335,24 @@ impact-informatique-app/
   style partagent les mêmes noms de variables, et les tests lisent la
   teinte dans l'application au lieu de la figer, pour qu'un changement de
   charte ne casse rien.
-- **Les icônes sortent de l'œuvre, motif détouré sur blanc.**
-  `node tools/make-icons.js` décode `tools/bizzoo-icone.jpg` dans Chromium
-  et en tire les 48 fichiers (PWA et Android, toutes densités). Le **fond
-  bleu de l'œuvre est retiré** : sur le téléphone, la tuile bleue pleine
-  écrasait tout. Il ne reste que le motif, posé sur blanc.
-  Le détourage part des bords du carré et avance **tant que la couleur ne
-  change presque pas** (écart de 4 au plus d'un pixel au suivant) : le
-  fond est un dégradé lisse, la propagation le suit ; le motif a des bords
-  francs, elle s'y arrête. Un simple seuil de couleur ne marcherait pas —
-  le sac est bleu, comme le fond. Le **chariot blanc est conservé** sans
-  rien faire de particulier : enfermé au milieu du motif, la propagation
-  ne peut pas l'atteindre. Le liseré du cadre s'efface par **géométrie**
-  (un carré arrondi rentré de 3,5 %) et non par érosion, qui creuserait
-  aussi autour du chariot — un trou dans le masque. Un pixel de bord est
-  grignoté pour ôter la frange bleue laissée par le lissage.
-  Le motif est ensuite **rogné au plus juste, centré**, et posé à une
-  emprise qui dépend de ce que le téléphone laisse voir : large sur une
-  tuile carrée, plus serrée sous un masque rond. Repère utile : le calque
-  adaptatif fait 108 dp mais le téléphone n'en montre que **72** — le
-  motif à 0,60 occupe donc 90 % de ce qu'on voit, et au-delà les traits
-  de vitesse se font couper. L'icône adaptative est dans la
-  **forme que les lanceurs attendent** : un **fond de couleur** (blanc)
-  et le **motif au premier plan**. Elle a d'abord été faite à l'envers —
-  tout le dessin dans le calque de fond, premier plan vide — et certains
-  téléphones repeignaient alors la tuile à leur façon, le fond prenant
-  la teinte du fond d'écran. Pas de calque `monochrome` : il ferait
-  basculer les téléphones réglés en « icônes thématisées » vers une
-  silhouette d'une seule couleur, plus loin encore du fond blanc voulu.
-  Le fond de la tuile est **blanc franc** : l'œuvre garde sa structure,
-  on ne lui retire que son fond bleu.
+- **Les icônes sortent de l'œuvre** (`tools/bizzoo-icone.png`, le B au
+  chariot depuis 3.52.0). `node tools/make-icons.js` la sépare en deux
+  calques — le dégradé mesuré, le motif démêlé — et en tire les 48
+  fichiers (PWA et Android, toutes densités) et la silhouette des
+  notifications : le détail est dans « La nouvelle icône » plus haut.
+  L'icône adaptative est dans la **forme que les lanceurs attendent** :
+  un **fond** (le dégradé) et le **motif au premier plan**. Elle a
+  d'abord été faite à l'envers — tout le dessin dans le calque de fond,
+  premier plan vide — et certains téléphones repeignaient alors la tuile
+  à leur façon, le fond prenant la teinte du fond d'écran. Pas de calque
+  `monochrome` : il ferait basculer les téléphones réglés en « icônes
+  thématisées » vers une silhouette d'une seule couleur.
   **Un seul dessin sert partout** : `UI.marque()` affiche le fichier
   d'icône lui-même (`icons/icon-192.png`) au lieu d'un SVG approché —
-  barre du haut, écran de connexion admin, vignette d'un produit sans
-  photo. Plus de version parallèle qui finirait par diverger, et le
-  fichier est déjà gardé hors connexion par le service worker.
+  écran de connexion admin, vignette d'un produit sans photo, diapositive
+  ou publicité sans image. Plus de version parallèle qui finirait par
+  diverger, et le fichier est déjà gardé hors connexion par le service
+  worker.
   L'**écran de démarrage** (`fond_demarrage`, la couleur affichée le temps
   que l'application s'ouvre) est passé du bleu au **blanc** : l'ouverture
   ne commence plus par un éclair bleu, et enchaîne sans rupture sur les
@@ -3299,9 +3369,9 @@ impact-informatique-app/
   dans un `<layer-list>`), jamais `@mipmap/ic_launcher`.
   L'application admin reçoit la **même** œuvre, marquée d'une pastille
   « réglages » : les deux applications vivent sur le même téléphone, on
-  doit les distinguer d'un coup d'œil. Sous masque rond, la pastille se
-  pose tangente à l'intérieur de la zone sûre — sinon le téléphone lui
-  couperait la moitié.
+  doit les distinguer d'un coup d'œil. Sous masque rond ou adaptatif, la
+  pastille se fait plus petite et se pose à l'intérieur de la zone sûre —
+  sinon le téléphone lui couperait la moitié.
 - **Annuler une action, depuis l'historique.** Réservé au
   **SuperAdministrateur** : chaque ligne de `Réglages → Historique`
   porte un bouton qui remet les choses comme elles étaient avant cette

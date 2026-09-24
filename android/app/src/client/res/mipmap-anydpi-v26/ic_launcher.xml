@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- La forme que les lanceurs attendent : un fond de COULEUR,
-         un motif au premier plan. Tout mettre dans le calque de
-         fond, comme avant, poussait certains téléphones à repeindre
-         la tuile à leur façon (fond teinté par le fond d'écran).
+    <!-- Les deux calques que les lanceurs attendent : derrière, le
+         dégradé bleu de la tuile ; devant, le B blanc et ses deux roues
+         orange. Le téléphone les découpe à sa forme (rond, goutte,
+         carré arrondi…). Images produites par tools/make-icons.js
+         depuis l'œuvre tools/bizzoo-icone.png.
          Pas de calque « monochrome » ici : il ferait basculer les
          téléphones réglés en icônes thématisées vers une silhouette
-         d'une seule couleur, plus loin encore du fond blanc. -->
-    <background android:drawable="@color/ic_launcher_fond" />
+         d'une seule couleur, sans le bleu ni l'orange de BIZZOO. -->
+    <background android:drawable="@mipmap/ic_launcher_fond" />
     <foreground android:drawable="@mipmap/ic_launcher_premier_plan" />
 </adaptive-icon>
