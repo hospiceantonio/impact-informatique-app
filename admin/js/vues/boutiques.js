@@ -25,9 +25,12 @@ const VueBoutiques = (() => {
   ];
 
   /* Le bleu et l'orange de BIZZOO ouvrent la liste ; les autres
-     teintes servent à distinguer les secteurs d'un coup d'œil. */
+     teintes servent à distinguer les secteurs d'un coup d'œil.
+     Le « Bleu BIZZOO » est celui de l'icône depuis la 3.53 ; une
+     boutique enregistrée avec l'ancien (#0B5CF5) le garde — voir
+     listeCouleurs. */
   const COULEURS = [
-    ["#0B5CF5", "Bleu BIZZOO"], ["#F96302", "Orange BIZZOO"], ["#0F9D58", "Vert"],
+    ["#2550B7", "Bleu BIZZOO"], ["#F96302", "Orange BIZZOO"], ["#0F9D58", "Vert"],
     ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
     ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
     ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],
@@ -56,7 +59,7 @@ const VueBoutiques = (() => {
   let logoTravail = null;
 
   function pastille(b, taille) {
-    const style = 'style="background:' + Utils.echapper(b.couleur || "#0B5CF5") + '"';
+    const style = 'style="background:' + Utils.echapper(b.couleur || "#2550B7") + '"';
     return b.logoUrl
       ? '<span class="bou-pastille bou-pastille-photo"><img src="' +
           Utils.echapper(b.logoUrl) + '" alt=""></span>'
@@ -175,7 +178,7 @@ const VueBoutiques = (() => {
         '<div class="choix-couleurs" id="bq-couleurs">' +
           listeCouleurs(b).map(([code, nom]) =>
             '<button type="button" class="choix-couleur' +
-              ((b ? b.couleur : "#0B5CF5") === code ? " actif" : "") +
+              ((b ? b.couleur : "#2550B7") === code ? " actif" : "") +
               '" data-couleur="' + code + '" style="background:' + code +
               '" aria-label="' + Utils.echapper(nom) + '"></button>').join("") +
         "</div>" +
@@ -345,7 +348,7 @@ const VueBoutiques = (() => {
           secteur: UI.$("#bq-secteur", corps).value.trim(),
           slogan: UI.$("#bq-slogan", corps).value.trim(),
           icone: choisi(corps, "#bq-icones", "icone", "magasin"),
-          couleur: choisi(corps, "#bq-couleurs", "couleur", "#0B5CF5"),
+          couleur: choisi(corps, "#bq-couleurs", "couleur", "#2550B7"),
           tauxMarge: UI.$("#bq-marge", corps).value,
           revendeurMode: modeRevendeur(corps),
           tauxRevendeur: UI.$("#bq-marge-revendeur", corps).value,

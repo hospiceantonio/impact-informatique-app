@@ -233,7 +233,7 @@ const Catalogue = (() => {
           slogan: b2.slogan || "",
           description: b2.description || "",
           icone: b2.icone || "magasin",
-          couleur: b2.couleur || "#0B5CF5",
+          couleur: b2.couleur || "#2550B7",
           logo: b2.logo ? urlImagePublique(b2.logo) : "",
           actif: b2.actif !== false,
           ordre: b2.ordre || 0,
@@ -264,7 +264,7 @@ const Catalogue = (() => {
              encore mise à jour n'a pas ces colonnes : la catégorie
              garde alors l'icône passe-partout plutôt qu'un rond vide. */
           icone: cat.icone || "categories",
-          couleur: cat.couleur || "#0B5CF5",
+          couleur: cat.couleur || "#2550B7",
           /* La photo du rond, posée par l'enseigne ; sans elle — ou sur
              une base qui n'a pas encore la colonne —, l'icône suffit. */
           image: cat.image ? urlImageCategorie(cat.image) : "",

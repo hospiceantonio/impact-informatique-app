@@ -229,7 +229,7 @@ const Paiement = (() => {
         key: reglages.clePublique,
         sandbox: !!reglages.bacASable,
         position: "center",
-        theme: "#0B5CF5",
+        theme: "#2550B7",        // le bleu des écrans, celui de l'icône
         data: commande,          // la référence que KkiaPay nous renverra
       };
       if (nom && nom.trim()) options.name = nom.trim();

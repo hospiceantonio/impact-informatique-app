@@ -947,7 +947,7 @@ const UI = (() => {
      regarde toujours les rayons (voir categories.js). */
   function ligneRayon(r) {
     const couleur = /^#[0-9a-f]{6}$/i.test(String(r.categorie.couleur || "").trim())
-      ? r.categorie.couleur.trim() : "#0047D9";
+      ? r.categorie.couleur.trim() : "#2550B7";
     /* AVEC UNE PHOTO, LA PASTILLE PASSE AU PASTEL, comme le rond de
        l'accueil. Sous la photo, un aplat foncé débordait d'un liseré au
        bord du cercle — le navigateur adoucit ce bord sur les deux à la
@@ -1002,7 +1002,7 @@ const UI = (() => {
     if (!b) return "";
     return b.logo
       ? '<span class="topbar-vignette topbar-vignette-photo"><img src="' + e(b.logo) + '" alt=""></span>'
-      : '<span class="topbar-vignette" style="background:' + e(b.couleur || "#0B5CF5") + '">' +
+      : '<span class="topbar-vignette" style="background:' + e(b.couleur || "#2550B7") + '">' +
           icone(b.icone || "magasin") + "</span>";
   }
 

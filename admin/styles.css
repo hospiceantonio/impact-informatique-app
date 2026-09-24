@@ -28,15 +28,22 @@
   src:url(polices/poppins-700.woff2) format('woff2')}
 
 :root{
-  /* LE BLEU DE LA DA, et les nuances qui en descendent. */
-  --bleu-900:#001B52;
-  --bleu-800:#002A80;
-  --bleu-700:#0038A8;
-  --bleu:#0047D9;
-  --bleu-400:#3D78EC;
-  --bleu-300:#6FA0F5;
-  --bleu-100:#D6E2FB;
-  --bleu-50:#EDF2FE;
+  /* LE BLEU DE L'ICÔNE, et les nuances qui en descendent. Chacune garde
+     la clarté de la nuance de la DA qu'elle remplace — donc les mêmes
+     contrastes — et prend la couleur que la tuile de l'icône a à cette
+     clarté, le long de sa diagonale : le bleu principal tombe au milieu
+     de la tuile, les plus claires éclaircissent son bleu le plus clair,
+     la plus sombre assombrit son plus sombre (voir le README).
+     Les ombres reprennent --bleu et --bleu-900 en rgba(…) : elles
+     changent avec eux. */
+  --bleu-900:#091A51;
+  --bleu-800:#102A7C;
+  --bleu-700:#1A3B98;
+  --bleu:#2550B7;
+  --bleu-400:#3B76F4;
+  --bleu-300:#749EF8;
+  --bleu-100:#D5E2FD;
+  --bleu-50:#ECF2FE;
 
   /* L'ORANGE DE LA DA, et le texte qu'il porte : BLANC, comme sur la
      DA corrigée — ses trois boutons, sa pastille de remise, sa cloche.
@@ -73,8 +80,8 @@
   --fond:#F5F7FA;
   --blanc:#FFFFFF;
 
-  --ombre:0 12px 30px -18px rgba(0,27,82,.55);
-  --ombre-forte:0 20px 45px -20px rgba(0,27,82,.6);
+  --ombre:0 12px 30px -18px rgba(9,26,81,.55);
+  --ombre-forte:0 20px 45px -20px rgba(9,26,81,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
@@ -217,6 +224,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:16px;
   box-shadow:var(--ombre);
 }
+/* UNE CARTE PEUT ÊTRE UN LIEN, et « a » reste alors en ligne : son fond
+   ne couvre que des bouts de ligne, le titre et le texte débordent sur
+   la page, un rectangle blanc reste au bord — la carte Stock de
+   l'accueil l'a montré. Toute carte-lien est donc un bloc ; « :where »
+   laisse aux variantes en flex, plus bas, le dernier mot. */
+:where(a).carte{display:block}
 .carte-titre{display:flex;align-items:center;gap:7px;font-size:15px;font-weight:700;margin-bottom:12px}
 .carte-titre .ic-sm{color:var(--bleu-700)}
 .carte-liste{padding:6px 8px}
@@ -230,7 +243,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   min-height:48px;padding:10px 20px;border:0;border-radius:999px;
   background:var(--bleu);
   color:#fff;font-weight:600;font-size:15px;
-  box-shadow:0 10px 22px -12px rgba(0,71,217,.6);
+  box-shadow:0 10px 22px -12px rgba(37,80,183,.6);
   width:100%;
 }
 .btn:active{transform:scale(.98)}

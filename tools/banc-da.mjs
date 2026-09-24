@@ -51,7 +51,7 @@ const titre = (t) => console.log("\n== " + t + " ==");
    voient pas — trois défauts de la charte n'ont été trouvés que là. */
 const SORTIE = process.env.CAPTURES || ".";
 
-const BLEU = "rgb(0, 71, 217)";      /* --bleu    #0047D9 */
+const BLEU = "rgb(37, 80, 183)";     /* --bleu    #2550B7, le bleu de l'icône */
 const ORANGE = "rgb(255, 138, 0)";   /* --orange  #FF8A00 */
 
 const navigateur = await chromium.launch(EXE ? { executablePath: EXE } : {});
@@ -290,7 +290,7 @@ titre("Les couleurs relevées sur les éléments, pas dans la feuille");
       bouton: bouton ? getComputedStyle(bouton).backgroundColor : "",
     };
   }, BLEU);
-  ok(t.bleu.toUpperCase() === "#0047D9", "le bleu de la DA est posé (" + t.bleu + ")");
+  ok(t.bleu.toUpperCase() === "#2550B7", "le bleu de l'icône est posé (" + t.bleu + ")");
   ok(t.orange.toUpperCase() === "#FF8A00", "l'orange de la DA est posé (" + t.orange + ")");
   ok(t.barreClaire, "la barre du haut est claire, comme sur la DA (" + t.barre + ")");
   /* La faute qu'une capture a révélée : la barre est passée au blanc et
@@ -299,6 +299,87 @@ titre("Les couleurs relevées sur les éléments, pas dans la feuille");
     "et ses boutons y restent lisibles, pas blancs sur blanc (" + t.icone + ")");
   ok(t.bouton === BLEU, "le bouton plein est bleu (" + t.bouton + ")");
   await ctx.close();
+}
+
+titre("Le bleu de l'icône, le même partout");
+{
+  /* La gamme de bleus est tirée de l'icône (voir le README). Les deux
+     applications, la page d'entrée du site et sa page 404 la
+     partagent, jusqu'à la couleur que le navigateur donne à sa barre.
+     Et aucune règle n'a gardé l'ancien bleu en dur : une ombre écrite
+     en rgba(…) ne suit pas les jetons, elle se change à la main — et
+     s'oublie. */
+  const NUANCES = ["--bleu-900", "--bleu-800", "--bleu-700", "--bleu",
+    "--bleu-400", "--bleu-300", "--bleu-100", "--bleu-50"];
+  /* L'ancienne gamme de la DA, telle que le navigateur l'écrit dans une
+     règle (rgb) ou dans un jeton (#…). */
+  const ANCIENS = "\\b(0, 71, 217|0, 27, 82|0, 42, 128|0, 56, 168|61, 120, 236|" +
+    "111, 160, 245|214, 226, 251|237, 242, 254)\\b|" +
+    "#(0047d9|001b52|002a80|0038a8|3d78ec|6fa0f5|d6e2fb|edf2fe)\\b";
+  const lire = async (chemin) => {
+    const ctx = await navigateur.newContext({ serviceWorkers: "block" });
+    const page = await ctx.newPage();
+    /* Rien ne sort : il ne faut ici que les feuilles de style. */
+    await page.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort());
+    await page.goto(BASE + chemin, { waitUntil: "load" });
+    const r = await page.evaluate(([nuances, motif]) => {
+      const s = getComputedStyle(document.documentElement);
+      const jetons = {};
+      for (const n of nuances) {
+        const v = s.getPropertyValue(n).trim().toUpperCase();
+        if (v) jetons[n] = v;
+      }
+      const ancien = new RegExp(motif, "i");
+      const restes = [];
+      for (const f of document.styleSheets) {
+        let regles;
+        try { regles = f.cssRules; } catch (_) { continue; }
+        for (const regle of regles) {
+          if (ancien.test(regle.cssText)) restes.push(regle.cssText.slice(0, 70));
+        }
+      }
+      const meta = document.querySelector('meta[name="theme-color"]');
+      const lien = document.querySelector('link[rel="manifest"]');
+      return { jetons, restes, theme: meta ? meta.content.toUpperCase() : "",
+        manifeste: lien ? lien.href : "" };
+    }, [NUANCES, ANCIENS]);
+    r.themeManifeste = "";
+    if (r.manifeste) {
+      const rep = await ctx.request.get(r.manifeste);
+      r.themeManifeste = String((await rep.json()).theme_color || "").toUpperCase();
+    }
+    await ctx.close();
+    return r;
+  };
+  const client = await lire("/client/index.html");
+  const admin = await lire("/admin/index.html");
+  const site = await lire("/index.html");
+  const page404 = await lire("/404.html");
+  const bleu = client.jetons["--bleu"];
+
+  ok(Object.keys(client.jetons).length === NUANCES.length,
+    "le client pose les huit nuances (" + Object.keys(client.jetons).length + ")");
+  ok(NUANCES.every((n) => admin.jetons[n] === client.jetons[n]),
+    "l'admin a exactement la même gamme");
+  const communes = Object.keys(site.jetons);
+  ok(communes.length >= 4 && communes.every((n) => site.jetons[n] === client.jetons[n]),
+    "la page d'entrée du site aussi (" + communes.join(" ") + ")");
+  ok(page404.jetons["--bleu"] === bleu, "et sa page 404 (" + page404.jetons["--bleu"] + ")");
+  ok(client.theme === bleu && client.themeManifeste === bleu,
+    "la barre du navigateur prend ce bleu, dans la page et dans le manifeste (" +
+    client.theme + ", " + client.themeManifeste + ")");
+  ok(site.theme === bleu && page404.theme === bleu,
+    "sur le site et sa page 404 aussi (" + site.theme + ", " + page404.theme + ")");
+  /* L'admin garde le bleu nuit de la pastille « réglages » de SON icône
+     (tools/make-icons.js) : la barre de son navigateur la reprend. */
+  ok(admin.theme === "#001A6E" && admin.themeManifeste === admin.theme,
+    "l'admin garde le bleu nuit de sa pastille, dans la page et le manifeste (" +
+    admin.theme + ", " + admin.themeManifeste + ")");
+  for (const [nom, r] of [["du client", client], ["de l'admin", admin],
+                          ["du site", site], ["de la page 404", page404]]) {
+    ok(r.restes.length === 0, "aucune règle " + nom + " n'a gardé l'ancien bleu" +
+      (r.restes.length ? " — " + r.restes[0] : ""));
+  }
 }
 
 titre("L'orange de la DA, et le texte blanc qu'elle y pose");
@@ -423,7 +504,7 @@ titre("Le poste de l'enseigne : même police, même palette");
       bizz: bizz ? getComputedStyle(bizz).color : "",
       oo: oo ? getComputedStyle(oo).color : "" };
   });
-  ok(t.bleu.toUpperCase() === "#0047D9", "le même bleu que la boutique");
+  ok(t.bleu.toUpperCase() === "#2550B7", "le même bleu que la boutique");
   ok(t.bizz === BLEU && t.oo === ORANGE, "et le même logo, en deux couleurs");
   const m = await page.evaluate(() => {
     const marque = document.querySelector(".tabbar-marque");
@@ -472,6 +553,26 @@ titre("Le poste de l'enseigne tient aussi sur un téléphone");
   ok(t && t.contraste !== null && t.contraste >= 3,
     "et ses boutons s'y détachent" + (t && t.contraste ?
       " (" + t.contraste.toFixed(2) + ":1)" : ""));
+  /* LES CARTES-LIENS DE L'ACCUEIL SONT DES BLOCS. Un « a » reste en
+     ligne si rien ne dit le contraire : son fond blanc ne couvrait que
+     des bouts de ligne, et le titre de la carte Stock flottait sur la
+     page, un rectangle blanc au bord. Aucun constat ne le voyait — la
+     carte était là, avec le bon texte. On mesure donc que la carte
+     enveloppe bien son titre. */
+  const c = await page.evaluate(() => [...document.querySelectorAll(".vue a.carte")].map((a) => {
+    const r = a.getBoundingClientRect();
+    /* Le titre, ou à défaut le premier élément : la carte de la
+       boutique active n'a pas de titre. */
+    const dedans = a.querySelector(".carte-titre") || a.firstElementChild;
+    if (!dedans) return { id: a.id || a.className, display: getComputedStyle(a).display, enveloppe: true };
+    const rt = dedans.getBoundingClientRect();
+    return { id: a.id || a.className, display: getComputedStyle(a).display,
+      enveloppe: rt.top >= r.top - 1 && rt.bottom <= r.bottom + 1 && r.height > rt.height };
+  }));
+  const plates = c.filter((x) => x.display === "inline" || !x.enveloppe);
+  ok(c.some((x) => x.id === "carte-stock"), "la carte Stock est sur l'accueil (" + c.length + " cartes-liens)");
+  ok(plates.length === 0, "et chaque carte-lien enveloppe son titre" +
+    (plates.length ? " — " + plates.map((x) => x.id + " : " + x.display).join(", ") : ""));
   await ctx.close();
 }
 

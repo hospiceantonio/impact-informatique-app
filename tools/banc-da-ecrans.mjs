@@ -182,9 +182,10 @@ titre("2. Les écrans de parcours : pas de barre, une action en bas");
 {
   const { page, ctx } = await ouvrir({ hash: "#/commande", panier: PANIER });
   const a = await action(page);
-  /* LE PAIEMENT EST BLEU sur la DA : l'orange ne va qu'à ce qui ajoute
-     au panier et au passage de commande. */
-  ok(!!a && /^Payer/.test(a.texte) && !a.orange && a.fond === "rgb(0, 71, 217)",
+  /* LE PAIEMENT EST BLEU sur la DA — le bleu de l'icône depuis la
+     3.53 : l'orange ne va qu'à ce qui ajoute au panier et au passage de
+     commande. */
+  ok(!!a && /^Payer/.test(a.texte) && !a.orange && a.fond === "rgb(37, 80, 183)",
     "le paiement a « Payer … », en BLEU (" + (a && a.texte) + ")");
   ok(!!a && /300\s000/.test(a.texte), "et le montant est dans le bouton");
   await ctx.close();

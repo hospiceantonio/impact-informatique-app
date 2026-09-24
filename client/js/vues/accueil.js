@@ -246,9 +246,9 @@ const VueAccueil = (() => {
      Une couleur saisie dans les réglages part dans un attribut « style ».
      On n'y laisse passer qu'une couleur hexadécimale : le reste — une
      faute de frappe comme une règle glissée exprès — retombe sur le bleu
-     de la DA. */
+     de BIZZOO, celui de l'icône. */
   const couleurSure = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "").trim())
-    ? String(c).trim() : "#0047D9");
+    ? String(c).trim() : "#2550B7");
 
   /* La teinte claire d'une couleur : le fond des ronds pastel de la DA.
      Calculée ici plutôt qu'avec « color-mix » : un téléphone dont le

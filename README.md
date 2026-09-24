@@ -295,7 +295,7 @@ La charte de BIZZOO s'applique aux deux applications et à la vitrine.
 | | |
 |---|---|
 | Police | **Poppins**, 400/500/600/700 |
-| Bleu | `#0047D9` |
+| Bleu | `#2550B7` — celui de l'icône, depuis la 3.53.0 (voir « Le bleu de l'icône ») |
 | Orange | `#FF8A00` |
 | Encre | `#1F2937` |
 | Fond | `#F5F7FA` |
@@ -351,8 +351,8 @@ une. Le chemin se donne par `PLAYWRIGHT`, l'adresse par `BANC_URL` si le
 serveur n'est pas sur 5180, le navigateur par `CHROMIUM` pour en
 désigner un déjà installé, et `CAPTURES=<dossier>` range les images.
 
-Quarante-trois constats sur les deux applications, à quatre largeurs
-d'écran (360, 390, 768, 1440 px). Ils regardent ce qu'une capture
+Cinquante-six constats sur les deux applications et le site, à quatre
+largeurs d'écran (360, 390, 768, 1440 px). Ils regardent ce qu'une capture
 d'écran ne montre pas :
 
 - la police **affichée** est Poppins (`document.fonts.check`) — une
@@ -361,11 +361,20 @@ d'écran ne montre pas :
 - rien n'est demandé hors de l'application ;
 - les couleurs sont relevées **sur les éléments**, pas dans la feuille de
   style — une règle peut être écrite et surchargée dix lignes plus bas ;
+- la gamme de bleus est **la même partout** — les deux applications, la
+  page d'entrée du site, sa page 404, la couleur de barre du navigateur
+  et le manifeste — et **aucune règle n'a gardé l'ancien bleu** en dur
+  (une ombre en `rgba(…)` ne suit pas les jetons) ;
+- les cartes-liens de l'accueil admin **enveloppent leur titre** ;
 - rien ne déborde en largeur, à aucune des quatre largeurs.
 
 Quatre sabotages les font tomber, onze constats en tout : renvoyer la
 police chez Google, remettre l'ancien bleu, repasser les boutons de la
-barre en blanc, retirer la bascule de l'écran d'ordinateur.
+barre en blanc, retirer la bascule de l'écran d'ordinateur. Huit autres
+depuis la 3.53.0 : une ombre du client, une nuance de l'admin, la
+couleur de barre et le manifeste du client, une nuance et une ombre de
+la page d'entrée, la page 404 revenus à l'ancien bleu — et la règle qui
+fait des cartes-liens des blocs, retirée.
 
 > **Un seuil qu'on ne peut pas franchir ne prouve rien.** « Le catalogue
 > s'étale » vérifiait une largeur de plus de 700 px — mais la colonne du
@@ -3031,6 +3040,72 @@ la place de la pastille, la silhouette. Sur le téléphone, l'icône
 change en installant le nouvel APK ; pour l'application web installée,
 le navigateur la reprend à son rythme.
 
+## Le bleu de l'icône (3.53.0)
+
+Les écrans prennent le bleu de la nouvelle icône. Le bleu principal
+passe de `#0047D9`, le bleu vif de la DA, à **`#2550B7`** : le bleu du
+milieu de la tuile, un bleu roi un peu moins saturé.
+
+**Chaque nuance garde sa clarté, et prend la couleur de l'icône.** Le
+dégradé de la tuile est mesuré comme pour les icônes (un plan par
+couleur) ; il court exactement le long de sa diagonale, de `#3B77F6` en
+haut à gauche à `#0D2574` en bas à droite. Pour chacune des huit
+nuances, on garde la **luminance** de celle qu'elle remplace — donc
+tous les contrastes, à 0,04 près — et on prend la couleur que la tuile
+a à cette luminance. Plus claire que la tuile : son bleu le plus clair,
+éclairci vers le blanc ; plus sombre : son bleu le plus sombre, assombri
+vers le noir.
+
+| Jeton | Avant | Après | D'où vient la nouvelle nuance |
+|---|---|---|---|
+| `--bleu-900` | `#001B52` | `#091A51` | le bas de la tuile, assombri |
+| `--bleu-800` | `#002A80` | `#102A7C` | la diagonale, à 94 % |
+| `--bleu-700` | `#0038A8` | `#1A3B98` | la diagonale, à 73 % |
+| `--bleu` | `#0047D9` | `#2550B7` | la diagonale, à 48 % : le milieu |
+| `--bleu-400` | `#3D78EC` | `#3B76F4` | le haut de la tuile |
+| `--bleu-300` | `#6FA0F5` | `#749EF8` | le haut, éclairci |
+| `--bleu-100` | `#D6E2FB` | `#D5E2FD` | le haut, éclairci |
+| `--bleu-50` | `#EDF2FE` | `#ECF2FE` | le haut, éclairci |
+
+Les nuances claires et la plus sombre bougent à peine : elles étaient
+déjà dans la teinte de l'icône. Ce qui change à l'œil, c'est le bleu
+principal et ses deux nuances foncées — le « Bizz » du logo, les
+boutons pleins (« Payer », « Suivre »), les liens, l'onglet actif,
+l'offre du jour. Le blanc sur le bleu reste à **7,2:1**.
+
+**Ce qui suit le bleu :**
+- les deux applications, la page d'entrée du site et sa page 404 ;
+- les ombres, écrites en `rgba(…)` : elles ne suivent pas les jetons ;
+- la couleur de barre du navigateur (`theme-color`) et le manifeste du
+  client ; la fenêtre de paiement KkiaPay (`theme`) ;
+- le bleu de secours d'une couleur de boutique illisible ;
+- le **« Bleu BIZZOO »** des nuanciers de l'admin (boutiques et
+  catégories), qui valait encore `#0B5CF5`, le bleu d'une charte
+  antérieure. Une boutique ou une catégorie enregistrée avec l'ancien le
+  **garde** : le nuancier l'ajoute sous « Couleur actuelle » plutôt que
+  de la remplacer en silence. En base, une boutique et deux catégories
+  l'utilisent ; il suffit de leur choisir le nouveau. La colonne garde
+  `#0B5CF5` comme valeur par défaut : l'admin écrit toujours la couleur
+  choisie, ce défaut ne sert qu'à une ligne insérée à la main ;
+- les captures de la vitrine (`vitrine/ecran-*.jpg`) et l'image de
+  partage (`vitrine/partage.jpg`), refaites — elles montrent aussi
+  l'accueil d'aujourd'hui, le slider en tête.
+
+**Ce qui ne bouge pas :** la barre du navigateur de l'admin garde le bleu
+nuit de sa pastille « réglages » (`#001A6E`) ; les couleurs propres à
+chaque boutique et catégorie, qui sont des données ; l'orange.
+
+**Un défaut trouvé en chemin, par la capture.** Sur l'accueil de
+l'admin, la carte « Stock de la boutique » (3.49.0) n'avait pas de
+fond : son titre et son texte flottaient sur la page, un rectangle blanc
+au bord. C'est un lien, et un « a » reste en ligne si rien ne dit le
+contraire : son fond ne couvre alors que des bouts de ligne. Les cartes
+orange « à traiter » (validations, revendeurs, réclamations, avis) et
+les cartes Clients, Versements et Codes promo de l'enseigne avaient le
+même défaut. Toute carte-lien est désormais un bloc (`:where(a).carte`,
+qui laisse aux variantes en flex le dernier mot), et `banc-da` mesure
+que chaque carte-lien enveloppe son titre.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -3321,9 +3396,10 @@ impact-informatique-app/
   compter autrement. L'ouvrir fait entrer dans sa boutique, par le même
   chemin qu'un lien partagé sur WhatsApp.
 - **La charte graphique vient de l'icône.** Les couleurs des deux
-  applications ont été relevées sur la première œuvre BIZZOO, le sac de
-  courses — remplacé en 3.52.0 par le B au chariot, de la même famille
-  de bleu et d'orange ; la charte, elle, n'a pas bougé :
+  applications ont d'abord été relevées sur la première œuvre BIZZOO, le
+  sac de courses — remplacé en 3.52.0 par le B au chariot, sur lequel la
+  gamme de bleus est tirée depuis la 3.53.0 (voir « Le bleu de
+  l'icône ») :
   le **bleu vif** du fond (`--bleu`, #0B5CF5), le **bleu nuit** du sac
   (`--bleu-900`, #001450), l'**orange** de la vague (`--orange`, #F96302)
   et l'**ambre** de l'anse (`--ambre`, #FFA808). Une règle de lisibilité

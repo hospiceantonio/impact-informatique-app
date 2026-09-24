@@ -28,15 +28,22 @@
   src:url(polices/poppins-700.woff2) format('woff2')}
 
 :root{
-  /* LE BLEU DE LA DA, et les nuances qui en descendent. */
-  --bleu-900:#001B52;
-  --bleu-800:#002A80;
-  --bleu-700:#0038A8;
-  --bleu:#0047D9;
-  --bleu-400:#3D78EC;
-  --bleu-300:#6FA0F5;
-  --bleu-100:#D6E2FB;
-  --bleu-50:#EDF2FE;
+  /* LE BLEU DE L'ICÔNE, et les nuances qui en descendent. Chacune garde
+     la clarté de la nuance de la DA qu'elle remplace — donc les mêmes
+     contrastes — et prend la couleur que la tuile de l'icône a à cette
+     clarté, le long de sa diagonale : le bleu principal tombe au milieu
+     de la tuile, les plus claires éclaircissent son bleu le plus clair,
+     la plus sombre assombrit son plus sombre (voir le README).
+     Les ombres reprennent --bleu et --bleu-900 en rgba(…) : elles
+     changent avec eux. */
+  --bleu-900:#091A51;
+  --bleu-800:#102A7C;
+  --bleu-700:#1A3B98;
+  --bleu:#2550B7;
+  --bleu-400:#3B76F4;
+  --bleu-300:#749EF8;
+  --bleu-100:#D5E2FD;
+  --bleu-50:#ECF2FE;
 
   /* L'ORANGE DE LA DA, et le texte qu'il porte : BLANC, comme sur la
      DA corrigée — ses trois boutons, sa pastille de remise, sa cloche.
@@ -73,8 +80,8 @@
   --fond:#F5F7FA;
   --blanc:#FFFFFF;
 
-  --ombre:0 12px 30px -18px rgba(0,27,82,.55);
-  --ombre-forte:0 20px 45px -20px rgba(0,27,82,.6);
+  --ombre:0 12px 30px -18px rgba(9,26,81,.55);
+  --ombre-forte:0 20px 45px -20px rgba(9,26,81,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
@@ -327,7 +334,7 @@ body.sans-onglets.avec-action .contact-flottant{bottom:calc(var(--safe-b) + 96px
   position:fixed;left:0;right:0;bottom:0;z-index:40;
   padding:12px 16px calc(var(--safe-b) + 12px);
   background:rgba(255,255,255,.97);backdrop-filter:blur(12px);
-  box-shadow:0 -10px 28px -18px rgba(0,27,82,.45);
+  box-shadow:0 -10px 28px -18px rgba(9,26,81,.45);
 }
 .barre-action-dedans{max-width:720px;margin:0 auto;display:flex;align-items:center;gap:12px}
 .barre-action .btn{flex:1}
@@ -339,6 +346,11 @@ body.sans-onglets.avec-action .contact-flottant{bottom:calc(var(--safe-b) + 96px
   padding:16px;
   box-shadow:var(--ombre);
 }
+/* Une carte peut être un lien : « a » resterait en ligne, son fond ne
+   couvrant que des bouts de ligne (le piège de la carte Stock de
+   l'admin). Toute carte-lien est un bloc ; « :where » laisse aux
+   variantes en flex, plus bas, le dernier mot. */
+:where(a).carte{display:block}
 /* Les icônes sont des « svg », donc des blocs : sans cette ligne, une
    icône en tête de titre se posait SEULE au-dessus du texte. */
 .carte-titre{
@@ -355,7 +367,7 @@ body.sans-onglets.avec-action .contact-flottant{bottom:calc(var(--safe-b) + 96px
   min-height:50px;padding:10px 22px;border:0;border-radius:999px;
   background:var(--bleu);
   color:#fff;font-weight:600;font-size:15px;
-  box-shadow:0 10px 22px -12px rgba(0,71,217,.6);
+  box-shadow:0 10px 22px -12px rgba(37,80,183,.6);
   width:100%;
 }
 .btn:active{transform:scale(.98)}
@@ -1780,10 +1792,10 @@ a.pub-carte:active{transform:scale(.98)}
   display:flex;align-items:center;justify-content:center;flex:none;
   width:64px;height:64px;border-radius:17px;overflow:hidden;
   background:var(--blanc);color:#fff;
-  box-shadow:0 6px 16px -10px rgba(0,27,82,.55),0 0 0 1px var(--trait);
+  box-shadow:0 6px 16px -10px rgba(9,26,81,.55),0 0 0 1px var(--trait);
 }
 .bou-logo img{width:100%;height:100%;object-fit:cover;display:block}
-.bou-logo-icone{box-shadow:0 6px 16px -10px rgba(0,27,82,.55)}
+.bou-logo-icone{box-shadow:0 6px 16px -10px rgba(9,26,81,.55)}
 .bou-logo-icone .ic{width:28px;height:28px}
 
 /* ---------- Les tuiles « Nos boutiques partenaires » ----------
@@ -2006,7 +2018,7 @@ a.pub-carte:active{transform:scale(.98)}
   position:relative;width:96px;height:96px;border-radius:50%;
   background:var(--bleu);color:#fff;margin:26px 0 26px;
   display:flex;align-items:center;justify-content:center;
-  box-shadow:0 16px 34px -14px rgba(0,71,217,.7);
+  box-shadow:0 16px 34px -14px rgba(37,80,183,.7);
 }
 .re-heros-rond > .ic{width:46px;height:46px;stroke-width:2.8;position:relative;z-index:1}
 .re-confettis{position:absolute;left:50%;top:50%;width:0;height:0}

@@ -430,7 +430,7 @@ const Store = (() => {
          la boutique se retrouve sans secteur, ce qui est exact. */
       categorieId: l.categorie_id || "",
       icone: l.icone || "magasin",
-      couleur: l.couleur || "#0B5CF5",
+      couleur: l.couleur || "#2550B7",
       logo: l.logo || "",
       logoUrl: l.logo ? Supabase.urlImage(l.logo) : "",
       actif: l.actif !== false,
@@ -527,7 +527,7 @@ const Store = (() => {
       slogan: b.slogan || "",
       description: b.description || "",
       icone: b.icone || "magasin",
-      couleur: b.couleur || "#0B5CF5",
+      couleur: b.couleur || "#2550B7",
       logo: b.logo || "",
       actif: b.actif !== false,
       ordre: b.ordre || 0,
@@ -2243,7 +2243,7 @@ const Store = (() => {
       id: c.id,
       nom: c.nom,
       icone: c.icone || "categories",
-      couleur: c.couleur || "#0B5CF5",
+      couleur: c.couleur || "#2550B7",
       /* Le CHEMIN de la photo du rond, dans le seau, ou « ». Une base
          pas encore mise à jour n'a pas la colonne : pas de photo. */
       image: c.image || "",
@@ -2291,7 +2291,7 @@ const Store = (() => {
 
     const pastille = {
       icone: (donnees.icone || "categories").trim() || "categories",
-      couleur: (donnees.couleur || "#0B5CF5").trim() || "#0B5CF5",
+      couleur: (donnees.couleur || "#2550B7").trim() || "#2550B7",
       en_avant: donnees.enAvant === true,
     };
 
@@ -3195,7 +3195,7 @@ const Store = (() => {
       for (const c of donnees.categories || []) {
         await Supabase.requete("POST", "categories?on_conflict=id",
           { id: c.id, nom: c.nom, ordre: c.ordre || 0,
-            icone: c.icone || "categories", couleur: c.couleur || "#0B5CF5",
+            icone: c.icone || "categories", couleur: c.couleur || "#2550B7",
             en_avant: c.enAvant === true }, { upsert: true });
         for (const s of c.sousCategories || []) {
           await Supabase.requete("POST", "sous_categories?on_conflict=id",

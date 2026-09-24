@@ -37,8 +37,11 @@ const VueCategories = (() => {
     ["promo", "Bons plans"], ["carte", "Point de vente"],
   ];
 
+  /* Le « Bleu BIZZOO » est celui de l'icône depuis la 3.53 ; une
+     catégorie enregistrée avec l'ancien (#0B5CF5) le garde — voir
+     avecLaSienne. */
   const COULEURS = [
-    ["#0B5CF5", "Bleu BIZZOO"], ["#F96302", "Orange BIZZOO"], ["#0F9D58", "Vert"],
+    ["#2550B7", "Bleu BIZZOO"], ["#F96302", "Orange BIZZOO"], ["#0F9D58", "Vert"],
     ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
     ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
     ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],
@@ -82,7 +85,7 @@ const VueCategories = (() => {
      bord du cercle — le navigateur adoucit ce bord sur les deux à la
      fois. */
   function pastille(c, classe) {
-    const couleur = /^#[0-9a-f]{6}$/i.test(c.couleur || "") ? c.couleur : "#0B5CF5";
+    const couleur = /^#[0-9a-f]{6}$/i.test(c.couleur || "") ? c.couleur : "#2550B7";
     const n = parseInt(couleur.slice(1), 16);
     const pastel = (v) => Math.round(v * .16 + 255 * .84);
     const fond = c.image
@@ -355,7 +358,7 @@ const VueCategories = (() => {
           avecLaSienne(COULEURS, categorie && categorie.couleur, "Couleur actuelle")
             .map(([code, nom]) =>
               '<button type="button" class="choix-couleur' +
-                ((categorie ? categorie.couleur : "#0B5CF5") === code ? " actif" : "") +
+                ((categorie ? categorie.couleur : "#2550B7") === code ? " actif" : "") +
                 '" data-couleur="' + code + '" style="background:' + code +
                 '" aria-label="' + Utils.echapper(nom) + '"></button>').join("") +
         "</div>" +
@@ -469,7 +472,7 @@ const VueCategories = (() => {
           id: categorie ? categorie.id : null,
           nom: UI.$("#cat-nom", corps).value,
           icone: choisi("#cat-icones", "icone", "categories"),
-          couleur: choisi("#cat-couleurs", "couleur", "#0B5CF5"),
+          couleur: choisi("#cat-couleurs", "couleur", "#2550B7"),
           enAvant: UI.$("#cat-avant", corps).checked,
           photo: photoTravail,
           sousCategories: sousTravail,

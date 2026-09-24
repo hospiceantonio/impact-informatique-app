@@ -73,7 +73,7 @@ const VueFavoris = (() => {
               (b.logo
                 ? '<span class="bou-rond bou-rond-photo"><img src="' + e(b.logo) +
                   '" alt="" loading="lazy"></span>'
-                : '<span class="bou-rond" style="background:' + e(b.couleur || "#0B5CF5") +
+                : '<span class="bou-rond" style="background:' + e(b.couleur || "#2550B7") +
                   '">' + UI.icone(b.icone || "magasin") + "</span>") +
               '<span class="bou-carte-nom">' + e(b.nom) + "</span>" +
               '<span class="bou-carte-sous">' + e(b.secteur || "") + "</span>" +
