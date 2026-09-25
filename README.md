@@ -3113,7 +3113,7 @@ même défaut. Toute carte-lien est désormais un bloc (`:where(a).carte`,
 qui laisse aux variantes en flex le dernier mot), et `banc-da` mesure
 que chaque carte-lien enveloppe son titre.
 
-## La barre du bas à deux visages
+## La barre du bas à deux visages (3.54.0)
 
 La barre du bas n'est plus la même partout : elle dit où l'on se tient.
 
@@ -3165,7 +3165,10 @@ BIZZOO, « Retour à Bizzoo » jamais affiché, les favoris filtrés par la
 boutique, l'action posée sur les onglets, le compte retiré du haut, la
 recherche jamais limitée, la petite taille retirée à 320 px, les rayons
 d'une catégorie non filtrés, la fiche produit sans barre.
-`banc-da-ecrans` suit les nouvelles règles de la barre.
+`banc-da-ecrans` et `banc-notifications` suivent la nouvelle barre (la
+cloche se pose avant le compte, le panier reste le dernier bouton). Les
+captures de la vitrine et l'image de partage sont refaites : elles
+montrent la nouvelle barre.
 
 ## Publication sur le Play Store (le moment venu)
 
