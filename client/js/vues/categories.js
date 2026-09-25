@@ -66,10 +66,16 @@ const VueCategories = (() => {
 
   /* Dans une boutique : ses rayons à elle. « Les catégories d'une
      boutique » n'existent plus ; ce sont les rayons du secteur de
-     BIZZOO où elle se range, et seulement ceux qu'elle tient. */
+     BIZZOO où elle se range, et seulement ceux qu'elle tient. C'est
+     l'onglet « Catégories » de la barre de la boutique qui y mène. */
   function rayonsDeLaBoutique(vue) {
     const rayons = Catalogue.rayonsDeLaBoutique();
-    UI.entete({ titre: "Catégories", sous: "Tout le catalogue, classé par rayon",
+    const b = Catalogue.boutiqueChoisie();
+    /* « d'Impact Informatique », « de Bêta » : on élide devant une
+       voyelle. */
+    const de = (nom) => (/^[aeiouyàâäéèêëîïôöùûü]/i.test(nom) ? "d'" : "de ") + nom;
+    UI.entete({ titre: "Catégories",
+      sous: b ? "Les rayons " + de(b.nom) : "Tout le catalogue, classé par rayon",
       actions: UI.boutonRecherche() });
 
     if (!rayons.length) {

@@ -6,19 +6,22 @@ const App = { evenementInstallation: null };
 
 (() => {
 
-  /* « onglet » : celui qui s'allume dans la barre du bas. Quatre
-     onglets pour tous les écrans — chacun dit sous lequel il se range.
+  /* « onglet » : celui qui s'allume dans la barre du bas — chaque écran
+     dit sous lequel il se range. La barre a deux visages (voir
+     reglerOnglets) : celui de BIZZOO, et celui d'une boutique.
 
-     « sansOnglets » : les écrans de PARCOURS de la DA — une boutique, un
-     produit, le panier, le paiement, la confirmation. Ils n'ont pas de
-     barre du bas : un retour en haut, et une action en bas. */
+     « sansOnglets » : les écrans de PARCOURS — le panier, le paiement,
+     la confirmation. Ils traversent les boutiques et n'appartiennent à
+     aucune : un retour en haut, une action en bas, pas de barre. */
   const ROUTES = [
     { motif: /^\/$/, vue: (v) => VueAccueil.afficher(v), onglet: "/" },
     /* « Nos boutiques » : la liste entière, qu'on ouvre depuis
        « Nos boutiques partenaires » sur l'accueil. */
     { motif: /^\/boutiques$/, vue: (v) => VueAccueil.boutiques(v), onglet: "/" },
+    /* LA VITRINE D'UNE BOUTIQUE EST SON ACCUEIL : la barre y est, sous
+       le visage de la boutique, et « Accueil » s'y allume. */
     { motif: /^\/boutique\/([^/]+)$/, vue: (v, m, p) => VueAccueil.boutique(v, m[1], p),
-      sansOnglets: true },
+      onglet: "/" },
     { motif: /^\/categories$/, vue: (v) => VueCategories.liste(v), onglet: "/categories" },
     { motif: /^\/categorie\/([^/]+)$/, vue: (v, m, p) => VueCategories.rayon(v, m[1], p), onglet: "/categories" },
     { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v), onglet: "/" },
@@ -29,11 +32,14 @@ const App = { evenementInstallation: null };
        catalogue de BIZZOO en galerie, les derniers arrivés d'abord. */
     { motif: /^\/nos-produits$/, vue: (v) => VueProduits.afficher(v, { galerie: true }),
       onglet: "/" },
+    /* La fiche d'un produit est DANS sa boutique : la barre de la
+       boutique y reste, « Ajouter au panier » se pose au-dessus. Aucun
+       onglet ne s'y allume — on y arrive de partout. */
     { motif: /^\/produit\/([^/]+)$/, vue: (v, m) => VueProduit.afficher(v, m[1]),
-      sansOnglets: true },
-    /* La recherche n'est plus un onglet : c'est la barre-pilule de
-       l'accueil, comme sur la DA. Elle se range donc sous « Accueil ». */
-    { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/" },
+      onglet: "" },
+    /* La recherche est redevenue un onglet. La barre-pilule de l'accueil
+       et la loupe des en-têtes y mènent aussi. */
+    { motif: /^\/recherche$/, vue: (v) => VueRecherche.afficher(v), onglet: "/recherche" },
     /* Le panier traverse les boutiques : on y entre par le bouton de la
        barre du haut, et il ne porte que son action — « Passer la
        commande ». */
@@ -45,8 +51,9 @@ const App = { evenementInstallation: null };
        là que le client est quand il constate le problème. */
     { motif: /^\/reclamations$/, vue: (v) => VueSAV.mesReclamations(v), onglet: "/compte" },
     { motif: /^\/reclamation\/([^/]+)$/, vue: (v, m) => VueSAV.fil(v, m[1]), onglet: "/compte" },
-    /* Se connecter, c'est ouvrir son compte : l'onglet « Compte » reste
-       allumé, sans quoi on croirait avoir quitté l'écran qu'on a pressé. */
+    /* « /compte » : le compte n'est plus un onglet, c'est le bouton de
+       la barre du haut, à côté du panier. Aucun onglet ne s'allume
+       sous ces écrans ; le bouton, lui, s'allume sur l'écran du compte. */
     { motif: /^\/connexion$/, vue: (v) => VueCompte.connexion(v), onglet: "/compte" },
     /* Entrer par son numéro : au Bénin, beaucoup de clients ont un
        téléphone et pas d'adresse e-mail. */
@@ -156,6 +163,9 @@ const App = { evenementInstallation: null };
       return;
     }
     reglerBoutique(chemin);
+    /* Sous quel onglet se range l'écran : la barre du haut en a besoin
+       aussi — le bouton du compte s'allume sur les écrans du compte. */
+    document.body.dataset.onglet = route.onglet || "";
     /* La barre du bas se range AVANT que l'écran ne se dessine, et
        l'action du bas de l'écran quitté s'en va : « Ajouter au panier »
        ne doit pas survivre sur le panier. Chaque écran de parcours pose
@@ -204,14 +214,13 @@ const App = { evenementInstallation: null };
     /* « À propos de BIZZOO » parle de l'enseigne, même si l'on sort
        d'une boutique pour l'ouvrir : on y arrive par le compte, pas par
        la boutique, dont la fiche a son propre « À propos ». */
-    /* « Catégories » aussi : c'est le menu de BIZZOO, le même partout.
-       Entré dans une boutique puis passé à cet onglet, on ne doit pas
-       tomber sur les seuls rayons de la boutique quittée. */
     /* « Nos produits » aussi : c'est la galerie de toute l'enseigne. Un
        produit ouvert depuis elle fait entrer dans SA boutique ; au retour,
        la galerie ne doit pas se retrouver réduite à celle-là. */
-    if (chemin === "/" || chemin === "/infos" || chemin === "/categories" ||
-        chemin === "/nos-produits") {
+    /* « CATÉGORIES » NE FAIT PLUS SORTIR. Dans une boutique, l'onglet
+       montre ses rayons à elle ; sur BIZZOO, la liste de l'enseigne. On
+       sort d'une boutique par « Retour à Bizzoo », qui mène à « / ». */
+    if (chemin === "/" || chemin === "/infos" || chemin === "/nos-produits") {
       Catalogue.quitterBoutique();
     }
     const laBoutique = /^\/boutique\/([^/]+)$/.exec(chemin);
@@ -234,20 +243,22 @@ const App = { evenementInstallation: null };
        reste la sienne. */
   }
 
-  /* ---------- Les quatre onglets de la DA ----------
-     Accueil, Catégories, Favoris, Compte : les mêmes partout.
+  /* ---------- La barre du bas, à deux visages ----------
+     SUR BIZZOO : Accueil, Catégories, Favoris, Recherche. Le compte est
+     monté dans la barre du haut, à côté du panier.
 
-     « ACCUEIL » RAMÈNE À BIZZOO, TOUJOURS. L'ancienne barre gardait le
-     client dans la boutique où il était entré — « Accueil » y menait à
-     la vitrine de la boutique, et un onglet BIZZOO servait à en sortir.
-     La DA n'a plus ce double sens : la fiche d'une boutique est un écran
-     de parcours, avec son retour en haut, et « Accueil » est celui de
-     l'enseigne. Une boutique partagée par lien s'ouvre toujours sur sa
-     fiche ; c'est seulement la sortie qui mène désormais à toutes les
-     autres.
+     DANS UNE BOUTIQUE : les mêmes onglets parlent d'elle, et un
+     cinquième permet d'en sortir.
+       - « Accueil » mène à SA VITRINE : une fois entré chez quelqu'un,
+         on y reste. Sortir se demande — sinon on quitte la boutique sans
+         l'avoir voulu, en croyant remonter en haut de la sienne ;
+       - « Catégories » montre SES rayons, la recherche fouille d'abord
+         chez elle ; les favoris restent tous les vôtres ;
+       - « Retour à Bizzoo », le logo en guise d'icône, ramène à
+         l'accueil de l'enseigne et fait sortir de la boutique.
 
-     « Catégories » est le menu de BIZZOO, et il l'est partout : la
-     liste est celle de l'enseigne, la même pour tout le monde. */
+     En boutique unique il n'y a pas d'enseigne où revenir : la barre
+     garde le visage de BIZZOO, sans « Retour ». */
 
   /* Est-on CHEZ quelqu'un ? En boutique unique, toujours : il n'y a pas
      d'accueil d'enseigne où se tenir. */
@@ -255,8 +266,12 @@ const App = { evenementInstallation: null };
     !Catalogue.multiBoutiques() || !!Catalogue.boutiqueChoisie();
 
   function reglerOnglets() {
+    const chez = Catalogue.multiBoutiques() ? Catalogue.boutiqueChoisie() : null;
     const accueil = document.querySelector('#tabbar a[data-tab="/"]');
-    if (accueil) accueil.href = "#/";
+    if (accueil) accueil.href = chez ? "#/boutique/" + encodeURIComponent(chez.id) : "#/";
+    const sortie = document.getElementById("tab-bizzoo");
+    if (sortie) sortie.hidden = !chez;
+    document.body.classList.toggle("en-boutique", !!chez);
   }
 
   /* ---------- « Nous contacter » ----------
@@ -265,8 +280,8 @@ const App = { evenementInstallation: null };
      lien à chaque écran plutôt que de le figer dans la page : il suit
      une mise à jour des réglages sans qu'on ait à rouvrir l'application.
 
-     Le contact de BIZZOO, lui, n'est plus un onglet : la barre de la DA
-     en compte quatre, et il vit sous « Compte ». */
+     Le contact de BIZZOO, lui, n'est pas un onglet : il vit sous le
+     compte, le bouton de la barre du haut. */
 
   function reglerContact(chemin) {
     const flottant = document.getElementById("contact-flottant");
@@ -320,9 +335,11 @@ const App = { evenementInstallation: null };
      rien ne se redessine ; et si l'on en revient, la position de
      lecture mémorisée reprendrait la main. */
   document.addEventListener("click", (ev) => {
-    const accueil = ev.target.closest('#tabbar a[data-tab="/"]');
+    /* « Retour à Bizzoo » aussi : on revient en haut de l'accueil de
+       l'enseigne, pas là où on l'avait laissé avant d'entrer. */
+    const accueil = ev.target.closest('#tabbar a[data-tab="/"], #tab-bizzoo');
     if (!accueil) return;
-    /* L'écran visé n'est plus toujours « #/ » : dans une boutique,
+    /* L'écran visé n'est pas toujours « #/ » : dans une boutique,
        Accueil ramène à sa vitrine. On oublie la position mémorisée de
        CELUI-LÀ, sans quoi on retomberait au milieu de la page. */
     const vise = accueil.getAttribute("href") || "#/";

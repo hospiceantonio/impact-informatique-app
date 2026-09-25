@@ -68,8 +68,20 @@ const UI = (() => {
      écrans du panier lui-même — y renvoyer depuis là ne mènerait nulle
      part. */
 
-  /* Le compte n'est plus dans la barre du haut : c'est un onglet de la
-     barre du bas, comme sur la DA. */
+  /* LE COMPTE EST REMONTÉ DANS LA BARRE DU HAUT, juste avant le panier :
+     la barre du bas a pris la recherche, et, dans une boutique, le
+     retour à BIZZOO. Il s'allume sur les écrans du compte — ceux que la
+     table des routes range sous « /compte », la connexion comprise :
+     c'est là qu'il mène un visiteur. */
+  function boutonCompte() {
+    const ici = document.body.dataset.onglet === "/compte";
+    return (
+      '<a class="btn-ic btn-compte' + (ici ? " actif" : "") + '" href="#/compte" ' +
+        'aria-label="Mon compte"' + (ici ? ' aria-current="page"' : "") + ">" +
+        icone("compte") +
+      "</a>"
+    );
+  }
 
   function boutonPanier() {
     if (/^#\/(panier|commande|mes-commandes)/.test(location.hash)) return "";
@@ -126,10 +138,11 @@ const UI = (() => {
     const neuf = boutonCloche();
     if (ancien) ancien.outerHTML = neuf;
     else if (neuf) {
-      /* La cloche se pose AVANT le panier : le panier reste le dernier
-         geste de la barre, celui qu'on cherche du pouce. */
-      const panier = $(".btn-panier", zone);
-      if (panier) panier.insertAdjacentHTML("beforebegin", neuf);
+      /* La cloche se pose AVANT le compte et le panier : le panier reste
+         le dernier geste de la barre, celui qu'on cherche du pouce, et le
+         compte le touche. */
+      const suivant = $(".btn-compte", zone) || $(".btn-panier", zone);
+      if (suivant) suivant.insertAdjacentHTML("beforebegin", neuf);
       else zone.insertAdjacentHTML("beforeend", neuf);
     }
   }
@@ -159,9 +172,10 @@ const UI = (() => {
       ? '<button type="button" class="btn-ic" data-action="retour" aria-label="Retour">' +
         icone("retour") + "</button>"
       : "";
-    /* Restent la cloche et le panier : deux choses qu'on doit voir
-       changer sans avoir à les chercher. */
-    actions = (actions || "") + boutonCloche() + boutonPanier();
+    /* Restent la cloche, le compte et le panier : la cloche et le panier
+       changent sans prévenir, il faut les voir sans les chercher ; le
+       compte est monté ici depuis la barre du bas. */
+    actions = (actions || "") + boutonCloche() + boutonCompte() + boutonPanier();
     const actionsHtml = '<div class="topbar-actions">' + (actions || "") + "</div>";
 
     /* ---------- L'en-tête d'une boutique ----------

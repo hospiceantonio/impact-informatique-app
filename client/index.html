@@ -115,15 +115,19 @@
        l'application, qui est un dessin fait pour un écran d'accueil et
        qui, posée ici, donnait deux marques côte à côte. -->
   <div class="tabbar-marque" aria-hidden="true"><span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points"><i></i><i></i></span></span></div>
-  <!-- LES QUATRE ONGLETS DE LA DA, et eux seuls. Rien n'a disparu,
-       chaque entrée a changé de porte : la recherche est la barre-pilule
-       de l'accueil ; les infos et le contact de BIZZOO sont sous
-       « Compte » ; les produits d'une boutique, sous l'onglet
-       « Produits » de sa fiche. -->
+  <!-- LA BARRE A DEUX VISAGES.
+       Sur BIZZOO : Accueil, Catégories, Favoris, Recherche. Le compte est
+       en haut, à côté du panier.
+       Dans une boutique : les mêmes onglets parlent d'elle — « Accueil »
+       mène à SA vitrine, « Catégories » à SES rayons, la recherche fouille
+       d'abord chez elle — et « Retour à Bizzoo » permet d'en sortir.
+       app.js règle les deux (reglerOnglets). -->
   <a href="#/" data-tab="/"><svg class="ic" viewBox="0 0 24 24"><use href="#i-accueil"/></svg><span>Accueil</span></a>
   <a href="#/categories" data-tab="/categories"><svg class="ic" viewBox="0 0 24 24"><use href="#i-categories"/></svg><span>Catégories</span></a>
   <a href="#/favoris" data-tab="/favoris"><svg class="ic" viewBox="0 0 24 24"><use href="#i-coeur"/></svg><span>Favoris</span></a>
-  <a href="#/compte" data-tab="/compte"><svg class="ic" viewBox="0 0 24 24"><use href="#i-compte"/></svg><span>Compte</span></a>
+  <a href="#/recherche" data-tab="/recherche"><svg class="ic" viewBox="0 0 24 24"><use href="#i-recherche"/></svg><span>Recherche</span></a>
+  <!-- Dans une boutique seulement : le logo de BIZZOO dit où l'on revient. -->
+  <a id="tab-bizzoo" class="tab-bizzoo" href="#/" hidden><img class="tab-logo" src="icons/icon-192.png" alt=""><span>Retour&nbsp;à Bizzoo</span></a>
 </nav>
 
 <!-- Le contact WhatsApp de la boutique où l'on se trouve : toujours au

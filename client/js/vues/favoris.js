@@ -47,8 +47,12 @@ const VueFavoris = (() => {
     }
 
     /* Un identifiant n'est pas un produit : la marchandise se retrouve
-       dans le catalogue, et ce qui ne s'y retrouve pas ne s'affiche pas. */
-    const parId = new Map(Catalogue.produits().map((p) => [p.id, p]));
+       dans le catalogue, et ce qui ne s'y retrouve pas ne s'affiche pas.
+       DANS TOUTES LES BOUTIQUES OUVERTES, même quand on se tient dans
+       l'une d'elles : « Catalogue.produits() » ne rendrait que la
+       sienne, et l'écran compterait les autres favoris pour « plus en
+       vente ». */
+    const parId = new Map(Catalogue.produitsDeLEnseigne().map((p) => [p.id, p]));
     const produits = idsProduits.map((id) => parId.get(id)).filter(Boolean);
 
     const parIdB = new Map(Catalogue.boutiques().map((b) => [b.id, b]));

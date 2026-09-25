@@ -697,8 +697,12 @@ const Catalogue = (() => {
    * marché, c'est une porte qui ne mène nulle part.
    */
   function rayonsDeLaCategorie(categorieId) {
+    /* Les produits EN VUE : ceux de toutes les boutiques sur BIZZOO,
+       ceux de la boutique quand on s'y tient — ses rayons à elle, comme
+       l'onglet Catégories qui y mène. Hors boutique, c'est la même
+       chose que « produitsDeLEnseigne() ». */
     const comptes = {};
-    for (const p of produitsDeLEnseigne()) {
+    for (const p of produits()) {
       if (p.categorieId === categorieId && p.sousCategorieId) {
         comptes[p.sousCategorieId] = (comptes[p.sousCategorieId] || 0) + 1;
       }

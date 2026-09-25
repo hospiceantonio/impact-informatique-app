@@ -7,6 +7,8 @@
    portent une action en bas, des écrans nouveaux. Ce sont des
    règles qui se défont sans bruit — un onglet qui revient, une
    action qui survit à son écran — et qu'aucun autre banc ne voit.
+   (La barre a depuis deux visages, BIZZOO et boutique, que
+   banc-navigation-boutique éprouve en détail.)
 
    ET CE QUE LA MAQUETTE MONTRAIT SANS QUE CE SOIT VRAI. Elle
    annonce « 5 000 FCFA » de livraison, « un e-mail » à la
@@ -16,9 +18,12 @@
 
    Sept choses à prouver :
 
-     1. LA BARRE A QUATRE ONGLETS, ceux de la DA ;
-     2. ELLE DISPARAÎT SUR LES ÉCRANS DE PARCOURS, et l'action
-        du bas prend sa place — sans survivre à son écran ;
+     1. LA BARRE A QUATRE ONGLETS sur BIZZOO — Accueil,
+        Catégories, Favoris, Recherche —, le compte est en haut ;
+     2. ELLE DISPARAÎT SUR LES ÉCRANS DE PARCOURS — panier,
+        paiement, confirmation —, et l'action du bas prend sa
+        place, sans survivre à son écran. La fiche produit, elle,
+        garde la barre de sa boutique ;
      3. L'ACCUEIL SUIT L'ORDRE DE LA DA, et « Nos boutiques »
         existe, avec des filtres qui ne mentent pas ;
      4. LA FICHE BOUTIQUE : trois onglets, et « Paiement
@@ -139,13 +144,17 @@ const action = (page) => page.evaluate(() => {
 });
 
 /* ------------------------------------------------------------------ */
-titre("1. La barre du bas : les quatre onglets de la DA");
+titre("1. La barre du bas : quatre onglets sur BIZZOO, le compte en haut");
 {
   const { page, ctx } = await ouvrir();
-  const m = await page.evaluate(() => [...document.querySelectorAll("#tabbar [data-tab]")]
+  const m = await page.evaluate(() => [...document.querySelectorAll("#tabbar > a")]
     .filter((a) => !a.hidden).map((a) => a.textContent.trim()));
-  ok(m.join(",") === "Accueil,Catégories,Favoris,Compte",
-    "Accueil, Catégories, Favoris, Compte — et rien d'autre (" + m.join(", ") + ")");
+  ok(m.join(",") === "Accueil,Catégories,Favoris,Recherche",
+    "Accueil, Catégories, Favoris, Recherche — et rien d'autre (" + m.join(", ") + ")");
+  ok(await page.evaluate(() => {
+    const c = document.querySelector("#topbar .btn-compte");
+    return !!c && !!c.nextElementSibling && c.nextElementSibling.classList.contains("btn-panier");
+  }), "le compte est en haut, à côté du panier");
   ok(await barreVisible(page), "elle est là sur l'accueil");
   const actif = await page.evaluate(() =>
     (document.querySelector("#tabbar a.actif") || {}).textContent || "");
@@ -157,7 +166,9 @@ titre("1. La barre du bas : les quatre onglets de la DA");
 titre("2. Les écrans de parcours : pas de barre, une action en bas");
 {
   const { page, ctx } = await ouvrir({ hash: "#/produit/prod_1" });
-  ok(!(await barreVisible(page)), "la fiche produit n'a pas de barre d'onglets");
+  /* LA FICHE PRODUIT EST DANS SA BOUTIQUE : elle garde la barre de la
+     boutique, et son action se pose au-dessus. */
+  ok(await barreVisible(page), "la fiche produit garde la barre de sa boutique");
   const a = await action(page);
   ok(!!a && /Ajouter au panier/.test(a.texte), "elle a « Ajouter au panier » en bas");
   ok(!!a && a.orange && a.fond === "rgb(255, 138, 0)", "en ORANGE, comme la DA");
@@ -253,7 +264,11 @@ titre("3. L'accueil dans l'ordre de la DA, et « Nos boutiques »");
 titre("4. La fiche boutique : trois onglets, et des atouts vrais");
 {
   const { page, ctx } = await ouvrir({ hash: "#/boutique/bou_a" });
-  ok(!(await barreVisible(page)), "pas de barre d'onglets, comme la DA");
+  /* La vitrine d'une boutique est son accueil : la barre y est, sous le
+     visage de la boutique, avec « Retour à Bizzoo ». */
+  ok(await barreVisible(page) && await page.evaluate(() =>
+    !document.getElementById("tab-bizzoo").hidden),
+    "la barre de la boutique, avec « Retour à Bizzoo »");
   const m = await page.evaluate(() => ({
     onglets: [...document.querySelectorAll(".bou-onglet")].map((o) => o.textContent.trim()),
     atouts: [...document.querySelectorAll(".bou-atout")].map((a) => a.textContent.trim()),

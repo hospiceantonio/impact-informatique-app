@@ -147,14 +147,20 @@ titre("La cloche porte le nombre de non lues");
     return { existe: !!c,
       pastille: c ? (c.querySelector(".panier-pastille") || {}).textContent || "" : "",
       etiquette: c ? c.getAttribute("aria-label") : "",
-      avantPanier: !!(c && c.nextElementSibling &&
-        c.nextElementSibling.classList.contains("btn-panier")) };
+      /* La cloche, puis le compte, puis le panier : le compte est monté
+         dans la barre du haut, et touche le panier. */
+      ordre: c ? [...c.parentElement.children].slice([...c.parentElement.children].indexOf(c))
+        .map((x) => [...x.classList].find((k) => /^btn-(cloche|compte|panier)$/.test(k)) || "")
+        .join(",") : "",
+      panierDernier: !!(c && c.parentElement.lastElementChild &&
+        c.parentElement.lastElementChild.classList.contains("btn-panier")) };
   });
   ok(m.existe, "la cloche est dans la barre du haut");
   ok(m.pastille === "2", "et porte le nombre de non lues (" + m.pastille + ")");
   ok(/2 non lues/.test(m.etiquette),
     "le nombre est aussi dans l'étiquette (" + m.etiquette + ")");
-  ok(m.avantPanier, "elle se pose avant le panier, qui reste le dernier geste");
+  ok(m.ordre === "btn-cloche,btn-compte,btn-panier" && m.panierDernier,
+    "elle se pose avant le compte et le panier, qui reste le dernier geste (" + m.ordre + ")");
   await ctx.close();
 }
 

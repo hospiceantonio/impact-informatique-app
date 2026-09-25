@@ -391,6 +391,11 @@ courte et des écrans de parcours qui n'en ont plus.
 
 ### La barre du bas : quatre onglets
 
+> **Elle a changé depuis** : la barre a deux visages, celui de BIZZOO et
+> celui d'une boutique, la recherche est redevenue un onglet et le compte
+> est monté dans la barre du haut — voir « La barre du bas à deux
+> visages » plus bas. Ce qui suit est la barre de la DA d'origine.
+
 | Onglet | Ce qu'il ouvre |
 |---|---|
 | Accueil | l'accueil de BIZZOO — toujours, même depuis une boutique |
@@ -405,9 +410,11 @@ l'enseigne sont sous Compte → À propos de BIZZOO.
 
 ### Les écrans de parcours : pas d'onglets, une action en bas
 
-Fiche boutique, fiche produit, panier, paiement et confirmation n'ont
-pas de barre d'onglets, comme sur la DA : on y avance, on n'y navigue
-pas. L'action qui fait avancer est **fixée en bas** de l'écran :
+Panier, paiement et confirmation n'ont pas de barre d'onglets, comme
+sur la DA : on y avance, on n'y navigue pas. (La fiche boutique et la
+fiche produit en ont eu aucune, elles aussi, avant de prendre la barre
+de la boutique.) L'action qui fait avancer est **fixée en bas** de
+l'écran :
 
 | Écran | Action du bas |
 |---|---|
@@ -3106,6 +3113,60 @@ même défaut. Toute carte-lien est désormais un bloc (`:where(a).carte`,
 qui laisse aux variantes en flex le dernier mot), et `banc-da` mesure
 que chaque carte-lien enveloppe son titre.
 
+## La barre du bas à deux visages
+
+La barre du bas n'est plus la même partout : elle dit où l'on se tient.
+
+| Sur BIZZOO | Dans une boutique |
+|---|---|
+| **Accueil** — l'accueil de BIZZOO | **Accueil** — la vitrine de la boutique |
+| **Catégories** — la liste de BIZZOO | **Catégories** — ses rayons à elle |
+| **Favoris** | **Favoris** — tous les vôtres, de toutes les boutiques |
+| **Recherche** — dans toutes les boutiques | **Recherche** — d'abord chez elle, une puce pour toutes les boutiques |
+| | **Retour à Bizzoo** — le logo en guise d'icône : on revient à l'accueil de BIZZOO, et on sort de la boutique |
+
+**Le compte est monté dans la barre du haut**, juste avant le panier. Il
+s'allume sur les écrans du compte — la connexion, pour un visiteur.
+
+**Une fois entré chez quelqu'un, on y reste.** « Accueil » ramène à la
+vitrine de la boutique, et non plus à BIZZOO : on la quittait sans
+l'avoir voulu, en croyant remonter en haut de la sienne. Sortir se
+demande, par « Retour à Bizzoo ». C'était le comportement d'avant la
+DA, qui l'avait retiré en faisant de la fiche boutique un écran sans
+barre.
+
+**La vitrine et la fiche d'un produit portent la barre de la boutique.**
+Sur la fiche produit, « Ajouter au panier » se pose au-dessus des
+onglets, jamais dessus ; sur ordinateur, à droite du menu. Le panier, le
+paiement et la confirmation traversent les boutiques : ils restent sans
+barre. En boutique unique, il n'y a pas d'enseigne où revenir : la barre
+garde le visage de BIZZOO, sans « Retour ».
+
+**Ce qui a changé sous le capot :**
+- « Catégories » ne fait plus sortir de la boutique. Dans une boutique,
+  l'onglet montre ses rayons (`rayonsDeLaBoutique`, qui existait mais ne
+  servait plus) ; un rayon ouvert de là n'affiche que ses produits, et
+  ses puces que ses rayons ;
+- les **favoris** se retrouvent dans toutes les boutiques ouvertes : la
+  vue passait par `Catalogue.produits()`, limité à la boutique en cours,
+  et aurait compté les favoris des autres pour « plus en vente » ;
+- la **recherche** garde ce qui est tapé quand on passe de « Chez … » à
+  « Toutes les boutiques » ;
+- « Retour à Bizzoo » tient sur deux lignes au cinquième d'un téléphone ;
+  sur 320 px, les libellés perdent un point pour que « Catégories »
+  tienne en entier.
+
+`tools/banc-navigation-boutique.mjs` suit le vrai chemin — la tuile
+d'une boutique, ses onglets, un rayon, la recherche, les favoris d'un
+client connecté, une fiche produit, la sortie — en 52 constats, du
+téléphone de 320 px à l'ordinateur. Dix sabotages le font tomber, un par
+règle : « Catégories » qui fait sortir, « Accueil » toujours vers
+BIZZOO, « Retour à Bizzoo » jamais affiché, les favoris filtrés par la
+boutique, l'action posée sur les onglets, le compte retiré du haut, la
+recherche jamais limitée, la petite taille retirée à 320 px, les rayons
+d'une catégorie non filtrés, la fiche produit sans barre.
+`banc-da-ecrans` suit les nouvelles règles de la barre.
+
 ## Publication sur le Play Store (le moment venu)
 
 1. Compte **Google Play Console** (25 $ une fois).
@@ -3200,7 +3261,7 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
-    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock et accueil-galerie
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie et navigation-boutique
     ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── illustrations-categories.py # Les illustrations des ronds de catégories
