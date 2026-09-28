@@ -533,8 +533,14 @@ const VueComptes = (() => {
         '<div class="carte-titre">' + UI.icone("personne", "ic-sm") + " Connecté</div>" +
         '<p class="aide" style="margin:0">Vous êtes connecté en tant que <strong>' +
           Utils.echapper(Supabase.utilisateur() || "—") + "</strong>." +
-          (role ? "<br>Rôle : <strong>" + Utils.echapper(nomRole(role)) + "</strong> — " +
-            Utils.echapper(Store.ROLES[role].aide) : "") +
+          /* UN COMPTE DE BIZZOO N'EST PAS L'ADMINISTRATEUR D'UNE BOUTIQUE :
+             l'aide de son rang le décrirait à tort. Ce qui dit ce qu'il
+             peut faire, ce sont ses interrupteurs — on les lui montre. */
+          (role ? "<br>Rôle : <strong>" + Utils.echapper(nomRole(role)) +
+            (Supabase.estCompteEnseigne() ? " de BIZZOO" : "") + "</strong> — " +
+            Utils.echapper(Supabase.estCompteEnseigne()
+              ? "toutes les boutiques" + droitsResumes(profil)
+              : Store.ROLES[role].aide) : "") +
           ((profil && !profil.actif)
             ? '<br><span style="color:var(--rouge)">Compte désactivé : demandez à l\'administrateur de le réactiver.</span>'
             : "") +

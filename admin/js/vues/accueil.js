@@ -6,8 +6,22 @@ const VueAccueil = (() => {
 
   async function afficher(vue) {
     const admin = Supabase.estAdmin();
+    const enseigne = Supabase.estCompteEnseigne();
+    const icone = (href, label, nom) =>
+      '<a class="btn-ic" href="' + href + '" aria-label="' + label + '">' + UI.icone(nom) + "</a>";
 
-    UI.entete({ accueil: true, actions: admin
+    /* LE COMPTE DE BIZZOO A SA PROPRE RANGÉE. Ni historique ni comptes :
+       la base ne lui en rend rien. Les commandes selon son interrupteur,
+       les réglages selon « Les boutiques » — sinon son compte. Les avis
+       et les réclamations toujours : il répond pour toutes les boutiques,
+       et sans ces icônes il n'aurait aucun chemin vers eux. */
+    UI.entete({ accueil: true, actions: enseigne
+      ? (Supabase.peutVoirCommandes() ? icone("#/commandes", "Commandes", "boite") : "") +
+        icone("#/avis", "Avis des clients", "etoile") +
+        icone("#/sav", "Réclamations", "alerte") +
+        (admin ? icone("#/reglages", "Réglages", "reglages")
+               : icone("#/compte", "Mon compte", "personne"))
+      : admin
       ? '<a class="btn-ic" href="#/commandes" aria-label="Commandes">' + UI.icone("boite") + "</a>" +
         '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
         '<a class="btn-ic" href="#/comptes" aria-label="Comptes">' + UI.icone("equipe") + "</a>" +
@@ -143,8 +157,9 @@ const VueAccueil = (() => {
        est : tout ce qui suit ne concerne que cette boutique-là. */
     const courante = Store.boutiqueCourante();
     if (courante) {
-      /* Seul le super administrateur passe d'une boutique à l'autre. */
-      const peutChanger = Supabase.estSuper();
+      /* Le super administrateur et le compte de BIZZOO passent d'une
+         boutique à l'autre ; les autres restent dans la leur. */
+      const peutChanger = Supabase.peutChangerDeBoutique();
       html +=
         '<a class="carte carte-boutique-active"' +
           (peutChanger ? ' href="#/boutiques"' : "") + ">" +
@@ -193,8 +208,12 @@ const VueAccueil = (() => {
        La question qu'on se pose en ouvrant l'application. Mais pas la
        même selon qui ouvre : l'enseigne veut savoir ce qu'elle garde,
        une boutique ce qui lui revient. Deux écrans, deux fonctions en
-       base — ici on n'annonce à chacun que le sien. */
-    html += Supabase.estSuper()
+       base — ici on n'annonce à chacun que le sien.
+
+       ET AU COMPTE DE BIZZOO, AUCUN : la première fonction est au
+       superadministrateur seul, la seconde part de la boutique du
+       compte, et il n'en a pas. La carte l'aurait mené à un refus. */
+    if (!enseigne) html += Supabase.estSuper()
       ? '<a class="carte carte-benefice" href="#/statistiques">' +
           '<div class="carte-titre">' + UI.icone("promo", "ic-sm") +
             " Ce que rapportent les boutiques</div>" +
@@ -309,7 +328,9 @@ const VueAccueil = (() => {
 
     /* ---- Dernières actions (administrateur) ---- */
     let journal = [];
-    if (admin) {
+    /* Le journal ne montre que des lignes de boutique : au compte de
+       BIZZOO, la base n'en rend aucune. Inutile de le lui demander. */
+    if (admin && !enseigne) {
       try { journal = await Store.lireJournal(4, 0); } catch (_) { /* table pas encore créée */ }
     }
     if (journal.length) {

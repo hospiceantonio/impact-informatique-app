@@ -492,13 +492,16 @@ const Store = (() => {
   const lireBoutique = (id) => boutiques.find((b) => b.id === id) || null;
 
   /**
-   * Choisit la boutique sur laquelle on travaille. Un modérateur ne peut
-   * pas en sortir : la base le lui refuserait de toute façon.
+   * Choisit la boutique sur laquelle on travaille. Un compte de boutique
+   * ne peut pas en sortir : la base le lui refuserait de toute façon. Le
+   * compte d'enseigne, lui, passe de l'une à l'autre — la base lui
+   * répond oui partout (« peut_agir_sur() »), dans la limite de ses
+   * interrupteurs.
    */
   function choisirBoutique(id) {
     const cible = lireBoutique(id);
     if (!cible) throw new Error("Cette boutique n'existe plus.");
-    if (!Supabase.estSuper() && cible.id !== Supabase.boutiqueDuCompte()) {
+    if (!Supabase.peutChangerDeBoutique() && cible.id !== Supabase.boutiqueDuCompte()) {
       throw new Error("Votre compte ne gère que la boutique « " +
         ((lireBoutique(Supabase.boutiqueDuCompte()) || {}).nomBoutique || "qui lui est confiée") + " ».");
     }
@@ -512,8 +515,12 @@ const Store = (() => {
   function boutiqueDeDepart() {
     const duCompte = Supabase.boutiqueDuCompte();
     if (duCompte && lireBoutique(duCompte)) return duCompte;
-    /* Sans boutique attribuée, seul le superadministrateur circule. */
-    if (!Supabase.estSuper() && Supabase.rolesActifs()) return "";
+    /* Sans boutique attribuée, seuls le superadministrateur et le compte
+       d'enseigne circulent. Le compte d'enseigne était oublié ici : il
+       démarrait sans boutique, et l'application l'arrêtait sur
+       « Boutique à confier » — un administrateur de BIZZOO ne pouvait
+       tout simplement pas entrer. */
+    if (!Supabase.peutChangerDeBoutique() && Supabase.rolesActifs()) return "";
     let memorisee = "";
     try { memorisee = localStorage.getItem(CLE_BOUTIQUE) || ""; } catch (_) { /* sans importance */ }
     if (memorisee && lireBoutique(memorisee)) return memorisee;
