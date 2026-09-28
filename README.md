@@ -2056,7 +2056,7 @@ ligne rendue, zéro ligne touchée, refus à l'insertion.
 
 À coller : [`comptes-enseigne.sql`](supabase/comptes-enseigne.sql).
 
-### Il entrait en base, pas dans l'application
+### Il entrait en base, pas dans l'application (3.55.0)
 
 Le gérant passait un compte en « administrateur de BIZZOO »… et ce
 compte s'arrêtait sur **« Boutique à confier »**, sans rien à toucher.
