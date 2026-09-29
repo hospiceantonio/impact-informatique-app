@@ -13,7 +13,7 @@ place de marché au Bénin.
 | Apple app ID | `6817267737` | `6817268373` |
 | SKU enregistré | `WML-BIZZOO-IOS` | `WML-BIZZOO-ADMIN-IOS` |
 | Catégorie principale | Shopping | Business |
-| Version / build téléversé | 3.54.1 / 96 | 3.54.1 / 96 |
+| Version / build sélectionné | 3.54.1 / 97 | 3.54.1 / 97 |
 | Sous-titre | Vos boutiques, au même endroit | Gérez boutiques et commandes |
 | Mots-clés | boutiques,achats,produits,commandes,promotions,commerce,Bénin | boutique,gestion,catalogue,produits,commandes,livraisons,Bénin |
 
@@ -61,25 +61,25 @@ et volontairement exclus de Git.
 
 | Application | IPA | Capture iPhone 6,9 pouces | Capture iPad 13 pouces |
 |---|---|---|---|
-| BIZZOO | `client/Bizzoo.ipa` | `client/iphone-17-pro-max-store.jpg` | `client/ipad-pro-13-store.jpg` |
-| BIZZOO Admin | `admin-final/BizzooAdmin.ipa` | `admin-final/iphone-17-pro-max-store.jpg` | `admin-final/ipad-pro-13-store.jpg` |
+| BIZZOO | `client-b97/Bizzoo.ipa` | `client/iphone-17-pro-max-store.jpg` | `client/ipad-pro-13-store.jpg` |
+| BIZZOO Admin | `admin-b97/BizzooAdmin.ipa` | `admin-final/iphone-17-pro-max-store.jpg` | `admin-final/ipad-pro-13-store.jpg` |
 
 Les captures JPEG n'ont pas de canal alpha et mesurent respectivement
 1320 × 2868 et 2064 × 2752 pixels.
 
-Le 29 septembre, les deux IPA ont passé `xcrun altool --validate-app` sans erreur,
-puis l'upload Apple a réussi. Les builds sont traités en état `VALID`, admissibles
-à l'App Store, et sélectionnés dans leur version 3.54.1 :
-`3b6662fe-4bf4-4d75-bfc2-071e436293e0` pour BIZZOO et
-`d7827229-45be-4599-bcd3-03fd22464813` pour BIZZOO Admin. La déclaration
-d'usage d'IDFA est `false` pour les deux. Les quatre captures Apple, iPhone
-6,9 pouces et iPad 13 pouces pour chaque app, sont téléversées et en état
-`COMPLETE`.
+Le 29 septembre, les deux IPA 97 ont passé `xcrun altool --validate-app` sans
+erreur, puis l'upload Apple a réussi. Les builds sont traités en état `VALID`,
+admissibles à l'App Store, et sélectionnés dans leur version 3.54.1 :
+`6538e3cb-0db6-4924-a2c7-45654dda798f` pour BIZZOO et
+`5720ee4c-49fd-428d-a4bb-a6d4b3786119` pour BIZZOO Admin. Les deux
+archives et les IPA exportés ont une signature valide, `CFBundleVersion=97` et
+embarquent les ressources finales de modération des avis et fiches ainsi que
+la politique de confidentialité corrigée. La déclaration d'usage d'IDFA est
+`false` pour les deux. Les quatre captures Apple, iPhone 6,9 pouces et iPad
+13 pouces pour chaque app, sont téléversées et en état `COMPLETE`.
 
-Ces builds 96 précèdent la correction de la politique de confidentialité dans
-les ressources embarquées. Ils ne doivent pas être soumis à App Review. Un build
-97 doit être produit après l'intégration du correctif de signalement des avis
-publics, puis validé, téléversé et sélectionné pour chaque application.
+Les builds 96, antérieurs à ces corrections, restent dans l'historique Apple
+mais ne sont plus sélectionnés pour la soumission.
 
 Les fiches contiennent leurs catégories, sous-titres, descriptions en français,
 mots-clés, liens de support et de politique de confidentialité. Les deux apps
