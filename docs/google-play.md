@@ -1,6 +1,6 @@
 # Publication BIZZOO sur Google Play
 
-Préparation du 26 septembre 2026. Compte choisi par le propriétaire :
+État vérifié le 29 septembre 2026. Compte choisi par le propriétaire :
 **WINNER MARKET LIFE**, organisation `7195819094188094036`.
 
 | Application | Package existant conservé | Version préparée |
@@ -8,32 +8,47 @@ Préparation du 26 septembre 2026. Compte choisi par le propriétaire :
 | BIZZOO | `com.impactinformatique.client` | 3.54.1 (96) |
 | BIZZOO Admin | `com.impactinformatique.admin` | 3.54.1 (96) |
 
-Les deux applications étaient absentes du compte Play lors du contrôle.
-La préparation locale et un formulaire prérempli ne constituent pas une publication.
+Les deux applications sont toujours absentes du compte Play lors du dernier
+contrôle. Leurs formulaires de création sont préremplis dans Chrome, sans que
+les attestations requises aient été cochées. La préparation locale ne constitue
+ni une création d'application Play, ni une soumission.
 
 ## Résultats locaux
 
-- Compilation des deux AAB 3.54.1 (96) réussie.
-- Signature de chacun vérifiée avec `jarsigner`.
+- Compilation définitive des deux AAB 3.54.1 (96) réussie après le gel des
+  fichiers Web et des pages légales.
+- Signature de chacun vérifiée avec `jarsigner` ; packages, versions et
+  contenus embarqués contrôlés avec `bundletool` et l'archive AAB.
+- Les deux AAB visent Android SDK 36, avec un minimum SDK 24.
 - Android Lint : aucune erreur, 15 avertissements par variante
   (API anciennes, icônes, orientation et configuration WebView notamment).
-- Alignement des migrations : aucune modification, 236 fonctions déjà à jour.
 - Contrôles des fichiers autonomes et des coquilles hors connexion réussis.
-- Les parcours authentifiés sur appareil et les tests de revue Play restent à faire.
-- Aucun AAB envoyé, aucune application créée, aucun changement de base déployé.
+- Les deux applications ont été installées sur un émulateur Android 14 à partir
+  des AAB finaux. L'accueil et les catégories de BIZZOO ainsi que l'écran de
+  connexion et les CGU de BIZZOO Admin ont été capturés sans compte connecté.
+  Les parcours authentifiés et les tests de revue Play restent à faire.
+- Aucun AAB envoyé, aucune application créée, aucune release soumise.
 - Accès Supabase confirmé dans le profil Chrome **Hospice (UTRAGBenin)**,
   compte `hospiceantonio`, organisation CREATIS INTER. Le projet attendu
-  est affiché en production avec le statut Healthy. Cela confirme l'accès
-  au tableau de bord, pas encore les parcours métier des applications.
-- La page publique `client/#/infos` fournit des contacts téléphoniques et
-  WhatsApp, mais aucun e-mail de support. Elle attribue le développement
-  à CREATIS INTER ; cela ne suffit pas à identifier l'exploitant juridique.
+  est affiché en production avec le statut Healthy. La migration de
+  suppression de compte y a été appliquée : RPC présente, accessible à un
+  utilisateur authentifié et refusée à `anon`, avec le drapeau de commande
+  attendu. Cela ne valide pas encore les parcours métier authentifiés.
+- Le RCCM fourni identifie **MATERIEL NET SARL** comme exploitant de BIZZOO.
+  Le contact public choisi est `contact@bizzoomarket.com`, avec
+  `bizzoomarket@gmail.com` et `+229 01 42 32 32 38` en complément.
+- La politique de confidentialité et la page de suppression du compte sont
+  publiques et ont répondu en HTTP 200 avec leur contenu final :
+  <https://hospiceantonio.github.io/impact-informatique-app/legal/confidentialite.html>
+  et <https://hospiceantonio.github.io/impact-informatique-app/legal/suppression-compte.html>.
+  Les chemins `/legal/` sur `www.bizzoomarket.com` renvoient encore 404 ;
+  utiliser les URL GitHub Pages pour la première soumission.
 
-Empreintes des AAB de préparation, à recalculer après toute modification :
+Empreintes SHA-256 des AAB finaux du 29 septembre, à recalculer après toute modification :
 
 ```text
-client a3d3c80b2812efb50ad4b75ed6712a890bfd7c9aabb2bee2ebd14d0b42019e14
-admin  3f4eca419e6e2956e50d19c74125370552e4bd939deacf481525a71243cac19a
+client fc445df2b73c21fbb9b62250197aad5b59639145666096d535b4d4f980eecd7e
+admin  09b0ef885eea28568d9a3f65567d7c1983b77617ce61f1e7b03e8c51b0e51bad
 ```
 
 ## Construction
@@ -104,21 +119,36 @@ Description complète :
 > Les fonctionnalités disponibles dépendent de votre rôle : boutique,
 > livreur ou administration de l'enseigne.
 
+## Éléments prêts pour les fiches Play
+
+- Les icônes 512 × 512 sont dans `client/icons/icon-512.png` et
+  `admin/icons/icon-512.png`. Les bannières 1024 × 500, les captures réelles
+  et les AAB finaux sont dans `~/Downloads/BIZZOO-Play-2026-09-29/`.
+- Les deux URL légales ci-dessus sont prêtes à être saisies dans la console
+  Play. La page de suppression détaille le parcours dans l'application et la
+  demande sans réinstallation.
+- BIZZOO affiche une section « Publicité » pour des mises en avant de
+  boutiques. Sa déclaration de publicité doit refléter cet affichage.
+- Les deux applications collectent des données de compte et métier via
+  Supabase ; la déclaration Data Safety doit être renseignée pour chaque
+  package, y compris les données traitées dans la WebView.
+
 ## Conditions encore nécessaires avant soumission publique
 
-- Confirmer l'exploitant juridique, le contact public et les durées de conservation.
-- Publier une politique de confidentialité accessible et la relier dans les deux applications.
-- Fournir un parcours de demande de suppression de compte dans l'application
-  et une page web accessible sans réinstallation. Le contrôle existant de
-  suppression est réservé aux administrateurs et interdit l'autosuppression.
-- Terminer la vérification de configuration du projet Supabase `rrwzegmrmvvkmzfoiitb` et
-  les parcours authentifiés, sans paiement réel.
-- Créer les deux fiches Play, accepter les déclarations requises avec
-  confirmation du propriétaire, puis configurer Play App Signing.
-- Fournir les captures, la bannière, l'icône, les accès de revue et les
-  déclarations de contenu, publicité et sécurité des données fondées sur les usages réels.
-- Uploader les AAB, vérifier les résultats Play et les parcours sur Android,
-  puis soumettre à l'examen. La disponibilité publique dépend de Google.
+- Obtenir la confirmation du propriétaire pour les deux attestations du
+  formulaire de création de chaque application : conformité aux règles Play
+  et respect des lois américaines sur l'exportation. Les deux cases restent
+  décochées. Créer ensuite les applications Play et relever leurs identifiants.
+- Renseigner les fiches, les contacts, les URL légales, les captures et les
+  bannières. Compléter les déclarations de contenu, de publicité, de public
+  cible, de classification IARC et de sécurité des données selon le code.
+- Fournir à Google des identifiants de revue professionnels réutilisables,
+  sans code à usage unique, pour BIZZOO Admin ; fournir aussi l'accès aux
+  fonctionnalités privées de BIZZOO. Tester ces parcours sur Android sans
+  déclencher de paiement réel.
+- Configurer Play App Signing, uploader les deux AAB finaux, vérifier les
+  résultats Play et soumettre les releases à l'examen sur la piste production.
+  La disponibilité publique dépend ensuite de la revue Google.
 
 ## Sources officielles vérifiées
 
