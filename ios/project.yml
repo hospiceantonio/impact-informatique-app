@@ -1,0 +1,43 @@
+name: Bizzoo
+options:
+  deploymentTarget:
+    iOS: '16.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    DEVELOPMENT_TEAM: M57V85Y92Z
+    MARKETING_VERSION: 3.54.1
+    CURRENT_PROJECT_VERSION: 96
+    TARGETED_DEVICE_FAMILY: '1,2'
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: NO
+    INFOPLIST_FILE: Info.plist
+targets:
+  Bizzoo:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - path: Generated/client
+        type: folder
+        buildPhase: resources
+      - Assets/Client.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impactinformatique.client
+        APP_DISPLAY_NAME: BIZZOO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  BizzooAdmin:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - path: Generated/admin
+        type: folder
+        buildPhase: resources
+      - Assets/Admin.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impactinformatique.admin
+        APP_DISPLAY_NAME: BIZZOO Admin
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

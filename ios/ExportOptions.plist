@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>destination</key>
+    <string>export</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>7DB03940FC929F72F670EB9E7205FBF06D5304F4</string>
+    <key>teamID</key>
+    <string>M57V85Y92Z</string>
+    <key>manageAppVersionAndBuildNumber</key>
+    <false/>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.impactinformatique.client</key>
+        <string>BIZZOO App Store 2026</string>
+        <key>com.impactinformatique.admin</key>
+        <string>BIZZOO Admin App Store 2026</string>
+    </dict>
+</dict>
+</plist>
