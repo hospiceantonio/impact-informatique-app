@@ -50,7 +50,9 @@ L'accès nécessite un compte BIZZOO Admin attribué par l'exploitant.
   `https://hospiceantonio.github.io/impact-informatique-app/legal/confidentialite.html`
 - Suppression de compte :
   `https://hospiceantonio.github.io/impact-informatique-app/legal/suppression-compte.html`
-- Copyright : titulaire des droits à confirmer avant saisie dans Apple.
+- Copyright saisi : `2026 MATERIEL NET SARL`, en tant qu'exploitant identifié
+  au RCCM. La cession éventuelle des droits logiciels n'est pas établie par
+  cette seule pièce et doit être conservée dans le dossier contractuel privé.
 - Contact App Review saisi : Hospice SOETONVE,
   `contact@bizzoomarket.com`, `+2290142323238`.
 
@@ -94,35 +96,41 @@ Apple retourne `FOUR_PLUS` pour les deux. Les contrats gratuits et payants du
 compte WINNER MARKET LIFE ont été vérifiés actifs jusqu'au 17 juin 2027,
 sans nouvelle acceptation.
 
-## Étapes App Store Connect restantes
+## Soumission App Store Connect
 
-1. Publier les questionnaires de confidentialité Apple après confirmation au
-   moment de l'attestation juridique d'exactitude. Les deux questionnaires sont
-   complets, avec 11 types chacun, liés à l'identité et sans suivi déclaré.
-   Les finalités sont le fonctionnement de l'app, ainsi que la personnalisation
-   pour les interactions client. Les réponses doivent rester cohérentes avec
-   les traitements documentés dans `docs/audit-confidentialite.md`.
-   - BIZZOO : nom, e-mail, téléphone, adresse physique, informations de
-     paiement, emplacement précis, assistance client, autre contenu utilisateur,
-     identifiant utilisateur, historique d'achats et interaction avec le produit.
-   - BIZZOO Admin : nom, e-mail, téléphone, adresse physique, emplacement précis,
-     photos ou vidéos, assistance client, autre contenu utilisateur, identifiant
-     utilisateur, historique d'achats et autres données d'utilisation.
-2. Compléter la déclaration de droits sur les contenus. La classification
-   par âge et la déclaration de chiffrement des builds sont déjà renseignées.
-3. Tester le parcours du compte de revue client dans l'app, puis activer et
-   tester le compte Admin. Saisir ce dernier hors dépôt dans les champs Apple,
-   avec des instructions permettant d'atteindre les fonctions protégées.
-4. Confirmer le titulaire des droits avant de renseigner le copyright.
-5. Deux brouillons `reviewSubmissions` sont créés :
-   `c49041b4-e9d0-4203-bfd8-e737361e011c` pour BIZZOO et
-   `9a3a16c3-a223-454d-80c8-ea039811ada9` pour BIZZOO Admin. Le préflight
-   Apple refuse encore l'ajout des versions (`409`) pour les quatre champs
-   signalés ci-dessus : confidentialité publiée, comptes démo, copyright et
-   droits sur les contenus. Une fois renseignés, ajouter chaque version au
-   brouillon et soumettre réellement à App Review. Vérifier le statut
-   **Waiting for Review** ou son équivalent, sans présenter un simple
-   téléversement comme une soumission.
+Le 29 septembre, les questionnaires de confidentialité ont été publiés dans
+App Store Connect pour les deux applications. Ils comportent chacun 11 types de
+données liés à l'identité, sans suivi déclaré. Les finalités sont le
+fonctionnement de l'app et, pour les interactions client, la personnalisation.
+Les réponses doivent rester cohérentes avec les traitements documentés dans
+`docs/audit-confidentialite.md` :
+
+- BIZZOO : nom, e-mail, téléphone, adresse physique, informations de paiement,
+  emplacement précis, assistance client, autre contenu utilisateur, identifiant
+  utilisateur, historique d'achats et interaction avec le produit.
+- BIZZOO Admin : nom, e-mail, téléphone, adresse physique, emplacement précis,
+  photos ou vidéos, assistance client, autre contenu utilisateur, identifiant
+  utilisateur, historique d'achats et autres données d'utilisation.
+
+La déclaration de droits sur les contenus est `USES_THIRD_PARTY_CONTENT` pour
+les deux applications. Elle reflète les fiches des marchands et les conditions
+qui leur demandent de disposer des droits nécessaires ; elle ne constitue pas
+un audit de chaque contenu publié. La classification par âge et la déclaration
+de chiffrement des builds sont également renseignées.
+
+**BIZZOO client est soumis à App Review.** La version 3.54.1, build 97, a été
+ajoutée au brouillon `c49041b4-e9d0-4203-bfd8-e737361e011c`. L'API
+officielle, relue après soumission, donne une date de soumission
+`2026-09-29T11:15:48.446Z` et l'état `WAITING_FOR_REVIEW`.
+
+**BIZZOO Admin reste à soumettre.** Le préflight du brouillon
+`9a3a16c3-a223-454d-80c8-ea039811ada9` ne signale plus que deux champs
+obligatoires manquants dans les détails de revue : `demoAccountName` et
+`demoAccountPassword`. Le compte de revue Admin doit d'abord être activé et
+son parcours dans l'application testé. Ses identifiants seront saisis depuis
+le fichier local protégé, jamais dans ce dépôt. Après cela, ajouter la version
+3.54.1, build 97, au brouillon, soumettre et vérifier `submittedDate` et
+`WAITING_FOR_REVIEW`.
 
 Le compte vendeur Apple est WINNER MARKET LIFE, alors que l'exploitant indiqué
 par le RCCM est MATERIEL NET SARL. Une autorisation de distribution entre les
