@@ -599,7 +599,17 @@ const Catalogue = (() => {
   /* Comme pour les rayons : un lien direct doit ouvrir la fiche même
      si la boutique visitée n'est pas encore la bonne. */
   const tousProduits = () => ((donnees && donnees.produits) || []).map(normaliser);
-  const produit = (id) => tousProduits().find((p) => p.id === id) || null;
+  const produit = (id) => tousProduits().find((p) => {
+    if (p.id !== id) return false;
+    if (!p.boutiqueId) return true;
+    const listeBoutiques = (donnees && donnees.boutiques) || [];
+    /* Une erreur de lecture des boutiques donne une liste vide, pas une
+       preuve que toutes les fiches ont été retirées. En revanche, une
+       boutique explicitement fermée rend sa fiche inaccessible. */
+    if (!listeBoutiques.length) return true;
+    return listeBoutiques.some((b) =>
+      b.id === p.boutiqueId && b.actif !== false);
+  }) || null;
 
   /* Les quatre états d'un produit, tels que le client les voit. */
   const STATUTS = {

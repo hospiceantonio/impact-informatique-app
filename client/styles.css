@@ -1597,12 +1597,28 @@ a.pub-carte:active{transform:scale(.98)}
   background:var(--fond);font-size:12.5px;line-height:1.5;
 }
 .av-reponse .ic{flex:none;color:var(--bleu);margin-top:1px}
-.av-actions{flex-direction:row;gap:8px;margin-top:10px}
+.av-actions{flex-direction:row;flex-wrap:wrap;gap:8px;margin-top:10px}
 .btn-mini{
   padding:6px 12px;border:1px solid var(--trait);border-radius:999px;
   background:var(--blanc);font-size:12px;font-weight:700;color:var(--encre-douce);
 }
 .av-retirer{color:var(--rouge-fonce);border-color:var(--rouge-clair)}
+.av-moderation{
+  margin:9px 0 0;padding:8px 10px;border-radius:var(--r-sm);
+  background:var(--bleu-50);color:var(--bleu-700);font-size:12.5px;
+}
+.av-signalement{margin-top:10px;padding:12px;border:1px solid var(--trait);border-radius:var(--r-sm)}
+.av-signalement label{display:block;margin-bottom:9px;font-size:12.5px;font-weight:700}
+.av-signalement select,.av-signalement textarea{
+  display:block;width:100%;margin-top:5px;padding:9px;border:1px solid var(--trait);
+  border-radius:var(--r-sm);font:inherit;background:var(--blanc);
+}
+.av-auteurs-masques{margin:12px 0;font-size:12.5px;color:var(--encre-douce)}
+.av-auteurs-masques summary{cursor:pointer;font-weight:700}
+.av-auteurs-masques>div{display:flex;align-items:center;gap:8px;margin-top:8px}
+.av-conditions{display:flex;align-items:flex-start;gap:8px;margin:8px 0 14px;
+  font-size:12.5px;line-height:1.45;color:var(--encre-douce)}
+.av-conditions input{flex:none;margin-top:2px}
 
 .av-formulaire{margin-top:14px;padding-top:14px;border-top:1px solid var(--trait)}
 .av-question{font-size:14px;font-weight:800;margin-bottom:8px}

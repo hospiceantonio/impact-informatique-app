@@ -122,6 +122,106 @@ select essai.verifie(
   (select commande_id is not null from public.avis where id = :'avis_awa'),
   'avec la commande qui le prouve');
 
+select essai.titre('Le préfiltre refuse les coordonnées sans confondre un prix');
+select essai.egal(public.avis_filtre_code('WhatsApp 0142323238'),
+  'coordonnees', 'un contact WhatsApp est filtré');
+select essai.egal(public.avis_filtre_code('Appelez +229 01 42 32 32 38'),
+  'coordonnees', 'un numéro international est filtré');
+select essai.egal(public.avis_filtre_code('Voir https://exemple.invalid'),
+  'coordonnees', 'un lien est filtré');
+select essai.egal(public.avis_filtre_code('contact@exemple.invalid'),
+  'coordonnees', 'un e-mail est filtré');
+select essai.egal(public.avis_filtre_code('Prix 10 000 000 FCFA'),
+  '', 'un prix ordinaire reste autorisé');
+select essai.egal(public.avis_filtre_code('Bonne livraison en 2026'),
+  '', 'un avis ordinaire reste autorisé');
+select essai.egal(public.avis_filtre_code('Photo pornographique'),
+  'abus', 'un contenu sexuel explicite est filtré');
+
+-- Le contrôle avant publication refuse un lien et conserve l'avis déjà
+-- visible, y compris quand il s'agit d'une modification.
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+select essai.refuse(
+  $$select public.deposer_avis('prod_avis', null, 1, 'Voir https://exemple.invalid')$$,
+  'un avis avec lien est refusé avant publication');
+reset role;
+select essai.personne();
+select essai.egal((select note from public.avis where id = :'avis_awa'), 4,
+  'le refus ne modifie pas la note publique');
+
+select essai.titre('Un client peut signaler un avis, puis BIZZOO tranche');
+set role anon;
+select essai.refuse(
+  format($$select public.signaler_avis(%L, 'avis', 'spam', '')$$, :'avis_awa'),
+  'un visiteur ne signale pas sans compte');
+reset role;
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+select essai.refuse(
+  format($$select public.signaler_avis(%L, 'avis', 'spam', '')$$, :'avis_awa'),
+  'on ne signale pas son propre avis');
+reset role;
+select essai.devenir(:KOFI::uuid);
+set role authenticated;
+select public.signaler_avis(:'avis_awa', 'avis', 'spam', 'Lien suspect')
+  as signalement_kofi \gset
+select public.signaler_avis(:'avis_awa', 'avis', 'spam', 'Précision corrigée');
+select essai.egal((select count(*)::int from public.avis_signalements
+                    where avis_id = :'avis_awa'), 1,
+  'un seul signalement ouvert par cible et client');
+select essai.refuse(
+  $$insert into public.avis_signalements
+      (avis_id,auteur_id,signale_par,cible,motif)
+    values ('triche','44444444-4444-4444-4444-444444444444',
+            '55555555-5555-5555-5555-555555555555','avis','spam')$$,
+  'un client ne crée pas de ligne de signalement directement');
+select essai.refuse(
+  format($$select public.traiter_signalement_avis(%s, true, 'test')$$,
+         :'signalement_kofi'),
+  'un client ne modère pas');
+reset role;
+select essai.devenir(:ENSEIGNE::uuid);
+set role authenticated;
+select essai.egal(public.traiter_signalement_avis(:'signalement_kofi'::bigint,
+                    false, 'Avis conforme'), true,
+  'l’enseigne peut rejeter le signalement');
+reset role;
+select essai.personne();
+select essai.egal((select etat from public.avis_signalements
+                    where id = :'signalement_kofi'::bigint), 'rejete',
+  'la décision est conservée');
+select essai.egal((select nb_avis from public.produits where id = 'prod_avis'), 1,
+  'un signalement ne masque pas automatiquement un avis');
+
+select essai.titre('L’enseigne peut interdire les futurs avis d’un auteur abusif');
+select essai.devenir(:KOFI::uuid);
+set role authenticated;
+select essai.refuse(
+  format($$select public.bloquer_auteur_avis(%L::uuid, true, 'Abus')$$, :AWA),
+  'un client ne bloque pas l’auteur d’un avis');
+reset role;
+select essai.devenir(:ENSEIGNE::uuid);
+set role authenticated;
+select essai.egal(public.bloquer_auteur_avis(:AWA::uuid, true, 'Abus répétés'),
+  true, 'le superadministrateur bloque la publication');
+reset role;
+select essai.devenir(:AWA::uuid);
+set role authenticated;
+select essai.refuse(
+  $$select public.deposer_avis('prod_avis', null, 2, 'Je change ma note')$$,
+  'un auteur bloqué ne peut plus modifier son avis');
+reset role;
+select essai.personne();
+select essai.egal((select note from public.avis where id = :'avis_awa'), 4,
+  'l’avis déjà publié reste visible tant qu’il n’est pas masqué');
+select essai.devenir(:ENSEIGNE::uuid);
+set role authenticated;
+select essai.egal(public.bloquer_auteur_avis(:AWA::uuid, false, ''),
+  true, 'le superadministrateur peut rétablir la publication');
+reset role;
+select essai.personne();
+
 -- ---------------------------------------------------------
 select essai.titre('La boutique ne vient jamais de la requête');
 -- ---------------------------------------------------------
@@ -327,3 +427,50 @@ select essai.egal((select nb_avis from public.produits where id = 'prod_avis'), 
   'et le produit n''a plus d''avis');
 select essai.egal((select note_moyenne from public.produits where id = 'prod_avis'),
   null::numeric, 'ni de note');
+
+select essai.titre('Une fiche produit peut être signalée sans arrêter les ventes');
+insert into public.boutiques(id,nom,secteur,actif)
+values ('bou_fermee_avis','Boutique fermée','Informatique',false)
+on conflict (id) do update set actif=false;
+insert into public.produits(id,boutique_id,nom,prix)
+values ('prod_ferme_avis','bou_fermee_avis','Fiche non publique',1000)
+on conflict (id) do nothing;
+set role anon;
+select essai.refuse(
+  $$select public.signaler_produit('prod_avis','trompeur','Prix douteux')$$,
+  'un visiteur ne dépose pas de signalement de fiche');
+reset role;
+select essai.devenir(:KOFI::uuid);
+set role authenticated;
+select essai.refuse(
+  $$select public.signaler_produit('prod_ferme_avis','trompeur','Test')$$,
+  'une fiche de boutique fermée ne peut être interrogée par signalement');
+select public.signaler_produit('prod_avis','trompeur','Prix douteux')
+  as signalement_produit \gset
+select public.signaler_produit('prod_avis','trompeur','Description à vérifier');
+select essai.egal((select count(*)::int from public.produits_signalements
+                    where produit_id = 'prod_avis'), 1,
+  'un seul signalement de fiche ouvert par client');
+select essai.refuse(
+  $$insert into public.produits_signalements
+      (produit_id,signale_par,motif)
+    values ('prod_avis','55555555-5555-5555-5555-555555555555','spam')$$,
+  'un client ne contourne pas le dépôt contrôlé');
+select essai.refuse(
+  format($$select public.traiter_signalement_produit(%s, 'Conforme')$$,
+         :'signalement_produit'),
+  'un client ne classe pas son signalement');
+reset role;
+select essai.personne();
+select essai.verifie((select disponible from public.produits where id='prod_avis'),
+  'le signalement ne suspend pas automatiquement la fiche');
+select essai.devenir(:ENSEIGNE::uuid);
+set role authenticated;
+select essai.egal(public.traiter_signalement_produit(
+    :'signalement_produit'::bigint, 'Fiche examinée, prix conforme'), true,
+  'le superadministrateur consigne la décision');
+reset role;
+select essai.personne();
+select essai.egal((select etat from public.produits_signalements
+                    where id=:'signalement_produit'::bigint), 'traite',
+  'la demande sort de la file après examen');

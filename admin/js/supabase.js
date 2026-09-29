@@ -260,6 +260,13 @@ const Supabase = (() => {
       }
       entetes["Authorization"] = "Bearer " + s.access_token;
     }
+    /* Seules les écritures de contenu public demandent l'accord. La
+       modération, les commandes et les livraisons restent accessibles. */
+    const ressource = chemin.split("?")[0];
+    if (["POST", "PATCH", "PUT"].includes(methode) &&
+        /^(boutique|boutiques|produits|categories|sous_categories|slides|rpc\/repondre_avis)$/.test(ressource)) {
+      await ConditionsUGC.assurer();
+    }
     if (corps !== undefined) entetes["Content-Type"] = "application/json";
     if (methode === "POST" && !o.sansRetour) entetes["Prefer"] = "return=representation";
     /* « sansRetour » vaut aussi pour la modification, et ce n'est pas
@@ -355,6 +362,7 @@ const Supabase = (() => {
       err.deconnecte = true;
       throw err;
     }
+    await ConditionsUGC.assurer();
     const quoi = nomLisible || "fichier";
     let reponse;
     try {

@@ -10,7 +10,7 @@ const DroitsCompte = (() => {
     '</div>';
 
   async function supprimer(bouton) {
-    const question = 'Supprimer définitivement votre compte BIZZOO ? Votre profil, vos favoris, vos adresses, vos avis et vos réclamations seront supprimés. Les pièces de commandes et les traces métier nécessaires restent conservées. Cette action est irréversible.';
+    const question = 'Supprimer définitivement votre compte BIZZOO ? Votre profil, vos favoris, vos adresses, vos avis, vos signalements et vos réclamations seront supprimés. Les pièces de commandes et les traces métier nécessaires restent conservées. Cette action est irréversible.';
     if (!window.confirm(question)) return;
     bouton.disabled = true;
     try {

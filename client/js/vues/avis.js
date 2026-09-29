@@ -30,7 +30,8 @@ const VueAvis = (() => {
   function avisHtml(a, mien) {
     const quand = a.maj_le || a.cree_le;
     return (
-      '<div class="av-un' + (mien ? " av-mien" : "") + '">' +
+      '<div class="av-un' + (mien ? " av-mien" : "") + '" data-av-id="' +
+        Utils.echapper(a.id) + '">' +
         '<div class="av-entete">' +
           "<div>" +
             '<span class="av-auteur">' + Utils.echapper(a.auteur || "Client") + "</span>" +
@@ -52,9 +53,34 @@ const VueAvis = (() => {
               '<button type="button" class="btn-mini" id="av-modifier">Modifier</button>' +
               '<button type="button" class="btn-mini av-retirer" id="av-retirer">Retirer</button>' +
             "</div>"
-          : "") +
+          : '<div class="btn-rangee av-actions">' +
+              '<button type="button" class="btn-mini" data-av-signaler="avis">Signaler l’avis</button>' +
+              '<button type="button" class="btn-mini" data-av-signaler="auteur">Signaler l’auteur</button>' +
+              '<button type="button" class="btn-mini" data-av-masquer="' +
+                Utils.echapper(a.client_id) + '">Masquer cet auteur</button>' +
+            "</div>") +
       "</div>"
     );
+  }
+
+  function formulaireSignalement(id, cible) {
+    return '<form class="av-signalement" data-av-report-form="' + Utils.echapper(id) +
+      '" data-av-cible="' + Utils.echapper(cible) + '">' +
+      '<label>Pourquoi signaler ' + (cible === "auteur" ? "cet auteur" : "cet avis") + ' ?' +
+        '<select name="motif" required>' +
+          '<option value="">Choisir un motif</option>' +
+          '<option value="harcelement">Harcèlement ou menace</option>' +
+          '<option value="haine">Haine ou discrimination</option>' +
+          '<option value="sexuel">Contenu sexuel</option>' +
+          '<option value="donnees_personnelles">Données personnelles exposées</option>' +
+          '<option value="spam">Spam ou publicité</option>' +
+          '<option value="autre">Autre contenu répréhensible</option>' +
+        '</select></label>' +
+      '<label>Précisions (facultatives)<textarea name="details" rows="2" maxlength="500"></textarea></label>' +
+      '<div class="btn-rangee av-actions">' +
+        '<button type="submit" class="btn-mini">Envoyer à la modération</button>' +
+        '<button type="button" class="btn-mini" data-av-annuler>Annuler</button>' +
+      '</div></form>';
   }
 
   /** Le formulaire : cinq étoiles qu'on touche, et quelques mots. */
@@ -74,6 +100,9 @@ const VueAvis = (() => {
         '<div class="champ"><textarea id="av-texte" rows="3" maxlength="1000" ' +
           'placeholder="Ce que vous en pensez, en quelques mots (facultatif)">' +
           Utils.echapper(existant ? existant.texte || "" : "") + "</textarea></div>" +
+        '<label class="av-conditions"><input type="checkbox" id="av-conditions"> ' +
+          'J’accepte les <a href="legal/conditions.html">' +
+          'conditions d’utilisation</a> et les règles de publication des avis.</label>' +
         '<button type="button" class="btn" id="av-envoyer">' + UI.icone("check") +
           (existant ? "Enregistrer" : "Publier mon avis") + "</button>" +
       "</div>"
@@ -97,7 +126,10 @@ const VueAvis = (() => {
     if (!UI.$("#av-corps")) return;   // l'écran a changé pendant l'attente
 
     const mien = Avis.lemien(liste);
-    const autres = liste.filter((a) => !mien || a.id !== mien.id);
+    const masques = Avis.auteursMasques();
+    const auteursCaches = new Set(masques.map((a) => a.id));
+    const autres = liste.filter((a) => (!mien || a.id !== mien.id) &&
+      !auteursCaches.has(a.client_id));
 
     let html = "";
     if (!liste.length) {
@@ -105,6 +137,14 @@ const VueAvis = (() => {
     }
     if (mien) html += avisHtml(mien, true);
     html += autres.map((a) => avisHtml(a, false)).join("");
+    if (masques.length) {
+      html += '<details class="av-auteurs-masques"><summary>Auteurs masqués (' +
+        masques.length + ')</summary>' + masques.map((a) =>
+          '<div>' + Utils.echapper(a.nom) +
+            ' <button type="button" class="btn-mini" data-av-revoir="' +
+              Utils.echapper(a.id) + '">Afficher à nouveau</button></div>').join("") +
+        '</details>';
+    }
 
     /* Trois situations, trois messages. Ne rien dire à celui qui ne peut
        pas écrire serait le plus mauvais des trois : il chercherait le
@@ -143,13 +183,16 @@ const VueAvis = (() => {
     if (envoyer) {
       envoyer.addEventListener("click", async () => {
         if (!note) return UI.toast("Touchez les étoiles pour noter.", "alerte");
+        if (!UI.$("#av-conditions", zone).checked) {
+          return UI.toast("Acceptez les conditions avant de publier votre avis.", "alerte");
+        }
         envoyer.disabled = true;
         try {
           await Avis.deposer({
             produit: cible.produit, boutique: cible.boutique,
             note, texte: UI.$("#av-texte", zone).value,
           });
-          UI.toast("Merci pour votre avis.");
+          UI.toast("Votre avis a été publié.");
           if (quandChange) await quandChange();
           await remplir(cible, quandChange);
         } catch (err) {
@@ -181,6 +224,60 @@ const VueAvis = (() => {
         } catch (err) {
           UI.toast(err.message, "alerte");
           retirer.disabled = false;
+        }
+      });
+    }
+
+    if (!zone.dataset.signalementBranche) {
+      zone.dataset.signalementBranche = "oui";
+      zone.addEventListener("click", async (ev) => {
+        const signaler = ev.target.closest("[data-av-signaler]");
+        if (signaler) {
+          if (typeof Compte === "undefined" || !Compte.connecte()) {
+            VueCompte.revenirVers(location.hash);
+            location.hash = "#/connexion";
+            UI.toast("Connectez-vous pour signaler un avis.", "alerte");
+            return;
+          }
+          const carte = signaler.closest("[data-av-id]");
+          const ancien = carte.querySelector("[data-av-report-form]");
+          if (ancien) ancien.remove();
+          carte.insertAdjacentHTML("beforeend",
+            formulaireSignalement(carte.dataset.avId, signaler.dataset.avSignaler));
+          return;
+        }
+        const annuler = ev.target.closest("[data-av-annuler]");
+        if (annuler) { annuler.closest("[data-av-report-form]").remove(); return; }
+        const masquer = ev.target.closest("[data-av-masquer]");
+        if (masquer) {
+          const carte = masquer.closest("[data-av-id]");
+          const nom = carte.querySelector(".av-auteur").textContent;
+          Avis.masquerAuteur(masquer.dataset.avMasquer, nom);
+          UI.toast("Auteur masqué sur cet appareil.");
+          await remplir(cible, quandChange);
+          return;
+        }
+        const revoir = ev.target.closest("[data-av-revoir]");
+        if (revoir) {
+          Avis.revoirAuteur(revoir.dataset.avRevoir);
+          await remplir(cible, quandChange);
+        }
+      });
+      zone.addEventListener("submit", async (ev) => {
+        const formulaire = ev.target.closest("[data-av-report-form]");
+        if (!formulaire) return;
+        ev.preventDefault();
+        const motif = formulaire.elements.motif.value;
+        if (!motif) return UI.toast("Choisissez un motif.", "alerte");
+        const bouton = formulaire.querySelector('button[type="submit"]');
+        bouton.disabled = true;
+        try {
+          await Avis.signaler(formulaire.dataset.avReportForm,
+            formulaire.dataset.avCible, motif, formulaire.elements.details.value);
+          formulaire.outerHTML = '<p class="av-moderation">Signalement reçu par BIZZOO.</p>';
+        } catch (err) {
+          UI.toast(err.message || "Signalement impossible", "alerte");
+          bouton.disabled = false;
         }
       });
     }
