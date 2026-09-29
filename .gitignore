@@ -10,3 +10,4 @@ bizzoo-site.zip
 !android/signature/impact-test.keystore
 .env.play
 __pycache__/
+supabase/.temp/
