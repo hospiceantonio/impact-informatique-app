@@ -1,6 +1,6 @@
 # BIZZOO — Applications mobiles
 
-Deux applications Android pour l'enseigne **BIZZOO**, reliées à une base
+Deux applications Android et iOS pour l'enseigne **BIZZOO**, reliées à une base
 **Supabase** partagée en temps réel :
 
 - **BIZZOO Admin** (l'icône BIZZOO marquée d'une roue dentée) :
@@ -50,6 +50,13 @@ Sur le téléphone : ouvrir le fichier APK → autoriser « installer des
 applications inconnues » → installer. (Signés avec la **clé de test**
 versionnée dans `android/signature/` — parfaite pour essayer, pas pour
 le Play Store.)
+
+Les variantes Google Play utilisent une signature privée distincte et
+produisent des AAB avec `python3 tools/construire-play.py`. Le projet iOS
+est défini dans `ios/project.yml` ; `python3 tools/preparer-ios.py` copie
+les deux applications web dans les ressources natives avant la génération
+du projet Xcode. Les certificats et profils de distribution restent hors
+du dépôt.
 
 ## Les versions web
 
