@@ -8,10 +8,15 @@
 | BIZZOO | `com.impactinformatique.client` | 3.54.1 (96) |
 | BIZZOO Admin | `com.impactinformatique.admin` | 3.54.1 (96) |
 
-Les deux applications sont toujours absentes du compte Play lors du dernier
-contrôle. Leurs formulaires de création sont préremplis dans Chrome, sans que
-les attestations requises aient été cochées. La préparation locale ne constitue
-ni une création d'application Play, ni une soumission.
+Les deux applications ont été créées dans le compte Play WINNER MARKET LIFE.
+Leurs versions 3.54.1 (96) sont enregistrées en **brouillon sur la piste de
+production**, pour une disponibilité initiale limitée au Bénin. Aucun envoi
+à l'examen ni aucune publication n'a encore eu lieu.
+
+| Application | ID Play Console | Version de production en brouillon |
+|---|---|---|
+| [BIZZOO](https://play.google.com/console/u/0/developers/7195819094188094036/app/4972105003929543805/app-dashboard) | `4972105003929543805` | Piste `4698764254350008119`, release `1` |
+| [BIZZOO Admin](https://play.google.com/console/u/0/developers/7195819094188094036/app/4975498465623729796/app-dashboard) | `4975498465623729796` | Piste `4698395075571677062`, release `1` |
 
 ## Résultats locaux
 
@@ -33,7 +38,9 @@ ni une création d'application Play, ni une soumission.
   Les captures de ce contrôle sont dans le dossier privé de remise. Les
   parcours authentifiés, notamment les avis et la modération Admin, ainsi que
   les accès de revue Play restent à tester avec un compte autorisé.
-- Aucun AAB envoyé, aucune application créée, aucune release soumise.
+- Les deux AAB signés ont été acceptés dans les versions de production en
+  brouillon, avec notes de version françaises et le Bénin comme pays choisi.
+  Aucune version n'a été envoyée à Google pour examen.
 - Accès Supabase confirmé dans le profil Chrome **Hospice (UTRAGBenin)**,
   compte `hospiceantonio`, organisation CREATIS INTER. Le projet attendu
   est affiché en production avec le statut Healthy. La migration de
@@ -135,34 +142,48 @@ Description complète :
 - Les icônes 512 × 512 sont dans `client/icons/icon-512.png` et
   `admin/icons/icon-512.png`. Les bannières 1024 × 500, les captures réelles
   et les AAB finaux sont dans `~/Downloads/BIZZOO-Play-2026-09-29/`.
-- Les deux URL légales ci-dessus sont prêtes à être saisies dans la console
-  Play. La page de suppression détaille le parcours dans l'application et la
-  demande sans réinstallation.
-- BIZZOO affiche une section « Publicité » pour des mises en avant de
-  boutiques. Sa déclaration de publicité doit refléter cet affichage.
-- Les deux applications collectent des données de compte et métier via
-  Supabase ; la déclaration Data Safety doit être renseignée pour chaque
-  package, y compris les données traitées dans la WebView.
+- La fiche BIZZOO est complète et enregistrée : textes français, catégorie
+  Shopping, contacts publics, site HTTPS, icône, bannière et quatre captures
+  Android réelles du catalogue. La fiche Admin a les textes, la catégorie
+  Professionnel, les contacts, l'icône et la bannière enregistrés ; il lui
+  manque deux captures Android de vues métier authentifiées. Les seules
+  captures Admin actuelles montrent la connexion et les conditions légales.
+- Les deux politiques de confidentialité sont enregistrées avec l'URL
+  GitHub Pages. La page de suppression du compte est renseignée dans la
+  déclaration BIZZOO, qui permet la création de compte dans l'application.
+- La publicité est déclarée **oui** pour BIZZOO (mises en avant internes),
+  **non** pour Admin. L'ID publicitaire est déclaré absent pour les deux.
+  Les déclarations « aucune fonctionnalité financière », « aucune
+  fonctionnalité santé » et « application non gouvernementale » sont
+  enregistrées pour les deux packages.
+- Les déclarations Sécurité des données ont été importées par CSV, vérifiées
+  puis enregistrées en brouillon pour les deux apps : collecte oui, chiffrement
+  en transit oui, catégories de données métier et de localisation renseignées.
+  La transmission à Supabase et aux prestataires de paiement comme sous-traitants
+  n'est pas comptée comme partage ; les réponses doivent rester cohérentes
+  avec les usages effectifs avant l'envoi final. Le formulaire Admin indique
+  une création de compte professionnel hors de l'application. Son option
+  facultative de suppression de données *sans fermeture du compte* est « non » ;
+  la suppression intégrale reste décrite dans la politique publique.
 
-## Conditions encore nécessaires avant soumission publique
+## Conditions encore nécessaires avant l'envoi à l'examen
 
-- Obtenir la confirmation du propriétaire pour les deux attestations du
-  formulaire de création de chaque application : conformité aux règles Play
-  et respect des lois américaines sur l'exportation. Les deux cases restent
-  décochées. Créer ensuite les applications Play et relever leurs identifiants.
-- Renseigner les fiches, les contacts, les URL légales, les captures et les
-  bannières. Compléter les déclarations de contenu, de publicité, de public
-  cible, de classification IARC et de sécurité des données selon le code.
-- Fournir à Google des identifiants de revue professionnels réutilisables,
-  sans code à usage unique, pour BIZZOO Admin ; fournir aussi l'accès aux
-  fonctionnalités privées de BIZZOO. Tester ces parcours sur Android sans
-  déclencher de paiement réel.
-- Confirmer sur Android les écrans authentifiés de signalement, masquage et
-  traitement des signalements avant de déclarer le dispositif UGC entièrement
-  opérationnel.
-- Configurer Play App Signing, uploader les deux AAB finaux, vérifier les
-  résultats Play et soumettre les releases à l'examen sur la piste production.
-  La disponibilité publique dépend ensuite de la revue Google.
+- Renseigner les **informations de connexion** pour les fonctions protégées
+  des deux apps. Un compte client de revue existe ; un compte Admin isolé
+  doit être activé et testé. La transmission des identifiants à Google Play
+  attend la confirmation ciblée du propriétaire.
+- Achever **Cible et contenu**, actuellement conditionné par les informations
+  de connexion, puis valider définitivement les deux brouillons **Sécurité des
+  données**. Les deux questionnaires **Classification du contenu (IARC)**
+  attendent la confirmation ciblée de l'acceptation des conditions IARC ;
+  leur lien affiché est <https://web.iarcservices.com/terms>.
+- Produire et déposer au moins deux captures Android de vues métier Admin
+  après activation du compte de revue. Vérifier sur Android les parcours
+  authentifiés de signalement, masquage et modération UGC sans paiement réel.
+- Prévisualiser et confirmer chacune des versions de production, puis les
+  envoyer depuis la vue d'ensemble de la publication. Vérifier dans la console
+  l'état réel « En cours d'examen » ou le blocage exact. La disponibilité
+  publique dépendra ensuite de la revue Google.
 
 ## Sources officielles vérifiées
 
