@@ -54,6 +54,23 @@ const BASE = process.env.BANC_URL || "http://localhost:5180";
 let echecs = 0;
 const ok = (v, q) => { if (!v) echecs++; console.log((v ? "  ok     " : "  ÉCHEC  ") + q); };
 const titre = (t) => console.log("\n== " + t + " ==");
+
+/* LES RÈGLES DE PUBLICATION (depuis la 3.54.1). Avant sa première
+   écriture de contenu, un compte les accepte dans une fenêtre. Le banc
+   les accepte comme le ferait le gérant — case cochée, « Accepter et
+   publier » — sans quoi la fenêtre attendrait, aucune écriture ne
+   partirait, et le banc croirait à une panne de l'écran qu'il éprouve.
+   Il ne fige aucun numéro de version des règles : c'est la fenêtre
+   qu'il accepte, quelle que soit la version qu'elle présente. */
+const accepterLesRegles = () => {
+  new MutationObserver(() => {
+    const boite = document.querySelector(".conditions-ugc-boite");
+    const accord = boite && boite.querySelector("[data-ugc-accord]");
+    if (!accord || accord.checked) return;
+    accord.checked = true;
+    boite.querySelector("[data-ugc-valider]").click();
+  }).observe(document, { childList: true, subtree: true });
+};
 const nav = await chromium.launch(EXE ? { executablePath: EXE } : {});
 
 /* UNE VRAIE IMAGE, fabriquée ici : un PNG uni de 96 × 96. Le navigateur
@@ -335,6 +352,7 @@ async function ouvrirAdmin({ role = "superadministrateur", refuser = false } = {
   const page = await ctx.newPage();
   const erreurs = [];
   page.on("pageerror", (e) => erreurs.push(e.message));
+  await page.addInitScript(accepterLesRegles);
   await page.addInitScript((moi) => {
     localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "c" }));
     const b64 = (o) => btoa(unescape(encodeURIComponent(JSON.stringify(o))))
