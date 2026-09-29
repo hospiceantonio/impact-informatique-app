@@ -165,18 +165,30 @@ Description complète :
   une création de compte professionnel hors de l'application. Son option
   facultative de suppression de données *sans fermeture du compte* est « non » ;
   la suppression intégrale reste décrite dans la politique publique.
+- Les questionnaires IARC ont été envoyés et affichent l'état « Terminée » :
+  BIZZOO est classée 12 ans et plus pour le reste du monde (avis, catalogue
+  marchand et achats d'articles numériques externes à l'application) ;
+  BIZZOO Admin est classée 3 ans et plus. Admin ne propose aucun achat
+  numérique. Le descripteur IARC « Achats in-app » de BIZZOO reflète que
+  STOCK PRO et L'ADDITION peuvent être commandés dans la place de marché ;
+  ces logiciels sont installés et utilisés hors des applications BIZZOO.
+  La [règle Google sur les paiements](https://support.google.com/googleplay/android-developer/answer/10281818?hl=en)
+  distingue les biens numériques utilisables uniquement hors d'une app Play.
 
 ## Conditions encore nécessaires avant l'envoi à l'examen
 
 - Renseigner les **informations de connexion** pour les fonctions protégées
-  des deux apps. Un compte client de revue existe ; un compte Admin isolé
-  doit être activé et testé. La transmission des identifiants à Google Play
-  attend la confirmation ciblée du propriétaire.
+  des deux apps. Les comptes de revue existent et le compte Admin isolé est
+  authentifié en production avec des droits limités à une boutique de démo.
+  Le propriétaire a autorisé leur transmission à Google Play. L'automatisation
+  du navigateur refuse les URL `file://` et interdit un contournement : les
+  identifiants doivent être saisis directement dans les formulaires Play,
+  sans être copiés dans ce dépôt. La case affirmant l'accès complet à toutes
+  les fonctions, y compris payantes, ne doit pas être cochée pour le compte
+  Admin restreint.
 - Achever **Cible et contenu**, actuellement conditionné par les informations
   de connexion, puis valider définitivement les deux brouillons **Sécurité des
-  données**. Les deux questionnaires **Classification du contenu (IARC)**
-  attendent la confirmation ciblée de l'acceptation des conditions IARC ;
-  leur lien affiché est <https://web.iarcservices.com/terms>.
+  données**. La classification IARC est terminée pour les deux apps.
 - Produire et déposer au moins deux captures Android de vues métier Admin
   après activation du compte de revue. Vérifier sur Android les parcours
   authentifiés de signalement, masquage et modération UGC sans paiement réel.
