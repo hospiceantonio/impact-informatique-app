@@ -25,12 +25,14 @@ ni une création d'application Play, ni une soumission.
 - Android Lint : aucune erreur, 15 avertissements par variante
   (API anciennes, icônes, orientation et configuration WebView notamment).
 - Contrôles des fichiers autonomes et des coquilles hors connexion réussis.
-- Les deux applications ont été installées sur un émulateur Android 14 à partir
-  des AAB précédant la correction UGC. L'accueil et les catégories de BIZZOO,
-  puis l'écran de connexion et les CGU de BIZZOO Admin, ont été capturés sans
-  compte connecté.
-  Les AAB UGC finaux n'ont pas été réinstallés sur cet émulateur ; les parcours
-  authentifiés et les tests de revue Play restent à faire.
+- Les APK universels générés depuis les deux AAB UGC finaux ont été installés
+  sur un émulateur Android 14. BIZZOO ouvre le catalogue public, la catégorie
+  Smartphones et une fiche produit réelle. Le bouton « Signaler cette fiche »
+  y est visible et redirige vers la connexion pour un visiteur anonyme.
+  BIZZOO Admin ouvre sa page de connexion avec le contact public attendu.
+  Les captures de ce contrôle sont dans le dossier privé de remise. Les
+  parcours authentifiés, notamment les avis et la modération Admin, ainsi que
+  les accès de revue Play restent à tester avec un compte autorisé.
 - Aucun AAB envoyé, aucune application créée, aucune release soumise.
 - Accès Supabase confirmé dans le profil Chrome **Hospice (UTRAGBenin)**,
   compte `hospiceantonio`, organisation CREATIS INTER. Le projet attendu
