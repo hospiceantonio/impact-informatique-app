@@ -15,18 +15,22 @@ ni une création d'application Play, ni une soumission.
 
 ## Résultats locaux
 
-- Compilation définitive des deux AAB 3.54.1 (96) réussie après le gel des
-  fichiers Web et des pages légales.
+- Compilation des deux AAB 3.54.1 (96) réussie à partir du commit UGC
+  `80a72da` et des fichiers Web et pages légales figés.
 - Signature de chacun vérifiée avec `jarsigner` ; packages, versions et
-  contenus embarqués contrôlés avec `bundletool` et l'archive AAB.
+  contenus embarqués contrôlés avec `bundletool` et l'archive AAB. Les 69
+  fichiers client et 71 fichiers Admin embarqués correspondent octet par octet
+  aux sources du commit ; `bundletool validate` accepte les deux bundles.
 - Les deux AAB visent Android SDK 36, avec un minimum SDK 24.
 - Android Lint : aucune erreur, 15 avertissements par variante
   (API anciennes, icônes, orientation et configuration WebView notamment).
 - Contrôles des fichiers autonomes et des coquilles hors connexion réussis.
 - Les deux applications ont été installées sur un émulateur Android 14 à partir
-  des AAB finaux. L'accueil et les catégories de BIZZOO ainsi que l'écran de
-  connexion et les CGU de BIZZOO Admin ont été capturés sans compte connecté.
-  Les parcours authentifiés et les tests de revue Play restent à faire.
+  des AAB précédant la correction UGC. L'accueil et les catégories de BIZZOO,
+  puis l'écran de connexion et les CGU de BIZZOO Admin, ont été capturés sans
+  compte connecté.
+  Les AAB UGC finaux n'ont pas été réinstallés sur cet émulateur ; les parcours
+  authentifiés et les tests de revue Play restent à faire.
 - Aucun AAB envoyé, aucune application créée, aucune release soumise.
 - Accès Supabase confirmé dans le profil Chrome **Hospice (UTRAGBenin)**,
   compte `hospiceantonio`, organisation CREATIS INTER. Le projet attendu
@@ -34,6 +38,10 @@ ni une création d'application Play, ni une soumission.
   suppression de compte y a été appliquée : RPC présente, accessible à un
   utilisateur authentifié et refusée à `anon`, avec le drapeau de commande
   attendu. Cela ne valide pas encore les parcours métier authentifiés.
+- La migration `supabase/moderation-ugc.sql` a été exécutée en production.
+  Un contrôle SQL en lecture seule confirme les tables, la RPC et le filtre
+  d'avis ; l'exécution de la RPC est autorisée au rôle `authenticated` et
+  refusée à `anon`. Les écrans authentifiés restent à tester sur Android.
 - Le RCCM fourni identifie **MATERIEL NET SARL** comme exploitant de BIZZOO.
   Le contact public choisi est `contact@bizzoomarket.com`, avec
   `bizzoomarket@gmail.com` et `+229 01 42 32 32 38` en complément.
@@ -41,14 +49,15 @@ ni une création d'application Play, ni une soumission.
   publiques et ont répondu en HTTP 200 avec leur contenu final :
   <https://hospiceantonio.github.io/impact-informatique-app/legal/confidentialite.html>
   et <https://hospiceantonio.github.io/impact-informatique-app/legal/suppression-compte.html>.
+  La CI GitHub Pages du code UGC a réussi.
   Les chemins `/legal/` sur `www.bizzoomarket.com` renvoient encore 404 ;
   utiliser les URL GitHub Pages pour la première soumission.
 
 Empreintes SHA-256 des AAB finaux du 29 septembre, à recalculer après toute modification :
 
 ```text
-client fc445df2b73c21fbb9b62250197aad5b59639145666096d535b4d4f980eecd7e
-admin  09b0ef885eea28568d9a3f65567d7c1983b77617ce61f1e7b03e8c51b0e51bad
+client 8916cb2e4097743d1b241a8160d71a8bc34235d07ae7ec4d1ecdfb0df18ae7da
+admin  f2595d8b6e9362f2d6105fa1621aa3cd40c8edf64ffba839dc05c8e12ea54185
 ```
 
 ## Construction
@@ -146,6 +155,9 @@ Description complète :
   sans code à usage unique, pour BIZZOO Admin ; fournir aussi l'accès aux
   fonctionnalités privées de BIZZOO. Tester ces parcours sur Android sans
   déclencher de paiement réel.
+- Confirmer sur Android les écrans authentifiés de signalement, masquage et
+  traitement des signalements avant de déclarer le dispositif UGC entièrement
+  opérationnel.
 - Configurer Play App Signing, uploader les deux AAB finaux, vérifier les
   résultats Play et soumettre les releases à l'examen sur la piste production.
   La disponibilité publique dépend ensuite de la revue Google.
