@@ -560,7 +560,7 @@ const VueComptes = (() => {
       '<div class="carte">' +
         '<div class="carte-titre">Quitter</div>' +
         '<button type="button" class="btn btn-clair" id="mc-deconnexion">Se déconnecter</button>' +
-      "</div>";
+      "</div>" + DroitsCompte.carte(true);
 
     UI.$("#mc-changer", vue).onclick = async () => {
       const mdp = UI.$("#mc-mdp", vue).value;

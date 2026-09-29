@@ -140,6 +140,8 @@ grant execute on function public.clients_liste(text, uuid) to authenticated;
 -- règle voisine — la même. Un numéro non vérifié ne désigne personne :
 -- deux clients peuvent taper le même, et l'un lirait les achats de
 -- l'autre depuis cet écran.
+alter table public.commandes add column if not exists compte_supprime boolean not null default false;
+
 create or replace function public.client_commandes(client uuid)
 returns table (
   id text, numero text, cree_le timestamptz, paye_le timestamptz,
@@ -162,6 +164,7 @@ begin
       left join public.boutiques b on b.id = l.boutique_id
      where v.client_id = client
         or (v.client_id is null
+            and not v.compte_supprime
             and mien.tel_verifie and coalesce(mien.tel, '') <> ''
             and v.client_tel = mien.tel
             and v.cree_le > now() - interval '18 months')

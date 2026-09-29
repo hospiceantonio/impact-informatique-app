@@ -1658,6 +1658,74 @@ const Store = (() => {
     return (lignes || []).map(avisDepuisLigne);
   }
 
+  /** File des signalements : seuls les superadministrateurs la lisent. */
+  async function listerSignalementsAvis() {
+    const lignes = await Supabase.requete("GET",
+      "avis_signalements?select=*&etat=eq.ouvert&order=cree_le.asc&limit=100",
+      undefined, { avecSession: true });
+    return (lignes || []).map((l) => ({
+      id: Number(l.id), avisId: l.avis_id, auteurId: l.auteur_id,
+      cible: l.cible, motif: l.motif, details: l.details || "",
+      creeLe: versMs(l.cree_le),
+    }));
+  }
+
+  /** Sanctions de publication d'avis, réservées au superadministrateur. */
+  async function listerAuteursAvisBloques() {
+    const lignes = await Supabase.requete("GET",
+      "avis_auteurs_bloques?select=*&order=bloque_le.desc&limit=300",
+      undefined, { avecSession: true });
+    return (lignes || []).map((l) => ({
+      id: l.client_id, auteur: l.auteur || "", motif: l.motif || "",
+      bloqueLe: versMs(l.bloque_le),
+    }));
+  }
+
+  async function bloquerAuteurAvis(id, bloquer, motif) {
+    await Supabase.rpcLecture("bloquer_auteur_avis", {
+      auteur_cible: id, bloquer: !!bloquer, justification: motif || "",
+    });
+    journaliser("compte", bloquer ? "avis auteur bloque" : "avis auteur retabli",
+      (bloquer ? "Publication d'avis interdite" : "Publication d'avis rétablie") +
+      (motif ? " : " + motif : ""), id, undefined, null);
+  }
+
+  async function listerSignalementsProduits() {
+    const lignes = await Supabase.requete("GET",
+      "produits_signalements?select=*&etat=eq.ouvert&order=cree_le.asc&limit=100",
+      undefined, { avecSession: true });
+    return (lignes || []).map((l) => ({
+      id: Number(l.id), produitId: l.produit_id, nomProduit: l.nom_produit || "",
+      boutiqueId: l.boutique_id || "", motif: l.motif,
+      details: l.details || "", creeLe: versMs(l.cree_le),
+    }));
+  }
+
+  async function traiterSignalementProduit(id, justification) {
+    await Supabase.rpcLecture("traiter_signalement_produit", {
+      signalement: Number(id), justification: justification || "",
+    });
+    journaliser("produit", "signalement traite",
+      "Signalement de fiche traité : " + justification, String(id), undefined, null);
+  }
+
+  async function lireAvis(id) {
+    const lignes = await Supabase.requete("GET",
+      "avis?select=*&id=eq." + encodeURIComponent(id) + "&limit=1",
+      undefined, { avecSession: true });
+    return lignes && lignes[0] ? avisDepuisLigne(lignes[0]) : null;
+  }
+
+  async function traiterSignalementAvis(id, masquer, justification) {
+    await Supabase.rpcLecture("traiter_signalement_avis", {
+      signalement: Number(id), masquer: !!masquer,
+      justification: justification || "",
+    });
+    journaliser("boutique", masquer ? "signalement masque" : "signalement classe",
+      (masquer ? "Avis masqué après signalement" : "Signalement classé") +
+      (justification ? " : " + justification : ""), String(id), undefined, null);
+  }
+
   /** Répondre — ou effacer sa réponse, en envoyant un texte vide. */
   async function repondreAvis(id, texte) {
     await Supabase.rpcLecture("repondre_avis", { cible: id, texte: texte || "" });
@@ -3301,7 +3369,10 @@ const Store = (() => {
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
     listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
-    listerAvis, repondreAvis, masquerAvis,
+    listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
+    traiterSignalementAvis, bloquerAuteurAvis,
+    listerSignalementsProduits, traiterSignalementProduit,
+    repondreAvis, masquerAvis,
     SUJETS_SAV, listerReclamations, messagesReclamation,
     repondreReclamation, trancherReclamation,
     listerCommandes, commandesEnAttente, avancerLigne, confirmerPaiement,

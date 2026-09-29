@@ -212,6 +212,15 @@ const Utils = (() => {
    * téléchargement classique du navigateur.
    */
   function enregistrerBlob(nomFichier, blob) {
+    if (window.BizzooIOS) {
+      return new Promise((resolve, reject) => {
+        const lecteur = new FileReader();
+        lecteur.onload = () => window.BizzooIOS.enregistrerFichier(nomFichier,
+          String(lecteur.result).split(",")[1] || "", blob.type).then(resolve, reject);
+        lecteur.onerror = () => reject(new Error("Fichier illisible"));
+        lecteur.readAsDataURL(blob);
+      });
+    }
     const pont = window.AndroidPont;
     if (pont && pont.enregistrerFichierDiscret) {
       return new Promise((resolve, reject) => {

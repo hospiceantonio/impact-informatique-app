@@ -324,6 +324,10 @@ const VueProduit = (() => {
        après — la fiche ne doit pas attendre le réseau pour s'afficher. */
     html += VueAvis.bloc("Avis sur ce produit");
 
+    html += '<div class="carte"><button type="button" class="btn-mini" ' +
+      'id="p-signaler-fiche">Signaler cette fiche</button>' +
+      '<div id="p-formulaire-signalement"></div></div>';
+
     if (similaires.length) {
       html += UI.titreSection("Dans le même rayon");
       html += UI.rangeeProduits(similaires);
@@ -331,6 +335,56 @@ const VueProduit = (() => {
 
     vue.innerHTML = html;
     activerCarrousel();
+
+    const signalerFiche = UI.$("#p-signaler-fiche", vue);
+    const zoneSignalement = UI.$("#p-formulaire-signalement", vue);
+    signalerFiche.onclick = () => {
+      if (typeof Compte === "undefined" || !Compte.connecte()) {
+        VueCompte.revenirVers(location.hash);
+        location.hash = "#/connexion";
+        UI.toast("Connectez-vous pour signaler une fiche.", "alerte");
+        return;
+      }
+      zoneSignalement.innerHTML =
+        '<form class="av-signalement" id="p-signalement">' +
+          '<label>Pourquoi signaler cette fiche ?' +
+            '<select name="motif" required>' +
+              '<option value="">Choisir un motif</option>' +
+              '<option value="trompeur">Information trompeuse ou dangereuse</option>' +
+              '<option value="contrefacon">Contrefaçon ou droit d’auteur</option>' +
+              '<option value="haine">Haine ou discrimination</option>' +
+              '<option value="sexuel">Contenu sexuel</option>' +
+              '<option value="donnees_personnelles">Données personnelles exposées</option>' +
+              '<option value="spam">Spam ou publicité</option>' +
+              '<option value="autre">Autre contenu répréhensible</option>' +
+            '</select></label>' +
+          '<label>Précisions (facultatives)<textarea name="details" rows="2" maxlength="500"></textarea></label>' +
+          '<div class="btn-rangee av-actions">' +
+            '<button type="submit" class="btn-mini">Envoyer à la modération</button>' +
+            '<button type="button" class="btn-mini" id="p-annuler-signalement">Annuler</button>' +
+          '</div>' +
+        '</form>';
+      const form = UI.$("#p-signalement", zoneSignalement);
+      UI.$("#p-annuler-signalement", form).onclick = () => { zoneSignalement.innerHTML = ""; };
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const motif = form.elements.motif.value;
+        if (!motif) return UI.toast("Choisissez un motif.", "alerte");
+        const bouton = form.querySelector('button[type="submit"]');
+        bouton.disabled = true;
+        try {
+          await Compte.rpc("signaler_produit", {
+            produit_cible: p.id, motif_signalement: motif,
+            precisions: form.elements.details.value.slice(0, 500),
+          });
+          signalerFiche.hidden = true;
+          zoneSignalement.innerHTML = '<p class="av-moderation">Signalement reçu par BIZZOO.</p>';
+        } catch (err) {
+          UI.toast(err.message || "Signalement impossible", "alerte");
+          bouton.disabled = false;
+        }
+      };
+    };
 
     /* « AJOUTER AU PANIER », ORANGE, EN BAS — comme la DA. Le compteur
        l'accompagne : on choisit la quantité là où l'on ajoute.

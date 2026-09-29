@@ -30,7 +30,7 @@ if [ "${1:-}" = "--hebergement" ]; then HEBERGEMENT=1; shift; fi
 
 # Ce qui part en ligne. Rien d'autre.
 FICHIERS=(index.html 404.html robots.txt sitemap.xml)
-DOSSIERS=(vitrine client admin apk)
+DOSSIERS=(vitrine client admin apk legal)
 
 if [ "$HEBERGEMENT" = 1 ]; then
   ZIP="${1:-bizzoo-site.zip}"

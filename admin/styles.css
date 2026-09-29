@@ -901,6 +901,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Feuille modale ---------- */
 .feuille{position:fixed;inset:0;z-index:70}
+.conditions-ugc-fond{position:fixed;inset:0;z-index:100;background:rgba(6,16,31,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.conditions-ugc-boite{width:min(100%,500px);max-height:90vh;overflow:auto;background:#fff;color:var(--encre);border-radius:18px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.conditions-ugc-boite h2{font-size:21px;margin:0 0 14px}
+.conditions-ugc-boite p{line-height:1.55;margin:0 0 12px}
+.conditions-ugc-boite label{display:flex;align-items:flex-start;gap:9px;margin:18px 0;font-weight:600;line-height:1.4}
+.conditions-ugc-boite .btn-rangee{flex-wrap:wrap}
 .feuille[hidden]{display:none}
 .feuille-fond{position:absolute;inset:0;background:rgba(6,16,31,.55)}
 .feuille-boite{

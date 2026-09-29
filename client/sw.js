@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v87";
+const VERSION = "impact-client-v89";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -23,6 +23,11 @@ const FICHIERS = [
   "./config.js",
   "./demo-catalogue.json",
   "./js/utils.js",
+  "./js/droits-compte.js",
+  "./legal/confidentialite.html",
+  "./legal/mentions-legales.html",
+  "./legal/conditions.html",
+  "./legal/suppression-compte.html",
   "./js/catalogue.js",
   /* « compte.js » et « vues/compte.js » manquaient à cette liste depuis
      qu'ils existent : hors connexion, l'application se chargeait sans

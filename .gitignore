@@ -1,3 +1,13 @@
 skills/feexpay-workspace/
 _site/
 bizzoo-site.zip
+
+# Signatures privées et livrables Google Play
+*.jks
+*.p12
+*.aab
+*.keystore
+!android/signature/impact-test.keystore
+.env.play
+__pycache__/
+supabase/.temp/
