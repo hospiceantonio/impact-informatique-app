@@ -55,7 +55,7 @@ const VueCompte = (() => {
           "<span><strong>Actualiser le catalogue</strong><br><small>Les derniers prix et " +
             "produits des boutiques</small></span>" +
         "</button>" +
-      "</div>"
+      "</div>" + DroitsCompte.carte(Compte.connecte())
     );
   }
 
@@ -732,7 +732,7 @@ const VueCompte = (() => {
       }
       /* Hors du téléphone : les deux applications sont servies côte à
          côte, et l'admin est le dossier voisin. */
-      try { window.open("../admin/", "_blank", "noopener"); }
+      try { window.open(window.BizzooIOS ? "https://www.bizzoomarket.com/admin/" : "../admin/", "_blank", "noopener"); }
       catch (_) { UI.toast("Ouvrez l'application BIZZOO Admin.", "alerte"); }
     });
   }

@@ -191,6 +191,12 @@ const Utils = (() => {
   function telecharger(nomFichier, contenu, type = "application/json") {
     /* Dans l'application Android, le téléphone enregistre le fichier
        dans Téléchargements via le pont natif. */
+    if (typeof contenu === "string" && window.BizzooIOS) {
+      const base64 = btoa(unescape(encodeURIComponent(contenu)));
+      window.BizzooIOS.enregistrerFichier(nomFichier, base64, type)
+        .catch(() => window.alert("Impossible de partager le fichier."));
+      return;
+    }
     if (typeof contenu === "string" && window.AndroidPont && window.AndroidPont.enregistrerFichier) {
       const base64 = btoa(unescape(encodeURIComponent(contenu)));
       window.AndroidPont.enregistrerFichier(nomFichier, base64, type);

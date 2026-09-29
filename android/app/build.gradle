@@ -2,15 +2,22 @@ plugins {
     id "com.android.application"
 }
 
+// La signature Play reste hors du dépôt et ne remplace pas celle des APK de test.
+def playStore = System.getenv("BIZZOO_PLAY_STORE_FILE")
+def playStorePassword = System.getenv("BIZZOO_PLAY_STORE_PASSWORD")
+def playKeyAlias = System.getenv("BIZZOO_PLAY_KEY_ALIAS")
+def playKeyPassword = System.getenv("BIZZOO_PLAY_KEY_PASSWORD")
+def playConfigured = [playStore, playStorePassword, playKeyAlias, playKeyPassword].every { it }
+
 android {
     namespace "com.impactinformatique.apps"
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         minSdk 24
-        targetSdk 35
-        versionCode 95
-        versionName "3.54.0"
+        targetSdk 36
+        versionCode 96
+        versionName "3.54.1"
     }
 
     // Deux applications à partir du même code : client (bleue) et admin (rouge).
@@ -27,8 +34,16 @@ android {
     }
 
     signingConfigs {
+        if (playConfigured) {
+            play {
+                storeFile file(playStore)
+                storePassword playStorePassword
+                keyAlias playKeyAlias
+                keyPassword playKeyPassword
+            }
+        }
         // Clé de TEST pour installer les APK directement sur un téléphone.
-        // Pour le Play Store, on générera une clé privée dédiée (jamais dans le dépôt).
+        // La clé Play dédiée est conservée hors du dépôt.
         test {
             storeFile file("../signature/impact-test.keystore")
             storePassword "impact2026"
@@ -42,11 +57,27 @@ android {
             minifyEnabled false
             signingConfig signingConfigs.test
         }
+        play {
+            initWith release
+            matchingFallbacks = ["release"]
+            signingConfig playConfigured ? signingConfigs.play : null
+        }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.project == project && it.name ==~ /(?i).*(client|admin)play.*/ }) {
+        if (!playConfigured) {
+            throw new GradleException("Signature Play absente : renseigner les quatre variables BIZZOO_PLAY_*.")
+        }
+        if (!file(playStore).isFile() || file(playStore).canonicalPath == file("../signature/impact-test.keystore").canonicalPath) {
+            throw new GradleException("Une clé privée dédiée à Google Play est nécessaire.")
+        }
     }
 }
 

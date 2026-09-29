@@ -63,7 +63,7 @@ const VueConnexion = (() => {
         "</div>" +
         '<button type="button" class="btn" id="cx-connecter">Se connecter</button>' +
         '<div class="aide" id="cx-erreur" style="color:var(--rouge-fonce);text-align:center"></div>' +
-        '<div class="aide" style="text-align:center">Mot de passe oublié ? Il se réinitialise dans le tableau de bord Supabase (Authentication → Users).</div>' +
+        '<div class="aide" style="text-align:center">Mot de passe oublié ? Écrivez à <a href="mailto:contact@bizzoomarket.com">contact@bizzoomarket.com</a> pour retrouver l’accès à votre compte.</div>' +
       "</div>";
 
     const lancer = async () => {
@@ -83,6 +83,8 @@ const VueConnexion = (() => {
         bouton.textContent = "Se connecter";
       }
     };
+
+    vue.insertAdjacentHTML("beforeend", DroitsCompte.carte(false));
 
     UI.$("#cx-connecter").onclick = lancer;
     UI.$("#cx-mdp").addEventListener("keydown", (ev) => { if (ev.key === "Enter") lancer(); });

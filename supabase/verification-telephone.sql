@@ -262,6 +262,8 @@ grant execute on function public.reconcilier_numeros_verifies() to authenticated
 --     d'une ancienne ligne hériterait des commandes de son ancien
 --     titulaire. Dix-huit mois laissent largement de quoi retrouver ses
 --     achats, et referment la porte sur le passé lointain.
+alter table public.commandes add column if not exists compte_supprime boolean not null default false;
+
 create or replace function public.rattacher_mes_commandes() returns int
 language plpgsql security definer set search_path = public as $$
 declare moi uuid := auth.uid(); mien public.clients%rowtype; combien int;
@@ -276,6 +278,7 @@ begin
   update public.commandes
      set client_id = moi
    where client_id is null
+     and not compte_supprime
      and client_tel = mien.tel
      and cree_le > now() - interval '18 months';
   get diagnostics combien = row_count;

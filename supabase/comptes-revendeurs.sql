@@ -567,6 +567,8 @@ create trigger lignes_a_l_ecriture
 -- Et le régime de prix ne se rejoue pas après coup : la boutique suit
 -- la commande, elle ne la bascule pas au prix revendeur une fois
 -- l'argent encaissé.
+alter table public.commandes add column if not exists compte_supprime boolean not null default false;
+
 create or replace function public.commande_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -592,6 +594,7 @@ begin
   -- À qui appartient cette commande. La réattribuer, c'est offrir à
   -- quelqu'un l'historique, les avis et le SAV d'un autre.
   or new.client_id is distinct from old.client_id
+  or new.compte_supprime is distinct from old.compte_supprime
   -- Et sous quel régime de prix elle est partie : la basculer après
   -- coup, c'est réécrire ce que la boutique a touché.
   or new.revendeur is distinct from old.revendeur

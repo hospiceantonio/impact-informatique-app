@@ -3170,20 +3170,36 @@ cloche se pose avant le compte, le panier reste le dernier bouton). Les
 captures de la vitrine et l'image de partage sont refaites : elles
 montrent la nouvelle barre.
 
-## Publication sur le Play Store (le moment venu)
+## Préparation Google Play (3.54.1)
+
+Les deux applications seront publiées sur le compte **WINNER MARKET LIFE**.
+La configuration cible Android 16 (`targetSdk 36`) et garde les packages
+existants. Les variantes `clientPlay` et `adminPlay` utilisent une clé privée
+hors dépôt ; les APK de test gardent leur signature historique.
+
+Lancer `python3 tools/construire-play.py` avec Java 17 et Android SDK 36.
+Le script construit les deux AAB et lance les contrôles Android Lint.
+Les variables `BIZZOO_PLAY_*` sont obligatoires pour une construction Play.
+
+Le [dossier de publication](docs/google-play.md) contient les fiches proposées,
+les instructions de signature et les points encore nécessaires avant soumission.
+Les AAB préparés ne valent pas validation Google Play : la confidentialité,
+la suppression de compte et les parcours authentifiés doivent être vérifiés.
+
+### Étapes de publication
 
 1. Compte **Google Play Console** (25 $ une fois).
 2. Générer une **clé de signature privée** (à garder précieusement,
    jamais dans le dépôt) et construire des **AAB** :
-   `./gradlew bundleClientRelease bundleAdminRelease` avec cette clé à la
-   place de la clé de test dans `android/app/build.gradle`.
+   `./gradlew bundleClientPlay bundleAdminPlay` avec les variables de
+   signature privées, sans remplacer la clé de test.
 3. Créer deux fiches Play (client et admin — l'admin peut rester en
    « diffusion interne » pour ne pas être publique), avec captures
    d'écran, description et politique de confidentialité.
 
-Le projet est déjà conforme aux exigences actuelles : `targetSdk 35`,
-icônes adaptatives, portrait, aucune permission sensible (l'appareil
-photo passe par l'application Photos du téléphone).
+La conformité doit être évaluée sur les fonctionnalités réellement proposées :
+localisation facultative, notifications, photos, comptes et commandes.
+La présence d'icônes adaptatives et d'une cible Android récente ne suffit pas.
 
 ## Structure
 

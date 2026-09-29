@@ -232,6 +232,8 @@ grant execute on function public.est_livreur() to authenticated;
 grant execute on function public.boutique_du_compte() to authenticated;
 grant execute on function public.peut_agir_sur(text) to authenticated;
 
+alter table public.commandes add column if not exists compte_supprime boolean not null default false;
+
 create or replace function public.commande_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -257,6 +259,7 @@ begin
   -- À qui appartient cette commande. La réattribuer, c'est offrir à
   -- quelqu'un l'historique, les avis et le SAV d'un autre.
   or new.client_id is distinct from old.client_id
+  or new.compte_supprime is distinct from old.compte_supprime
   -- Et sous quel régime de prix elle est partie : la basculer après
   -- coup, c'est réécrire ce que la boutique a touché.
   or new.revendeur is distinct from old.revendeur
@@ -470,6 +473,7 @@ declare c public.commandes%rowtype;
 begin
   select * into c from public.commandes
    where id = coalesce(cible, '')
+     and not compte_supprime
      and client_tel = regexp_replace(coalesce(tel, ''), '\D', '', 'g');
   if not found then return null; end if;
   return jsonb_build_object(

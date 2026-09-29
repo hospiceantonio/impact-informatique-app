@@ -1488,6 +1488,7 @@ begin
       left join public.boutiques b on b.id = l.boutique_id
      where v.client_id = client
         or (v.client_id is null
+            and not v.compte_supprime
             and mien.tel_verifie and coalesce(mien.tel, '') <> ''
             and v.client_tel = mien.tel
             and v.cree_le > now() - interval '18 months')
@@ -2365,6 +2366,7 @@ alter table public.commandes
 -- « cascade » : un client qui ferme son compte n'efface pas les ventes de
 -- la boutique. Les comptes d'hier ne se réécrivent pas.
 alter table public.commandes add column if not exists client_id uuid;
+alter table public.commandes add column if not exists compte_supprime boolean not null default false;
 
 -- La clé étrangère à part : les fichiers de paiement posent la colonne
 -- sans connaître la table des clients, et une contrainte ne s'ajoute pas
@@ -2617,6 +2619,7 @@ begin
   -- À qui appartient cette commande. La réattribuer, c'est offrir à
   -- quelqu'un l'historique, les avis et le SAV d'un autre.
   or new.client_id is distinct from old.client_id
+  or new.compte_supprime is distinct from old.compte_supprime
   -- Et sous quel régime de prix elle est partie : la basculer après
   -- coup, c'est réécrire ce que la boutique a touché.
   or new.revendeur is distinct from old.revendeur
@@ -3609,6 +3612,7 @@ declare c public.commandes%rowtype;
 begin
   select * into c from public.commandes
    where id = cible
+     and not compte_supprime
      and client_tel = regexp_replace(coalesce(tel, ''), '\D', '', 'g');
   if not found then return null; end if;
   return jsonb_build_object(
@@ -3994,6 +3998,7 @@ declare c public.commandes%rowtype;
 begin
   select * into c from public.commandes
    where id = coalesce(cible, '')
+     and not compte_supprime
      and client_tel = regexp_replace(coalesce(tel, ''), '\D', '', 'g');
   if not found then return null; end if;
   return jsonb_build_object(
@@ -4823,6 +4828,7 @@ begin
   update public.commandes
      set client_id = moi
    where client_id is null
+     and not compte_supprime
      and client_tel = mien.tel
      and cree_le > now() - interval '18 months';
   get diagnostics combien = row_count;
@@ -6047,3 +6053,35 @@ insert into public.produits
    e'Souris sans fil compacte avec récepteur USB nano.\nJusqu''à 12 mois d''autonomie avec une pile AA.',
    8500, null, 'cat_hightech', 'sc_hightech_accessoires', 12, false, true, false, 0)
 on conflict (id) do nothing;
+
+
+-- Suppression initiée par le titulaire : aucune cible choisie par le client.
+create or replace function public.supprimer_mon_compte(confirmation text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  ancien text := coalesce(current_setting('bizzoo.interne', true), '');
+begin
+  if moi is null or not exists (select 1 from auth.users where id = moi) then
+    raise exception 'Connexion nécessaire';
+  end if;
+  if confirmation is distinct from 'SUPPRIMER' then
+    raise exception 'Confirmez la suppression définitive';
+  end if;
+  -- Ne pas retirer le dernier responsable capable d'administrer la plateforme.
+  if exists (select 1 from public.profils where id = moi and role = 'superadministrateur') then
+    perform 1 from public.profils where role = 'superadministrateur' for update;
+    if not exists (select 1 from public.profils where role = 'superadministrateur' and actif and id <> moi) then
+      raise exception 'Transférez la responsabilité à un autre superadministrateur actif avant de supprimer ce compte';
+    end if;
+  end if;
+  perform set_config('bizzoo.interne', 'oui', true);
+  -- Les pièces commerciales restent dans leur périmètre métier, mais ne
+  -- pourront plus être récupérées par un futur compte portant le même numéro.
+  update public.commandes set compte_supprime = true where client_id = moi;
+  delete from auth.users where id = moi;
+  perform set_config('bizzoo.interne', ancien, true);
+end $$;
+revoke all on function public.supprimer_mon_compte(text) from public, anon;
+grant execute on function public.supprimer_mon_compte(text) to authenticated;
