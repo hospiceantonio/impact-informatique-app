@@ -90,7 +90,11 @@ disponible ; les nouveaux territoires ne s'ajoutent pas automatiquement.
 Les contacts App Review sont enregistrés pour les deux versions. Apple requiert
 les identifiants de démonstration pour les fonctions protégées. Ceux du compte
 client ont été saisis depuis un fichier local protégé, hors dépôt ; le compte
-Admin doit encore être activé et testé dans l'application avant sa saisie.
+Admin a été activé dans un profil isolé rattaché à une boutique de démonstration
+fermée. QA a validé l'authentification et les restrictions RLS, puis ses
+identifiants ont été transmis à Apple depuis un fichier local protégé. Le
+parcours graphique connecté dans l'app reste à vérifier ; les captures Admin
+actuelles montrent l'écran de connexion.
 Les 24 réponses de classification par âge sont enregistrées pour chaque app ;
 Apple retourne `FOUR_PLUS` pour les deux. Les contrats gratuits et payants du
 compte WINNER MARKET LIFE ont été vérifiés actifs jusqu'au 17 juin 2027,
@@ -123,14 +127,12 @@ ajoutée au brouillon `c49041b4-e9d0-4203-bfd8-e737361e011c`. L'API
 officielle, relue après soumission, donne une date de soumission
 `2026-09-29T11:15:48.446Z` et l'état `WAITING_FOR_REVIEW`.
 
-**BIZZOO Admin reste à soumettre.** Le préflight du brouillon
-`9a3a16c3-a223-454d-80c8-ea039811ada9` ne signale plus que deux champs
-obligatoires manquants dans les détails de revue : `demoAccountName` et
-`demoAccountPassword`. Le compte de revue Admin doit d'abord être activé et
-son parcours dans l'application testé. Ses identifiants seront saisis depuis
-le fichier local protégé, jamais dans ce dépôt. Après cela, ajouter la version
-3.54.1, build 97, au brouillon, soumettre et vérifier `submittedDate` et
-`WAITING_FOR_REVIEW`.
+**BIZZOO Admin est aussi soumis à App Review.** Le compte de démonstration a
+été renseigné hors dépôt dans les détails de revue. Le préflight Apple a
+accepté la version 3.54.1, build 97, dans le brouillon
+`9a3a16c3-a223-454d-80c8-ea039811ada9`. L'API officielle, relue après
+soumission, donne la date `2026-09-29T14:01:38.485Z` et l'état
+`WAITING_FOR_REVIEW`. Cet état atteste l'envoi, pas une approbation par Apple.
 
 Le compte vendeur Apple est WINNER MARKET LIFE, alors que l'exploitant indiqué
 par le RCCM est MATERIEL NET SARL. Une autorisation de distribution entre les
