@@ -7,7 +7,7 @@ settings:
     SWIFT_VERSION: '5.0'
     DEVELOPMENT_TEAM: M57V85Y92Z
     MARKETING_VERSION: 3.55.0
-    CURRENT_PROJECT_VERSION: 98
+    CURRENT_PROJECT_VERSION: 99
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: NO
@@ -41,3 +41,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.impactinformatique.admin
         APP_DISPLAY_NAME: BIZZOO Admin
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+schemes:
+  Bizzoo:
+    build:
+      targets:
+        Bizzoo: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  BizzooAdmin:
+    build:
+      targets:
+        BizzooAdmin: all
+    run:
+      config: Debug
+    archive:
+      config: Release
