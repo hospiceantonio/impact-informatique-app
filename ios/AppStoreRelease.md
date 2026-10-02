@@ -143,8 +143,8 @@ deux entités doit être conservée.
 Apple a rejeté les deux builds 97 pour la règle 2.1(a), *App Completeness* :
 les applications se ferment dès le lancement sous iOS/iPadOS 27.0. Le dossier
 BIZZOO cite un iPhone 17 Pro Max et un iPad Air 11 pouces (M3) ; le dossier
-BIZZOO Admin cite un iPad Pro 11 pouces (M4). Les deux soumissions sont en état
-`UNRESOLVED_ISSUES` et leurs versions en état `REJECTED`.
+BIZZOO Admin cite un iPad Pro 11 pouces (M4). Avant le correctif, les deux
+soumissions étaient en état `UNRESOLVED_ISSUES` et leurs versions en état `REJECTED`.
 
 Les quatre rapports de crash joints par Apple concordent : `EXC_BREAKPOINT`
 (`SIGTRAP`) sur le thread principal, dans
@@ -165,5 +165,27 @@ au lancement. Les archives signées sont dans `ios/build/2026-10-02/` :
 Leurs identifiants, versions, manifestes `UIScene` et signatures ont été vérifiés.
 Les IPA exportés et vérifiés se trouvent dans `ios/build/2026-10-02/admin-b98/`
 et `ios/build/2026-10-02/client-b98/`. Les configurations embarquées ne pointent
-pas vers `localhost`. Aucun build 98 n'a encore été téléversé ni soumis à
-App Review, et aucune réponse n'a été envoyée à Apple.
+pas vers `localhost`.
+
+Les deux IPA ont passé la validation distante Apple sans erreur, puis ont été
+téléversés le 2 octobre 2026. Leur traitement est terminé : état `VALID`,
+admissibilité `APP_STORE_ELIGIBLE`, chiffrement non exempté déclaré absent.
+
+| Application | Identifiant du build 98 | Soumission après correctif |
+|---|---|---|
+| BIZZOO | `13e1728e-996e-42de-b96f-2145ece6f3a5` | `c49041b4-e9d0-4203-bfd8-e737361e011c`, le 2 octobre à 10 h 55 (GMT+1) |
+| BIZZOO Admin | `ea466368-10b7-48be-adb3-dbc10519f5f1` | `9a3a16c3-a223-454d-80c8-ea039811ada9`, le 2 octobre à 10 h 53 (GMT+1) |
+
+Les builds 98 remplacent les builds rejetés dans les deux soumissions. Les
+remarques de revue expliquent le correctif `UIScene`, les essais sur simulateur
+et l'utilisation des comptes de démonstration. Les deux consoles affichent
+**En attente de vérification**. La publication automatique après approbation
+reste activée. Cet état confirme la soumission, pas l'approbation ni une fiche
+publique. Aucun message distinct n'a été envoyé à l'équipe Apple.
+
+L'API App Store Connect confirme `WAITING_FOR_REVIEW` pour les deux versions
+et la correspondance exacte des identifiants de revue avec le dossier privé.
+Les mots de passe ne sont pas copiés dans ce document ni dans les preuves.
+
+Preuves locales : `docs/publication-evidence/2026-10-02/apple-client-b98.jpg`
+et `apple-admin-b98.jpg`.

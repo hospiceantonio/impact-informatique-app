@@ -1,6 +1,6 @@
 # Publication BIZZOO sur Google Play
 
-État vérifié le 29 septembre 2026. Compte choisi par le propriétaire :
+État vérifié le 2 octobre 2026. Compte choisi par le propriétaire :
 **WINNER MARKET LIFE**, organisation `7195819094188094036`.
 
 | Application | Package existant conservé | Version préparée |
@@ -9,11 +9,13 @@
 | BIZZOO Admin | `com.impactinformatique.admin` | 3.54.1 (96) |
 
 Les deux applications ont été créées dans le compte Play WINNER MARKET LIFE.
-Leurs versions 3.54.1 (96) sont enregistrées en **brouillon sur la piste de
-production**, pour une disponibilité initiale limitée au Bénin. Aucun envoi
-à l'examen ni aucune publication n'a encore eu lieu.
+Leurs versions 3.54.1 (96) visent la production, avec une disponibilité
+initiale limitée au Bénin. **BIZZOO a été envoyé pour examen le 2 octobre**.
+La console affiche « Modifications en cours d'examen » et exécute encore les
+vérifications rapides avant la revue. La publication gérée est désactivée.
+BIZZOO Admin reste en brouillon. Aucune disponibilité publique n'est confirmée.
 
-| Application | ID Play Console | Version de production en brouillon |
+| Application | ID Play Console | Version de production |
 |---|---|---|
 | [BIZZOO](https://play.google.com/console/u/0/developers/7195819094188094036/app/4972105003929543805/app-dashboard) | `4972105003929543805` | Piste `4698764254350008119`, release `1` |
 | [BIZZOO Admin](https://play.google.com/console/u/0/developers/7195819094188094036/app/4975498465623729796/app-dashboard) | `4975498465623729796` | Piste `4698395075571677062`, release `1` |
@@ -145,9 +147,10 @@ Description complète :
 - La fiche BIZZOO est complète et enregistrée : textes français, catégorie
   Shopping, contacts publics, site HTTPS, icône, bannière et quatre captures
   Android réelles du catalogue. La fiche Admin a les textes, la catégorie
-  Professionnel, les contacts, l'icône et la bannière enregistrés ; il lui
-  manque deux captures Android de vues métier authentifiées. Les seules
-  captures Admin actuelles montrent la connexion et les conditions légales.
+  Professionnel, les contacts, l'icône et la bannière enregistrés. Le 2 octobre,
+  ses deux captures Android existantes (connexion et conditions légales) ont
+  été importées et sa fiche est **Prête à être envoyée pour examen**. Des vues
+  métier authentifiées restent souhaitables pour mieux présenter l'application.
 - Les deux politiques de confidentialité sont enregistrées avec l'URL
   GitHub Pages. La page de suppression du compte est renseignée dans la
   déclaration BIZZOO, qui permet la création de compte dans l'application.
@@ -175,25 +178,50 @@ Description complète :
   La [règle Google sur les paiements](https://support.google.com/googleplay/android-developer/answer/10281818?hl=en)
   distingue les biens numériques utilisables uniquement hors d'une app Play.
 
-## Conditions encore nécessaires avant l'envoi à l'examen
+## Envoi BIZZOO du 2 octobre 2026
+
+Les informations de connexion du compte client ont été enregistrées dans
+Play Console, avec des instructions en anglais, sans publier le mot de passe
+dans le dépôt. La valeur masquée du formulaire Apple a été remplacée dans
+Google par l'identifiant original du dossier privé. La revue a ensuite été
+relancée avec cette correction ; aucune modification ne reste à envoyer pour
+BIZZOO. Les deux comptes de revue se connectent sur les applications web
+GitHub Pages ; Admin reste limité à la boutique de démonstration fermée.
+La cible est 18 ans et plus. Le questionnaire Sécurité des
+données importé a été parcouru, vérifié, puis enregistré définitivement.
+
+La release 96 a été prévisualisée et confirmée. L'unique avertissement concerne
+l'absence de fichier de désobscurcissement ; aucune erreur bloquante ne figure
+sur cet écran. Les dix modifications ont été envoyées depuis la vue d'ensemble
+de la publication. Preuve locale :
+`docs/publication-evidence/2026-10-02/google-client-review.jpg`.
+
+## Conditions encore nécessaires pour BIZZOO Admin
 
 - Renseigner les **informations de connexion** pour les fonctions protégées
-  des deux apps. Les comptes de revue existent et le compte Admin isolé est
+  d'Admin. Les comptes de revue existent et le compte Admin isolé est
   authentifié en production avec des droits limités à une boutique de démo.
   Le propriétaire a autorisé leur transmission à Google Play. L'automatisation
-  du navigateur refuse les URL `file://` et interdit un contournement : les
-  identifiants doivent être saisis directement dans les formulaires Play,
-  sans être copiés dans ce dépôt. La case affirmant l'accès complet à toutes
-  les fonctions, y compris payantes, ne doit pas être cochée pour le compte
-  Admin restreint.
+  du navigateur avait refusé les URL `file://` : les identifiants doivent être
+  saisis directement dans les formulaires Play, sans être copiés dans ce dépôt.
+  Google impose une case affirmant l'accès complet à toutes les fonctions,
+  y compris payantes. Cette attestation ne correspond pas au compte Admin
+  actuel : boutique de démo seulement et écritures Storage interdites. Le
+  code réserve aussi des fonctions au superadministrateur et au livreur.
+  L'accord spécifique pour élargir l'accès de revue aux données réelles a
+  été demandé au propriétaire ; aucun droit n'a été élargi.
 - Achever **Cible et contenu**, actuellement conditionné par les informations
-  de connexion, puis valider définitivement les deux brouillons **Sécurité des
-  données**. La classification IARC est terminée pour les deux apps.
-- Produire et déposer au moins deux captures Android de vues métier Admin
-  après activation du compte de revue. Vérifier sur Android les parcours
+  de connexion, puis valider définitivement le brouillon **Sécurité des
+  données** d'Admin. Celui-ci a été parcouru jusqu'à l'aperçu ; l'enregistrement
+  final reste verrouillé tant que Cible et contenu n'est pas renseigné. La
+  classification IARC est terminée pour les deux apps.
+- Améliorer les captures avec des vues métier Admin authentifiées lorsque
+  le contrôle graphique de l'émulateur est disponible. Vérifier sur Android les parcours
   authentifiés de signalement, masquage et modération UGC sans paiement réel.
-- Prévisualiser et confirmer chacune des versions de production, puis les
-  envoyer depuis la vue d'ensemble de la publication. Vérifier dans la console
+- La version de production Admin a été prévisualisée. La fiche Play, auparavant
+  incomplète faute de captures, est maintenant enregistrée ; il reste à terminer
+  les trois déclarations dépendantes de l'accès de revue avant de confirmer la
+  release et de l'envoyer depuis la vue d'ensemble de la publication. Vérifier dans la console
   l'état réel « En cours d'examen » ou le blocage exact. La disponibilité
   publique dépendra ensuite de la revue Google.
 
