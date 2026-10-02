@@ -19,20 +19,24 @@
     /* Les commandes des clients. Toute l'équipe y a accès : préparer une
        commande fait partie du travail quotidien de la boutique. La base
        ne montre à chacun que les lignes de sa boutique. */
-    { motif: /^\/commandes$/, vue: (v) => VueCommandes.afficher(v) },
+    { motif: /^\/commandes$/, vue: (v) => VueCommandes.afficher(v), commandes: true },
     /* LA MÊME LISTE, OUVERTE SUR UNE COMMANDE. C'est là que mène une
        notification : « la commande BZ-000123 est payée » doit poser le
        doigt sur BZ-000123, et non sur une liste de quarante où il
        faudrait la chercher. Une commande introuvable — déjà archivée,
        ou d'une boutique qui n'est pas la sienne — retombe sur la liste
        entière plutôt que sur un écran vide. */
-    { motif: /^\/commandes\/([^/]+)$/, vue: (v, m) => VueCommandes.afficher(v, m[1]) },
+    { motif: /^\/commandes\/([^/]+)$/, vue: (v, m) => VueCommandes.afficher(v, m[1]),
+      commandes: true },
     /* Les notifications. Ouvertes à tous les rangs, LIVREUR COMPRIS :
        c'est lui qui attend le plus une nouvelle course, et lui qui a le
        moins de raisons de rouvrir un écran toutes les cinq minutes. */
     { motif: /^\/notifications$/, vue: (v) => VueNotifications.afficher(v),
       tous: true },
-    { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), super: true },
+    /* Le compte d'enseigne y entre aussi : c'est là qu'il choisit la
+       boutique sur laquelle il travaille. Créer, ranger ou supprimer
+       une boutique reste au superadministrateur — l'écran le lui garde. */
+    { motif: /^\/boutiques$/, vue: (v) => VueBoutiques.afficher(v), super: true, enseigne: true },
     { motif: /^\/slider$/, vue: (v) => VueSlider.afficher(v), admin: true },
     { motif: /^\/validations$/, vue: (v) => VueValidations.afficher(v), super: true },
     /* Valider un revendeur, c'est lui ouvrir le prix BIZZOO dans TOUTES
@@ -69,9 +73,17 @@
        boutiques ; une boutique ne voit que ce qu'elle a vendu et ce qui
        lui revient. Ce sont deux fonctions différentes en base, et c'est
        la base qui refuse la première aux boutiques. */
-    { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v) },
-    { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true },
-    { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true },
+    /* « horsEnseigne » : trois écrans où la base ne rend RIEN à un compte
+       d'enseigne. Les chiffres de l'enseigne sont au superadministrateur
+       seul, ceux d'une boutique à SES comptes — « statistiques_boutique() »
+       part de la boutique du compte, et il n'en a pas. Le journal et les
+       comptes ne lui montrent que des lignes de boutique, ou la sienne.
+       Lui ouvrir ces écrans, c'était lui montrer des pages vides qu'il
+       aurait prises pour une panne. */
+    { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v), horsEnseigne: true },
+    { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true,
+      horsEnseigne: true },
+    { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages", admin: true },
   ];
@@ -196,13 +208,29 @@
       location.hash = "#/";
       return;
     }
-    if (route.super && !Supabase.estSuper()) {
+    if (route.super && !Supabase.estSuper() &&
+        !(route.enseigne && Supabase.estCompteEnseigne())) {
       UI.toast("Cet écran est réservé au super administrateur.", "err");
       location.hash = "#/";
       return;
     }
+    if (route.horsEnseigne && Supabase.estCompteEnseigne()) {
+      UI.toast("Cet écran ne concerne pas les comptes de BIZZOO.", "err");
+      location.hash = "#/";
+      return;
+    }
+    /* Pour un compte d'enseigne, « administrateur » se lit sur son
+       interrupteur, pas sur son rang : le dire, sinon « réservé à
+       l'administrateur » répondrait à un administrateur de BIZZOO. */
     if (route.admin && !Supabase.estAdmin()) {
-      UI.toast("Cet écran est réservé à l'administrateur.", "err");
+      UI.toast(Supabase.estCompteEnseigne()
+        ? "Il faut l'interrupteur « Les boutiques » pour ouvrir cet écran."
+        : "Cet écran est réservé à l'administrateur.", "err");
+      location.hash = "#/";
+      return;
+    }
+    if (route.commandes && !Supabase.peutVoirCommandes()) {
+      UI.toast("Il faut l'interrupteur « Les commandes » pour ouvrir cet écran.", "err");
       location.hash = "#/";
       return;
     }
@@ -305,10 +333,19 @@
         document.dispatchEvent(new CustomEvent("notifs:maj")));
       Notifs.demarrer();
     }
-    /* Un administrateur ou un modérateur sans boutique n'a de prise sur
+    /* Un compte de boutique dont la boutique n'existe pas n'a de prise sur
        rien : mieux vaut un écran qui l'explique qu'une application à
-       moitié morte — ou pire, des produits créés hors de toute boutique. */
-    if (!Supabase.estSuper() && Store.listerBoutiques().length && !Store.boutiqueCourante()) {
+       moitié morte — ou pire, des produits créés hors de toute boutique.
+
+       CETTE PORTE NE REGARDE QUE LES COMPTES DE BOUTIQUE. Elle date
+       d'avant les comptes d'enseigne, et « aucune boutique » voulait
+       alors dire « rien à gérer » ; depuis, cela veut aussi dire « toutes
+       les boutiques ». Elle arrêtait donc l'administrateur de BIZZOO
+       — il ouvre désormais une boutique au démarrage, comme le
+       superadministrateur — et le livreur de BIZZOO, qui n'en ouvre
+       aucune : son seul écran est celui de ses courses. */
+    if (!Supabase.estSuper() && !estLivreur() &&
+        Store.listerBoutiques().length && !Store.boutiqueCourante()) {
       compteSansBoutique(vue);
       return;
     }
@@ -324,21 +361,24 @@
     naviguer();
   }
 
-  /** Compte actif, mais rattaché à aucune boutique existante. */
+  /** Compte de boutique actif, mais sa boutique n'existe pas (ou plus).
+      L'ancien second conseil — « exécuter le dernier fichier SQL pour
+      monter en super administrateur » — est retiré : un administrateur
+      sans boutique est désormais un compte de BIZZOO, qui entre, et le
+      rattrapage des bases d'avant ne promeut plus personne dès qu'un
+      superadministrateur existe. Le conseil menait à une impasse. */
   function compteSansBoutique(vue) {
     document.getElementById("tabbar").style.display = "none";
     UI.entete({ titre: "Boutique à confier" });
     vue.innerHTML =
       '<div class="carte"><div class="carte-titre">Ce compte n\'a pas encore de boutique</div>' +
       '<p class="aide" style="margin:0 0 14px">Votre compte <strong>' +
-        Utils.echapper(Supabase.utilisateur() || "") + "</strong> est bien actif, mais aucune " +
-        "boutique ne lui est confiée : il n'a donc rien à gérer pour l'instant.</p>" +
-      '<p class="aide" style="margin:0 0 14px">Deux cas possibles :<br>' +
-        "• un <strong>super administrateur</strong> doit lui confier une boutique " +
-        "(Comptes → crayon → Boutique confiée) ;<br>" +
-        "• si ce compte était <strong>administrateur avant les boutiques multiples</strong>, " +
-        "il doit exécuter le dernier fichier SQL dans Supabase pour le faire monter " +
-        "en super administrateur.</p>" +
+        Utils.echapper(Supabase.utilisateur() || "") + "</strong> est bien actif, mais la " +
+        "boutique qui lui était confiée n'existe plus : il n'a donc rien à gérer pour " +
+        "l'instant.</p>" +
+      '<p class="aide" style="margin:0 0 14px">Un <strong>super administrateur</strong> ' +
+        "doit lui confier une boutique (Comptes → crayon → Boutique confiée), ou choisir " +
+        "« BIZZOO — toutes les boutiques » pour en faire un compte de BIZZOO.</p>" +
       '<div class="btn-rangee">' +
         '<button type="button" class="btn" onclick="location.reload()">Réessayer</button>' +
         '<button type="button" class="btn btn-clair" id="attente-deconnexion">Se déconnecter</button>' +

@@ -199,8 +199,18 @@ const Supabase = (() => {
     if (lequel === "produits") return profil.peutModifier !== false;
     return false;
   };
-  /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique. */
-  const estAdmin = () => estSuper() || role() === "administrateur";
+  /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique.
+      POUR UN COMPTE D'ENSEIGNE, C'EST L'INTERRUPTEUR « LES BOUTIQUES »
+      QUI DÉCIDE, pas son rang : exactement ce que fait « administre() »
+      en base. Sans cela, un administrateur de BIZZOO à qui l'on n'a pas
+      ouvert les boutiques voyait les réglages et le slider… que la base
+      lui refusait à l'enregistrement. */
+  const estAdmin = () => estSuper() ||
+    (estCompteEnseigne() ? droitEnseigne("boutiques") : role() === "administrateur");
+  /** Passe d'une boutique à l'autre : le superadministrateur, et le
+      compte d'enseigne, qui travaille sur toutes. Les autres restent
+      dans la leur — et le livreur n'a pas besoin d'en ouvrir une. */
+  const peutChangerDeBoutique = () => estSuper() || estCompteEnseigne();
   /** Retoucher un produit déjà au catalogue : les administrateurs toujours,
       le modérateur si on le lui a accordé. Pour un compte d'enseigne,
       c'est SON interrupteur qui décide, quel que soit son rang. */
@@ -519,7 +529,7 @@ const Supabase = (() => {
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     estCompteEnseigne, droitEnseigne, peutVoirCommandes, peutVoirFinances,
-    compteActif, rolesActifs,
+    peutChangerDeBoutique, compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc, rpcLecture, fonctionEdge,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };

@@ -2016,7 +2016,7 @@ interrupteurs** :
 | Les commandes | toutes les boutiques | allumé |
 | Le catalogue | produits et rayons de toutes | allumé |
 | Les boutiques | régler une boutique | éteint |
-| Les chiffres | journal et statistiques | éteint |
+| Les chiffres | rien encore — voir « Il entrait en base, pas dans l'application » | éteint |
 
 Le rang nomme la personne ; les interrupteurs disent ce qu'elle
 touche. « Admin de BIZZOO » ne veut pas dire la même chose chez vous
@@ -2062,6 +2062,67 @@ vingt-deux constats sur la **base** et non sur les boutons — zéro
 ligne rendue, zéro ligne touchée, refus à l'insertion.
 
 À coller : [`comptes-enseigne.sql`](supabase/comptes-enseigne.sql).
+
+### Il entrait en base, pas dans l'application (3.55.0)
+
+Le gérant passait un compte en « administrateur de BIZZOO »… et ce
+compte s'arrêtait sur **« Boutique à confier »**, sans rien à toucher.
+La base était prête — `peut_agir_sur()` lui répond oui partout — mais
+l'application admin, plus ancienne que les comptes d'enseigne, ne le
+laissait pas entrer : au démarrage, seul le superadministrateur
+recevait une boutique à ouvrir, et la porte arrêtait tout compte sans
+boutique ouverte. Le banc de la base était vert : il éprouvait la base,
+pas la porte.
+
+Désormais :
+
+- **il entre sur une boutique** — la dernière qu'il a ouverte, sinon la
+  première — et en change depuis la carte « Boutique ouverte » de
+  l'accueil, comme le superadministrateur. Il crée un produit dans la
+  boutique de son choix. Créer, renommer, ranger ou supprimer une
+  boutique reste au superadministrateur ;
+- **ses interrupteurs décident de l'écran**, comme ils décident en base :
+
+| interrupteur | à l'écran |
+| --- | --- |
+| Les commandes | l'icône et l'écran des commandes |
+| Le catalogue | retoucher les produits (déjà en place) |
+| Les boutiques | Réglages et slider de la boutique ouverte — ce que `administre()` lui ouvre ; sans lui, « Mon compte » remplace « Réglages » |
+| Les chiffres | rien encore : voir plus bas |
+
+- **ni historique, ni comptes, ni chiffres** : la base ne lui en rend
+  rien. Le journal et les comptes ne lui montrent que des lignes de
+  boutique, ou sa propre fiche ; `statistiques_ventes()` est au
+  superadministrateur, et `statistiques_boutique()` part de la boutique
+  du compte. Ces écrans le renvoient à l'accueil en disant pourquoi,
+  plutôt que de lui montrer des pages vides qu'il prendrait pour une
+  panne ;
+- **« Mon compte » dit ce qu'il est** : « Administrateur de BIZZOO —
+  toutes les boutiques · commandes, catalogue ».
+
+**Le livreur de BIZZOO était arrêté par la même porte** : aucune
+boutique, et il n'en ouvre pas. Il va maintenant droit à ses courses.
+
+**La porte ne regarde plus que les comptes de boutique** dont la
+boutique n'existe plus. Son second conseil — « exécuter le dernier
+fichier SQL pour monter en super administrateur » — est retiré : depuis
+la garde `rattraper_anciens_admins()`, ce fichier ne promeut plus
+personne dès qu'un superadministrateur existe. Le conseil menait à une
+impasse.
+
+**L'interrupteur « Les chiffres » n'ouvre encore rien.**
+`peut_voir_finances()` existe en base, mais aucune règle ne l'appelle :
+le journal des versements et les statistiques de l'enseigne restent au
+superadministrateur. L'allumer ne change donc rien. Le brancher est une
+décision à prendre d'abord : il montrerait les marges et les bénéfices
+de toutes les boutiques.
+
+[`tools/banc-compte-enseigne.mjs`](tools/banc-compte-enseigne.mjs) ouvre
+l'application avec chacun des comptes — administrateur et modérateur de
+BIZZOO, livreur de BIZZOO, compte dont la boutique a disparu, modérateur
+de boutique, superadministrateur : 49 constats. Quatre sabotages
+tombent, dont la panne d'origine : réserver de nouveau le départ au
+superadministrateur remet « Boutique à confier ».
 
 ## Les notifications
 
@@ -3287,7 +3348,7 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
-    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie et navigation-boutique
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique et compte-enseigne
     ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── illustrations-categories.py # Les illustrations des ronds de catégories
