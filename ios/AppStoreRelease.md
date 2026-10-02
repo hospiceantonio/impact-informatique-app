@@ -92,8 +92,9 @@ les identifiants de démonstration pour les fonctions protégées. Ceux du compt
 client ont été saisis depuis un fichier local protégé, hors dépôt ; le compte
 Admin a été activé dans un profil isolé rattaché à une boutique de démonstration
 fermée. QA a validé l'authentification et les restrictions RLS, puis ses
-identifiants ont été transmis à Apple depuis un fichier local protégé. Le
-parcours graphique connecté dans l'app reste à vérifier ; les captures Admin
+identifiants ont été transmis à Apple depuis un fichier local protégé. Cet
+accès initial a été remplacé le 2 octobre par les droits décrits ci-dessous. Le
+parcours graphique métier connecté dans l'app native reste à vérifier ; les captures Admin
 actuelles montrent l'écran de connexion.
 Les 24 réponses de classification par âge sont enregistrées pour chaque app ;
 Apple retourne `FOUR_PLUS` pour les deux. Les contrats gratuits et payants du
@@ -186,6 +187,17 @@ publique. Aucun message distinct n'a été envoyé à l'équipe Apple.
 L'API App Store Connect confirme `WAITING_FOR_REVIEW` pour les deux versions
 et la correspondance exacte des identifiants de revue avec le dossier privé.
 Les mots de passe ne sont pas copiés dans ce document ni dans les preuves.
+
+Le 2 octobre, avec l'accord spécifique du propriétaire, le compte de revue
+Admin a été promu superadministrateur avec accès à toute l'enseigne. Les
+restrictions de médias propres à ce compte ont été retirées. Un compte livreur
+rattaché à la boutique de démonstration permet aussi d'ouvrir l'écran des
+courses, réservé à ce rôle. Les authentifications et les rôles sont vérifiés
+sur le backend et dans les écrans web. Les remarques App Review ont été mises
+à jour via l'API pour expliquer ces accès, fournir l'identité livreur et
+préciser que les données réelles sont accessibles. Les identifiants restent
+hors dépôt. La modification des remarques est confirmée, et la soumission
+Admin reste `WAITING_FOR_REVIEW`.
 
 Preuves locales : `docs/publication-evidence/2026-10-02/apple-client-b98.jpg`
 et `apple-admin-b98.jpg`.

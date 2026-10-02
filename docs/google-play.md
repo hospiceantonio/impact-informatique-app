@@ -164,10 +164,11 @@ Description complète :
   en transit oui, catégories de données métier et de localisation renseignées.
   La transmission à Supabase et aux prestataires de paiement comme sous-traitants
   n'est pas comptée comme partage ; les réponses doivent rester cohérentes
-  avec les usages effectifs avant l'envoi final. Le formulaire Admin indique
-  une création de compte professionnel hors de l'application. Son option
-  facultative de suppression de données *sans fermeture du compte* est « non » ;
-  la suppression intégrale reste décrite dans la politique publique.
+  avec les usages effectifs avant l'envoi final. Le formulaire Admin final
+  déclare la création de comptes professionnels par email et mot de passe
+  dans l'application, conformément à `Store.creerCompte`. Le lien public de
+  suppression de compte est renseigné. L'option facultative de suppression
+  de données *sans fermeture du compte* reste « non ».
 - Les questionnaires IARC ont été envoyés et affichent l'état « Terminée » :
   BIZZOO est classée 12 ans et plus pour le reste du monde (avis, catalogue
   marchand et achats d'articles numériques externes à l'application) ;
@@ -185,8 +186,9 @@ Play Console, avec des instructions en anglais, sans publier le mot de passe
 dans le dépôt. La valeur masquée du formulaire Apple a été remplacée dans
 Google par l'identifiant original du dossier privé. La revue a ensuite été
 relancée avec cette correction ; aucune modification ne reste à envoyer pour
-BIZZOO. Les deux comptes de revue se connectent sur les applications web
-GitHub Pages ; Admin reste limité à la boutique de démonstration fermée.
+BIZZOO. Le compte client de revue se connecte sur l'application web
+GitHub Pages. L'accès de revue Admin a ensuite été élargi avec l'accord
+spécifique du propriétaire, comme décrit ci-dessous.
 La cible est 18 ans et plus. Le questionnaire Sécurité des
 données importé a été parcouru, vérifié, puis enregistré définitivement.
 
@@ -196,34 +198,42 @@ sur cet écran. Les dix modifications ont été envoyées depuis la vue d'ensemb
 de la publication. Preuve locale :
 `docs/publication-evidence/2026-10-02/google-client-review.jpg`.
 
-## Conditions encore nécessaires pour BIZZOO Admin
+## Envoi BIZZOO Admin du 2 octobre 2026
 
-- Renseigner les **informations de connexion** pour les fonctions protégées
-  d'Admin. Les comptes de revue existent et le compte Admin isolé est
-  authentifié en production avec des droits limités à une boutique de démo.
-  Le propriétaire a autorisé leur transmission à Google Play. L'automatisation
-  du navigateur avait refusé les URL `file://` : les identifiants doivent être
-  saisis directement dans les formulaires Play, sans être copiés dans ce dépôt.
-  Google impose une case affirmant l'accès complet à toutes les fonctions,
-  y compris payantes. Cette attestation ne correspond pas au compte Admin
-  actuel : boutique de démo seulement et écritures Storage interdites. Le
-  code réserve aussi des fonctions au superadministrateur et au livreur.
-  L'accord spécifique pour élargir l'accès de revue aux données réelles a
-  été demandé au propriétaire ; aucun droit n'a été élargi.
-- Achever **Cible et contenu**, actuellement conditionné par les informations
-  de connexion, puis valider définitivement le brouillon **Sécurité des
-  données** d'Admin. Celui-ci a été parcouru jusqu'à l'aperçu ; l'enregistrement
-  final reste verrouillé tant que Cible et contenu n'est pas renseigné. La
-  classification IARC est terminée pour les deux apps.
-- Améliorer les captures avec des vues métier Admin authentifiées lorsque
-  le contrôle graphique de l'émulateur est disponible. Vérifier sur Android les parcours
-  authentifiés de signalement, masquage et modération UGC sans paiement réel.
-- La version de production Admin a été prévisualisée. La fiche Play, auparavant
-  incomplète faute de captures, est maintenant enregistrée ; il reste à terminer
-  les trois déclarations dépendantes de l'accès de revue avant de confirmer la
-  release et de l'envoyer depuis la vue d'ensemble de la publication. Vérifier dans la console
-  l'état réel « En cours d'examen » ou le blocage exact. La disponibilité
-  publique dépendra ensuite de la revue Google.
+Le propriétaire a confirmé l'élargissement de l'accès de revue. Le compte
+Admin est désormais **superadministrateur**, actif et sans rattachement à une
+boutique. Les trois restrictions Storage propres à ce compte ont été retirées,
+sans modifier les autres politiques. Il accède donc aux données réelles de
+l'enseigne. Les instructions de revue demandent de commencer les essais
+d'édition dans la boutique de démonstration fermée et d'éviter les commandes
+réelles. Un retour aux droits précédents est préparé dans le dossier privé.
+
+Un compte de revue **livreur**, actif et rattaché à la boutique de démonstration,
+permet d'ouvrir l'écran réservé aux livreurs. Sa liste de courses est vide.
+Les deux identités sont authentifiées avec leurs identifiants originaux. Les
+écrans web « Mon compte » confirment leurs rôles ; « Mes courses » s'ouvre pour
+le livreur. Les identifiants des deux rôles sont enregistrés dans les
+informations de connexion Play, en anglais et hors dépôt. La cible est 18 ans
+et plus, et la déclaration Sécurité des données est enregistrée définitivement.
+
+La release de production **96 (3.54.1)** est confirmée, avec le Bénin comme
+seul territoire. L'unique avertissement technique concerne l'absence de fichier
+de désobscurcissement. Google a aussi signalé automatiquement les captures
+comme illustrations promotionnelles. Les fichiers ont été vérifiés : ils
+montrent les écrans réels de connexion et de conditions d'utilisation.
+L'option proposée par la console pour poursuivre vers la revue humaine a été
+confirmée ; ce signalement peut encore conduire à un refus lors de la revue.
+Les captures métier Android authentifiées restent à améliorer.
+
+Les **dix modifications** ont été envoyées le 2 octobre 2026. La console
+confirme **Modifications en cours d'examen**, sans modification restante à
+envoyer ni contrôle rapide encore en cours. La publication gérée est
+désactivée : la publication suivra l'approbation Google. Ce statut confirme
+la soumission, pas encore l'approbation ni la disponibilité publique.
+Preuve locale : `docs/publication-evidence/2026-10-02/google-admin-review.jpg`.
+
+BIZZOO client affiche également **Modifications en cours d'examen**, sans
+modification restante à envoyer. Les deux apps Android sont donc soumises.
 
 ## Sources officielles vérifiées
 
