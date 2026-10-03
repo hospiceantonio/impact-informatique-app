@@ -179,13 +179,15 @@ create table if not exists public.categories (
   id          text primary key,
   boutique_id text references public.boutiques(id) on delete cascade,
   nom         text not null,
-  -- La pastille ronde de l'écran « Catégories », comme celle d'une
-  -- boutique : une icône DÉJÀ DESSINÉE dans les deux applications, et
-  -- une couleur de fond. Rien à téléverser, rien à stocker, et la liste
-  -- s'affiche hors connexion.
+  -- L'icône de sa tuile, sur l'accueil et l'écran « Catégories » : une
+  -- image DÉJÀ DANS les deux applications (« img/pictos/<icone>.png »,
+  -- depuis la 3.56 ; avant, une icône d'un trait). Rien à téléverser,
+  -- rien à stocker, et la liste s'affiche hors connexion. La couleur ne
+  -- sert plus qu'aux applications d'avant la 3.56 : les tuiles ont
+  -- toutes le même fond.
   icone       text not null default 'categories',
   couleur     text not null default '#0B5CF5',
-  -- LA PHOTO DU ROND, facultative (voir plus bas).
+  -- LA PHOTO DE LA TUILE, facultative (voir plus bas).
   image       text not null default '',
   -- Les quinze ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
   -- les autres attendent derrière « Voir toutes les catégories ».
@@ -197,10 +199,9 @@ alter table public.categories add column if not exists icone    text not null de
 alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
 alter table public.categories add column if not exists en_avant boolean not null default false;
 
--- LA PHOTO DU ROND, comme sur la DA : sur l'accueil et l'écran
--- « Catégories », elle remplit la pastille ; sans elle, l'icône et sa
--- couleur restent — et elles reviennent aussi quand la photo ne se
--- charge pas (hors connexion).
+-- LA PHOTO DE LA TUILE : sur l'accueil et l'écran « Catégories », elle
+-- prend la place de l'icône ; sans elle, l'icône reste — et elle
+-- revient aussi quand la photo ne se charge pas (hors connexion).
 --
 -- UN CHEMIN, JAMAIS UNE ADRESSE, et dans l'un de deux dossiers :
 --
@@ -208,10 +209,11 @@ alter table public.categories add column if not exists en_avant boolean not null
 --     dépose depuis l'admin. C'est le dossier que le stockage réserve
 --     au superadministrateur (voir « peut_deposer »), comme la liste
 --     elle-même lui est réservée ;
---   « img/categories/ », dans l'application : les illustrations qui
---     voyagent avec elle — dans l'APK comme sur le site —, et
---     s'affichent donc sans réseau. Chaque catégorie de BIZZOO en
---     reçoit une à sa création (voir la liste plus bas).
+--   « img/categories/ » : les illustrations en 3D qui voyageaient avec
+--     les applications jusqu'à la 3.55. La base en ligne les garde,
+--     parce que les applications déjà installées les montrent encore ;
+--     depuis la 3.56, les applications ne lisent plus ces chemins et
+--     montrent l'icône. Plus aucune n'est posée.
 --
 -- Une adresse libre ferait charger à l'accueil de tous les clients une
 -- image posée n'importe où.
@@ -5869,25 +5871,26 @@ grant execute on function public.produits_populaires(int) to anon, authenticated
 -- pas sur un premier écran, et les montrer toutes reviendrait à n'en
 -- montrer aucune.
 --
--- « image » : l'illustration de son rond, celle qui voyage avec
--- l'application (« client/img/categories/ »). Une base déjà en place
--- les reçoit par « categories-photos.sql ».
+-- « icone » : l'icône de sa tuile, l'une de celles de l'image choisie
+-- par l'enseigne (« img/pictos/ », dans les deux applications). Pas
+-- d'image : l'icône suffit. Une base déjà en place reçoit les icônes
+-- par « categories-icones.sql ».
 insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
-  ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1, 'img/categories/robe.jpg'),
-  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2, 'img/categories/ordinateur.jpg'),
-  ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3, 'img/categories/voiture.jpg'),
-  ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4, 'img/categories/maison.jpg'),
-  ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5, 'img/categories/rouge-a-levres.jpg'),
-  ('cat_restauration', null, 'Restauration & Alimentation',        'couverts', '#F96302', true,   6, 'img/categories/marmite.jpg'),
-  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'chariot',  '#E62329', true,   7, 'img/categories/chariot.jpg'),
-  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'ecran', '#0B7C8C', false, 8, 'img/categories/ecran.jpg'),
-  ('cat_bebe',         null, 'Bébé & Enfant',                      'cadeau',   '#3F51B5', false,  9, 'img/categories/nounours.jpg'),
-  ('cat_sport',        null, 'Sport & Loisirs',                    'ballon',   '#9A6B00', false, 10, 'img/categories/ballon.jpg'),
-  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'outils',   '#546E7A', false, 11, 'img/categories/briques.jpg'),
-  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livre',    '#7A4A32', false, 12, 'img/categories/livres.jpg'),
-  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'diamant',  '#6C3FBF', false, 13, 'img/categories/bague.jpg'),
-  ('cat_animaux',      null, 'Animaux',                            'patte',    '#0F9D58', false, 14, 'img/categories/chien.jpg'),
-  ('cat_services',     null, 'Services',                           'sacoche',  '#0B7C8C', true,  15, 'img/categories/boite-a-outils.jpg')
+  ('cat_mode',         null, 'Mode & Vêtements',                   'mode',             '#6C3FBF', true,   1, ''),
+  ('cat_hightech',     null, 'High-Tech & Électronique',           'informatique',     '#0B5CF5', true,   2, ''),
+  ('cat_auto',         null, 'Auto & Moto',                        'auto-moto',        '#001450', true,   3, ''),
+  ('cat_maison',       null, 'Maison & Jardin',                    'maison-deco',      '#0F9D58', true,   4, ''),
+  ('cat_beaute',       null, 'Beauté & Bien-être',                 'beaute',           '#D81B60', true,   5, ''),
+  ('cat_restauration', null, 'Restauration & Alimentation',        'restauration',     '#F96302', true,   6, ''),
+  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'alimentation',     '#E62329', true,   7, ''),
+  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'informatique', '#0B7C8C', false,  8, ''),
+  ('cat_bebe',         null, 'Bébé & Enfant',                      'bebe-enfant',      '#3F51B5', false,  9, ''),
+  ('cat_sport',        null, 'Sport & Loisirs',                    'sport-loisirs',    '#9A6B00', false, 10, ''),
+  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'immobilier',       '#546E7A', false, 11, ''),
+  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livres-education', '#7A4A32', false, 12, ''),
+  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'mode',             '#6C3FBF', false, 13, ''),
+  ('cat_animaux',      null, 'Animaux',                            'animaux',          '#0F9D58', false, 14, ''),
+  ('cat_services',     null, 'Services',                           'services',         '#0B7C8C', true,  15, '')
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values

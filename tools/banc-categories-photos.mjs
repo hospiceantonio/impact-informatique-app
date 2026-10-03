@@ -1,36 +1,45 @@
 /* =========================================================
-   La photo d'une catégorie, dans les ronds de l'accueil
+   Les icônes et la photo d'une catégorie
    =========================================================
-   CE QU'ON AJOUTE. Sur la DA, les ronds des catégories de l'accueil
-   portent une photo. L'enseigne la pose depuis l'admin
-   (Catégories → Modifier) ; elle va dans « enseigne/categories/ »,
-   le seul dossier que la base accepte pour elle.
+   CE QU'ON VÉRIFIE (3.56). La tuile d'une catégorie montre l'une
+   des icônes de l'image choisie par l'enseigne — les douze telles
+   quelles, et quatre construites dans son style —, rangées dans
+   l'application (« img/pictos/ »). L'enseigne peut poser une photo
+   par-dessus depuis l'admin (Catégories → Modifier) ; elle va dans
+   « enseigne/categories/ », le seul dossier que la base accepte pour
+   elle.
 
    Ce que le banc prouve :
 
-     1. CHEZ LE CLIENT, la photo REMPLIT le rond — sur l'accueil et
-        sur l'écran « Catégories » —, par-dessus l'icône ;
+     1. CHEZ LE CLIENT, chaque tuile montre l'icône que la base lui
+        donne, lue à côté de la page — sur l'accueil et sur l'écran
+        « Catégories » ; une photo la RECOUVRE, l'icône reste dessous ;
      2. L'ICÔNE EN SECOURS : sans photo, ou si elle ne se charge pas
-        (hors connexion, fichier retiré), le rond garde son icône et
-        sa couleur — jamais un carré d'image cassée ;
-     3. RIEN NE DÉBORDE à 320 px, et une base qui n'a pas encore la
-        colonne donne les ronds d'avant, sans erreur ;
-     4. LE CHEMIN EST ÉCHAPPÉ : la base refuse les guillemets, mais
+        (hors connexion, fichier retiré), la tuile garde son icône —
+        jamais un carré d'image cassée ; une icône choisie avant la
+        3.56 garde son dessin d'un trait, une icône inconnue retombe
+        sur celle des rayons : jamais une tuile vide ;
+     3. LES ILLUSTRATIONS EN 3D D'AVANT (« img/categories/… », que la
+        base en ligne garde pour les applications installées) ne
+        s'affichent plus, et ne sont même pas demandées ;
+     4. RIEN NE DÉBORDE à 320 px, et une base qui n'a pas encore les
+        colonnes donne l'icône des rayons, sans erreur ;
+     5. LE CHEMIN EST ÉCHAPPÉ : la base refuse les guillemets, mais
         l'écran ne compte pas sur elle ;
-     5. DANS L'ADMIN, poser, remplacer, retirer : le fichier part au
-        stockage AVANT la ligne, dans le bon dossier, sous un nom que
-        la base accepte, une seule fois même sur un double appui ;
-        un envoi refusé n'écrit rien ; une fiche dont la photo n'a pas
-        bougé n'écrit pas la colonne ;
-     6. L'ANCIENNE PHOTO N'EST PAS EFFACÉE : annuler depuis le journal
+     6. LA LISTE DE BIZZOO telle que schema.sql la sème montre
+        chacune son icône ;
+     7. DANS L'ADMIN, la fiche propose les seize icônes, et celle
+        qu'on choisit part vers la base — sans réécrire ni la couleur
+        ni la photo ; une illustration d'avant n'est jamais effacée en
+        passant ; poser, remplacer, retirer une photo : le fichier part
+        au stockage AVANT la ligne, dans le bon dossier, une seule fois
+        même sur un double appui ; un envoi refusé n'écrit rien ;
+     8. L'ANCIENNE PHOTO N'EST PAS EFFACÉE : annuler depuis le journal
         remet l'ancien chemin, et le fichier doit encore y être ;
-     7. UNE BOUTIQUE VOIT la photo de son secteur, sans pouvoir la
+     9. UNE BOUTIQUE VOIT la tuile de son secteur, sans pouvoir la
         changer ;
-     8. LES ILLUSTRATIONS QUI VOYAGENT AVEC L'APPLICATION : la liste
-        de BIZZOO telle que schema.sql la sème montre chacune la
-        sienne, lue à côté de la page et jamais dans le seau ; dans
-        l'admin, la galerie les propose toutes, d'un appui, sans rien
-        envoyer au stockage.
+    10. LES DEUX APPLICATIONS ONT LES MÊMES ICÔNES, octet pour octet,
+        et la même liste dans leur code.
 
    CE QUE LE BANC REGARDE : ce qui est à l'écran — mesuré — et ce qui
    PART vers la base et le stockage, corps compris.
@@ -38,7 +47,7 @@
      PLAYWRIGHT=<chemin>/playwright-core/index.js BANC_URL=… node tools/banc-categories-photos.mjs
    ========================================================= */
 import { deflateSync, crc32 } from "node:zlib";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 let chromium;
 try {
@@ -137,17 +146,51 @@ async function brancherStockage(page, envois) {
   });
 }
 
+
+/* LES ICÔNES DES APPLICATIONS : les fichiers du client, le fond de tuile
+   attendu (« --tuile »), et la liste que chaque code tient. */
+const RACINE = new URL("..", import.meta.url).pathname;
+const ICONES = readdirSync(RACINE + "client/img/pictos").filter((f) => f.endsWith(".png"))
+  .map((f) => f.slice(0, -4)).sort();
+const FOND_TUILE = "rgb(234, 240, 247)";
+const listeDuCode = (fichier) => {
+  const m = readFileSync(RACINE + fichier, "utf8").match(/const PICTOS = \[([\s\S]*?)\];/);
+  return m ? [...m[1].matchAll(/\[?\s*"([a-z-]+)"/g)].map((x) => x[1]).sort() : [];
+};
+
+titre("Les mêmes icônes dans les deux applications");
+{
+  ok(ICONES.length === 16, "seize icônes dans le client (" + ICONES.length + ")");
+  const admin = readdirSync(RACINE + "admin/img/pictos").filter((f) => f.endsWith(".png")).sort();
+  ok(admin.join() === ICONES.map((n) => n + ".png").join(), "les mêmes fichiers dans l'admin");
+  ok(ICONES.every((n) => readFileSync(RACINE + "client/img/pictos/" + n + ".png")
+      .equals(readFileSync(RACINE + "admin/img/pictos/" + n + ".png"))),
+    "octet pour octet");
+  for (const fichier of ["client/js/ui.js", "admin/js/ui.js", "admin/js/vues/categories.js"]) {
+    ok(listeDuCode(fichier).join() === ICONES.join(),
+      fichier + " connaît exactement ces seize-là");
+  }
+}
+
 /* ================= CHEZ LE CLIENT ================= */
 
 const CAT = [
-  { id: "cat_0", nom: "Mode & Vêtements", icone: "tshirt", couleur: "#D81B60",
-    image: "enseigne/categories/cat_photo0.jpg" },
-  { id: "cat_1", nom: "High-Tech", icone: "portable", couleur: "#0B5CF5",
-    image: "enseigne/categories/cat_cassee1.jpg" },
-  { id: "cat_2", nom: "Maison & Jardin", icone: "maison", couleur: "#0F9D58", image: "" },
-  ...Array.from({ length: 5 }, (_, i) => ({ id: "cat_" + (i + 3), nom: "Rayon " + (i + 3),
-    icone: "categories", couleur: "#0B5CF5", image: "" })),
-].map((c, i) => ({ ...c, en_avant: true, ordre: i + 1, sous_categories: [] }));
+  /* Une photo posée par l'enseigne, qui se charge. */
+  { id: "cat_0", nom: "Mode & Vêtements", icone: "mode", image: "enseigne/categories/cat_photo0.jpg" },
+  /* Une photo qui ne vient pas (fichier retiré, ou hors connexion). */
+  { id: "cat_1", nom: "High-Tech", icone: "informatique", image: "enseigne/categories/cat_cassee1.jpg" },
+  /* Son icône, rien d'autre. */
+  { id: "cat_2", nom: "Maison & Jardin", icone: "maison-deco", image: "" },
+  /* Une illustration en 3D d'avant la 3.56, gardée en base. */
+  { id: "cat_3", nom: "Auto & Moto", icone: "auto-moto", image: "img/categories/voiture.jpg" },
+  /* Une icône choisie avec une admin d'avant la 3.56. */
+  { id: "cat_4", nom: "Catégorie d'avant", icone: "tshirt", image: "" },
+  /* Une icône que personne ne sait dessiner. */
+  { id: "cat_5", nom: "Inconnue", icone: "n-existe-pas", image: "" },
+  /* Deux des quatre construites dans le style de l'image. */
+  { id: "cat_6", nom: "Bébé & Enfant", icone: "bebe-enfant", image: "" },
+  { id: "cat_7", nom: "Animaux", icone: "animaux", image: "" },
+].map((c, i) => ({ ...c, couleur: "#0B5CF5", en_avant: true, ordre: i + 1, sous_categories: [] }));
 
 async function ouvrirClient(largeur, { categories = CAT, route = "#/" } = {}) {
   const ctx = await nav.newContext({ viewport: { width: largeur, height: 1600 }, serviceWorkers: "block" });
@@ -165,7 +208,7 @@ async function ouvrirClient(largeur, { categories = CAT, route = "#/" } = {}) {
     if (c.startsWith("categories")) return d(categories);
     /* UNE BOUTIQUE AU MOINS : sans elle, l'application est en mode
        « boutique unique », et l'accueil de l'enseigne — celui des
-       ronds — ne se montre pas. */
+       tuiles — ne se montre pas. */
     if (c.startsWith("boutiques")) return d([{ id: "bou_1", nom: "Chic Cotonou", secteur: "Mode",
       categorie_id: "cat_0", icone: "magasin", couleur: "#0B5CF5", logo: "", devise: "FCFA",
       indicatif: "229", actif: true, ordre: 1 }]);
@@ -177,28 +220,31 @@ async function ouvrirClient(largeur, { categories = CAT, route = "#/" } = {}) {
   return { page, ctx, erreurs };
 }
 
-/* Ce que montre chaque rond : la photo est-elle là, chargée, par-dessus
-   l'icône, et le recouvre-t-elle tout entier ? */
-const lireRonds = (page, selecteur) => page.evaluate((sel) => {
-  return [...document.querySelectorAll(sel)].map((rond) => {
-    const r = rond.getBoundingClientRect();
-    const img = rond.querySelector("img");
-    const ic = rond.querySelector("svg");
-    const style = getComputedStyle(rond);
+/* Ce que montre chaque tuile : son icône (chargée, et laquelle), et la
+   photo — là, chargée, par-dessus, et la recouvrant tout entière ? */
+const lireTuiles = (page, selecteur) => page.evaluate((sel) => {
+  return [...document.querySelectorAll(sel)].map((tuile) => {
+    const r = tuile.getBoundingClientRect();
+    const photo = tuile.querySelector("img[data-secours]");
+    const icone = tuile.querySelector("img.picto");
+    const trait = tuile.querySelector("svg.ic use");
+    const style = getComputedStyle(tuile);
     const auCentre = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    const ri = img ? img.getBoundingClientRect() : null;
+    const rp = photo ? photo.getBoundingClientRect() : null;
+    const ri = icone ? icone.getBoundingClientRect() : null;
     return {
-      lien: (rond.closest("a") || {}).getAttribute ? rond.closest("a").getAttribute("href") : "",
-      photo: img ? img.getAttribute("src") : null,
-      chargee: !!(img && img.complete && img.naturalWidth > 0),
-      auDessus: !!(img && auCentre === img),
-      couvre: !!(ri && Math.abs(ri.width - r.width) < 1.5 && Math.abs(ri.height - r.height) < 1.5 &&
-                 Math.abs(ri.left - r.left) < 1.5 && Math.abs(ri.top - r.top) < 1.5),
-      coupe: style.overflow === "hidden" && (style.borderRadius === "50%" ||
-             parseFloat(style.borderTopLeftRadius) >= r.width / 2 - 0.5),
-      cover: img ? getComputedStyle(img).objectFit === "cover" : false,
-      icone: !!(ic && ic.getBoundingClientRect().width > 0),
-      attributs: img ? [...img.attributes].map((a) => a.name) : [],
+      photo: photo ? photo.getAttribute("src") : null,
+      chargee: !!(photo && photo.complete && photo.naturalWidth > 0),
+      auDessus: !!(photo && auCentre === photo),
+      couvre: !!(rp && Math.abs(rp.width - r.width) < 1.5 && Math.abs(rp.height - r.height) < 1.5 &&
+                 Math.abs(rp.left - r.left) < 1.5 && Math.abs(rp.top - r.top) < 1.5),
+      cover: photo ? getComputedStyle(photo).objectFit === "cover" : false,
+      coupe: style.overflow === "hidden" && parseFloat(style.borderTopLeftRadius) > 0,
+      icone: icone ? icone.getAttribute("src") : null,
+      iconeChargee: !!(icone && icone.complete && icone.naturalWidth > 0),
+      iconeVisible: !!(ri && ri.width > 20 && ri.height > 20),
+      trait: trait ? trait.getAttribute("href") : null,
+      attributs: photo ? [...photo.attributes].map((a) => a.name) : [],
       largeur: Math.round(r.width),
       fond: style.backgroundColor,
     };
@@ -208,116 +254,115 @@ const lireRonds = (page, selecteur) => page.evaluate((sel) => {
 const deborde = (page) => page.evaluate(() =>
   document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
 
-/* Le pastel d'une couleur, tel que l'accueil le calcule. Sous une photo,
-   la pastille doit l'avoir : un aplat foncé déborde d'un liseré au bord
-   du cercle, que le navigateur adoucit sur les deux à la fois. */
-const pastel = (hex) => {
-  const n = parseInt(hex.slice(1), 16);
-  const m = (c) => Math.round(c * .16 + 255 * .84);
-  return "rgb(" + m(n >> 16) + ", " + m((n >> 8) & 255) + ", " + m(n & 255) + ")";
+/* Toutes les images demandées sous « categories/ » ou « pictos/ ». */
+const demandes = (page) => page.evaluate(() => performance.getEntriesByType("resource")
+  .map((e) => e.name).filter((n) => /\/(categories|pictos)\//.test(n)));
+
+const verifierTuiles = (t, ou) => {
+  const [photo, cassee, seule, illustration, avant, inconnue, bebe, animaux] = t;
+  ok(photo && /\/storage\/v1\/object\/public\/produits\/enseigne\/categories\/cat_photo0\.jpg$/
+      .test(photo.photo || ""), ou + " : la photo vient du stockage public (" + (photo && photo.photo) + ")");
+  ok(photo && photo.chargee && photo.auDessus && photo.couvre && photo.cover,
+    ou + " : elle est chargée, PAR-DESSUS l'icône, et la recouvre entière sans être déformée");
+  ok(photo && photo.coupe, ou + " : la tuile la coupe à ses coins arrondis");
+  ok(photo && photo.icone === "img/pictos/mode.png" && photo.iconeChargee,
+    ou + " : l'icône reste dessous, prête à reparaître");
+  ok(cassee && cassee.photo === null && cassee.icone === "img/pictos/informatique.png" &&
+     cassee.iconeChargee && cassee.iconeVisible,
+    ou + " : une photo qui ne vient pas s'efface, et l'icône reparaît");
+  ok(seule && seule.photo === null && seule.icone === "img/pictos/maison-deco.png" && seule.iconeChargee,
+    ou + " : sans photo, l'icône que la base lui donne");
+  ok(illustration && illustration.photo === null && illustration.icone === "img/pictos/auto-moto.png" &&
+     illustration.iconeChargee,
+    ou + " : une illustration en 3D d'avant ne s'affiche plus : l'icône la remplace");
+  ok(avant && avant.icone === null && avant.trait === "#i-tshirt",
+    ou + " : une icône choisie avant la 3.56 garde son dessin d'un trait");
+  ok(inconnue && inconnue.icone === null && inconnue.trait === "#i-categories",
+    ou + " : une icône inconnue retombe sur celle des rayons — jamais une tuile vide");
+  ok(bebe && bebe.icone === "img/pictos/bebe-enfant.png" && bebe.iconeChargee &&
+     animaux && animaux.icone === "img/pictos/animaux.png" && animaux.iconeChargee,
+    ou + " : les icônes construites dans le style de l'image se chargent aussi");
 };
 
 for (const L of [390, 320]) {
-  titre("L'accueil à " + L + " px : la photo dans le rond");
+  titre("L'accueil à " + L + " px : les tuiles des catégories");
   const { page, ctx, erreurs } = await ouvrirClient(L);
-  const ronds = await lireRonds(page, ".cat-rond-da");
-  ok(ronds.length === 8, "huit ronds sur l'accueil (" + ronds.length + ")");
-  const [avec, cassee, sans] = ronds;
-  ok(avec && /\/storage\/v1\/object\/public\/produits\/enseigne\/categories\/cat_photo0\.jpg$/
-      .test(avec.photo || ""), "la photo vient du stockage public (" + (avec && avec.photo) + ")");
-  ok(avec && avec.chargee, "elle est chargée");
-  ok(avec && avec.auDessus, "elle est PAR-DESSUS l'icône : c'est elle qu'on touche au centre du rond");
-  ok(avec && avec.couvre && avec.cover, "elle remplit le rond entier, recadrée sans être déformée");
-  ok(avec && avec.coupe, "le rond la coupe en cercle (" + (avec && avec.largeur) + " px)");
-  ok(avec && avec.icone, "l'icône reste dessous, prête à reparaître");
-  ok(cassee && cassee.photo === null && cassee.icone,
-    "une photo qui ne vient pas s'efface : l'icône et sa couleur restent");
-  ok(sans && sans.photo === null && sans.icone, "sans photo, le rond d'avant");
+  const fonds = await page.evaluate(() =>
+    [...document.querySelectorAll(".cat-tuile-lien")].map((a) => getComputedStyle(a).backgroundColor));
+  const t = await lireTuiles(page, ".cat-tuile");
+  ok(t.length === 8, "huit tuiles sur l'accueil (" + t.length + ")");
+  ok(fonds.length === 8 && fonds.every((f) => f === FOND_TUILE),
+    "toutes sur le même fond bleu-gris, celui de l'image (" + fonds[0] + ")");
+  verifierTuiles(t, "accueil " + L);
+  const lues = await demandes(page);
+  ok(!lues.some((n) => /img\/categories\//.test(n)),
+    "aucune illustration d'avant n'est même demandée");
+  ok(lues.filter((n) => /\/pictos\//.test(n)).every((n) => n.startsWith(BASE + "/client/img/pictos/")),
+    "les icônes sont lues à côté de la page, jamais dans le seau");
   ok(!(await deborde(page)), "rien ne déborde à " + L + " px");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   if (L === 390) {
-    await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-photos-accueil.png",
+    await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-icones-accueil.png",
       clip: await page.evaluate(() => {
-        const r = document.querySelector(".cat-ronds").getBoundingClientRect();
+        const r = document.querySelector(".cat-tuiles").getBoundingClientRect();
         return { x: 0, y: Math.max(0, r.top + scrollY - 40), width: innerWidth, height: r.height + 60 };
       }) }).catch(() => {});
   }
   await ctx.close();
 }
 
-titre("L'écran « Catégories » : la même photo, la même règle");
+titre("L'écran « Catégories » : la même tuile, en petit");
 {
   const { page, ctx, erreurs } = await ouvrirClient(360, { route: "#/categories" });
-  const ronds = await lireRonds(page, ".cat-ligne .cat-rond-couleur");
-  ok(ronds.length === 8, "huit lignes, chacune sa pastille (" + ronds.length + ")");
-  const [avec, cassee, sans] = ronds;
-  ok(avec && avec.chargee && avec.auDessus && avec.couvre && avec.coupe,
-    "la photo remplit la pastille ronde, par-dessus l'icône");
-  ok(cassee && cassee.photo === null && cassee.icone, "la photo absente du stockage laisse l'icône");
-  ok(sans && sans.photo === null && sans.icone, "sans photo, l'icône sur sa couleur");
+  const t = await lireTuiles(page, ".cat-ligne .cat-pastille");
+  ok(t.length === 8, "huit lignes, chacune sa pastille (" + t.length + ")");
+  ok(t.every((x) => x.fond === FOND_TUILE), "toutes sur le fond des tuiles (" + (t[0] && t[0].fond) + ")");
+  verifierTuiles(t, "Catégories");
   ok(!(await deborde(page)), "rien ne déborde");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 
-titre("Une base qui n'a pas encore la colonne");
+titre("Une base qui n'a pas encore les colonnes");
 {
-  const vieilles = CAT.map(({ image, ...reste }) => reste);
+  const vieilles = CAT.map(({ image, icone, ...reste }) => reste);
   const { page, ctx, erreurs } = await ouvrirClient(390, { categories: vieilles });
-  const ronds = await lireRonds(page, ".cat-rond-da");
-  ok(ronds.length === 8 && ronds.every((r) => r.photo === null && r.icone),
-    "les huit ronds d'avant, chacun son icône");
+  const t = await lireTuiles(page, ".cat-tuile");
+  ok(t.length === 8 && t.every((x) => x.photo === null && x.trait === "#i-categories"),
+    "les huit tuiles montrent l'icône des rayons");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 
 /* LA LISTE DE BIZZOO TELLE QUE LA BASE LA SÈME, lue dans schema.sql :
-   c'est SA correspondance catégorie → illustration qu'on éprouve, pas
-   une copie qui pourrait s'en écarter. */
+   c'est SA correspondance catégorie → icône qu'on éprouve, pas une
+   copie qui pourrait s'en écarter. */
 const SEMENCE = [...readFileSync(new URL("../supabase/schema.sql", import.meta.url), "utf8")
-  .matchAll(/\('(cat_\w+)',\s*null,\s*'([^']+)',\s*'(\w+)',\s*'(#[0-9A-Fa-f]{6})',\s*(true|false),\s*(\d+),\s*'(img\/categories\/[^']+)'\)/g)]
+  .matchAll(/\('(cat_\w+)',\s*null,\s*'([^']+)',\s*'([\w-]+)',\s*'(#[0-9A-Fa-f]{6})',\s*(true|false),\s*(\d+),\s*'([^']*)'\)/g)]
   .map((m) => ({ id: m[1], nom: m[2], icone: m[3], couleur: m[4], en_avant: m[5] === "true",
     ordre: Number(m[6]), image: m[7], sous_categories: [] }));
 
-titre("Les illustrations de l'application : la liste de BIZZOO, sans réseau");
+titre("La liste de BIZZOO : chacune son icône");
 {
-  ok(SEMENCE.length === 15, "schema.sql sème quinze catégories, chacune son illustration (" + SEMENCE.length + ")");
-  for (const L of [390, 320]) {
-    const { page, ctx: c, erreurs } = await ouvrirClient(L, { categories: SEMENCE });
-    const demandes = await page.evaluate(() => performance.getEntriesByType("resource")
-      .map((e) => e.name).filter((n) => /categories\//.test(n)));
-    const ronds = await lireRonds(page, ".cat-rond-da");
-    const vedettes = SEMENCE.filter((x) => x.en_avant);
-    ok(ronds.length === vedettes.length, L + " px : les " + vedettes.length + " de l'accueil (" + ronds.length + ")");
-    ok(ronds.every((r, i) => r.photo === vedettes[i].image),
-      "chaque rond porte l'illustration que la base lui donne");
-    ok(ronds.every((r) => r.chargee && r.auDessus && r.couvre && r.coupe),
-      "toutes chargées, par-dessus l'icône, et le rond entier");
-    ok(demandes.length >= vedettes.length &&
-       demandes.every((n) => n.startsWith(BASE + "/client/img/categories/")),
-      "lues à côté de la page, jamais dans le seau (" + demandes.length + " fichiers)");
-    ok(!(await deborde(page)), "rien ne déborde");
-    ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
-    if (L === 390) {
-      await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-illustrations-accueil.png",
-        clip: await page.evaluate(() => {
-          const r = document.querySelector(".cat-ronds").getBoundingClientRect();
-          return { x: 0, y: Math.max(0, r.top + scrollY - 70), width: innerWidth, height: r.height + 90 };
-        }) }).catch(() => {});
-    }
-    await c.close();
-  }
-  const { page, ctx, erreurs } = await ouvrirClient(360, { categories: SEMENCE, route: "#/categories" });
-  const lignes = await lireRonds(page, ".cat-ligne .cat-rond-couleur");
-  ok(lignes.length === 15 && lignes.every((r) => r.chargee && r.auDessus && r.couvre),
-    "l'écran « Catégories » : les quinze pastilles portent leur illustration (" + lignes.length + ")");
-  const triees = SEMENCE.slice().sort((a, b) => a.ordre - b.ordre);
-  ok(lignes.every((r, i) => r.fond === pastel(triees[i].couleur)),
-    "sous l'illustration, la pastille est pastel : pas de liseré foncé au bord du cercle");
+  ok(SEMENCE.length === 15, "schema.sql sème quinze catégories (" + SEMENCE.length + ")");
+  ok(SEMENCE.every((c) => ICONES.includes(c.icone) && c.image === ""),
+    "chacune avec une icône de l'application, sans image");
+  const { page, ctx, erreurs } = await ouvrirClient(390, { categories: SEMENCE });
+  const t = await lireTuiles(page, ".cat-tuile");
+  const vedettes = SEMENCE.filter((x) => x.en_avant);
+  ok(t.length === vedettes.length, "les " + vedettes.length + " de l'accueil (" + t.length + ")");
+  ok(t.every((x, i) => x.icone === "img/pictos/" + vedettes[i].icone + ".png" && x.iconeChargee),
+    "chaque tuile porte l'icône que la base lui donne, chargée");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
-  await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-illustrations-liste.png" })
-    .catch(() => {});
   await ctx.close();
+  const { page: p2, ctx: c2 } = await ouvrirClient(360, { categories: SEMENCE, route: "#/categories" });
+  const l = await lireTuiles(p2, ".cat-ligne .cat-pastille");
+  const triees = SEMENCE.slice().sort((a, b) => a.ordre - b.ordre);
+  ok(l.length === 15 && l.every((x, i) => x.icone === "img/pictos/" + triees[i].icone + ".png" && x.iconeChargee),
+    "l'écran « Catégories » : les quinze, chacune son icône (" + l.length + ")");
+  await p2.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-icones-liste.png" })
+    .catch(() => {});
+  await c2.close();
 }
 
 titre("Le chemin est échappé, même si la base le laissait passer");
@@ -325,26 +370,35 @@ titre("Le chemin est échappé, même si la base le laissait passer");
   const piege = CAT.map((c, i) => i === 0
     ? { ...c, image: 'enseigne/categories/x.jpg" onload="window.__pris=1' } : c);
   const { page, ctx } = await ouvrirClient(390, { categories: piege });
-  const ronds = await lireRonds(page, ".cat-rond-da");
-  ok(ronds[0] && ronds[0].attributs.every((a) => a !== "onload"),
-    "aucun attribut ne s'ajoute à l'image (" + (ronds[0] ? ronds[0].attributs.join(", ") : "—") + ")");
+  const t = await lireTuiles(page, ".cat-tuile");
+  ok(t[0] && t[0].attributs.every((a) => a !== "onload"),
+    "aucun attribut ne s'ajoute à la photo (" + (t[0] ? t[0].attributs.join(", ") : "—") + ")");
   ok(await page.evaluate(() => window.__pris === undefined), "et rien ne s'exécute");
+  const piegeIcone = CAT.map((c, i) => i === 2 ? { ...c, icone: 'x" onload="window.__pris=2' } : c);
+  const { page: p2, ctx: c2 } = await ouvrirClient(390, { categories: piegeIcone });
+  const t2 = await lireTuiles(p2, ".cat-tuile");
+  ok(t2[2] && t2[2].trait === "#i-categories" && await p2.evaluate(() => window.__pris === undefined),
+    "une icône piégée retombe sur celle des rayons, sans rien exécuter");
   await ctx.close();
+  await c2.close();
 }
 
 /* ================= DANS L'ADMIN ================= */
 
 const MOI = "11111111-1111-1111-1111-111111111111";
 const CAT_ADMIN = () => [
-  { id: "cat_mode", nom: "Mode & Vêtements", icone: "tshirt", couleur: "#D81B60",
+  { id: "cat_mode", nom: "Mode & Vêtements", icone: "mode", couleur: "#D81B60",
     image: "enseigne/categories/cat_photo0.jpg", en_avant: true, ordre: 1, sous_categories: [] },
-  { id: "cat_tech", nom: "High-Tech", icone: "portable", couleur: "#0B5CF5",
+  { id: "cat_tech", nom: "High-Tech", icone: "informatique", couleur: "#0B5CF5",
     image: "enseigne/categories/cat_cassee1.jpg", en_avant: true, ordre: 2, sous_categories: [] },
-  { id: "cat_maison", nom: "Maison & Jardin", icone: "maison", couleur: "#0F9D58",
+  { id: "cat_maison", nom: "Maison & Jardin", icone: "maison-deco", couleur: "#0F9D58",
     image: "", en_avant: false, ordre: 3, sous_categories: [] },
-  /* Une illustration qui voyage avec l'application. */
-  { id: "cat_auto", nom: "Auto & Moto", icone: "voiture", couleur: "#001450",
+  /* Une illustration d'avant la 3.56, gardée pour les applications installées. */
+  { id: "cat_auto", nom: "Auto & Moto", icone: "auto-moto", couleur: "#001450",
     image: "img/categories/voiture.jpg", en_avant: true, ordre: 4, sous_categories: [] },
+  /* Une icône choisie avec une admin d'avant la 3.56. */
+  { id: "cat_vieille", nom: "Catégorie d'avant", icone: "tshirt", couleur: "#6C3FBF",
+    image: "", en_avant: false, ordre: 5, sous_categories: [] },
 ];
 
 async function ouvrirAdmin({ role = "superadministrateur", refuser = false } = {}) {
@@ -409,91 +463,99 @@ const patchDe = (ecritures, id) => ecritures.filter((e) =>
   e.methode === "PATCH" && e.table === "categories" && e.requete.includes("eq." + id));
 const journal = (ecritures) => ecritures.filter((e) => e.table === "journal")
   .map((e) => (e.corps && e.corps.libelle) || "");
+const choix = (page) => page.evaluate(() => {
+  const boutons = [...document.querySelectorAll("#cat-icones button")];
+  return {
+    nombre: boutons.length,
+    cles: boutons.map((b) => b.dataset.icone),
+    chargees: boutons.filter((b) => { const i = b.querySelector("img.picto"); return i && i.complete && i.naturalWidth > 0; }).length,
+    actives: boutons.filter((b) => b.classList.contains("actif")).map((b) => b.dataset.icone),
+    noms: boutons.map((b) => b.getAttribute("aria-label")),
+  };
+});
 
-titre("Admin : la liste montre la photo, et l'icône en secours");
+titre("Admin : la liste montre l'icône, et la photo par-dessus");
 {
   const { page, ctx, erreurs } = await ouvrirAdmin();
-  const p = await lireRonds(page, ".cat-bloc .cat-pastille");
-  ok(p.length === 4, "quatre catégories (" + p.length + ")");
-  ok(p[0] && p[0].chargee && p[0].auDessus && p[0].couvre && p[0].coupe,
-    "la pastille de « Mode » montre sa photo, ronde, par-dessus l'icône");
-  ok(p[1] && p[1].photo === null && p[1].icone, "celle qui ne se charge pas s'efface : l'icône reste");
-  ok(p[2] && p[2].photo === null && p[2].icone, "« Maison », sans photo, garde son icône");
-  ok(p[3] && p[3].photo === "img/categories/voiture.jpg" && p[3].chargee && p[3].auDessus,
-    "« Auto & Moto » montre son illustration, lue dans l'application");
-  ok(p[3] && p[3].fond === pastel("#001450") && p[2] && p[2].fond === "rgb(15, 157, 88)",
-    "sous une image la pastille est pastel ; sans image, pleine (" + (p[3] && p[3].fond) + ")");
+  const p = await lireTuiles(page, ".cat-bloc .cat-pastille");
+  ok(p.length === 5, "cinq catégories (" + p.length + ")");
+  ok(p.every((x) => x.fond === FOND_TUILE), "toutes sur le fond des tuiles du client");
+  ok(p[0] && p[0].chargee && p[0].auDessus && p[0].couvre && p[0].coupe && p[0].icone === "img/pictos/mode.png",
+    "la pastille de « Mode » montre sa photo par-dessus son icône");
+  ok(p[1] && p[1].photo === null && p[1].icone === "img/pictos/informatique.png" && p[1].iconeChargee,
+    "celle qui ne se charge pas s'efface : l'icône reste");
+  ok(p[2] && p[2].photo === null && p[2].icone === "img/pictos/maison-deco.png" && p[2].iconeChargee,
+    "« Maison », sans photo, montre son icône");
+  ok(p[3] && p[3].photo === null && p[3].icone === "img/pictos/auto-moto.png",
+    "« Auto & Moto » : l'illustration d'avant ne s'affiche pas, l'icône si");
+  ok(p[4] && p[4].icone === null && p[4].trait === "#i-tshirt",
+    "une icône d'avant garde son dessin d'un trait");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 
-titre("Admin : choisir une autre illustration, d'un appui");
+titre("Admin : choisir l'une des seize icônes");
 {
   const { page, ctx, erreurs, envois, ecritures } = await ouvrirAdmin();
   await modifier(page, "cat_auto");
-  await page.waitForTimeout(800);
-  const g = await page.evaluate(() => {
-    const boutons = [...document.querySelectorAll("#cat-illustrations [data-illustration]")];
-    return {
-      nombre: boutons.length,
-      chargees: boutons.filter((b) => { const i = b.querySelector("img"); return i && i.complete && i.naturalWidth > 0; }).length,
-      actives: boutons.filter((b) => b.classList.contains("actif")).map((b) => b.dataset.illustration),
-      pressee: (document.querySelector('#cat-illustrations [aria-pressed="true"]') || {}).dataset,
-      apercu: (document.querySelector(".cat-photo-boite img") || {}).getAttribute
-        ? document.querySelector(".cat-photo-boite img").getAttribute("src") : "",
-    };
-  });
-  ok(g.nombre === 24, "la galerie propose vingt-quatre illustrations (" + g.nombre + ")");
-  ok(g.chargees === g.nombre, "toutes existent dans l'admin, et se chargent (" + g.chargees + ")");
-  ok(g.actives.join() === "voiture" && g.apercu === "img/categories/voiture.jpg",
-    "celle en place est allumée, et en aperçu (" + g.actives.join() + ")");
-  await page.click('[data-illustration="moto"]');
-  const apres = await page.evaluate(() => ({
-    actives: [...document.querySelectorAll("#cat-illustrations .actif")].map((b) => b.dataset.illustration),
-    apercu: document.querySelector(".cat-photo-boite img").getAttribute("src"),
-  }));
-  ok(apres.actives.join() === "moto" && apres.apercu === "img/categories/moto.jpg",
-    "un appui sur la moto : elle s'allume, et passe en aperçu");
-  await page.evaluate(() => document.querySelector("#cat-photo").scrollIntoView({ block: "start" }));
-  await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-illustrations-admin.png" })
+  await page.waitForTimeout(600);
+  const g = await choix(page);
+  ok(g.nombre === 16 && g.cles.slice().sort().join() === ICONES.join(),
+    "la fiche propose les seize icônes (" + g.nombre + ")");
+  ok(g.chargees === 16, "toutes existent dans l'admin, et se chargent (" + g.chargees + ")");
+  ok(g.noms.slice(0, 12).join("|") === "Alimentation|Restauration|Mode|Beauté|Téléphones|" +
+     "Informatique|Électroménager|Maison & Déco|Auto & Moto|Santé|Immobilier|Services",
+    "les douze de l'image d'abord, sous les noms de l'image");
+  ok(g.actives.join() === "auto-moto", "celle de la catégorie est allumée (" + g.actives.join() + ")");
+  ok(await page.evaluate(() => !document.querySelector("#cat-couleurs, #cat-illustrations")),
+    "ni couleur ni galerie d'illustrations à choisir : les tuiles ont toutes le même fond");
+  ok(await page.evaluate(() => !document.querySelector(".cat-photo-boite img") &&
+      !!document.querySelector("#cat-photo .photo-ajout")),
+    "l'illustration d'avant n'est pas montrée comme une photo : on peut en ajouter une");
+  await page.click('#cat-icones [data-icone="services"]');
+  ok((await choix(page)).actives.join() === "services", "un appui sur une autre l'allume");
+  await page.evaluate(() => document.querySelector("#cat-icones").scrollIntoView({ block: "start" }));
+  await page.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-icones-admin.png" })
     .catch(() => {});
   await enregistrer(page);
   const patch = patchDe(ecritures, "cat_auto")[0];
-  ok(patch && patch.corps && patch.corps.image === "img/categories/moto.jpg",
-    "la ligne désigne l'illustration choisie");
-  ok(!envois.length, "rien ne part au stockage : elle est déjà dans l'application");
-  ok(journal(ecritures).some((l) => /photo changée/.test(l)), "le journal le dit : « photo changée »");
+  ok(patch && patch.corps && patch.corps.icone === "services", "l'icône choisie part vers la base");
+  ok(patch && patch.corps && !("image" in patch.corps),
+    "l'illustration d'avant n'est pas effacée : les applications installées la montrent encore");
+  ok(patch && patch.corps && !("couleur" in patch.corps), "la couleur n'est pas réécrite");
+  ok(!envois.length, "rien ne part au stockage");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 
-titre("Admin : une nouvelle catégorie, avec une illustration");
+titre("Admin : une catégorie d'avant garde son icône");
 {
-  const { page, ctx, envois, ecritures } = await ouvrirAdmin();
-  await page.click("#cat-ajouter");
-  await page.waitForSelector("#cat-illustrations [data-illustration]", { timeout: 4000 });
-  ok(await page.evaluate(() => !document.querySelector("#cat-illustrations .actif")),
-    "aucune n'est allumée d'avance : une nouvelle catégorie n'a pas de photo");
-  await page.fill("#cat-nom", "Jardinage");
-  await page.click('[data-illustration="plante"]');
+  const { page, ctx, ecritures } = await ouvrirAdmin();
+  await modifier(page, "cat_vieille");
+  const g = await choix(page);
+  ok(g.nombre === 17 && g.actives.join() === "tshirt",
+    "son icône d'avant s'ajoute aux seize, allumée (" + g.nombre + ", " + g.actives.join() + ")");
+  await page.fill("#cat-nom", "Catégorie renommée");
   await enregistrer(page);
-  const post = ecritures.find((e) => e.methode === "POST" && e.table === "categories");
-  ok(post && post.corps && post.corps.image === "img/categories/plante.jpg" && !envois.length,
-    "elle naît avec la plante, sans rien envoyer au stockage");
+  const patch = patchDe(ecritures, "cat_vieille")[0];
+  ok(patch && patch.corps && patch.corps.icone === "tshirt" && patch.corps.nom === "Catégorie renommée",
+    "renommée, elle garde son icône : rien ne la remplace en silence");
   await ctx.close();
 }
 
-titre("Admin : retirer une illustration");
+titre("Admin : une nouvelle catégorie, avec son icône");
 {
   const { page, ctx, envois, ecritures } = await ouvrirAdmin();
-  await modifier(page, "cat_auto");
-  await page.click("#cat-photo-retirer");
-  ok(await page.evaluate(() => !document.querySelector("#cat-illustrations .actif")),
-    "la croix l'éteint aussi dans la galerie");
+  await page.click("#cat-ajouter");
+  await page.waitForSelector("#cat-icones button", { timeout: 4000 });
+  ok((await choix(page)).actives.length === 0, "aucune n'est allumée d'avance");
+  await page.fill("#cat-nom", "Animalerie");
+  await page.click('#cat-icones [data-icone="animaux"]');
   await enregistrer(page);
-  const patch = patchDe(ecritures, "cat_auto")[0];
-  ok(patch && patch.corps && patch.corps.image === "" && !envois.length,
-    "la ligne est vidée : le rond retrouve son icône");
+  const post = ecritures.find((e) => e.methode === "POST" && e.table === "categories");
+  ok(post && post.corps && post.corps.icone === "animaux" && post.corps.couleur === "#2550B7",
+    "elle naît avec l'icône choisie, et le bleu de BIZZOO en couleur");
+  ok(post && post.corps && !("image" in post.corps) && !envois.length, "sans photo, sans rien envoyer au stockage");
   await ctx.close();
 }
 
@@ -506,15 +568,15 @@ titre("Admin : poser une photo sur une catégorie qui n'en a pas");
     return { label: zone.querySelector("label").textContent,
       ajouter: !!zone.querySelector(".photo-ajout input[type=file]") };
   });
-  ok(/Photo du rond \(facultative\)/.test(champ.label) && champ.ajouter,
-    "la fiche offre « Photo du rond (facultative) », à ajouter");
+  ok(/Photo de la tuile \(facultative\)/.test(champ.label) && champ.ajouter,
+    "la fiche offre « Photo de la tuile (facultative) », à ajouter");
   await page.setInputFiles("#cat-photo-fichier", { name: "maison.png", mimeType: "image/png", buffer: png(40, 120, 60, 900) });
   await page.waitForSelector(".cat-photo-boite img", { timeout: 4000 });
   const apercu = await page.evaluate(() => {
     const img = document.querySelector(".cat-photo-boite img");
-    return { rond: getComputedStyle(img).borderRadius, croix: !!document.querySelector("#cat-photo-retirer") };
+    return { coins: getComputedStyle(img).borderRadius, croix: !!document.querySelector("#cat-photo-retirer") };
   });
-  ok(apercu.rond === "50%" && apercu.croix, "l'aperçu est rond, comme chez le client, avec sa croix");
+  ok(apercu.coins === "26%" && apercu.croix, "l'aperçu a les coins arrondis de la tuile, avec sa croix");
   await enregistrer(page);
   const depots = envois.filter((e) => e.methode === "POST");
   const patch = patchDe(ecritures, "cat_maison")[0];
@@ -522,8 +584,7 @@ titre("Admin : poser une photo sur une catégorie qui n'en a pas");
   const d = depots[0] || {};
   ok(CHEMIN_PERMIS.test(d.chemin || ""), "dans « enseigne/categories/ », sous un nom que la base accepte (" + d.chemin + ")");
   ok(d.type === "image/jpeg" && d.jpeg, "en JPEG, recompressée par l'application");
-  /* La photo choisie fait 900 px de côté : il n'en part que 480, de
-     quoi remplir le plus grand rond sur l'écran le plus fin. */
+  /* La photo choisie fait 900 px de côté : il n'en part que 480. */
   const t = d.corps ? tailleJpeg(d.corps) : null;
   ok(t && t.largeur === 480 && t.hauteur === 480,
     "réduite à 480 px (" + (t ? t.largeur + " × " + t.hauteur : "illisible") + ")");
@@ -532,6 +593,20 @@ titre("Admin : poser une photo sur une catégorie qui n'en a pas");
   ok(!envois.some((e) => e.methode === "DELETE"), "rien n'est effacé du stockage");
   ok(journal(ecritures).some((l) => /photo ajoutée/.test(l)), "le journal le dit : « photo ajoutée »");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("Admin : une photo par-dessus une illustration d'avant");
+{
+  const { page, ctx, envois, ecritures } = await ouvrirAdmin();
+  await modifier(page, "cat_auto");
+  await page.setInputFiles("#cat-photo-fichier", { name: "auto.png", mimeType: "image/png", buffer: png(20, 40, 160) });
+  await page.waitForSelector(".cat-photo-boite img", { timeout: 4000 });
+  await enregistrer(page);
+  const depots = envois.filter((e) => e.methode === "POST");
+  const patch = patchDe(ecritures, "cat_auto")[0];
+  ok(depots.length === 1 && patch && patch.corps && patch.corps.image === depots[0].chemin,
+    "la photo remplace l'illustration d'avant : toutes les applications la montrent");
   await ctx.close();
 }
 
@@ -546,7 +621,7 @@ titre("Admin : retirer la photo");
     "la croix la retire de la fiche : on peut en ajouter une autre");
   await enregistrer(page);
   const patch = patchDe(ecritures, "cat_mode")[0];
-  ok(patch && patch.corps && patch.corps.image === "", "la ligne est vidée : le rond retrouve son icône");
+  ok(patch && patch.corps && patch.corps.image === "", "la ligne est vidée : la tuile retrouve son icône");
   ok(!envois.length, "rien ne part au stockage, et rien n'en est effacé — annuler la remettra");
   ok(journal(ecritures).some((l) => /photo retirée/.test(l)), "le journal le dit : « photo retirée »");
   await ctx.close();
@@ -579,9 +654,10 @@ titre("Admin : renommer sans toucher à la photo");
   await page.fill("#cat-nom", "Mode");
   await enregistrer(page);
   const patch = patchDe(ecritures, "cat_mode")[0];
-  ok(patch && patch.corps && patch.corps.nom === "Mode", "le nouveau nom part");
-  ok(patch && patch.corps && !("image" in patch.corps),
-    "la colonne de la photo n'est pas écrite : elle n'a pas bougé");
+  ok(patch && patch.corps && patch.corps.nom === "Mode" && patch.corps.icone === "mode",
+    "le nouveau nom part, avec la même icône");
+  ok(patch && patch.corps && !("image" in patch.corps) && !("couleur" in patch.corps),
+    "ni la photo ni la couleur ne sont écrites : elles n'ont pas bougé");
   ok(!envois.length, "rien ne part au stockage");
   ok(!journal(ecritures).some((l) => /photo/.test(l)), "et le journal ne parle pas de photo");
   await ctx.close();
@@ -593,13 +669,15 @@ titre("Admin : une nouvelle catégorie, avec sa photo");
   await page.click("#cat-ajouter");
   await page.waitForSelector("#cat-photo", { timeout: 4000 });
   await page.fill("#cat-nom", "Beauté");
+  await page.click('#cat-icones [data-icone="beaute"]');
   await page.setInputFiles("#cat-photo-fichier", { name: "beaute.png", mimeType: "image/png", buffer: png(200, 90, 150) });
   await page.waitForSelector(".cat-photo-boite img", { timeout: 4000 });
   await enregistrer(page);
   const depots = envois.filter((e) => e.methode === "POST");
   const post = ecritures.find((e) => e.methode === "POST" && e.table === "categories");
   ok(post && post.corps && post.corps.nom === "Beauté" && post.corps.image === (depots[0] || {}).chemin &&
-     CHEMIN_PERMIS.test(post.corps.image || ""), "la catégorie naît avec sa photo (" + (post && post.corps && post.corps.image) + ")");
+     CHEMIN_PERMIS.test(post.corps.image || "") && post.corps.icone === "beaute",
+    "la catégorie naît avec son icône et sa photo (" + (post && post.corps && post.corps.image) + ")");
   ok(post && !("boutique_id" in post.corps), "et n'appartient à aucune boutique");
   await ctx.close();
 }
@@ -636,11 +714,12 @@ titre("Admin : un envoi refusé n'écrit rien");
   await ctx.close();
 }
 
-titre("Admin : une boutique voit la photo de son secteur, sans la changer");
+titre("Admin : une boutique voit la tuile de son secteur, sans la changer");
 {
   const { page, ctx, erreurs } = await ouvrirAdmin({ role: "administrateur" });
-  const p = await lireRonds(page, ".cat-bloc .cat-pastille");
-  ok(p.length === 1 && p[0].chargee && p[0].auDessus, "la pastille de son secteur montre la photo");
+  const p = await lireTuiles(page, ".cat-bloc .cat-pastille");
+  ok(p.length === 1 && p[0].chargee && p[0].auDessus && p[0].icone === "img/pictos/mode.png",
+    "la pastille de son secteur montre sa photo, l'icône dessous");
   ok(await page.evaluate(() => !document.querySelector("[data-modifier], #cat-ajouter")),
     "et rien pour la modifier");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
@@ -650,5 +729,5 @@ titre("Admin : une boutique voit la photo de son secteur, sans la changer");
 await nav.close();
 console.log(echecs
   ? "\n\x1b[31m" + echecs + " constat(s) en échec\x1b[0m"
-  : "\n\x1b[32mLa photo des catégories tient ✔\x1b[0m");
+  : "\n\x1b[32mLes icônes et la photo des catégories tiennent ✔\x1b[0m");
 process.exit(echecs ? 1 : 0);

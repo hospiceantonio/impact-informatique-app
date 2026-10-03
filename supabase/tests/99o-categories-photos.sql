@@ -1,17 +1,18 @@
 -- =========================================================
 -- La photo d'une catégorie
 --
--- CE QU'ON AJOUTE. Sur la DA, les ronds des catégories de
--- l'accueil portent une photo. Une colonne « image » la
--- range : un CHEMIN, dans le seau (« enseigne/categories/ »,
--- une photo déposée depuis l'admin) ou dans l'application
--- (« img/categories/ », les illustrations qui voyagent avec
--- elle).
+-- CE QU'ON AJOUTE. Une catégorie peut porter une photo, qui
+-- prend la place de l'icône de sa tuile. Une colonne
+-- « image » la range : un CHEMIN, dans le seau
+-- (« enseigne/categories/ », une photo déposée depuis l'admin).
+-- « img/categories/ », ce sont les illustrations en 3D d'avant
+-- la 3.56, que la base en ligne garde pour les applications
+-- déjà installées.
 --
 -- Sept choses à prouver :
 --
 --   1. L'ENSEIGNE SEULE LA POSE, comme elle seule écrit la
---      liste. Une boutique ne change pas le rond de tout le
+--      liste. Une boutique ne change pas la tuile de tout le
 --      monde ;
 --   2. UN CHEMIN, JAMAIS UNE ADRESSE, et dans ce dossier-là :
 --      une adresse libre ferait charger à l'accueil de tous les
@@ -25,12 +26,14 @@
 --      « supprimable » ; une photo de catégorie oubliée dans sa
 --      liste y serait annoncée alors qu'elle est à l'écran — et
 --      une suppression ne se rattrape pas ;
---   6. LES ILLUSTRATIONS DE L'APPLICATION EXISTENT : chacune de
---      celles que la base désigne est un vrai fichier, dans
---      l'application cliente ET dans l'admin — sinon le rond
---      retombe sur son icône sans que personne ne sache pourquoi ;
---   7. REJOUER LE FICHIER NE DÉFAIT RIEN : une illustration que
---      l'enseigne a retirée ne revient pas toute seule.
+--   6. LES ICÔNES QUE LA BASE DÉSIGNE EXISTENT, en fichier dans
+--      l'application cliente ET dans l'admin (« img/pictos/ ») —
+--      sinon la tuile retombe sur un dessin d'un trait sans que
+--      personne ne sache pourquoi ;
+--   7. REJOUER LES FICHIERS NE DÉFAIT RIEN : ni une photo que
+--      l'enseigne a retirée ou posée, ni une icône qu'elle a
+--      choisie depuis — et celui des icônes ne touche jamais à
+--      l'image que les applications installées montrent encore.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -48,16 +51,28 @@ select essai.titre('Le décor : les catégories telles qu''elles sont');
 select essai.verifie(
   exists (select 1 from public.categories where id = 'cat_mode'),
   'la catégorie « Mode » existe');
--- CHAQUE CATÉGORIE DE BIZZOO ARRIVE AVEC SON ILLUSTRATION, celle qui
--- voyage avec l'application. Une valeur nulle obligerait chaque écran
--- à s'en méfier.
+-- CHAQUE CATÉGORIE DE BIZZOO ARRIVE AVEC SON ICÔNE, et sans image :
+-- depuis la 3.56, l'icône suffit. Une valeur nulle obligerait chaque
+-- écran à s'en méfier.
+create temp table essai_icones (id text primary key, icone text not null);
+insert into essai_icones values
+  ('cat_mode', 'mode'), ('cat_hightech', 'informatique'), ('cat_auto', 'auto-moto'),
+  ('cat_maison', 'maison-deco'), ('cat_beaute', 'beaute'), ('cat_restauration', 'restauration'),
+  ('cat_supermarche', 'alimentation'), ('cat_logiciels', 'informatique'),
+  ('cat_bebe', 'bebe-enfant'), ('cat_sport', 'sport-loisirs'), ('cat_bricolage', 'immobilier'),
+  ('cat_livres', 'livres-education'), ('cat_bijoux', 'mode'), ('cat_animaux', 'animaux'),
+  ('cat_services', 'services');
 select essai.egal(
-  (select count(*)::text from public.categories
-    where id like 'cat\_%' and image like 'img/categories/%.jpg'),
-  '15', 'les quinze de BIZZOO arrivent avec leur illustration');
+  (select count(*)::text from public.categories c join essai_icones p using (id)
+    where c.icone = p.icone),
+  '15', 'les quinze de BIZZOO arrivent chacune avec son icône');
+select essai.egal(
+  (select count(*)::text from public.categories c join essai_icones p using (id)
+    where c.image = ''),
+  '15', 'et sans image : l''icône suffit');
 select essai.verifie(
   not exists (select 1 from public.categories where image is null),
-  'aucune n''est nulle');
+  'aucune image n''est nulle');
 
 -- On garde les images telles qu'elles sont, pour les rendre à la fin.
 create temp table essai_images_avant as select id, image from public.categories;
@@ -133,18 +148,19 @@ select essai.egal(
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
-select essai.titre('2 bis. Ou une illustration de l''application');
+select essai.titre('2 bis. Le chemin d''une illustration d''avant la 3.56');
 
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
--- CHOISIR UNE AUTRE ILLUSTRATION, c'est ce que propose la galerie de la
--- fiche : la moto plutôt que la voiture, pour « Auto & Moto ».
+-- LA BASE EN LIGNE GARDE LES ILLUSTRATIONS EN 3D : les applications
+-- déjà installées (3.54, 3.55) les montrent encore. Leur chemin reste
+-- donc permis — les applications d'aujourd'hui ne le lisent plus.
 update public.categories set image = 'img/categories/moto.jpg' where id = 'cat_auto';
 select essai.egal(
   (select image from public.categories where id = 'cat_auto'),
-  'img/categories/moto.jpg', 'l''enseigne choisit une autre illustration');
--- LE DOSSIER DE L'APPLICATION, ET RIEN D'AUTRE : l'écran lit ce chemin
--- tel quel, à côté de sa page. Ni remonter vers ses fichiers, ni
--- sortir du dossier.
+  'img/categories/moto.jpg', 'le chemin d''une illustration d''avant reste permis');
+-- LE DOSSIER DES APPLICATIONS, ET RIEN D'AUTRE : une application
+-- d'avant lit ce chemin tel quel, à côté de sa page. Ni remonter vers
+-- ses fichiers, ni sortir du dossier.
 select essai.refuse(
   $$update public.categories set image = 'img/categories/../../index.html' where id = 'cat_auto'$$,
   'on ne remonte pas vers les fichiers de l''application');
@@ -160,7 +176,7 @@ select essai.refuse(
 select essai.refuse(
   $$update public.categories set image = 'icons/icon-512.png' where id = 'cat_auto'$$,
   'ni une autre image qu''elle contient');
-update public.categories set image = 'img/categories/voiture.jpg' where id = 'cat_auto';
+update public.categories set image = '' where id = 'cat_auto';
 reset role; select essai.personne();
 
 -- UNE BOUTIQUE N'Y TOUCHE PAS DAVANTAGE.
@@ -220,29 +236,29 @@ select essai.verifie(
 delete from storage.objects where name like 'enseigne/categories/cat_mode_%';
 
 -- ---------------------------------------------------------
-select essai.titre('6. Les illustrations désignées existent, dans les deux applications');
+select essai.titre('6. Les icônes désignées existent, dans les deux applications');
 
--- CE QUE CONTIENNENT LES DEUX DOSSIERS, lus sur le disque : une
--- illustration que la base désigne et qu'aucune application n'embarque
--- laisserait le rond sur son icône, sans que personne ne sache pourquoi.
-\set illus_client `ls "$RACINE/client/img/categories" | tr '\n' ' '`
-\set illus_admin `ls "$RACINE/admin/img/categories" | tr '\n' ' '`
+-- CE QUE CONTIENNENT LES DEUX DOSSIERS, lus sur le disque : une icône
+-- que la base désigne et qu'aucune application n'embarque laisserait la
+-- tuile sur un dessin d'un trait, sans que personne ne sache pourquoi.
+\set icones_client `ls "$RACINE/client/img/pictos" | tr '\n' ' '`
+\set icones_admin `ls "$RACINE/admin/img/pictos" | tr '\n' ' '`
 select essai.verifie(
-  not exists (select 1 from essai_images_avant a
-               where a.image like 'img/categories/%'
-                 and position(' ' || substr(a.image, 16) || ' ' in ' ' || :'illus_client') = 0),
+  not exists (select 1 from essai_icones i
+               where position(' ' || i.icone || '.png ' in ' ' || :'icones_client') = 0),
   'chacune est un fichier de l''application cliente');
 select essai.verifie(
-  not exists (select 1 from essai_images_avant a
-               where a.image like 'img/categories/%'
-                 and position(' ' || substr(a.image, 16) || ' ' in ' ' || :'illus_admin') = 0),
+  not exists (select 1 from essai_icones i
+               where position(' ' || i.icone || '.png ' in ' ' || :'icones_admin') = 0),
   'et de l''admin');
+select essai.egal(:'icones_client'::text, :'icones_admin'::text,
+  'les deux applications ont les mêmes icônes');
 
 -- ---------------------------------------------------------
-select essai.titre('7. Rejouer le fichier ne défait rien');
+select essai.titre('7. Rejouer les fichiers ne défait rien');
 
--- L'enseigne a retiré l'illustration de « Maison » (plus haut) et posé
--- sa photo sur « Mode ». Rejouer « categories-photos.sql » — ce que fait
+-- L'enseigne a retiré la photo de « Maison » (plus haut) et posé la
+-- sienne sur « Mode ». Rejouer « categories-photos.sql » — ce que fait
 -- quiconque le recolle — ne doit rien remettre.
 update public.categories set image = 'enseigne/categories/cat_mode_1.jpg' where id = 'cat_mode';
 \set fichier `echo "$RACINE/supabase/categories-photos.sql"`
@@ -253,13 +269,13 @@ set client_min_messages = notice;
 \o
 select essai.egal(
   (select image from public.categories where id = 'cat_maison'), '',
-  'l''illustration retirée ne revient pas');
+  'la photo retirée ne revient pas');
 select essai.egal(
   (select image from public.categories where id = 'cat_mode'),
   'enseigne/categories/cat_mode_1.jpg', 'la photo posée reste');
 
--- Sur une base qui n'a encore AUCUNE image — la base en ligne le jour
--- de la mise à jour —, le même fichier pose les quinze.
+-- DEPUIS LA 3.56, IL NE POSE PLUS D'ILLUSTRATION : même sur une base qui
+-- n'a encore aucune image, les tuiles montrent leur icône.
 update public.categories set image = '';
 \o /dev/null
 set client_min_messages = warning;
@@ -267,8 +283,49 @@ set client_min_messages = warning;
 set client_min_messages = notice;
 \o
 select essai.egal(
-  (select count(*)::text from public.categories where image like 'img/categories/%'),
-  '15', 'sur une base sans image, il pose les quinze illustrations');
+  (select count(*)::text from public.categories where image <> ''),
+  '0', 'sur une base sans image, il n''en pose aucune');
+
+-- LA BASE EN LIGNE AVANT LA 3.56 : les icônes d'un trait, et les
+-- illustrations en 3D par-dessus. « categories-icones.sql » doit donner
+-- à chacune la sienne, sans toucher à l'image.
+update public.categories c set icone = v.ancienne
+  from (values ('cat_mode', 'tshirt'), ('cat_hightech', 'portable'), ('cat_auto', 'voiture'),
+               ('cat_maison', 'maison'), ('cat_beaute', 'goutte'), ('cat_restauration', 'couverts'),
+               ('cat_supermarche', 'chariot'), ('cat_logiciels', 'portable'), ('cat_bebe', 'cadeau'),
+               ('cat_sport', 'ballon'), ('cat_bricolage', 'magasin'), ('cat_livres', 'livre'),
+               ('cat_bijoux', 'diamant'), ('cat_animaux', 'patte'), ('cat_services', 'sacoche'))
+       as v(id, ancienne)
+ where c.id = v.id;
+update public.categories set image = 'img/categories/robe.jpg' where id = 'cat_mode';
+\set fichier `echo "$RACINE/supabase/categories-icones.sql"`
+\o /dev/null
+set client_min_messages = warning;
+\i :fichier
+set client_min_messages = notice;
+\o
+select essai.egal(
+  (select count(*)::text from public.categories c join essai_icones i using (id)
+    where c.icone = i.icone),
+  '15', 'chacune des quinze reçoit son icône');
+select essai.egal(
+  (select image from public.categories where id = 'cat_mode'),
+  'img/categories/robe.jpg', 'l''illustration d''avant reste, pour les applications installées');
+
+-- UNE ICÔNE CHOISIE DEPUIS DANS L'ADMIN NE SE DÉFAIT PAS : le fichier ne
+-- touche qu'une catégorie qui a encore son ancienne icône.
+update public.categories set icone = 'services' where id = 'cat_auto';
+\o /dev/null
+set client_min_messages = warning;
+\i :fichier
+set client_min_messages = notice;
+\o
+select essai.egal(
+  (select icone from public.categories where id = 'cat_auto'),
+  'services', 'rejoué, il ne défait pas un choix fait dans l''admin');
+
+-- Les icônes telles que la base les a semées.
+update public.categories c set icone = i.icone from essai_icones i where i.id = c.id;
 
 -- On rend la base comme on l'a trouvée.
 update public.categories c set image = a.image

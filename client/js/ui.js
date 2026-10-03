@@ -632,6 +632,40 @@ const UI = (() => {
     return "boite";
   }
 
+  /* ---------- Les icônes des catégories de BIZZOO ----------
+     Les douze de l'image choisie par l'enseigne (3.56), reprises telles
+     quelles, et quatre construites dans son style pour les catégories
+     qu'elle n'avait pas : « img/pictos/<nom>.png », dans l'application,
+     donc affichées sans réseau. La colonne « icone » de la base dit
+     laquelle.
+
+     UNE ICÔNE QUI N'EN FAIT PAS PARTIE — choisie avec une admin d'avant
+     la 3.56 — garde son dessin d'un trait, en bleu nuit : jamais une
+     tuile vide. */
+  const PICTOS = ["alimentation", "restauration", "mode", "beaute", "telephones",
+    "informatique", "electromenager", "maison-deco", "auto-moto", "sante",
+    "immobilier", "services", "bebe-enfant", "sport-loisirs", "livres-education",
+    "animaux"];
+
+  function picto(nom) {
+    const cle = String(nom || "categories");
+    if (PICTOS.includes(cle)) {
+      return '<img class="picto" src="img/pictos/' + cle + '.png" alt="" draggable="false">';
+    }
+    /* Ni icône de l'image ni dessin d'un trait connu : les rayons. */
+    return icone(document.getElementById("i-" + cle) ? e(cle) : "categories");
+  }
+
+  /* LA TUILE D'UNE CATÉGORIE : son icône, et la photo par-dessus quand
+     l'enseigne en a posé une. Tant qu'elle charge, et si elle ne vient
+     pas (hors connexion), c'est l'icône qu'on voit. La même sur
+     l'accueil et sur l'écran « Catégories » : `classe` dit laquelle. */
+  function vignetteCategorie(c, classe) {
+    return '<span class="' + classe + '">' + picto(c.icone) +
+      (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" data-secours>' : "") +
+      "</span>";
+  }
+
   /* ---------- Prix & badges ---------- */
 
   function prixHtml(p, options) {
@@ -954,33 +988,19 @@ const UI = (() => {
    * c'est pour cela qu'elle vient de la base et non d'une devinette
    * sur le nom.
    */
-  /* UNE LIGNE DE LA DA : la pastille ronde, le nom, le chevron — et rien
+  /* UNE LIGNE DE LA DA : la pastille, le nom, le chevron — et rien
      d'autre. Le sous-titre d'avant (les rayons, ou « Bientôt des
      articles ici ») et le compteur doublaient la hauteur de la liste :
      huit catégories ne tenaient plus sur un écran. La recherche, elle,
-     regarde toujours les rayons (voir categories.js). */
+     regarde toujours les rayons (voir categories.js).
+
+     LA PASTILLE EST LA TUILE DE L'ACCUEIL, EN PETIT : même fond, même
+     icône. La couleur de la catégorie n'y entre plus — sur l'image
+     choisie par l'enseigne, toutes les tuiles ont le même fond. */
   function ligneRayon(r) {
-    const couleur = /^#[0-9a-f]{6}$/i.test(String(r.categorie.couleur || "").trim())
-      ? r.categorie.couleur.trim() : "#2550B7";
-    /* AVEC UNE PHOTO, LA PASTILLE PASSE AU PASTEL, comme le rond de
-       l'accueil. Sous la photo, un aplat foncé débordait d'un liseré au
-       bord du cercle — le navigateur adoucit ce bord sur les deux à la
-       fois. Si la photo ne vient pas, l'icône reste, dans sa couleur. */
-    const n = parseInt(couleur.slice(1), 16);
-    const pastel = (c) => Math.round(c * .16 + 255 * .84);
-    const fond = r.categorie.image
-      ? "background:rgb(" + pastel(n >> 16) + "," + pastel((n >> 8) & 255) + "," +
-          pastel(n & 255) + ");color:" + couleur
-      : "background:" + couleur;
     return (
       '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
-        '<span class="cat-rond cat-rond-couleur" style="' + fond + '">' +
-          icone(r.categorie.icone || "categories") +
-          /* La photo recouvre l'icône, comme sur l'accueil. */
-          (r.categorie.image
-            ? '<img src="' + e(r.categorie.image) + '" alt="" loading="lazy" data-secours>'
-            : "") +
-        "</span>" +
+        vignetteCategorie(r.categorie, "cat-pastille") +
         '<span class="cat-ligne-corps">' +
           '<span class="cat-ligne-nom">' + e(r.categorie.nom) + "</span>" +
         "</span>" +
@@ -1039,7 +1059,8 @@ const UI = (() => {
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier, majCloche,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
-    coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, noteCourte,
+    coeur, iconeCategorie, picto, vignetteCategorie, ligneSousRayon, prixHtml, badgesProduit,
+    etoiles, noteHtml, noteCourte,
     pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide, recherchePilule, boutonRecherche, barreAction, retirerAction,

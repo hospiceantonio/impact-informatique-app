@@ -2366,15 +2366,23 @@ const Store = (() => {
 
     const pastille = {
       icone: (donnees.icone || "categories").trim() || "categories",
-      couleur: (donnees.couleur || "#2550B7").trim() || "#2550B7",
       en_avant: donnees.enAvant === true,
     };
+    /* LA COULEUR NE SE CHOISIT PLUS depuis la 3.56 : toutes les tuiles
+       ont le même fond. Une catégorie existante garde la sienne — les
+       applications d'avant s'en servent encore —, une nouvelle prend
+       le bleu de BIZZOO. */
+    if (donnees.couleur !== undefined) {
+      pastille.couleur = (donnees.couleur || "#2550B7").trim() || "#2550B7";
+    } else if (!existante) {
+      pastille.couleur = "#2550B7";
+    }
 
-    /* LA PHOTO DU ROND. `donnees.photo` vaut { dataUrl } pour une
-       nouvelle, { chemin } pour garder celle en place ou choisir une
-       illustration de l'application (« img/categories/… », rien à
-       envoyer : elle y est déjà), null pour la retirer ; absente, on
-       n'y touche pas.
+    /* LA PHOTO DE LA TUILE. `donnees.photo` vaut { dataUrl } pour une
+       nouvelle, { chemin } pour garder celle en place, null pour la
+       retirer ; absente, on n'y touche pas — c'est ainsi qu'une
+       illustration d'avant la 3.56 (« img/categories/… ») reste en
+       base pour les applications déjà installées.
 
        Dans « enseigne/categories/ » et nulle part ailleurs : le stockage
        y réserve le dépôt au superadministrateur, et la base refuse tout

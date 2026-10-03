@@ -1514,66 +1514,139 @@ les font tomber : rendre la liste à l'équipe, retirer le contrôle du
 secteur, laisser passer la catégorie soufflée par l'application,
 permettre le changement de secteur à la main.
 
+## Les icônes des catégories (3.56)
+
+L'enseigne a choisi une planche de douze icônes — trait bleu nuit, une
+touche orange, sur un carré bleu-gris aux coins ronds — et demandé
+**exactement celles-là**, attribuées aux catégories. Ce sont elles,
+**telles quelles** : chacune est découpée dans l'image
+([`docs/icones-categories-source.webp`](docs/icones-categories-source.webp)),
+sans le nom écrit dessous, et son fond est rendu transparent. Rien n'y
+est redessiné.
+
+Quatre catégories n'avaient pas d'icône dans l'image ; l'enseigne a
+demandé qu'on leur en construise une **dans le même style** : Bébé &
+Enfant (une poussette), Sport & Loisirs (un ballon), Livres & Éducation
+(un livre ouvert) et Animaux (une patte). Elles sont faites avec les
+mesures de l'image elle-même — trait de 11 px à son échelle, bleu nuit
+`#042149` et orange `#FB5A03` relevés dans ses pixels — et posées sur
+le même carré que les douze : aucune n'est agrandie plus qu'une autre.
+
+### Sur l'écran
+
+- **L'accueil** : les huit catégories en tuiles, comme sur l'image —
+  le carré bleu-gris, l'icône, le nom dessous, dans la tuile. Le nom
+  tient sur deux lignes au plus (« Électro- / ménagers ») ; un seul mot
+  trop long pour la tuile finit par « … » au lieu d'être coupé net.
+- **L'écran « Catégories »** : la même tuile, en petit, devant chaque
+  nom.
+- **L'admin** : la même pastille dans la liste ; dans la fiche
+  (Catégories → Modifier), le choix de l'**icône** montre les seize sur
+  leur tuile — les douze de l'image d'abord, sous leurs noms. Une même
+  icône peut servir à plusieurs catégories.
+
+La couleur de chaque catégorie ne se choisit plus : toutes les tuiles
+ont le fond de l'image. La base garde la couleur de chacune, parce que
+les applications d'avant s'en servent encore.
+
+### Qui a quelle icône
+
+| Catégorie | Icône |
+|-----------|-------|
+| Informatique et électronique | Informatique |
+| Bébé & Enfant | Bébé & Enfant *(construite)* |
+| Logiciels & Solutions pro | Informatique |
+| Électro-ménagers & Cuisinière | Électroménager |
+| Auto & Moto | Auto & Moto |
+| Mode & Vêtements | Mode |
+| Maison & Jardin | Maison & Déco |
+| Beauté & Bien-être | Beauté |
+| Restauration & Alimentation | Restauration |
+| Supermarché & Épicerie | Alimentation |
+| Sport & Loisirs | Sport & Loisirs *(construite)* |
+| Btp et matériaux | Immobilier |
+| Livres, Éducation & Fournitures | Livres & Éducation *(construite)* |
+| Bijoux & Accessoires | Mode |
+| Animaux | Animaux *(construite)* |
+| Services | Services |
+| Prestataires de services | Services |
+
+Téléphones et Santé ne servent encore à aucune catégorie ; elles sont
+dans le choix de la fiche pour celles qui viendront.
+
+### Sans gêner les applications déjà installées
+
+Les icônes sont des images de l'application (`img/pictos/`, dans le
+client et dans l'admin, dans la coquille hors connexion) ; la colonne
+`icone` de la base dit laquelle. Changer cette colonne ne se voit pas
+dans les applications 3.54 et 3.55 : elles posent leur illustration en
+3D **par-dessus** l'icône. La base garde donc ces illustrations
+(`image = 'img/categories/…'`) — et les applications 3.56 **ne lisent
+plus ces chemins** : elles montrent l'icône. Personne ne voit sa tuile
+se vider le jour de la mise à jour.
+
+La fiche de l'admin ne réécrit la photo **que si on l'a touchée** :
+renommer une catégorie ou changer son icône laisse l'illustration
+d'avant en place pour les applications installées. Une vraie photo,
+elle, recouvre l'icône partout.
+
+Une icône qui ne fait pas partie des seize — choisie avec une admin
+d'avant — garde son dessin d'un trait, en bleu nuit ; une icône
+inconnue retombe sur celle des rayons. Jamais une tuile vide.
+
+À coller dans Supabase :
+[`categories-icones.sql`](supabase/categories-icones.sql) (déjà
+appliqué sur la base en ligne). Il ne touche qu'une catégorie qui a
+**encore son ancienne icône** : rejoué, il ne défait jamais un choix
+fait depuis dans l'admin, et il ne touche pas à l'image.
+
+### Refaire les icônes
+
+```bash
+node tools/icones-categories-construites.mjs /tmp/construites
+python3 tools/icones-categories.py docs/icones-categories-source.webp /tmp/construites
+```
+
+Le premier construit les quatre (Playwright), le second découpe les
+douze et pose les seize dans les deux applications. Refaites ainsi,
+elles sont identiques, octet pour octet, à celles du dépôt.
+
 ## La photo d'une catégorie
 
-Sur la DA, les ronds des catégories de l'accueil portent une **photo**.
-Chaque catégorie en reçoit maintenant une, **facultative**, que le
+Sur la DA, les catégories de l'accueil portaient une **photo**. Chaque
+catégorie peut en recevoir une, **facultative**, que le
 superadministrateur pose dans l'application admin :
-**Catégories → Modifier → Photo du rond (facultative)**. La même photo
-remplit la pastille de l'écran « Catégories », chez le client, et celle
-de la liste dans l'admin.
+**Catégories → Modifier → Photo de la tuile (facultative)**. Depuis la
+3.56, elle prend la place de l'icône — sur l'accueil, sur l'écran
+« Catégories » et dans la liste de l'admin.
 
-### Les illustrations de BIZZOO
+### Les illustrations en 3D d'avant (jusqu'à la 3.55)
 
-Chaque catégorie de la liste porte d'office une **illustration** : un
-objet en 3D sur le fond pastel de sa couleur, comme les ronds de la DA —
-une robe pour la Mode, un ordinateur pour le High-Tech, une voiture pour
-l'Auto & Moto, une maison, un rouge à lèvres, une marmite, un chariot,
-une boîte à outils pour les Services… Vingt-quatre en tout : une par
-catégorie, et neuf autres au choix (une moto, un téléphone, une plante…).
+De la 3.47 à la 3.55, chaque catégorie portait d'office une
+**illustration** : un objet en 3D (Fluent Emoji de Microsoft, licence
+MIT) sur le fond pastel de sa couleur, embarqué dans les deux
+applications (`img/categories/`). Depuis la 3.56, ce sont les icônes de
+l'enseigne (voir plus haut) : les illustrations ne voyagent plus avec
+les applications, et `categories-photos.sql` n'en pose plus.
 
-Ce ne sont **pas des photos de vos produits**, et rien ne le prétend :
-les images de la maquette elle-même font 29 px une fois découpées, trop
-peu pour un rond de 62 px, et les banques de photos ne sont pas
-joignables d'ici. Les objets sont les **Fluent Emoji 3D de Microsoft**,
-sous licence MIT (libres, usage commercial compris) ; l'avis de licence
-les accompagne (`img/categories/LICENCE.txt`), et
-[`tools/illustrations-categories.py`](tools/illustrations-categories.py)
-les recompose à l'identique.
-
-Elles **voyagent avec l'application** — dans l'APK comme sur le site,
-dans `client/img/categories/` et `admin/img/categories/` — et la base
-les désigne par leur chemin (`img/categories/robe.jpg`). L'accueil les
-montre donc **sans réseau**, dès la première ouverture : elles sont dans
-la coquille hors connexion des deux applications, et le contrôle de la
-coquille refuse une illustration oubliée.
-
-La base en ligne les a reçues par
-[`categories-photos.sql`](supabase/categories-photos.sql) — **une seule
-fois** : tant qu'aucune catégorie n'a d'image. Recoller le fichier ne
-remet jamais une illustration que l'enseigne a retirée ou remplacée.
+La base en ligne **garde leurs chemins** (`img/categories/robe.jpg`…) :
+les applications 3.54 et 3.55 déjà installées les montrent encore. Les
+applications 3.56 ne lisent plus ces chemins, et la fiche de l'admin ne
+les efface pas en passant.
 
 ### Poser, remplacer, retirer
 
-- **Choisir une illustration** : dans la fiche, sous « Photo du rond »,
-  la galerie les montre toutes, rondes ; un appui suffit. Celle en place
-  est cerclée de bleu. Rien ne part au stockage : elle est déjà dans
-  l'application.
-- **Mettre une vraie photo** : le carré « Ajouter » de la fiche. L'aperçu
-  est **rond**, comme chez le client : on voit tout de suite ce que les
+- **Mettre une photo** : le carré « Ajouter » de la fiche. L'aperçu a
+  les **coins arrondis** de la tuile : on voit tout de suite ce que les
   coins perdront. Une photo carrée, le sujet au centre, convient le mieux.
-- **Remplacer** : la croix, puis « Ajouter » ou une illustration.
-- **Retirer** : la croix, puis « Enregistrer ». Le rond retrouve son
+- **Remplacer** : la croix, puis « Ajouter ».
+- **Retirer** : la croix, puis « Enregistrer ». La tuile retrouve son
   icône.
-
-Quand une image est posée, la pastille de l'écran « Catégories » passe au
-**pastel**, comme le rond de l'accueil : sous l'image, l'aplat foncé
-d'avant débordait d'un fin liseré au bord du cercle.
 
 L'application **réduit la photo à 480 px** et l'enregistre en JPEG avant
 de l'envoyer — une photo de téléphone de plusieurs Mo n'en garde que
-quelques dizaines de Ko : le plus grand rond n'a pas besoin de plus, même
-sur l'écran le plus fin.
+quelques dizaines de Ko : la plus grande tuile n'a pas besoin de plus,
+même sur l'écran le plus fin.
 
 ### L'icône en secours
 
@@ -1582,18 +1655,19 @@ charge, on voit l'icône ; si elle ne vient pas — hors connexion, sur un
 téléphone qui ne l'a jamais vue, ou fichier retiré du stockage —, elle
 **s'efface** et l'icône reste. Jamais un carré d'image cassée à l'accueil.
 Une seule écoute par application, posée une fois pour tous les écrans
-(`data-secours`), sans attribut `onerror` dans le HTML.
+(`data-secours`), sans attribut `onerror` dans le HTML. L'icône est une
+image elle aussi : seule la photo porte `data-secours`.
 
 ### Ce que la base garde
 
 - **Un chemin, jamais une adresse**, dans l'un de deux dossiers :
   `enseigne/categories/` (une photo, dans le seau) ou `img/categories/`
-  (une illustration, dans l'application). La règle
-  `categories_image_chemin` refuse tout le reste — une adresse internet,
-  un autre dossier, un `..`, un fichier caché — même au
-  superadministrateur : ce n'est pas une question de droit, c'est la
-  forme de la donnée. Une adresse libre ferait charger à l'accueil de
-  tous les clients une image posée n'importe où.
+  (une illustration d'avant la 3.56, gardée pour les applications
+  installées). La règle `categories_image_chemin` refuse tout le reste —
+  une adresse internet, un autre dossier, un `..`, un fichier caché —
+  même au superadministrateur : ce n'est pas une question de droit,
+  c'est la forme de la donnée. Une adresse libre ferait charger à
+  l'accueil de tous les clients une image posée n'importe où.
 - **L'enseigne seule la pose**, comme elle seule écrit la liste ; le
   stockage réserve déjà `enseigne/` au superadministrateur. Aucune règle
   de stockage n'a changé.
@@ -1611,48 +1685,37 @@ Une seule écoute par application, posée une fois pour tous les écrans
   suppression.
 
 À coller dans Supabase : [`categories-photos.sql`](supabase/categories-photos.sql)
-(déjà appliqué sur la base en ligne, illustrations comprises).
+(déjà appliqué sur la base en ligne).
 
 ### Le banc
 
 [`tests/99o-categories-photos.sql`](supabase/tests/99o-categories-photos.sql)
-force les portes en 34 constats — dont l'état des lieux du stockage
+force les portes en 39 constats — dont l'état des lieux du stockage
 **tel qu'il part chez le gérant**, lu dans le dépôt : c'est sa liste
 d'orphelins qu'on éprouve, pas une copie. Il lit aussi les deux dossiers
-d'illustrations sur le disque : chacune de celles que la base désigne
-doit y être, dans le client **et** dans l'admin. Et il recolle
-`categories-photos.sql` pour prouver qu'un choix de l'enseigne survit.
+d'icônes sur le disque : chacune de celles que la base désigne doit y
+être, dans le client **et** dans l'admin, et les deux dossiers doivent
+coïncider. Il refait la base en ligne d'avant la 3.56 — icônes d'un
+trait, illustrations par-dessus — et lui recolle
+`categories-icones.sql` : chacune reçoit la sienne, l'illustration reste,
+et rejoué, le fichier ne défait pas un choix fait dans l'admin.
+
 [`tools/banc-categories-photos.mjs`](tools/banc-categories-photos.mjs) en
-ajoute 101 au navigateur, dans les deux applications : la photo remplit
-le rond et se trouve par-dessus l'icône (mesuré), l'icône revient quand
-la photo manque, rien ne déborde à 320 px, le chemin est échappé ; la
-liste que `schema.sql` sème montre ses quinze illustrations, lues à côté
-de la page et jamais dans le seau ; dans l'admin, la galerie, et ce qui
-part au stockage et vers la base, corps compris.
+ajoute 123 au navigateur, dans les deux applications : les seize icônes
+identiques, octet pour octet, et connues des trois codes qui les
+nomment ; chaque tuile montre l'icône que la base lui donne, lue à côté
+de la page ; la photo la recouvre (mesuré) et l'icône revient quand la
+photo manque ; une illustration d'avant n'est même pas demandée ; une
+icône d'avant garde son trait, une inconnue retombe sur celle des
+rayons ; rien ne déborde à 320 px, le chemin est échappé ; dans l'admin,
+le choix des seize, et ce qui part au stockage et vers la base, corps
+compris — ni couleur ni photo réécrites sans raison.
 
-Dix-neuf sabotages, un par un, et chacun fait tomber au moins un
-constat. En base : retirer la règle du premier caractère (« .. » passe),
-oublier la photo dans l'état des lieux du stockage (elle devient
-« supprimable »). Au navigateur : ne plus effacer une image cassée — chez
-le client comme dans l'admin —, ne plus découper le rond, poser la photo
-sous l'icône ou à côté, ne plus échapper le chemin, oublier l'écran
-« Catégories », déposer hors de `enseigne/categories/`, écrire la ligne
-avant la fin de l'envoi, effacer l'ancienne photo, retirer le verrou du
-bouton, écrire la colonne inchangée, envoyer la photo sans la réduire,
-continuer après un envoi refusé, ne plus montrer la photo dans la liste
-de l'admin, taire la photo au journal. Le dix-neuvième — ne plus découper
-la pastille de l'admin — fait plus qu'échouer : la photo, libérée, recouvre
-toute la carte et **bloque le bouton « Modifier »**. La découpe évite
-aussi cela.
-
-Onze de plus pour les illustrations. En base : laisser passer un fichier
-caché, reposer les illustrations à chaque relecture du fichier (celle que
-l'enseigne a retirée revient), retirer une illustration de l'admin. Au
-navigateur : chercher les illustrations dans le seau — chez le client
-comme dans l'admin —, oublier le dossier dans la galerie, ne plus y
-allumer le choix, remettre l'aplat foncé sous l'image — des deux côtés —,
-retirer une illustration de l'admin. Et à la coquille hors connexion,
-en oublier une dans la liste.
+Trois sabotages, un par un, et chacun fait tomber au moins un constat :
+relire les illustrations d'avant chez le client (elles sont demandées
+au réseau), faire réécrire la photo à chaque enregistrement de la fiche
+(l'illustration des applications installées serait effacée), retirer le
+secours d'une icône inconnue (la tuile resterait vide).
 
 ```bash
 PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-categories-photos.mjs
@@ -3295,7 +3358,8 @@ impact-informatique-app/
 │   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
 │   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, aucun montant
 │   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
-│   ├── categories-photos.sql        # La photo du rond d'une catégorie : un chemin, un seul dossier
+│   ├── categories-photos.sql        # La photo d'une catégorie : un chemin, un seul dossier
+│   ├── categories-icones.sql        # L'icône de chaque catégorie (3.56), sans toucher à l'image
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
 │   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
@@ -3312,7 +3376,7 @@ impact-informatique-app/
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
-│   ├── img/categories/       # Les illustrations des ronds (Fluent Emoji 3D, MIT)
+│   ├── img/pictos/           # Les icônes des catégories : celles de l'image de l'enseigne
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
 │       ├── compte.js         # Le compte du client : session, fiche, demande de revendeur
@@ -3325,7 +3389,7 @@ impact-informatique-app/
 ├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
-│   ├── img/categories/       # Les mêmes illustrations, pour la liste et la galerie
+│   ├── img/pictos/           # Les mêmes icônes, pour la liste et la fiche
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
@@ -3351,7 +3415,8 @@ impact-informatique-app/
     ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique et compte-enseigne
     ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
-    ├── illustrations-categories.py # Les illustrations des ronds de catégories
+    ├── icones-categories.py     # Les icônes des catégories, découpées dans l'image
+    ├── icones-categories-construites.mjs # Les quatre construites dans son style
     ├── make-icons.js         # Icônes PWA + Android + notification (node tools/make-icons.js)
     ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)

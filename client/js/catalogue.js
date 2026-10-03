@@ -199,11 +199,13 @@ const Catalogue = (() => {
       const b = (boutiques && boutiques[0]) || {};
       const urlImagePublique = (chemin) =>
         c.url + "/storage/v1/object/public/produits/" + chemin;
-      /* LE ROND D'UNE CATÉGORIE : une illustration qui voyage avec
-         l'application (« img/categories/… ») se lit sur place, sans
-         réseau ; une photo déposée par l'enseigne, dans le seau. */
+      /* LA PHOTO D'UNE CATÉGORIE, déposée par l'enseigne, dans le seau.
+         « img/categories/… », c'est une illustration en 3D d'avant la
+         3.56 : la base en ligne les garde, parce que les applications
+         déjà installées les montrent encore, mais ici la tuile dessine
+         son pictogramme — elles ne voyagent plus avec l'application. */
       const urlImageCategorie = (chemin) =>
-        /^img\/categories\//.test(chemin) ? chemin : urlImagePublique(chemin);
+        /^img\/categories\//.test(chemin) ? "" : urlImagePublique(chemin);
       return {
         application: "impact-catalogue",
         version: 2,
@@ -260,13 +262,14 @@ const Catalogue = (() => {
           id: cat.id,
           boutiqueId: cat.boutique_id || "",
           nom: cat.nom,
-          /* La pastille ronde de l'écran « Catégories ». Une base pas
-             encore mise à jour n'a pas ces colonnes : la catégorie
-             garde alors l'icône passe-partout plutôt qu'un rond vide. */
+          /* Le pictogramme de sa tuile. Une base pas encore mise à jour
+             n'a pas ces colonnes : la catégorie garde alors le
+             pictogramme passe-partout plutôt qu'une tuile vide. */
           icone: cat.icone || "categories",
           couleur: cat.couleur || "#2550B7",
-          /* La photo du rond, posée par l'enseigne ; sans elle — ou sur
-             une base qui n'a pas encore la colonne —, l'icône suffit. */
+          /* La photo de la tuile, posée par l'enseigne ; sans elle — ou
+             sur une base qui n'a pas encore la colonne —, le
+             pictogramme suffit. */
           image: cat.image ? urlImageCategorie(cat.image) : "",
           enAvant: cat.en_avant === true,
           ordre: cat.ordre || 0,

@@ -79,6 +79,8 @@
   --trait:#E3E8EF;
   --fond:#F5F7FA;
   --blanc:#FFFFFF;
+  /* Le fond des tuiles de catégories, comme chez le client (3.56). */
+  --tuile:#EAF0F7;
 
   --ombre:0 12px 30px -18px rgba(9,26,81,.55);
   --ombre-forte:0 20px 45px -20px rgba(9,26,81,.6);
@@ -655,21 +657,30 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Catégories ---------- */
 .cat-bloc{padding:13px 16px}
 .cat-bloc-entete{display:flex;align-items:center;gap:10px}
-/* La pastille ronde de la liste : la même que chez le client, en plus
-   petit. C'est elle qu'on reconnaît d'un écran à l'autre. */
+/* LES ICÔNES DES CATÉGORIES (3.56) : les douze de l'image choisie par
+   l'enseigne, telles quelles, sur fond transparent — comme chez le
+   client. */
+.picto{display:block;flex:none;object-fit:contain;-webkit-user-drag:none}
+/* La pastille de la liste : la tuile du client, en petit. C'est elle
+   qu'on reconnaît d'un écran à l'autre. */
 .cat-pastille{
-  flex:none;width:38px;height:38px;border-radius:50%;
-  display:inline-flex;align-items:center;justify-content:center;color:#fff;
+  flex:none;width:40px;height:40px;border-radius:12px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--tuile);color:var(--bleu-900);
   position:relative;overflow:hidden;
 }
+.cat-pastille .picto{width:33px;height:33px}
 .cat-pastille .ic{width:20px;height:20px}
 /* La photo, quand la catégorie en a une, recouvre l'icône : si elle ne
-   se charge pas, elle s'efface et l'icône reparaît (voir « data-secours »). */
-.cat-pastille img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-/* L'aperçu dans la fiche : rond, comme chez le client — on voit tout de
-   suite ce que les coins perdront. La croix reste dans le coin carré. */
+   se charge pas, elle s'efface et l'icône reparaît (voir
+   « data-secours »). L'icône est une image elle aussi : seule la photo
+   porte « data-secours ». */
+.cat-pastille img[data-secours]{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+/* L'aperçu dans la fiche : aux coins arrondis comme la tuile du client
+   — on voit tout de suite ce que les coins perdront. La croix reste
+   dans le coin. */
 .cat-photo-boite{overflow:visible;background:none}
-.cat-photo-boite img{border-radius:50%;box-shadow:0 0 0 1px var(--trait)}
+.cat-photo-boite img{border-radius:26%;box-shadow:0 0 0 1px var(--trait)}
 .cat-bloc-nom{flex:1;min-width:0;font-size:14.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cat-bloc-compte{flex:none;font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
 .cat-bloc-sous{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
@@ -758,15 +769,18 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   box-shadow:0 0 0 1.5px var(--trait);
 }
 .choix-couleur.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--encre)}
-/* Les illustrations de la fiche d'une catégorie : rondes, comme le rond
-   qu'elles rempliront, et l'élue cerclée comme une couleur choisie. */
-.choix-illustrations{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.choix-illustration{
-  width:46px;height:46px;border-radius:999px;padding:0;overflow:hidden;
-  border:3px solid transparent;box-shadow:0 0 0 1.5px var(--trait);background:var(--blanc);
+/* Les icônes de la fiche d'une catégorie : chacune sur sa tuile, telle
+   que le client la verra, et l'élue cerclée de bleu. */
+.choix-pictos{display:flex;gap:8px;flex-wrap:wrap}
+.choix-picto{
+  width:56px;height:56px;border-radius:14px;padding:0;
+  border:3px solid transparent;box-shadow:0 0 0 1px var(--trait);
+  background:var(--tuile);color:var(--bleu-900);
+  display:flex;align-items:center;justify-content:center;
 }
-.choix-illustration img{display:block;width:100%;height:100%;object-fit:cover;border-radius:999px}
-.choix-illustration.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--bleu)}
+.choix-picto .picto{width:44px;height:44px}
+.choix-picto .ic{width:24px;height:24px}
+.choix-picto.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--bleu)}
 
 /* ---------- Enseigne ou boutique : la bascule des réglages ---------- */
 .cible-choix{display:grid;grid-template-columns:1fr 1fr;gap:9px}

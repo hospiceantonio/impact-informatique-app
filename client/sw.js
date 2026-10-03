@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v89";
+const VERSION = "impact-client-v90";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -61,35 +61,27 @@ const FICHIERS = [
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
   "./icons/apple-touch-icon.png",
-  /* LES ILLUSTRATIONS DES CATÉGORIES, dans la coquille : ce sont les
-     ronds de l'accueil, et ils doivent être là dès la première
-     ouverture hors connexion. Tenues à jour avec
-     « tools/illustrations-categories.py » — le contrôle de la
-     coquille refuse une image oubliée ici. */
-  "./img/categories/robe.jpg",
-  "./img/categories/ordinateur.jpg",
-  "./img/categories/voiture.jpg",
-  "./img/categories/maison.jpg",
-  "./img/categories/rouge-a-levres.jpg",
-  "./img/categories/marmite.jpg",
-  "./img/categories/chariot.jpg",
-  "./img/categories/ecran.jpg",
-  "./img/categories/nounours.jpg",
-  "./img/categories/ballon.jpg",
-  "./img/categories/briques.jpg",
-  "./img/categories/livres.jpg",
-  "./img/categories/bague.jpg",
-  "./img/categories/chien.jpg",
-  "./img/categories/boite-a-outils.jpg",
-  "./img/categories/t-shirt.jpg",
-  "./img/categories/telephone.jpg",
-  "./img/categories/moto.jpg",
-  "./img/categories/plante.jpg",
-  "./img/categories/burger.jpg",
-  "./img/categories/panier.jpg",
-  "./img/categories/outils.jpg",
-  "./img/categories/mallette.jpg",
-  "./img/categories/poignee-de-main.jpg",
+  /* LES ICÔNES DES CATÉGORIES (3.56) : les douze de l'image choisie
+     par l'enseigne, et quatre construites dans son style. Ce sont les
+     tuiles de l'accueil : elles doivent être là dès la première
+     ouverture hors connexion. Le contrôle de la coquille refuse une
+     icône oubliée ici. */
+  "./img/pictos/alimentation.png",
+  "./img/pictos/restauration.png",
+  "./img/pictos/mode.png",
+  "./img/pictos/beaute.png",
+  "./img/pictos/telephones.png",
+  "./img/pictos/informatique.png",
+  "./img/pictos/electromenager.png",
+  "./img/pictos/maison-deco.png",
+  "./img/pictos/auto-moto.png",
+  "./img/pictos/sante.png",
+  "./img/pictos/immobilier.png",
+  "./img/pictos/services.png",
+  "./img/pictos/bebe-enfant.png",
+  "./img/pictos/sport-loisirs.png",
+  "./img/pictos/livres-education.png",
+  "./img/pictos/animaux.png",
 ];
 
 self.addEventListener("install", (ev) => {

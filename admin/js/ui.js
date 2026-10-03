@@ -123,6 +123,26 @@ const UI = (() => {
     return '<svg class="ic' + (classe ? " " + classe : "") + '" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-' + nom + '"/></svg>';
   }
 
+  /* L'ICÔNE D'UNE CATÉGORIE (3.56), la même que chez le client : l'une
+     des douze de l'image choisie par l'enseigne, reprises telles
+     quelles, ou des quatre construites dans son style
+     (« img/pictos/<nom>.png »). Une icône qui n'en fait pas partie —
+     choisie avant la 3.56 — garde son dessin d'un trait : jamais une
+     pastille vide. */
+  const PICTOS = ["alimentation", "restauration", "mode", "beaute", "telephones",
+    "informatique", "electromenager", "maison-deco", "auto-moto", "sante",
+    "immobilier", "services", "bebe-enfant", "sport-loisirs", "livres-education",
+    "animaux"];
+
+  function picto(nom) {
+    const cle = String(nom || "categories");
+    if (PICTOS.includes(cle)) {
+      return '<img class="picto" src="img/pictos/' + cle + '.png" alt="" draggable="false">';
+    }
+    /* Ni icône de l'image ni dessin d'un trait connu : les rayons. */
+    return icone(document.getElementById("i-" + cle) ? e(cle) : "categories");
+  }
+
   /* ---------- Toasts ---------- */
 
   function toast(message, type) {
@@ -641,7 +661,7 @@ const UI = (() => {
   }
 
   return {
-    $, $$, entete, icone, marque, motSymbole, logoAdmin, toast, majCloche,
+    $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,
