@@ -6,12 +6,11 @@
 -- Se rejoue sans dommage.
 --
 -- CE QUE ÇA CHANGE. Les tuiles des catégories prennent les icônes
--- de l'image choisie par l'enseigne — les douze telles quelles,
--- et quatre construites dans son style pour Bébé & Enfant,
--- Sport & Loisirs, Livres & Éducation et Animaux. Elles sont dans
--- les deux applications (« img/pictos/ ») ; la colonne « icone »
--- dit laquelle. Ce fichier donne la sienne à chaque catégorie de
--- BIZZOO.
+-- des planches choisies par l'enseigne, telles quelles. Elles sont
+-- dans les deux applications (« img/pictos/ ») ; la colonne
+-- « icone » dit laquelle. Ce fichier donne la sienne à chaque
+-- catégorie de BIZZOO ; « categories-rangement.sql », à coller
+-- ensuite, ajoute les nouvelles et range la liste.
 --
 -- L'IMAGE N'EST PAS TOUCHÉE. Les applications déjà installées
 -- (3.54, 3.55) montrent leur illustration en 3D

@@ -633,19 +633,21 @@ const UI = (() => {
   }
 
   /* ---------- Les icônes des catégories de BIZZOO ----------
-     Les douze de l'image choisie par l'enseigne (3.56), reprises telles
-     quelles, et quatre construites dans son style pour les catégories
-     qu'elle n'avait pas : « img/pictos/<nom>.png », dans l'application,
-     donc affichées sans réseau. La colonne « icone » de la base dit
-     laquelle.
+     Celles des trois planches choisies par l'enseigne (3.56), reprises
+     telles quelles : « img/pictos/<nom>.png », dans l'application, donc
+     affichées sans réseau. La colonne « icone » de la base dit laquelle.
 
      UNE ICÔNE QUI N'EN FAIT PAS PARTIE — choisie avec une admin d'avant
      la 3.56 — garde son dessin d'un trait, en bleu nuit : jamais une
      tuile vide. */
-  const PICTOS = ["alimentation", "restauration", "mode", "beaute", "telephones",
-    "informatique", "electromenager", "maison-deco", "auto-moto", "sante",
-    "immobilier", "services", "bebe-enfant", "sport-loisirs", "livres-education",
-    "animaux"];
+  const PICTOS = [
+    "informatique", "electromenager", "energie", "securite", "telephones",
+    "bebe-enfant", "livres-education", "formation", "maison-deco", "jardinage",
+    "bricolage", "immobilier", "auto-moto", "transport", "mode", "bijoux",
+    "beaute", "sante", "alimentation", "restauration", "agriculture",
+    "tracteur", "animaux", "sport-loisirs", "musique", "artisanat", "cadeau",
+    "evenementiel", "bureau", "materiel-pro", "imprimante", "grossistes",
+    "cartons", "services"];
 
   function picto(nom) {
     const cle = String(nom || "categories");

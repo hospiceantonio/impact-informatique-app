@@ -16,21 +16,32 @@
    ========================================================= */
 const VueCategories = (() => {
 
-  /* LES ICÔNES DES CATÉGORIES (3.56) : les douze de l'image choisie par
-     l'enseigne, reprises telles quelles et nommées comme sur l'image,
-     puis les quatre construites dans son style pour les catégories
-     qu'elle n'avait pas. Elles sont dans LES DEUX applications
-     (« img/pictos/ ») — une icône que l'admin propose et que le client
-     n'aurait pas laisserait une tuile vide. Une même icône peut servir
-     à plusieurs catégories. */
+  /* LES ICÔNES DES CATÉGORIES (3.56) : celles des trois planches choisies
+     par l'enseigne, reprises telles quelles et nommées comme sur les
+     planches, dans l'ordre des catégories — high-tech, enfants et école,
+     maison, mobilité, mode, alimentation, loisirs, professionnels,
+     services. Le tracteur et les cartons sont des variantes, pour
+     Agriculture & Élevage et Grossistes & Fournisseurs. Elles sont dans
+     LES DEUX applications (« img/pictos/ ») — une icône que l'admin
+     propose et que le client n'aurait pas laisserait une tuile vide. Une
+     même icône peut servir à plusieurs catégories. */
   const PICTOS = [
-    ["alimentation", "Alimentation"], ["restauration", "Restauration"], ["mode", "Mode"],
-    ["beaute", "Beauté"], ["telephones", "Téléphones"], ["informatique", "Informatique"],
-    ["electromenager", "Électroménager"], ["maison-deco", "Maison & Déco"],
-    ["auto-moto", "Auto & Moto"], ["sante", "Santé"], ["immobilier", "Immobilier"],
-    ["services", "Services"], ["bebe-enfant", "Bébé & Enfant"],
-    ["sport-loisirs", "Sport & Loisirs"], ["livres-education", "Livres & Éducation"],
-    ["animaux", "Animaux"],
+    ["informatique", "Informatique"], ["electromenager", "Électroménager"],
+    ["energie", "Énergie solaire & Électricité"], ["securite", "Sécurité & Surveillance"],
+    ["telephones", "Téléphones"], ["bebe-enfant", "Bébé & Enfants"],
+    ["livres-education", "Livres & Fournitures scolaires"], ["formation", "Formation & Cours"],
+    ["maison-deco", "Maison & Déco"], ["jardinage", "Jardinage & Espaces verts"],
+    ["bricolage", "Bricolage & Matériaux"], ["immobilier", "Immobilier"],
+    ["auto-moto", "Auto & Moto"], ["transport", "Transport & Location"],
+    ["mode", "Mode"], ["bijoux", "Bijoux & Accessoires"], ["beaute", "Beauté"],
+    ["sante", "Santé"], ["alimentation", "Alimentation"], ["restauration", "Restauration"],
+    ["agriculture", "Agriculture & Élevage"], ["tracteur", "Agriculture & Élevage (tracteur)"],
+    ["animaux", "Animaux"], ["sport-loisirs", "Sport & Loisirs"],
+    ["musique", "Musique & Instruments"], ["artisanat", "Artisanat & Produits locaux"],
+    ["cadeau", "Cadeaux & Fêtes"], ["evenementiel", "Événementiel & Décoration"],
+    ["bureau", "Équipements de bureau"], ["materiel-pro", "Matériel professionnel"],
+    ["imprimante", "Imprimerie & Communication"], ["grossistes", "Grossistes & Fournisseurs"],
+    ["cartons", "Grossistes & Fournisseurs (cartons)"], ["services", "Services"],
   ];
 
   /* Une catégorie enregistrée avec une icône qui ne figure pas dans les

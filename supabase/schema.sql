@@ -189,7 +189,7 @@ create table if not exists public.categories (
   couleur     text not null default '#0B5CF5',
   -- LA PHOTO DE LA TUILE, facultative (voir plus bas).
   image       text not null default '',
-  -- Les quinze ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
+  -- Les trente ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
   -- les autres attendent derrière « Voir toutes les catégories ».
   en_avant    boolean not null default false,
   ordre       int  not null default 0,
@@ -213,7 +213,9 @@ alter table public.categories add column if not exists en_avant boolean not null
 --     les applications jusqu'à la 3.55. La base en ligne les garde,
 --     parce que les applications déjà installées les montrent encore ;
 --     depuis la 3.56, les applications ne lisent plus ces chemins et
---     montrent l'icône. Plus aucune n'est posée.
+--     montrent l'icône. Seules les catégories nouvelles de la 3.56 en
+--     reçoivent encore une (« categories-rangement.sql »), pour ces
+--     mêmes applications installées.
 --
 -- Une adresse libre ferait charger à l'accueil de tous les clients une
 -- image posée n'importe où.
@@ -5859,7 +5861,7 @@ revoke all on function public.produits_populaires(int)
 grant execute on function public.produits_populaires(int) to anon, authenticated;
 
 -- ---------- La liste de BIZZOO ----------
--- Quinze secteurs, soixante-quatorze rayons. Ils arrivent une fois ;
+-- Vingt-neuf secteurs, cent vingt-trois rayons. Ils arrivent une fois ;
 -- ensuite c'est le superadministrateur qui les tient depuis
 -- l'application — renommer, réordonner, ajouter, retirer.
 --
@@ -5867,76 +5869,58 @@ grant execute on function public.produits_populaires(int) to anon, authenticated
 -- ne doit pas être remise à l'état d'usine à chaque relecture du
 -- fichier. Ce qui est posé reste posé.
 --
--- « en_avant » désigne les huit de l'accueil. Les quinze ne tiennent
--- pas sur un premier écran, et les montrer toutes reviendrait à n'en
--- montrer aucune.
+-- « en_avant » désigne les huit de l'accueil. Les vingt-neuf ne
+-- tiennent pas sur un premier écran, et les montrer toutes reviendrait
+-- à n'en montrer aucune.
 --
--- « icone » : l'icône de sa tuile, l'une de celles de l'image choisie
--- par l'enseigne (« img/pictos/ », dans les deux applications). Pas
--- d'image : l'icône suffit. Une base déjà en place reçoit les icônes
--- par « categories-icones.sql ».
+-- « ordre » range la liste par thème : high-tech, enfants et école,
+-- maison, mobilité, mode, alimentation, loisirs, professionnels,
+-- services. La place 3 est celle d'« Électro-ménagers & Cuisinière »,
+-- créée depuis l'admin sur la base en ligne.
+--
+-- « icone » : l'icône de sa tuile, l'une de celles des planches
+-- choisies par l'enseigne (« img/pictos/ », dans les deux
+-- applications). Pas d'image : l'icône suffit. Une base déjà en place
+-- reçoit les icônes par « categories-icones.sql », et la liste rangée
+-- par « categories-rangement.sql ».
 insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
-  ('cat_mode',         null, 'Mode & Vêtements',                   'mode',             '#6C3FBF', true,   1, ''),
-  ('cat_hightech',     null, 'High-Tech & Électronique',           'informatique',     '#0B5CF5', true,   2, ''),
-  ('cat_auto',         null, 'Auto & Moto',                        'auto-moto',        '#001450', true,   3, ''),
-  ('cat_maison',       null, 'Maison & Jardin',                    'maison-deco',      '#0F9D58', true,   4, ''),
-  ('cat_beaute',       null, 'Beauté & Bien-être',                 'beaute',           '#D81B60', true,   5, ''),
-  ('cat_restauration', null, 'Restauration & Alimentation',        'restauration',     '#F96302', true,   6, ''),
-  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'alimentation',     '#E62329', true,   7, ''),
-  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'informatique', '#0B7C8C', false,  8, ''),
-  ('cat_bebe',         null, 'Bébé & Enfant',                      'bebe-enfant',      '#3F51B5', false,  9, ''),
-  ('cat_sport',        null, 'Sport & Loisirs',                    'sport-loisirs',    '#9A6B00', false, 10, ''),
-  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'immobilier',       '#546E7A', false, 11, ''),
-  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livres-education', '#7A4A32', false, 12, ''),
-  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'mode',             '#6C3FBF', false, 13, ''),
-  ('cat_animaux',      null, 'Animaux',                            'animaux',          '#0F9D58', false, 14, ''),
-  ('cat_services',     null, 'Services',                           'services',         '#0B7C8C', true,  15, '')
+  ('cat_hightech',     null, 'Informatique & Électronique',   'informatique',     '#0B5CF5', true,   1, ''),
+  ('cat_logiciels',    null, 'Logiciels & Solutions pro',     'informatique',     '#0B7C8C', false,  2, ''),
+  ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',          '#2550B7', false,  4, ''),
+  ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',         '#2550B7', false,  5, ''),
+  ('cat_bebe',         null, 'Bébé & Enfants',                'bebe-enfant',      '#3F51B5', false,  6, ''),
+  ('cat_livres',       null, 'Livres & Fournitures scolaires', 'livres-education', '#7A4A32', false, 7, ''),
+  ('cat_formation',    null, 'Formation & Cours',             'formation',        '#2550B7', false,  8, ''),
+  ('cat_maison',       null, 'Maison & Déco',                 'maison-deco',      '#0F9D58', true,   9, ''),
+  ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',        '#2550B7', false, 10, ''),
+  ('cat_bricolage',    null, 'Bricolage & Matériaux',         'bricolage',        '#546E7A', false, 11, ''),
+  ('cat_auto',         null, 'Auto & Moto',                   'auto-moto',        '#001450', true,  12, ''),
+  ('cat_transport',    null, 'Transport & Location',          'transport',        '#2550B7', false, 13, ''),
+  ('cat_mode',         null, 'Mode & Vêtements',              'mode',             '#6C3FBF', true,  14, ''),
+  ('cat_bijoux',       null, 'Bijoux & Accessoires',          'bijoux',           '#6C3FBF', false, 15, ''),
+  ('cat_beaute',       null, 'Beauté & Bien-être',            'beaute',           '#D81B60', true,  16, ''),
+  ('cat_supermarche',  null, 'Supermarché & Épicerie',        'alimentation',     '#E62329', true,  17, ''),
+  ('cat_restauration', null, 'Restauration',                  'restauration',     '#F96302', true,  18, ''),
+  ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',      '#2550B7', false, 19, ''),
+  ('cat_animaux',      null, 'Animaux',                       'animaux',          '#0F9D58', false, 20, ''),
+  ('cat_sport',        null, 'Sport & Loisirs',               'sport-loisirs',    '#9A6B00', false, 21, ''),
+  ('cat_musique',      null, 'Musique & Instruments',         'musique',          '#2550B7', false, 22, ''),
+  ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',        '#2550B7', false, 23, ''),
+  ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',           '#2550B7', false, 24, ''),
+  ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel',     '#2550B7', false, 25, ''),
+  ('cat_bureau',       null, 'Équipements de bureau',         'bureau',           '#2550B7', false, 26, ''),
+  ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro',     '#2550B7', false, 27, ''),
+  ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',       '#2550B7', false, 28, ''),
+  ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',       '#2550B7', false, 29, ''),
+  ('cat_services',     null, 'Services & Prestataires',       'services',         '#0B7C8C', true,  30, '')
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values
-  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
-  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
-  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
-  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
-  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
-
   ('sc_hightech_smartphones',  'cat_hightech', 'Smartphones',       1),
   ('sc_hightech_ordinateurs',  'cat_hightech', 'Ordinateurs',       2),
   ('sc_hightech_tablettes',    'cat_hightech', 'Tablettes',         3),
   ('sc_hightech_accessoires',  'cat_hightech', 'Accessoires',       4),
   ('sc_hightech_tv',           'cat_hightech', 'TV & audio',        5),
-
-  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
-  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
-  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
-  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
-  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
-  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
-
-  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
-  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
-  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
-  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
-  ('sc_maison_jardinage',      'cat_maison', 'Jardinage',           5),
-
-  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
-  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
-  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
-  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
-  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
-
-  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
-  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
-  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
-  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
-  ('sc_resto_epicerie',        'cat_restauration', 'Épicerie',       5),
-  ('sc_resto_frais',           'cat_restauration', 'Produits frais', 6),
-
-  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
-  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
-  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
-  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
-  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
 
   ('sc_logiciels_gestion',     'cat_logiciels', 'Logiciels de gestion',      1),
   ('sc_logiciels_compta',      'cat_logiciels', 'Comptabilité',              2),
@@ -5945,10 +5929,96 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_logiciels_licences',    'cat_logiciels', 'Licences',                  5),
   ('sc_logiciels_entreprises', 'cat_logiciels', 'Solutions pour entreprises', 6),
 
+  ('sc_energie_solaire',        'cat_energie', 'Panneaux & kits solaires', 1),
+  ('sc_energie_batteries',      'cat_energie', 'Batteries & onduleurs',    2),
+  ('sc_energie_groupes',        'cat_energie', 'Groupes électrogènes',     3),
+  ('sc_energie_eclairage',      'cat_energie', 'Éclairage',                4),
+  ('sc_brico_electricite',      'cat_energie', 'Électricité',              5),
+
+  ('sc_securite_cameras',       'cat_securite', 'Caméras de surveillance',      1),
+  ('sc_securite_alarmes',       'cat_securite', 'Alarmes & détecteurs',         2),
+  ('sc_securite_acces',         'cat_securite', 'Serrures & contrôle d''accès', 3),
+
   ('sc_bebe_vetements',        'cat_bebe', 'Vêtements',             1),
   ('sc_bebe_jouets',           'cat_bebe', 'Jouets',                2),
   ('sc_bebe_puericulture',     'cat_bebe', 'Puériculture',          3),
   ('sc_bebe_mobilier',         'cat_bebe', 'Mobilier enfant',       4),
+
+  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
+  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
+  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
+
+  ('sc_livres_formations',      'cat_formation', 'Formations',                 1),
+  ('sc_formation_cours',        'cat_formation', 'Cours particuliers',         2),
+  ('sc_formation_langues',      'cat_formation', 'Langues',                    3),
+  ('sc_formation_informatique', 'cat_formation', 'Informatique & bureautique', 4),
+
+  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
+  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
+  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
+  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
+
+  ('sc_maison_jardinage',       'cat_jardinage', 'Jardinage',                  1),
+  ('sc_jardinage_plantes',      'cat_jardinage', 'Plantes & fleurs',           2),
+  ('sc_jardinage_outils',       'cat_jardinage', 'Outils de jardin',           3),
+  ('sc_jardinage_entretien',    'cat_jardinage', 'Entretien d''espaces verts', 4),
+
+  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
+  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
+  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
+  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+
+  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
+  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
+  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
+  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
+  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
+  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
+
+  ('sc_transport_location',     'cat_transport', 'Location de véhicules',     1),
+  ('sc_transport_demenagement', 'cat_transport', 'Déménagement',              2),
+  ('sc_transport_marchandises', 'cat_transport', 'Transport de marchandises', 3),
+  ('sc_transport_coursiers',    'cat_transport', 'Livraison & coursiers',     4),
+
+  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
+  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
+  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
+  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
+  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
+
+  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
+  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
+  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
+  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+
+  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
+  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
+  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
+  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
+  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
+
+  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
+  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
+  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
+  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
+  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
+  ('sc_resto_epicerie',        'cat_supermarche', 'Épicerie',           6),
+  ('sc_resto_frais',           'cat_supermarche', 'Produits frais',     7),
+
+  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
+  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
+  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
+  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
+
+  ('sc_agri_semences',          'cat_agriculture', 'Semences & plants',     1),
+  ('sc_agri_engrais',           'cat_agriculture', 'Engrais & traitements', 2),
+  ('sc_agri_materiel',          'cat_agriculture', 'Matériel agricole',     3),
+  ('sc_agri_elevage',           'cat_agriculture', 'Élevage',               4),
+  ('sc_agri_produits',          'cat_agriculture', 'Produits de la ferme',  5),
+
+  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
+  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
+  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
 
   ('sc_sport_equipements',     'cat_sport', 'Équipements sportifs', 1),
   ('sc_sport_vetements',       'cat_sport', 'Vêtements de sport',   2),
@@ -5956,25 +6026,40 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_sport_jeux',            'cat_sport', 'Jeux',                 4),
   ('sc_sport_loisirs',         'cat_sport', 'Loisirs',              5),
 
-  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
-  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
-  ('sc_brico_electricite',     'cat_bricolage', 'Électricité',                3),
-  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
-  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+  ('sc_musique_instruments',    'cat_musique', 'Instruments de musique', 1),
+  ('sc_musique_sono',           'cat_musique', 'Sonorisation',           2),
+  ('sc_musique_accessoires',    'cat_musique', 'Accessoires',            3),
 
-  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
-  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
-  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
-  ('sc_livres_formations',     'cat_livres', 'Formations',           4),
+  ('sc_artisanat_objets',       'cat_artisanat', 'Objets d''art & artisanat', 1),
+  ('sc_artisanat_tissus',       'cat_artisanat', 'Tissus & pagnes',           2),
+  ('sc_artisanat_locaux',       'cat_artisanat', 'Produits locaux',           3),
 
-  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
-  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
-  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
-  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+  ('sc_cadeaux_cadeaux',        'cat_cadeaux', 'Cadeaux',             1),
+  ('sc_cadeaux_fete',           'cat_cadeaux', 'Articles de fête',    2),
+  ('sc_cadeaux_emballages',     'cat_cadeaux', 'Emballages & cartes', 3),
 
-  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
-  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
-  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
+  ('sc_event_decoration',       'cat_evenementiel', 'Décoration d''événements',   1),
+  ('sc_event_location',         'cat_evenementiel', 'Location de matériel',       2),
+  ('sc_event_organisation',     'cat_evenementiel', 'Organisation d''événements', 3),
+
+  ('sc_bureau_mobilier',        'cat_bureau', 'Mobilier de bureau',    1),
+  ('sc_bureau_materiel',        'cat_bureau', 'Matériel de bureau',    2),
+  ('sc_bureau_fournitures',     'cat_bureau', 'Fournitures de bureau', 3),
+
+  ('sc_pro_restauration',       'cat_materiel_pro', 'Équipements de restauration',   1),
+  ('sc_pro_salon',              'cat_materiel_pro', 'Équipements de salon & beauté', 2),
+  ('sc_pro_machines',           'cat_materiel_pro', 'Machines professionnelles',     3),
+  ('sc_pro_medical',            'cat_materiel_pro', 'Matériel médical',              4),
+
+  ('sc_imprimerie_impression',  'cat_imprimerie', 'Impression',                1),
+  ('sc_imprimerie_enseignes',   'cat_imprimerie', 'Enseignes & signalétique',  2),
+  ('sc_imprimerie_objets',      'cat_imprimerie', 'Objets publicitaires',      3),
+  ('sc_imprimerie_graphisme',   'cat_imprimerie', 'Graphisme & communication', 4),
+
+  ('sc_gros_alimentation',      'cat_grossistes', 'Alimentation en gros',        1),
+  ('sc_gros_boissons',          'cat_grossistes', 'Boissons en gros',            2),
+  ('sc_gros_hygiene',           'cat_grossistes', 'Hygiène & entretien en gros', 3),
+  ('sc_gros_emballages',        'cat_grossistes', 'Emballages',                  4),
 
   ('sc_services_reparation',   'cat_services', 'Réparation',              1),
   ('sc_services_installation', 'cat_services', 'Installation',            2),

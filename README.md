@@ -1421,8 +1421,9 @@ l'acheteur autant de classements qu'il y a de commerces —
 « Ordinateurs » chez l'un ne rejoint jamais « Ordinateurs » chez
 l'autre, et aucune liste ne peut plus les réunir.
 
-La liste est désormais celle de **BIZZOO** : quinze secteurs,
-soixante-quatorze rayons, écrits par le **superadministrateur seul**.
+La liste est désormais celle de **BIZZOO** : trente secteurs rangés par
+thème, et leurs rayons, écrits par le **superadministrateur seul** (voir
+« La liste rangée », plus bas).
 
 ```
 Catégorie de BIZZOO            ← l'enseigne l'écrit
@@ -1475,7 +1476,7 @@ vide, elle, reste au menu — un menu annonce aussi ce qu'on peut venir y
 chercher.
 
 Sur l'accueil, l'enseigne en met quelques-unes en avant ; les autres
-attendent derrière « Voir toutes les catégories ». Quinze lignes sur un
+attendent derrière « Voir toutes les catégories ». Trente lignes sur un
 premier écran, c'est n'en montrer aucune.
 
 **Un défaut que le banc a laissé passer, et pourquoi.** Enregistrer un
@@ -1516,63 +1517,153 @@ permettre le changement de secteur à la main.
 
 ## Les icônes des catégories (3.56)
 
-L'enseigne a choisi une planche de douze icônes — trait bleu nuit, une
-touche orange, sur un carré bleu-gris aux coins ronds — et demandé
-**exactement celles-là**, attribuées aux catégories. Ce sont elles,
-**telles quelles** : chacune est découpée dans l'image
-([`docs/icones-categories-source.webp`](docs/icones-categories-source.webp)),
-sans le nom écrit dessous, et son fond est rendu transparent. Rien n'y
-est redessiné.
+L'enseigne a choisi trois planches d'icônes — trait bleu nuit, une
+touche orange — et demandé **exactement celles-là**, attribuées aux
+catégories :
 
-Quatre catégories n'avaient pas d'icône dans l'image ; l'enseigne a
-demandé qu'on leur en construise une **dans le même style** : Bébé &
-Enfant (une poussette), Sport & Loisirs (un ballon), Livres & Éducation
-(un livre ouvert) et Animaux (une patte). Elles sont faites avec les
-mesures de l'image elle-même — trait de 11 px à son échelle, bleu nuit
-`#042149` et orange `#FB5A03` relevés dans ses pixels — et posées sur
-le même carré que les douze : aucune n'est agrandie plus qu'une autre.
+- la première, douze icônes sur des carrés bleu-gris
+  ([`docs/icones-categories-source.webp`](docs/icones-categories-source.webp)) :
+  Alimentation, Restauration, Mode, Beauté, Téléphones, Informatique,
+  Électroménager, Maison & Déco, Auto & Moto, Santé, Immobilier,
+  Services ;
+- les deux suivantes, vingt-deux icônes sur des carrés blancs
+  ([`-2.jpg`](docs/icones-categories-source-2.jpg),
+  [`-3.jpg`](docs/icones-categories-source-3.jpg)) : Bébé & Enfants,
+  Sport & Loisirs, Bijoux & Accessoires, Livres & Fournitures scolaires,
+  Bricolage & Matériaux, Animaux, Agriculture & Élevage, Cadeaux & Fêtes,
+  Équipements de bureau, Grossistes & Fournisseurs, Énergie solaire &
+  Électricité, Sécurité & Surveillance, Musique & Instruments,
+  Artisanat & Produits locaux, Jardinage & Espaces verts, Imprimerie &
+  Communication, Événementiel & Décoration, Matériel professionnel,
+  Transport & Location, Formation & Cours — plus un tracteur et des
+  cartons, variantes d'Agriculture et de Grossistes.
+
+Ce sont elles, **telles quelles** : chacune est découpée dans sa
+planche, sans le nom écrit dessous, et le fond de sa tuile est rendu
+transparent. Rien n'y est redessiné ni recoloré — le bleu nuit des
+planches blanches est un peu plus sombre, leur orange un peu plus
+jaune, et ce sont les leurs. Les quatre icônes construites un temps
+dans le style de la première planche (Bébé, Sport, Livres, Animaux)
+cèdent la place à celles des planches.
+
+Les planches n'ont pas la même échelle : les icônes des planches
+blanches sont ramenées à la taille médiane des douze premières, et
+toutes se posent sur le même carré. Les douze premières restent
+identiques au pixel près ; le trait des vingt-deux autres est plus fin,
+comme sur leurs planches.
 
 ### Sur l'écran
 
-- **L'accueil** : les huit catégories en tuiles, comme sur l'image —
-  le carré bleu-gris, l'icône, le nom dessous, dans la tuile. Le nom
-  tient sur deux lignes au plus (« Électro- / ménagers ») ; un seul mot
-  trop long pour la tuile finit par « … » au lieu d'être coupé net.
+- **L'accueil** : les huit catégories en tuiles, comme sur les
+  planches — le carré bleu-gris, l'icône, le nom dessous, dans la
+  tuile. Le nom tient sur deux lignes au plus (« Électro- / ménagers ») ;
+  un seul mot trop long pour la tuile finit par « … » au lieu d'être
+  coupé net.
 - **L'écran « Catégories »** : la même tuile, en petit, devant chaque
   nom.
 - **L'admin** : la même pastille dans la liste ; dans la fiche
-  (Catégories → Modifier), le choix de l'**icône** montre les seize sur
-  leur tuile — les douze de l'image d'abord, sous leurs noms. Une même
-  icône peut servir à plusieurs catégories.
+  (Catégories → Modifier), le choix de l'**icône** montre les
+  trente-quatre sur leur tuile, dans l'ordre des catégories et sous les
+  noms des planches. Une même icône peut servir à plusieurs catégories.
 
 La couleur de chaque catégorie ne se choisit plus : toutes les tuiles
-ont le fond de l'image. La base garde la couleur de chacune, parce que
-les applications d'avant s'en servent encore.
+ont le même fond. La base garde la couleur de chacune, parce que les
+applications d'avant s'en servent encore.
 
-### Qui a quelle icône
+### La liste rangée
 
-| Catégorie | Icône |
-|-----------|-------|
-| Informatique et électronique | Informatique |
-| Bébé & Enfant | Bébé & Enfant *(construite)* |
-| Logiciels & Solutions pro | Informatique |
-| Électro-ménagers & Cuisinière | Électroménager |
-| Auto & Moto | Auto & Moto |
-| Mode & Vêtements | Mode |
-| Maison & Jardin | Maison & Déco |
-| Beauté & Bien-être | Beauté |
-| Restauration & Alimentation | Restauration |
-| Supermarché & Épicerie | Alimentation |
-| Sport & Loisirs | Sport & Loisirs *(construite)* |
-| Btp et matériaux | Immobilier |
-| Livres, Éducation & Fournitures | Livres & Éducation *(construite)* |
-| Bijoux & Accessoires | Mode |
-| Animaux | Animaux *(construite)* |
-| Services | Services |
-| Prestataires de services | Services |
+Les nouvelles planches apportaient leurs catégories. Rapprochées de
+celles qui existaient, elles donnent une liste de **trente**, rangée par
+thème ([`categories-rangement.sql`](supabase/categories-rangement.sql),
+à appliquer sur la base en ligne — voir plus bas) :
 
-Téléphones et Santé ne servent encore à aucune catégorie ; elles sont
-dans le choix de la fiche pour celles qui viendront.
+| # | Catégorie | Icône | Accueil |
+|---|-----------|-------|---------|
+| 1 | Informatique & Électronique | Informatique | ✔ |
+| 2 | Logiciels & Solutions pro | Informatique | ✔ |
+| 3 | Électro-ménagers & Cuisinière | Électroménager | ✔ |
+| 4 | Énergie solaire & Électricité *(nouvelle)* | Énergie solaire & Électricité | |
+| 5 | Sécurité & Surveillance *(nouvelle)* | Sécurité & Surveillance | |
+| 6 | Bébé & Enfants | Bébé & Enfants | ✔ |
+| 7 | Livres & Fournitures scolaires | Livres & Fournitures scolaires | ✔ |
+| 8 | Formation & Cours *(nouvelle)* | Formation & Cours | |
+| 9 | Maison & Déco | Maison & Déco | ✔ |
+| 10 | Jardinage & Espaces verts *(nouvelle)* | Jardinage & Espaces verts | |
+| 11 | Bricolage & Matériaux | Bricolage & Matériaux | ✔ |
+| 12 | Auto & Moto | Auto & Moto | ✔ |
+| 13 | Transport & Location *(nouvelle)* | Transport & Location | |
+| 14 | Mode & Vêtements | Mode | |
+| 15 | Bijoux & Accessoires | Bijoux & Accessoires | |
+| 16 | Beauté & Bien-être | Beauté | |
+| 17 | Supermarché & Épicerie | Alimentation | |
+| 18 | Restauration | Restauration | |
+| 19 | Agriculture & Élevage *(nouvelle)* | Agriculture & Élevage (feuille et épi) | |
+| 20 | Animaux | Animaux | |
+| 21 | Sport & Loisirs | Sport & Loisirs | |
+| 22 | Musique & Instruments *(nouvelle)* | Musique & Instruments | |
+| 23 | Artisanat & Produits locaux *(nouvelle)* | Artisanat & Produits locaux | |
+| 24 | Cadeaux & Fêtes *(nouvelle)* | Cadeaux & Fêtes | |
+| 25 | Événementiel & Décoration *(nouvelle)* | Événementiel & Décoration | |
+| 26 | Équipements de bureau *(nouvelle)* | Équipements de bureau | |
+| 27 | Matériel professionnel *(nouvelle)* | Matériel professionnel | |
+| 28 | Imprimerie & Communication *(nouvelle)* | Imprimerie & Communication | |
+| 29 | Grossistes & Fournisseurs *(nouvelle)* | Grossistes & Fournisseurs | |
+| 30 | Services & Prestataires | Services | |
+
+Ce que le rangement a changé :
+
+- **quatorze catégories nouvelles**, avec quelques rayons de départ
+  chacune, que l'enseigne retouche dans l'admin ;
+- **les noms des planches** pour celles qui existaient : « Bébé &
+  Enfants », « Livres & Fournitures scolaires », « Bricolage &
+  Matériaux » (c'était « Btp et matériaux. ») ; et ceux qu'imposait le
+  rangement : « Maison & Déco » (le jardinage a sa catégorie),
+  « Restauration » (l'alimentation, c'est le supermarché),
+  « Informatique & Électronique » (le « & » de toutes). « Électro-ménagers
+  & Cuisinière », nommée par l'enseigne, garde son nom ;
+- **des rayons vides déménagent**, pour qu'un même rayon ne soit pas à
+  deux endroits : Électricité (de Bricolage vers Énergie solaire),
+  Formations (de Livres vers Formation & Cours), Jardinage (de Maison
+  vers Jardinage & Espaces verts), Épicerie et Produits frais (de
+  Restauration vers le supermarché) ;
+- **« Prestataires de services » rejoint « Services »**, qui devient
+  « Services & Prestataires » : ses rayons (Électricien, Informaticien,
+  Vitrier, Plombier) y passent, et son « Informaticien » remplace
+  « Informatique » ;
+- **Bijoux & Accessoires et Bricolage & Matériaux** ont leur icône à
+  elles : elles portaient celles de Mode et d'Immobilier ;
+- **l'ordre par thème** : high-tech, enfants et école, maison,
+  mobilité, mode, alimentation, loisirs, professionnels, services. Les
+  huit de l'accueil restent les mêmes ; les flèches de la liste, dans
+  l'admin, changent l'ordre si l'enseigne en préfère un autre.
+
+Rien ne s'y perd : un rayon qui a des produits ne déménage pas, une
+catégorie qui a des produits ou des boutiques ne s'efface pas, aucun
+produit ne change de rayon. Un nom ou une icône que l'enseigne avait
+déjà changés ne sont pas touchés. Le fichier ne joue **qu'une fois** :
+dès que l'une des quatorze existe, il ne fait plus rien — le rejouer ne
+défait jamais un nom, un ordre ou une suppression décidés depuis dans
+l'admin. Une base neuve naît déjà rangée : `schema.sql` sème les
+vingt-neuf (toutes sauf « Électro-ménagers & Cuisinière », créée depuis
+l'admin) et leurs cent vingt-trois rayons.
+
+Téléphones, Santé et Immobilier ne servent encore à aucune catégorie ;
+elles restent dans le choix de la fiche, avec le tracteur et les
+cartons, pour celles qui viendront.
+
+[`tests/99s-categories-rangement.sql`](supabase/tests/99s-categories-rangement.sql)
+éprouve le rangement en 38 constats. Il refait la base en ligne
+d'avant — ses dix-sept catégories, dont les deux créées depuis l'admin,
+ses noms, ses illustrations, son ordre, ses huit de l'accueil — et lui
+colle `categories-rangement.sql` : elle arrive exactement à la liste de
+`schema.sql` (les quatorze, leurs rayons, les noms, les icônes,
+l'ordre), sans qu'aucun produit change de rayon ni aucune boutique de
+secteur. Rejoué après des retouches dans l'admin, le fichier ne fait
+rien. Une seconde fois, avec un nom déjà changé par l'enseigne, un
+produit dans un rayon qui devait déménager et une boutique rangée dans
+« Prestataires » : le nom reste, le rayon reste, « Prestataires » ne
+s'efface pas. Deux sabotages font tomber chacun un constat : laisser
+déménager un rayon qui a des produits, laisser le fichier rejouer.
 
 ### Sans gêner les applications déjà installées
 
@@ -1585,31 +1676,46 @@ dans les applications 3.54 et 3.55 : elles posent leur illustration en
 plus ces chemins** : elles montrent l'icône. Personne ne voit sa tuile
 se vider le jour de la mise à jour.
 
+Les catégories nouvelles, elles, n'existaient pas pour ces
+applications. Sept reçoivent l'illustration d'avant qui dit la même
+chose : le panier tressé (Artisanat), la plante en pot (Jardinage,
+Agriculture), la mallette (Bureau), les outils (Matériel
+professionnel), la moto (Transport), les livres (Formation). Trois ont
+une clé que l'application cliente d'avant sait dessiner d'un trait
+(`energie`, `cadeau`, `imprimante`). Sécurité, Musique, Événementiel et
+Grossistes n'ont ni l'un ni l'autre : dans une application 3.54 ou
+3.55, leur pastille reste une pastille de couleur, sans dessin, jusqu'à
+la mise à jour.
+
 La fiche de l'admin ne réécrit la photo **que si on l'a touchée** :
 renommer une catégorie ou changer son icône laisse l'illustration
 d'avant en place pour les applications installées. Une vraie photo,
 elle, recouvre l'icône partout.
 
-Une icône qui ne fait pas partie des seize — choisie avec une admin
-d'avant — garde son dessin d'un trait, en bleu nuit ; une icône
+Une icône qui ne fait pas partie des trente-quatre — choisie avec une
+admin d'avant — garde son dessin d'un trait, en bleu nuit ; une icône
 inconnue retombe sur celle des rayons. Jamais une tuile vide.
 
-À coller dans Supabase :
+À coller dans Supabase, dans l'ordre :
 [`categories-icones.sql`](supabase/categories-icones.sql) (déjà
-appliqué sur la base en ligne). Il ne touche qu'une catégorie qui a
-**encore son ancienne icône** : rejoué, il ne défait jamais un choix
-fait depuis dans l'admin, et il ne touche pas à l'image.
+appliqué sur la base en ligne), puis
+[`categories-rangement.sql`](supabase/categories-rangement.sql) (pas
+encore : il attend l'accord de l'enseigne, parce qu'il efface
+« Prestataires de services » une fois ses rayons déplacés). Le premier
+ne touche qu'une catégorie qui a **encore son ancienne icône** ; le
+second ne joue qu'une fois. Rejoués, ni l'un ni l'autre ne défait un
+choix fait depuis dans l'admin, et aucun ne touche à l'image d'une
+catégorie qui existait.
 
 ### Refaire les icônes
 
 ```bash
-node tools/icones-categories-construites.mjs /tmp/construites
-python3 tools/icones-categories.py docs/icones-categories-source.webp /tmp/construites
+python3 tools/icones-categories.py
 ```
 
-Le premier construit les quatre (Playwright), le second découpe les
-douze et pose les seize dans les deux applications. Refaites ainsi,
-elles sont identiques, octet pour octet, à celles du dépôt.
+Il découpe les trente-quatre dans les trois planches de `docs/` et les
+pose dans les deux applications. Refaites ainsi, elles sont identiques,
+octet pour octet, à celles du dépôt.
 
 ## La photo d'une catégorie
 
@@ -1627,7 +1733,9 @@ De la 3.47 à la 3.55, chaque catégorie portait d'office une
 MIT) sur le fond pastel de sa couleur, embarqué dans les deux
 applications (`img/categories/`). Depuis la 3.56, ce sont les icônes de
 l'enseigne (voir plus haut) : les illustrations ne voyagent plus avec
-les applications, et `categories-photos.sql` n'en pose plus.
+les applications, et `categories-photos.sql` n'en pose plus. Seules
+sept catégories nouvelles en reçoivent une, de `categories-rangement.sql`,
+pour les applications installées.
 
 La base en ligne **garde leurs chemins** (`img/categories/robe.jpg`…) :
 les applications 3.54 et 3.55 déjà installées les montrent encore. Les
@@ -1701,15 +1809,17 @@ trait, illustrations par-dessus — et lui recolle
 et rejoué, le fichier ne défait pas un choix fait dans l'admin.
 
 [`tools/banc-categories-photos.mjs`](tools/banc-categories-photos.mjs) en
-ajoute 123 au navigateur, dans les deux applications : les seize icônes
-identiques, octet pour octet, et connues des trois codes qui les
-nomment ; chaque tuile montre l'icône que la base lui donne, lue à côté
+ajoute 128 au navigateur, dans les deux applications : les trente-quatre
+icônes identiques, octet pour octet, et connues des trois codes qui les
+nomment ; « cadeau », qui est aussi le nom d'un dessin d'un trait
+d'avant, montre celle de la planche ; chaque tuile montre l'icône que la base lui donne, lue à côté
 de la page ; la photo la recouvre (mesuré) et l'icône revient quand la
 photo manque ; une illustration d'avant n'est même pas demandée ; une
 icône d'avant garde son trait, une inconnue retombe sur celle des
 rayons ; rien ne déborde à 320 px, le chemin est échappé ; dans l'admin,
-le choix des seize, et ce qui part au stockage et vers la base, corps
-compris — ni couleur ni photo réécrites sans raison.
+le choix des trente-quatre, dans l'ordre des catégories, et ce qui part
+au stockage et vers la base, corps compris — ni couleur ni photo
+réécrites sans raison.
 
 Trois sabotages, un par un, et chacun fait tomber au moins un constat :
 relire les illustrations d'avant chez le client (elles sont demandées
@@ -3360,6 +3470,7 @@ impact-informatique-app/
 │   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
 │   ├── categories-photos.sql        # La photo d'une catégorie : un chemin, un seul dossier
 │   ├── categories-icones.sql        # L'icône de chaque catégorie (3.56), sans toucher à l'image
+│   ├── categories-rangement.sql     # Trente catégories rangées par thème (3.56), une seule fois
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
 │   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
@@ -3415,8 +3526,7 @@ impact-informatique-app/
     ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique et compte-enseigne
     ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
-    ├── icones-categories.py     # Les icônes des catégories, découpées dans l'image
-    ├── icones-categories-construites.mjs # Les quatre construites dans son style
+    ├── icones-categories.py  # Les icônes des catégories, découpées dans les trois planches
     ├── make-icons.js         # Icônes PWA + Android + notification (node tools/make-icons.js)
     ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)

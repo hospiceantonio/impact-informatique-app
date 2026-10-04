@@ -2,9 +2,8 @@
    Les icônes et la photo d'une catégorie
    =========================================================
    CE QU'ON VÉRIFIE (3.56). La tuile d'une catégorie montre l'une
-   des icônes de l'image choisie par l'enseigne — les douze telles
-   quelles, et quatre construites dans son style —, rangées dans
-   l'application (« img/pictos/ »). L'enseigne peut poser une photo
+   des icônes des trois planches choisies par l'enseigne — reprises
+   telles quelles —, rangées dans l'application (« img/pictos/ »). L'enseigne peut poser une photo
    par-dessus depuis l'admin (Catégories → Modifier) ; elle va dans
    « enseigne/categories/ », le seul dossier que la base accepte pour
    elle.
@@ -28,7 +27,8 @@
         l'écran ne compte pas sur elle ;
      6. LA LISTE DE BIZZOO telle que schema.sql la sème montre
         chacune son icône ;
-     7. DANS L'ADMIN, la fiche propose les seize icônes, et celle
+     7. DANS L'ADMIN, la fiche propose les trente-quatre icônes, dans
+        l'ordre des catégories, et celle
         qu'on choisit part vers la base — sans réécrire ni la couleur
         ni la photo ; une illustration d'avant n'est jamais effacée en
         passant ; poser, remplacer, retirer une photo : le fichier part
@@ -160,7 +160,7 @@ const listeDuCode = (fichier) => {
 
 titre("Les mêmes icônes dans les deux applications");
 {
-  ok(ICONES.length === 16, "seize icônes dans le client (" + ICONES.length + ")");
+  ok(ICONES.length === 34, "trente-quatre icônes dans le client (" + ICONES.length + ")");
   const admin = readdirSync(RACINE + "admin/img/pictos").filter((f) => f.endsWith(".png")).sort();
   ok(admin.join() === ICONES.map((n) => n + ".png").join(), "les mêmes fichiers dans l'admin");
   ok(ICONES.every((n) => readFileSync(RACINE + "client/img/pictos/" + n + ".png")
@@ -168,7 +168,7 @@ titre("Les mêmes icônes dans les deux applications");
     "octet pour octet");
   for (const fichier of ["client/js/ui.js", "admin/js/ui.js", "admin/js/vues/categories.js"]) {
     ok(listeDuCode(fichier).join() === ICONES.join(),
-      fichier + " connaît exactement ces seize-là");
+      fichier + " connaît exactement ces trente-quatre-là");
   }
 }
 
@@ -187,9 +187,10 @@ const CAT = [
   { id: "cat_4", nom: "Catégorie d'avant", icone: "tshirt", image: "" },
   /* Une icône que personne ne sait dessiner. */
   { id: "cat_5", nom: "Inconnue", icone: "n-existe-pas", image: "" },
-  /* Deux des quatre construites dans le style de l'image. */
-  { id: "cat_6", nom: "Bébé & Enfant", icone: "bebe-enfant", image: "" },
-  { id: "cat_7", nom: "Animaux", icone: "animaux", image: "" },
+  /* Deux des nouvelles planches. « cadeau » est AUSSI le nom d'une icône
+     d'un trait d'avant la 3.56 : c'est celle de la planche qui l'emporte. */
+  { id: "cat_6", nom: "Bébé & Enfants", icone: "bebe-enfant", image: "" },
+  { id: "cat_7", nom: "Cadeaux & Fêtes", icone: "cadeau", image: "" },
 ].map((c, i) => ({ ...c, couleur: "#0B5CF5", en_avant: true, ordre: i + 1, sous_categories: [] }));
 
 async function ouvrirClient(largeur, { categories = CAT, route = "#/" } = {}) {
@@ -259,7 +260,7 @@ const demandes = (page) => page.evaluate(() => performance.getEntriesByType("res
   .map((e) => e.name).filter((n) => /\/(categories|pictos)\//.test(n)));
 
 const verifierTuiles = (t, ou) => {
-  const [photo, cassee, seule, illustration, avant, inconnue, bebe, animaux] = t;
+  const [photo, cassee, seule, illustration, avant, inconnue, bebe, cadeau] = t;
   ok(photo && /\/storage\/v1\/object\/public\/produits\/enseigne\/categories\/cat_photo0\.jpg$/
       .test(photo.photo || ""), ou + " : la photo vient du stockage public (" + (photo && photo.photo) + ")");
   ok(photo && photo.chargee && photo.auDessus && photo.couvre && photo.cover,
@@ -279,9 +280,10 @@ const verifierTuiles = (t, ou) => {
     ou + " : une icône choisie avant la 3.56 garde son dessin d'un trait");
   ok(inconnue && inconnue.icone === null && inconnue.trait === "#i-categories",
     ou + " : une icône inconnue retombe sur celle des rayons — jamais une tuile vide");
-  ok(bebe && bebe.icone === "img/pictos/bebe-enfant.png" && bebe.iconeChargee &&
-     animaux && animaux.icone === "img/pictos/animaux.png" && animaux.iconeChargee,
-    ou + " : les icônes construites dans le style de l'image se chargent aussi");
+  ok(bebe && bebe.icone === "img/pictos/bebe-enfant.png" && bebe.iconeChargee,
+    ou + " : les icônes des nouvelles planches se chargent aussi");
+  ok(cadeau && cadeau.icone === "img/pictos/cadeau.png" && cadeau.iconeChargee && cadeau.trait === null,
+    ou + " : « cadeau », nom d'une icône d'un trait d'avant, montre celle de la planche");
 };
 
 for (const L of [390, 320]) {
@@ -344,7 +346,7 @@ const SEMENCE = [...readFileSync(new URL("../supabase/schema.sql", import.meta.u
 
 titre("La liste de BIZZOO : chacune son icône");
 {
-  ok(SEMENCE.length === 15, "schema.sql sème quinze catégories (" + SEMENCE.length + ")");
+  ok(SEMENCE.length === 29, "schema.sql sème vingt-neuf catégories (" + SEMENCE.length + ")");
   ok(SEMENCE.every((c) => ICONES.includes(c.icone) && c.image === ""),
     "chacune avec une icône de l'application, sans image");
   const { page, ctx, erreurs } = await ouvrirClient(390, { categories: SEMENCE });
@@ -358,8 +360,8 @@ titre("La liste de BIZZOO : chacune son icône");
   const { page: p2, ctx: c2 } = await ouvrirClient(360, { categories: SEMENCE, route: "#/categories" });
   const l = await lireTuiles(p2, ".cat-ligne .cat-pastille");
   const triees = SEMENCE.slice().sort((a, b) => a.ordre - b.ordre);
-  ok(l.length === 15 && l.every((x, i) => x.icone === "img/pictos/" + triees[i].icone + ".png" && x.iconeChargee),
-    "l'écran « Catégories » : les quinze, chacune son icône (" + l.length + ")");
+  ok(l.length === 29 && l.every((x, i) => x.icone === "img/pictos/" + triees[i].icone + ".png" && x.iconeChargee),
+    "l'écran « Catégories » : les vingt-neuf, chacune son icône (" + l.length + ")");
   await p2.screenshot({ path: (process.env.CAPTURES || "/tmp") + "/categories-icones-liste.png" })
     .catch(() => {});
   await c2.close();
@@ -494,18 +496,23 @@ titre("Admin : la liste montre l'icône, et la photo par-dessus");
   await ctx.close();
 }
 
-titre("Admin : choisir l'une des seize icônes");
+titre("Admin : choisir l'une des trente-quatre icônes");
 {
   const { page, ctx, erreurs, envois, ecritures } = await ouvrirAdmin();
   await modifier(page, "cat_auto");
   await page.waitForTimeout(600);
   const g = await choix(page);
-  ok(g.nombre === 16 && g.cles.slice().sort().join() === ICONES.join(),
-    "la fiche propose les seize icônes (" + g.nombre + ")");
-  ok(g.chargees === 16, "toutes existent dans l'admin, et se chargent (" + g.chargees + ")");
-  ok(g.noms.slice(0, 12).join("|") === "Alimentation|Restauration|Mode|Beauté|Téléphones|" +
-     "Informatique|Électroménager|Maison & Déco|Auto & Moto|Santé|Immobilier|Services",
-    "les douze de l'image d'abord, sous les noms de l'image");
+  ok(g.nombre === 34 && g.cles.slice().sort().join() === ICONES.join(),
+    "la fiche propose les trente-quatre icônes (" + g.nombre + ")");
+  ok(g.chargees === 34, "toutes existent dans l'admin, et se chargent (" + g.chargees + ")");
+  ok(g.noms.slice(0, 4).join("|") === "Informatique|Électroménager|" +
+     "Énergie solaire & Électricité|Sécurité & Surveillance" && g.noms[g.noms.length - 1] === "Services",
+    "dans l'ordre des catégories, sous les noms des planches : le high-tech d'abord, les services à la fin");
+  ok(new Set(g.noms).size === g.noms.length && g.noms.every((n) => n && n.trim()),
+    "chacune son nom, sans doublon");
+  ok(g.cles.indexOf("tracteur") === g.cles.indexOf("agriculture") + 1 &&
+     g.cles.indexOf("cartons") === g.cles.indexOf("grossistes") + 1,
+    "le tracteur et les cartons juste après l'icône qu'ils remplacent au besoin");
   ok(g.actives.join() === "auto-moto", "celle de la catégorie est allumée (" + g.actives.join() + ")");
   ok(await page.evaluate(() => !document.querySelector("#cat-couleurs, #cat-illustrations")),
     "ni couleur ni galerie d'illustrations à choisir : les tuiles ont toutes le même fond");
@@ -533,8 +540,8 @@ titre("Admin : une catégorie d'avant garde son icône");
   const { page, ctx, ecritures } = await ouvrirAdmin();
   await modifier(page, "cat_vieille");
   const g = await choix(page);
-  ok(g.nombre === 17 && g.actives.join() === "tshirt",
-    "son icône d'avant s'ajoute aux seize, allumée (" + g.nombre + ", " + g.actives.join() + ")");
+  ok(g.nombre === 35 && g.actives.join() === "tshirt",
+    "son icône d'avant s'ajoute aux trente-quatre, allumée (" + g.nombre + ", " + g.actives.join() + ")");
   await page.fill("#cat-nom", "Catégorie renommée");
   await enregistrer(page);
   const patch = patchDe(ecritures, "cat_vieille")[0];

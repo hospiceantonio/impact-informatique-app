@@ -56,20 +56,24 @@ select essai.verifie(
 -- écran à s'en méfier.
 create temp table essai_icones (id text primary key, icone text not null);
 insert into essai_icones values
-  ('cat_mode', 'mode'), ('cat_hightech', 'informatique'), ('cat_auto', 'auto-moto'),
-  ('cat_maison', 'maison-deco'), ('cat_beaute', 'beaute'), ('cat_restauration', 'restauration'),
-  ('cat_supermarche', 'alimentation'), ('cat_logiciels', 'informatique'),
-  ('cat_bebe', 'bebe-enfant'), ('cat_sport', 'sport-loisirs'), ('cat_bricolage', 'immobilier'),
-  ('cat_livres', 'livres-education'), ('cat_bijoux', 'mode'), ('cat_animaux', 'animaux'),
-  ('cat_services', 'services');
+  ('cat_hightech', 'informatique'), ('cat_logiciels', 'informatique'), ('cat_energie', 'energie'),
+  ('cat_securite', 'securite'), ('cat_bebe', 'bebe-enfant'), ('cat_livres', 'livres-education'),
+  ('cat_formation', 'formation'), ('cat_maison', 'maison-deco'), ('cat_jardinage', 'jardinage'),
+  ('cat_bricolage', 'bricolage'), ('cat_auto', 'auto-moto'), ('cat_transport', 'transport'),
+  ('cat_mode', 'mode'), ('cat_bijoux', 'bijoux'), ('cat_beaute', 'beaute'),
+  ('cat_supermarche', 'alimentation'), ('cat_restauration', 'restauration'),
+  ('cat_agriculture', 'agriculture'), ('cat_animaux', 'animaux'), ('cat_sport', 'sport-loisirs'),
+  ('cat_musique', 'musique'), ('cat_artisanat', 'artisanat'), ('cat_cadeaux', 'cadeau'),
+  ('cat_evenementiel', 'evenementiel'), ('cat_bureau', 'bureau'), ('cat_materiel_pro', 'materiel-pro'),
+  ('cat_imprimerie', 'imprimante'), ('cat_grossistes', 'grossistes'), ('cat_services', 'services');
 select essai.egal(
   (select count(*)::text from public.categories c join essai_icones p using (id)
     where c.icone = p.icone),
-  '15', 'les quinze de BIZZOO arrivent chacune avec son icône');
+  '29', 'les vingt-neuf de BIZZOO arrivent chacune avec son icône');
 select essai.egal(
   (select count(*)::text from public.categories c join essai_icones p using (id)
     where c.image = ''),
-  '15', 'et sans image : l''icône suffit');
+  '29', 'et sans image : l''icône suffit');
 select essai.verifie(
   not exists (select 1 from public.categories where image is null),
   'aucune image n''est nulle');
@@ -304,10 +308,14 @@ set client_min_messages = warning;
 \i :fichier
 set client_min_messages = notice;
 \o
+-- Bijoux et Bricolage reçoivent ici celles de Mode et d'Immobilier :
+-- leurs icônes à elles viennent avec « categories-rangement.sql »
+-- (voir 99s-categories-rangement.sql).
 select essai.egal(
   (select count(*)::text from public.categories c join essai_icones i using (id)
-    where c.icone = i.icone),
-  '15', 'chacune des quinze reçoit son icône');
+    where c.icone = case c.id when 'cat_bijoux' then 'mode'
+                              when 'cat_bricolage' then 'immobilier' else i.icone end),
+  '29', 'chacune des quinze reçoit son icône, et les quatorze nouvelles gardent la leur');
 select essai.egal(
   (select image from public.categories where id = 'cat_mode'),
   'img/categories/robe.jpg', 'l''illustration d''avant reste, pour les applications installées');

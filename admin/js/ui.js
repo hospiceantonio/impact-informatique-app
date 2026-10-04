@@ -124,15 +124,18 @@ const UI = (() => {
   }
 
   /* L'ICÔNE D'UNE CATÉGORIE (3.56), la même que chez le client : l'une
-     des douze de l'image choisie par l'enseigne, reprises telles
-     quelles, ou des quatre construites dans son style
-     (« img/pictos/<nom>.png »). Une icône qui n'en fait pas partie —
-     choisie avant la 3.56 — garde son dessin d'un trait : jamais une
-     pastille vide. */
-  const PICTOS = ["alimentation", "restauration", "mode", "beaute", "telephones",
-    "informatique", "electromenager", "maison-deco", "auto-moto", "sante",
-    "immobilier", "services", "bebe-enfant", "sport-loisirs", "livres-education",
-    "animaux"];
+     de celles des trois planches choisies par l'enseigne, reprises telles
+     quelles (« img/pictos/<nom>.png »). Une icône qui n'en fait pas
+     partie — choisie avant la 3.56 — garde son dessin d'un trait : jamais
+     une pastille vide. */
+  const PICTOS = [
+    "informatique", "electromenager", "energie", "securite", "telephones",
+    "bebe-enfant", "livres-education", "formation", "maison-deco", "jardinage",
+    "bricolage", "immobilier", "auto-moto", "transport", "mode", "bijoux",
+    "beaute", "sante", "alimentation", "restauration", "agriculture",
+    "tracteur", "animaux", "sport-loisirs", "musique", "artisanat", "cadeau",
+    "evenementiel", "bureau", "materiel-pro", "imprimante", "grossistes",
+    "cartons", "services"];
 
   function picto(nom) {
     const cle = String(nom || "categories");

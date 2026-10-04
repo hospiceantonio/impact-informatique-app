@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v83";
+const VERSION = "impact-admin-v84";
 
 const FICHIERS = [
   "./",
@@ -56,27 +56,44 @@ const FICHIERS = [
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
   "./icons/apple-touch-icon.png",
-  /* LES ICÔNES DES CATÉGORIES (3.56) : les douze de l'image choisie
-     par l'enseigne, et quatre construites dans son style. Ce sont les
-     tuiles de l'accueil : elles doivent être là dès la première
-     ouverture hors connexion. Le contrôle de la coquille refuse une
-     icône oubliée ici. */
-  "./img/pictos/alimentation.png",
-  "./img/pictos/restauration.png",
-  "./img/pictos/mode.png",
-  "./img/pictos/beaute.png",
-  "./img/pictos/telephones.png",
+  /* LES ICÔNES DES CATÉGORIES (3.56) : celles des trois planches
+     choisies par l'enseigne. Ce sont les tuiles de l'accueil : elles
+     doivent être là dès la première ouverture hors connexion. Le
+     contrôle de la coquille refuse une icône oubliée ici. */
   "./img/pictos/informatique.png",
   "./img/pictos/electromenager.png",
-  "./img/pictos/maison-deco.png",
-  "./img/pictos/auto-moto.png",
-  "./img/pictos/sante.png",
-  "./img/pictos/immobilier.png",
-  "./img/pictos/services.png",
+  "./img/pictos/energie.png",
+  "./img/pictos/securite.png",
+  "./img/pictos/telephones.png",
   "./img/pictos/bebe-enfant.png",
-  "./img/pictos/sport-loisirs.png",
   "./img/pictos/livres-education.png",
+  "./img/pictos/formation.png",
+  "./img/pictos/maison-deco.png",
+  "./img/pictos/jardinage.png",
+  "./img/pictos/bricolage.png",
+  "./img/pictos/immobilier.png",
+  "./img/pictos/auto-moto.png",
+  "./img/pictos/transport.png",
+  "./img/pictos/mode.png",
+  "./img/pictos/bijoux.png",
+  "./img/pictos/beaute.png",
+  "./img/pictos/sante.png",
+  "./img/pictos/alimentation.png",
+  "./img/pictos/restauration.png",
+  "./img/pictos/agriculture.png",
+  "./img/pictos/tracteur.png",
   "./img/pictos/animaux.png",
+  "./img/pictos/sport-loisirs.png",
+  "./img/pictos/musique.png",
+  "./img/pictos/artisanat.png",
+  "./img/pictos/cadeau.png",
+  "./img/pictos/evenementiel.png",
+  "./img/pictos/bureau.png",
+  "./img/pictos/materiel-pro.png",
+  "./img/pictos/imprimante.png",
+  "./img/pictos/grossistes.png",
+  "./img/pictos/cartons.png",
+  "./img/pictos/services.png",
 ];
 
 self.addEventListener("install", (ev) => {
