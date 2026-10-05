@@ -315,13 +315,13 @@ réseau, ce qui, ici, arrive tous les jours. Aucune requête ne sort de
 l'application : le banc le vérifie en écoutant *tout* ce que la page
 demande.
 
-**Le logo n'est pas une image.** « Bizz » en bleu, « oo » en orange et
-les deux points sous le B sont écrits par la feuille de style
-(`motSymbole()` dans `ui.js`). Il reste net à toutes les tailles, suit la
-couleur du thème, et ne coûte aucun fichier. L'icône de l'application —
-le B au panier — reste une image : c'est un dessin fait pour un écran
-d'accueil, et elle n'a pas sa place à côté du mot. Posée en tête du menu
-latéral, elle donnait deux marques l'une contre l'autre.
+**Le logo : le B au chariot, puis le nom (depuis la 3.56.1).** La tuile
+du B est une image, `icons/logo-bizzoo.png`, tirée de l'œuvre comme les
+icônes. Le nom, lui, reste écrit par la feuille de style (`motSymbole()`
+dans `ui.js`) : « Bizz » en bleu, « oo » en orange. Il reste net à toutes
+les tailles, suit la couleur du thème et ne coûte aucun fichier. Les deux
+points qu'il portait dessous sont partis : les deux roues orange du B
+les portent. Voir « Le logo partout, et des captures à jour ».
 
 **Sur l'orange, du blanc — c'est le choix de la DA corrigée, pas le plus
 lisible.** Du blanc sur `#FF8A00` donne **2,36:1**, sous le seuil de
@@ -3290,7 +3290,8 @@ remplace le sac de courses partout : l'écran d'accueil du téléphone
 connexion de l'admin, la vignette d'un produit sans photo —
 `UI.marque()` affiche le fichier d'icône lui-même.
 
-`node tools/make-icons.js` en tire les 48 images des deux applications,
+`node tools/make-icons.js` en tire les 48 images des deux applications
+(50 depuis que le logo a la sienne, `icons/logo-bizzoo.png`, en 3.56.1),
 et la silhouette des notifications :
 
 | Forme | Où | Ce qu'on y voit |
@@ -3431,6 +3432,96 @@ même défaut. Toute carte-lien est désormais un bloc (`:where(a).carte`,
 qui laisse aux variantes en flex le dernier mot), et `banc-da` mesure
 que chaque carte-lien enveloppe son titre.
 
+## Le logo partout, et des captures à jour (3.56.1)
+
+La version web portait encore l'ancien logo, et ses captures montraient
+l'accueil d'avant. Deux oublis, et un piège :
+
+- **Le logo.** À la 3.52.0, le B au chariot n'a remplacé que les
+  icônes : l'écran du téléphone, l'onglet du navigateur, la connexion de
+  l'admin. Partout ailleurs restait « Bizzoo » écrit avec ses deux
+  points : l'en-tête et le pied du site, sa page 404, le haut des deux
+  applications, leur menu sur ordinateur.
+- **Les captures.** Les quatre écrans de la vitrine et l'image de
+  partage dataient de la 3.54.0. L'accueil y montrait encore les ronds
+  de couleur d'avant les icônes des planches (3.56.0).
+- **Le piège.** L'hébergement laisse les navigateurs garder une image
+  une semaine, et WhatsApp garde l'aperçu d'une adresse. Une image
+  refaite sous le même nom ne se voit donc pas tout de suite.
+
+### Le logo : le B au chariot, puis le nom
+
+C'est le choix de l'enseigne, parmi trois propositions (la tuile et le
+nom, la tuile seule, le nom seul). La tuile est
+`icons/logo-bizzoo.png`, que `tools/make-icons.js` tire de l'œuvre dans
+les deux applications. Dans l'admin aussi, c'est la tuile **sans** la
+pastille « réglages » : la marque de BIZZOO, pas l'icône d'une
+application. Les deux service workers la gardent hors connexion. Le nom
+reste écrit, en bleu et orange, sans les deux points : les roues du B
+les portent.
+
+Où il est :
+- **le site** : l'en-tête, le pied (« Bizz » en blanc sur le bleu nuit),
+  la page 404 ;
+- **l'application des clients** : la barre du haut de l'accueil (le
+  slogan sous le nom, à droite de la tuile), le menu sur ordinateur,
+  « À propos de BIZZOO », la couverture d'une boutique sans photo ;
+- **l'admin** : la barre du haut (« Espace admin » sous le nom), le menu
+  sur ordinateur (« Admin » sous le nom).
+
+Le logo est plus large qu'avant, et deux endroits manquaient de place.
+- **La barre du haut de l'admin.** Le superadministrateur y a cinq
+  boutons : à 360 px, ils recouvraient « Bizzoo », sans que rien ne
+  déborde de l'écran. Le logo se règle sur la place qui lui reste : en
+  entier à partir de 390 px, plus petit à 360, la tuile seule à 320.
+- **L'en-tête du site.** « Ouvrir la boutique » y passait sur deux
+  lignes à 390 px. Au téléphone, l'en-tête se resserre, et sous 360 px
+  le bouton ne dit plus que « Boutique ». Le grand bouton orange du
+  bandeau, juste dessous, le dit en toutes lettres.
+
+En passant, les liens légaux du pied du site (mentions, confidentialité,
+conditions, suppression de compte) sont rentrés dans sa marge. Posés en
+dehors, ils touchaient le bord de l'écran, en grand.
+
+### Les captures
+
+Elles sont refaites depuis l'application 3.56.1, dans la même mise en
+scène que les précédentes : 390 px, en double densité, réduites à
+540 × 1169, JPEG qualité 82. Les huit catégories de l'accueil sont
+celles que range `categories-rangement.sql`, avec leurs icônes.
+
+**Seul l'accueil change.** Les trois autres écrans (la boutique, le
+produit, le paiement) sortent identiques à l'octet près : ni le logo ni
+les catégories n'y figurent. L'image de partage (1200 × 630, 89 Ko)
+porte le nouveau logo et le nouvel accueil.
+
+**Les adresses portent la version des images** :
+`vitrine/ecran-accueil.jpg?v=3.56.1`, et de même pour les trois autres
+écrans et pour `og:image`. Une adresse nouvelle oblige navigateurs et
+WhatsApp à reprendre l'image.
+
+**À refaire quand l'accueil ou le logo changent** : les quatre captures,
+l'image de partage, puis le `?v=` dans `index.html` (captures et
+`og:image`) et dans `client/index.html` (`og:image`).
+
+`banc-da` regarde le logo lui-même, et pas seulement son texte :
+- la tuile est bien celle du logo, chargée, devant le nom ;
+- les deux points sont partis ;
+- le site, sa page 404, la barre du haut et le menu des deux
+  applications ;
+- la barre de l'admin à 320, 360 et 390 px, avec ses cinq boutons ;
+- l'en-tête du site sur une ligne, de 320 à 1440 px.
+
+`banc-mise-en-ligne` ouvre la page 404 sous une adresse profonde, et
+vérifie que son logo s'affiche. Il lit aussi `og:image` versionnée.
+Six sabotages les font tomber :
+- la tuile retirée de l'accueil ;
+- les points remis ;
+- l'admin sans réglage de place ;
+- l'icône à pastille au lieu du logo ;
+- l'en-tête du site qui ne se resserre plus ;
+- le logo de la 404 en adresse relative.
+
 ## La barre du bas à deux visages (3.54.0)
 
 La barre du bas n'est plus la même partout : elle dit où l'on se tient.
@@ -3564,6 +3655,7 @@ impact-informatique-app/
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
+│   ├── icons/                # Les icônes de l'application, et la tuile du logo (logo-bizzoo.png)
 │   ├── img/pictos/           # Les icônes des catégories : celles de l'image de l'enseigne
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
@@ -3577,6 +3669,7 @@ impact-informatique-app/
 ├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
+│   ├── icons/                # Ses icônes (à pastille « réglages »), et la tuile du logo, sans
 │   ├── img/pictos/           # Les mêmes icônes, pour la liste et la fiche
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
@@ -3592,7 +3685,7 @@ impact-informatique-app/
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
 ├── index.html                # La vitrine : l'accueil du site
-├── vitrine/                  # Ses captures, et l'image de l'aperçu partagé
+├── vitrine/                  # Ses captures, et l'image de l'aperçu partagé (adresses en « ?v= »)
 ├── 404.html / robots.txt / sitemap.xml   # Ce qu'attend un site en ligne
 ├── hebergement/htaccess      # Le .htaccess de www.bizzoomarket.com (Apache, LiteSpeed)
 ├── DEMARRER-BIZZOO.bat       # Windows : double-cliquer pour tout ouvrir en local

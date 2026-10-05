@@ -672,6 +672,10 @@ async function atelier([b64, R, demandes]) {
       demandes.push([app + "|" + densite + "|ic_launcher_premier_plan.png", adaptatif, "premier-plan", admin]);
       demandes.push([app + "|" + densite + "|ic_launcher_fond.png", adaptatif, "fond", admin]);
     }
+    /* LE LOGO, devant le nom « Bizzoo » sur les écrans et le site : la
+       tuile seule, SANS la pastille « réglages » même dans l'admin. C'est
+       la marque de BIZZOO, pas l'icône d'une application. */
+    demandes.push([app + "|pwa|logo-bizzoo.png", 192, "tuile", false]);
   }
 
   const chromium = chargerChromium();

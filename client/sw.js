@@ -61,6 +61,7 @@ const FICHIERS = [
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
   "./icons/apple-touch-icon.png",
+  "./icons/logo-bizzoo.png",
   /* LES ICÔNES DES CATÉGORIES (3.56) : celles des trois planches
      choisies par l'enseigne. Ce sont les tuiles de l'accueil : elles
      doivent être là dès la première ouverture hors connexion. Le

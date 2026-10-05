@@ -142,7 +142,9 @@ titre("3. Ce que voient les moteurs de recherche et les messageries");
   };
   const local = (url) => {
     if (!url.startsWith(DOMAINE + "/")) return null;
-    let p = url.slice(DOMAINE.length + 1);
+    /* « ?v=… » : la version qui force WhatsApp et les navigateurs à
+       reprendre une image changée sous le même nom. */
+    let p = url.slice(DOMAINE.length + 1).split("#")[0].split("?")[0];
     if (!p || p.endsWith("/")) p += "index.html";
     return path.join(SITE, p);
   };
@@ -336,11 +338,17 @@ titre("5. Le site s'ouvre, à ses deux adresses");
     texte: document.body.innerText,
     liens: [...document.querySelectorAll("a[data-lien]")].map((a) => a.href),
     police: document.fonts.check("700 20px Poppins"),
+    logo: (() => {
+      const i = document.querySelector("img.logo-tuile");
+      return i ? { src: i.getAttribute("src") || "", charge: i.complete && i.naturalWidth > 0 } : null;
+    })(),
   }));
   ok(r404.status() === 404 && /Page introuvable/.test(l404.texte), "une adresse inconnue répond 404, avec la page de BIZZOO");
   ok(l404.liens.join(",") === DOMAINE + "/client/," + DOMAINE + "/",
     "et ses liens ramènent à la boutique et à l'accueil (" + l404.liens.join(", ") + ")");
   ok(l404.police, "dans la police de la DA, même à cette profondeur");
+  ok(l404.logo && l404.logo.charge && l404.logo.src === "/client/icons/logo-bizzoo.png",
+    "et avec son logo, demandé depuis la racine (" + (l404.logo ? l404.logo.src : "aucun") + ")");
   await ctx.close();
 }
 {

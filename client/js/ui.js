@@ -8,7 +8,24 @@ const UI = (() => {
   const $$ = (sel, base) => Array.from((base || document).querySelectorAll(sel));
   const e = Utils.echapper;
 
-  /* ---------- Logo (reprend la charte du logo officiel) ---------- */
+  /* ---------- Le logo : le B au chariot, puis le nom ---------- */
+
+  /**
+   * LE NOM BIZZOO, écrit et non dessiné : « Bizz » en bleu, « oo » en
+   * orange. En texte plutôt qu'en image, il reste net à toutes les
+   * tailles, ne pèse rien, et s'affiche sans réseau comme sans fichier.
+   *
+   * Les deux points qu'il portait dessous sont partis avec la 3.56.1 :
+   * le logo, c'est désormais le B au chariot devant le nom (« logo() »),
+   * et les deux roues orange du B disent ce que disaient les points.
+   */
+  function motSymbole(classe) {
+    return (
+      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
+        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
+      "</span>"
+    );
+  }
 
   /**
    * La marque : l'icône même de l'application, celle qu'on voit sur
@@ -16,26 +33,6 @@ const UI = (() => {
    * plus de version approchée qui finirait par diverger.
    * Le fichier est déjà gardé hors connexion par le service worker.
    */
-  /**
-   * LE MOT-SYMBOLE BIZZOO, écrit et non dessiné.
-   *
-   * « Bizz » en bleu, « oo » en orange, et les deux points sous le
-   * mot. Le tracer en texte plutôt qu'en image lui donne trois choses
-   * qu'une image n'a pas : il reste net à toutes les tailles, il ne
-   * pèse rien, et il s'affiche sans réseau comme sans fichier.
-   *
-   * L'icône carrée, elle, reste une image : c'est le raccourci sur
-   * l'écran d'accueil du téléphone, et Android la veut en PNG.
-   */
-  function motSymbole(classe) {
-    return (
-      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
-        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
-        '<span class="logo-points" aria-hidden="true"><i></i><i></i></span>' +
-      "</span>"
-    );
-  }
-
   function marque(taille = 40) {
     return (
       '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
@@ -43,17 +40,22 @@ const UI = (() => {
     );
   }
 
-  /** Logo complet : le sac + « BIZZOO », pour l'accueil. */
   /**
-   * Le mot-symbole, et sous lui le slogan de l'enseigne quand on en
-   * passe un. Deux lignes calées à gauche : le slogan appartient au
-   * logo, il ne flotte pas à côté.
+   * LE LOGO DE BIZZOO : la tuile du B au chariot, puis le nom — et sous
+   * le nom, le slogan de l'enseigne quand on en passe un. Le slogan
+   * appartient au logo : il se cale sous le nom, à droite de la tuile.
+   *
+   * La tuile vient de « icons/logo-bizzoo.png », que tools/make-icons.js
+   * tire de l'œuvre comme toutes les icônes ; le service worker la garde
+   * hors connexion. « classe » passe au nom : « clair » sur un fond bleu.
    */
-  function logo(sous) {
+  function logo(sous, classe) {
     return (
       '<span class="logo' + (sous ? " logo-avec-sous" : "") + '">' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo.png" alt="" aria-hidden="true"' +
+        ' width="40" height="40">' +
         '<span class="logo-textes">' +
-          motSymbole() +
+          motSymbole(classe) +
           (sous ? '<span class="logo-sous">' + e(sous) + "</span>" : "") +
         "</span>" +
       "</span>"

@@ -743,7 +743,7 @@ const VueAccueil = (() => {
       '<div class="bou-couverture' + (couverture ? "" : " bou-couverture-vide") + '">' +
         (couverture
           ? '<img src="' + Utils.echapper(couverture) + '" alt="">'
-          : '<span class="bou-couverture-motif">' + UI.motSymbole("clair") + "</span>") +
+          : '<span class="bou-couverture-motif">' + UI.logo("", "clair") + "</span>") +
       "</div>" +
       '<section class="bou-fiche">' +
         '<div class="bou-fiche-tete">' +

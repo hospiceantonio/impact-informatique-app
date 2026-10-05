@@ -204,28 +204,21 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .topbar-vignette img{width:100%;height:100%;object-fit:cover}
 .topbar-vignette .ic{width:21px;height:21px}
 
-/* ---------- Logo ---------- */
-/* ---------- Le mot-symbole ---------- */
-/* Écrit, pas dessiné : net à toutes les tailles, et rien à charger. */
+/* ---------- Le logo : le B au chariot, puis le nom ---------- */
+/* La tuile est l'œuvre, comme l'icône de l'application (ses coins
+   arrondis sont dans l'image). Le nom reste écrit : net à toutes les
+   tailles, et rien à charger. Plus de points sous le nom depuis la
+   3.56.1 : les deux roues orange du B les portent. */
+.logo-tuile{flex:none;display:block;width:40px;height:40px}
 .logo-mot{
-  display:inline-block;position:relative;
+  display:inline-block;
   font-weight:700;font-size:26px;line-height:1;letter-spacing:-.01em;
-  padding-bottom:9px;white-space:nowrap;
+  white-space:nowrap;
 }
 .logo-bizz{color:var(--bleu)}
 .logo-oo{color:var(--orange)}
-/* Les deux points, sous le mot : ils sont au logo ce que les roues
-   sont au chariot de l'icône. */
-.logo-points{
-  position:absolute;left:.09em;bottom:1px;display:flex;gap:.16em;
-}
-.logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
-.logo-points i:first-child{background:var(--bleu)}
-.logo-points i:last-child{background:var(--orange)}
 /* Sur un fond sombre, le bleu du mot disparaîtrait. */
-.logo-mot.clair .logo-bizz,
-.logo-mot.clair .logo-points i:first-child{color:#fff;background:#fff}
-.logo-mot.clair .logo-bizz{background:none;color:#fff}
+.logo-mot.clair .logo-bizz{color:#fff}
 /* DEUX LIGNES AU PLUS. Une seule ne suffisait pas : sur un téléphone
    de 320 px il ne reste que 106 px entre le bord et les boutons, et
    « Toutes vos boutiques » y était déjà coupé. Au-delà de deux lignes
@@ -1461,6 +1454,7 @@ a.pub-carte:active{transform:scale(.98)}
   /* Le logo de la charte, à sa taille de menu. Aucune couleur n'est
      posée ici : « Bizz » et « oo » tiennent les leurs, et une règle
      sur .tabbar-marque span les écraserait toutes les deux. */
+  .tabbar-marque .logo-tuile{width:32px;height:32px}
   .tabbar-marque .logo-mot{font-size:20px}
 
   /* ---------- Ce que le menu libère ---------- */
@@ -1956,7 +1950,9 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .bou-couverture img{width:100%;height:100%;object-fit:cover;display:block}
 .bou-couverture-vide{display:flex;align-items:center;justify-content:center}
-.bou-couverture-motif .logo-mot{font-size:40px;opacity:.9}
+.bou-couverture-motif .logo{gap:12px;opacity:.92}
+.bou-couverture-motif .logo-tuile{width:54px;height:54px}
+.bou-couverture-motif .logo-mot{font-size:40px}
 .vue > .bou-fiche{margin-top:-28px}
 .bou-fiche{
   position:relative;margin:0 -16px;padding:18px 16px 4px;

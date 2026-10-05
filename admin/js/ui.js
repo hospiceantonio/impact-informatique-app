@@ -8,34 +8,28 @@ const UI = (() => {
   const $$ = (sel, base) => Array.from((base || document).querySelectorAll(sel));
   const e = Utils.echapper;
 
-  /* ---------- Marque (reprend la charte du logo officiel) ---------- */
+  /* ---------- Le logo : le B au chariot, puis le nom ---------- */
 
   /**
-   * La marque : l'icône même de l'application, celle qu'on voit sur
-   * l'écran d'accueil du téléphone. Un seul dessin pour les deux —
-   * plus de version approchée qui finirait par diverger.
-   * Le fichier est déjà gardé hors connexion par le service worker.
-   */
-  /**
-   * LE MOT-SYMBOLE BIZZOO, écrit et non dessiné.
-   *
-   * « Bizz » en bleu, « oo » en orange, et les deux points sous le
-   * mot. Le tracer en texte plutôt qu'en image lui donne trois choses
-   * qu'une image n'a pas : il reste net à toutes les tailles, il ne
-   * pèse rien, et il s'affiche sans réseau comme sans fichier.
-   *
-   * L'icône carrée, elle, reste une image : c'est le raccourci sur
-   * l'écran d'accueil du téléphone, et Android la veut en PNG.
+   * LE NOM BIZZOO, écrit et non dessiné : « Bizz » en bleu, « oo » en
+   * orange. En texte plutôt qu'en image, il reste net à toutes les
+   * tailles, ne pèse rien, et s'affiche sans réseau comme sans fichier.
+   * Plus de points dessous depuis la 3.56.1 : le B au chariot qui le
+   * précède porte ses deux roues orange.
    */
   function motSymbole(classe) {
     return (
       '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
         '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
-        '<span class="logo-points" aria-hidden="true"><i></i><i></i></span>' +
       "</span>"
     );
   }
 
+  /**
+   * La marque : l'icône même de l'application, celle qu'on voit sur
+   * l'écran d'accueil du téléphone — ici avec sa pastille « réglages ».
+   * Le fichier est déjà gardé hors connexion par le service worker.
+   */
   function marque(taille = 40) {
     return (
       '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
@@ -43,9 +37,17 @@ const UI = (() => {
     );
   }
 
+  /**
+   * LE LOGO DE BIZZOO, puis « Espace admin » sous le nom. La tuile est
+   * « icons/logo-bizzoo.png » : le B au chariot SANS la pastille
+   * « réglages » de l'icône de l'admin — c'est la marque de l'enseigne,
+   * la même que dans l'application des clients et sur le site.
+   */
   function logoAdmin() {
     return (
       '<span class="logo">' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo.png" alt="" aria-hidden="true"' +
+        ' width="40" height="40">' +
         '<span class="logo-textes">' +
           motSymbole() +
           '<span class="logo-sous">Espace admin</span>' +

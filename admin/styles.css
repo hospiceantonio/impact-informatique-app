@@ -134,7 +134,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .topbar h1{font-size:18px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topbar .sous{font-size:12.5px;color:var(--encre-douce);margin-top:2px}
 .topbar-actions{display:flex;gap:6px;align-items:center}
-.topbar-logo{flex:1;min-width:0}
+.topbar-logo{flex:1;min-width:0;container-type:inline-size}
+/* LE LOGO SE RÈGLE SUR LA PLACE QUE LUI LAISSENT LES BOUTONS. Le
+   superadministrateur en a cinq ; depuis que le logo porte la tuile du
+   B (3.56.1), ils recouvraient « Bizzoo » sur un téléphone de 360 px.
+   Un peu plus petit d'abord, puis la tuile seule. */
+@container (max-width:130px){
+  .topbar-logo .logo{gap:7px}
+  .topbar-logo .logo-tuile{width:32px;height:32px}
+  .topbar-logo .logo-mot{font-size:19px}
+  .topbar-logo .logo-sous{font-size:9.5px;margin-top:2px}
+}
+@container (max-width:96px){
+  .topbar-logo .logo-textes{display:none}
+}
 .btn-ic{
   display:inline-flex;align-items:center;justify-content:center;
   width:38px;height:38px;border-radius:12px;border:0;
@@ -148,28 +161,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .btn-ic-clair:disabled{opacity:.35}
 .btn-ic-danger{color:var(--rouge-fonce);background:var(--rouge-clair)}
 
-/* ---------- Logo ---------- */
-/* ---------- Le mot-symbole ---------- */
-/* Écrit, pas dessiné : net à toutes les tailles, et rien à charger. */
+/* ---------- Le logo : le B au chariot, puis le nom ---------- */
+/* La tuile est l'œuvre (ses coins arrondis sont dans l'image) ; le nom
+   reste écrit : net à toutes les tailles, et rien à charger. Plus de
+   points sous le nom depuis la 3.56.1 : les roues du B les portent. */
+.logo-tuile{flex:none;display:block;width:40px;height:40px}
 .logo-mot{
-  display:inline-block;position:relative;
+  display:inline-block;
   font-weight:700;font-size:26px;line-height:1;letter-spacing:-.01em;
-  padding-bottom:9px;white-space:nowrap;
+  white-space:nowrap;
 }
 .logo-bizz{color:var(--bleu)}
 .logo-oo{color:var(--orange)}
-/* Les deux points, sous le mot : ils sont au logo ce que les roues
-   sont au chariot de l'icône. */
-.logo-points{
-  position:absolute;left:.09em;bottom:1px;display:flex;gap:.16em;
-}
-.logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
-.logo-points i:first-child{background:var(--bleu)}
-.logo-points i:last-child{background:var(--orange)}
 /* Sur un fond sombre, le bleu du mot disparaîtrait. */
-.logo-mot.clair .logo-bizz,
-.logo-mot.clair .logo-points i:first-child{color:#fff;background:#fff}
-.logo-mot.clair .logo-bizz{background:none;color:#fff}
+.logo-mot.clair .logo-bizz{color:#fff}
 .logo-sous{
   display:block;font-size:10.5px;font-weight:600;color:var(--encre-douce);
   letter-spacing:.01em;margin-top:3px;white-space:nowrap;
@@ -1326,11 +1331,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
     padding:6px 13px 16px;margin-bottom:6px;
     border-bottom:1px solid var(--trait);
   }
-  /* Le logo de la charte, à sa taille de menu, et le mot « Admin »
-     dessous. Aucune couleur n'est posée sur les spans : « Bizz » et
-     « oo » tiennent les leurs, et une règle de couleur ici les
-     repeindrait toutes les deux de la même teinte. */
-  .tabbar-marque{flex-direction:column;align-items:flex-start;gap:2px}
+  /* Le logo de la charte, à sa taille de menu : la tuile, puis le nom
+     et le mot « Admin » dessous. Aucune couleur n'est posée sur les
+     spans : « Bizz » et « oo » tiennent les leurs, et une règle de
+     couleur ici les repeindrait toutes les deux de la même teinte. */
+  .tabbar-marque .logo-tuile{width:34px;height:34px}
+  .tabbar-marque .logo-textes{gap:2px}
   .tabbar-marque .logo-mot{font-size:19px}
   .tabbar-marque .marque-role{
     font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
