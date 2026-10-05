@@ -348,8 +348,13 @@ const VuePanier = (() => {
 
   async function commander(vue) {
     promo = { code: "", remise: 0 };
+    /* LES RENVOIS VERS LE PANIER REMPLACENT L'ENTRÉE D'HISTORIQUE. Avec
+       « location.hash = », revenir en arrière depuis le panier ramenait
+       ici, qui renvoyait au panier, et ainsi de suite : après un achat
+       (panier vidé), le bouton retour du téléphone tournait entre ces
+       deux écrans sans jamais en sortir. */
     if (Panier.vide()) {
-      location.hash = "#/panier";
+      location.replace("#/panier");
       return;
     }
     /* Un article épuisé depuis l'ajout, ou une quantité que le stock ne
@@ -360,12 +365,12 @@ const VuePanier = (() => {
     const ramenees = Panier.ajusterAuStock();
     if (Panier.enRupture().length) {
       UI.toast("Un article de votre panier n'est plus disponible", "err");
-      location.hash = "#/panier";
+      location.replace("#/panier");
       return;
     }
     if (ramenees.length) {
       UI.toast("Le stock a changé : vérifiez les quantités de votre panier", "err");
-      location.hash = "#/panier";
+      location.replace("#/panier");
       return;
     }
     if (!Paiement.connu()) await Paiement.charger();
@@ -550,14 +555,7 @@ const VuePanier = (() => {
 
     /* Le numéro qui paie, et l'opérateur choisi. Ils ne sont là qu'avec
        FeexPay ; ailleurs on renvoie de quoi ne rien casser. */
-    const lirePaiement = () => {
-      const champ = UI.$("#co-mm-tel");
-      const actif = UI.$("#co-operateurs .pay-methode.active");
-      return {
-        numero: champ ? champ.value.trim() : "",
-        reseau: actif ? actif.dataset.reseau : "",
-      };
-    };
+    const lirePaiement = lireMobileMoney;
 
     if (parFeexpay) brancherMobileMoney();
 
@@ -731,20 +729,38 @@ const VuePanier = (() => {
         "</div>"
       );
     }
-    const suggere = Paiement.operateurDuNumero(c.tel);
     return (
       '<div class="carte co-mm">' +
         '<div class="carte-titre carte-titre-bleu">Méthode de paiement</div>' +
-        '<div class="pay-methodes" id="co-operateurs" role="radiogroup" aria-label="Opérateur">' +
-          OPERATEURS.map((o) => ligneMethode(o, o.cle === suggere)).join("") +
-        "</div>" +
-        '<div class="champ" style="margin:14px 0 0"><label for="co-mm-tel">Numéro qui paie</label>' +
-          '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
-            Utils.echapper(c.tel) + '">' +
-          '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
-            "celui d'un proche qui règle pour vous.</p></div>" +
+        choixMobileMoney(c) +
       "</div>"
     );
+  }
+
+  /** L'opérateur et le numéro qui paie : le formulaire de commande, et le
+   *  reçu quand il faut réessayer. */
+  function choixMobileMoney(c) {
+    const suggere = Paiement.operateurDuNumero(c.tel);
+    return (
+      '<div class="pay-methodes" id="co-operateurs" role="radiogroup" aria-label="Opérateur">' +
+        OPERATEURS.map((o) => ligneMethode(o, o.cle === suggere)).join("") +
+      "</div>" +
+      '<div class="champ" style="margin:14px 0 0"><label for="co-mm-tel">Numéro qui paie</label>' +
+        '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
+          Utils.echapper(c.tel) + '">' +
+        '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
+          "celui d'un proche qui règle pour vous.</p></div>"
+    );
+  }
+
+  /** Ce que le client a choisi dans ce même bloc. */
+  function lireMobileMoney() {
+    const champ = UI.$("#co-mm-tel");
+    const actif = UI.$("#co-operateurs .pay-methode.active");
+    return {
+      numero: champ ? champ.value.trim() : "",
+      reseau: actif ? actif.dataset.reseau : "",
+    };
   }
 
   /** L'opérateur se met à jour pendant qu'on tape, sans jamais forcer. */
@@ -858,14 +874,17 @@ const VuePanier = (() => {
       /* Un paiement abandonné n'est pas une commande perdue : elle
          attend, et le reçu propose de reprendre. */
       UI.toast(err.message || "Le paiement n'a pas abouti", "err");
-      location.hash = "#/commande/" + commande.id;
+      location.replace("#/commande/" + commande.id);
       return;
     }
 
     if (transaction) await Paiement.signalerTransaction(commande.id, transaction);
     Panier.majEtat(commande.id, "a_payer", { transaction });
     Panier.vider();
-    location.hash = "#/commande/" + commande.id;
+    /* Le reçu REMPLACE le formulaire dans l'historique : revenir en
+       arrière depuis le reçu mène au panier, pas à un formulaire qui
+       n'a plus rien à commander. */
+    location.replace("#/commande/" + commande.id);
   }
 
   /* =====================================================
@@ -946,36 +965,207 @@ const VuePanier = (() => {
        celui où l'encaissement est constaté : on patiente, on n'annonce
        pas. Avec KkiaPay, une transaction a été rendue au téléphone ;
        avec FeexPay il n'y en a aucune — c'est notre serveur qui ira
-       demander, alors on attend dès que la commande est à payer. */
-    if (commande.etat === "a_payer"
-        && (commande.transaction || Paiement.fournisseur() === "feexpay")) {
-      const etat = await Paiement.attendreConfirmation(commande.id, commande.client.tel);
-      if (etat && (etat.etat !== commande.etat || etat.remarque)) {
-        /* « majEtat » ne sait noter que ce que CE téléphone garde : une
-           commande lue dans la base n'y figure pas, et il rend null. On
-           met donc à jour l'objet qu'on a en main, et le téléphone en
-           plus quand il la connaît. Sans cela, un reçu ouvert depuis un
-           autre appareil se vidait à la confirmation du paiement. */
-        commande.etat = etat.etat;
-        commande.remarque = etat.remarque || "";
-        Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
-        if (location.hash === "#/commande/" + id) {
-          if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
-          dessinerRecu(vue, commande);
-        }
-      } else if (location.hash === "#/commande/" + id) {
-        const attente = UI.$("#re-attente");
-        if (attente) {
-          attente.innerHTML = UI.icone("horloge", "ic-sm") +
-            "<div>La confirmation tarde. Si vous avez bien été débité, la boutique " +
-            "recevra votre commande dès que " +
-            (Paiement.fournisseur() === "feexpay" ? "FeexPay aura confirmé le versement"
-                                                  : "KkiaPay l'aura signalée") +
-            " — vous n'avez rien à refaire. Gardez le numéro <strong>" +
-            Utils.echapper(commande.numero) + "</strong>.</div>";
-        }
+       demander, alors on attend dès que la commande est à payer.
+
+       L'ATTENTE N'EST PAS ATTENDUE ICI. L'application dessine ses écrans
+       un par un : tant que celui-ci n'avait pas rendu la main — une
+       minute et demie de vérifications —, retour, « Mes commandes » ou
+       l'accueil restaient sans effet, et le client se croyait enfermé
+       dans le reçu. L'attente part donc à côté ; quitter l'écran
+       l'arrête. */
+    if (commande.etat === "a_payer") {
+      if (commande.transaction || Paiement.fournisseur() === "feexpay") {
+        suivrePaiement(vue, commande, id);
+      } else {
+        poserAttente(vue, commande, id, "arretee", {});
       }
     }
+  }
+
+  /* -----------------------------------------------------
+     L'attente du versement, et la main laissée au client
+     -----------------------------------------------------
+     Quatre états d'une même carte, sous l'en-tête du reçu :
+
+       attente   le sablier, et « Arrêter l'attente » ;
+       arretee   plus de sablier : ce qui se passera si le client a
+                 été débité, « Vérifier à nouveau » et « Fermer » ;
+       echec     FeexPay a répondu que le versement n'a pas abouti —
+                 rien n'a été débité : on le dit, et l'on propose de
+                 réessayer, ou de fermer ;
+       rien      aucune demande n'est partie pour cette commande : on
+                 propose de la régler.
+
+     « Réessayer » n'apparaît qu'après un verdict de FeexPay — un refus
+     ou l'absence de toute demande. Pendant une attente, une seconde
+     demande ferait sonner le téléphone deux fois, et le client pourrait
+     payer deux fois : c'est pour cela que le sablier répète « Ne payez
+     pas une seconde fois ». */
+
+  /** L'attente en cours (une seule à la fois) : la nouvelle arrête l'ancienne. */
+  let attenteEnCours = null;
+
+  function carteAttente(commande, etat, info) {
+    const feexpay = Paiement.fournisseur() === "feexpay";
+    if (etat === "attente") {
+      return '<div class="carte pa-avertissement re-attente" id="re-attente" data-etat="attente">' +
+        '<span class="chargement-rond"></span>' +
+        '<div class="re-attente-corps"><p>' + (feexpay
+          ? "Validez la demande sur votre téléphone, avec votre code Mobile Money. " +
+            "Nous allons ensuite demander à FeexPay si le versement a abouti."
+          : "Nous attendons la confirmation de KkiaPay. Cela prend quelques secondes.") +
+          " Ne payez pas une seconde fois.</p>" +
+          '<div class="re-attente-actions">' +
+            '<button type="button" class="btn btn-clair" data-attente="arreter">' +
+              UI.icone("fermer", "ic-sm") + "Arrêter l'attente</button>" +
+          "</div>" +
+        "</div></div>";
+    }
+    if (etat === "arretee") {
+      const debut = info.motif === "tarde" ? "La confirmation tarde. "
+        : info.motif === "arret" ? "Vous avez arrêté l'attente. "
+        : "Le paiement n'est pas encore confirmé. ";
+      return '<div class="carte pa-avertissement re-attente" id="re-attente" data-etat="arretee">' +
+        UI.icone("horloge", "ic-sm") +
+        '<div class="re-attente-corps"><p>' + debut +
+          "Si vous avez validé la demande et que vous avez été débité, la boutique recevra " +
+          "votre commande dès que " +
+          (feexpay ? "FeexPay aura confirmé le versement" : "KkiaPay l'aura signalée") +
+          " — vous n'avez rien à refaire. Gardez le numéro <strong>" +
+          Utils.echapper(commande.numero) + "</strong>.</p>" +
+          '<div class="re-attente-actions">' +
+            '<button type="button" class="btn btn-clair" data-attente="verifier">' +
+              UI.icone("actualiser", "ic-sm") + "Vérifier à nouveau</button>" +
+            '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
+          "</div>" +
+        "</div></div>";
+    }
+    /* « echec » et « rien » : FeexPay seulement. Le choix de l'opérateur
+       et du numéro reprend celui du formulaire de commande. */
+    const message = etat === "echec"
+      ? Utils.echapper(info.erreur || "Le versement n'a pas abouti. Rien n'a été débité.")
+      : "Aucune demande de paiement n'est en cours pour cette commande : rien n'est parti " +
+        "sur votre téléphone. Vous pouvez la régler maintenant.";
+    return '<div class="carte re-attente re-attente-echec" id="re-attente" data-etat="' + etat + '">' +
+      '<div class="re-echec-tete">' + UI.icone("alerte", "ic-sm") + "<p>" + message + "</p></div>" +
+      (feexpay ? choixMobileMoney(commande.client || {}) : "") +
+      '<div class="btn-rangee re-attente-boutons">' +
+        (feexpay
+          ? '<button type="button" class="btn" data-attente="payer">' +
+              (etat === "echec" ? "Réessayer le paiement" : "Payer maintenant") + "</button>"
+          : "") +
+        '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
+      "</div></div>";
+  }
+
+  /** Pose (ou remplace) la carte, et branche ses boutons. */
+  function poserAttente(vue, commande, id, etat, info, controle) {
+    const html = carteAttente(commande, etat, info || {});
+    const ancienne = UI.$("#re-attente", vue);
+    if (ancienne) {
+      ancienne.outerHTML = html;
+    } else {
+      const entete = UI.$(".re-entete", vue);
+      if (entete) entete.insertAdjacentHTML("afterend", html);
+      else vue.insertAdjacentHTML("afterbegin", html);
+    }
+    const carte = UI.$("#re-attente", vue);
+    if (!carte) return;
+    if (etat === "echec" || etat === "rien") brancherMobileMoney();
+    carte.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-attente]");
+      if (!b) return;
+      const quoi = b.dataset.attente;
+      if (quoi === "arreter") {
+        if (controle) controle.arrete = true;
+        poserAttente(vue, commande, id, "arretee", { motif: "arret" });
+      } else if (quoi === "verifier") {
+        suivrePaiement(vue, commande, id);
+      } else if (quoi === "fermer") {
+        carte.remove();
+      } else if (quoi === "payer") {
+        relancerPaiement(vue, commande, id, b);
+      }
+    });
+  }
+
+  /** Attendre la confirmation, sans jamais retenir le client sur l'écran. */
+  async function suivrePaiement(vue, commande, id) {
+    if (attenteEnCours) attenteEnCours.arrete = true;
+    const controle = { arrete: false };
+    attenteEnCours = controle;
+    const ici = () => location.hash === "#/commande/" + id;
+    /* Quitter le reçu arrête l'attente : elle n'a plus personne à
+       prévenir, et elle continuait d'interroger FeexPay pour rien. */
+    const quitter = () => { if (!ici()) controle.arrete = true; };
+    window.addEventListener("hashchange", quitter);
+    poserAttente(vue, commande, id, "attente", {}, controle);
+    let etat = null;
+    try {
+      etat = await Paiement.attendreConfirmation(commande.id, commande.client.tel, 0, controle);
+    } finally {
+      window.removeEventListener("hashchange", quitter);
+      if (attenteEnCours === controle) attenteEnCours = null;
+    }
+    /* Parti, ou arrêté à la main : la carte dit déjà ce qu'il faut. */
+    if (controle.arrete || !ici()) return;
+    if (etat && etat.echoue) {
+      poserAttente(vue, commande, id, "echec", { erreur: etat.erreur });
+      return;
+    }
+    if (etat && etat.rien) {
+      poserAttente(vue, commande, id, "rien", {});
+      return;
+    }
+    if (etat && (etat.etat !== commande.etat || etat.remarque)) {
+      /* « majEtat » ne sait noter que ce que CE téléphone garde : une
+         commande lue dans la base n'y figure pas, et il rend null. On
+         met donc à jour l'objet qu'on a en main, et le téléphone en
+         plus quand il la connaît. Sans cela, un reçu ouvert depuis un
+         autre appareil se vidait à la confirmation du paiement. */
+      commande.etat = etat.etat;
+      commande.remarque = etat.remarque || "";
+      Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
+      if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
+      dessinerRecu(vue, commande);
+      /* Encore à payer — un versement incomplet : plus de sablier, la
+         remarque de l'en-tête dit le reste. */
+      if (commande.etat === "a_payer") poserAttente(vue, commande, id, "arretee", {});
+      return;
+    }
+    poserAttente(vue, commande, id, "arretee", { motif: "tarde" });
+  }
+
+  /** Une nouvelle demande, pour la même commande — après un refus seulement. */
+  async function relancerPaiement(vue, commande, id, bouton) {
+    const mm = lireMobileMoney();
+    if (!mm.reseau) {
+      UI.toast("Choisissez votre opérateur Mobile Money", "err");
+      return;
+    }
+    if (!/\d{6}/.test(Utils.normaliserTel(mm.numero))) {
+      UI.toast("Indiquez le numéro qui va payer", "err");
+      const champ = UI.$("#co-mm-tel");
+      if (champ) champ.focus();
+      return;
+    }
+    const libelle = bouton.innerHTML;
+    bouton.disabled = true;
+    bouton.innerHTML = '<span class="chargement-rond"></span>Envoi de la demande…';
+    try {
+      await Paiement.ouvrirFeexpay({
+        commande: commande.id, tel: commande.client.tel,
+        numero: mm.numero, reseau: mm.reseau,
+      });
+    } catch (err) {
+      bouton.disabled = false;
+      bouton.innerHTML = libelle;
+      UI.toast(err.message || "Le paiement n'a pas pu s'ouvrir", "err");
+      return;
+    }
+    if (location.hash !== "#/commande/" + id) return;
+    UI.toast("Validez la demande sur votre téléphone");
+    suivrePaiement(vue, commande, id);
   }
 
   /* -----------------------------------------------------
@@ -1126,14 +1316,12 @@ const VuePanier = (() => {
               : "La boutique a reçu votre commande dans son compte. Elle vous rappelle au ") +
             Utils.echapper(Compte.telAffichage(commande.client.tel, commande.client.indicatif)) +
             " pour la remise.</div></div>"
-        : '<div class="carte pa-avertissement" id="re-attente">' +
-            '<span class="chargement-rond"></span>' +
-            "<div>" + (Paiement.fournisseur() === "feexpay"
-              ? "Validez la demande sur votre téléphone, avec votre code Mobile Money. " +
-                "Nous allons ensuite demander à FeexPay si le versement a abouti."
-              : "Nous attendons la confirmation de KkiaPay. Cela prend quelques secondes.") +
-            " Ne payez pas une seconde fois.</div>" +
-          "</div>") +
+        /* L'ATTENTE NE CONCERNE QU'UNE COMMANDE À PAYER. Le sablier
+           tournait aussi sur une commande au paiement non abouti, ou
+           annulée, où plus rien n'arrivera — et répétait « Ne payez pas
+           une seconde fois » à qui n'avait rien payé. Le reçu pose la
+           carte ; « suivrePaiement » la fait vivre. */
+        : commande.etat === "a_payer" ? carteAttente(commande, "attente", {}) : "") +
 
       groupes.map((g) =>
         '<div class="carte pa-groupe">' +

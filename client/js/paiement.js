@@ -343,17 +343,51 @@ const Paiement = (() => {
    *
    * Renvoie l'état atteint. « a_payer » au bout du compte ne veut pas
    * dire « échoué » — seulement « pas encore confirmé ».
+   *
+   * DEUX RÉPONSES DE FEEXPAY ARRÊTENT L'ATTENTE SUR-LE-CHAMP, parce
+   * qu'attendre encore ferait croire que le versement peut aboutir :
+   *
+   *   { echoue: true, erreur }  FeexPay a répondu FAILED. C'est un
+   *                             verdict : le sablier tournait jusqu'au
+   *                             bout, puis annonçait « vous n'avez rien à
+   *                             refaire » à un client qui n'avait rien
+   *                             payé ;
+   *   { rien: true }            aucune demande de paiement n'est ouverte
+   *                             pour cette commande : elle n'est jamais
+   *                             partie sur le téléphone.
+   *
+   * « controle.arrete », posé par l'écran — le client a appuyé sur
+   * « Arrêter l'attente », ou il a quitté le reçu —, rend la main au
+   * tour suivant, sans rien conclure.
    */
-  async function attendreConfirmation(id, tel, pendant) {
+  async function attendreConfirmation(id, tel, pendant, controle) {
     const limite = Date.now() + (pendant || ATTENTE_MAX);
     const parFeexpay = fournisseur() === "feexpay";
+    const arrete = () => !!(controle && controle.arrete);
     let dernier = null;
-    while (Date.now() < limite) {
-      await new Promise((r) => setTimeout(r, INTERVALLE));
+    /* Avec FeexPay, le premier tour part tout de suite : rouvrir le reçu
+       d'un versement déjà refusé doit le dire aussitôt, pas au bout de
+       trois secondes de sablier. */
+    let patienter = !parFeexpay;
+    while (Date.now() < limite && !arrete()) {
+      if (patienter) await new Promise((r) => setTimeout(r, INTERVALLE));
+      patienter = true;
+      if (arrete()) break;
       if (parFeexpay) {
         /* Une vérification qui échoue n'interrompt pas l'attente : le
            versement peut très bien aboutir au tour suivant. */
-        try { await verifierFeexpay(id, tel); } catch (_) { /* on redemandera */ }
+        let verdict = null;
+        try { verdict = await verifierFeexpay(id, tel); } catch (_) { /* on redemandera */ }
+        if (arrete()) break;
+        if (verdict && verdict.echoue) {
+          return { etat: "a_payer", echoue: true,
+                   erreur: verdict.erreur || "Le versement n'a pas abouti." };
+        }
+        /* La phrase exacte de notre fonction « feexpay » quand la commande
+           n'a aucune référence de paiement. */
+        if (verdict && verdict.raison === "aucun paiement ouvert") {
+          return { etat: "a_payer", rien: true };
+        }
       }
       try {
         dernier = await suivre(id, tel);

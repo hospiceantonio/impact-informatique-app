@@ -2571,8 +2571,6 @@ choisit dans Admin → Réglages → BIZZOO.
 
 ### Le principe, à ne jamais contourner
 
-### Le principe, à ne jamais contourner
-
 **L'application ne valide jamais un paiement.** Avec KkiaPay elle ouvre
 la page de paiement, et c'est KkiaPay qui, une fois l'argent encaissé,
 appelle une fonction serveur. Avec FeexPay elle ne fait qu'inviter notre
@@ -2716,6 +2714,85 @@ pas été confirmée par la banque.
   administrateur, et le reçu du client propose un bouton « Prévenir la
   boutique » — le message part alors du WhatsApp du client, avec le
   détail déjà écrit.
+
+## Le paiement qui n'aboutit pas (3.56.1)
+
+Après un paiement Mobile Money refusé, le reçu répétait en boucle
+« Validez la demande sur votre téléphone, avec votre code Mobile Money.
+Nous allons ensuite demander à FeexPay si le versement a abouti. Ne
+payez pas une seconde fois. » — et l'on ne pouvait plus quitter l'écran.
+Quatre causes, que le navigateur a d'abord reproduites :
+
+- **Le refus n'était pas lu.** FeexPay répondait FAILED, notre fonction
+  `feexpay` le disait (`echoue`), mais l'application ne regardait pas sa
+  réponse : le sablier tournait une minute et demie, puis annonçait
+  « vous n'avez rien à refaire » à un client qui n'avait rien payé — et
+  tout recommençait à chaque réouverture du reçu.
+- **Le reçu retenait le client.** L'application dessine ses écrans un
+  par un, et le reçu ne rendait la main qu'au bout de son attente :
+  pendant une minute et demie, le retour, « Mes commandes » ou l'accueil
+  restaient sans effet.
+- **Le sablier tournait aussi là où plus rien n'arrivera** : sur une
+  commande « Paiement non abouti » ou annulée, sans aucun moyen de
+  l'arrêter.
+- **Le retour arrière tournait en rond.** Après l'achat, revenir en
+  arrière depuis le panier ramenait au formulaire de commande, qui, le
+  panier vidé, renvoyait au panier : le bouton retour du téléphone
+  passait de l'un à l'autre sans jamais sortir.
+
+### Une carte qui laisse la main
+
+Le message devient une carte, sous l'en-tête du reçu, qui a toujours un
+bouton pour en sortir :
+
+| Ce qui se passe | Ce que dit la carte | Ses boutons |
+|---|---|---|
+| On attend la confirmation | le sablier, « Validez la demande… Ne payez pas une seconde fois. » | **Arrêter l'attente** |
+| L'attente est arrêtée, ou a duré une minute et demie | plus de sablier : si le client a validé et a été débité, la boutique recevra sa commande dès que FeexPay aura confirmé — rien à refaire, garder le numéro BZ-… | **Vérifier à nouveau**, **Fermer** |
+| FeexPay a refusé le versement | sa raison (« rien n'a été débité »), puis l'opérateur et le numéro qui paie | **Réessayer le paiement**, **Fermer** |
+| Aucune demande n'est partie pour cette commande | « rien n'est parti sur votre téléphone », l'opérateur et le numéro | **Payer maintenant**, **Fermer** |
+
+- **Arrêter l'attente** cesse d'interroger FeexPay ; **Fermer** retire
+  la carte ; **Vérifier à nouveau** relance l'attente.
+- **L'attente ne retient plus l'écran.** Elle part à côté, et quitter le
+  reçu l'arrête : « Mes commandes », l'accueil et le retour répondent
+  aussitôt.
+- **Rouvrir le reçu d'un versement refusé le dit tout de suite** : avec
+  FeexPay, la première vérification part sans attendre.
+- **Une commande « Paiement non abouti » ou annulée n'a plus de carte.**
+- **Le retour arrière sort.** Les renvois vers le panier et vers le reçu
+  remplacent l'écran précédent dans l'historique (`location.replace`) :
+  depuis le reçu, retour mène au panier, puis à l'accueil.
+
+**Réessayer ne vient qu'après un verdict** de FeexPay : un refus, ou
+aucune demande ouverte. Pendant l'attente, une seconde demande ferait
+sonner le téléphone deux fois, et le client pourrait payer deux fois —
+c'est pour cela que le sablier dit « Ne payez pas une seconde fois », et
+qu'il n'a pas ce bouton. La nouvelle demande porte sur **la même
+commande**, avec l'opérateur et le numéro choisis ; notre fonction
+refuse toujours une commande qui n'est plus à payer, et une seconde
+demande moins de trente secondes après la précédente.
+
+**L'argent, lui, ne dépend toujours pas du téléphone.** « Arrêter » ou
+« Fermer » ne touchent pas à la commande : elle reste « à payer », et si
+le versement aboutit malgré tout, la notification de FeexPay la fait
+passer à « payée » (voir « La notification de FeexPay n'est pas
+signée »). L'application ne conclut rien ; elle cesse seulement
+d'attendre devant le client.
+
+[`tools/banc-paiement-echoue.mjs`](tools/banc-paiement-echoue.mjs)
+rejoue tout cela au navigateur, FeexPay et la base simulés, en 40
+constats : le refus arrête l'attente en moins de quatre secondes, après
+une seule question à FeexPay ; « Fermer » ; « Réessayer », qui repart
+sur la même commande avec l'opérateur et le numéro choisis, jusqu'à
+« Commande confirmée » quand la base le dit ; « Arrêter l'attente » et
+« Vérifier à nouveau » ; « Mes commandes » affiché en moins d'une
+seconde quand on quitte le reçu, et l'attente arrêtée avec lui ;
+« Payer maintenant » sans demande en cours ; aucune carte sur
+une commande non aboutie ou annulée ; le retour arrière après un achat,
+et depuis le formulaire ouvert panier vide. Quatre sabotages le font
+tomber : ignorer le refus, laisser le reçu attendre la fin de l'attente,
+renvoyer au panier ou au reçu sans remplacer l'entrée d'historique.
 
 ## Vérification du numéro (entrer par SMS)
 
@@ -3523,7 +3600,7 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
-    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique et compte-enseigne
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique, compte-enseigne et paiement-echoue
     ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── icones-categories.py  # Les icônes des catégories, découpées dans les trois planches

@@ -1274,6 +1274,23 @@ a.pub-carte:active{transform:scale(.98)}
 .pa-avertissement .ic,.pa-essai .ic,.pa-confirme .ic{flex:none;margin-top:1px}
 .pa-confirme strong,.pa-avertissement strong{color:inherit}
 
+/* L'attente du versement sur le reçu, et la main laissée au client :
+   « Arrêter l'attente », « Vérifier à nouveau », « Fermer » sous le
+   message ; après un refus, l'avis en rouge clair, puis le choix de
+   l'opérateur et « Réessayer le paiement ». */
+.re-attente-corps{flex:1;min-width:0}
+.re-attente-corps p{margin:0}
+.re-attente-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.re-attente-actions .btn{width:auto;flex:1 1 auto;min-height:38px;padding:8px 14px;font-size:13.5px}
+.re-echec-tete{
+  display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;
+  padding:11px 13px;border-radius:var(--r-sm);
+  background:var(--rouge-clair);color:var(--rouge-fonce);font-size:13px;line-height:1.5;
+}
+.re-echec-tete .ic{flex:none;margin-top:1px}
+.re-echec-tete p{margin:0}
+.re-attente-boutons{margin-top:14px}
+
 /* « Un compte est nécessaire » : un avis, pas une alarme — on le dit
    dans le ton de l'aide, sans fond coloré. Le flex sert seulement à
    garder l'icône À CÔTÉ du texte : posée dans le fil de la phrase, elle
