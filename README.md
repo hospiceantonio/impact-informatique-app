@@ -1173,11 +1173,13 @@ carte) et le mot laissé à la commande. **Deux gestes seulement** : « Je
 l'ai prise » et « Je l'ai remise ». Préparer reste à la boutique,
 annuler aussi, et c'est toujours le client qui confirme avoir reçu.
 
-### Il ne voit aucun montant
+### Il ne voit qu'un montant : ce qu'il encaisse
 
-Ni le prix payé, ni le prix BIZZOO, ni la marge — pas même une devise à
-l'écran. Ce n'est pas une politesse d'affichage : `mes_livraisons()`
-**ne rend aucune colonne d'argent**.
+Ni le prix payé, ni le prix BIZZOO, ni la marge, ni l'acompte. Depuis
+l'acompte à la commande (3.57.0), un seul chiffre lui parvient : **ce
+qu'il doit encaisser à la livraison**, la part du reste qui revient à
+sa boutique (`a_encaisser`). Ce n'est pas une politesse d'affichage :
+`mes_livraisons()` **ne rend aucune autre colonne d'argent**.
 
 C'est là qu'une distinction compte. Une règle RLS choisit les **lignes**
 et les rend *entières* : elle ne sait pas retenir une colonne. Donner au
@@ -2348,8 +2350,12 @@ s'annoncer une commande livrée, ni une boutique se fabriquer un accusé
 de réception. La seule écriture permise est `lue_le`, sur ses propres
 lignes.
 
-**Aucun montant n'y entre.** La règle des prix fermés au livreur ne
-servirait à rien si le texte d'une notification les recopiait.
+**Un montant n'y entre que s'il regarde son destinataire.** Depuis
+l'acompte (3.57.0), le client lit ce qui lui reste à payer à la
+livraison, chaque boutique ce qu'elle encaissera, le superadministrateur
+l'acompte reçu et le reste. Le livreur, lui, n'en reçoit aucun : la
+règle des prix fermés au livreur ne servirait à rien si le texte d'une
+notification les recopiait.
 
 ### La cloche, le panneau, les trois bips
 
@@ -2660,8 +2666,8 @@ essais à la production sans reconstruire ni republier les APK.
 
 - **Le client n'écrit pas les prix.** Il envoie des identifiants et des
   quantités ; `creer_commande()` relit le catalogue, fige le nom, la
-  référence et le prix, et calcule le total. C'est ce total-là qui part
-  chez KkiaPay.
+  référence et le prix, et calcule le total — puis l'acompte (3.57.0).
+  C'est cet acompte-là qui part chez l'agrégateur.
 - **Le client ne se déclare pas payé.** Une commande naît « à payer », et
   le déclencheur `commande_verrous` refuse tout passage à « payée » qui
   ne vienne pas de `marquer_payee()`.
@@ -2793,6 +2799,126 @@ une commande non aboutie ou annulée ; le retour arrière après un achat,
 et depuis le formulaire ouvert panier vide. Quatre sabotages le font
 tomber : ignorer le refus, laisser le reçu attendre la fin de l'attente,
 renvoyer au panier ou au reçu sans remplacer l'entrée d'historique.
+
+## L'acompte à la commande (3.57.0)
+
+Pour écarter les commandes fictives, le client paie en ligne **une part
+du total — l'acompte —** pour que sa commande parte ; **le reste se paie
+à la livraison**. Le taux est au superadministrateur : **Réglages →
+BIZZOO → Paiement en ligne → « Acompte à la commande »**, de 1 à 100 %.
+Il part à 10 % ; 100 % revient à tout faire payer en ligne, comme avant.
+
+### Ce que fait la base
+
+- **Le taux** vit dans `paiement.taux_acompte`, borné de 1 à 100, et
+  seul le superadministrateur l'écrit — la même règle que le choix de
+  l'agrégateur.
+- **La base calcule l'acompte, jamais le téléphone.**
+  `creer_commande(client, articles, code, avec_acompte)` le fixe
+  *après* le code promo : le taux du jour sur le total remise déduite,
+  au franc supérieur, **100 FCFA au moins** (le minimum de FeexPay),
+  jamais plus que le total. Il est figé sur la commande
+  (`taux_acompte`, `acompte`) : changer le taux ne réécrit pas les
+  commandes passées. Personne ne le réécrit ensuite — pas même le
+  superadministrateur, que `commande_verrous` arrête comme pour le total.
+- **L'agrégateur ne demande que l'acompte.** `commande_pour_paiement`
+  le rend sous `total` : la fonction Edge `feexpay` déployée demande ce
+  champ-là, et **n'a pas eu à changer**. KkiaPay reçoit l'acompte de
+  l'application ; dans les deux cas, `marquer_payee` le vérifie, et un
+  versement plus petit reste « incomplet ». Ce qui est réellement entré
+  se garde dans `verse`. Le journal des versements attend l'acompte, et
+  écrit « Acompte encaissé ».
+- **La commande part dès l'acompte reçu** : elle passe à « payée », les
+  boutiques sont prévenues et le stock décompté, comme avant.
+- **Le reste se partage entre les boutiques** (`restes_par_boutique`).
+  Une commande qui traverse deux boutiques est livrée en deux fois, et
+  chacune encaisse sa part ; la somme des parts tombe juste au franc près
+  (l'arrondi va à la plus grosse). **Un article annulé ne se paie pas** :
+  le client ne doit plus que ce qu'il recevra, remise comprise au
+  prorata, moins ce qu'il a versé ; une boutique dont tout est annulé n'a
+  rien à encaisser.
+- **À chacun ce qui le regarde.** `commandes?select=*,restes` — une
+  fonction que PostgREST lit comme une colonne — rend toutes les parts au
+  client et à l'enseigne, sa part à une boutique, rien aux autres ; elle
+  relit la commande par son identifiant, si bien qu'une ligne fabriquée
+  n'y change rien. Le livreur lit `a_encaisser` dans `mes_livraisons()`,
+  et rien d'autre.
+- **Les notifications le disent** : « Acompte reçu » et le reste au
+  client ; à chaque boutique, ce qu'elle encaissera ; au
+  superadministrateur, l'acompte encaissé et le reste. Une commande
+  réglée en entier garde les mots d'avant.
+- **L'enseigne qui confirme à la main** (`confirmer_paiement`) se porte
+  garante de l'acompte, pas du total.
+
+### Ce que voient les écrans
+
+| Où | Ce qui s'affiche |
+|---|---|
+| Le panier | sous le total : « À payer à la commande — acompte de 10 % » et « À payer à la livraison » |
+| Le formulaire de commande | « Total de la commande », « À payer maintenant », « Reste à payer à la livraison » — code promo compris — et le bouton **Payer l'acompte · 30 000 FCFA** |
+| Le reçu | « Acompte à payer », puis, payée : le badge « Acompte payé », « Acompte reçu. », le reste sous la coche, et pour chaque boutique ce qu'on lui donnera |
+| Le message WhatsApp à une boutique | « Acompte payé en ligne. Reste à payer à la livraison : … » — sa part seulement |
+| « Mes commandes » | « Acompte payé », et « reste … à la livraison » tant que la livraison n'a pas eu lieu |
+| Admin — Réglages (superadministrateur) | le champ « Acompte à la commande (%) », refusé hors de 1 à 100 |
+| Admin — Commandes | « Acompte payé en ligne (10 %) » et « À encaisser à la livraison » : sa part pour une boutique, tout le reste pour l'enseigne ; la feuille « Confier » dit au livreur ce qu'il encaissera |
+| Admin — Mes courses (livreur) | « À encaisser : … », « Rien à encaisser : tout est payé », ou « Encaissé à la livraison » une fois remise |
+
+### Les applications déjà installées
+
+**Elles ne changent pas.** Les applications 3.54 des stores ne savent
+rien de l'acompte : elles n'envoient pas `avec_acompte`, leurs commandes
+se règlent donc en entier (taux 100), comme elles l'annoncent au client.
+L'acompte vaut pour les commandes passées depuis la 3.57.0. Dans l'autre
+sens, une application 3.57.0 face à une base d'avant retire le paramètre
+inconnu et fait payer le total : la réponse de la base décide de ce que
+l'écran affiche.
+
+### Ce qui change pour l'argent
+
+- **BIZZOO encaisse l'acompte en ligne ; la boutique — son livreur —
+  encaisse le reste à la porte.** Pour ces commandes, le règlement entre
+  BIZZOO et ses boutiques change de sens : c'est désormais la boutique
+  qui a l'essentiel en main, et BIZZOO qui garde l'acompte. Les chiffres
+  de vente ne bougent pas — une commande compte toujours au moment où
+  elle passe à « payée » —, mais ce règlement se fait hors de
+  l'application.
+- **Une commande annulée après l'acompte** se rembourse hors de
+  l'application, comme un paiement entier aujourd'hui.
+- **Paiement en ligne fermé, pas d'acompte** : la commande part sur
+  WhatsApp et rien n'est créé en base.
+
+### Le fichier à coller
+
+[`supabase/acompte.sql`](supabase/acompte.sql). Il se suffit — il pose
+les colonnes et les fonctions dont il a besoin — et se rejoue sans
+dommage. Les applications installées n'en voient rien, puisqu'elles ne
+demandent pas l'acompte.
+
+**Il n'est pas encore appliqué sur la base en ligne.** Le 10 octobre,
+l'outil Supabase a attendu une approbation (le fichier retire puis
+repose deux fonctions, `creer_commande` et `mes_livraisons`) qui n'est
+pas venue à temps, deux fois : rien n'a été écrit, la transaction est
+entière ou nulle. Les 25 fonctions que le fichier repose avaient été
+comparées d'abord à la base en ligne : identiques au dépôt, aux fins de
+ligne près — le fichier ne change donc que ce que l'acompte demande. À
+coller tel quel : **Dashboard → SQL Editor → New query → coller tout →
+Run**. D'ici là, les applications 3.57.0 font payer le total : la base
+ne connaît pas l'acompte, et l'écran suit sa réponse.
+
+### Les bancs
+
+- [`supabase/tests/99t-acompte.sql`](supabase/tests/99t-acompte.sql) :
+  92 constats sur un vrai PostgreSQL — le taux et qui l'écrit, le calcul
+  (plancher, plafond, arrondi, code promo), une application d'avant, le
+  verrou, l'encaissement incomplet puis entier, le partage au franc près,
+  l'article annulé, qui voit quelle part, le livreur, les notifications,
+  la confirmation à la main, la commande d'avant l'acompte. **Neuf
+  sabotages le font tomber**, chacun sur la règle qu'il casse.
+- [`tools/banc-acompte.mjs`](tools/banc-acompte.mjs) : 66 constats au
+  navigateur, la base et les agrégateurs simulés — de l'annonce dans le
+  panier jusqu'à l'écran du livreur, en passant par la base d'avant et le
+  petit téléphone. **Huit sabotages le font tomber.** Les 20 autres bancs
+  navigateur passent toujours : 1021 constats en tout, aucun échec.
 
 ## Vérification du numéro (entrer par SMS)
 
@@ -3634,7 +3760,7 @@ impact-informatique-app/
 │   ├── journal-versements.sql       # Une ligne par tentative de paiement, jamais retouchée
 │   ├── codes-promo.sql              # Une remise sort de la marge de l'enseigne, jamais de la boutique
 │   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
-│   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, aucun montant
+│   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, un seul montant (ce qu'il encaisse)
 │   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
 │   ├── categories-photos.sql        # La photo d'une catégorie : un chemin, un seul dossier
 │   ├── categories-icones.sql        # L'icône de chaque catégorie (3.56), sans toucher à l'image
@@ -3642,6 +3768,7 @@ impact-informatique-app/
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
 │   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
+│   ├── acompte.sql                  # L'acompte à la commande (3.57.0) : en ligne l'acompte, le reste à la livraison
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

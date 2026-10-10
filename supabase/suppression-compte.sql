@@ -11,6 +11,9 @@ alter table public.commandes add column if not exists revendeur boolean not null
 alter table public.commandes add column if not exists tentative_le timestamptz;
 alter table public.commandes add column if not exists transaction_annoncee text not null default '';
 alter table public.commandes add column if not exists compte_supprime boolean not null default false;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
 
 create or replace function public.client_commandes(client uuid)
 returns table (
@@ -81,6 +84,11 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -95,6 +103,48 @@ begin
   return new;
 end $$;
 
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Recopié de schema.sql, avec les colonnes qu'il lit : les fonctions
+-- plus bas s'en servent depuis l'acompte à la commande (« acompte.sql »).
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
 create or replace function public.suivre_commande(cible text, tel text)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -107,7 +157,18 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'numero', c.numero, 'etat', c.etat, 'total', c.total, 'devise', c.devise,
-    'paye_le', c.paye_le, 'remarque', c.remarque);
+    'paye_le', c.paye_le, 'remarque', c.remarque,
+    -- L'acompte, ce qui a été versé, et ce qui reste à payer à la
+    -- livraison, boutique par boutique. Une commande d'avant l'acompte
+    -- se payait en entier : son acompte est son total.
+    'taux_acompte', coalesce(c.taux_acompte, 100),
+    'acompte', coalesce(c.acompte, c.total),
+    'verse', c.verse,
+    'reste', (select coalesce(sum(r.a_encaisser), 0)
+                from public.restes_par_boutique(c.id) r),
+    'restes', (select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
+                 from public.restes_par_boutique(c.id) r
+                where r.boutique_id is not null));
 end $$;
 
 create or replace function public.commande_pour_paiement(cible text, tel text)
@@ -122,7 +183,8 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'etat', c.etat,
-    'total', c.total, 'devise', c.devise,
+    'total', coalesce(c.acompte, c.total), 'devise', c.devise,
+    'acompte', coalesce(c.acompte, c.total), 'total_commande', c.total,
     'nom', c.client_nom, 'tel', c.client_tel,
     'reference', c.fournisseur_ref,
     -- Pour que l'Edge Function refuse une relance AVANT d'appeler

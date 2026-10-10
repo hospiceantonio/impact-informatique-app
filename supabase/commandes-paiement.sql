@@ -368,6 +368,13 @@ alter table public.commandes add column if not exists client_id uuid;
 -- ici : la règle d'écriture ci-dessous la lit.
 alter table public.commandes add column if not exists revendeur boolean not null default false;
 
+-- L'acompte à la commande, et ce que l'agrégateur a versé. Posés par
+-- « acompte.sql », répétés ici : la règle d'écriture ci-dessous les lit.
+alter table public.paiement add column if not exists taux_acompte int not null default 10;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+
 create index if not exists commandes_etat on public.commandes(etat, cree_le desc);
 -- Une transaction KkiaPay ne vaut que pour une commande : c'est ce qui
 -- rend le paiement rejouable sans danger (KkiaPay réessaie 5 fois tant
@@ -423,6 +430,12 @@ begin
   new.remarque := '';
   new.annonce_le := null;
   new.paye_le := null;
+  -- L'acompte se pose APRÈS les lignes, par « creer_commande » : il se
+  -- calcule sur un total que la base n'a pas encore. Rien ne l'apporte
+  -- de dehors, pas plus que l'argent versé.
+  new.taux_acompte := null;
+  new.acompte := null;
+  new.verse := null;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -547,6 +560,11 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -835,12 +853,56 @@ end $$;
 revoke all on function public.remise_du_code(text, bigint, bigint, uuid, text)
   from public, anon, authenticated;
 
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Recopié de schema.sql, avec les colonnes qu'il lit : les fonctions
+-- plus bas s'en servent depuis l'acompte à la commande (« acompte.sql »).
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
 -- « drop » avant « create » : cette fonction a gagné un paramètre — le
 -- code promo. Un paramètre par défaut n'en remplace pas une, il en crée
 -- une seconde, et l'appel devient ambigu : « function is not unique ».
 drop function if exists public.creer_commande(jsonb, jsonb);
+drop function if exists public.creer_commande(jsonb, jsonb, text);
 create or replace function public.creer_commande(
-  client jsonb, articles jsonb, code text default '')
+  client jsonb, articles jsonb, code text default '',
+  avec_acompte boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -856,6 +918,7 @@ declare
   marge    bigint;
   verdict  jsonb;
   manque   record;
+  taux     int;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -988,6 +1051,30 @@ begin
     end if;
   end if;
 
+  -- ---------- L'acompte ----------
+  -- APRÈS le code promo : l'acompte se prend sur ce que le client doit
+  -- vraiment, remise déduite. Le taux est celui du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE DEMANDE RIEN. Elle fait payer le total et
+  -- dit « Payée » une fois le versement reçu : sa commande se règle donc
+  -- en entier, comme elle l'annonce au client. Lui faire payer un acompte
+  -- sans qu'elle sache le dire laisserait croire au client qu'il ne doit
+  -- plus rien, et le livreur arriverait avec une somme à réclamer.
+  --
+  -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
+  -- plus que le total.
+  taux := case when coalesce(avec_acompte, false)
+               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
+               else 100 end;
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes c
+     set taux_acompte = taux,
+         acompte = case when c.total <= 0 then 0
+                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
+   where c.id = nouvelle;
+  perform set_config('bizzoo.interne', '', true);
+
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'etat', c.etat,
@@ -995,6 +1082,9 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
+    'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
+    'reste', greatest(0, c.total - c.acompte),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -1002,6 +1092,10 @@ begin
                'whatsapp', coalesce((select b.whatsapp from public.boutiques b where b.id = g.boutique_id), ''),
                'indicatif', coalesce((select b.indicatif from public.boutiques b where b.id = g.boutique_id), '229'),
                'montant', g.montant,
+               /* Ce que CETTE boutique encaissera à la livraison. */
+               'a_encaisser', coalesce((select r.a_encaisser
+                                          from public.restes_par_boutique(c.id) r
+                                         where r.boutique_id is not distinct from g.boutique_id), 0),
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
@@ -1022,8 +1116,8 @@ begin
 end $$;
 
 -- Un client n'est pas connecté : c'est bien à lui que la fonction sert.
-revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean) to anon, authenticated;
 
 -- ---------------------------------------------------------
 -- 6. Suivre sa commande
@@ -1045,7 +1139,18 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'numero', c.numero, 'etat', c.etat, 'total', c.total, 'devise', c.devise,
-    'paye_le', c.paye_le, 'remarque', c.remarque);
+    'paye_le', c.paye_le, 'remarque', c.remarque,
+    -- L'acompte, ce qui a été versé, et ce qui reste à payer à la
+    -- livraison, boutique par boutique. Une commande d'avant l'acompte
+    -- se payait en entier : son acompte est son total.
+    'taux_acompte', coalesce(c.taux_acompte, 100),
+    'acompte', coalesce(c.acompte, c.total),
+    'verse', c.verse,
+    'reste', (select coalesce(sum(r.a_encaisser), 0)
+                from public.restes_par_boutique(c.id) r),
+    'restes', (select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
+                 from public.restes_par_boutique(c.id) r
+                where r.boutique_id is not null));
 end $$;
 revoke all on function public.suivre_commande(text, text) from public;
 grant execute on function public.suivre_commande(text, text) to anon, authenticated;
@@ -1213,6 +1318,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   c   public.commandes%rowtype;
   net text := left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64);
+  du  int;
 begin
   if net = '' then return jsonb_build_object('ok', false, 'raison', 'transaction absente'); end if;
 
@@ -1238,6 +1344,10 @@ begin
     return jsonb_build_object('ok', true, 'deja', true, 'numero', c.numero);
   end if;
 
+  -- CE QUI EST ATTENDU EN LIGNE, c'est l'acompte : le reste se paie à la
+  -- livraison. Une commande d'avant l'acompte se payait en entier.
+  du := coalesce(c.acompte, c.total);
+
   perform set_config('bizzoo.paiement', 'oui', true);
 
   -- Cette transaction est déjà rattachée à une autre commande. On le
@@ -1251,36 +1361,41 @@ begin
     -- L'agrégateur et l'opérateur se reprennent tout seuls sur la ligne
     -- d'ouverture : c'est « noter_versement » qui s'en charge.
     perform public.noter_versement(c.id, 'conflit', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
       'Transaction déjà rattachée à une autre commande.');
     return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
   end if;
 
-  -- Le montant qui compte est celui que KkiaPay annonce. S'il manque
+  -- Le montant qui compte est celui que l'agrégateur annonce. S'il manque
   -- quelque chose, on ne valide pas : on écrit ce qu'on a reçu, et la
   -- boutique tranche. La preuve, elle, n'est pas posée : la commande
   -- n'est pas payée.
-  if coalesce(montant, 0) < c.total then
+  if coalesce(montant, 0) < du then
     update public.commandes
        set remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
-                      || ' reçus sur ' || c.total::text || ' attendus'
+                      || ' reçus sur ' || du::text || ' attendus'
                       || ' (transaction ' || net || ').'
      where id = c.id;
     perform public.noter_versement(c.id, 'incomplete', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
-      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || c.total::text || ' attendus.');
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
+      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || du::text || ' attendus.');
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
 
+  -- « verse » garde ce qui est RÉELLEMENT entré : c'est de lui que se
+  -- déduit ce que le livreur réclamera. Un client qui a tout payé en
+  -- ligne ne doit plus rien à la porte.
   update public.commandes
      set etat = 'payee', paye_le = now(), transaction_id = net,
-         confirme_par = '', remarque = ''
+         confirme_par = '', remarque = '', verse = coalesce(montant, 0)
    where id = c.id;
   -- La remarque vient d'être effacée sur la commande : c'est le journal,
   -- désormais, qui garde ce qui s'est passé avant cette réussite.
   perform public.noter_versement(c.id, 'payee', qui, '',
-    c.fournisseur_ref, net, c.total, coalesce(montant, 0), 'Versement encaissé.');
-  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total);
+    c.fournisseur_ref, net, du, coalesce(montant, 0),
+    case when du < c.total then 'Acompte encaissé.' else 'Versement encaissé.' end);
+  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total,
+                            'verse', coalesce(montant, 0));
 end $$;
 
 -- LE POINT À NE PAS MANQUER : révoquer du seul pseudo-rôle « public »
@@ -1308,10 +1423,13 @@ begin
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   perform set_config('bizzoo.paiement', 'oui', true);
+  -- Ce dont l'enseigne se porte garante, c'est de l'ACOMPTE : le reste
+  -- se paie à la livraison, et reste dû.
   update public.commandes
-     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne')
+     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne'),
+         verse = coalesce(acompte, total)
    where id = cible and etat <> 'payee'
-  returning total into montant;
+  returning verse into montant;
 
   -- Au journal, et NOMMÉMENT « main ». Un encaissement à la main n'est
   -- pas un versement comme un autre : personne ne l'a vérifié chez

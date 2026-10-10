@@ -20,8 +20,9 @@
 --   fonction demande maintenant d'abord s'il est de l'équipe.
 --
 -- CE QU'IL VOIT. Le numéro de la commande, ce qu'il porte, le
--- nom du client, son numéro, son adresse. RIEN D'AUTRE — et
--- surtout AUCUN MONTANT : ni le prix payé, ni le prix BIZZOO.
+-- nom du client, son numéro, son adresse, et — depuis l'acompte
+-- à la commande — ce qu'il doit encaisser à la livraison. RIEN
+-- D'AUTRE : ni le prix payé, ni le prix BIZZOO.
 --
 -- C'EST POURQUOI IL PASSE PAR UNE FONCTION, et pas par une
 -- règle RLS. Une règle décide quelles LIGNES on voit ; elle
@@ -358,18 +359,67 @@ end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
 grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;
 
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Recopié de schema.sql, avec les colonnes qu'il lit : les fonctions
+-- plus bas s'en servent depuis l'acompte à la commande (« acompte.sql »).
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
 -- ---------- Ce que le livreur a à porter ----------
 -- SES courses, et rien que les siennes. Pas celles de son collègue, pas
--- celles des autres boutiques — et AUCUN montant : ni le prix BIZZOO,
--- ni le prix payé. Regardez la liste des colonnes rendues : elle est la
--- réponse entière à « que voit un livreur ? ».
+-- celles des autres boutiques — et UN SEUL montant : ce qu'il doit
+-- encaisser à la porte, la part du reste qui revient à sa boutique. Ni
+-- le prix BIZZOO, ni le prix des articles, ni l'acompte. Regardez la
+-- liste des colonnes rendues : elle est la réponse entière à « que voit
+-- un livreur ? ».
+--
+-- « drop » avant « create » : la fonction a gagné une colonne, et
+-- PostgreSQL ne change pas ce qu'une fonction rend sans la retirer.
+drop function if exists public.mes_livraisons();
 create or replace function public.mes_livraisons()
 returns table (
   commande_id text, numero text,
   boutique_id text, nom_boutique text,
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
-  etat text, articles jsonb, paye_le timestamptz)
+  etat text, articles jsonb, paye_le timestamptz,
+  a_encaisser bigint)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -386,7 +436,12 @@ begin
            jsonb_agg(jsonb_build_object(
              'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
              order by l.nom),
-           c.paye_le
+           c.paye_le,
+           -- Ce qu'il réclame au client : la part du reste qui revient à
+           -- SA boutique. Zéro quand tout a été payé en ligne.
+           coalesce((select r.a_encaisser
+                       from public.restes_par_boutique(c.id) r
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi

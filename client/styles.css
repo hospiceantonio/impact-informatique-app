@@ -1222,6 +1222,18 @@ a.pub-carte:active{transform:scale(.98)}
    lise comme un retrait et pas comme une ligne de plus à payer. */
 .pa-total-ligne.co-remise{color:var(--vert);font-weight:700}
 
+/* ---------- L'acompte ----------
+   Ce qui se paie MAINTENANT porte le chiffre en bleu, comme le total
+   l'était ; ce qui restera pour la livraison se lit en dessous, en
+   plus petit : c'est une information, pas une somme à payer ici. */
+.pa-total-ligne.co-acompte{color:var(--encre);font-weight:600}
+.pa-total-ligne small,.pa-recap-ligne small{
+  display:block;font-size:11.5px;font-weight:500;color:var(--encre-tres-douce);
+}
+.pa-total-ligne.co-reste{font-size:13.5px}
+.pa-total-ligne.co-reste span:last-child{font-weight:700;color:var(--encre)}
+.pa-recap-acompte{padding-top:9px;border-top:1px dashed var(--trait)}
+
 /* ---------- Où en est ma commande ----------
    Les cinq étapes, la faite en vert, les suivantes en gris. Le client
    lit de haut en bas et sait où il en est sans lire une phrase. */
@@ -1318,6 +1330,24 @@ a.pub-carte:active{transform:scale(.98)}
   color:var(--encre-tres-douce);margin-bottom:8px;
 }
 .re-montant{font-size:28px;font-weight:800;color:var(--bleu-700);margin-top:10px}
+/* L'acompte et le reste, sous le total du reçu : l'un payé en ligne,
+   l'autre à la porte. Alignés comme un récapitulatif, pas centrés : on
+   lit deux montants côte à côte de leurs libellés. */
+.re-acompte{
+  margin-top:12px;padding-top:12px;border-top:1px dashed var(--trait);
+  display:flex;flex-direction:column;gap:7px;text-align:left;
+}
+.re-acompte-ligne{
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  font-size:13.5px;color:var(--encre-douce);
+}
+.re-acompte-ligne strong{font-size:15px;font-weight:800;color:var(--encre)}
+.re-acompte-ligne small{color:var(--encre-tres-douce);font-size:12px}
+.re-acompte-reste strong{color:var(--orange-fonce)}
+.re-a-livrer{margin-top:6px;padding-top:6px;border-top:0}
+.re-a-livrer strong{color:var(--orange-fonce)}
+/* Dans la liste : le reste à la livraison, sous le montant. */
+.re-resume-reste{font-size:11.5px;color:var(--orange-fonce);margin:1px 0 5px;white-space:nowrap}
 .re-ligne{
   display:flex;justify-content:space-between;gap:12px;
   padding:8px 0;font-size:13.5px;

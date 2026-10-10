@@ -537,9 +537,10 @@ const VueReglages = (() => {
             '<div class="carte-titre">' + UI.icone("energie", "ic-sm") + " Paiement en ligne</div>" +
             '<p class="aide" style="margin:0 0 12px">Ce réglage vaut pour <strong>toutes les ' +
               "boutiques de BIZZOO</strong>, et vous seul y touchez. Quand c'est ouvert, les " +
-              "clients paient leur panier et la commande arrive dans le compte de chaque " +
-              "boutique concernée. Tant que c'est fermé, le panier existe toujours mais la " +
-              "commande part sur WhatsApp, comme avant.</p>" +
+              "clients paient en ligne l'acompte de leur panier, et la commande arrive dans le " +
+              "compte de chaque boutique concernée ; le reste se paie à la livraison. Tant que " +
+              "c'est fermé, le panier existe toujours mais la commande part sur WhatsApp, " +
+              "comme avant.</p>" +
 
             '<div class="champ"><label>Qui encaisse</label>' +
               '<div class="st-filtres" id="pay-fournisseurs">' +
@@ -580,6 +581,24 @@ const VueReglages = (() => {
               '<div class="note-attente" style="margin:12px 0">' + UI.icone("alerte", "ic-sm") +
                 " Le webhook doit être déclaré côté KkiaPay. Sans lui, l\'argent arrive mais " +
                 "les commandes restent « en attente ».</div>" +
+            "</div>" +
+
+            /* ---- L'acompte à la commande ----
+               Ce que le client paie en ligne pour que sa commande parte ;
+               le reste se paie à la livraison. C'est ce qui écarte les
+               commandes fictives : commander engage déjà de l'argent. La
+               base le borne de 1 à 100 et ne laisse que vous l'écrire. */
+            '<div class="champ" id="pay-bloc-acompte" hidden>' +
+              '<label for="pay-acompte">Acompte à la commande</label>' +
+              '<div class="champ-montant">' +
+                '<input id="pay-acompte" inputmode="numeric" autocomplete="off" placeholder="10">' +
+                '<span class="devise">%</span>' +
+              "</div>" +
+              '<div class="aide">Le client paie cette part du total en ligne pour que sa ' +
+                "commande parte ; le reste se paie à la livraison, à chaque boutique sa part. " +
+                "L'acompte vaut au moins 100 FCFA, et jamais plus que le total. 100 % : tout se " +
+                "paie en ligne, comme avant. Les applications d'avant la 3.57.0 font payer le " +
+                "total quoi que dise ce réglage.</div>" +
             "</div>" +
 
             UI.interrupteur({ id: "pay-actif", label: "Ouvrir le paiement aux clients",
@@ -723,6 +742,11 @@ const VueReglages = (() => {
         UI.$("#pay-essai").checked = p.bacASable;
         UI.$("#pay-actif").checked = p.actif;
         montrer(p.fournisseur || "feexpay");
+        /* Le champ de l'acompte n'apparaît que si la base le connaît. */
+        if (p.tauxAcompte != null) {
+          UI.$("#pay-acompte").value = String(p.tauxAcompte);
+          UI.$("#pay-bloc-acompte").hidden = false;
+        }
       }).catch(() => { /* base d'avant les achats intégrés : carte vide */ });
 
       boutonPaiement.onclick = async () => {
@@ -738,17 +762,33 @@ const VueReglages = (() => {
           UI.$("#pay-cle").focus();
           return;
         }
+        /* L'acompte : un nombre entier de 1 à 100. Le refuser ici dit
+           pourquoi ; la base, elle, le refuserait sans phrase. */
+        const blocAcompte = UI.$("#pay-bloc-acompte");
+        let tauxAcompte = null;
+        if (blocAcompte && !blocAcompte.hidden) {
+          const brut = UI.$("#pay-acompte").value.trim().replace(/\s|%/g, "");
+          tauxAcompte = /^\d{1,3}$/.test(brut) ? Number(brut) : NaN;
+          if (!(tauxAcompte >= 1 && tauxAcompte <= 100)) {
+            UI.toast("L'acompte se règle entre 1 et 100 %", "err");
+            UI.$("#pay-acompte").focus();
+            return;
+          }
+        }
         boutonPaiement.disabled = true;
         try {
           await Store.majPaiement({
             actif, fournisseur, clePublique: cle,
             bacASable: UI.$("#pay-essai").checked,
+            tauxAcompte,
           });
           const nom = fournisseur === "feexpay" ? "FeexPay" : "KkiaPay";
-          UI.toast(actif
+          UI.toast((actif
             ? "Paiement ouvert par " + nom
               + (fournisseur === "kkiapay" && UI.$("#pay-essai").checked ? " (mode essai)" : "")
-            : "Paiement en ligne fermé", "ok");
+            : "Paiement en ligne fermé")
+            + (tauxAcompte != null && tauxAcompte < 100
+              ? " — acompte de " + tauxAcompte + " %" : ""), "ok");
         } catch (err) {
           UI.toast(err.message, "err");
         }

@@ -849,7 +849,8 @@ const Store = (() => {
     return Number(combien) || 0;
   }
 
-  /** Ce que le livreur connecté a à porter. AUCUN montant n'en sort. */
+  /** Ce que le livreur connecté a à porter, et — seul montant qui en
+   *  sorte — ce qu'il doit encaisser à la livraison. */
   async function mesLivraisons() {
     const lignes = await Supabase.rpcLecture("mes_livraisons", {});
     return (lignes || []).map((l) => ({
@@ -865,6 +866,9 @@ const Store = (() => {
       etat: l.etat || "preparee",
       articles: Array.isArray(l.articles) ? l.articles : [],
       payeLe: l.paye_le || "",
+      /* La part du reste qui revient à SA boutique : ce qu'il réclame
+         au client. Zéro quand tout a été payé en ligne. */
+      aEncaisser: Math.max(0, Number(l.a_encaisser) || 0),
     }));
   }
 
@@ -1843,6 +1847,9 @@ const Store = (() => {
   }
 
   function commandeDepuisLigne(l) {
+    /* Le reste à la livraison, tel que la base le rend à CE compte :
+       toutes les parts pour l'enseigne, la sienne pour une boutique. */
+    const restes = l.restes || null;
     const lignes = (l.commande_lignes || []).map((x) => ({
       id: x.id,
       boutiqueId: x.boutique_id || "",
@@ -1871,6 +1878,14 @@ const Store = (() => {
          qui revient à la boutique qui regarde. */
       total: Number(l.total) || 0,
       montant: lignes.reduce((somme, x) => somme + x.prix * x.quantite, 0),
+      /* L'ACOMPTE payé en ligne, et ce qui reste à encaisser à la
+         livraison. Une commande d'avant l'acompte n'en porte pas : elle
+         s'est payée en entier. « aEncaisser » est la part de CE compte —
+         pour une boutique, la sienne ; pour l'enseigne, tout le reste. */
+      acompte: l.acompte == null ? Number(l.total) || 0 : Number(l.acompte) || 0,
+      tauxAcompte: l.taux_acompte == null ? 100 : Number(l.taux_acompte) || 100,
+      verse: l.verse == null ? null : Number(l.verse),
+      aEncaisser: restes ? Math.max(0, Number(restes.reste) || 0) : 0,
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
       /* Partie au prix revendeur ? La boutique touche la même chose
@@ -1912,18 +1927,39 @@ const Store = (() => {
        connecté lit ses propres lignes depuis que les comptes clients
        existent. Ces deux chiffres-là arrivent par
        « statistiques_ventes() », qui vérifie qui appelle. */
-    let chemin = "commandes?select=*,commande_lignes(" +
+    /* « restes » : le reste à encaisser à la livraison, que la base
+       calcule et filtre selon qui regarde. Une base d'avant l'acompte ne
+       le connaît pas et refuserait toute la lecture : on relit alors
+       sans lui, et l'on ne le redemande plus. */
+    const suite = ",commande_lignes(" +
       "id,boutique_id,produit_id,nom,code,reference,prix,quantite,etat,confirme_le" +
       ")&order=cree_le.desc" +
-      "&limit=" + (o.combien || 100);
-    if (o.etat) chemin += "&etat=eq." + encodeURIComponent(o.etat);
-    const lignes = await Supabase.requete("GET", chemin, undefined, { avecSession: true });
+      "&limit=" + (o.combien || 100) +
+      (o.etat ? "&etat=eq." + encodeURIComponent(o.etat) : "");
+    let lignes;
+    if (avecRestes) {
+      try {
+        lignes = await Supabase.requete("GET", "commandes?select=*,restes" + suite,
+          undefined, { avecSession: true });
+      } catch (err) {
+        /* « Supabase.requete » traduit une colonne inconnue en « mise à
+           jour de la base » : c'est ce message-là qui arrive ici. */
+        if (!/restes|does not exist|could not find|mise à jour de la base/i.test(err.message || "")) throw err;
+        avecRestes = false;
+      }
+    }
+    if (!avecRestes) {
+      lignes = await Supabase.requete("GET", "commandes?select=*" + suite,
+        undefined, { avecSession: true });
+    }
     return (lignes || [])
       .map(commandeDepuisLigne)
       /* Une commande dont la base n'a renvoyé aucune ligne ne parle pas
          de cette boutique : elle n'a rien à faire à l'écran. */
       .filter((c) => c.lignes.length);
   }
+
+  let avecRestes = true;
 
   /** Combien de lignes payées attendent encore d'être préparées. */
   async function commandesEnAttente() {
@@ -1986,24 +2022,39 @@ const Store = (() => {
       fournisseur: l.fournisseur || "kkiapay",
       clePublique: l.cle_publique || "",
       bacASable: l.bac_a_sable !== false,
+      /* L'acompte à la commande, en pour cent. Une base d'avant ne le
+         connaît pas : null, et l'écran ne propose pas d'y toucher. */
+      tauxAcompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
     };
   }
 
   async function majPaiement(maj) {
     const fournisseur = maj.fournisseur === "kkiapay" ? "kkiapay" : "feexpay";
-    await Supabase.requete("PATCH", "paiement?id=eq.1", {
+    const corps = {
       actif: !!maj.actif,
       fournisseur,
       cle_publique: (maj.clePublique || "").trim(),
       bac_a_sable: !!maj.bacASable,
       maj_le: new Date().toISOString(),
-    });
+    };
+    /* Le taux ne part que s'il est connu : une base d'avant l'acompte
+       refuserait toute la mise à jour pour une colonne qu'elle n'a pas.
+       La base le borne de 1 à 100 ; on ne lui envoie rien d'autre. */
+    if (maj.tauxAcompte != null) {
+      const taux = Math.round(Number(maj.tauxAcompte));
+      if (!(taux >= 1 && taux <= 100)) {
+        throw new Error("L'acompte se règle entre 1 et 100 %.");
+      }
+      corps.taux_acompte = taux;
+    }
+    await Supabase.requete("PATCH", "paiement?id=eq.1", corps);
     /* Changer d'agrégateur engage l'argent de toute l'enseigne : le
        journal doit dire LEQUEL, pas seulement « modifié ». */
     const nom = fournisseur === "feexpay" ? "FeexPay" : "KkiaPay";
     journaliser("boutique", "modification",
       "Paiement en ligne " + (maj.actif ? "ouvert" : "fermé") + " — " + nom +
-      (fournisseur === "kkiapay" && maj.bacASable ? " (mode essai)" : ""),
+      (fournisseur === "kkiapay" && maj.bacASable ? " (mode essai)" : "") +
+      (corps.taux_acompte != null ? " — acompte " + corps.taux_acompte + " %" : ""),
       nom, undefined, null);
   }
 

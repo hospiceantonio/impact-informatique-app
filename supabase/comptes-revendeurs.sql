@@ -142,6 +142,9 @@ alter table public.commande_lignes add column if not exists taux_marge numeric;
 alter table public.commandes add column if not exists transaction_annoncee text not null default '';
 alter table public.commandes add column if not exists fournisseur_ref text not null default '';
 alter table public.commandes add column if not exists tentative_le timestamptz;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
 
 -- ---------------------------------------------------------
 -- 2. Le prix d'un revendeur, en un seul endroit
@@ -498,6 +501,12 @@ begin
   new.remarque := '';
   new.annonce_le := null;
   new.paye_le := null;
+  -- L'acompte se pose APRÈS les lignes, par « creer_commande » : il se
+  -- calcule sur un total que la base n'a pas encore. Rien ne l'apporte
+  -- de dehors, pas plus que l'argent versé.
+  new.taux_acompte := null;
+  new.acompte := null;
+  new.verse := null;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -606,6 +615,11 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;

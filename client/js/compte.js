@@ -726,6 +726,11 @@ const Compte = (() => {
        la pastille qui dit lequel des deux. */
     confirme:     { mot: "Reçu confirmé",      court: "Livré",    niveau: 4,
                     classe: "badge-ok", confirme: true },
+    /* Payée par son ACOMPTE : le premier palier, mais le client doit
+       encore le reste à la livraison. « Payé » lui laisserait croire
+       qu'il ne doit plus rien. */
+    acompte:      { mot: "Acompte payé",       court: "Acompte payé", niveau: 1,
+                    classe: "badge-commande" },
   };
 
   /** Les quatre paliers de la barre, dans l'ordre. */
@@ -752,7 +757,8 @@ const Compte = (() => {
        client, la commande est payée et attend. Lui annoncer « vue par
        la boutique » ne lui dit rien de ce qu'il attend vraiment — et
        c'est pourquoi ces deux-là retombent sur « Payé ». */
-    return STATUTS[moins] || STATUTS.payee;
+    const statut = STATUTS[moins] || STATUTS.payee;
+    return statut === STATUTS.payee && Number(commande.reste) > 0 ? STATUTS.acompte : statut;
   }
 
   /** Les quatre paliers, pour que l'écran dessine la barre. */
@@ -772,6 +778,9 @@ const Compte = (() => {
    * l'enseigne, et le client veut savoir qui prépare quoi.
    */
   function commandeDepuisBase(l) {
+    /* Le reste à la livraison, boutique par boutique, tel que la base
+       l'a partagé (« restes »). Absent sur une base d'avant l'acompte. */
+    const restes = (l.restes && l.restes.boutiques) || {};
     const parBoutique = new Map();
     for (const x of (l.commande_lignes || [])) {
       const cle = x.boutique_id || "";
@@ -783,6 +792,7 @@ const Compte = (() => {
           whatsapp: (b && b.whatsapp) || "",
           indicatif: (b && b.indicatif) || "229",
           montant: 0,
+          a_encaisser: Math.max(0, Number(restes[cle]) || 0),
           lignes: [],
         });
       }
@@ -814,6 +824,13 @@ const Compte = (() => {
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
       remarque: l.remarque || "",
+      /* L'acompte payé en ligne, et ce qui reste pour la livraison. Une
+         commande d'avant l'acompte n'en porte pas : elle se payait en
+         entier, et il ne lui reste rien. */
+      acompte: l.acompte == null ? null : Number(l.acompte),
+      taux_acompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
+      verse: l.verse == null ? null : Number(l.verse),
+      reste: l.restes ? Math.max(0, Number(l.restes.reste) || 0) : 0,
       client: {
         nom: l.client_nom || "", tel: l.client_tel || "",
         indicatif: l.client_indicatif || "229",
@@ -834,13 +851,33 @@ const Compte = (() => {
     "id,numero,total,devise,etat,remarque,note,cree_le,revendeur," +
     "client_nom,client_tel,client_indicatif,client_adresse," +
     "commande_lignes(boutique_id,produit_id,nom,code,reference,prix,quantite,etat,confirme_le)";
+  /* L'acompte, ce qui a été versé, et le reste partagé entre les
+     boutiques — « restes » est une fonction de la base que PostgREST lit
+     comme une colonne. */
+  const CHAMPS_ACOMPTE = ",acompte,taux_acompte,verse,restes";
+  let avecAcompte = true;
+
+  /**
+   * Lire des commandes avec leur acompte. Une base d'avant l'acompte ne
+   * connaît pas ces colonnes et refuse toute la lecture : on relit alors
+   * sans elles, et l'on ne les redemande plus.
+   */
+  async function lireCommandes(suite) {
+    if (avecAcompte) {
+      try {
+        return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE + suite);
+      } catch (err) {
+        if (!/acompte|verse|restes|does not exist|could not find/i.test(err.message || "")) throw err;
+        avecAcompte = false;
+      }
+    }
+    return rest("GET", "commandes?select=" + CHAMPS_COMMANDE + suite);
+  }
 
   /** Les commandes de ce compte, les plus récentes d'abord. */
   async function mesCommandes(combien) {
     if (!session) return [];
-    const lignes = await rest("GET",
-      "commandes?select=" + CHAMPS_COMMANDE +
-      "&order=cree_le.desc&limit=" + (Number(combien) || 50));
+    const lignes = await lireCommandes("&order=cree_le.desc&limit=" + (Number(combien) || 50));
     return (lignes || []).map(commandeDepuisBase);
   }
 
@@ -857,9 +894,7 @@ const Compte = (() => {
   /** Une commande précise — pour un reçu que ce téléphone n'a pas gardé. */
   async function commande(id) {
     if (!session || !id) return null;
-    const lignes = await rest("GET",
-      "commandes?select=" + CHAMPS_COMMANDE +
-      "&id=eq." + encodeURIComponent(id) + "&limit=1");
+    const lignes = await lireCommandes("&id=eq." + encodeURIComponent(id) + "&limit=1");
     return lignes && lignes.length ? commandeDepuisBase(lignes[0]) : null;
   }
 

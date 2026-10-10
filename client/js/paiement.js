@@ -1,5 +1,5 @@
 /* =========================================================
-   Paiement — commander, puis payer par Mobile Money (KkiaPay).
+   Paiement — commander, puis payer l'acompte par Mobile Money.
 
    Ce qui se joue ici tient en une phrase : CE FICHIER NE DÉCIDE
    RIEN. Il demande à la base de créer la commande — c'est elle
@@ -23,7 +23,7 @@ const Paiement = (() => {
   const ATTENTE_MAX = 90000;    // 1 min 30 : le bac à sable prend son temps
   const INTERVALLE = 3000;
 
-  let reglages = null;          // { actif, fournisseur, clePublique, bacASable }
+  let reglages = null;          // { actif, fournisseur, clePublique, bacASable, tauxAcompte }
   let widgetCharge = null;      // promesse de chargement du script
   let enCours = null;           // la promesse du paiement ouvert
 
@@ -96,7 +96,11 @@ const Paiement = (() => {
     if (!reponse.ok) {
       const message = (donnees && (donnees.message || donnees.hint)) || "";
       if (reponse.status === 404 || /does not exist|Could not find/i.test(message)) {
-        throw new Error("La commande en ligne n'est pas encore ouverte sur cette boutique.");
+        const err = new Error("La commande en ligne n'est pas encore ouverte sur cette boutique.");
+        /* La base ne connaît pas cette fonction, ou pas sous cette forme :
+           celui qui appelle peut retenter autrement (« creerCommande »). */
+        err.inconnue = true;
+        throw err;
       }
       throw new Error(message || "La commande n'a pas pu être enregistrée.");
     }
@@ -105,9 +109,21 @@ const Paiement = (() => {
 
   /* ---------- Les réglages, lus en base ---------- */
 
-  async function charger() {
+  /** Un taux d'acompte lisible, de 1 à 100 ; sinon 100 — tout en ligne. */
+  function tauxValable(brut) {
+    const n = Math.round(Number(brut));
+    return n >= 1 && n <= 100 ? n : 100;
+  }
+
+  /**
+   * `options.garder` : en cas d'échec, garder les réglages déjà connus.
+   * L'écran de commande relit le taux en s'ouvrant — le superadministrateur
+   * a pu le changer depuis le démarrage —, et un réseau capricieux à cet
+   * instant-là ne doit pas fermer un paiement qui était ouvert.
+   */
+  async function charger(options) {
     const c = Catalogue.configuration();
-    if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true });
+    if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true, tauxAcompte: 100 });
     try {
       const reponse = await fetch(c.url + "/rest/v1/paiement?select=*&id=eq.1",
         { headers: { "apikey": c.cle } });
@@ -119,16 +135,37 @@ const Paiement = (() => {
         fournisseur: String(ligne.fournisseur || "kkiapay").trim(),
         clePublique: String(ligne.cle_publique || "").trim(),
         bacASable: ligne.bac_a_sable !== false,
+        /* L'ACOMPTE À LA COMMANDE, en pour cent, réglé par le
+           superadministrateur. Une base d'avant ne le connaît pas : on y
+           payait le total, et c'est donc ce qu'on annonce. */
+        tauxAcompte: tauxValable(ligne.taux_acompte),
       };
     } catch (_) {
+      if (options && options.garder && reglages) return reglages;
       /* Base d'avant le paiement, ou hors connexion : la boutique
          fonctionne comme avant, commande par WhatsApp. */
-      reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true };
+      reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true,
+                   tauxAcompte: 100 };
     }
     return reglages;
   }
 
   const fournisseur = () => (reglages && reglages.fournisseur) || "kkiapay";
+  const tauxAcompte = () => (reglages && reglages.tauxAcompte) || 100;
+
+  /**
+   * L'acompte que la base posera sur ce total. C'EST UN APERÇU, pour que
+   * le client sache avant de commander ce qu'il paiera maintenant : la
+   * règle est celle de « creer_commande » — le taux sur le total remise
+   * déduite, au franc supérieur, 100 FCFA au moins, jamais plus que le
+   * total. Le montant qui part chez l'agrégateur est celui que la base
+   * RENVOIE en créant la commande, jamais celui-ci.
+   */
+  function acompteDe(total) {
+    const t = Math.max(0, Math.round(Number(total) || 0));
+    if (t <= 0) return 0;
+    return Math.min(t, Math.max(Math.ceil(t * tauxAcompte() / 100), 100));
+  }
 
   /**
    * Le paiement en ligne est-il ouvert ?
@@ -296,10 +333,24 @@ const Paiement = (() => {
   /**
    * Crée la commande. On envoie des coordonnées et une liste
    * d'identifiants ; la base répond avec le montant à payer —
-   * et c'est CE montant-là qui part chez KkiaPay.
+   * l'acompte — et c'est CE montant-là qui part chez l'agrégateur.
+   *
+   * « avec_acompte » dit à la base que cette application sait annoncer
+   * un acompte et un reste. Les applications d'avant ne l'envoient pas :
+   * leurs commandes se paient en entier, comme elles le disent. Une base
+   * d'avant l'acompte ne connaît pas ce paramètre : on recommande alors
+   * sans lui, et la commande se paie en entier — la réponse le dit, et
+   * l'écran suit la réponse.
    */
-  const creerCommande = (client, articles, code) =>
-    rpc("creer_commande", { client, articles, code: code || "" });
+  async function creerCommande(client, articles, code) {
+    try {
+      return await rpc("creer_commande",
+        { client, articles, code: code || "", avec_acompte: true });
+    } catch (err) {
+      if (!err.inconnue) throw err;
+      return rpc("creer_commande", { client, articles, code: code || "" });
+    }
+  }
 
   /**
    * « Ce code vaut-il quelque chose sur ce panier-ci ? »
@@ -402,6 +453,7 @@ const Paiement = (() => {
 
   return {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
+    tauxAcompte, acompteDe,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, attendreConfirmation,
   };

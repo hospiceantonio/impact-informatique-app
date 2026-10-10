@@ -40,6 +40,12 @@ alter table public.commande_lignes
   add column if not exists livreur_id uuid;
 alter table public.commande_lignes
   add column if not exists confirme_le timestamptz;
+alter table public.commandes
+  add column if not exists taux_acompte int;
+alter table public.commandes
+  add column if not exists acompte int;
+alter table public.commandes
+  add column if not exists verse int;
 
 -- =========================================================
 -- Les notifications
@@ -183,6 +189,48 @@ end $$;
 revoke all on function public.notifier(uuid[], text, text, text, text, text, text, boolean)
   from public, anon, authenticated;
 
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Recopié de schema.sql, avec les colonnes qu'il lit : les fonctions
+-- plus bas s'en servent depuis l'acompte à la commande (« acompte.sql »).
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
 -- ---------- Le paiement ----------
 -- Le premier cran, et le seul qui réveille le superadministrateur :
 -- c'est de l'argent qui entre.
@@ -192,37 +240,64 @@ declare
   b        record;
   numero   text := coalesce(new.numero, '');
   client   uuid := new.client_id;
+  devise   text := ' ' || coalesce(nullif(new.devise, ''), 'FCFA');
+  reste    bigint;
 begin
   if new.etat is not distinct from old.etat or new.etat <> 'payee' then
     return new;
   end if;
 
+  -- CE QUI RESTE À PAYER À LA LIVRAISON. À zéro — tout réglé en ligne —
+  -- les messages restent ceux d'avant l'acompte. Les montants s'écrivent
+  -- comme dans les applications : « 13 500 FCFA ».
+  select coalesce(sum(r.a_encaisser), 0) into reste
+    from public.restes_par_boutique(new.id) r;
+
   -- Le client, s'il a un compte. Une commande passée sans compte n'a
   -- personne à prévenir — le reçu lui est déjà revenu par WhatsApp.
   if client is not null then
     perform public.notifier(array[client], 'commande_payee',
-      'Paiement reçu',
-      'Votre commande ' || numero || ' est confirmée. Nous la préparons.',
+      case when reste > 0 then 'Acompte reçu' else 'Paiement reçu' end,
+      'Votre commande ' || numero || ' est confirmée. Nous la préparons.' ||
+        case when reste > 0
+             then ' Reste à payer à la livraison : ' ||
+                  replace(to_char(reste, 'FM999,999,999,990'), ',', ' ') || devise || '.'
+             else '' end,
       '#/commande/' || new.id, new.id, null, true);
   end if;
 
-  -- Chaque boutique concernée, une fois.
-  for b in select distinct l.boutique_id from public.commande_lignes l
-            where l.commande_id = new.id and l.boutique_id is not null loop
+  -- Chaque boutique concernée, une fois, avec CE QU'ELLE encaissera : sa
+  -- part du reste, que son livreur réclamera à la porte.
+  for b in select r.boutique_id, r.a_encaisser
+             from public.restes_par_boutique(new.id) r
+            where r.boutique_id is not null loop
     perform public.notifier(public.equipe_de(b.boutique_id), 'commande_payee',
-      'Nouvelle commande payée',
-      'La commande ' || numero || ' est payée. À préparer.',
+      case when b.a_encaisser > 0 then 'Nouvelle commande confirmée' else 'Nouvelle commande payée' end,
+      case when b.a_encaisser > 0
+           then 'La commande ' || numero || ' est confirmée par son acompte. À préparer — ' ||
+                replace(to_char(b.a_encaisser, 'FM999,999,999,990'), ',', ' ') || devise ||
+                ' à encaisser à la livraison.'
+           else 'La commande ' || numero || ' est payée. À préparer.' end,
       '#/commandes/' || new.id, new.id, b.boutique_id, true);
   end loop;
 
   perform public.notifier(public.enseigne_des_commandes(), 'commande_payee',
-    'Nouvelle commande payée',
-    'La commande ' || numero || ' vient d''être payée.',
+    case when reste > 0 then 'Nouvelle commande confirmée' else 'Nouvelle commande payée' end,
+    'La commande ' || numero ||
+      case when reste > 0 then ' vient d''être confirmée par son acompte.'
+           else ' vient d''être payée.' end,
     '#/commandes/' || new.id, new.id, null, true);
 
   perform public.notifier(public.les_superadmins(), 'commande_payee',
-    'Paiement encaissé',
-    'La commande ' || numero || ' est payée.',
+    case when reste > 0 then 'Acompte encaissé' else 'Paiement encaissé' end,
+    'La commande ' || numero ||
+      case when reste > 0
+           then ' : acompte de ' ||
+                replace(to_char(coalesce(new.verse, new.acompte, 0), 'FM999,999,999,990'), ',', ' ') ||
+                devise || ' encaissé, ' ||
+                replace(to_char(reste, 'FM999,999,999,990'), ',', ' ') || devise ||
+                ' à encaisser à la livraison.'
+           else ' est payée.' end,
     '#/commandes/' || new.id, new.id, null, true);
 
   return new;
