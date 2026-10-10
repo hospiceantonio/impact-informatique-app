@@ -5,12 +5,14 @@
    QUOI porter, À QUI, et OÙ. Le numéro du client est
    appelable, l'adresse ouvre la carte.
 
-   AUCUN MONTANT N'APPARAÎT ICI, et ce n'est pas une politesse
-   d'écran : la fonction « mes_livraisons() » n'en rend aucun.
-   Ni le prix payé, ni le prix BIZZOO. Une règle RLS décide
-   quelles LIGNES on voit et les rend entières — seule une
-   fonction peut choisir les colonnes, et c'est pour cela que
-   le livreur passe par elle plutôt que par la table.
+   UN SEUL MONTANT APPARAÎT ICI : ce qu'il doit ENCAISSER à la
+   livraison, la part du reste qui revient à sa boutique depuis
+   l'acompte à la commande. Ni le prix des articles, ni le prix
+   BIZZOO, ni l'acompte — et ce n'est pas une politesse d'écran :
+   la fonction « mes_livraisons() » n'en rend pas d'autre. Une
+   règle RLS décide quelles LIGNES on voit et les rend entières —
+   seule une fonction peut choisir les colonnes, et c'est pour
+   cela que le livreur passe par elle plutôt que par la table.
 
    DEUX GESTES, PAS TROIS. « Je l'ai prise » et « Je l'ai
    remise ». Préparer reste à la boutique, annuler aussi, et
@@ -27,6 +29,9 @@ const VueLivraisons = (() => {
   };
 
   const telComplet = (c) => (c.tel ? "+" + c.indicatif + " " + c.tel : "");
+  /* La monnaie de la boutique : « mes_livraisons() » rend le montant, pas
+     la devise, et toutes les commandes d'une boutique sont dans la sienne. */
+  const montant = (n) => Utils.fmtMontant(n, (Store.lireReglages() || {}).devise || "FCFA");
 
   function htmlCourse(c) {
     const etat = ETATS[c.etat] || ETATS.preparee;
@@ -41,6 +46,21 @@ const VueLivraisons = (() => {
           "</div>" +
           '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.mot) + "</span>" +
         "</div>" +
+
+        /* CE QU'IL RÉCLAME À LA PORTE, en tête de la course : c'est la
+           première chose qu'il doit savoir avant de sonner. Zéro — tout
+           payé en ligne —, on le dit aussi : sinon il demanderait. */
+        (c.etat === "remise"
+          ? (c.aEncaisser > 0
+            ? '<div class="lv-encaisser lv-encaisse">Encaissé à la livraison : <strong>' +
+                Utils.echapper(montant(c.aEncaisser)) + "</strong></div>"
+            : "")
+          : c.aEncaisser > 0
+            ? '<div class="lv-encaisser">' + UI.icone("promo", "ic-sm") +
+                "À encaisser : <strong>" + Utils.echapper(montant(c.aEncaisser)) +
+                "</strong></div>"
+            : '<div class="lv-encaisser lv-rien">' + UI.icone("check", "ic-sm") +
+                "Rien à encaisser : tout est payé.</div>") +
 
         '<div class="lv-articles">' +
           c.articles.map((a) =>

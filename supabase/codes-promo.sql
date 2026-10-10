@@ -482,9 +482,55 @@ begin
 end $$;
 revoke all on function public.remises_periode(date, date, text) from public, anon;
 grant execute on function public.remises_periode(date, date, text) to authenticated;
+
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Recopié de schema.sql, avec les colonnes qu'il lit : les fonctions
+-- plus bas s'en servent depuis l'acompte à la commande (« acompte.sql »).
+alter table public.paiement add column if not exists taux_acompte int not null default 10;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
 drop function if exists public.creer_commande(jsonb, jsonb);
+drop function if exists public.creer_commande(jsonb, jsonb, text);
 create or replace function public.creer_commande(
-  client jsonb, articles jsonb, code text default '')
+  client jsonb, articles jsonb, code text default '',
+  avec_acompte boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -500,6 +546,7 @@ declare
   marge    bigint;
   verdict  jsonb;
   manque   record;
+  taux     int;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -632,6 +679,30 @@ begin
     end if;
   end if;
 
+  -- ---------- L'acompte ----------
+  -- APRÈS le code promo : l'acompte se prend sur ce que le client doit
+  -- vraiment, remise déduite. Le taux est celui du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE DEMANDE RIEN. Elle fait payer le total et
+  -- dit « Payée » une fois le versement reçu : sa commande se règle donc
+  -- en entier, comme elle l'annonce au client. Lui faire payer un acompte
+  -- sans qu'elle sache le dire laisserait croire au client qu'il ne doit
+  -- plus rien, et le livreur arriverait avec une somme à réclamer.
+  --
+  -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
+  -- plus que le total.
+  taux := case when coalesce(avec_acompte, false)
+               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
+               else 100 end;
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes c
+     set taux_acompte = taux,
+         acompte = case when c.total <= 0 then 0
+                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
+   where c.id = nouvelle;
+  perform set_config('bizzoo.interne', '', true);
+
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'etat', c.etat,
@@ -639,6 +710,9 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
+    'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
+    'reste', greatest(0, c.total - c.acompte),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -646,6 +720,10 @@ begin
                'whatsapp', coalesce((select b.whatsapp from public.boutiques b where b.id = g.boutique_id), ''),
                'indicatif', coalesce((select b.indicatif from public.boutiques b where b.id = g.boutique_id), '229'),
                'montant', g.montant,
+               /* Ce que CETTE boutique encaissera à la livraison. */
+               'a_encaisser', coalesce((select r.a_encaisser
+                                          from public.restes_par_boutique(c.id) r
+                                         where r.boutique_id is not distinct from g.boutique_id), 0),
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
@@ -665,8 +743,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean) to anon, authenticated;
 
 -- ---------- Vérification ----------
 -- Aucun code n'existe encore : cette requête rend ZÉRO LIGNE, et c'est

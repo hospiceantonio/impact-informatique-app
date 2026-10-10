@@ -135,6 +135,35 @@ async function debordement(page) {
   });
 }
 
+/* LE LOGO, depuis la 3.56.1 : la tuile du B au chariot, puis le nom en
+   deux couleurs, sans les deux points d'avant. Une tuile absente ou
+   cassée ne se voit dans aucun constat de texte : on regarde l'image
+   elle-même, chargée, et le fichier qu'elle montre — celui du logo, pas
+   l'icône de l'application, qui porte dans l'admin sa pastille
+   « réglages ». */
+const TUILE = /(^|\/)icons\/logo-bizzoo\.png$/;
+async function lireLogo(page, selecteur) {
+  return page.evaluate((sel) => {
+    const zone = document.querySelector(sel);
+    if (!zone) return null;
+    const tuile = zone.querySelector("img.logo-tuile");
+    const mot = zone.querySelector(".logo-mot");
+    const bizz = zone.querySelector(".logo-bizz");
+    const oo = zone.querySelector(".logo-oo");
+    const rt = tuile ? tuile.getBoundingClientRect() : null;
+    const rm = mot ? mot.getBoundingClientRect() : null;
+    return {
+      tuile: tuile ? tuile.getAttribute("src") || "" : "",
+      chargee: !!(tuile && tuile.complete && tuile.naturalWidth > 0),
+      avant: !!(rt && rm && rt.width > 0 && rt.right <= rm.left + 0.5),
+      mot: bizz && oo ? (bizz.innerText + oo.innerText).toLowerCase() : "",
+      bizz: bizz ? getComputedStyle(bizz).color : "",
+      oo: oo ? getComputedStyle(oo).color : "",
+      points: zone.querySelectorAll(".logo-points").length,
+    };
+  }, selecteur);
+}
+
 async function ouvrirClient({ largeur, hauteur, boutique = "", hash = "", nom }) {
   const ctx = await navigateur.newContext({ viewport: { width: largeur, height: hauteur } });
   const page = await ctx.newPage();
@@ -234,26 +263,18 @@ titre("La boutique sur téléphone : la police est bien Poppins");
     "aucune requête hors de l'application : ni Google Fonts, ni rien" +
     (dehors.length ? " — " + dehors[0] : ""));
 
-  /* Le logo n'est plus une image mais deux mots et deux points, tracés
-     par la feuille de style : s'ils ne sont pas dessinés, rien ne le dit
-     — la page reste lisible, avec un logo en une seule couleur. */
-  const l = await page.evaluate(() => {
-    /* Sur UN logo, et non sur toute la page : le menu latéral en porte
-       un second, caché au téléphone mais bien présent dans le document,
-       et un comptage global trouverait quatre points au lieu de deux. */
-    const mot = document.querySelector(".topbar .logo-mot");
-    if (!mot) return null;
-    const bizz = mot.querySelector(".logo-bizz");
-    const oo = mot.querySelector(".logo-oo");
-    return { bizz: bizz ? getComputedStyle(bizz).color : "",
-      oo: oo ? getComputedStyle(oo).color : "",
-      mot: bizz && oo ? (bizz.innerText + oo.innerText).toLowerCase() : "",
-      points: mot.querySelectorAll(".logo-points > *").length };
-  });
-  ok(l && l.mot === "bizzoo", "le logo écrit « bizzoo » en toutes lettres (" + l.mot + ")");
-  ok(l && l.bizz === BLEU, "le « Bizz » porte le bleu de la DA (" + l.bizz + ")");
-  ok(l && l.oo === ORANGE, "et les « oo » portent l'orange (" + l.oo + ")");
-  ok(l && l.points === 2, "les deux points de la DA sont là (" + l.points + ")");
+  /* Le nom du logo est écrit par la feuille de style : s'il n'est pas
+     dessiné, rien ne le dit — la page reste lisible, avec un logo en une
+     seule couleur. Mesuré sur UN logo, celui de la barre du haut : le
+     menu latéral en porte un second, caché au téléphone mais présent
+     dans le document. */
+  const l = await lireLogo(page, ".topbar .logo");
+  ok(l && l.mot === "bizzoo", "le logo écrit « bizzoo » en toutes lettres (" + (l ? l.mot : "—") + ")");
+  ok(l && l.bizz === BLEU, "le « Bizz » porte le bleu de la DA (" + (l ? l.bizz : "—") + ")");
+  ok(l && l.oo === ORANGE, "et les « oo » portent l'orange (" + (l ? l.oo : "—") + ")");
+  ok(l && TUILE.test(l.tuile) && l.chargee && l.avant,
+    "le B au chariot le précède, et son image est chargée (" + (l ? l.tuile : "—") + ")");
+  ok(l && l.points === 0, "les deux points d'avant sont partis : les roues du B les portent");
   await ctx.close();
 }
 
@@ -463,26 +484,19 @@ titre("Sur ordinateur, la boutique s'étale au lieu de flotter");
     "le catalogue s'étale (" + t.largeurVue + " px de large, contre 720 au téléphone)");
   ok(t.colonnes === 4, "quatre produits de front (" + t.colonnes + ")");
 
-  /* En haut du menu, le logo de la charte et non l'icône de
-     l'application : celle-ci est un dessin fait pour un écran
-     d'accueil, et posée là elle donnait deux marques l'une à côté de
-     l'autre. Le piège tient en une ligne — une règle de couleur sur
-     « .tabbar-marque span » repeint « Bizz » ET « oo » de la même
-     teinte, et le logo redevient monochrome sans que rien ne casse. */
-  const m = await page.evaluate(() => {
+  /* En haut du menu, le même logo que dans la barre du haut : la tuile
+     du B, puis le nom. Le piège tient en une ligne — une règle de
+     couleur sur « .tabbar-marque span » repeint « Bizz » ET « oo » de la
+     même teinte, et le logo redevient monochrome sans que rien ne
+     casse. */
+  const visible = await page.evaluate(() => {
     const marque = document.querySelector(".tabbar-marque");
-    if (!marque) return null;
-    const bizz = marque.querySelector(".logo-bizz");
-    const oo = marque.querySelector(".logo-oo");
-    return {
-      visible: getComputedStyle(marque).display !== "none",
-      image: !!marque.querySelector("img"),
-      bizz: bizz ? getComputedStyle(bizz).color : "",
-      oo: oo ? getComputedStyle(oo).color : "",
-    };
+    return !!marque && getComputedStyle(marque).display !== "none";
   });
-  ok(m && m.visible, "le menu s'ouvre sur la marque");
-  ok(m && !m.image, "et c'est le logo écrit, pas l'icône de l'application");
+  const m = await lireLogo(page, ".tabbar-marque");
+  ok(visible, "le menu s'ouvre sur la marque");
+  ok(m && TUILE.test(m.tuile) && m.chargee && m.avant,
+    "le B au chariot, puis le nom (" + (m ? m.tuile : "—") + ")");
   ok(m && m.bizz === BLEU && m.oo === ORANGE,
     "qui garde ses deux couleurs (" + (m ? m.bizz + " / " + m.oo : "") + ")");
   await ctx.close();
@@ -506,22 +520,19 @@ titre("Le poste de l'enseigne : même police, même palette");
   });
   ok(t.bleu.toUpperCase() === "#2550B7", "le même bleu que la boutique");
   ok(t.bizz === BLEU && t.oo === ORANGE, "et le même logo, en deux couleurs");
-  const m = await page.evaluate(() => {
-    const marque = document.querySelector(".tabbar-marque");
-    if (!marque) return null;
-    const bizz = marque.querySelector(".logo-bizz");
-    const oo = marque.querySelector(".logo-oo");
-    return { image: !!marque.querySelector("img"),
-      bizz: bizz ? getComputedStyle(bizz).color : "",
-      oo: oo ? getComputedStyle(oo).color : "",
-      role: (marque.querySelector(".marque-role") || {}).innerText || "" };
-  });
-  ok(m && !m.image, "le menu s'ouvre sur le logo écrit, pas sur l'icône");
+  const m = await lireLogo(page, ".tabbar-marque");
+  const role = await page.evaluate(() =>
+    (document.querySelector(".tabbar-marque .marque-role") || {}).innerText || "");
+  ok(m && TUILE.test(m.tuile) && m.chargee && m.avant,
+    "le menu s'ouvre sur le B au chariot — le logo, sans la pastille de l'icône de l'admin (" +
+    (m ? m.tuile : "—") + ")");
   ok(m && m.bizz === BLEU && m.oo === ORANGE,
-    "qui garde ses deux couleurs (" + (m ? m.bizz + " / " + m.oo : "") + ")");
-  ok(m && /admin/i.test(m.role),
-    "et le poste de l'enseigne se distingue de la boutique (" +
-    (m ? m.role : "") + ")");
+    "puis le nom, qui garde ses deux couleurs (" + (m ? m.bizz + " / " + m.oo : "") + ")");
+  ok(/admin/i.test(role),
+    "et le poste de l'enseigne se distingue de la boutique (" + role + ")");
+  const h = await lireLogo(page, ".topbar .logo");
+  ok(h && TUILE.test(h.tuile) && h.chargee && h.avant && h.points === 0 && h.mot === "bizzoo",
+    "la barre du haut aussi : le B au chariot, puis « Bizzoo » (" + (h ? h.tuile : "—") + ")");
   const d = await debordement(page);
   ok(!d.defile && d.deborde.length === 0,
     "rien ne déborde" + (d.deborde.length ? " — " + d.deborde.join(", ") : ""));
@@ -573,6 +584,78 @@ titre("Le poste de l'enseigne tient aussi sur un téléphone");
   ok(c.some((x) => x.id === "carte-stock"), "la carte Stock est sur l'accueil (" + c.length + " cartes-liens)");
   ok(plates.length === 0, "et chaque carte-lien enveloppe son titre" +
     (plates.length ? " — " + plates.map((x) => x.id + " : " + x.display).join(", ") : ""));
+  await ctx.close();
+}
+
+titre("Le logo de l'admin ne passe jamais sous ses boutons");
+{
+  /* LE SUPERADMINISTRATEUR A CINQ BOUTONS dans la barre du haut. Le
+     logo a pris la tuile du B (3.56.1) : sur un téléphone de 360 px, ils
+     recouvraient « Bizzoo », et aucun débordement ne le disait — rien ne
+     sort de l'écran, deux éléments s'y superposent. On mesure donc le
+     bord droit de ce que le logo affiche contre le premier bouton. */
+  for (const l of [320, 360, 390]) {
+    const { page, ctx } = await ouvrirAdmin({ largeur: l, hauteur: 700 });
+    const t = await page.evaluate(() => {
+      const logo = document.querySelector(".topbar .logo");
+      const actions = document.querySelector(".topbar-actions");
+      if (!logo || !actions) return null;
+      const vus = [...logo.querySelectorAll("*")].map((e) => e.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0);
+      const textes = logo.querySelector(".logo-textes");
+      return {
+        boutons: actions.children.length,
+        libre: vus.length > 0 && Math.max(...vus.map((r) => r.right)) <= actions.getBoundingClientRect().left + 0.5,
+        nom: !!textes && getComputedStyle(textes).display !== "none",
+      };
+    });
+    ok(t && t.libre, l + " px, " + (t ? t.boutons : "?") + " boutons : le logo reste à côté d'eux" +
+      (t ? (t.nom ? ", avec son nom" : ", en tuile seule") : ""));
+    if (l === 390) ok(t && t.nom, "à 390 px, le nom et « Espace admin » sont là");
+    await ctx.close();
+  }
+}
+
+titre("Le site porte le même logo");
+{
+  for (const [l, quoi] of [[320, "un petit téléphone (320)"], [360, "un téléphone (360)"],
+                           [390, "un téléphone courant (390)"], [1440, "un ordinateur (1440)"]]) {
+    const ctx = await navigateur.newContext({ viewport: { width: l, height: 800 } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/index.html", { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
+    if (l === 390 || l === 1440) {
+      const e = await lireLogo(page, "header .logo");
+      ok(e && TUILE.test(e.tuile) && e.chargee && e.avant && e.points === 0 &&
+         e.mot === "bizzoo" && e.bizz === BLEU && e.oo === ORANGE,
+        "l'en-tête, sur " + quoi + " : le B au chariot, puis « Bizzoo » en bleu et orange");
+      const p = await lireLogo(page, "footer .logo");
+      ok(p && TUILE.test(p.tuile) && p.chargee && p.avant && p.oo === ORANGE &&
+         p.bizz === "rgb(255, 255, 255)", "le pied aussi, « Bizz » en blanc sur le bleu nuit");
+    }
+    /* Le logo élargi poussait « Ouvrir la boutique » sur deux lignes à
+       390 px : l'en-tête se resserre au téléphone, et le bouton dit
+       « Boutique » sous 360 px. */
+    const b = await page.evaluate(() => {
+      const btn = document.querySelector("header .btn");
+      const logo = document.querySelector("header .logo");
+      const rb = btn.getBoundingClientRect(), rl = logo.getBoundingClientRect();
+      return { texte: btn.innerText.trim(),
+        uneLigne: rb.height <= parseFloat(getComputedStyle(btn).minHeight) + 1,
+        libre: rl.right <= rb.left, defile: document.documentElement.scrollWidth > innerWidth };
+    });
+    ok(b.uneLigne && b.libre && !b.defile,
+      "sur " + quoi + ", le logo et « " + b.texte + " » tiennent sur une ligne, côte à côte");
+    await ctx.close();
+  }
+  /* La page 404 pose son image depuis la racine du site : en relatif,
+     elle serait cherchée sous l'adresse inconnue. */
+  const ctx = await navigateur.newContext({ viewport: { width: 390, height: 800 } });
+  const page = await ctx.newPage();
+  await page.goto(BASE + "/404.html", { waitUntil: "load" });
+  const q = await lireLogo(page, "main .logo");
+  ok(q && TUILE.test(q.tuile) && q.chargee && q.avant && q.points === 0,
+    "la page 404 aussi (" + (q ? q.tuile : "—") + ")");
   await ctx.close();
 }
 

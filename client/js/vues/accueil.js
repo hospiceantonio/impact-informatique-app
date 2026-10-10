@@ -250,16 +250,6 @@ const VueAccueil = (() => {
   const couleurSure = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "").trim())
     ? String(c).trim() : "#2550B7");
 
-  /* La teinte claire d'une couleur : le fond des ronds pastel de la DA.
-     Calculée ici plutôt qu'avec « color-mix » : un téléphone dont le
-     navigateur intégré n'a pas été mis à jour ne le connaît pas, et la
-     pastille resterait blanche. */
-  function teinteClaire(hex, part) {
-    const n = parseInt(couleurSure(hex).slice(1), 16);
-    const mele = (c) => Math.round(c * part + 255 * (1 - part));
-    return "rgb(" + mele(n >> 16) + "," + mele((n >> 8) & 255) + "," + mele(n & 255) + ")";
-  }
-
   /* ---------- Catégories ---------- */
 
   /* LE NOM COURT, comme sur la DA : « Mode » pour « Mode & Accessoires »,
@@ -270,25 +260,23 @@ const VueAccueil = (() => {
     return String(nom || "").split(/\s+(?:&|et)\s+/i)[0].trim() || String(nom || "");
   }
 
-  /* L'ICÔNE ET LA COULEUR VIENNENT DE LA BASE, pas d'une devinette sur
-     le nom : c'est l'enseigne qui les choisit, et la même pastille doit
-     se reconnaître d'un écran à l'autre. Sur l'accueil, elle se pose sur
-     un rond pastel — la DA y met des ronds clairs, pas des aplats. */
-  function rondCategorie(c) {
-    const couleur = couleurSure(c.couleur);
+  /* LA TUILE D'UNE CATÉGORIE, celle de l'image choisie par l'enseigne
+     (3.56) : un carré bleu-gris aux coins ronds, le pictogramme au
+     trait bleu nuit et sa touche orange, le nom dessous, dans la tuile.
+     LE PICTOGRAMME VIENT DE LA BASE, pas d'une devinette sur le nom :
+     c'est l'enseigne qui le choisit, et la même tuile doit se
+     reconnaître d'un écran à l'autre. */
+  function tuileCategorie(c) {
+    const court = libelleCourt(c.nom);
+    /* Un nom sans espace ni trait d'union ne peut pas passer à la ligne :
+       trop long pour la tuile, il finira par « … » (voir styles.css). */
+    const unMot = !/[\s-]/.test(court);
     return (
-      '<a class="cat-rond-lien" href="#/categorie/' + Utils.echapper(c.id) + '" aria-label="' +
+      '<a class="cat-tuile-lien" href="#/categorie/' + Utils.echapper(c.id) + '" aria-label="' +
         Utils.echapper(c.nom) + '">' +
-        '<span class="cat-rond-da" style="background:' + teinteClaire(couleur, .16) +
-          ";color:" + couleur + '">' + UI.icone(c.icone || "categories") +
-          /* LA PHOTO PAR-DESSUS L'ICÔNE : tant qu'elle charge, et si elle
-             ne vient pas (hors connexion), c'est l'icône qu'on voit. */
-          (c.image
-            ? '<img src="' + Utils.echapper(c.image) + '" alt="" loading="lazy" data-secours>'
-            : "") +
-        "</span>" +
-        '<span class="cat-rond-nom" aria-hidden="true">' +
-          Utils.echapper(libelleCourt(c.nom)) + "</span>" +
+        UI.vignetteCategorie(c, "cat-tuile") +
+        '<span class="cat-tuile-nom' + (unMot ? " un-mot" : "") + '" aria-hidden="true">' +
+          Utils.echapper(court) + "</span>" +
       "</a>"
     );
   }
@@ -425,8 +413,8 @@ const VueAccueil = (() => {
        cherche quand on ne sait pas encore chez qui acheter. */
     const vedettes = categoriesDeLAccueil();
     if (vedettes.length) {
-      html += '<nav class="cat-ronds" aria-label="Catégories">' +
-        vedettes.map((r) => rondCategorie(r.categorie)).join("") + "</nav>";
+      html += '<nav class="cat-tuiles" aria-label="Catégories">' +
+        vedettes.map((r) => tuileCategorie(r.categorie)).join("") + "</nav>";
     }
 
     /* L'OFFRE DU JOUR ET LA PUBLICITÉ, AVANT LES BOUTIQUES. Pas de
@@ -755,7 +743,7 @@ const VueAccueil = (() => {
       '<div class="bou-couverture' + (couverture ? "" : " bou-couverture-vide") + '">' +
         (couverture
           ? '<img src="' + Utils.echapper(couverture) + '" alt="">'
-          : '<span class="bou-couverture-motif">' + UI.motSymbole("clair") + "</span>") +
+          : '<span class="bou-couverture-motif">' + UI.logo("", "clair") + "</span>") +
       "</div>" +
       '<section class="bou-fiche">' +
         '<div class="bou-fiche-tete">' +

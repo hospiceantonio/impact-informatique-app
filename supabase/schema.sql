@@ -179,15 +179,17 @@ create table if not exists public.categories (
   id          text primary key,
   boutique_id text references public.boutiques(id) on delete cascade,
   nom         text not null,
-  -- La pastille ronde de l'écran « Catégories », comme celle d'une
-  -- boutique : une icône DÉJÀ DESSINÉE dans les deux applications, et
-  -- une couleur de fond. Rien à téléverser, rien à stocker, et la liste
-  -- s'affiche hors connexion.
+  -- L'icône de sa tuile, sur l'accueil et l'écran « Catégories » : une
+  -- image DÉJÀ DANS les deux applications (« img/pictos/<icone>.png »,
+  -- depuis la 3.56 ; avant, une icône d'un trait). Rien à téléverser,
+  -- rien à stocker, et la liste s'affiche hors connexion. La couleur ne
+  -- sert plus qu'aux applications d'avant la 3.56 : les tuiles ont
+  -- toutes le même fond.
   icone       text not null default 'categories',
   couleur     text not null default '#0B5CF5',
-  -- LA PHOTO DU ROND, facultative (voir plus bas).
+  -- LA PHOTO DE LA TUILE, facultative (voir plus bas).
   image       text not null default '',
-  -- Les quinze ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
+  -- Les trente ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
   -- les autres attendent derrière « Voir toutes les catégories ».
   en_avant    boolean not null default false,
   ordre       int  not null default 0,
@@ -197,10 +199,9 @@ alter table public.categories add column if not exists icone    text not null de
 alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
 alter table public.categories add column if not exists en_avant boolean not null default false;
 
--- LA PHOTO DU ROND, comme sur la DA : sur l'accueil et l'écran
--- « Catégories », elle remplit la pastille ; sans elle, l'icône et sa
--- couleur restent — et elles reviennent aussi quand la photo ne se
--- charge pas (hors connexion).
+-- LA PHOTO DE LA TUILE : sur l'accueil et l'écran « Catégories », elle
+-- prend la place de l'icône ; sans elle, l'icône reste — et elle
+-- revient aussi quand la photo ne se charge pas (hors connexion).
 --
 -- UN CHEMIN, JAMAIS UNE ADRESSE, et dans l'un de deux dossiers :
 --
@@ -208,10 +209,13 @@ alter table public.categories add column if not exists en_avant boolean not null
 --     dépose depuis l'admin. C'est le dossier que le stockage réserve
 --     au superadministrateur (voir « peut_deposer »), comme la liste
 --     elle-même lui est réservée ;
---   « img/categories/ », dans l'application : les illustrations qui
---     voyagent avec elle — dans l'APK comme sur le site —, et
---     s'affichent donc sans réseau. Chaque catégorie de BIZZOO en
---     reçoit une à sa création (voir la liste plus bas).
+--   « img/categories/ » : les illustrations en 3D qui voyageaient avec
+--     les applications jusqu'à la 3.55. La base en ligne les garde,
+--     parce que les applications déjà installées les montrent encore ;
+--     depuis la 3.56, les applications ne lisent plus ces chemins et
+--     montrent l'icône. Seules les catégories nouvelles de la 3.56 en
+--     reçoivent encore une (« categories-rangement.sql »), pour ces
+--     mêmes applications installées.
 --
 -- Une adresse libre ferait charger à l'accueil de tous les clients une
 -- image posée n'importe où.
@@ -2303,6 +2307,23 @@ begin
       check (fournisseur in ('kkiapay', 'feexpay'));
   end if;
 end $$;
+
+-- L'ACOMPTE À LA COMMANDE, en pour cent du total. Le client le règle en
+-- ligne pour que sa commande parte ; le reste se paie à la livraison.
+-- C'est ce qui écarte les commandes fictives : commander engage déjà de
+-- l'argent. Le superadministrateur seul le règle, par la même politique
+-- d'écriture que l'agrégateur. 100 revient à tout faire payer en ligne,
+-- comme avant.
+alter table public.paiement
+  add column if not exists taux_acompte int not null default 10;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_taux_acompte_borne') then
+    alter table public.paiement
+      add constraint paiement_taux_acompte_borne
+      check (taux_acompte between 1 and 100);
+  end if;
+end $$;
 insert into public.paiement (id) values (1) on conflict (id) do nothing;
 
 alter table public.paiement enable row level security;
@@ -2458,6 +2479,18 @@ alter table public.commandes add column if not exists revendeur boolean not null
 alter table public.commandes add column if not exists code_promo text not null default '';
 alter table public.commandes add column if not exists remise bigint not null default 0;
 
+-- L'ACOMPTE, figé à la création comme les prix : changer le taux demain
+-- ne réécrit pas les commandes d'hier.
+--   taux_acompte : le taux du jour, en pour cent ;
+--   acompte      : ce qui se paie en ligne pour que la commande parte ;
+--   verse        : ce que l'agrégateur a réellement encaissé.
+-- Le reste se paie à la livraison, à chaque boutique sa part
+-- (« restes_par_boutique », plus bas). Les trois sont vides sur les
+-- commandes d'avant : elles se payaient en entier.
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
 
@@ -2483,6 +2516,12 @@ begin
   new.remarque := '';
   new.annonce_le := null;
   new.paye_le := null;
+  -- L'acompte se pose APRÈS les lignes, par « creer_commande » : il se
+  -- calcule sur un total que la base n'a pas encore. Rien ne l'apporte
+  -- de dehors, pas plus que l'argent versé.
+  new.taux_acompte := null;
+  new.acompte := null;
+  new.verse := null;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -2631,6 +2670,11 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -2755,6 +2799,108 @@ language sql stable security definer set search_path = public as $$
        and c.client_id = auth.uid());
 $$;
 grant execute on function public.ma_commande(text) to authenticated;
+
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Le client verse l'acompte en ligne ; le reste se paie à la porte. Une
+-- commande peut traverser plusieurs boutiques, qui livrent chacune SA
+-- part : chacune encaisse donc sa part du reste. La somme des parts
+-- tombe juste au franc près : l'arrondi va à la plus grosse.
+--
+-- CE QUI EST ANNULÉ NE SE PAIE PAS. Une boutique qui ne peut pas servir
+-- un article annule sa ligne : le client ne doit plus que ce qu'il
+-- recevra, remise comprise au prorata, moins ce qu'il a déjà versé. Une
+-- boutique dont tout est annulé n'a rien à encaisser.
+--
+-- Avant le paiement, c'est le reste PRÉVU : le total moins l'acompte.
+-- Une commande d'avant l'acompte s'est réglée en entier : il ne reste
+-- rien.
+--
+-- Réservée aux fonctions de la base : elle lit n'importe quelle commande
+-- sans demander qui appelle. Celles qui la servent au dehors vérifient
+-- d'abord à qui elles répondent.
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
+-- ---------- Le reste, lu avec la commande ----------
+-- « commandes?select=*,restes » : PostgREST lit cette fonction comme une
+-- colonne de plus. Elle rend { "reste": …, "boutiques": { id: part } }.
+--
+-- À CHACUN CE QUI LE REGARDE, comme pour les lignes. L'enseigne et le
+-- client voient toutes les parts ; une boutique, la sienne seulement :
+-- c'est celle que son livreur ira encaisser. Les autres ne reçoivent
+-- rien. La commande est relue par son identifiant : appelée en direct,
+-- la fonction recevrait une ligne fabriquée, avec les montants qu'on
+-- voudrait.
+create or replace function public.restes(cmd public.commandes)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  o     public.commandes%rowtype;
+  tout  boolean;
+  chez  text;
+  parts jsonb;
+begin
+  select * into o from public.commandes c where c.id = cmd.id;
+  if not found then return null; end if;
+
+  tout := public.est_super()
+       or public.droit_enseigne('commandes')
+       or (o.client_id is not null and o.client_id = auth.uid());
+  if not tout then
+    chez := public.boutique_du_compte();
+    if chez is null or not public.est_equipe() or public.est_compte_enseigne()
+       or not exists (select 1 from public.commande_lignes l
+                       where l.commande_id = o.id and l.boutique_id = chez) then
+      return null;
+    end if;
+  end if;
+
+  select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
+    into parts
+    from public.restes_par_boutique(o.id) r
+   where r.boutique_id is not null and (tout or r.boutique_id = chez);
+
+  return jsonb_build_object(
+    'reste', (select coalesce(sum(r.a_encaisser), 0)
+                from public.restes_par_boutique(o.id) r
+               where tout or r.boutique_id = chez),
+    'boutiques', parts);
+end $$;
+revoke all on function public.restes(public.commandes) from public, anon;
+grant execute on function public.restes(public.commandes) to authenticated;
 
 -- ---------- « Je l'ai bien reçu » ----------
 -- LE CLIENT SEUL, et c'est tout l'intérêt. La boutique déclare avoir
@@ -2912,16 +3058,23 @@ grant execute on function public.assigner_livreur(text, text, uuid) to authentic
 
 -- ---------- Ce que le livreur a à porter ----------
 -- SES courses, et rien que les siennes. Pas celles de son collègue, pas
--- celles des autres boutiques — et AUCUN montant : ni le prix BIZZOO,
--- ni le prix payé. Regardez la liste des colonnes rendues : elle est la
--- réponse entière à « que voit un livreur ? ».
+-- celles des autres boutiques — et UN SEUL montant : ce qu'il doit
+-- encaisser à la porte, la part du reste qui revient à sa boutique. Ni
+-- le prix BIZZOO, ni le prix des articles, ni l'acompte. Regardez la
+-- liste des colonnes rendues : elle est la réponse entière à « que voit
+-- un livreur ? ».
+--
+-- « drop » avant « create » : la fonction a gagné une colonne, et
+-- PostgreSQL ne change pas ce qu'une fonction rend sans la retirer.
+drop function if exists public.mes_livraisons();
 create or replace function public.mes_livraisons()
 returns table (
   commande_id text, numero text,
   boutique_id text, nom_boutique text,
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
-  etat text, articles jsonb, paye_le timestamptz)
+  etat text, articles jsonb, paye_le timestamptz,
+  a_encaisser bigint)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -2938,7 +3091,12 @@ begin
            jsonb_agg(jsonb_build_object(
              'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
              order by l.nom),
-           c.paye_le
+           c.paye_le,
+           -- Ce qu'il réclame au client : la part du reste qui revient à
+           -- SA boutique. Zéro quand tout a été payé en ligne.
+           coalesce((select r.a_encaisser
+                       from public.restes_par_boutique(c.id) r
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
@@ -3410,12 +3568,15 @@ end $$;
 revoke all on function public.remises_periode(date, date, text) from public, anon;
 grant execute on function public.remises_periode(date, date, text) to authenticated;
 
--- « drop » avant « create » : cette fonction a gagné un paramètre — le
--- code promo. Un paramètre par défaut n'en remplace pas une, il en crée
--- une seconde, et l'appel devient ambigu : « function is not unique ».
+-- « drop » avant « create » : cette fonction a gagné des paramètres — le
+-- code promo, puis l'acompte. Un paramètre par défaut n'en remplace pas
+-- une, il en crée une seconde, et l'appel devient ambigu : « function is
+-- not unique ».
 drop function if exists public.creer_commande(jsonb, jsonb);
+drop function if exists public.creer_commande(jsonb, jsonb, text);
 create or replace function public.creer_commande(
-  client jsonb, articles jsonb, code text default '')
+  client jsonb, articles jsonb, code text default '',
+  avec_acompte boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -3431,6 +3592,7 @@ declare
   marge    bigint;
   verdict  jsonb;
   manque   record;
+  taux     int;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -3563,6 +3725,30 @@ begin
     end if;
   end if;
 
+  -- ---------- L'acompte ----------
+  -- APRÈS le code promo : l'acompte se prend sur ce que le client doit
+  -- vraiment, remise déduite. Le taux est celui du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE DEMANDE RIEN. Elle fait payer le total et
+  -- dit « Payée » une fois le versement reçu : sa commande se règle donc
+  -- en entier, comme elle l'annonce au client. Lui faire payer un acompte
+  -- sans qu'elle sache le dire laisserait croire au client qu'il ne doit
+  -- plus rien, et le livreur arriverait avec une somme à réclamer.
+  --
+  -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
+  -- plus que le total.
+  taux := case when coalesce(avec_acompte, false)
+               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
+               else 100 end;
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes c
+     set taux_acompte = taux,
+         acompte = case when c.total <= 0 then 0
+                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
+   where c.id = nouvelle;
+  perform set_config('bizzoo.interne', '', true);
+
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'etat', c.etat,
@@ -3570,6 +3756,9 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
+    'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
+    'reste', greatest(0, c.total - c.acompte),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -3577,6 +3766,10 @@ begin
                'whatsapp', coalesce((select b.whatsapp from public.boutiques b where b.id = g.boutique_id), ''),
                'indicatif', coalesce((select b.indicatif from public.boutiques b where b.id = g.boutique_id), '229'),
                'montant', g.montant,
+               /* Ce que CETTE boutique encaissera à la livraison. */
+               'a_encaisser', coalesce((select r.a_encaisser
+                                          from public.restes_par_boutique(c.id) r
+                                         where r.boutique_id is not distinct from g.boutique_id), 0),
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
@@ -3596,8 +3789,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean) to anon, authenticated;
 
 -- ---------- Suivre sa commande ----------
 -- Après le paiement, l'application ATTEND que l'état bouge, elle ne
@@ -3617,7 +3810,18 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'numero', c.numero, 'etat', c.etat, 'total', c.total, 'devise', c.devise,
-    'paye_le', c.paye_le, 'remarque', c.remarque);
+    'paye_le', c.paye_le, 'remarque', c.remarque,
+    -- L'acompte, ce qui a été versé, et ce qui reste à payer à la
+    -- livraison, boutique par boutique. Une commande d'avant l'acompte
+    -- se payait en entier : son acompte est son total.
+    'taux_acompte', coalesce(c.taux_acompte, 100),
+    'acompte', coalesce(c.acompte, c.total),
+    'verse', c.verse,
+    'reste', (select coalesce(sum(r.a_encaisser), 0)
+                from public.restes_par_boutique(c.id) r),
+    'restes', (select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
+                 from public.restes_par_boutique(c.id) r
+                where r.boutique_id is not null));
 end $$;
 revoke all on function public.suivre_commande(text, text) from public;
 grant execute on function public.suivre_commande(text, text) to anon, authenticated;
@@ -3665,6 +3869,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   c   public.commandes%rowtype;
   net text := left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64);
+  du  int;
 begin
   if net = '' then return jsonb_build_object('ok', false, 'raison', 'transaction absente'); end if;
 
@@ -3690,6 +3895,10 @@ begin
     return jsonb_build_object('ok', true, 'deja', true, 'numero', c.numero);
   end if;
 
+  -- CE QUI EST ATTENDU EN LIGNE, c'est l'acompte : le reste se paie à la
+  -- livraison. Une commande d'avant l'acompte se payait en entier.
+  du := coalesce(c.acompte, c.total);
+
   perform set_config('bizzoo.paiement', 'oui', true);
 
   -- Cette transaction est déjà rattachée à une autre commande. On le
@@ -3703,36 +3912,41 @@ begin
     -- L'agrégateur et l'opérateur se reprennent tout seuls sur la ligne
     -- d'ouverture : c'est « noter_versement » qui s'en charge.
     perform public.noter_versement(c.id, 'conflit', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
       'Transaction déjà rattachée à une autre commande.');
     return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
   end if;
 
-  -- Le montant qui compte est celui que KkiaPay annonce. S'il manque
+  -- Le montant qui compte est celui que l'agrégateur annonce. S'il manque
   -- quelque chose, on ne valide pas : on écrit ce qu'on a reçu, et la
   -- boutique tranche. La preuve, elle, n'est pas posée : la commande
   -- n'est pas payée.
-  if coalesce(montant, 0) < c.total then
+  if coalesce(montant, 0) < du then
     update public.commandes
        set remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
-                      || ' reçus sur ' || c.total::text || ' attendus'
+                      || ' reçus sur ' || du::text || ' attendus'
                       || ' (transaction ' || net || ').'
      where id = c.id;
     perform public.noter_versement(c.id, 'incomplete', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
-      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || c.total::text || ' attendus.');
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
+      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || du::text || ' attendus.');
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
 
+  -- « verse » garde ce qui est RÉELLEMENT entré : c'est de lui que se
+  -- déduit ce que le livreur réclamera. Un client qui a tout payé en
+  -- ligne ne doit plus rien à la porte.
   update public.commandes
      set etat = 'payee', paye_le = now(), transaction_id = net,
-         confirme_par = '', remarque = ''
+         confirme_par = '', remarque = '', verse = coalesce(montant, 0)
    where id = c.id;
   -- La remarque vient d'être effacée sur la commande : c'est le journal,
   -- désormais, qui garde ce qui s'est passé avant cette réussite.
   perform public.noter_versement(c.id, 'payee', qui, '',
-    c.fournisseur_ref, net, c.total, coalesce(montant, 0), 'Versement encaissé.');
-  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total);
+    c.fournisseur_ref, net, du, coalesce(montant, 0),
+    case when du < c.total then 'Acompte encaissé.' else 'Versement encaissé.' end);
+  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total,
+                            'verse', coalesce(montant, 0));
 end $$;
 
 -- LE POINT À NE PAS MANQUER : révoquer du seul pseudo-rôle « public »
@@ -3974,9 +4188,9 @@ begin
 
   -- Au journal. C'est ICI, et nulle part ailleurs, qu'on sait chez quel
   -- opérateur la demande est partie : ni la notification ni la
-  -- vérification ne le rappellent.
-  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '', c.total, 0,
-    'Demande de paiement envoyée.');
+  -- vérification ne le rappellent. Ce qui est demandé, c'est l'acompte.
+  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '',
+    coalesce(c.acompte, c.total), 0, 'Demande de paiement envoyée.');
   return true;
 end $$;
 
@@ -3991,6 +4205,11 @@ revoke all on function public.noter_reference(text, text, text, text)
 -- Le numéro de téléphone du client fait office de mot de passe, comme
 -- pour « suivre_commande » : sans lui, n'importe qui ferait sonner le
 -- téléphone d'un inconnu avec une demande de paiement.
+--
+-- « total » EST CE QUE L'AGRÉGATEUR DOIT DEMANDER : l'acompte, depuis
+-- qu'il existe. La fonction Edge « feexpay » demande ce champ-là, telle
+-- qu'elle est déployée : elle n'a pas à changer. Le total de la commande
+-- entière voyage à part, sous « total_commande ».
 create or replace function public.commande_pour_paiement(cible text, tel text)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -4003,7 +4222,8 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'etat', c.etat,
-    'total', c.total, 'devise', c.devise,
+    'total', coalesce(c.acompte, c.total), 'devise', c.devise,
+    'acompte', coalesce(c.acompte, c.total), 'total_commande', c.total,
     'nom', c.client_nom, 'tel', c.client_tel,
     'reference', c.fournisseur_ref,
     -- Pour que l'Edge Function refuse une relance AVANT d'appeler
@@ -4058,10 +4278,13 @@ begin
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   perform set_config('bizzoo.paiement', 'oui', true);
+  -- Ce dont l'enseigne se porte garante, c'est de l'ACOMPTE : le reste
+  -- se paie à la livraison, et reste dû.
   update public.commandes
-     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne')
+     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne'),
+         verse = coalesce(acompte, total)
    where id = cible and etat <> 'payee'
-  returning total into montant;
+  returning verse into montant;
 
   -- Au journal, et NOMMÉMENT « main ». Un encaissement à la main n'est
   -- pas un versement comme un autre : personne ne l'a vérifié chez
@@ -4368,37 +4591,64 @@ declare
   b        record;
   numero   text := coalesce(new.numero, '');
   client   uuid := new.client_id;
+  devise   text := ' ' || coalesce(nullif(new.devise, ''), 'FCFA');
+  reste    bigint;
 begin
   if new.etat is not distinct from old.etat or new.etat <> 'payee' then
     return new;
   end if;
 
+  -- CE QUI RESTE À PAYER À LA LIVRAISON. À zéro — tout réglé en ligne —
+  -- les messages restent ceux d'avant l'acompte. Les montants s'écrivent
+  -- comme dans les applications : « 13 500 FCFA ».
+  select coalesce(sum(r.a_encaisser), 0) into reste
+    from public.restes_par_boutique(new.id) r;
+
   -- Le client, s'il a un compte. Une commande passée sans compte n'a
   -- personne à prévenir — le reçu lui est déjà revenu par WhatsApp.
   if client is not null then
     perform public.notifier(array[client], 'commande_payee',
-      'Paiement reçu',
-      'Votre commande ' || numero || ' est confirmée. Nous la préparons.',
+      case when reste > 0 then 'Acompte reçu' else 'Paiement reçu' end,
+      'Votre commande ' || numero || ' est confirmée. Nous la préparons.' ||
+        case when reste > 0
+             then ' Reste à payer à la livraison : ' ||
+                  replace(to_char(reste, 'FM999,999,999,990'), ',', ' ') || devise || '.'
+             else '' end,
       '#/commande/' || new.id, new.id, null, true);
   end if;
 
-  -- Chaque boutique concernée, une fois.
-  for b in select distinct l.boutique_id from public.commande_lignes l
-            where l.commande_id = new.id and l.boutique_id is not null loop
+  -- Chaque boutique concernée, une fois, avec CE QU'ELLE encaissera : sa
+  -- part du reste, que son livreur réclamera à la porte.
+  for b in select r.boutique_id, r.a_encaisser
+             from public.restes_par_boutique(new.id) r
+            where r.boutique_id is not null loop
     perform public.notifier(public.equipe_de(b.boutique_id), 'commande_payee',
-      'Nouvelle commande payée',
-      'La commande ' || numero || ' est payée. À préparer.',
+      case when b.a_encaisser > 0 then 'Nouvelle commande confirmée' else 'Nouvelle commande payée' end,
+      case when b.a_encaisser > 0
+           then 'La commande ' || numero || ' est confirmée par son acompte. À préparer — ' ||
+                replace(to_char(b.a_encaisser, 'FM999,999,999,990'), ',', ' ') || devise ||
+                ' à encaisser à la livraison.'
+           else 'La commande ' || numero || ' est payée. À préparer.' end,
       '#/commandes/' || new.id, new.id, b.boutique_id, true);
   end loop;
 
   perform public.notifier(public.enseigne_des_commandes(), 'commande_payee',
-    'Nouvelle commande payée',
-    'La commande ' || numero || ' vient d''être payée.',
+    case when reste > 0 then 'Nouvelle commande confirmée' else 'Nouvelle commande payée' end,
+    'La commande ' || numero ||
+      case when reste > 0 then ' vient d''être confirmée par son acompte.'
+           else ' vient d''être payée.' end,
     '#/commandes/' || new.id, new.id, null, true);
 
   perform public.notifier(public.les_superadmins(), 'commande_payee',
-    'Paiement encaissé',
-    'La commande ' || numero || ' est payée.',
+    case when reste > 0 then 'Acompte encaissé' else 'Paiement encaissé' end,
+    'La commande ' || numero ||
+      case when reste > 0
+           then ' : acompte de ' ||
+                replace(to_char(coalesce(new.verse, new.acompte, 0), 'FM999,999,999,990'), ',', ' ') ||
+                devise || ' encaissé, ' ||
+                replace(to_char(reste, 'FM999,999,999,990'), ',', ' ') || devise ||
+                ' à encaisser à la livraison.'
+           else ' est payée.' end,
     '#/commandes/' || new.id, new.id, null, true);
 
   return new;
@@ -5857,7 +6107,7 @@ revoke all on function public.produits_populaires(int)
 grant execute on function public.produits_populaires(int) to anon, authenticated;
 
 -- ---------- La liste de BIZZOO ----------
--- Quinze secteurs, soixante-quatorze rayons. Ils arrivent une fois ;
+-- Vingt-neuf secteurs, cent vingt-trois rayons. Ils arrivent une fois ;
 -- ensuite c'est le superadministrateur qui les tient depuis
 -- l'application — renommer, réordonner, ajouter, retirer.
 --
@@ -5865,75 +6115,58 @@ grant execute on function public.produits_populaires(int) to anon, authenticated
 -- ne doit pas être remise à l'état d'usine à chaque relecture du
 -- fichier. Ce qui est posé reste posé.
 --
--- « en_avant » désigne les huit de l'accueil. Les quinze ne tiennent
--- pas sur un premier écran, et les montrer toutes reviendrait à n'en
--- montrer aucune.
+-- « en_avant » désigne les huit de l'accueil. Les vingt-neuf ne
+-- tiennent pas sur un premier écran, et les montrer toutes reviendrait
+-- à n'en montrer aucune.
 --
--- « image » : l'illustration de son rond, celle qui voyage avec
--- l'application (« client/img/categories/ »). Une base déjà en place
--- les reçoit par « categories-photos.sql ».
+-- « ordre » range la liste par thème : high-tech, enfants et école,
+-- maison, mobilité, mode, alimentation, loisirs, professionnels,
+-- services. La place 3 est celle d'« Électro-ménagers & Cuisinière »,
+-- créée depuis l'admin sur la base en ligne.
+--
+-- « icone » : l'icône de sa tuile, l'une de celles des planches
+-- choisies par l'enseigne (« img/pictos/ », dans les deux
+-- applications). Pas d'image : l'icône suffit. Une base déjà en place
+-- reçoit les icônes par « categories-icones.sql », et la liste rangée
+-- par « categories-rangement.sql ».
 insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
-  ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1, 'img/categories/robe.jpg'),
-  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2, 'img/categories/ordinateur.jpg'),
-  ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3, 'img/categories/voiture.jpg'),
-  ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4, 'img/categories/maison.jpg'),
-  ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5, 'img/categories/rouge-a-levres.jpg'),
-  ('cat_restauration', null, 'Restauration & Alimentation',        'couverts', '#F96302', true,   6, 'img/categories/marmite.jpg'),
-  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'chariot',  '#E62329', true,   7, 'img/categories/chariot.jpg'),
-  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'ecran', '#0B7C8C', false, 8, 'img/categories/ecran.jpg'),
-  ('cat_bebe',         null, 'Bébé & Enfant',                      'cadeau',   '#3F51B5', false,  9, 'img/categories/nounours.jpg'),
-  ('cat_sport',        null, 'Sport & Loisirs',                    'ballon',   '#9A6B00', false, 10, 'img/categories/ballon.jpg'),
-  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'outils',   '#546E7A', false, 11, 'img/categories/briques.jpg'),
-  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livre',    '#7A4A32', false, 12, 'img/categories/livres.jpg'),
-  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'diamant',  '#6C3FBF', false, 13, 'img/categories/bague.jpg'),
-  ('cat_animaux',      null, 'Animaux',                            'patte',    '#0F9D58', false, 14, 'img/categories/chien.jpg'),
-  ('cat_services',     null, 'Services',                           'sacoche',  '#0B7C8C', true,  15, 'img/categories/boite-a-outils.jpg')
+  ('cat_hightech',     null, 'Informatique & Électronique',   'informatique',     '#0B5CF5', true,   1, ''),
+  ('cat_logiciels',    null, 'Logiciels & Solutions pro',     'informatique',     '#0B7C8C', false,  2, ''),
+  ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',          '#2550B7', false,  4, ''),
+  ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',         '#2550B7', false,  5, ''),
+  ('cat_bebe',         null, 'Bébé & Enfants',                'bebe-enfant',      '#3F51B5', false,  6, ''),
+  ('cat_livres',       null, 'Livres & Fournitures scolaires', 'livres-education', '#7A4A32', false, 7, ''),
+  ('cat_formation',    null, 'Formation & Cours',             'formation',        '#2550B7', false,  8, ''),
+  ('cat_maison',       null, 'Maison & Déco',                 'maison-deco',      '#0F9D58', true,   9, ''),
+  ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',        '#2550B7', false, 10, ''),
+  ('cat_bricolage',    null, 'Bricolage & Matériaux',         'bricolage',        '#546E7A', false, 11, ''),
+  ('cat_auto',         null, 'Auto & Moto',                   'auto-moto',        '#001450', true,  12, ''),
+  ('cat_transport',    null, 'Transport & Location',          'transport',        '#2550B7', false, 13, ''),
+  ('cat_mode',         null, 'Mode & Vêtements',              'mode',             '#6C3FBF', true,  14, ''),
+  ('cat_bijoux',       null, 'Bijoux & Accessoires',          'bijoux',           '#6C3FBF', false, 15, ''),
+  ('cat_beaute',       null, 'Beauté & Bien-être',            'beaute',           '#D81B60', true,  16, ''),
+  ('cat_supermarche',  null, 'Supermarché & Épicerie',        'alimentation',     '#E62329', true,  17, ''),
+  ('cat_restauration', null, 'Restauration',                  'restauration',     '#F96302', true,  18, ''),
+  ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',      '#2550B7', false, 19, ''),
+  ('cat_animaux',      null, 'Animaux',                       'animaux',          '#0F9D58', false, 20, ''),
+  ('cat_sport',        null, 'Sport & Loisirs',               'sport-loisirs',    '#9A6B00', false, 21, ''),
+  ('cat_musique',      null, 'Musique & Instruments',         'musique',          '#2550B7', false, 22, ''),
+  ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',        '#2550B7', false, 23, ''),
+  ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',           '#2550B7', false, 24, ''),
+  ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel',     '#2550B7', false, 25, ''),
+  ('cat_bureau',       null, 'Équipements de bureau',         'bureau',           '#2550B7', false, 26, ''),
+  ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro',     '#2550B7', false, 27, ''),
+  ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',       '#2550B7', false, 28, ''),
+  ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',       '#2550B7', false, 29, ''),
+  ('cat_services',     null, 'Services & Prestataires',       'services',         '#0B7C8C', true,  30, '')
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values
-  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
-  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
-  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
-  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
-  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
-
   ('sc_hightech_smartphones',  'cat_hightech', 'Smartphones',       1),
   ('sc_hightech_ordinateurs',  'cat_hightech', 'Ordinateurs',       2),
   ('sc_hightech_tablettes',    'cat_hightech', 'Tablettes',         3),
   ('sc_hightech_accessoires',  'cat_hightech', 'Accessoires',       4),
   ('sc_hightech_tv',           'cat_hightech', 'TV & audio',        5),
-
-  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
-  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
-  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
-  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
-  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
-  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
-
-  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
-  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
-  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
-  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
-  ('sc_maison_jardinage',      'cat_maison', 'Jardinage',           5),
-
-  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
-  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
-  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
-  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
-  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
-
-  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
-  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
-  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
-  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
-  ('sc_resto_epicerie',        'cat_restauration', 'Épicerie',       5),
-  ('sc_resto_frais',           'cat_restauration', 'Produits frais', 6),
-
-  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
-  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
-  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
-  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
-  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
 
   ('sc_logiciels_gestion',     'cat_logiciels', 'Logiciels de gestion',      1),
   ('sc_logiciels_compta',      'cat_logiciels', 'Comptabilité',              2),
@@ -5942,10 +6175,96 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_logiciels_licences',    'cat_logiciels', 'Licences',                  5),
   ('sc_logiciels_entreprises', 'cat_logiciels', 'Solutions pour entreprises', 6),
 
+  ('sc_energie_solaire',        'cat_energie', 'Panneaux & kits solaires', 1),
+  ('sc_energie_batteries',      'cat_energie', 'Batteries & onduleurs',    2),
+  ('sc_energie_groupes',        'cat_energie', 'Groupes électrogènes',     3),
+  ('sc_energie_eclairage',      'cat_energie', 'Éclairage',                4),
+  ('sc_brico_electricite',      'cat_energie', 'Électricité',              5),
+
+  ('sc_securite_cameras',       'cat_securite', 'Caméras de surveillance',      1),
+  ('sc_securite_alarmes',       'cat_securite', 'Alarmes & détecteurs',         2),
+  ('sc_securite_acces',         'cat_securite', 'Serrures & contrôle d''accès', 3),
+
   ('sc_bebe_vetements',        'cat_bebe', 'Vêtements',             1),
   ('sc_bebe_jouets',           'cat_bebe', 'Jouets',                2),
   ('sc_bebe_puericulture',     'cat_bebe', 'Puériculture',          3),
   ('sc_bebe_mobilier',         'cat_bebe', 'Mobilier enfant',       4),
+
+  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
+  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
+  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
+
+  ('sc_livres_formations',      'cat_formation', 'Formations',                 1),
+  ('sc_formation_cours',        'cat_formation', 'Cours particuliers',         2),
+  ('sc_formation_langues',      'cat_formation', 'Langues',                    3),
+  ('sc_formation_informatique', 'cat_formation', 'Informatique & bureautique', 4),
+
+  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
+  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
+  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
+  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
+
+  ('sc_maison_jardinage',       'cat_jardinage', 'Jardinage',                  1),
+  ('sc_jardinage_plantes',      'cat_jardinage', 'Plantes & fleurs',           2),
+  ('sc_jardinage_outils',       'cat_jardinage', 'Outils de jardin',           3),
+  ('sc_jardinage_entretien',    'cat_jardinage', 'Entretien d''espaces verts', 4),
+
+  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
+  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
+  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
+  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+
+  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
+  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
+  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
+  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
+  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
+  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
+
+  ('sc_transport_location',     'cat_transport', 'Location de véhicules',     1),
+  ('sc_transport_demenagement', 'cat_transport', 'Déménagement',              2),
+  ('sc_transport_marchandises', 'cat_transport', 'Transport de marchandises', 3),
+  ('sc_transport_coursiers',    'cat_transport', 'Livraison & coursiers',     4),
+
+  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
+  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
+  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
+  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
+  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
+
+  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
+  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
+  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
+  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+
+  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
+  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
+  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
+  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
+  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
+
+  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
+  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
+  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
+  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
+  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
+  ('sc_resto_epicerie',        'cat_supermarche', 'Épicerie',           6),
+  ('sc_resto_frais',           'cat_supermarche', 'Produits frais',     7),
+
+  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
+  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
+  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
+  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
+
+  ('sc_agri_semences',          'cat_agriculture', 'Semences & plants',     1),
+  ('sc_agri_engrais',           'cat_agriculture', 'Engrais & traitements', 2),
+  ('sc_agri_materiel',          'cat_agriculture', 'Matériel agricole',     3),
+  ('sc_agri_elevage',           'cat_agriculture', 'Élevage',               4),
+  ('sc_agri_produits',          'cat_agriculture', 'Produits de la ferme',  5),
+
+  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
+  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
+  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
 
   ('sc_sport_equipements',     'cat_sport', 'Équipements sportifs', 1),
   ('sc_sport_vetements',       'cat_sport', 'Vêtements de sport',   2),
@@ -5953,25 +6272,40 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_sport_jeux',            'cat_sport', 'Jeux',                 4),
   ('sc_sport_loisirs',         'cat_sport', 'Loisirs',              5),
 
-  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
-  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
-  ('sc_brico_electricite',     'cat_bricolage', 'Électricité',                3),
-  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
-  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+  ('sc_musique_instruments',    'cat_musique', 'Instruments de musique', 1),
+  ('sc_musique_sono',           'cat_musique', 'Sonorisation',           2),
+  ('sc_musique_accessoires',    'cat_musique', 'Accessoires',            3),
 
-  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
-  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
-  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
-  ('sc_livres_formations',     'cat_livres', 'Formations',           4),
+  ('sc_artisanat_objets',       'cat_artisanat', 'Objets d''art & artisanat', 1),
+  ('sc_artisanat_tissus',       'cat_artisanat', 'Tissus & pagnes',           2),
+  ('sc_artisanat_locaux',       'cat_artisanat', 'Produits locaux',           3),
 
-  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
-  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
-  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
-  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+  ('sc_cadeaux_cadeaux',        'cat_cadeaux', 'Cadeaux',             1),
+  ('sc_cadeaux_fete',           'cat_cadeaux', 'Articles de fête',    2),
+  ('sc_cadeaux_emballages',     'cat_cadeaux', 'Emballages & cartes', 3),
 
-  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
-  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
-  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
+  ('sc_event_decoration',       'cat_evenementiel', 'Décoration d''événements',   1),
+  ('sc_event_location',         'cat_evenementiel', 'Location de matériel',       2),
+  ('sc_event_organisation',     'cat_evenementiel', 'Organisation d''événements', 3),
+
+  ('sc_bureau_mobilier',        'cat_bureau', 'Mobilier de bureau',    1),
+  ('sc_bureau_materiel',        'cat_bureau', 'Matériel de bureau',    2),
+  ('sc_bureau_fournitures',     'cat_bureau', 'Fournitures de bureau', 3),
+
+  ('sc_pro_restauration',       'cat_materiel_pro', 'Équipements de restauration',   1),
+  ('sc_pro_salon',              'cat_materiel_pro', 'Équipements de salon & beauté', 2),
+  ('sc_pro_machines',           'cat_materiel_pro', 'Machines professionnelles',     3),
+  ('sc_pro_medical',            'cat_materiel_pro', 'Matériel médical',              4),
+
+  ('sc_imprimerie_impression',  'cat_imprimerie', 'Impression',                1),
+  ('sc_imprimerie_enseignes',   'cat_imprimerie', 'Enseignes & signalétique',  2),
+  ('sc_imprimerie_objets',      'cat_imprimerie', 'Objets publicitaires',      3),
+  ('sc_imprimerie_graphisme',   'cat_imprimerie', 'Graphisme & communication', 4),
+
+  ('sc_gros_alimentation',      'cat_grossistes', 'Alimentation en gros',        1),
+  ('sc_gros_boissons',          'cat_grossistes', 'Boissons en gros',            2),
+  ('sc_gros_hygiene',           'cat_grossistes', 'Hygiène & entretien en gros', 3),
+  ('sc_gros_emballages',        'cat_grossistes', 'Emballages',                  4),
 
   ('sc_services_reparation',   'cat_services', 'Réparation',              1),
   ('sc_services_installation', 'cat_services', 'Installation',            2),

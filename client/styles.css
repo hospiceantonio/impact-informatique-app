@@ -79,6 +79,9 @@
   --trait:#E3E8EF;
   --fond:#F5F7FA;
   --blanc:#FFFFFF;
+  /* Le fond des tuiles de catégories : le bleu-gris de l'image choisie
+     par l'enseigne (3.56). */
+  --tuile:#EAF0F7;
 
   --ombre:0 12px 30px -18px rgba(9,26,81,.55);
   --ombre-forte:0 20px 45px -20px rgba(9,26,81,.6);
@@ -201,28 +204,21 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .topbar-vignette img{width:100%;height:100%;object-fit:cover}
 .topbar-vignette .ic{width:21px;height:21px}
 
-/* ---------- Logo ---------- */
-/* ---------- Le mot-symbole ---------- */
-/* Écrit, pas dessiné : net à toutes les tailles, et rien à charger. */
+/* ---------- Le logo : le B au chariot, puis le nom ---------- */
+/* La tuile est l'œuvre, comme l'icône de l'application (ses coins
+   arrondis sont dans l'image). Le nom reste écrit : net à toutes les
+   tailles, et rien à charger. Plus de points sous le nom depuis la
+   3.56.1 : les deux roues orange du B les portent. */
+.logo-tuile{flex:none;display:block;width:40px;height:40px}
 .logo-mot{
-  display:inline-block;position:relative;
+  display:inline-block;
   font-weight:700;font-size:26px;line-height:1;letter-spacing:-.01em;
-  padding-bottom:9px;white-space:nowrap;
+  white-space:nowrap;
 }
 .logo-bizz{color:var(--bleu)}
 .logo-oo{color:var(--orange)}
-/* Les deux points, sous le mot : ils sont au logo ce que les roues
-   sont au chariot de l'icône. */
-.logo-points{
-  position:absolute;left:.09em;bottom:1px;display:flex;gap:.16em;
-}
-.logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
-.logo-points i:first-child{background:var(--bleu)}
-.logo-points i:last-child{background:var(--orange)}
 /* Sur un fond sombre, le bleu du mot disparaîtrait. */
-.logo-mot.clair .logo-bizz,
-.logo-mot.clair .logo-points i:first-child{color:#fff;background:#fff}
-.logo-mot.clair .logo-bizz{background:none;color:#fff}
+.logo-mot.clair .logo-bizz{color:#fff}
 /* DEUX LIGNES AU PLUS. Une seule ne suffisait pas : sur un téléphone
    de 320 px il ne reste que 106 px entre le bord et les boutons, et
    « Toutes vos boutiques » y était déjà coupé. Au-delà de deux lignes
@@ -590,29 +586,24 @@ video.slide-img{background:#000}
 .bou-bandeau > span:not(.bou-rond){flex:1;min-width:0}
 .bou-bandeau > .ic{flex:none;color:var(--encre-tres-douce)}
 
-/* QUATRE DE FRONT, donc les huit de l'accueil sur DEUX RANGÉES. À trois
-   colonnes elles en prenaient trois, dont une à moitié vide — et une
-   rangée incomplète se lit comme un oubli. L'écart passe à 8 px : à
-   390 px, quatre cartes et trois écarts doivent tenir dans 358. */
-.cat-grille{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.cat-carte{
-  display:flex;flex-direction:column;align-items:center;gap:6px;
-  background:var(--blanc);border-radius:var(--r);
-  padding:11px 5px 10px;text-align:center;
-  box-shadow:var(--ombre);
-}
-.cat-carte:active{transform:scale(.97)}
-.cat-rond{
+/* ---------- Les icônes des catégories (3.56) ----------
+   Les douze de l'image choisie par l'enseigne, telles quelles, sur un
+   fond transparent : elles se posent sur la tuile bleu-gris. Toutes
+   sur un même carré, elles gardent entre elles les tailles de l'image. */
+.picto{display:block;flex:none;object-fit:contain;-webkit-user-drag:none}
+
+/* La pastille de l'écran « Catégories » : la tuile de l'accueil, en
+   petit — même fond bleu-gris, même icône. */
+.cat-pastille{
   display:flex;align-items:center;justify-content:center;flex:none;
-  width:38px;height:38px;border-radius:13px;
-  background:linear-gradient(135deg,var(--bleu-50),var(--bleu-100));
-  color:var(--bleu-700);
+  position:relative;overflow:hidden;
+  width:44px;height:44px;border-radius:13px;
+  background:var(--tuile);color:var(--bleu-900);
 }
-/* La pastille de l'écran « Catégories » : RONDE, et de la couleur que
-   l'enseigne a donnée au secteur. Le carré arrondi bleu ci-dessus sert
-   ailleurs, sur les vignettes de l'accueil. */
-.cat-rond-couleur{border-radius:50%;background:var(--bleu-700);color:#fff}
-.cat-rond-couleur .ic{width:18px;height:18px;stroke-width:2}
+.cat-pastille .picto{width:36px;height:36px}
+/* Une icône qui n'est pas de l'image (choisie avec une admin d'avant)
+   garde son dessin d'un trait, en bleu nuit. */
+.cat-pastille .ic{width:22px;height:22px;stroke-width:1.9}
 /* Le trait s'épaissit à mesure que l'icône rétrécit : à 1,9 sur 18 px
    elle devenait pâle, et une icône pâle sur une pastille de couleur
    ne se lit plus au soleil. */
@@ -1231,6 +1222,18 @@ a.pub-carte:active{transform:scale(.98)}
    lise comme un retrait et pas comme une ligne de plus à payer. */
 .pa-total-ligne.co-remise{color:var(--vert);font-weight:700}
 
+/* ---------- L'acompte ----------
+   Ce qui se paie MAINTENANT porte le chiffre en bleu, comme le total
+   l'était ; ce qui restera pour la livraison se lit en dessous, en
+   plus petit : c'est une information, pas une somme à payer ici. */
+.pa-total-ligne.co-acompte{color:var(--encre);font-weight:600}
+.pa-total-ligne small,.pa-recap-ligne small{
+  display:block;font-size:11.5px;font-weight:500;color:var(--encre-tres-douce);
+}
+.pa-total-ligne.co-reste{font-size:13.5px}
+.pa-total-ligne.co-reste span:last-child{font-weight:700;color:var(--encre)}
+.pa-recap-acompte{padding-top:9px;border-top:1px dashed var(--trait)}
+
 /* ---------- Où en est ma commande ----------
    Les cinq étapes, la faite en vert, les suivantes en gris. Le client
    lit de haut en bas et sait où il en est sans lire une phrase. */
@@ -1276,6 +1279,23 @@ a.pub-carte:active{transform:scale(.98)}
 .pa-avertissement .ic,.pa-essai .ic,.pa-confirme .ic{flex:none;margin-top:1px}
 .pa-confirme strong,.pa-avertissement strong{color:inherit}
 
+/* L'attente du versement sur le reçu, et la main laissée au client :
+   « Arrêter l'attente », « Vérifier à nouveau », « Fermer » sous le
+   message ; après un refus, l'avis en rouge clair, puis le choix de
+   l'opérateur et « Réessayer le paiement ». */
+.re-attente-corps{flex:1;min-width:0}
+.re-attente-corps p{margin:0}
+.re-attente-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.re-attente-actions .btn{width:auto;flex:1 1 auto;min-height:38px;padding:8px 14px;font-size:13.5px}
+.re-echec-tete{
+  display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;
+  padding:11px 13px;border-radius:var(--r-sm);
+  background:var(--rouge-clair);color:var(--rouge-fonce);font-size:13px;line-height:1.5;
+}
+.re-echec-tete .ic{flex:none;margin-top:1px}
+.re-echec-tete p{margin:0}
+.re-attente-boutons{margin-top:14px}
+
 /* « Un compte est nécessaire » : un avis, pas une alarme — on le dit
    dans le ton de l'aide, sans fond coloré. Le flex sert seulement à
    garder l'icône À CÔTÉ du texte : posée dans le fil de la phrase, elle
@@ -1310,6 +1330,24 @@ a.pub-carte:active{transform:scale(.98)}
   color:var(--encre-tres-douce);margin-bottom:8px;
 }
 .re-montant{font-size:28px;font-weight:800;color:var(--bleu-700);margin-top:10px}
+/* L'acompte et le reste, sous le total du reçu : l'un payé en ligne,
+   l'autre à la porte. Alignés comme un récapitulatif, pas centrés : on
+   lit deux montants côte à côte de leurs libellés. */
+.re-acompte{
+  margin-top:12px;padding-top:12px;border-top:1px dashed var(--trait);
+  display:flex;flex-direction:column;gap:7px;text-align:left;
+}
+.re-acompte-ligne{
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  font-size:13.5px;color:var(--encre-douce);
+}
+.re-acompte-ligne strong{font-size:15px;font-weight:800;color:var(--encre)}
+.re-acompte-ligne small{color:var(--encre-tres-douce);font-size:12px}
+.re-acompte-reste strong{color:var(--orange-fonce)}
+.re-a-livrer{margin-top:6px;padding-top:6px;border-top:0}
+.re-a-livrer strong{color:var(--orange-fonce)}
+/* Dans la liste : le reste à la livraison, sous le montant. */
+.re-resume-reste{font-size:11.5px;color:var(--orange-fonce);margin:1px 0 5px;white-space:nowrap}
 .re-ligne{
   display:flex;justify-content:space-between;gap:12px;
   padding:8px 0;font-size:13.5px;
@@ -1393,15 +1431,6 @@ a.pub-carte:active{transform:scale(.98)}
 /* ---------- Écrans plus larges ---------- */
 @media (min-width:560px){
   .p-grille{grid-template-columns:repeat(3,1fr)}
-  /* Les catégories restent à quatre : elles sont huit, et deux rangées
-     pleines valent mieux qu'une rangée et demie. Ce qui change avec la
-     place, c'est la taille des cartes, pas leur nombre par ligne. */
-  .cat-grille{gap:10px}
-  .cat-carte{padding:14px 8px 12px;gap:7px}
-  .cat-rond{width:44px;height:44px;border-radius:15px}
-  .cat-rond-couleur .ic{width:21px;height:21px;stroke-width:1.9}
-  .cat-nom{font-size:12.5px}
-  .cat-compte{font-size:10.5px}
 }
 
 /* =========================================================
@@ -1455,6 +1484,7 @@ a.pub-carte:active{transform:scale(.98)}
   /* Le logo de la charte, à sa taille de menu. Aucune couleur n'est
      posée ici : « Bizz » et « oo » tiennent les leurs, et une règle
      sur .tabbar-marque span les écraserait toutes les deux. */
+  .tabbar-marque .logo-tuile{width:32px;height:32px}
   .tabbar-marque .logo-mot{font-size:20px}
 
   /* ---------- Ce que le menu libère ---------- */
@@ -1809,35 +1839,51 @@ a.pub-carte:active{transform:scale(.98)}
    LA DA CORRIGÉE — l'accueil, les boutiques, la fiche
    ========================================================= */
 
-/* ---------- Les catégories en ronds, sur l'accueil ----------
-   Des ronds pastel sans cadre, le nom court dessous : ceux de la DA.
-   Les cartes blanches d'avant faisaient huit boîtes sous huit boîtes. */
-.cat-ronds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 8px}
-.cat-rond-lien{
-  display:flex;flex-direction:column;align-items:center;gap:7px;
-  min-width:0;text-decoration:none;color:var(--encre);
+/* ---------- Les catégories en tuiles, sur l'accueil (3.56) ----------
+   Celles de l'image choisie par l'enseigne : un carré bleu-gris aux
+   coins ronds, son icône au trait bleu nuit et sa touche orange, le
+   nom dessous, dans la tuile. Quatre de front : les huit de l'accueil
+   sur deux rangées pleines. Les ronds pastel d'avant portaient des
+   illustrations en 3D, d'un autre style que le reste. */
+.cat-tuiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 8px}
+.cat-tuile-lien{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  min-width:0;padding:12px 2px 10px;border-radius:18px;
+  background:var(--tuile);color:var(--bleu-900);text-decoration:none;
 }
-.cat-rond-da{
-  width:62px;height:62px;border-radius:50%;
+.cat-tuile{
   display:flex;align-items:center;justify-content:center;flex:none;
   position:relative;overflow:hidden;
+  width:50px;height:50px;border-radius:12px;
 }
-.cat-rond-da .ic{width:27px;height:27px;stroke-width:1.8}
-/* LA PHOTO DU ROND, celle de la DA, quand l'enseigne en a posé une :
-   elle recouvre l'icône, qui reste dessous. Tant qu'elle charge on voit
-   l'icône ; si elle ne vient pas, elle s'efface (« data-secours ») et
-   l'icône reste. Même chose sur l'écran « Catégories ». */
-.cat-rond-da img,
-.cat-rond-couleur img{
+.cat-tuile .picto{width:50px;height:50px}
+.cat-tuile .ic{width:28px;height:28px;stroke-width:1.8}
+/* LE NOM SUR DEUX LIGNES AU PLUS : « Électro-ménagers » se coupe à son
+   trait d'union au lieu de finir en « Électro-mén… ». Les tuiles d'une
+   rangée prennent la même hauteur et l'icône reste en haut : d'une
+   tuile à l'autre, les icônes s'alignent.
+
+   LA TAILLE SUIT L'ÉCRAN, de 10 à 11 px : à 360 px de large, une tuile
+   n'a que 72 px pour « Informatique », qui en demande 73 à 11 px.
+   UN SEUL MOT trop long pour la tuile ne peut pas passer à la ligne :
+   il finit par « … » (« un-mot ») au lieu d'être coupé net au bord. */
+.cat-tuile-nom{
+  font-size:clamp(10px,2.95vw,11px);font-weight:600;line-height:1.2;
+  max-width:100%;text-align:center;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cat-tuile-nom.un-mot{display:block;white-space:nowrap;text-overflow:ellipsis}
+.cat-tuile-lien:active{transform:scale(.96)}
+/* UNE VRAIE PHOTO, posée par l'enseigne, couvre l'icône, qui reste
+   dessous. Tant qu'elle charge on voit l'icône ; si elle ne vient pas,
+   elle s'efface (« data-secours ») et l'icône reste. Même chose sur
+   l'écran « Catégories ». L'icône est une image elle aussi : seule la
+   photo porte « data-secours ». */
+.cat-tuile img[data-secours],
+.cat-pastille img[data-secours]{
   position:absolute;inset:0;width:100%;height:100%;
   object-fit:cover;border-radius:inherit;
 }
-.cat-rond-couleur{position:relative;overflow:hidden}
-.cat-rond-nom{
-  font-size:12px;font-weight:500;max-width:100%;text-align:center;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-.cat-rond-lien:active .cat-rond-da{transform:scale(.95)}
 
 /* ---------- Le logo d'une boutique ----------
    Un carré aux coins ronds, comme sur la DA — un rond coupait les
@@ -1934,7 +1980,9 @@ a.pub-carte:active{transform:scale(.98)}
 }
 .bou-couverture img{width:100%;height:100%;object-fit:cover;display:block}
 .bou-couverture-vide{display:flex;align-items:center;justify-content:center}
-.bou-couverture-motif .logo-mot{font-size:40px;opacity:.9}
+.bou-couverture-motif .logo{gap:12px;opacity:.92}
+.bou-couverture-motif .logo-tuile{width:54px;height:54px}
+.bou-couverture-motif .logo-mot{font-size:40px}
 .vue > .bou-fiche{margin-top:-28px}
 .bou-fiche{
   position:relative;margin:0 -16px;padding:18px 16px 4px;

@@ -1,5 +1,5 @@
 /* =========================================================
-   Paiement — commander, puis payer par Mobile Money (KkiaPay).
+   Paiement — commander, puis payer l'acompte par Mobile Money.
 
    Ce qui se joue ici tient en une phrase : CE FICHIER NE DÉCIDE
    RIEN. Il demande à la base de créer la commande — c'est elle
@@ -23,7 +23,7 @@ const Paiement = (() => {
   const ATTENTE_MAX = 90000;    // 1 min 30 : le bac à sable prend son temps
   const INTERVALLE = 3000;
 
-  let reglages = null;          // { actif, fournisseur, clePublique, bacASable }
+  let reglages = null;          // { actif, fournisseur, clePublique, bacASable, tauxAcompte }
   let widgetCharge = null;      // promesse de chargement du script
   let enCours = null;           // la promesse du paiement ouvert
 
@@ -96,7 +96,11 @@ const Paiement = (() => {
     if (!reponse.ok) {
       const message = (donnees && (donnees.message || donnees.hint)) || "";
       if (reponse.status === 404 || /does not exist|Could not find/i.test(message)) {
-        throw new Error("La commande en ligne n'est pas encore ouverte sur cette boutique.");
+        const err = new Error("La commande en ligne n'est pas encore ouverte sur cette boutique.");
+        /* La base ne connaît pas cette fonction, ou pas sous cette forme :
+           celui qui appelle peut retenter autrement (« creerCommande »). */
+        err.inconnue = true;
+        throw err;
       }
       throw new Error(message || "La commande n'a pas pu être enregistrée.");
     }
@@ -105,9 +109,21 @@ const Paiement = (() => {
 
   /* ---------- Les réglages, lus en base ---------- */
 
-  async function charger() {
+  /** Un taux d'acompte lisible, de 1 à 100 ; sinon 100 — tout en ligne. */
+  function tauxValable(brut) {
+    const n = Math.round(Number(brut));
+    return n >= 1 && n <= 100 ? n : 100;
+  }
+
+  /**
+   * `options.garder` : en cas d'échec, garder les réglages déjà connus.
+   * L'écran de commande relit le taux en s'ouvrant — le superadministrateur
+   * a pu le changer depuis le démarrage —, et un réseau capricieux à cet
+   * instant-là ne doit pas fermer un paiement qui était ouvert.
+   */
+  async function charger(options) {
     const c = Catalogue.configuration();
-    if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true });
+    if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true, tauxAcompte: 100 });
     try {
       const reponse = await fetch(c.url + "/rest/v1/paiement?select=*&id=eq.1",
         { headers: { "apikey": c.cle } });
@@ -119,16 +135,37 @@ const Paiement = (() => {
         fournisseur: String(ligne.fournisseur || "kkiapay").trim(),
         clePublique: String(ligne.cle_publique || "").trim(),
         bacASable: ligne.bac_a_sable !== false,
+        /* L'ACOMPTE À LA COMMANDE, en pour cent, réglé par le
+           superadministrateur. Une base d'avant ne le connaît pas : on y
+           payait le total, et c'est donc ce qu'on annonce. */
+        tauxAcompte: tauxValable(ligne.taux_acompte),
       };
     } catch (_) {
+      if (options && options.garder && reglages) return reglages;
       /* Base d'avant le paiement, ou hors connexion : la boutique
          fonctionne comme avant, commande par WhatsApp. */
-      reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true };
+      reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true,
+                   tauxAcompte: 100 };
     }
     return reglages;
   }
 
   const fournisseur = () => (reglages && reglages.fournisseur) || "kkiapay";
+  const tauxAcompte = () => (reglages && reglages.tauxAcompte) || 100;
+
+  /**
+   * L'acompte que la base posera sur ce total. C'EST UN APERÇU, pour que
+   * le client sache avant de commander ce qu'il paiera maintenant : la
+   * règle est celle de « creer_commande » — le taux sur le total remise
+   * déduite, au franc supérieur, 100 FCFA au moins, jamais plus que le
+   * total. Le montant qui part chez l'agrégateur est celui que la base
+   * RENVOIE en créant la commande, jamais celui-ci.
+   */
+  function acompteDe(total) {
+    const t = Math.max(0, Math.round(Number(total) || 0));
+    if (t <= 0) return 0;
+    return Math.min(t, Math.max(Math.ceil(t * tauxAcompte() / 100), 100));
+  }
 
   /**
    * Le paiement en ligne est-il ouvert ?
@@ -296,10 +333,24 @@ const Paiement = (() => {
   /**
    * Crée la commande. On envoie des coordonnées et une liste
    * d'identifiants ; la base répond avec le montant à payer —
-   * et c'est CE montant-là qui part chez KkiaPay.
+   * l'acompte — et c'est CE montant-là qui part chez l'agrégateur.
+   *
+   * « avec_acompte » dit à la base que cette application sait annoncer
+   * un acompte et un reste. Les applications d'avant ne l'envoient pas :
+   * leurs commandes se paient en entier, comme elles le disent. Une base
+   * d'avant l'acompte ne connaît pas ce paramètre : on recommande alors
+   * sans lui, et la commande se paie en entier — la réponse le dit, et
+   * l'écran suit la réponse.
    */
-  const creerCommande = (client, articles, code) =>
-    rpc("creer_commande", { client, articles, code: code || "" });
+  async function creerCommande(client, articles, code) {
+    try {
+      return await rpc("creer_commande",
+        { client, articles, code: code || "", avec_acompte: true });
+    } catch (err) {
+      if (!err.inconnue) throw err;
+      return rpc("creer_commande", { client, articles, code: code || "" });
+    }
+  }
 
   /**
    * « Ce code vaut-il quelque chose sur ce panier-ci ? »
@@ -343,17 +394,51 @@ const Paiement = (() => {
    *
    * Renvoie l'état atteint. « a_payer » au bout du compte ne veut pas
    * dire « échoué » — seulement « pas encore confirmé ».
+   *
+   * DEUX RÉPONSES DE FEEXPAY ARRÊTENT L'ATTENTE SUR-LE-CHAMP, parce
+   * qu'attendre encore ferait croire que le versement peut aboutir :
+   *
+   *   { echoue: true, erreur }  FeexPay a répondu FAILED. C'est un
+   *                             verdict : le sablier tournait jusqu'au
+   *                             bout, puis annonçait « vous n'avez rien à
+   *                             refaire » à un client qui n'avait rien
+   *                             payé ;
+   *   { rien: true }            aucune demande de paiement n'est ouverte
+   *                             pour cette commande : elle n'est jamais
+   *                             partie sur le téléphone.
+   *
+   * « controle.arrete », posé par l'écran — le client a appuyé sur
+   * « Arrêter l'attente », ou il a quitté le reçu —, rend la main au
+   * tour suivant, sans rien conclure.
    */
-  async function attendreConfirmation(id, tel, pendant) {
+  async function attendreConfirmation(id, tel, pendant, controle) {
     const limite = Date.now() + (pendant || ATTENTE_MAX);
     const parFeexpay = fournisseur() === "feexpay";
+    const arrete = () => !!(controle && controle.arrete);
     let dernier = null;
-    while (Date.now() < limite) {
-      await new Promise((r) => setTimeout(r, INTERVALLE));
+    /* Avec FeexPay, le premier tour part tout de suite : rouvrir le reçu
+       d'un versement déjà refusé doit le dire aussitôt, pas au bout de
+       trois secondes de sablier. */
+    let patienter = !parFeexpay;
+    while (Date.now() < limite && !arrete()) {
+      if (patienter) await new Promise((r) => setTimeout(r, INTERVALLE));
+      patienter = true;
+      if (arrete()) break;
       if (parFeexpay) {
         /* Une vérification qui échoue n'interrompt pas l'attente : le
            versement peut très bien aboutir au tour suivant. */
-        try { await verifierFeexpay(id, tel); } catch (_) { /* on redemandera */ }
+        let verdict = null;
+        try { verdict = await verifierFeexpay(id, tel); } catch (_) { /* on redemandera */ }
+        if (arrete()) break;
+        if (verdict && verdict.echoue) {
+          return { etat: "a_payer", echoue: true,
+                   erreur: verdict.erreur || "Le versement n'a pas abouti." };
+        }
+        /* La phrase exacte de notre fonction « feexpay » quand la commande
+           n'a aucune référence de paiement. */
+        if (verdict && verdict.raison === "aucun paiement ouvert") {
+          return { etat: "a_payer", rien: true };
+        }
       }
       try {
         dernier = await suivre(id, tel);
@@ -368,6 +453,7 @@ const Paiement = (() => {
 
   return {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
+    tauxAcompte, acompteDe,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, attendreConfirmation,
   };

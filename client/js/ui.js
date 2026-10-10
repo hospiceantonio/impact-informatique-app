@@ -8,7 +8,24 @@ const UI = (() => {
   const $$ = (sel, base) => Array.from((base || document).querySelectorAll(sel));
   const e = Utils.echapper;
 
-  /* ---------- Logo (reprend la charte du logo officiel) ---------- */
+  /* ---------- Le logo : le B au chariot, puis le nom ---------- */
+
+  /**
+   * LE NOM BIZZOO, écrit et non dessiné : « Bizz » en bleu, « oo » en
+   * orange. En texte plutôt qu'en image, il reste net à toutes les
+   * tailles, ne pèse rien, et s'affiche sans réseau comme sans fichier.
+   *
+   * Les deux points qu'il portait dessous sont partis avec la 3.56.1 :
+   * le logo, c'est désormais le B au chariot devant le nom (« logo() »),
+   * et les deux roues orange du B disent ce que disaient les points.
+   */
+  function motSymbole(classe) {
+    return (
+      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
+        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
+      "</span>"
+    );
+  }
 
   /**
    * La marque : l'icône même de l'application, celle qu'on voit sur
@@ -16,26 +33,6 @@ const UI = (() => {
    * plus de version approchée qui finirait par diverger.
    * Le fichier est déjà gardé hors connexion par le service worker.
    */
-  /**
-   * LE MOT-SYMBOLE BIZZOO, écrit et non dessiné.
-   *
-   * « Bizz » en bleu, « oo » en orange, et les deux points sous le
-   * mot. Le tracer en texte plutôt qu'en image lui donne trois choses
-   * qu'une image n'a pas : il reste net à toutes les tailles, il ne
-   * pèse rien, et il s'affiche sans réseau comme sans fichier.
-   *
-   * L'icône carrée, elle, reste une image : c'est le raccourci sur
-   * l'écran d'accueil du téléphone, et Android la veut en PNG.
-   */
-  function motSymbole(classe) {
-    return (
-      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
-        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
-        '<span class="logo-points" aria-hidden="true"><i></i><i></i></span>' +
-      "</span>"
-    );
-  }
-
   function marque(taille = 40) {
     return (
       '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
@@ -43,17 +40,22 @@ const UI = (() => {
     );
   }
 
-  /** Logo complet : le sac + « BIZZOO », pour l'accueil. */
   /**
-   * Le mot-symbole, et sous lui le slogan de l'enseigne quand on en
-   * passe un. Deux lignes calées à gauche : le slogan appartient au
-   * logo, il ne flotte pas à côté.
+   * LE LOGO DE BIZZOO : la tuile du B au chariot, puis le nom — et sous
+   * le nom, le slogan de l'enseigne quand on en passe un. Le slogan
+   * appartient au logo : il se cale sous le nom, à droite de la tuile.
+   *
+   * La tuile vient de « icons/logo-bizzoo.png », que tools/make-icons.js
+   * tire de l'œuvre comme toutes les icônes ; le service worker la garde
+   * hors connexion. « classe » passe au nom : « clair » sur un fond bleu.
    */
-  function logo(sous) {
+  function logo(sous, classe) {
     return (
       '<span class="logo' + (sous ? " logo-avec-sous" : "") + '">' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo.png" alt="" aria-hidden="true"' +
+        ' width="40" height="40">' +
         '<span class="logo-textes">' +
-          motSymbole() +
+          motSymbole(classe) +
           (sous ? '<span class="logo-sous">' + e(sous) + "</span>" : "") +
         "</span>" +
       "</span>"
@@ -632,6 +634,42 @@ const UI = (() => {
     return "boite";
   }
 
+  /* ---------- Les icônes des catégories de BIZZOO ----------
+     Celles des trois planches choisies par l'enseigne (3.56), reprises
+     telles quelles : « img/pictos/<nom>.png », dans l'application, donc
+     affichées sans réseau. La colonne « icone » de la base dit laquelle.
+
+     UNE ICÔNE QUI N'EN FAIT PAS PARTIE — choisie avec une admin d'avant
+     la 3.56 — garde son dessin d'un trait, en bleu nuit : jamais une
+     tuile vide. */
+  const PICTOS = [
+    "informatique", "electromenager", "energie", "securite", "telephones",
+    "bebe-enfant", "livres-education", "formation", "maison-deco", "jardinage",
+    "bricolage", "immobilier", "auto-moto", "transport", "mode", "bijoux",
+    "beaute", "sante", "alimentation", "restauration", "agriculture",
+    "tracteur", "animaux", "sport-loisirs", "musique", "artisanat", "cadeau",
+    "evenementiel", "bureau", "materiel-pro", "imprimante", "grossistes",
+    "cartons", "services"];
+
+  function picto(nom) {
+    const cle = String(nom || "categories");
+    if (PICTOS.includes(cle)) {
+      return '<img class="picto" src="img/pictos/' + cle + '.png" alt="" draggable="false">';
+    }
+    /* Ni icône de l'image ni dessin d'un trait connu : les rayons. */
+    return icone(document.getElementById("i-" + cle) ? e(cle) : "categories");
+  }
+
+  /* LA TUILE D'UNE CATÉGORIE : son icône, et la photo par-dessus quand
+     l'enseigne en a posé une. Tant qu'elle charge, et si elle ne vient
+     pas (hors connexion), c'est l'icône qu'on voit. La même sur
+     l'accueil et sur l'écran « Catégories » : `classe` dit laquelle. */
+  function vignetteCategorie(c, classe) {
+    return '<span class="' + classe + '">' + picto(c.icone) +
+      (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" data-secours>' : "") +
+      "</span>";
+  }
+
   /* ---------- Prix & badges ---------- */
 
   function prixHtml(p, options) {
@@ -954,33 +992,19 @@ const UI = (() => {
    * c'est pour cela qu'elle vient de la base et non d'une devinette
    * sur le nom.
    */
-  /* UNE LIGNE DE LA DA : la pastille ronde, le nom, le chevron — et rien
+  /* UNE LIGNE DE LA DA : la pastille, le nom, le chevron — et rien
      d'autre. Le sous-titre d'avant (les rayons, ou « Bientôt des
      articles ici ») et le compteur doublaient la hauteur de la liste :
      huit catégories ne tenaient plus sur un écran. La recherche, elle,
-     regarde toujours les rayons (voir categories.js). */
+     regarde toujours les rayons (voir categories.js).
+
+     LA PASTILLE EST LA TUILE DE L'ACCUEIL, EN PETIT : même fond, même
+     icône. La couleur de la catégorie n'y entre plus — sur l'image
+     choisie par l'enseigne, toutes les tuiles ont le même fond. */
   function ligneRayon(r) {
-    const couleur = /^#[0-9a-f]{6}$/i.test(String(r.categorie.couleur || "").trim())
-      ? r.categorie.couleur.trim() : "#2550B7";
-    /* AVEC UNE PHOTO, LA PASTILLE PASSE AU PASTEL, comme le rond de
-       l'accueil. Sous la photo, un aplat foncé débordait d'un liseré au
-       bord du cercle — le navigateur adoucit ce bord sur les deux à la
-       fois. Si la photo ne vient pas, l'icône reste, dans sa couleur. */
-    const n = parseInt(couleur.slice(1), 16);
-    const pastel = (c) => Math.round(c * .16 + 255 * .84);
-    const fond = r.categorie.image
-      ? "background:rgb(" + pastel(n >> 16) + "," + pastel((n >> 8) & 255) + "," +
-          pastel(n & 255) + ");color:" + couleur
-      : "background:" + couleur;
     return (
       '<a class="carte cat-ligne" href="#/categorie/' + e(r.categorie.id) + '">' +
-        '<span class="cat-rond cat-rond-couleur" style="' + fond + '">' +
-          icone(r.categorie.icone || "categories") +
-          /* La photo recouvre l'icône, comme sur l'accueil. */
-          (r.categorie.image
-            ? '<img src="' + e(r.categorie.image) + '" alt="" loading="lazy" data-secours>'
-            : "") +
-        "</span>" +
+        vignetteCategorie(r.categorie, "cat-pastille") +
         '<span class="cat-ligne-corps">' +
           '<span class="cat-ligne-nom">' + e(r.categorie.nom) + "</span>" +
         "</span>" +
@@ -1039,7 +1063,8 @@ const UI = (() => {
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier, majCloche,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
-    coeur, iconeCategorie, ligneSousRayon, prixHtml, badgesProduit, etoiles, noteHtml, noteCourte,
+    coeur, iconeCategorie, picto, vignetteCategorie, ligneSousRayon, prixHtml, badgesProduit,
+    etoiles, noteHtml, noteCourte,
     pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide, recherchePilule, boutonRecherche, barreAction, retirerAction,

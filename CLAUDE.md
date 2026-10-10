@@ -12,31 +12,33 @@ Le propriétaire de BIZZOO est au Bénin et parle français. Il n'est pas dével
 ## Où vit le projet
 
 - **Sur le PC du propriétaire** : le dossier `BIZZOO`, dans « MES CONCEPTIONS CLAUDE ». C'est la copie de travail. Jusqu'à la version 3.54.0, le travail se faisait dans une session Claude dans le cloud, directement sur GitHub.
-- **Sur GitHub** : `hospiceantonio/impact-informatique-app`, branche `main`. Le dépôt garde ce nom : le renommer casserait la copie github.io du site (`404.html`, `tools/banc-mise-en-ligne.mjs`, Redirect URLs de Supabase).
+- **Sur GitHub** : `hospiceantonio/impact-informatique-app`. Le dépôt garde ce nom : le renommer casserait la copie github.io du site (`404.html`, `tools/banc-mise-en-ligne.mjs`, Redirect URLs de Supabase). Deux branches comptent :
+  - `main` : ce qui est en ligne, c'est-à-dire le site et les APK distribués. On n'y pousse jamais directement ;
+  - `developpement` : les prochaines modifications. Elles rejoignent `main` par une pull request, quand le propriétaire le décide.
 - **En ligne** : www.bizzoomarket.com, chez un hébergeur à qui l'on envoie le zip d'hébergement, et une copie sur GitHub Pages.
-- **La base** : Supabase, projet `rrwzegmrmvvkmzfoiitb`.
+- **La base** : Supabase, projet `rrwzegmrmvvkmzfoiitb`. C'est la même base pour les deux branches.
 
 C'est GitHub qui fabrique ce qui se livre :
 
-- un push qui touche `client/`, `admin/` ou `android/` construit les deux APK et les committe dans `apk/` (« APK Android construits automatiquement [skip ci] ») ;
-- un push sur `main`, puis l'arrivée des APK, redéploient le site sur GitHub Pages et fabriquent le zip d'hébergement (artefact `bizzoo-site-hebergement`) ;
-- « Éprouver la base » (PostgreSQL) et « Éprouver les fonctions » (paiement, SMS) rejouent les essais qui ne tournent pas sur le PC.
+- un push qui touche `client/`, `admin/` ou `android/` construit les deux APK et les committe dans `apk/`, sur la même branche (« APK Android construits automatiquement [skip ci] ») ; sur `developpement`, ce sont des APK d'essai ;
+- seul `main` déploie le site sur GitHub Pages et fabrique le zip d'hébergement (artefact `bizzoo-site-hebergement`), à chaque push puis à l'arrivée des APK ;
+- « Éprouver la base » (PostgreSQL) et « Éprouver les fonctions » (paiement, SMS) rejouent, sur les deux branches, les essais qui ne tournent pas sur le PC.
 
 Un travail qui n'est pas poussé ne produit ni APK ni site.
 
 ## Première session sur le PC : relier le dossier à GitHub
 
-Le dossier `BIZZOO` a été copié depuis le zip de GitHub : il n'a pas de `.git`. Contrôle du 26/09/2026 : 333 fichiers et 12 843 010 octets, soit exactement le commit `1ce1421` (version 3.54.0). S'y ajoute ce `CLAUDE.md`.
+Le dossier `BIZZOO` a été copié depuis le zip de GitHub : il n'a pas de `.git`. Contrôle du 26/09/2026 : 333 fichiers et 12 843 010 octets, soit exactement le commit `1ce1421` (version 3.54.0). Avec ce `CLAUDE.md`, le dossier est à l'état exact de la branche `developpement` à sa création.
 
 Si `git status` répond « not a git repository », relier le dossier sans rien retélécharger :
 
 ```bash
-git init -b main
+git init -b developpement
 git config core.autocrlf false
 git remote add origin https://github.com/hospiceantonio/impact-informatique-app.git
-git fetch origin main
-git reset origin/main
-git branch --set-upstream-to=origin/main main
+git fetch origin
+git reset origin/developpement
+git branch --set-upstream-to=origin/developpement developpement
 git status
 ```
 
@@ -70,12 +72,18 @@ Il faut Git pour Windows (git-scm.com). Pour les bancs et les icônes, il faut a
 
 ## Travailler avec le propriétaire
 
-- Quand il annonce une série de modifications (« attends que je te dise c'est fini avant de générer les APK et le web »), ne rien pousser avant son « c'est fini » : committer en local seulement.
-- Pas de pull request, sauf demande : on travaille sur `main`.
-- Livrer, c'est :
-  1. pousser ;
-  2. attendre le commit des APK ;
-  3. lui donner les deux APK (`apk/bizzoo-client.apk`, `apk/bizzoo-admin.apk`) et le zip d'hébergement, avec la marche à suivre.
+- **Toutes les modifications se font sur `developpement`**, jamais directement sur `main`.
+- **Pendant une série annoncée** (« attends que je te dise c'est fini avant de générer les APK et le web »), committer en local et ne pousser qu'à son « c'est fini ». Pour mettre le travail à l'abri en cours de route, on peut pousser avec « [skip ci] » dans le message du dernier commit : rien n'est fabriqué.
+- **À « c'est fini »**, pousser sur `developpement`. GitHub fabrique les APK d'essai sur la branche. Le propriétaire les essaie, ainsi que le site sur son PC (`DEMARRER-BIZZOO.bat`).
+- **La pull request `developpement` → `main`** rassemble les modifications. Elle reste en brouillon (« Draft ») jusqu'au passage en ligne. S'il n'y en a pas d'ouverte, la créer :
+  - avec `gh pr create --draft --base main --head developpement`, si l'outil `gh` est installé ;
+  - sinon, donner au propriétaire le lien https://github.com/hospiceantonio/impact-informatique-app/compare/main...developpement (bouton « Create pull request »).
+- **Le passage en ligne**, seulement quand le propriétaire le demande :
+  1. passer la pull request en « Ready for review », puis la fusionner avec « Create a merge commit ». Jamais « Squash » : la branche ne suivrait plus ;
+  2. GitHub reconstruit alors les APK sur `main` et redéploie le site ;
+  3. livrer au propriétaire les deux APK de `main` (`apk/bizzoo-client.apk`, `apk/bizzoo-admin.apk`) et le zip d'hébergement, avec la marche à suivre.
+- **Juste après chaque fusion**, remettre `developpement` au niveau de `main` (`git pull origin main`), avant toute nouvelle modification. Si `apk/*.apk` entre en conflit, garder ceux de la branche (`git checkout --ours -- apk/`, puis `git add apk/`) : GitHub les refait au push suivant.
+- **Une migration SQL touche la base de tout le monde**, quelle que soit la branche. L'exécuter au passage en ligne, ou vérifier d'abord qu'elle ne casse pas les applications de `main`.
 
 ## La routine de chaque version
 
@@ -92,11 +100,11 @@ Il faut Git pour Windows (git-scm.com). Pour les bancs et les icônes, il faut a
    - `admin/sw.js` : `"impact-admin-vNN"`, + 1 si l'admin change.
 
    Sans ce + 1, les téléphones gardent l'ancienne version en cache.
-7. Un commit en français, qui dit ce qui change pour le propriétaire. Puis `git pull --rebase`, et `git push`.
-8. Attendre le commit des APK (quelques minutes), puis `git pull`. Vérifier sur GitHub, onglet Actions, que les workflows sont verts.
-9. Le zip d'hébergement, au choix :
-   - `bash tools/assembler-site.sh --hebergement ../bizzoo-site-X.Y.Z.zip`, hors du dépôt (il demande python3 et zip) ;
-   - l'artefact `bizzoo-site-hebergement` du workflow « Déployer sur GitHub Pages ».
+7. Un commit en français, qui dit ce qui change pour le propriétaire. Puis, selon les règles ci-dessus, `git pull --rebase` et `git push` sur `developpement`.
+8. Attendre le commit des APK d'essai (quelques minutes), puis `git pull`. Vérifier sur GitHub, onglet Actions, que les workflows sont verts.
+9. Au passage en ligne, le zip d'hébergement, au choix :
+   - l'artefact `bizzoo-site-hebergement` du workflow « Déployer sur GitHub Pages », sur `main` ;
+   - `bash tools/assembler-site.sh --hebergement ../bizzoo-site-X.Y.Z.zip`, lancé sur `main` et hors du dépôt (il demande python3 et zip).
 
 ## Les bancs au navigateur
 

@@ -51,6 +51,12 @@ const VueCommandes = (() => {
       "Votre commande " + c.numero + " est bien arrivée chez nous :\n" +
       lignes.join("\n") +
       "\n\nMontant : " + Utils.fmtMontant(c.montant, c.devise) +
+      /* L'acompte est déjà payé : le client doit savoir ce qu'il aura à
+         donner à la porte, et seulement cela. */
+      (c.etat === "payee" && c.aEncaisser > 0
+        ? "\nAcompte déjà payé en ligne. À payer à la livraison : " +
+          Utils.fmtMontant(c.aEncaisser, c.devise)
+        : "") +
       "\n\nQuand souhaitez-vous la recevoir ?";
   }
 
@@ -139,15 +145,20 @@ const VueCommandes = (() => {
           "livreur. Créez-en un depuis <strong>Comptes</strong> : choisissez le rôle " +
           "« Livreur », donnez-lui son nom et son numéro, puis sa boutique — ou " +
           "<strong>BIZZOO</strong> s'il porte pour toutes. Il ne verra que les courses " +
-          "qu'on lui confie — aucun prix ne lui est montré.</p>" +
+          "qu'on lui confie, et aucun prix : seulement ce qu'il doit encaisser à la " +
+          "livraison.</p>" +
         '<a class="btn btn-clair" href="#/comptes">Ouvrir les comptes</a>');
       return;
     }
 
     const corps = UI.ouvrirFeuille("Confier « " + (commande.numero || "") + " »",
       '<p class="aide" style="margin:0 0 14px">Il verra ce qu\'il doit porter, le nom ' +
-        "du client, son numéro et son adresse. <strong>Aucun montant</strong> — ni ce " +
-        "que le client a payé, ni ce que vous touchez.</p>" +
+        "du client, son numéro et son adresse, et <strong>ce qu'il doit encaisser à la " +
+        "livraison</strong>" +
+        (commande.aEncaisser > 0
+          ? " : " + Utils.echapper(Utils.fmtMontant(commande.aEncaisser, commande.devise))
+          : " : rien, tout est payé") +
+        ". Aucun autre montant — ni le prix des articles, ni ce que vous touchez.</p>" +
       livreurs.map((l) =>
         '<button type="button" class="btn btn-clair cmd-livreur" style="margin-bottom:8px" ' +
           'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
@@ -260,6 +271,24 @@ const VueCommandes = (() => {
               : "") +
           "</div>" +
         "</div>" +
+        /* L'ACOMPTE ET CE QUI RESTE À ENCAISSER. La boutique doit le savoir
+           avant de confier la course : c'est ce que son livreur réclamera
+           à la porte. La base rend à chacun SA part — la boutique la
+           sienne, l'enseigne tout le reste. Rien sur une commande réglée
+           en entier : il n'y a rien à dire. */
+        (payee && c.aEncaisser > 0
+          ? '<div class="cmd-acompte">' +
+              "<span>Acompte payé en ligne" +
+                (c.tauxAcompte < 100 ? " (" + c.tauxAcompte + " %)" : "") + "</span>" +
+              '<span class="cmd-a-encaisser">' + UI.icone("promo", "ic-sm") +
+                "À encaisser à la livraison : <strong>" +
+                Utils.echapper(Utils.fmtMontant(c.aEncaisser, c.devise)) + "</strong></span>" +
+            "</div>"
+          : attendue && c.acompte < c.total
+            ? '<div class="cmd-acompte"><span>Acompte attendu : ' +
+                Utils.echapper(Utils.fmtMontant(c.acompte, c.devise)) + " sur " +
+                Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</span></div>"
+            : "") +
         (payee
           ? ""
           : '<div class="cmd-etat cmd-etat-attente">' + UI.icone("horloge", "ic-sm") +
@@ -442,10 +471,18 @@ const VueCommandes = (() => {
 
     for (const bouton of UI.$$("[data-confirmer]", vue)) {
       bouton.onclick = async () => {
+        const visee = commandes.find((x) => x.id === bouton.dataset.confirmer);
         const sur = await UI.confirmer({
           titre: "Confirmer ce paiement ?",
           texte: "À ne faire QUE si vous avez retrouvé la transaction dans votre tableau " +
-            "de bord KkiaPay et que l'argent est bien arrivé. La commande portera votre " +
+            "de bord KkiaPay et que l'argent est bien arrivé" +
+            /* Ce qu'on garantit, c'est l'ACOMPTE : le reste se paie à la
+               livraison et reste dû. */
+            (visee && visee.acompte < visee.total
+              ? " — l'acompte de " + Utils.fmtMontant(visee.acompte, visee.devise) +
+                " ; le reste se paiera à la livraison"
+              : "") +
+            ". La commande portera votre " +
             "nom : on verra qu'elle n'a pas été confirmée par la banque.",
           bouton: "J'ai vérifié, confirmer",
         });

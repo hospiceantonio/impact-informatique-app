@@ -14,14 +14,19 @@
 
 <!-- Ce que WhatsApp et Facebook montrent quand on partage le lien.
      LES ADRESSES SONT ENTIÈRES, et c'est voulu : un chemin relatif
-     (« vitrine/partage.jpg ») est ignoré, et l'aperçu part sans image. -->
+     (« vitrine/partage.jpg ») est ignoré, et l'aperçu part sans image.
+     « ?v= » PORTE LA VERSION DES IMAGES DE LA VITRINE, ici comme sur les
+     captures plus bas : WhatsApp garde l'aperçu d'une adresse, et
+     l'hébergement laisse les navigateurs garder une image une semaine.
+     Une image refaite sous le même nom ne se voyait donc pas. À changer
+     chaque fois qu'on refait les captures ou l'image de partage. -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="BIZZOO">
 <meta property="og:locale" content="fr_FR">
 <meta property="og:url" content="https://www.bizzoomarket.com/">
 <meta property="og:title" content="BIZZOO — Vos boutiques préférées dans une seule app !">
 <meta property="og:description" content="Les boutiques de votre ville réunies : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money.">
-<meta property="og:image" content="https://www.bizzoomarket.com/vitrine/partage.jpg">
+<meta property="og:image" content="https://www.bizzoomarket.com/vitrine/partage.jpg?v=3.56.1">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="BIZZOO, vos boutiques préférées dans une seule app — l'accueil de l'application">
@@ -68,20 +73,17 @@
   img,svg{display:block;max-width:100%}
   a{color:inherit;text-decoration:none}
 
-  /* ---------- Le mot-symbole, le même que dans les applications ---------- */
-  .logo-mot{
-    display:inline-block;position:relative;
-    font-weight:700;line-height:1;letter-spacing:-.01em;padding-bottom:.34em;
-  }
+  /* ---------- Le logo, le même que dans les applications ----------
+     Le B au chariot, puis le nom écrit (3.56.1). Plus de points sous le
+     nom : les deux roues orange du B les portent. La tuile se mesure en
+     « em » : elle suit la taille du nom, dans l'en-tête comme au pied. */
+  .logo{display:inline-flex;align-items:center;gap:.36em;line-height:1}
+  .logo-tuile{flex:none;display:block;width:1.42em;height:1.42em}
+  .logo-mot{display:inline-block;font-weight:700;line-height:1;letter-spacing:-.01em;white-space:nowrap}
   .logo-bizz{color:var(--bleu)}
   .logo-oo{color:var(--orange)}
-  .logo-points{position:absolute;left:.09em;bottom:.06em;display:flex;gap:.16em}
-  .logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
-  .logo-points i:first-child{background:var(--bleu)}
-  .logo-points i:last-child{background:var(--orange)}
   /* Sur fond bleu, le « Bizz » bleu disparaîtrait. */
   .sur-bleu .logo-bizz{color:#fff}
-  .sur-bleu .logo-points i:first-child{background:#fff}
 
   .large{width:min(1120px,100%);margin:0 auto;padding:0 20px}
 
@@ -93,8 +95,24 @@
      côté de « .large », et sur un téléphone le logo et le bouton
      touchaient les bords de l'écran. */
   .entete{display:flex;align-items:center;gap:16px;padding-top:14px;padding-bottom:14px}
-  .entete .logo-mot{font-size:27px}
+  .entete .logo{font-size:27px}
   .entete nav{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .entete .btn .court{display:none}
+  /* SUR UN TÉLÉPHONE, L'EN-TÊTE SE RESSERRE. Le logo a pris la tuile du
+     B au chariot (3.56.1) : à 390 px, « Ouvrir la boutique » passait sur
+     deux lignes. Logo et bouton se font plus petits ; sous 360 px, le
+     bouton ne dit plus que « Boutique » — le bandeau, juste dessous,
+     porte le grand bouton orange en toutes lettres. */
+  @media (max-width:430px){
+    .entete{gap:12px}
+    .entete .logo{font-size:22px}
+    .entete .btn{min-height:44px;padding:9px 15px;font-size:14px;gap:7px;white-space:nowrap}
+    .entete .btn .ic{width:18px;height:18px}
+  }
+  @media (max-width:359px){
+    .entete .btn .long{display:none}
+    .entete .btn .court{display:inline}
+  }
 
   .bandeau{
     background:linear-gradient(135deg,var(--bleu) 0%,var(--bleu-800) 70%,var(--bleu-900) 100%);
@@ -180,12 +198,14 @@
 
   footer{background:var(--bleu-900);color:#fff;padding:40px 0 34px}
   .pied{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
-  .pied .logo-mot{font-size:24px}
+  .pied .logo{font-size:24px}
   .pied .slogan{font-size:14.5px;color:rgba(255,255,255,.78)}
   .pied nav{margin-left:auto;display:flex;flex-wrap:wrap;gap:18px;font-size:14px}
   .pied nav a{color:rgba(255,255,255,.82)}
   .mentions{margin-top:26px;padding-top:20px;border-top:1px solid rgba(255,255,255,.14);
     font-size:13px;color:rgba(255,255,255,.6)}
+  .legaux{margin:10px 0 0;font-size:13px;line-height:1.7;color:rgba(255,255,255,.45)}
+  .legaux a{color:rgba(255,255,255,.75)}
 
   /* LE TÉLÉPHONE DU BANDEAU : une capture de l'application dans un
      cadre. Il s'efface sur les petits écrans, où la galerie juste
@@ -238,10 +258,10 @@
 
 <header>
   <div class="large entete">
-    <span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points" aria-hidden="true"><i></i><i></i></span></span>
+    <span class="logo"><img class="logo-tuile" src="client/icons/logo-bizzoo.png" alt="" width="38" height="38"><span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span></span></span>
     <nav>
       <a class="btn btn-clair" href="client/">
-        <svg class="ic" viewBox="0 0 24 24"><use href="#i-magasin"/></svg>Ouvrir la boutique</a>
+        <svg class="ic" viewBox="0 0 24 24"><use href="#i-magasin"/></svg><span class="long">Ouvrir la boutique</span><span class="court">Boutique</span></a>
     </nav>
   </div>
 </header>
@@ -269,7 +289,7 @@
          note ni aucun avis n'y figure, faute de pouvoir les montrer vrais. -->
     <div class="mock">
       <div class="mock-cadre">
-        <img src="vitrine/ecran-accueil.jpg" width="540" height="1169"
+        <img src="vitrine/ecran-accueil.jpg?v=3.56.1" width="540" height="1169"
              alt="L'accueil de BIZZOO : la recherche, les catégories, les boutiques partenaires">
       </div>
     </div>
@@ -284,23 +304,23 @@
     </div>
     <div class="ecrans-rangee">
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-accueil.jpg" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-accueil.jpg?v=3.56.1" width="540" height="1169" loading="lazy"
           alt="L'accueil : la recherche, les catégories, les boutiques partenaires"></div>
         <figcaption>1. Accueil</figcaption>
       </figure>
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-boutique.jpg" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-boutique.jpg?v=3.56.1" width="540" height="1169" loading="lazy"
           alt="La fiche d'une boutique : son logo, ses atouts, ses produits"></div>
         <figcaption>2. Une boutique</figcaption>
       </figure>
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-produit.jpg" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-produit.jpg?v=3.56.1" width="540" height="1169" loading="lazy"
           alt="La fiche d'un produit : le prix, les spécifications, le bouton Ajouter au panier"></div>
         <figcaption>3. Un produit</figcaption>
       </figure>
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-paiement.jpg" width="540" height="1169" loading="lazy"
-          alt="Le paiement : MTN, Moov ou Celtiis, et l'adresse de livraison"></div>
+        <div class="ecran-cadre"><img src="vitrine/ecran-paiement.jpg?v=3.57.0" width="540" height="1169" loading="lazy"
+          alt="Le paiement de l'acompte : MTN, Moov ou Celtiis, et l'adresse de livraison"></div>
         <figcaption>4. Le paiement</figcaption>
       </figure>
     </div>
@@ -366,8 +386,9 @@
       </article>
       <article class="etape">
         <h3>Payez</h3>
-        <p>Par Mobile Money, depuis votre téléphone. Le paiement est confirmé
-           par l'opérateur, jamais par l'application.</p>
+        <p>Un acompte par Mobile Money, depuis votre téléphone, confirme la
+           commande ; le reste se règle à la livraison. Le paiement est
+           confirmé par l'opérateur, jamais par l'application.</p>
       </article>
       <article class="etape">
         <h3>Recevez</h3>
@@ -422,7 +443,7 @@
 <footer>
   <div class="large">
     <div class="pied">
-      <span class="logo-mot sur-bleu"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points" aria-hidden="true"><i></i><i></i></span></span>
+      <span class="logo sur-bleu"><img class="logo-tuile" src="client/icons/logo-bizzoo.png" alt="" width="34" height="34"><span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span></span></span>
       <span class="slogan">Plus de boutiques, un seul endroit !</span>
       <nav>
         <a href="client/">La boutique</a>
@@ -432,8 +453,10 @@
     </div>
     <p class="mentions">BIZZOO — place de marché en ligne, Cotonou, Bénin.
        Paiement par Mobile Money.</p>
+    <!-- DANS LA MARGE DU PIED, comme le reste : posés hors de « .large »,
+         ces liens touchaient le bord gauche de l'écran, en grand. -->
+    <p class="legaux"><a href="legal/mentions-legales.html">Mentions légales</a> · <a href="legal/confidentialite.html">Confidentialité</a> · <a href="legal/conditions.html">Conditions d’utilisation</a> · <a href="legal/suppression-compte.html">Suppression de compte</a></p>
   </div>
-<p><a href="legal/mentions-legales.html">Mentions légales</a> · <a href="legal/confidentialite.html">Confidentialité</a> · <a href="legal/conditions.html">Conditions d’utilisation</a> · <a href="legal/suppression-compte.html">Suppression de compte</a></p>
 </footer>
 
 </body>

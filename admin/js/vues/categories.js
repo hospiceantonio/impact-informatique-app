@@ -16,87 +16,57 @@
    ========================================================= */
 const VueCategories = (() => {
 
-  /* Les mêmes jeux que pour les boutiques : la pastille d'une
-     catégorie et celle d'un commerce se ressemblent à l'écran, elles
-     se choisissent de la même façon. Toutes ces icônes existent dans
-     LES DEUX applications — une icône que l'admin propose et que le
-     client ne sait pas dessiner laisserait un trou rond et vide. */
-  const ICONES = [
-    ["categories", "Rayons"], ["tshirt", "Mode & vêtements"],
-    ["portable", "High-Tech"], ["ecran", "Écrans & logiciels"],
-    ["voiture", "Auto & moto"], ["maison", "Maison & jardin"],
-    ["goutte", "Beauté"], ["couverts", "Restauration"],
-    ["chariot", "Supermarché"], ["cadeau", "Bébé & enfant"],
-    ["ballon", "Sport & loisirs"], ["outils", "Bricolage"],
-    ["livre", "Livres & fournitures"], ["diamant", "Bijoux"],
-    ["patte", "Animaux"], ["sacoche", "Services"],
-    ["magasin", "Boutique"], ["boite", "Matériel"],
-    ["telephone", "Téléphonie"], ["casque", "Audio"],
-    ["energie", "Énergie"], ["sante", "Santé"],
-    ["nuage", "Numérique"], ["etoile", "Sélection"],
-    ["promo", "Bons plans"], ["carte", "Point de vente"],
+  /* LES ICÔNES DES CATÉGORIES (3.56) : celles des trois planches choisies
+     par l'enseigne, reprises telles quelles et nommées comme sur les
+     planches, dans l'ordre des catégories — high-tech, enfants et école,
+     maison, mobilité, mode, alimentation, loisirs, professionnels,
+     services. Le tracteur et les cartons sont des variantes, pour
+     Agriculture & Élevage et Grossistes & Fournisseurs. Elles sont dans
+     LES DEUX applications (« img/pictos/ ») — une icône que l'admin
+     propose et que le client n'aurait pas laisserait une tuile vide. Une
+     même icône peut servir à plusieurs catégories. */
+  const PICTOS = [
+    ["informatique", "Informatique"], ["electromenager", "Électroménager"],
+    ["energie", "Énergie solaire & Électricité"], ["securite", "Sécurité & Surveillance"],
+    ["telephones", "Téléphones"], ["bebe-enfant", "Bébé & Enfants"],
+    ["livres-education", "Livres & Fournitures scolaires"], ["formation", "Formation & Cours"],
+    ["maison-deco", "Maison & Déco"], ["jardinage", "Jardinage & Espaces verts"],
+    ["bricolage", "Bricolage & Matériaux"], ["immobilier", "Immobilier"],
+    ["auto-moto", "Auto & Moto"], ["transport", "Transport & Location"],
+    ["mode", "Mode"], ["bijoux", "Bijoux & Accessoires"], ["beaute", "Beauté"],
+    ["sante", "Santé"], ["alimentation", "Alimentation"], ["restauration", "Restauration"],
+    ["agriculture", "Agriculture & Élevage"], ["tracteur", "Agriculture & Élevage (tracteur)"],
+    ["animaux", "Animaux"], ["sport-loisirs", "Sport & Loisirs"],
+    ["musique", "Musique & Instruments"], ["artisanat", "Artisanat & Produits locaux"],
+    ["cadeau", "Cadeaux & Fêtes"], ["evenementiel", "Événementiel & Décoration"],
+    ["bureau", "Équipements de bureau"], ["materiel-pro", "Matériel professionnel"],
+    ["imprimante", "Imprimerie & Communication"], ["grossistes", "Grossistes & Fournisseurs"],
+    ["cartons", "Grossistes & Fournisseurs (cartons)"], ["services", "Services"],
   ];
 
-  /* Le « Bleu BIZZOO » est celui de l'icône depuis la 3.53 ; une
-     catégorie enregistrée avec l'ancien (#0B5CF5) le garde — voir
-     avecLaSienne. */
-  const COULEURS = [
-    ["#2550B7", "Bleu BIZZOO"], ["#F96302", "Orange BIZZOO"], ["#0F9D58", "Vert"],
-    ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
-    ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
-    ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],
-  ];
-
-  /* Une catégorie enregistrée avec une icône ou une couleur qui ne
-     figure plus dans les choix la garde : sans cela rien ne serait
+  /* Une catégorie enregistrée avec une icône qui ne figure pas dans les
+     choix — choisie avant la 3.56 — la garde : sans cela rien ne serait
      sélectionné, et l'enregistrement la remplacerait en silence. */
   const avecLaSienne = (liste, valeur, etiquette) =>
     valeur && !liste.some(([cle]) => cle === valeur)
       ? liste.concat([[valeur, etiquette]]) : liste;
 
-  /* LES ILLUSTRATIONS QUI VOYAGENT AVEC L'APPLICATION : un objet sur le
-     fond pastel de sa catégorie, comme sur la DA. Elles sont dans les
-     deux applications (« img/categories/ ») et s'affichent sans réseau.
-     Les quinze premières sont celles que la liste de BIZZOO reçoit à sa
-     création ; les autres, d'autres choix pour les mêmes secteurs.
-     Composées par « tools/illustrations-categories.py ». */
-  const ILLUSTRATIONS = [
-    ["robe", "Robe"], ["ordinateur", "Ordinateur"], ["voiture", "Voiture"],
-    ["maison", "Maison"], ["rouge-a-levres", "Rouge à lèvres"], ["marmite", "Marmite"],
-    ["chariot", "Chariot"], ["ecran", "Écran"], ["nounours", "Nounours"],
-    ["ballon", "Ballon"], ["briques", "Briques"], ["livres", "Livres"],
-    ["bague", "Bague"], ["chien", "Chien"], ["boite-a-outils", "Boîte à outils"],
-    ["t-shirt", "T-shirt"], ["telephone", "Téléphone"], ["moto", "Moto"],
-    ["plante", "Plante"], ["burger", "Burger"], ["panier", "Panier"],
-    ["outils", "Outils"], ["mallette", "Mallette"], ["poignee-de-main", "Poignée de main"],
-  ];
-  const DOSSIER_ILLUSTRATIONS = "img/categories/";
-
-  /* Une illustration se lit à côté de la page ; une photo déposée par
-     l'enseigne, dans le seau. */
+  /* « img/categories/… », c'est une illustration en 3D d'avant la 3.56.
+     La base en ligne les garde — les applications déjà installées les
+     montrent encore —, mais ici on ne les voit plus : la tuile montre
+     son icône. Seule une photo déposée par l'enseigne, dans le seau, la
+     recouvre. */
+  const illustrationDAvant = (chemin) => /^img\/categories\//.test(chemin || "");
   const urlPhoto = (chemin) =>
-    !chemin ? "" : (chemin.startsWith(DOSSIER_ILLUSTRATIONS) ? chemin : Supabase.urlImage(chemin));
+    !chemin || illustrationDAvant(chemin) ? "" : Supabase.urlImage(chemin);
 
-  /* LA PHOTO PAR-DESSUS L'ICÔNE, comme chez le client : tant qu'elle
-     charge, et si elle ne vient pas, c'est l'icône qu'on voit.
-
-     AVEC UNE PHOTO, LA PASTILLE PASSE AU PASTEL, comme le rond de
-     l'accueil : sous la photo, un aplat foncé débordait d'un liseré au
-     bord du cercle — le navigateur adoucit ce bord sur les deux à la
-     fois. */
+  /* LA PASTILLE : la tuile du client, en petit. La photo par-dessus
+     l'icône : tant qu'elle charge, et si elle ne vient pas, c'est
+     l'icône qu'on voit. */
   function pastille(c, classe) {
-    const couleur = /^#[0-9a-f]{6}$/i.test(c.couleur || "") ? c.couleur : "#2550B7";
-    const n = parseInt(couleur.slice(1), 16);
-    const pastel = (v) => Math.round(v * .16 + 255 * .84);
-    const fond = c.image
-      ? "background:rgb(" + pastel(n >> 16) + "," + pastel((n >> 8) & 255) + "," +
-          pastel(n & 255) + ");color:" + couleur
-      : "background:" + couleur;
-    return '<span class="cat-pastille ' + (classe || "") + '" style="' + fond + '">' +
-      UI.icone(c.icone || "categories") +
-      (c.image
-        ? '<img src="' + Utils.echapper(urlPhoto(c.image)) + '" alt="" data-secours>'
-        : "") +
+    const photo = urlPhoto(c.image);
+    return '<span class="cat-pastille ' + (classe || "") + '">' + UI.picto(c.icone) +
+      (photo ? '<img src="' + Utils.echapper(photo) + '" alt="" data-secours>' : "") +
       "</span>";
   }
 
@@ -254,29 +224,23 @@ const VueCategories = (() => {
   /** Sous-catégories en cours d'édition : [{ id?, nom }] */
   let sousTravail = [];
 
-  /** La photo en cours d'édition : { chemin } (en ligne, ou une
-   *  illustration), { dataUrl } (nouvelle), ou null (aucune). */
+  /** La photo en cours d'édition : { chemin } (en ligne), { dataUrl }
+   *  (nouvelle), ou null (aucune). */
   let photoTravail = null;
+  /** La photo a-t-elle été ajoutée ou retirée dans cette fiche ? Sinon,
+   *  l'enregistrement n'écrit pas la colonne — et l'illustration d'avant
+   *  la 3.56, invisible ici, reste pour les applications installées. */
+  let photoTouchee = false;
 
-  /* LA PHOTO DU ROND, facultative. Même geste que le logo d'une
-     boutique : un carré pour la choisir, la croix pour la retirer —
-     et, dessous, les illustrations de l'application, d'un appui. */
+  /* LA PHOTO DE LA TUILE, facultative. Même geste que le logo d'une
+     boutique : un carré pour la choisir, la croix pour la retirer. */
   function brancherPhoto(corps) {
     const zone = UI.$("#cat-photo", corps);
-    const galerie = UI.$("#cat-illustrations", corps);
 
     const rendre = () => {
       const apercu = photoTravail
         ? (photoTravail.dataUrl || urlPhoto(photoTravail.chemin))
         : "";
-      /* L'illustration choisie s'allume dans la galerie : « actif »,
-         comme les icônes et les couleurs de la même fiche. */
-      const choisie = photoTravail && photoTravail.chemin ? photoTravail.chemin : "";
-      for (const b of UI.$$("[data-illustration]", galerie)) {
-        const actif = DOSSIER_ILLUSTRATIONS + b.dataset.illustration + ".jpg" === choisie;
-        b.classList.toggle("actif", actif);
-        b.setAttribute("aria-pressed", actif ? "true" : "false");
-      }
       zone.innerHTML = apercu
         ? '<div class="photo-boite cat-photo-boite">' +
             '<img src="' + Utils.echapper(apercu) + '" alt="Photo de la catégorie">' +
@@ -292,10 +256,11 @@ const VueCategories = (() => {
           const fichier = champ.files && champ.files[0];
           if (!fichier) return;
           try {
-            /* 480 px suffisent : le plus grand rond en fait 62 à l'écran,
-               soit moins de 250 points sur l'écran le plus fin. */
+            /* 480 px suffisent : la plus grande tuile fait moins de 50 px
+               à l'écran, soit moins de 150 points sur l'écran le plus fin. */
             const { dataUrl } = await Utils.compresserImage(fichier, 480, 0.82);
             photoTravail = { dataUrl };
+            photoTouchee = true;
           } catch (err) {
             UI.toast(err.message || "Image illisible", "err");
           }
@@ -303,20 +268,8 @@ const VueCategories = (() => {
         });
       }
       const retirer = UI.$("#cat-photo-retirer", zone);
-      if (retirer) retirer.onclick = () => { photoTravail = null; rendre(); };
+      if (retirer) retirer.onclick = () => { photoTravail = null; photoTouchee = true; rendre(); };
     };
-
-    galerie.innerHTML = ILLUSTRATIONS.map(([nom, libelle]) =>
-      '<button type="button" class="choix-illustration" data-illustration="' + nom + '" ' +
-        'aria-label="' + Utils.echapper(libelle) + '" title="' + Utils.echapper(libelle) + '">' +
-        '<img src="' + DOSSIER_ILLUSTRATIONS + nom + '.jpg" alt="" loading="lazy">' +
-      "</button>").join("");
-    for (const b of UI.$$("[data-illustration]", galerie)) {
-      b.onclick = () => {
-        photoTravail = { chemin: DOSSIER_ILLUSTRATIONS + b.dataset.illustration + ".jpg" };
-        rendre();
-      };
-    }
 
     rendre();
   }
@@ -333,7 +286,10 @@ const VueCategories = (() => {
 
   function formulaire(categorie, auTermine) {
     sousTravail = ((categorie && categorie.sousCategories) || []).map((s) => ({ id: s.id, nom: s.nom }));
-    photoTravail = categorie && categorie.image ? { chemin: categorie.image } : null;
+    /* Une illustration d'avant la 3.56 ne s'affiche plus : la fiche part
+       sans photo, et ne l'efface pas pour autant (voir photoTouchee). */
+    photoTravail = categorie && urlPhoto(categorie.image) ? { chemin: categorie.image } : null;
+    photoTouchee = false;
 
     const corps = UI.ouvrirFeuille(
       categorie ? "Modifier la catégorie" : "Nouvelle catégorie",
@@ -342,40 +298,26 @@ const VueCategories = (() => {
 
       '<div class="champ">' +
         "<label>Icône</label>" +
-        '<div class="choix-icones" id="cat-icones">' +
-          avecLaSienne(ICONES, categorie && categorie.icone, "Icône actuelle")
+        '<div class="choix-pictos" id="cat-icones">' +
+          avecLaSienne(PICTOS, categorie && categorie.icone, "Icône actuelle")
             .map(([cle, nom]) =>
-              '<button type="button" class="choix-icone' +
+              '<button type="button" class="choix-picto' +
                 ((categorie ? categorie.icone : "categories") === cle ? " actif" : "") +
-                '" data-icone="' + cle + '" aria-label="' + Utils.echapper(nom) + '">' +
-                UI.icone(cle) + "</button>").join("") +
+                '" data-icone="' + Utils.echapper(cle) + '" aria-label="' + Utils.echapper(nom) +
+                '" title="' + Utils.echapper(nom) + '">' +
+                UI.picto(cle) + "</button>").join("") +
         "</div>" +
-      "</div>" +
-
-      '<div class="champ">' +
-        "<label>Couleur de la pastille</label>" +
-        '<div class="choix-couleurs" id="cat-couleurs">' +
-          avecLaSienne(COULEURS, categorie && categorie.couleur, "Couleur actuelle")
-            .map(([code, nom]) =>
-              '<button type="button" class="choix-couleur' +
-                ((categorie ? categorie.couleur : "#2550B7") === code ? " actif" : "") +
-                '" data-couleur="' + code + '" style="background:' + code +
-                '" aria-label="' + Utils.echapper(nom) + '"></button>').join("") +
-        "</div>" +
-        '<div class="aide">L\'icône et la couleur composent la pastille ronde de ' +
+        '<div class="aide">Elle compose la tuile de la catégorie, sur l\'accueil et ' +
           "l'écran « Catégories », chez le client.</div>" +
       "</div>" +
 
       '<div class="champ">' +
-        "<label>Photo du rond (facultative)</label>" +
+        "<label>Photo de la tuile (facultative)</label>" +
         '<div class="photos-zone" id="cat-photo"></div>' +
-        '<div class="aide">Elle remplit le rond de la catégorie, sur l\'accueil et ' +
+        '<div class="aide">Elle prend la place de l\'icône, sur l\'accueil et ' +
           "l'écran « Catégories ». Choisissez une photo carrée, le sujet au centre : " +
-          "les coins seront coupés. Sans photo — ou si elle ne se charge pas —, " +
-          "c'est l'icône et sa couleur qu'on voit.</div>" +
-        '<div class="aide" style="margin-top:12px">Ou une illustration de BIZZOO, ' +
-          "d'un appui — elle voyage avec l'application et s'affiche même sans réseau :</div>" +
-        '<div class="choix-illustrations" id="cat-illustrations"></div>' +
+          "les coins seront arrondis. Sans photo — ou si elle ne se charge pas —, " +
+          "c'est l'icône qu'on voit.</div>" +
       "</div>" +
 
       UI.interrupteur({ id: "cat-avant", label: "Montrer sur l'accueil",
@@ -400,15 +342,13 @@ const VueCategories = (() => {
     );
 
     /* ATTENTION, deux conventions cohabitent dans cette application :
-       les icônes et les couleurs s'allument avec « actif », les PUCES
-       avec « active ». Les mélanger donne un bouton qui a l'air choisi
-       et qu'on ne relit jamais. */
-    for (const zone of ["#cat-icones", "#cat-couleurs"]) {
-      for (const bouton of UI.$$(zone + " button", corps)) {
-        bouton.onclick = () => {
-          for (const x of UI.$$(zone + " button", corps)) x.classList.toggle("actif", x === bouton);
-        };
-      }
+       les icônes s'allument avec « actif », les PUCES avec
+       « active ». Les mélanger donne un bouton qui a l'air choisi et
+       qu'on ne relit jamais. */
+    for (const bouton of UI.$$("#cat-icones button", corps)) {
+      bouton.onclick = () => {
+        for (const x of UI.$$("#cat-icones button", corps)) x.classList.toggle("actif", x === bouton);
+      };
     }
     const choisi = (selecteur, attribut, defaut) => {
       const actif = UI.$(selecteur + " .actif", corps);
@@ -468,13 +408,17 @@ const VueCategories = (() => {
             }
           }
         }
+        /* NI COULEUR NI PHOTO INCHANGÉE : la couleur ne se choisit plus
+           (toutes les tuiles ont le même fond), et la base garde celle
+           qu'elle a ; une photo que la fiche n'a pas touchée n'est pas
+           réécrite — l'illustration d'avant la 3.56 reste ainsi aux
+           applications déjà installées. */
         await Store.sauverCategorie({
           id: categorie ? categorie.id : null,
           nom: UI.$("#cat-nom", corps).value,
           icone: choisi("#cat-icones", "icone", "categories"),
-          couleur: choisi("#cat-couleurs", "couleur", "#2550B7"),
           enAvant: UI.$("#cat-avant", corps).checked,
-          photo: photoTravail,
+          photo: photoTouchee ? photoTravail : undefined,
           sousCategories: sousTravail,
         });
         UI.feuilleSansRappel();
