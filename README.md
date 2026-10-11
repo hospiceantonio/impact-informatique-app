@@ -2894,16 +2894,18 @@ les colonnes et les fonctions dont il a besoin — et se rejoue sans
 dommage. Les applications installées n'en voient rien, puisqu'elles ne
 demandent pas l'acompte.
 
-**Il n'est pas encore appliqué sur la base en ligne.** Le 10 octobre,
-l'outil Supabase a attendu une approbation (le fichier retire puis
-repose deux fonctions, `creer_commande` et `mes_livraisons`) qui n'est
-pas venue à temps, deux fois : rien n'a été écrit, la transaction est
-entière ou nulle. Les 25 fonctions que le fichier repose avaient été
-comparées d'abord à la base en ligne : identiques au dépôt, aux fins de
-ligne près — le fichier ne change donc que ce que l'acompte demande. À
-coller tel quel : **Dashboard → SQL Editor → New query → coller tout →
-Run**. D'ici là, les applications 3.57.0 font payer le total : la base
-ne connaît pas l'acompte, et l'écran suit sa réponse.
+**Il n'est pas encore appliqué sur la base en ligne.** Le fichier retire
+puis repose deux fonctions, `creer_commande` et `mes_livraisons` :
+l'outil Supabase demande alors une confirmation, qui n'est jamais
+arrivée à temps. Quatre essais, les 10 et 11 octobre, dont deux à la
+demande du propriétaire : rien n'a été écrit, et les journaux de la
+base n'en gardent aucune trace. Les 25 fonctions que le fichier repose
+ont été comparées à la base en ligne, une dernière fois le 10 octobre
+au soir : identiques au dépôt, aux fins de ligne près — le fichier ne
+change donc que ce que l'acompte demande. À coller tel quel :
+**Dashboard → SQL Editor → New query → coller tout → Run**. D'ici là,
+les applications 3.57.0 font payer le total : la base ne connaît pas
+l'acompte, et l'écran suit sa réponse.
 
 ### Les bancs
 
