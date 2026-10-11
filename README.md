@@ -2894,18 +2894,21 @@ les colonnes et les fonctions dont il a besoin — et se rejoue sans
 dommage. Les applications installées n'en voient rien, puisqu'elles ne
 demandent pas l'acompte.
 
-**Il n'est pas encore appliqué sur la base en ligne.** Le fichier retire
-puis repose deux fonctions, `creer_commande` et `mes_livraisons` :
-l'outil Supabase demande alors une confirmation, qui n'est jamais
-arrivée à temps. Quatre essais, les 10 et 11 octobre, dont deux à la
-demande du propriétaire : rien n'a été écrit, et les journaux de la
-base n'en gardent aucune trace. Les 25 fonctions que le fichier repose
-ont été comparées à la base en ligne, une dernière fois le 10 octobre
-au soir : identiques au dépôt, aux fins de ligne près — le fichier ne
-change donc que ce que l'acompte demande. À coller tel quel :
-**Dashboard → SQL Editor → New query → coller tout → Run**. D'ici là,
-les applications 3.57.0 font payer le total : la base ne connaît pas
-l'acompte, et l'écran suit sa réponse.
+**Il est appliqué sur la base en ligne depuis le 11 octobre 2026**,
+collé par le propriétaire dans le SQL Editor : le fichier retire puis
+repose deux fonctions, et l'outil Supabase de Claude attendait pour cela
+une confirmation qui n'arrivait jamais. Vérifié aussitôt, sans rien
+écrire : les 27 fonctions du fichier sont en ligne identiques au dépôt,
+aux fins de ligne près ; `paiement.taux_acompte` est en place, borné de
+1 à 100, à 10 % ; `creer_commande` prend ses quatre paramètres ; les
+droits sont ceux du dépôt ; PostgREST a rechargé son schéma dans la
+seconde. Les commandes d'avant n'ont pas d'acompte : elles se sont
+payées en entier.
+
+Pour le recoller sur une autre base, copier le fichier **en entier** —
+le bouton « Copy raw file » de GitHub le fait. Un premier collage,
+coupé à la ligne 100 par un aperçu du fichier, a été refusé par la base
+avant d'exécuter quoi que ce soit.
 
 ### Les bancs
 
