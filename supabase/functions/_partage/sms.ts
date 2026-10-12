@@ -73,6 +73,7 @@ const EXPLICATIONS: Record<string, string> = {
   SUSPENDED: "Compte CREATISINTER suspendu.",
   MISSING_PARAMETERS_FROM: "La passerelle n'a pas reçu le nom d'expéditeur.",
   MISSING_PARAMETERS_TO: "La passerelle n'a pas reçu le destinataire.",
+  MISSING_PARAMETERS_CONTENT: "La passerelle n'a pas reçu le texte du message.",
 };
 
 export type Envoi = {
@@ -187,7 +188,11 @@ export async function envoyerSms(numero: string, texte: string): Promise<Envoi> 
         "Authorization": "Bearer " + cle,
         "X-API-KEY": cle,
       },
-      body: JSON.stringify({ from: de, to: vers, message: corps }),
+      /* LE TEXTE PART DANS « content ». Envoyé sous « message », il était
+         refusé — la passerelle le dit elle-même : « MISSING_PARAMETERS_CONTENT :
+         Required parameter [content] or [text] is missing » (essai du
+         12 octobre 2026, depuis les Réglages). La clé, elle, passait. */
+      body: JSON.stringify({ from: de, to: vers, content: corps }),
       signal: AbortSignal.timeout(20000),
     });
   } catch (err) {

@@ -3066,7 +3066,9 @@ et l'interrupteur ne se lisent pas depuis l'API ; l'interrupteur est
 **Neuf comptes de l'équipe sur treize ont retrouvé leur créateur** dans
 le journal ; les quatre autres sont nés hors de l'application. Les trois
 fonctions sont déployées le même jour : `hook-sms-auth` sans vérification
-du jeton, `tester-sms` et `code-connexion` avec.
+du jeton, `tester-sms` et `code-connexion` avec. Le premier essai depuis
+les Réglages a montré que la passerelle attend le texte sous `content` :
+le transport corrigé est redéployé dans les trois le soir même.
 
 ### Les bancs
 
@@ -3080,7 +3082,7 @@ du jeton, `tester-sms` et `code-connexion` avec.
   base en ligne. 1298 constats en tout.
 - [`tools/eprouver-sms.sh`](tools/eprouver-sms.sh) : le transport, le hook
   (dont le destinataire d'un changement de numéro) et `code-connexion` —
-  106 constats, l'empreinte de référence partagée avec la base.
+  107 constats, l'empreinte de référence partagée avec la base.
 - [`tools/banc-connexion-sms.mjs`](tools/banc-connexion-sms.mjs) : 70
   constats au navigateur, côté client ; **huit sabotages** le font
   tomber.
@@ -3137,21 +3139,28 @@ depuis un ordinateur :
    puis « Generate secret » : le secret `v1,whsec_…` va tel quel dans
    `SMS_HOOK_SECRET`. Ensuite **Authentication → Sign In / Providers →
    Phone** : activer, avec la confirmation du numéro — sans elle, aucun
-   code ne part, et le hook n'est jamais appelé.
+   code ne part, et le hook n'est jamais appelé. Le formulaire réclame
+   quand même un fournisseur (Twilio) et ses champs : y mettre
+   `inutilise`. Le hook prend sa place, ces valeurs ne servent jamais.
 
 4. **Éprouver pour de vrai**, depuis l'app admin : Réglages → *Essayer la
    passerelle SMS*. L'écran rend **la réponse brute de la passerelle** —
    c'est voulu : si un champ ne porte pas le nom attendu, la réponse le
    dit elle-même.
 
-Deux pièges qui coûtent des heures :
+Trois pièges qui coûtent des heures :
 
 - **Un `HTTP 200` de CREATISINTER ne veut pas dire « envoyé ».** La
   réponse porte un `status` et un code d'état ; seuls
   `SUBMITTED`, `SENT`, `DELIVERED` et `PROGRAMMED` valent succès. Le
-  transport (`functions/_partage/sms.ts`) le vérifie, et 106 assertions
+  transport (`functions/_partage/sms.ts`) le vérifie, et 107 assertions
   (`tools/eprouver-sms.sh`) l'éprouvent — avec le hook et
   `code-connexion`.
+- **Le texte part sous `content`, pas sous `message`.** Sous `message`,
+  la clé est acceptée mais l'envoi refusé : « MISSING_PARAMETERS_CONTENT —
+  Required parameter [content] or [text] is missing ». Côté client, cela
+  se voyait seulement comme « Unexpected status code returned from hook:
+  500 ».
 - **Le numéro a trois formes.** `0197121596` est ce que le client tape et
   ce que la base range ; `+2290197121596` est ce que GoTrue **exige** en
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire

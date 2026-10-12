@@ -219,7 +219,12 @@ decor();
 await sms.envoyerSms("01 97 12 15 96", "Bonjour");
 egal(monde.envois[0].corps.to, "2290197121596", "c'est le numéro normalisé qui part");
 egal(monde.envois[0].corps.from, "BIZZOO", "avec le nom d'expéditeur");
-egal(monde.envois[0].corps.message, "Bonjour", "et le message");
+egal(monde.envois[0].corps.content, "Bonjour", "et le message");
+/* La passerelle l'a dit en ligne, le 12 octobre 2026 : sous « message », le
+   texte n'arrive pas — « MISSING_PARAMETERS_CONTENT : Required parameter
+   [content] or [text] is missing ». */
+verifie(!("message" in monde.envois[0].corps),
+  "le texte part sous « content », le champ que la passerelle exige — plus sous « message »");
 
 decor();
 r = await sms.envoyerSms("12", "Bonjour");
@@ -296,7 +301,7 @@ h = await appelerHook(corpsVrai, entetesVrais);
 egal(h.statut, 200, "correctement signée — acceptée");
 egal(monde.envois.length, 1, "et le SMS part");
 egal(monde.envois[0].corps.to, "2290197121596", "au bon numéro");
-verifie(monde.envois[0].corps.message.includes("123456"), "avec le code dedans");
+verifie(monde.envois[0].corps.content.includes("123456"), "avec le code dedans");
 
 /* Le corps est signé octet pour octet : le relire en JSON puis le
    re-sérialiser casserait la signature. On le prouve avec un espacement
@@ -305,7 +310,7 @@ decor();
 const espace = '{ "user" : { "phone" : "2290197121596" } , "sms" : { "otp" : "654321" } }';
 h = await appelerHook(espace, await signer(espace));
 egal(h.statut, 200, "un corps à l'espacement inhabituel passe : on signe les octets reçus");
-verifie(monde.envois[0]?.corps.message.includes("654321"), "et le bon code est livré");
+verifie(monde.envois[0]?.corps.content.includes("654321"), "et le bon code est livré");
 
 /* LE CHANGEMENT DE NUMÉRO. Un compte ouvert par e-mail qui confirme son
    numéro n'a pas encore de « user.phone » : le code part vers le
@@ -322,7 +327,7 @@ const changement = JSON.stringify({
 h = await appelerHook(changement, await signer(changement));
 egal(h.statut, 200, "un compte e-mail qui confirme son numéro : accepté");
 egal(monde.envois[0]?.corps.to, "2290196000000", "le code part vers le nouveau numéro");
-verifie(monde.envois[0]?.corps.message.includes("112233"), "avec son code");
+verifie(monde.envois[0]?.corps.content.includes("112233"), "avec son code");
 
 decor();
 const ancienFormat = JSON.stringify({
@@ -467,7 +472,7 @@ c = await demanderCode({ Authorization: "Bearer " + JETON });
 egal(c.statut, 200, "le compte reconnu reçoit son code");
 egal(monde.envois.length, 1, "un SMS part");
 egal(monde.envois[0].corps.to, "2290197121596", "au numéro que la BASE a donné, celui de la fiche");
-const codeEnvoye = (monde.envois[0].corps.message.match(/\b(\d{6})\b/) || [])[1] || "";
+const codeEnvoye = (monde.envois[0].corps.content.match(/\b(\d{6})\b/) || [])[1] || "";
 verifie(/^\d{6}$/.test(codeEnvoye), "le SMS porte un code de six chiffres");
 const inscription = monde.inscriptions[0] || { corps: {}, entetes: {} };
 egal(inscription.corps.qui, "u-equipe", "la base reçoit le compte reconnu par GoTrue");
@@ -497,7 +502,7 @@ egal(await sha256("123456:e1000000-0000-0000-0000-000000000001"),
 decor();
 const JETON_MAJ = jeton({ sub: "u-equipe", session_id: "5E55A0A0-0000-4000-8000-000000000001" });
 await demanderCode({ Authorization: "Bearer " + JETON_MAJ });
-const codeMaj = (monde.envois[0]?.corps.message.match(/\b(\d{6})\b/) || [])[1] || "";
+const codeMaj = (monde.envois[0]?.corps.content.match(/\b(\d{6})\b/) || [])[1] || "";
 egal(monde.inscriptions[0]?.corps.hache,
   await sha256(codeMaj + ":5e55a0a0-0000-4000-8000-000000000001"),
   "une session écrite en majuscules est hachée en minuscules, comme la base l'écrit");
@@ -506,7 +511,7 @@ decor();
 const tires = new Set();
 for (let i = 0; i < 20; i++) {
   await demanderCode({ Authorization: "Bearer " + JETON });
-  tires.add((monde.envois.at(-1).corps.message.match(/\b(\d{6})\b/) || [])[1]);
+  tires.add((monde.envois.at(-1).corps.content.match(/\b(\d{6})\b/) || [])[1]);
 }
 verifie(tires.size >= 18, "vingt demandes, vingt codes différents (ou presque) : le hasard tire");
 
