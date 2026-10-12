@@ -912,6 +912,12 @@ const Store = (() => {
       peutBoutiques: l.peut_boutiques === true,
       peutFinances: l.peut_finances === true,
       creeLe: versMs(l.cree_le),
+      /* Qui l'a créé, et son numéro vérifié par un code reçu. Écrits par
+         la base, jamais par cet écran ; une base d'avant ne les a pas, et
+         l'écran dit alors simplement qu'il ne sait pas. */
+      creePar: l.cree_par || "",
+      creeParNom: l.cree_par_nom || "",
+      telVerifie: l.tel_verifie === true,
     };
   }
 
@@ -942,6 +948,12 @@ const Store = (() => {
   async function creerCompte(email, motDePasse, role, boutiqueRattachee, nom, tel) {
     const adresse = String(email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
+    /* LE NUMÉRO N'EST PLUS FACULTATIF : c'est là que part le code de
+       connexion par SMS. Un compte créé sans numéro ne pourrait plus
+       entrer le jour où l'enseigne exige le code. */
+    if (String(tel || "").replace(/\D/g, "").length < 8) {
+      throw new Error("Indiquez son numéro de téléphone : c'est là que partira son code de connexion.");
+    }
     if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
     if (!ROLES[role]) throw new Error("Choisissez le rôle du compte.");
 

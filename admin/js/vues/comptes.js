@@ -126,6 +126,31 @@ const VueComptes = (() => {
     return " · " + Utils.echapper(nomBoutique(compte.boutiqueId));
   }
 
+  /* QUI L'A CRÉÉ, ET QUAND. La base l'écrit au moment de la création ;
+     cet écran ne fait que le lire. Un compte né hors de l'application —
+     dans le tableau de bord de Supabase, ou inscrit seul — n'a pas de
+     créateur, et on le dit plutôt que de laisser un blanc. */
+  function traceCreation(compte) {
+    const quand = compte.creeLe
+      ? "Créé le " + Utils.fmtDateHeure(compte.creeLe)
+      : "Date de création inconnue";
+    return quand + (compte.creeParNom
+      ? " par " + compte.creeParNom
+      : " — hors de l'application");
+  }
+
+  /* SON NUMÉRO : c'est là que part le code de connexion par SMS. « Jamais
+     confirmé » n'est pas une faute — personne n'y a encore reçu de code ;
+     « sans numéro », en revanche, ferme la porte le jour où l'enseigne
+     exige le code. */
+  function etatNumero(compte) {
+    const chiffres = String(compte.tel || "").replace(/\D/g, "");
+    if (chiffres.length < 8) return '<span class="compte-numero-manque">sans numéro</span>';
+    return compte.telVerifie
+      ? '<span class="compte-numero-ok">numéro vérifié</span>'
+      : "numéro jamais confirmé par un code";
+  }
+
   function htmlLigne(compte, moi) {
     /* LES DEUX RANGS QUI COMMANDENT, nommés. La règle d'avant disait
        « tout sauf modérateur », ce qui donnait au livreur la pastille
@@ -151,6 +176,8 @@ const VueComptes = (() => {
             (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
             (compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
+          '<span class="compte-trace">' + Utils.echapper(traceCreation(compte)) +
+            " · " + etatNumero(compte) + "</span>" +
         "</span>" +
         /* Pas de crayon sur un compte qu'on n'a pas le droit de toucher :
            la base le refuserait, autant ne pas le proposer. */
@@ -171,6 +198,8 @@ const VueComptes = (() => {
       .filter((cle) => Store.ROLES[cle]);
 
     const corps = UI.ouvrirFeuille(compte.email || "Compte",
+      '<p class="aide" style="margin:0 0 14px">' + Utils.echapper(traceCreation(compte)) +
+        " · " + etatNumero(compte) + "</p>" +
       '<div class="champ">' +
         '<label for="cp-role">Rôle</label>' +
         '<select id="cp-role"' + (rolesOfferts.length < 2 ? " disabled" : "") + ">" +
@@ -188,7 +217,9 @@ const VueComptes = (() => {
         placeholder: "Rohim",
         aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
       UI.champTexte({ id: "cp-tel", label: "Téléphone", valeur: compte.tel,
-        type: "tel", placeholder: "01 97 00 00 00" }) +
+        type: "tel", placeholder: "01 97 00 00 00",
+        aide: "C'est là que part son code de connexion par SMS. Le changer annule " +
+          "sa vérification : le prochain code partira au nouveau numéro." }) +
       UI.interrupteur({ id: "cp-actif", label: "Compte actif", actif: compte.actif,
         aide: "Désactivé, il ne peut plus rien modifier, même en se connectant." }) +
       /* La boutique concerne administrateur et modérateur ; seul le
@@ -398,9 +429,10 @@ const VueComptes = (() => {
          appeler. */
       UI.champTexte({ id: "nc-nom", label: "Nom", placeholder: "Rohim",
         aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
-      UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel",
+      UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
         placeholder: "01 97 00 00 00",
-        aide: "Pour le rappeler quand le client n'est pas chez lui." }) +
+        aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
+          "qu'on appelle quand le client n'est pas chez lui." }) +
       '<div class="champ">' +
         '<label for="nc-role">Rôle</label>' +
         '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +

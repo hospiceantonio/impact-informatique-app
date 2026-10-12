@@ -318,6 +318,32 @@ const VueReglages = (() => {
             '<p class="aide" style="margin:12px 0 0">La clé vit dans les secrets ' +
               "Supabase, jamais en base : elle n'est donc pas modifiable d'ici, et " +
               "n'apparaît dans aucune sauvegarde.</p>" +
+          "</div>" +
+
+          /* ---------- La connexion de l'équipe par SMS ----------
+             Allumé, chaque compte de l'équipe rend un code reçu par SMS à
+             chaque connexion. Il ne s'allume qu'après avoir soi-même reçu
+             et rendu le sien : la base le refuse sinon, et l'écran le dit
+             avant. Une passerelle qui ne livre pas fermerait la porte à
+             toute l'équipe — à commencer par celui qui l'allume. */
+          '<div class="carte" id="section-sms-equipe">' +
+            '<div class="carte-titre">' + UI.icone("bouclier", "ic-sm") +
+              " Connexion de l'équipe par SMS</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">Allumé, chaque compte de l\'équipe ' +
+              "— administrateurs, modérateurs, livreurs — reçoit un code par SMS à chaque " +
+              "connexion, en plus de son mot de passe. Tant qu'il ne l'a pas saisi, la base " +
+              "ne lui reconnaît <strong>aucun droit</strong>.</p>" +
+            '<div id="sms-equipe-etat" class="aide" style="margin:0 0 12px">' +
+              '<span class="chargement-rond"></span> Lecture de l\'équipe…</div>' +
+            '<div id="sms-equipe-essai"></div>' +
+            UI.interrupteur({ id: "sms-equipe-exige",
+              label: "Exiger un code SMS à chaque connexion de l'équipe", actif: false,
+              aide: "Ne s\'allume qu\'après avoir reçu et saisi votre propre code." }) +
+            '<button type="button" class="btn" id="sms-equipe-enregistrer">' + UI.icone("check") +
+              "Enregistrer</button>" +
+            '<p class="aide" style="margin:12px 0 0">En cas d\'urgence — plus de crédit SMS, ' +
+              "et plus personne n'entre —, dans l'éditeur SQL de Supabase : " +
+              "<code>update public.securite_equipe set sms_exige = false;</code></p>" +
           "</div>"
         : "") +
 
@@ -1230,6 +1256,115 @@ const VueReglages = (() => {
           UI.toast(err.message, "err");
         }
         essaiSms.disabled = false;
+      };
+    }
+
+    /* ---------- La connexion de l'équipe par SMS ----------
+       L'état vient de la base, la liste de l'équipe aussi : on dit qui
+       n'a pas de numéro AVANT qu'on exige le code, pas après qu'il est
+       resté dehors. */
+    const carteSmsEquipe = UI.$("#section-sms-equipe", vue);
+    if (carteSmsEquipe) {
+      const nomDuCompte = (c) => c.nom || c.email || "un compte";
+      const chiffres = (c) => String(c.tel || "").replace(/\D/g, "");
+
+      const dessinerSmsEquipe = async () => {
+        const zoneEtat = UI.$("#sms-equipe-etat", vue);
+        const zoneEssai = UI.$("#sms-equipe-essai", vue);
+        const interrupteur = UI.$("#sms-equipe-exige", vue);
+        const bouton = UI.$("#sms-equipe-enregistrer", vue);
+        if (!zoneEtat || !interrupteur || !bouton) return;
+
+        let etat = null;
+        let comptes = [];
+        try {
+          [etat, comptes] = await Promise.all([Supabase.etatConnexion(), Store.listerComptes()]);
+        } catch (err) {
+          if (moi !== generation) return;
+          zoneEtat.textContent = err.message || "Lecture impossible.";
+          return;
+        }
+        if (moi !== generation || !zoneEtat.isConnected) return;
+
+        if (!etat) {
+          zoneEtat.innerHTML = "Cette nouveauté demande la mise à jour de la base : " +
+            "exécutez <strong>supabase/connexion-sms.sql</strong> dans Supabase (SQL Editor).";
+          interrupteur.disabled = true;
+          bouton.disabled = true;
+          return;
+        }
+
+        const actifs = comptes.filter((c) => c.actif);
+        const avecNumero = actifs.filter((c) => chiffres(c).length >= 8);
+        const confirmes = avecNumero.filter((c) => c.telVerifie);
+        const sansNumero = actifs.filter((c) => chiffres(c).length < 8);
+        zoneEtat.innerHTML =
+          "<strong>" + (etat.sms_exige ? "Exigé à chaque connexion." : "Pas exigé pour l'instant.") +
+          "</strong><br>" +
+          avecNumero.length + " compte" + (avecNumero.length > 1 ? "s" : "") + " actif" +
+          (avecNumero.length > 1 ? "s" : "") + " sur " + actifs.length + " " +
+          (avecNumero.length > 1 ? "ont" : "a") + " un numéro ; " + confirmes.length + " " +
+          (confirmes.length > 1 ? "l'ont" : "l'a") + " déjà confirmé par un code." +
+          (sansNumero.length
+            ? '<span class="sms-equipe-manque">Sans numéro, ' +
+              (sansNumero.length > 1 ? "ces comptes ne pourraient" : "ce compte ne pourrait") +
+              " plus entrer : " + sansNumero.map((c) => Utils.echapper(nomDuCompte(c))).join(", ") +
+              '. <a href="#/comptes">Ajoutez-le dans Comptes</a>.</span>'
+            : "");
+
+        interrupteur.checked = !!etat.sms_exige;
+        bouton.disabled = false;
+        if (etat.session_confirmee) {
+          zoneEssai.innerHTML = '<div class="sms-verdict sms-ok">' + UI.icone("check", "ic-sm") +
+            "<div>Votre connexion est confirmée par SMS : la passerelle livre bien les codes.</div></div>";
+          interrupteur.disabled = false;
+        } else if (!etat.numero) {
+          zoneEssai.innerHTML = '<div class="sms-verdict sms-ko">' + UI.icone("alerte", "ic-sm") +
+            "<div>Votre propre compte n'a pas de numéro : ajoutez-le dans Comptes avant " +
+            "d'exiger le code de qui que ce soit.</div></div>";
+          interrupteur.disabled = !etat.sms_exige;
+        } else {
+          zoneEssai.innerHTML =
+            '<p class="aide" style="margin:0 0 8px">D\'abord, recevez un code sur votre numéro ' +
+              "(qui finit par " + Utils.echapper(etat.fin_numero || "") + ") et saisissez-le : " +
+              "c'est la preuve que les codes arrivent.</p>" +
+            '<div id="sms-equipe-bloc"></div>';
+          VueConnexion.blocCode(UI.$("#sms-equipe-bloc", vue), {
+            libelle: "Recevoir un code sur mon numéro",
+            apres: () => {
+              UI.toast("Code reçu et saisi : la passerelle livre", "ok");
+              dessinerSmsEquipe();
+            },
+          });
+          /* L'allumer sans preuve : la base le refuserait. L'éteindre
+             reste toujours possible. */
+          interrupteur.disabled = !etat.sms_exige;
+        }
+      };
+      dessinerSmsEquipe();
+
+      UI.$("#sms-equipe-enregistrer", vue).onclick = async () => {
+        const bouton = UI.$("#sms-equipe-enregistrer", vue);
+        const exige = UI.$("#sms-equipe-exige", vue).checked;
+        if (exige && !await UI.confirmer({
+          titre: "Exiger un code SMS de toute l'équipe ?",
+          texte: "Dès maintenant, chaque compte de l'équipe devra saisir un code reçu par " +
+                 "SMS en ouvrant l'application, puis à chaque connexion. Un compte sans " +
+                 "numéro ne pourra plus entrer.",
+          bouton: "Exiger le code", danger: true,
+        })) {
+          UI.$("#sms-equipe-exige", vue).checked = false;
+          return;
+        }
+        bouton.disabled = true;
+        try {
+          await Supabase.reglerSmsEquipe(exige);
+          UI.toast(exige ? "Le code SMS est exigé de toute l'équipe"
+                         : "Le code SMS n'est plus exigé", "ok");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        await dessinerSmsEquipe();
       };
     }
 

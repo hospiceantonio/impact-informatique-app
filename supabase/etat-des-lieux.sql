@@ -718,7 +718,47 @@ with controles(rang, element, ok) as (values
   (123, 'Le livreur voit ce qu''il doit encaisser (mes_livraisons)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'mes_livraisons'
-         and pg_get_function_result(p.oid) like '%a_encaisser%'))
+         and pg_get_function_result(p.oid) like '%a_encaisser%')),
+
+  -- ---------- La connexion de l'équipe confirmée par SMS ----------
+  (124, 'L''interrupteur du code SMS de l''équipe (securite_equipe)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'securite_equipe')
+    and exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'sessions_sms')),
+  -- C'est « role_courant() » qui ferme : tous les droits de l'équipe en
+  -- découlent.
+  (125, 'Sans son code, une session de l''équipe n''a aucun rang (role_courant)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'role_courant'
+         and p.prosrc like '%equipe_en_service()%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'est_compte_enseigne'
+         and p.prosrc like '%role_courant()%')),
+  -- Inscrire un code : la fonction Edge seule. Ouverte à un compte, elle
+  -- laisserait chacun choisir le code qu'il rendrait ensuite.
+  (126, 'Les codes s''inscrivent par la seule fonction Edge (enregistrer_code_connexion)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enregistrer_code_connexion'
+         and not has_function_privilege('anon', p.oid, 'EXECUTE')
+         and not has_function_privilege('authenticated', p.oid, 'EXECUTE'))),
+  (127, 'Le code se rend, et l''écran sait quand le demander (confirmer_code_connexion, etat_connexion)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'confirmer_code_connexion'
+         and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'etat_connexion')),
+  -- Qui a créé quel compte : écrit par la base, pas par l'écran.
+  (128, 'Qui a créé quel compte, et quand (profils.cree_par)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'profils'
+         and column_name = 'cree_par')
+    and exists (
+      select 1 from pg_trigger t
+       where t.tgname = 'profils_trace' and not t.tgisinternal))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
@@ -774,3 +814,20 @@ select rang                                            as "#",
 --     join public.boutiques b on b.id = p.boutique_id
 --     left join public.produits_prive pv on pv.produit_id = p.id
 --    order by b.nom, p.nom limit 3;
+
+-- ---------- Facultatif : l'équipe, son numéro, et qui l'a créée ----------
+-- Avant d'exiger le code SMS de toute l'équipe : chaque compte doit avoir
+-- un numéro. « Jamais confirmé » veut dire qu'aucun code n'y a encore été
+-- reçu ; « SANS NUMÉRO », que ce compte ne pourrait plus entrer du tout.
+--
+--   select (select case when sms_exige then 'EXIGÉ à chaque connexion'
+--                       else 'pas exigé' end from public.securite_equipe)
+--            as "Code SMS de l'équipe",
+--          coalesce(nullif(p.nom, ''), p.email) as "Compte", p.role as "Rang",
+--          case when length(regexp_replace(p.tel, '\D', '', 'g')) < 8 then 'SANS NUMÉRO'
+--               when p.tel_verifie then 'vérifié'
+--               else 'jamais confirmé' end as "Numéro",
+--          to_char(p.cree_le, 'DD/MM/YYYY HH24:MI') as "Créé le",
+--          coalesce(nullif(p.cree_par_nom, ''), 'hors de l''application') as "Par"
+--     from public.profils p
+--    order by p.role, 3;

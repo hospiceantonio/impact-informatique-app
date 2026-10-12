@@ -1573,6 +1573,12 @@ a.pub-carte:active{transform:scale(.98)}
 .cp-verifie{display:flex;align-items:center;gap:5px;color:var(--vert);font-weight:700}
 .cp-verifie .ic{color:var(--vert)}
 
+/* Un compte e-mail d'avant le SMS : son numéro est à confirmer, une
+   fois. La carte passe devant tout le reste de « Mon compte », et se
+   distingue — sans l'alarme d'une erreur : rien n'est cassé. */
+.cp-numero-requis{border:1px solid var(--ambre-clair);background:var(--ambre-clair)}
+.cp-numero-requis .carte-titre .ic{color:var(--orange-fonce)}
+
 /* Une commande que la base ne connaît pas : elle ne vit que sur ce
    téléphone. Discret — c'est une information, pas un avertissement. */
 .badge-local{

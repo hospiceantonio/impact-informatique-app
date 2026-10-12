@@ -91,5 +91,184 @@ const VueConnexion = (() => {
     UI.$("#cx-email").focus();
   }
 
-  return { configuration, connexion };
+  /* ---------- Étape 3 : le code reçu par SMS ----------
+     Quand l'enseigne l'exige, le mot de passe ne suffit plus. La base ne
+     reconnaît AUCUN droit à cette session tant que le code n'a pas été
+     rendu : cet écran n'est pas une politesse, c'est la seule porte. */
+
+  function codeSms(vue, etat, suite) {
+    document.getElementById("tabbar").style.display = "none";
+    UI.entete({ accueil: true });
+
+    vue.innerHTML =
+      '<div class="carte carte-connexion">' +
+        UI.marque(72) +
+        '<h2 style="font-size:19px;font-weight:800;margin-top:6px">Confirmez votre connexion</h2>' +
+        (etat && etat.numero
+          ? '<p class="aide" style="margin:0 0 6px;text-align:center">BIZZOO demande un code ' +
+              "reçu par SMS à chaque connexion. Il part au numéro de votre compte, qui finit " +
+              "par <strong>" + Utils.echapper(etat.fin_numero || "") + "</strong>.</p>" +
+            '<div id="cx-code"></div>'
+          : '<p class="aide" style="margin:0 0 6px;text-align:center">Votre compte n\'a pas de ' +
+              "numéro enregistré : le code ne peut partir nulle part. Demandez à un " +
+              "<strong>superadministrateur</strong> de l'ajouter dans Comptes, puis " +
+              "reconnectez-vous.</p>") +
+        '<button type="button" class="btn btn-clair" id="cx-sortir">Se déconnecter</button>' +
+      "</div>";
+
+    UI.$("#cx-sortir").onclick = async () => {
+      await Supabase.deconnexion();
+      location.reload();
+    };
+    if (etat && etat.numero) {
+      blocCode(UI.$("#cx-code"), {
+        apres: () => {
+          Store.journaliser("compte", "connexion", "Connexion confirmée par SMS",
+            Supabase.utilisateur());
+          UI.toast("Connexion confirmée", "ok");
+          suite();
+        },
+      });
+    }
+  }
+
+  /**
+   * Recevoir un code, le rendre. Le même bloc sert à la connexion, et au
+   * superadministrateur qui s'essaie dans les Réglages avant d'exiger le
+   * code de toute l'équipe : c'est le même chemin, à la lettre.
+   *
+   * LE CODE NE PASSE JAMAIS PAR ICI DANS L'AUTRE SENS. La fonction Edge
+   * l'envoie par SMS et n'en rend que les deux derniers chiffres du
+   * numéro ; c'est la personne qui le tape.
+   */
+  function blocCode(zone, options) {
+    const o = options || {};
+    zone.innerHTML =
+      '<button type="button" class="btn" id="code-demander">' + UI.icone("tel") +
+        Utils.echapper(o.libelle || "Recevoir le code") + "</button>" +
+      '<div id="code-saisie" hidden>' +
+        '<div class="champ">' +
+          '<label for="code-chiffres">Code reçu par SMS</label>' +
+          '<input id="code-chiffres" type="text" inputmode="numeric" pattern="[0-9 ]*"' +
+            ' autocomplete="one-time-code" maxlength="9" placeholder="6 chiffres">' +
+        "</div>" +
+        '<button type="button" class="btn" id="code-valider">' + UI.icone("check") +
+          "Valider le code</button>" +
+        '<button type="button" class="btn btn-clair" id="code-renvoyer" style="margin-top:10px">' +
+          "Renvoyer un code</button>" +
+      "</div>" +
+      '<div class="aide code-etat" id="code-etat" role="status" aria-live="polite"></div>';
+
+    const etat = UI.$("#code-etat", zone);
+    const dire = (texte, erreur) => {
+      etat.textContent = texte || "";
+      etat.classList.toggle("code-etat-erreur", !!erreur);
+    };
+
+    /* Le renvoi attend : la base refuserait un second code dans les
+       trente secondes, autant le dire avant qu'on appuie. */
+    let minuterie = null;
+    const patienter = (secondes) => {
+      const renvoyer = UI.$("#code-renvoyer", zone);
+      let reste = Math.max(1, Math.round(secondes) || 30);
+      clearInterval(minuterie);
+      renvoyer.disabled = true;
+      const tic = () => {
+        if (!zone.isConnected) { clearInterval(minuterie); return; }
+        if (reste <= 0) {
+          clearInterval(minuterie);
+          renvoyer.disabled = false;
+          renvoyer.textContent = "Renvoyer un code";
+          return;
+        }
+        renvoyer.textContent = "Renvoyer un code (" + reste + " s)";
+        reste -= 1;
+      };
+      tic();
+      minuterie = setInterval(tic, 1000);
+    };
+
+    const montrerSaisie = () => {
+      UI.$("#code-demander", zone).hidden = true;
+      UI.$("#code-saisie", zone).hidden = false;
+    };
+
+    const demander = async (bouton) => {
+      bouton.disabled = true;
+      dire("Envoi du code…");
+      try {
+        const r = await Supabase.demanderCodeConnexion();
+        if (r && r.ok && r.deja) {
+          dire("Cette connexion est déjà confirmée.");
+          if (o.apres) o.apres();
+          return;
+        }
+        if (!r || !r.ok) {
+          dire((r && r.message) || "Le code n'a pas pu partir.", true);
+          if (r && r.raison === "trop_tot") {
+            montrerSaisie();
+            patienter(r.attente);
+          } else {
+            bouton.disabled = false;
+          }
+          return;
+        }
+        montrerSaisie();
+        dire("Code envoyé au numéro qui finit par " + (r.fin_numero || "…") +
+          ". Il expire dans 10 minutes.");
+        UI.$("#code-chiffres", zone).value = "";
+        UI.$("#code-chiffres", zone).focus();
+        patienter(30);
+      } catch (err) {
+        dire(err.message || "Le code n'a pas pu partir.", true);
+        bouton.disabled = false;
+      }
+    };
+
+    UI.$("#code-demander", zone).onclick = (ev) => demander(ev.currentTarget);
+    UI.$("#code-renvoyer", zone).onclick = (ev) => demander(ev.currentTarget);
+
+    const RAISONS = {
+      expire: "Ce code a expiré : demandez-en un nouveau.",
+      sans_code: "Ce code ne vaut plus : demandez-en un nouveau.",
+      sans_session: "Votre session a expiré : déconnectez-vous et reconnectez-vous.",
+    };
+
+    const valider = async () => {
+      const bouton = UI.$("#code-valider", zone);
+      const code = UI.$("#code-chiffres", zone).value.replace(/\D/g, "");
+      if (code.length !== 6) {
+        dire("Le code a six chiffres.", true);
+        return;
+      }
+      bouton.disabled = true;
+      try {
+        const r = await Supabase.confirmerCodeConnexion(code);
+        if (r && r.ok) {
+          clearInterval(minuterie);
+          dire("Code accepté.");
+          if (o.apres) o.apres();
+          return;
+        }
+        const raison = (r && r.raison) || "";
+        if (raison === "code_faux") {
+          const restants = Number(r.restants) || 0;
+          dire(restants > 0
+            ? "Code incorrect. Il vous reste " + restants + " essai" + (restants > 1 ? "s" : "") + "."
+            : "Code incorrect, et plus d'essai pour celui-ci : demandez un nouveau code.", true);
+        } else {
+          dire(RAISONS[raison] || "Le code n'a pas été accepté.", true);
+        }
+      } catch (err) {
+        dire(err.message || "Le code n'a pas été accepté.", true);
+      }
+      bouton.disabled = false;
+    };
+    UI.$("#code-valider", zone).onclick = valider;
+    UI.$("#code-chiffres", zone).addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") valider();
+    });
+  }
+
+  return { configuration, connexion, codeSms, blocCode };
 })();

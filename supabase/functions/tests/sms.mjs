@@ -44,6 +44,7 @@ const SECRETS = {
   SMS_HOOK_SECRET: SECRET_HOOK,
   SUPABASE_URL: "https://base.essai",
   SUPABASE_ANON_KEY: "cle-publiable",
+  SUPABASE_SERVICE_ROLE_KEY: "cle-de-service-qui-ne-sort-jamais",
 };
 const portes = [];
 globalThis.Deno = { env: { get: (n) => SECRETS[n] }, serve: (h) => portes.push(h) };
@@ -79,6 +80,21 @@ globalThis.fetch = async (url, options = {}) => {
     monde.appelsSuper.push(options.headers?.Authorization || "");
     return faireReponse({ corps: monde.estSuper() });
   }
+  /* GoTrue, qui reconnaît — ou non — le jeton de l'appelant. */
+  if (adresse === SECRETS.SUPABASE_URL + "/auth/v1/user") {
+    monde.appelsGoTrue.push(options.headers?.Authorization || "");
+    return faireReponse(monde.goTrue(options.headers?.Authorization || ""));
+  }
+  /* La base, pour les deux fonctions de la clé de service. */
+  if (adresse.endsWith("/rpc/enregistrer_code_connexion")) {
+    const corps = JSON.parse(options.body || "{}");
+    monde.inscriptions.push({ corps, entetes: options.headers || {} });
+    return faireReponse({ corps: monde.inscrire(corps) });
+  }
+  if (adresse.endsWith("/rpc/annuler_code_connexion")) {
+    monde.annulations.push(JSON.parse(options.body || "{}"));
+    return faireReponse({ statut: 204, corps: "" });
+  }
   throw new Error("adresse inattendue : " + adresse);
 };
 
@@ -88,6 +104,15 @@ function decor(reglages = {}) {
   monde.reponsePasserelle = reglages.reponsePasserelle ??
     (() => ({ corps: { status: true, code: "SUBMITTED" } }));
   monde.estSuper = reglages.estSuper ?? (() => true);
+  monde.appelsGoTrue = [];
+  monde.inscriptions = [];
+  monde.annulations = [];
+  /* Par défaut, GoTrue reconnaît le jeton de « u-equipe », et la base
+     accepte d'inscrire le code. */
+  monde.goTrue = reglages.goTrue ??
+    ((auth) => auth.includes(".") ? { corps: { id: "u-equipe" } } : { statut: 401, corps: {} });
+  monde.inscrire = reglages.inscrire ??
+    (() => ({ ok: true, id: 41, tel: "0197121596" }));
   journal.length = 0;
 }
 decor();
@@ -111,6 +136,8 @@ await import("../hook-sms-auth/index.ts");
 const hook = portes.pop();
 await import("../tester-sms/index.ts");
 const essai = portes.pop();
+await import("../code-connexion/index.ts");
+const codeConnexion = portes.pop();
 
 /** Signer un corps comme Supabase Auth le fait. */
 async function signer(corps, { id = "msg_1", quand = Math.floor(Date.now() / 1000) } = {}) {
@@ -280,6 +307,40 @@ h = await appelerHook(espace, await signer(espace));
 egal(h.statut, 200, "un corps à l'espacement inhabituel passe : on signe les octets reçus");
 verifie(monde.envois[0]?.corps.message.includes("654321"), "et le bon code est livré");
 
+/* LE CHANGEMENT DE NUMÉRO. Un compte ouvert par e-mail qui confirme son
+   numéro n'a pas encore de « user.phone » : le code part vers le
+   NOUVEAU, que GoTrue nomme dans « sms.phone » — et, à défaut, porte
+   dans « user.new_phone ». Lire « user.phone » ne trouvait rien, et le
+   SMS ne partait pas. */
+titre("Le code part vers le numéro qu'on confirme");
+
+decor();
+const changement = JSON.stringify({
+  user: { id: "u2", phone: "", new_phone: "2290196000000" },
+  sms: { otp: "112233", phone: "2290196000000", sms_type: "phone_change" },
+});
+h = await appelerHook(changement, await signer(changement));
+egal(h.statut, 200, "un compte e-mail qui confirme son numéro : accepté");
+egal(monde.envois[0]?.corps.to, "2290196000000", "le code part vers le nouveau numéro");
+verifie(monde.envois[0]?.corps.message.includes("112233"), "avec son code");
+
+decor();
+const ancienFormat = JSON.stringify({
+  user: { id: "u3", phone: "2290197121596", new_phone: "2290196111111" },
+  sms: { otp: "445566" },
+});
+h = await appelerHook(ancienFormat, await signer(ancienFormat));
+egal(monde.envois[0]?.corps.to, "2290196111111",
+  "sans « sms.phone », c'est « user.new_phone » — jamais l'ancien numéro");
+
+decor();
+const connexionSimple = JSON.stringify({
+  user: { id: "u4", phone: "2290197121596" },
+  sms: { otp: "778899", phone: "2290197121596" },
+});
+h = await appelerHook(connexionSimple, await signer(connexionSimple));
+egal(monde.envois[0]?.corps.to, "2290197121596", "une connexion ordinaire ne change rien");
+
 titre("Ce que le hook dit, et ce qu'il tait");
 
 decor({ reponsePasserelle: () => ({ corps: { status: false, code: "INSUFFICIENT_BALANCE" } }) });
@@ -355,6 +416,137 @@ e = await appelerEssai({ numero: "12" }, { Authorization: "Bearer jeton-enseigne
 egal(e.statut, 400, "un numéro incomplet est refusé avant l'appel");
 verifie(!JSON.stringify(e.donnees).includes(SECRETS.SMS_CLE),
   "et la clé ne sort jamais vers le back-office");
+
+
+/* =========================================================
+   6. Le code de connexion de l'équipe
+   ========================================================= */
+/** Un jeton comme en fabrique GoTrue : seul son contenu compte ici, la
+    signature étant l'affaire de GoTrue — que la doublure imite. */
+function jeton(contenu) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return b64({ alg: "HS256", typ: "JWT" }) + "." + b64(contenu) + ".signature";
+}
+const JETON = jeton({ sub: "u-equipe", session_id: "5e55a0a0-0000-4000-8000-000000000001" });
+
+async function demanderCode(entetes) {
+  const reponse = await codeConnexion(new Request("https://fonction.essai/code-connexion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(entetes || {}) },
+    body: "{}",
+  }));
+  return { statut: reponse.status, donnees: await reponse.json().catch(() => null) };
+}
+const sha256 = async (texte) => Buffer.from(
+  await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texte))).toString("hex");
+
+titre("Le code de l'équipe : il faut un jeton que GoTrue reconnaît");
+
+decor();
+let c = await demanderCode({});
+egal(c.statut, 401, "sans jeton — refusé");
+egal(monde.envois.length + monde.inscriptions.length, 0, "rien d'inscrit, rien d'envoyé");
+
+decor({ goTrue: () => ({ statut: 401, corps: {} }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 401, "un jeton que GoTrue ne reconnaît pas — refusé");
+egal(monde.envois.length + monde.inscriptions.length, 0, "et rien ne part");
+
+decor({ goTrue: () => ({ corps: { id: "un-autre-compte" } }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 401, "un jeton dont le contenu ne dit pas le même compte que GoTrue — refusé");
+
+decor();
+c = await demanderCode({ Authorization: "Bearer " + jeton({ sub: "u-equipe" }) });
+egal(c.statut, 401, "un jeton sans session — refusé : le code se rattache à une session");
+
+titre("Le code part, et ne revient jamais");
+
+decor();
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 200, "le compte reconnu reçoit son code");
+egal(monde.envois.length, 1, "un SMS part");
+egal(monde.envois[0].corps.to, "2290197121596", "au numéro que la BASE a donné, celui de la fiche");
+const codeEnvoye = (monde.envois[0].corps.message.match(/\b(\d{6})\b/) || [])[1] || "";
+verifie(/^\d{6}$/.test(codeEnvoye), "le SMS porte un code de six chiffres");
+const inscription = monde.inscriptions[0] || { corps: {}, entetes: {} };
+egal(inscription.corps.qui, "u-equipe", "la base reçoit le compte reconnu par GoTrue");
+egal(inscription.corps.session, "5e55a0a0-0000-4000-8000-000000000001", "et la session du jeton");
+egal(inscription.corps.hache, await sha256(codeEnvoye + ":5e55a0a0-0000-4000-8000-000000000001"),
+  "l'empreinte est sha256(« code:session ») — celle que la base recalculera");
+verifie(!JSON.stringify(inscription.corps).includes(codeEnvoye),
+  "la base ne reçoit jamais le code lui-même");
+egal(inscription.entetes.Authorization, "Bearer " + SECRETS.SUPABASE_SERVICE_ROLE_KEY,
+  "elle est appelée avec la clé de service : la seule qui ouvre cette fonction");
+verifie(!JSON.stringify(c.donnees).includes(codeEnvoye),
+  "la réponse à l'application ne contient PAS le code");
+egal(c.donnees.fin_numero, "96", "seulement les deux derniers chiffres du numéro");
+verifie(!journal.some((l) => l.includes(codeEnvoye)), "le code n'est dans aucun journal");
+verifie(!journal.some((l) => l.includes("0197121596") || l.includes("2290197121596")),
+  "ni le numéro entier");
+verifie(!journal.some((l) => l.includes(SECRETS.SUPABASE_SERVICE_ROLE_KEY)),
+  "ni la clé de service");
+
+/* LE MÊME CALCUL DES DEUX CÔTÉS. La base recalcule l'empreinte avec
+   pgcrypto ; ce vecteur est celui que « 99u-connexion-sms.sql » éprouve
+   aussi. S'ils divergeaient, aucun code ne serait jamais juste. */
+egal(await sha256("123456:e1000000-0000-0000-0000-000000000001"),
+  "6c04d1634fb52316e8e6b0d11a7dcf50ef38dc054cdf5f350a7a0ec9f58f537f",
+  "l'empreinte de référence, partagée avec le banc de la base");
+
+decor();
+const JETON_MAJ = jeton({ sub: "u-equipe", session_id: "5E55A0A0-0000-4000-8000-000000000001" });
+await demanderCode({ Authorization: "Bearer " + JETON_MAJ });
+const codeMaj = (monde.envois[0]?.corps.message.match(/\b(\d{6})\b/) || [])[1] || "";
+egal(monde.inscriptions[0]?.corps.hache,
+  await sha256(codeMaj + ":5e55a0a0-0000-4000-8000-000000000001"),
+  "une session écrite en majuscules est hachée en minuscules, comme la base l'écrit");
+
+decor();
+const tires = new Set();
+for (let i = 0; i < 20; i++) {
+  await demanderCode({ Authorization: "Bearer " + JETON });
+  tires.add((monde.envois.at(-1).corps.message.match(/\b(\d{6})\b/) || [])[1]);
+}
+verifie(tires.size >= 18, "vingt demandes, vingt codes différents (ou presque) : le hasard tire");
+
+titre("Ce que la base refuse, l'écran le dit");
+
+decor({ inscrire: () => ({ ok: false, raison: "sans_numero" }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 409, "un compte sans numéro");
+verifie(/superadministrateur/.test(c.donnees.message), "le message dit à qui s'adresser");
+egal(monde.envois.length, 0, "et aucun SMS ne part");
+
+decor({ inscrire: () => ({ ok: false, raison: "trop_tot", attente: 12 }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 429, "un code demandé trop tôt");
+egal(c.donnees.attente, 12, "avec le délai à attendre");
+egal(monde.envois.length, 0, "et pas de second SMS");
+
+decor({ inscrire: () => ({ ok: false, raison: "trop_de_codes" }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 429, "trop de codes dans l'heure");
+
+decor({ inscrire: () => ({ ok: false, raison: "deja_confirmee" }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.donnees.deja, true, "une session déjà confirmée : rien à envoyer, et ce n'est pas une panne");
+egal(monde.envois.length, 0, "aucun SMS");
+
+titre("Un SMS qui ne part pas ne compte pas");
+
+decor({ reponsePasserelle: () => ({ corps: { status: false, code: "INSUFFICIENT_BALANCE" } }) });
+c = await demanderCode({ Authorization: "Bearer " + JETON });
+egal(c.statut, 502, "la passerelle refuse : l'écran le sait");
+verifie(/[Cc]rédit SMS épuisé/.test(c.donnees.message), "et sait pourquoi");
+egal(monde.annulations[0]?.code_id, 41, "le code inscrit est annulé : il ne mange pas un envoi de l'heure");
+verifie(journal.some((l) => l.includes("INSUFFICIENT_BALANCE")),
+  "et le crédit épuisé est au journal : plus personne de l'équipe n'entrerait");
+
+decor();
+const prevolCode = await codeConnexion(new Request("https://fonction.essai/code-connexion",
+  { method: "OPTIONS" }));
+egal(prevolCode.status, 200, "le contrôle préalable du navigateur reçoit sa réponse");
 
 /* ========================================================= */
 dire("");

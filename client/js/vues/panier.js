@@ -333,11 +333,12 @@ const VuePanier = (() => {
      Écran 2 bis — « il faut un compte »
 
      Ce n'est pas une porte close, c'est une porte à ouvrir : on
-     dit pourquoi, on rassure sur le panier, et on donne les trois
-     façons d'entrer — dont celle par SMS, qui ne demande ni
-     adresse e-mail ni mot de passe à retenir.
+     dit pourquoi, on rassure sur le panier, et on donne les deux
+     façons d'entrer — créer son compte, ou ouvrir celui qu'on a.
+     Le SMS ouvert, les deux passent par le numéro et un code :
+     ni adresse e-mail, ni mot de passe à retenir.
 
-     Les trois mènent au même endroit : « revenirVers » pose le
+     Les deux mènent au même endroit : « revenirVers » pose le
      retour, et l'écran de commande revient de lui-même une fois
      le compte ouvert.
      ===================================================== */
@@ -362,11 +363,11 @@ const VuePanier = (() => {
       '<div class="carte">' +
         '<a class="btn" href="#/inscription" data-vers-compte>' +
           UI.icone("compte") + "Créer mon compte</a>" +
-        '<a class="btn btn-clair" href="#/connexion-tel" data-vers-compte data-sms ' +
-          'style="margin-top:10px">' + UI.icone("telephone") +
-          "Entrer avec mon numéro</a>" +
-        '<p class="aide" style="margin:12px 0 0">Vous avez déjà un compte ? ' +
-          '<a href="#/connexion" data-vers-compte>Se connecter</a></p>' +
+        '<a class="btn btn-clair" href="#/connexion" data-vers-compte ' +
+          'style="margin-top:10px">' + UI.icone("check") +
+          "J'ai déjà un compte</a>" +
+        '<p class="aide" data-sms style="margin:12px 0 0">Avec votre numéro et un ' +
+          "code reçu par SMS : pas de mot de passe à retenir.</p>" +
       "</div>" +
 
       '<div class="carte">' +
@@ -449,6 +450,18 @@ const VuePanier = (() => {
        vides puis se remplissent sous les doigts du client. */
     if (typeof Compte !== "undefined" && Compte.connecte()) {
       try { await Compte.charger(); } catch (_) { /* on commandera sans */ }
+      /* UN COMPTE E-MAIL D'AVANT LE SMS confirme son numéro avant de
+         commander — une fois, puis la commande reprend d'elle-même. Le
+         panier n'est pas touché. Voir « Le numéro d'abord » (compte.js). */
+      let aConfirmer = false;
+      try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on laisse passer */ }
+      if (aConfirmer) {
+        VueCompte.confirmerNumero(vue, {
+          tel: (Compte.moi() || {}).tel || "",
+          apres: () => commander(vue),
+        });
+        return;
+      }
     }
 
     /* L'enseigne exige un compte, et ce client n'en a pas : on s'arrête

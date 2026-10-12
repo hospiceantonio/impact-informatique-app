@@ -298,6 +298,28 @@
   async function ouvrirApplication() {
     const vue = document.getElementById("vue");
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Ouverture du catalogue…</div>';
+
+    /* ---------- Le code SMS de l'équipe ----------
+       Quand l'enseigne l'exige, la base ne reconnaît aucun droit à cette
+       session tant que le code reçu par SMS n'a pas été rendu. On le
+       demande AVANT de charger quoi que ce soit : sinon l'application
+       s'ouvrirait sur des écrans vides, sans dire pourquoi. Une base
+       d'avant ce code répond « rien » (null), et l'on passe. */
+    let etat = null;
+    try {
+      etat = await Supabase.etatConnexion();
+    } catch (err) {
+      if (err && err.deconnecte) {
+        VueConnexion.connexion(vue, ouvrirApplication);
+        return;
+      }
+      /* Réseau coupé : « Store.init() » dira ce qu'il en est. */
+    }
+    if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee) {
+      VueConnexion.codeSms(vue, etat, ouvrirApplication);
+      return;
+    }
+
     try {
       await Store.init();
     } catch (err) {

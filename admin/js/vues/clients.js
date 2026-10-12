@@ -253,8 +253,15 @@ const VueClients = (() => {
           : "") +
         (mention ? '<div class="cl-mention">' + Utils.echapper(mention) + "</div>" : "") +
         blocCommerce(c) +
+        /* QUI L'A OUVERT, ET COMMENT. Un compte client s'ouvre toujours
+           par le client lui-même : l'équipe n'en crée pas. Ce qui varie,
+           c'est la porte — une adresse e-mail, ou un numéro dont il a
+           rendu le code reçu par SMS. Un compte par téléphone n'a pas
+           d'adresse : c'est à cela qu'on le reconnaît. */
         '<div class="aide" style="margin:10px 0 0">Compte ouvert le ' +
-          Utils.echapper(Utils.fmtDateHeure(c.creeLe)) + ".</div>" +
+          Utils.echapper(Utils.fmtDateHeure(c.creeLe)) + ", par le client lui-même — " +
+          (c.email ? "avec son adresse e-mail" : "avec son numéro, confirmé par un code SMS") +
+          ".</div>" +
       "</div>" +
 
       '<div class="carte carte-publier st-resume">' +

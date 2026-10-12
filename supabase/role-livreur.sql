@@ -69,7 +69,8 @@ language sql stable security definer set search_path = public as $$
   select coalesce((
     select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
       from public.profils p
-     where p.id = auth.uid() and p.actif), false);
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
 $$;
 revoke all on function public.est_compte_enseigne() from public, anon;
 grant execute on function public.est_compte_enseigne() to authenticated;
@@ -163,7 +164,8 @@ $$;
 -- administrateur : il n'est enfermé nulle part.
 create or replace function public.boutique_du_compte() returns text
 language sql stable security definer set search_path = public as $$
-  select boutique_id from public.profils where id = auth.uid() and actif;
+  select boutique_id from public.profils
+   where id = auth.uid() and actif and public.role_courant() is not null;
 $$;
 
 -- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?

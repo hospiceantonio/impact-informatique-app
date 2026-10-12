@@ -517,6 +517,35 @@ const Supabase = (() => {
     return d;
   }
 
+  /* ---------- Le code SMS de l'équipe ----------
+     Quand l'enseigne l'exige, le mot de passe ne suffit plus : la base ne
+     reconnaît aucun droit à la session tant que le code reçu par SMS n'a
+     pas été rendu. Ces quatre appels sont tout ce que l'écran en sait —
+     le code lui-même ne passe jamais par ici, il ne circule que par SMS. */
+
+  /** Faut-il un code, et vers quel numéro ? Null sur une base d'avant le
+      code SMS : rien n'y est exigé, l'application s'ouvre comme avant. */
+  async function etatConnexion() {
+    try {
+      return await rpcLecture("etat_connexion", {});
+    } catch (err) {
+      if (err && err.deconnecte) throw err;
+      if (/Could not find|does not exist|mise à jour de la base/i.test(err.message || "")) return null;
+      throw err;
+    }
+  }
+
+  /** Fait partir un code au numéro de la fiche. La fonction Edge répond
+      même quand elle refuse, avec la raison : on la rend telle quelle. */
+  const demanderCodeConnexion = () => fonctionEdge("code-connexion", {});
+
+  /** Rend le code. La base confirme la session, ou dit pourquoi non. */
+  const confirmerCodeConnexion = (code) =>
+    rpcLecture("confirmer_code_connexion", { code: String(code || "") });
+
+  /** L'interrupteur : au superadministrateur seul, et la base le vérifie. */
+  const reglerSmsEquipe = (exige) => rpcLecture("regler_sms_equipe", { exige: !!exige });
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -531,6 +560,7 @@ const Supabase = (() => {
     estCompteEnseigne, droitEnseigne, peutVoirCommandes, peutVoirFinances,
     peutChangerDeBoutique, compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc, rpcLecture, fonctionEdge,
+    etatConnexion, demanderCodeConnexion, confirmerCodeConnexion, reglerSmsEquipe,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

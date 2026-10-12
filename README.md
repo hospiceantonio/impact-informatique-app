@@ -2925,11 +2925,167 @@ avant d'exécuter quoi que ce soit.
   petit téléphone. **Huit sabotages le font tomber.** Les 20 autres bancs
   navigateur passent toujours : 1021 constats en tout, aucun échec.
 
+## Le numéro d'abord, et qui a créé quel compte (3.58.0)
+
+Le compte SMS de BIZZOO est prêt : **on crée son compte et on s'y connecte
+désormais avec son numéro et un code reçu par SMS.** Et chaque compte de
+l'équipe dit **qui l'a créé, le jour et l'heure.**
+
+### Le client : son numéro, et un code
+
+| Pour | Il faut |
+|---|---|
+| Créer son compte | son nom, son numéro, le code reçu |
+| Se connecter | son numéro, le code reçu |
+| Un compte ouvert avant, avec un e-mail | l'e-mail et le mot de passe **une dernière fois**, puis le code envoyé à son numéro — ensuite, le numéro suffit |
+
+- **« Se connecter » ouvre sur le numéro.** L'e-mail recule derrière un
+  lien, « Entrer avec mon e-mail », pour les seuls comptes d'avant
+  (`#/connexion-email`). « Créer mon compte » ne demande plus ni e-mail
+  ni mot de passe.
+- **Le même code crée et ouvre.** GoTrue crée le compte au premier code
+  validé et ouvre celui qui existe déjà : l'écran ne dit donc à personne
+  quels numéros ont un compte chez BIZZOO. Un compte né à la porte « Se
+  connecter » donne son nom juste après — et ce nom s'écrit seul, sans
+  effacer une adresse déjà donnée. « Créer mon compte » avec un numéro
+  qui en avait déjà un ouvre ce compte-là, et le dit.
+- **La demande de revendeur** se fait toujours à l'inscription : elle part
+  une fois le compte ouvert, avec sa session. Un statut déjà acquis ne se
+  redemande pas.
+- **L'ancien compte e-mail n'entre pas sur son seul mot de passe.** La
+  session que GoTrue rend attend **en mémoire seulement** : rien n'est
+  gardé sur le téléphone avant le code, et « Annuler » le laisse dehors.
+  Le code validé, il entre, et les commandes passées avec ce numéro le
+  rejoignent.
+- **Resté connecté depuis avant**, un compte e-mail est prié de confirmer
+  son numéro dans « Mon compte » — une carte devant tout le reste — et
+  **avant de commander** : la commande reprend d'elle-même ensuite, panier
+  intact.
+- **Trois exceptions, voulues.** Le SMS fermé ou incertain : on n'enferme
+  personne dehors sur une réponse qu'on n'a pas — fermé, l'e-mail et le
+  mot de passe reviennent devant, comme avant. Un numéro déjà confirmé
+  chez GoTrue. Un compte de l'équipe, qui a sa propre porte.
+
+**Ce n'est pas un verrou de la base**, et c'est voulu : la porte e-mail
+reste ouverte chez Supabase, parce que l'application admin s'en sert pour
+créer les comptes de l'équipe (`/auth/v1/signup`). C'est l'application
+client qui ne propose plus que le numéro.
+
+### L'équipe : un code à chaque connexion
+
+Quand le superadministrateur l'exige, chaque compte de l'équipe —
+administrateurs, modérateurs, livreurs — rend **un code reçu par SMS à
+chaque connexion**, en plus de son mot de passe. **Tant qu'il ne l'a pas
+rendu, la base ne lui reconnaît aucun droit** : `role_courant()` ne répond
+rien à une session non confirmée, et toutes les règles de l'équipe en
+découlent — `est_admin()`, `est_super()`, `boutique_du_compte()`,
+`est_compte_enseigne()`… Un mot de passe volé n'ouvre plus rien.
+
+Pourquoi pas le code de GoTrue, comme pour les clients ? Parce que GoTrue
+marque **toute** session ouverte par un code de la même façon — un lien
+reçu par e-mail compris : rien n'y distinguerait « a reçu un SMS sur le
+numéro de sa fiche ». Les codes de l'équipe sont donc les nôtres :
+
+- tirés par la fonction Edge **`code-connexion`** (déployée **avec**
+  vérification du jeton), envoyés au numéro **de la fiche** — jamais à un
+  numéro tapé à l'écran ;
+- gardés **hachés avec la session** (`sha256(code:session)`) : un code ne
+  vaut que pour la connexion qui l'a demandé, et ne revient jamais à
+  l'application ;
+- **10 minutes**, **5 essais**, un renvoi toutes les **30 secondes**, **5
+  codes par heure** — en base, où rien ne les contourne ;
+- inscrits par la seule clé de service : un compte connecté ne choisit
+  pas son propre code.
+
+Rendre son code vérifie aussi **le numéro de la fiche** ; le changer
+annule cette vérification. **Un nouveau compte de l'équipe ne se crée plus
+sans numéro** : c'est là que partira son code.
+
+**L'interrupteur** est dans **Réglages → BIZZOO → « Connexion de l'équipe
+par SMS »**, au superadministrateur seul. La carte compte l'équipe et
+**nomme qui n'a pas de numéro** — il ne pourrait plus entrer. Elle ne
+s'allume qu'**après que le superadministrateur a reçu et rendu son propre
+code** : c'est la preuve que la passerelle livre, avant d'en dépendre. La
+base le refuse sinon.
+
+En cas d'urgence — plus de crédit SMS, et plus personne n'entre —, dans le
+SQL Editor de Supabase :
+
+```sql
+update public.securite_equipe set sms_exige = false;
+```
+
+### Qui a créé quel compte
+
+Chaque compte de l'équipe porte **son créateur, son nom et son rang au
+moment de la création, la date et l'heure** (`profils.cree_par`,
+`cree_par_nom`, `cree_le`). La base les écrit — un déclencheur, au moment
+où un administrateur donne son rang à la fiche toute neuve — et **personne
+ne les réécrit ensuite**, pas même le superadministrateur.
+
+- **Admin → Comptes** : sous chaque compte, « Créé le 10 octobre 2026 à
+  14:05 par Sena (superadministrateur) · numéro vérifié », et la même
+  ligne en tête de sa fiche. Un compte né hors de l'application —
+  tableau de bord de Supabase, inscription seule — le dit : « — hors de
+  l'application ».
+- **Les comptes d'avant** retrouvent leur créateur dans le journal
+  (« Modérateur ajouté : … », écrit au nom de celui qui l'a créé), une
+  fois, sans jamais écraser une trace déjà posée.
+- **Admin → Fiches clients** : un compte client s'ouvre toujours par le
+  client lui-même ; la fiche dit par quelle porte — « avec son adresse
+  e-mail », ou « avec son numéro, confirmé par un code SMS ».
+
+Au passage, un défaut d'avant est tombé : un administrateur de boutique
+ne pouvait pas finir de créer un modérateur — la fiche toute neuve, sans
+boutique encore, lui était invisible. Les deux règles de `profils` le
+laissent désormais voir et compléter **cette** fiche, un quart d'heure
+durant, et rien d'autre.
+
+Et un piège a été évité de justesse : **l'Historique annule une
+modification de compte en remettant la fiche d'avant entière**, par un
+upsert. L'insertion passe d'abord par la règle de création, qui y aurait
+nommé le créateur du moment — et toute annulation aurait échoué sur « la
+création ne se réécrit pas ». Une insertion qui vise une fiche existante y
+reporte donc la trace en place ; un upsert qui *écrit* un autre créateur
+reste refusé.
+
+### Le fichier à coller, et les fonctions
+
+[`supabase/connexion-sms.sql`](supabase/connexion-sms.sql) se suffit, se
+rejoue sans dommage et ne supprime rien. **Il ne change rien tant que
+l'interrupteur est éteint** : le code de l'équipe n'est exigé qu'une fois
+allumé, depuis les Réglages. La mise en route — secrets, fonctions, hook
+de Supabase — est dans la section suivante.
+
+### Les bancs
+
+- [`supabase/tests/99u-connexion-sms.sql`](supabase/tests/99u-connexion-sms.sql) :
+  104 constats sur un vrai PostgreSQL — qui inscrit un code, le frein et
+  le plafond, les essais, l'expiration, le code d'une autre session,
+  l'interrupteur, la base qui ferme sans code, la trace, l'annulation et
+  le rattrapage. **Treize sabotages le font tomber**, chacun sur la règle
+  qu'il casse ; trois d'entre eux sont arrêtés plus tôt encore par
+  l'état des lieux (contrôles 124 à 128), qui fait le même constat sur la
+  base en ligne. 1298 constats en tout.
+- [`tools/eprouver-sms.sh`](tools/eprouver-sms.sh) : le transport, le hook
+  (dont le destinataire d'un changement de numéro) et `code-connexion` —
+  106 constats, l'empreinte de référence partagée avec la base.
+- [`tools/banc-connexion-sms.mjs`](tools/banc-connexion-sms.mjs) : 70
+  constats au navigateur, côté client ; **huit sabotages** le font
+  tomber.
+- [`tools/banc-connexion-equipe.mjs`](tools/banc-connexion-equipe.mjs) : 46
+  constats, côté admin ; **douze sabotages** le font tomber.
+- [`tools/banc-sms-ferme.mjs`](tools/banc-sms-ferme.mjs) suit la nouvelle
+  porte : le SMS fermé, tout revient comme avant.
+
+Les 21 autres bancs navigateur passent toujours : 1119 constats en tout,
+sur 23 bancs, aucun échec.
+
 ## Vérification du numéro (entrer par SMS)
 
 Au Bénin, beaucoup d'acheteurs n'ont pas d'adresse e-mail mais tous ont
-un numéro. L'application propose donc **deux portes** pour ouvrir un
-compte : e-mail + mot de passe, ou **numéro + code reçu par SMS**.
+un numéro. **Depuis la 3.58.0, le numéro est LA porte** (section
+précédente) ; l'e-mail ne sert plus qu'aux comptes ouverts avant.
 
 Rien n'est fabriqué à la main : le code est **celui de GoTrue**, et
 `auth.users.phone_confirmed_at` est le seul ancrage. Un déclencheur
@@ -2947,12 +3103,16 @@ depuis un ordinateur :
    supabase secrets set SMS_HOOK_SECRET=…  # celui que Supabase affiche à l'étape 3
    ```
 
-2. **Les deux fonctions** :
+2. **Les trois fonctions** :
 
    ```bash
    supabase functions deploy hook-sms-auth --no-verify-jwt
    supabase functions deploy tester-sms
+   supabase functions deploy code-connexion
    ```
+
+   `tester-sms` et `code-connexion` gardent la vérification du jeton : un
+   SMS coûte de l'argent, et seul un compte connecté peut en demander.
 
    `--no-verify-jwt` est indispensable : c'est Supabase lui-même qui
    appelle ce point d'entrée, sans jeton d'utilisateur. Ce qui le protège
@@ -2961,10 +3121,12 @@ depuis un ordinateur :
    minutes contre le rejeu. Sans `SMS_HOOK_SECRET`, la fonction refuse de
    démarrer plutôt que de laisser passer.
 
-3. **Dashboard → Authentication → Providers → Phone** : activer, puis
-   **Send SMS hook** → `https://<projet>.supabase.co/functions/v1/hook-sms-auth`.
-   Supabase affiche alors le secret `whsec_…` : c'est lui qui va dans
-   `SMS_HOOK_SECRET`.
+3. **Dashboard → Authentication → Hooks → Send SMS hook**, de type
+   **HTTPS** → `https://<projet>.supabase.co/functions/v1/hook-sms-auth`,
+   puis « Generate secret » : le secret `v1,whsec_…` va tel quel dans
+   `SMS_HOOK_SECRET`. Ensuite **Authentication → Sign In / Providers →
+   Phone** : activer, avec la confirmation du numéro — sans elle, aucun
+   code ne part, et le hook n'est jamais appelé.
 
 4. **Éprouver pour de vrai**, depuis l'app admin : Réglages → *Essayer la
    passerelle SMS*. L'écran rend **la réponse brute de la passerelle** —
@@ -2976,8 +3138,9 @@ Deux pièges qui coûtent des heures :
 - **Un `HTTP 200` de CREATISINTER ne veut pas dire « envoyé ».** La
   réponse porte un `status` et un code d'état ; seuls
   `SUBMITTED`, `SENT`, `DELIVERED` et `PROGRAMMED` valent succès. Le
-  transport (`functions/_partage/sms.ts`) le vérifie, et 64 assertions
-  (`tools/eprouver-sms.sh`) l'éprouvent.
+  transport (`functions/_partage/sms.ts`) le vérifie, et 106 assertions
+  (`tools/eprouver-sms.sh`) l'éprouvent — avec le hook et
+  `code-connexion`.
 - **Le numéro a trois formes.** `0197121596` est ce que le client tape et
   ce que la base range ; `+2290197121596` est ce que GoTrue **exige** en
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
@@ -2998,7 +3161,7 @@ traduit s'il arrive quand même. La question ne se pose qu'une fois par
 ouverture de l'application : le jour où l'enseigne active le SMS, les
 chemins reviennent au lancement suivant, sans nouvelle version.
 [`tools/banc-sms-ferme.mjs`](tools/banc-sms-ferme.mjs) l'éprouve :
-trente-deux constats, trois sabotages qui le font rougir.
+trente-trois constats, trois sabotages qui le font rougir.
 
 ## Deux applications, un seul point d'entrée
 
@@ -3774,6 +3937,7 @@ impact-informatique-app/
 │   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
 │   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
 │   ├── acompte.sql                  # L'acompte à la commande (3.57.0) : en ligne l'acompte, le reste à la livraison
+│   ├── connexion-sms.sql            # Le code SMS de l'équipe, et qui a créé quel compte (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
@@ -3782,6 +3946,7 @@ impact-informatique-app/
 │   ├── functions/feexpay-webhook/   # Sa notification — non signée, donc jamais crue
 │   ├── functions/_partage/sms.ts    # Le transport SMS : un 200 n'est pas un succès
 │   ├── functions/hook-sms-auth/     # Livrer le code de connexion — la signature est le seul contrôle
+│   ├── functions/code-connexion/    # Le code de l'équipe : tiré ici, haché avec la session, jamais rendu
 │   └── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
@@ -3791,7 +3956,7 @@ impact-informatique-app/
 │   ├── img/pictos/           # Les icônes des catégories : celles de l'image de l'enseigne
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
-│       ├── compte.js         # Le compte du client : session, fiche, demande de revendeur
+│       ├── compte.js         # Le compte du client : son numéro et son code, sa fiche, sa demande de revendeur
 │       ├── avis.js           # Lire les avis sans compte, en donner un si l'on a payé
 │       ├── sav.js            # Réclamations : la boutique d'abord, BIZZOO en recours
 │       ├── panier.js         # Le panier : des identifiants, jamais des prix

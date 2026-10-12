@@ -74,35 +74,27 @@ const VueCompte = (() => {
     };
   }
 
+  /* LE NUMÉRO D'ABORD (3.58.0). Le SMS ouvert, on entre avec son numéro
+     et un code : pas de mot de passe à retenir, et pas d'adresse e-mail à
+     avoir — au Bénin, beaucoup de clients ont un numéro et pas de
+     courriel. L'e-mail ne sert plus qu'aux comptes ouverts avant, derrière
+     un lien, et une seule fois : le temps de confirmer leur numéro.
+
+     Le SMS fermé, rien ne change : l'e-mail et le mot de passe reviennent
+     devant. LES DEUX VERSIONS SONT DESSINÉES, l'une marquée « data-sms »,
+     l'autre « data-sans-sms » et cachée ; « masquerSiSmsFerme » garde la
+     bonne — et, dans le doute, c'est le SMS. */
   function connexion(vue) {
     UI.entete({ titre: "Se connecter", retour: true });
 
     vue.innerHTML =
-      '<div class="carte">' +
-        '<div class="champ"><label for="cp-email">Votre e-mail</label>' +
-          '<input id="cp-email" type="email" inputmode="email" autocomplete="email" ' +
-            'placeholder="vous@exemple.com"></div>' +
-        '<div class="champ"><label for="cp-mdp">Mot de passe</label>' +
-          '<input id="cp-mdp" type="password" autocomplete="current-password" ' +
-            'placeholder="Votre mot de passe"></div>' +
-        '<button type="button" class="btn" id="cp-entrer">' + UI.icone("check") +
-          "Se connecter</button>" +
-        '<p class="aide" style="margin:10px 0 0">' +
-          '<a href="#/mot-de-passe">Mot de passe oublié ?</a></p>' +
-      "</div>" +
-      /* Sans mot de passe à retenir, et sans adresse e-mail à avoir : au
-         Bénin, beaucoup de clients ont un numéro et pas de courriel.
-         Fermer la porte à ceux-là, c'est fermer la boutique. Mais tant
-         que le SMS n'est pas ouvert chez Supabase, la carte se retire :
-         elle ne menait qu'à un refus. */
+      '<div class="carte" data-sms>' + porteNumero() + "</div>" +
       '<div class="carte" data-sms>' +
-        '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
-          " Sans mot de passe</div>" +
-        '<p class="aide" style="margin:0 0 10px">Recevez un code par SMS sur ' +
-          "votre téléphone. Pas d'adresse e-mail à retenir.</p>" +
-        '<a class="btn btn-clair" href="#/connexion-tel">' + UI.icone("telephone") +
-          "Entrer avec mon numéro</a>" +
+        '<p class="aide" style="margin:0">Vous aviez ouvert votre compte avec une ' +
+          'adresse e-mail ? <a href="#/connexion-email" id="cp-ancien">Entrer avec ' +
+          "mon e-mail</a></p>" +
       "</div>" +
+      '<div class="carte" data-sans-sms hidden>' + formulaireEmail() + "</div>" +
       '<div class="carte">' +
         '<div class="carte-titre">Pas encore de compte ?</div>' +
         '<p class="aide" style="margin:0 0 10px">Avec un compte, vous retrouvez vos ' +
@@ -112,16 +104,66 @@ const VueCompte = (() => {
       "</div>" +
       carteBizzoo();
     brancherCarteBizzoo();
+    brancherPorteNumero(vue);
+    brancherEmail(vue);
     Compte.masquerSiSmsFerme(vue);
+  }
 
+  /* ---------- La porte des comptes d'avant ----------
+     Un compte ouvert avec une adresse e-mail, avant le SMS. Il entre une
+     dernière fois avec elle, confirme son numéro, et c'est fini : la
+     fois suivante, son numéro suffit. */
+  function connexionEmail(vue) {
+    UI.entete({ titre: "Avec mon e-mail", retour: true });
+
+    vue.innerHTML =
+      '<div class="carte" data-sms>' +
+        '<p class="aide" style="margin:0">Pour les comptes ouverts avec une adresse ' +
+          "e-mail. Entrez une dernière fois avec elle : nous vous demanderons ensuite " +
+          "de confirmer votre numéro par SMS. Après, votre numéro suffira.</p>" +
+      "</div>" +
+      '<div class="carte">' + formulaireEmail() + "</div>" +
+      '<div class="carte" data-sms>' +
+        '<p class="aide" style="margin:0">Pas de compte e-mail ? ' +
+          '<a href="#/connexion">Entrer avec mon numéro</a></p>' +
+      "</div>";
+    brancherEmail(vue);
+    Compte.masquerSiSmsFerme(vue);
+  }
+
+  /** Le formulaire e-mail et mot de passe — le même aux deux portes. */
+  function formulaireEmail() {
+    return (
+      '<div class="champ"><label for="cp-email">Votre e-mail</label>' +
+        '<input id="cp-email" type="email" inputmode="email" autocomplete="email" ' +
+          'placeholder="vous@exemple.com"></div>' +
+      '<div class="champ"><label for="cp-mdp">Mot de passe</label>' +
+        '<input id="cp-mdp" type="password" autocomplete="current-password" ' +
+          'placeholder="Votre mot de passe"></div>' +
+      '<button type="button" class="btn" id="cp-entrer">' + UI.icone("check") +
+        "Se connecter</button>" +
+      '<p class="aide" style="margin:10px 0 0">' +
+        '<a href="#/mot-de-passe">Mot de passe oublié ?</a></p>'
+    );
+  }
+
+  function brancherEmail(vue) {
+    const bouton = UI.$("#cp-entrer", vue);
+    if (!bouton) return;
     const entrer = async () => {
-      const email = UI.$("#cp-email").value.trim();
-      const mdp = UI.$("#cp-mdp").value;
+      const email = UI.$("#cp-email", vue).value.trim();
+      const mdp = UI.$("#cp-mdp", vue).value;
       if (!email || !mdp) return UI.toast("Votre e-mail et votre mot de passe.", "alerte");
-      const bouton = UI.$("#cp-entrer");
       bouton.disabled = true;
       try {
-        await Compte.connecter(email, mdp);
+        const r = await Compte.connecter(email, mdp);
+        /* Le mot de passe est bon, mais le compte n'a pas encore de
+           numéro confirmé : il n'entre qu'après le code. « Annuler » le
+           laisse dehors — la session qui attendait est oubliée. */
+        if (r && r.numero) {
+          confirmerNumero(vue, { tel: r.tel, annuler: true, apres: repartir });
+          return;
+        }
         UI.toast("Bonjour !");
         repartir();
       } catch (err) {
@@ -129,9 +171,196 @@ const VueCompte = (() => {
         bouton.disabled = false;
       }
     };
+    bouton.addEventListener("click", entrer);
+    UI.$("#cp-mdp", vue).addEventListener("keydown", (e) => { if (e.key === "Enter") entrer(); });
+  }
 
-    UI.$("#cp-entrer").addEventListener("click", entrer);
-    UI.$("#cp-mdp").addEventListener("keydown", (e) => { if (e.key === "Enter") entrer(); });
+  /* ---------- Le numéro, et sa porte ---------- */
+
+  /** Le champ du numéro, avec son indicatif — le même sur tous les écrans. */
+  function champNumero(valeur) {
+    return (
+      '<div class="champ"><label for="cp-tel">Votre numéro</label>' +
+        '<div class="cp-tel-ligne"><span class="cp-indicatif">+229</span>' +
+          '<input id="cp-tel" type="tel" inputmode="tel" autocomplete="tel-national" ' +
+            'placeholder="01 97 12 15 96" value="' + Utils.echapper(valeur || "") + '"></div></div>'
+    );
+  }
+
+  /** Entrer avec son numéro : un champ, un bouton. */
+  function porteNumero() {
+    return (
+      '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") + " Avec mon numéro</div>" +
+      '<p class="aide" style="margin:0 0 10px">Nous vous envoyons un code par SMS. ' +
+        "Pas de mot de passe à retenir.</p>" +
+      champNumero("") +
+      '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("telephone") +
+        "Recevoir mon code</button>"
+    );
+  }
+
+  function brancherPorteNumero(vue) {
+    const bouton = UI.$("#cp-envoyer", vue);
+    if (!bouton) return;
+    const envoyer = async () => {
+      const tel = UI.$("#cp-tel", vue).value;
+      if (Compte.telNational(tel).length < 8) return UI.toast("Tapez votre numéro.", "alerte");
+      bouton.disabled = true;
+      try {
+        await Compte.demanderCodeConnexion(tel, "");
+        ecranCode(vue, {
+          tel,
+          titre: "Se connecter",
+          renvoyer: () => Compte.demanderCodeConnexion(tel, ""),
+          valider: (code) => Compte.confirmerCodeConnexion(tel, code),
+          apres: (r) => apresEntree(vue, {}, r),
+        });
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+        bouton.disabled = false;
+      }
+    };
+    bouton.addEventListener("click", envoyer);
+    UI.$("#cp-tel", vue).addEventListener("keydown", (e) => { if (e.key === "Enter") envoyer(); });
+  }
+
+  /**
+   * Juste entré par son numéro. Ce qui peut rester à faire, dans l'ordre :
+   * le nom que la fiche n'a pas, la demande de revendeur choisie à
+   * l'inscription — puis repartir d'où l'on venait.
+   *
+   * « Créer mon compte » avec un numéro qui en a déjà un ouvre CE compte :
+   * on le dit, plutôt que d'annoncer une naissance qui n'a pas eu lieu.
+   */
+  async function apresEntree(vue, o, r) {
+    const nouveau = !!(r && r.nouveau);
+    let moi = Compte.moi();
+    if (o.nom && moi && !moi.nom) {
+      try { moi = await Compte.enregistrerNom(o.nom); } catch (_) { /* demandé plus bas */ }
+    }
+    let demandee = false;
+    /* Une demande déjà en cours, ou un statut déjà acquis, ne se refait
+       pas : on écraserait le message que BIZZOO est en train de lire. */
+    if (o.revendeur && !["validee", "en_attente"].includes(Compte.etatRevendeur())) {
+      try {
+        await Compte.demanderRevendeur(o.revendeur.message, o.revendeur.position);
+        demandee = true;
+      } catch (_) {
+        UI.toast("Votre compte est ouvert, mais la demande de revendeur n'est pas " +
+          "partie : refaites-la depuis Mon compte.", "alerte");
+      }
+    }
+    const mot = o.inscription && !nouveau ? "Ce numéro avait déjà son compte : vous y êtes."
+      : demandee ? "Bienvenue ! Votre demande est partie."
+      : nouveau ? "Bienvenue !" : "Bonjour !";
+    const finir = () => { UI.toast(mot); repartir(); };
+    /* Un compte sans nom — né à la porte « Se connecter », qui n'en
+       demande pas : on le demande maintenant, une fois. Un compte de
+       l'équipe n'a pas de fiche client, et rien à remplir ici. */
+    moi = Compte.moi();
+    if (moi && !String(moi.nom || "").trim()) {
+      demanderNom(vue, finir);
+      return;
+    }
+    finir();
+  }
+
+  /** Le nom d'un compte qui vient de naître par SMS. */
+  function demanderNom(vue, suite) {
+    UI.entete({ titre: "Votre nom" });
+    vue.innerHTML =
+      '<div class="carte" id="cp-nommer">' +
+        '<div class="carte-titre">Comment vous appelez-vous ?</div>' +
+        '<p class="aide" style="margin:0 0 10px">Votre nom accompagne vos commandes : ' +
+          "c'est à lui que la boutique et le livreur vous reconnaissent.</p>" +
+        '<div class="champ"><label for="cp-nom">Votre nom</label>' +
+          '<input id="cp-nom" type="text" autocomplete="name" placeholder="Nom et prénom"></div>' +
+        '<button type="button" class="btn" id="cp-nommer-ok">' + UI.icone("check") +
+          "Continuer</button>" +
+      "</div>" +
+      '<p class="aide" style="text-align:center"><a href="#" id="cp-nommer-tard">Plus tard</a></p>';
+
+    const champ = UI.$("#cp-nom", vue);
+    const bouton = UI.$("#cp-nommer-ok", vue);
+    champ.focus();
+    const valider = async () => {
+      const nom = champ.value.trim();
+      if (!nom) return UI.toast("Votre nom, s'il vous plaît.", "alerte");
+      bouton.disabled = true;
+      try {
+        await Compte.enregistrerNom(nom);
+        suite();
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+        bouton.disabled = false;
+      }
+    };
+    bouton.addEventListener("click", valider);
+    champ.addEventListener("keydown", (e) => { if (e.key === "Enter") valider(); });
+    UI.$("#cp-nommer-tard", vue).addEventListener("click", (e) => { e.preventDefault(); suite(); });
+  }
+
+  /* ---------- Confirmer son numéro, une fois ----------
+
+     Pour un compte ouvert avec un e-mail, avant le SMS. Deux chemins y
+     mènent : la connexion par e-mail — la session attend alors, voir
+     Compte.connecter —, et un compte déjà connecté sur ce téléphone, à
+     qui « Mon compte » et la commande le demandent. Ensuite, son numéro
+     lui suffit pour entrer.
+
+     Les commandes passées avec ce numéro avant le compte le rejoignent
+     dans la foulée : c'est ce que la vérification a toujours ouvert. */
+  function confirmerNumero(vue, o) {
+    UI.entete({ titre: "Confirmer mon numéro", retour: true });
+    vue.innerHTML =
+      '<div class="carte" id="cp-confirmer-numero">' +
+        '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
+          " Une étape, une seule fois</div>" +
+        '<p class="aide" style="margin:0 0 10px">BIZZOO ouvre désormais les comptes avec un ' +
+          "numéro et un code reçu par SMS. Confirmez celui de votre compte : la prochaine " +
+          "fois, il vous suffira pour entrer, sans mot de passe.</p>" +
+        champNumero(o.tel || "") +
+        '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("telephone") +
+          "Recevoir mon code</button>" +
+      "</div>" +
+      (o.annuler
+        ? '<p class="aide" style="text-align:center">' +
+            '<a href="#/connexion" id="cp-renoncer">Annuler</a></p>'
+        : "");
+
+    const renoncer = UI.$("#cp-renoncer", vue);
+    if (renoncer) renoncer.addEventListener("click", () => Compte.abandonnerAttente());
+
+    const bouton = UI.$("#cp-envoyer", vue);
+    const envoyer = async () => {
+      const tel = UI.$("#cp-tel", vue).value;
+      if (Compte.telNational(tel).length < 8) return UI.toast("Tapez votre numéro.", "alerte");
+      bouton.disabled = true;
+      try {
+        await Compte.demanderCodeNumero(tel);
+        ecranCode(vue, {
+          tel,
+          titre: "Confirmer mon numéro",
+          renvoyer: () => Compte.demanderCodeNumero(tel),
+          valider: (code) => Compte.confirmerCodeNumero(tel, code),
+          apres: async () => {
+            let combien = 0;
+            try { combien = await Compte.rattacherMesCommandes(); }
+            catch (_) { /* Mon compte le reproposera */ }
+            UI.toast("Numéro confirmé." + (combien > 0
+              ? " " + combien + " commande" + (combien > 1 ? "s" : "") + " retrouvée" +
+                (combien > 1 ? "s" : "") + "."
+              : ""));
+            o.apres();
+          },
+        });
+      } catch (err) {
+        UI.toast(err.message, "alerte");
+        bouton.disabled = false;
+      }
+    };
+    bouton.addEventListener("click", envoyer);
+    UI.$("#cp-tel", vue).addEventListener("keydown", (e) => { if (e.key === "Enter") envoyer(); });
   }
 
   /* ---------- Inscription ---------- */
@@ -258,22 +487,35 @@ const VueCompte = (() => {
             "vous répond. En attendant, vous commandez au prix habituel.</p>" +
         "</div>" +
       "</div>" +
+      /* LE NOM, PUIS LE NUMÉRO ET SON CODE : c'est tout ce que coûte un
+         compte quand le SMS est ouvert. Sans lui, l'e-mail et le mot de
+         passe d'avant reviennent — le nom reste au-dessus des deux. */
       '<div class="carte">' +
         '<div class="champ"><label for="cp-nom">Votre nom</label>' +
           '<input id="cp-nom" type="text" autocomplete="name" placeholder="Nom et prénom"></div>' +
-        '<div class="champ"><label for="cp-email">Votre e-mail</label>' +
-          '<input id="cp-email" type="email" inputmode="email" autocomplete="email" ' +
-            'placeholder="vous@exemple.com"></div>' +
-        '<div class="champ"><label for="cp-mdp">Mot de passe</label>' +
-          '<input id="cp-mdp" type="password" autocomplete="new-password" ' +
-            'placeholder="Six caractères au minimum"></div>' +
-        '<button type="button" class="btn" id="cp-creer">' + UI.icone("compte") +
-          "Créer mon compte</button>" +
+        "<div data-sms>" +
+          champNumero("") +
+          '<button type="button" class="btn" id="cp-creer-tel">' + UI.icone("telephone") +
+            "Recevoir mon code</button>" +
+          '<p class="aide" style="margin:10px 0 0">Le code reçu par SMS ouvre votre ' +
+            "compte. Pas de mot de passe à retenir.</p>" +
+        "</div>" +
+        "<div data-sans-sms hidden>" +
+          '<div class="champ"><label for="cp-email">Votre e-mail</label>' +
+            '<input id="cp-email" type="email" inputmode="email" autocomplete="email" ' +
+              'placeholder="vous@exemple.com"></div>' +
+          '<div class="champ"><label for="cp-mdp">Mot de passe</label>' +
+            '<input id="cp-mdp" type="password" autocomplete="new-password" ' +
+              'placeholder="Six caractères au minimum"></div>' +
+          '<button type="button" class="btn" id="cp-creer">' + UI.icone("compte") +
+            "Créer mon compte</button>" +
+        "</div>" +
       "</div>" +
       '<div class="carte">' +
         '<p class="aide" style="margin:0">Déjà un compte ? ' +
           '<a href="#/connexion">Se connecter</a></p>' +
       "</div>";
+    Compte.masquerSiSmsFerme(vue);
 
     let type = "client";
     const marquer = () => {
@@ -293,7 +535,43 @@ const VueCompte = (() => {
        aller-retour entre les deux sortes de comptes. */
     const lirePosition = brancherPosition(vue, "cp-pos");
 
-    UI.$("#cp-creer").addEventListener("click", async () => {
+    /* Par le numéro. Ce qui a été choisi plus haut — revendeur, son
+       commerce, sa position — se lit AVANT l'écran du code : celui-ci
+       remplace le formulaire, et ses champs avec. La demande part une
+       fois le compte ouvert, avec sa session (voir apresEntree). */
+    const creerTel = UI.$("#cp-creer-tel", vue);
+    if (creerTel) {
+      creerTel.addEventListener("click", async () => {
+        const nom = UI.$("#cp-nom", vue).value.trim();
+        const tel = UI.$("#cp-tel", vue).value;
+        const message = UI.$("#cp-message", vue).value.trim();
+        if (!nom) return UI.toast("Votre nom, s'il vous plaît.", "alerte");
+        if (Compte.telNational(tel).length < 8) return UI.toast("Tapez votre numéro.", "alerte");
+        if (type === "revendeur" && !message) {
+          return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
+        }
+        const revendeur = type === "revendeur" ? { message, position: lirePosition() } : null;
+        creerTel.disabled = true;
+        try {
+          await Compte.demanderCodeConnexion(tel, nom);
+          ecranCode(vue, {
+            tel,
+            titre: "Créer mon compte",
+            renvoyer: () => Compte.demanderCodeConnexion(tel, nom),
+            valider: (code) => Compte.confirmerCodeConnexion(tel, code),
+            apres: (r) => apresEntree(vue, { nom, revendeur, inscription: true }, r),
+          });
+        } catch (err) {
+          UI.toast(err.message, "alerte");
+          creerTel.disabled = false;
+        }
+      });
+    }
+
+    /* Par l'e-mail — seulement quand le SMS est fermé. */
+    const creer = UI.$("#cp-creer", vue);
+    if (!creer) return;
+    creer.addEventListener("click", async () => {
       const nom = UI.$("#cp-nom").value.trim();
       const email = UI.$("#cp-email").value.trim();
       const mdp = UI.$("#cp-mdp").value;
@@ -303,7 +581,7 @@ const VueCompte = (() => {
       if (type === "revendeur" && !message) {
         return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
       }
-      const bouton = UI.$("#cp-creer");
+      const bouton = creer;
       bouton.disabled = true;
       try {
         const r = await Compte.inscrire(email, mdp, nom, type, message,
@@ -345,20 +623,12 @@ const VueCompte = (() => {
     UI.entete({ titre: "Entrer avec mon numéro", retour: true });
 
     vue.innerHTML =
+      '<div class="carte">' + porteNumero() + "</div>" +
       '<div class="carte">' +
-        '<p class="aide" style="margin:0 0 10px">Nous vous envoyons un code par ' +
-          "SMS. Pas de mot de passe à retenir.</p>" +
-        '<div class="champ"><label for="cp-tel">Votre numéro</label>' +
-          '<div class="cp-tel-ligne"><span class="cp-indicatif">+229</span>' +
-            '<input id="cp-tel" type="tel" inputmode="tel" autocomplete="tel-national" ' +
-              'placeholder="01 97 12 15 96"></div></div>' +
-        '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("telephone") +
-          "Recevoir mon code</button>" +
-      "</div>" +
-      '<div class="carte">' +
-        '<p class="aide" style="margin:0">Vous avez une adresse e-mail ? ' +
-          '<a href="#/connexion">Se connecter autrement</a></p>' +
+        '<p class="aide" style="margin:0">Vous aviez ouvert votre compte avec une ' +
+          'adresse e-mail ? <a href="#/connexion-email">Entrer avec mon e-mail</a></p>' +
       "</div>";
+    brancherPorteNumero(vue);
 
     /* Arrivé ici par un ancien lien alors que le SMS est fermé : on le
        dit, et on montre les autres portes, plutôt qu'un formulaire qui
@@ -377,25 +647,6 @@ const VueCompte = (() => {
           '<a class="btn btn-clair" href="#/inscription" style="margin-top:10px">' +
             UI.icone("compte") + "Créer mon compte</a>" +
         "</div>";
-    });
-
-    UI.$("#cp-envoyer").addEventListener("click", async () => {
-      const tel = UI.$("#cp-tel").value;
-      const bouton = UI.$("#cp-envoyer");
-      bouton.disabled = true;
-      try {
-        await Compte.demanderCodeConnexion(tel, "");
-        ecranCode(vue, {
-          tel,
-          titre: "Entrer avec mon numéro",
-          renvoyer: () => Compte.demanderCodeConnexion(tel, ""),
-          valider: (code) => Compte.confirmerCodeConnexion(tel, code),
-          apres: () => { UI.toast("Bonjour !"); repartir(); },
-        });
-      } catch (err) {
-        UI.toast(err.message, "alerte");
-        bouton.disabled = false;
-      }
     });
   }
 
@@ -425,19 +676,31 @@ const VueCompte = (() => {
     const champ = UI.$("#cp-code");
     champ.focus();
 
+    /* UNE VALIDATION À LA FOIS. Le sixième chiffre valide tout seul ; une
+       touche « Entrée » juste derrière renverrait le même code, déjà
+       consommé — et le client lirait « code incorrect » au moment même où
+       il vient d'entrer. */
+    let enCours = false;
     const valider = async () => {
+      if (enCours) return;
       const code = champ.value.replace(/\D/g, "");
       if (code.length < 4) return UI.toast("Tapez le code reçu par SMS.", "alerte");
       const bouton = UI.$("#cp-valider");
+      enCours = true;
       bouton.disabled = true;
+      let r;
       try {
-        await o.valider(code);
-        o.apres();
+        r = await o.valider(code);
       } catch (err) {
         UI.toast(err.message, "alerte");
+        enCours = false;
         bouton.disabled = false;
         champ.select();
+        return;
       }
+      /* Le code est passé : ce qui suit ne rouvre pas la saisie, même s'il
+         échoue — le même code ne servirait plus à rien. */
+      try { await o.apres(r); } catch (err) { UI.toast(err.message, "alerte"); }
     };
 
     UI.$("#cp-valider").addEventListener("click", valider);
@@ -555,6 +818,19 @@ const VueCompte = (() => {
       try {
         await Compte.changerMotDePasse(nouveau);
         UI.toast("Mot de passe enregistré. Vous êtes connecté.", "ok");
+        /* Le lien ouvre une session comme le ferait le mot de passe : un
+           compte sans numéro confirmé le confirme ici, comme à la porte
+           e-mail. */
+        let aConfirmer = false;
+        try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on entre */ }
+        if (aConfirmer) {
+          try { await Compte.charger(); } catch (_) { /* le client tapera son numéro */ }
+          confirmerNumero(vue, {
+            tel: (Compte.moi() || {}).tel || "",
+            apres: () => { location.hash = "#/compte"; },
+          });
+          return;
+        }
         location.hash = "#/compte";
       } catch (err) {
         UI.toast(err.message, "err");
@@ -589,9 +865,26 @@ const VueCompte = (() => {
        n'apparaîtrait pas pour ceux-là mêmes à qui elle s'adresse. */
     try { await Compte.chargerEquipe(); } catch (_) { /* on ne propose rien */ }
     moi = moi || { nom: "", tel: "", adresse: "", tel_verifie: false };
+    /* Un compte e-mail d'avant le SMS, resté connecté sur ce téléphone :
+       son numéro est à confirmer, une fois. La carte passe devant tout le
+       reste, et remplace l'invitation plus discrète sous le champ. */
+    let aConfirmer = false;
+    try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on ne demande rien */ }
 
     vue.innerHTML =
       carteEspaceVendeur() +
+      (aConfirmer
+        ? '<div class="carte cp-numero-requis" id="cp-numero-requis">' +
+            '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
+              " Confirmez votre numéro</div>" +
+            '<p class="aide" style="margin:0 0 10px">BIZZOO ouvre désormais les comptes ' +
+              "avec un numéro et un code reçu par SMS. Confirmez celui de ce compte, une " +
+              "fois : ensuite, il vous suffira pour entrer, sans mot de passe. C'est " +
+              "aussi ce qui vous permet de commander.</p>" +
+            '<button type="button" class="btn" id="cp-confirmer">' + UI.icone("telephone") +
+              "Confirmer mon numéro</button>" +
+          "</div>"
+        : "") +
       '<div class="carte">' +
         '<div class="carte-titre">' + Utils.echapper(Compte.identite()) + "</div>" +
         '<div class="champ"><label for="cp-nom">Votre nom</label>' +
@@ -603,6 +896,7 @@ const VueCompte = (() => {
           (moi.tel_verifie
             ? '<p class="aide cp-verifie" style="margin:6px 0 0">' + UI.icone("check", "ic-sm") +
               " Numéro vérifié. Il sert à retrouver vos commandes.</p>"
+            : aConfirmer ? ""
             : '<div data-sms><p class="aide" style="margin:6px 0 0">Un numéro vérifié vous rend les ' +
               "commandes passées avec lui, avant même d'avoir un compte.</p>" +
               '<button type="button" class="btn btn-clair" id="cp-verifier" ' +
@@ -649,6 +943,19 @@ const VueCompte = (() => {
     brancherOuRevendeur(vue);
     brancherVerification(vue, moi);
     Compte.masquerSiSmsFerme(vue);
+
+    const confirmer = UI.$("#cp-confirmer", vue);
+    if (confirmer) {
+      confirmer.addEventListener("click", () => {
+        /* Le numéro tel qu'il est dans le champ : le client a pu le
+           corriger juste avant de toucher le bouton. */
+        const champ = UI.$("#cp-tel", vue);
+        confirmerNumero(vue, {
+          tel: (champ && champ.value) || moi.tel || "",
+          apres: () => monCompte(vue),
+        });
+      });
+    }
 
     UI.$("#cp-enregistrer").addEventListener("click", async () => {
       const bouton = UI.$("#cp-enregistrer");
@@ -982,6 +1289,7 @@ const VueCompte = (() => {
   }
 
   return {
-    connexion, connexionTel, inscription, motDePasse, nouveauMotDePasse, monCompte, revenirVers,
+    connexion, connexionTel, connexionEmail, inscription, motDePasse, nouveauMotDePasse,
+    monCompte, revenirVers, confirmerNumero,
   };
 })();

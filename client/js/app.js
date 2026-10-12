@@ -58,6 +58,8 @@ const App = { evenementInstallation: null };
     /* Entrer par son numéro : au Bénin, beaucoup de clients ont un
        téléphone et pas d'adresse e-mail. */
     { motif: /^\/connexion-tel$/, vue: (v) => VueCompte.connexionTel(v), onglet: "/compte" },
+    /* La porte des comptes ouverts avec un e-mail, avant le SMS. */
+    { motif: /^\/connexion-email$/, vue: (v) => VueCompte.connexionEmail(v), onglet: "/compte" },
     { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v), onglet: "/compte" },
     { motif: /^\/mot-de-passe$/, vue: (v, m, p) => VueCompte.motDePasse(v, p), onglet: "/compte" },
     /* Là où ramène le lien de « Mot de passe oublié » (Compte.lireRetourEmail). */
@@ -450,6 +452,11 @@ const App = { evenementInstallation: null };
        premier coup et non après un aller-retour sous les doigts. */
     if (typeof Compte !== "undefined") {
       Compte.chargerRegles().catch(() => { /* hors connexion : la dernière connue */ });
+      /* Le SMS est-il ouvert ? Demandé dès l'ouverture, pour que l'écran
+         « Se connecter » s'ouvre directement sur la bonne porte — le
+         numéro, ou l'e-mail — au lieu de changer sous les yeux. Une seule
+         question par ouverture : les écrans reprennent cette réponse. */
+      Compte.smsDisponible();
     }
 
     /* ---------- Les notifications ----------

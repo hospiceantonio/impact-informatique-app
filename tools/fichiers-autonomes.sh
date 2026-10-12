@@ -61,8 +61,9 @@ awk '
   }
   /;/ { if (!dans_trigger) cible = "" }
 
-  # « create trigger … on public.T … execute function public.F() »
-  /^[[:space:]]*create trigger/ { dans_trigger = 1; table = ""; fonction = "" }
+  # « create trigger … on public.T … execute function public.F() », et sa
+  # forme « create or replace trigger », qui se passe du « drop » avant elle.
+  /^[[:space:]]*create (or replace )?trigger/ { dans_trigger = 1; table = ""; fonction = "" }
   dans_trigger && / on public\.[a-z_]+/ {
     match($0, / on public\.[a-z_]+/); table = substr($0, RSTART + 11, RLENGTH - 11);
   }
@@ -173,12 +174,23 @@ vert "Chaque fichier pose les colonnes que ses fonctions remplissent ✔"
 # ce fichier doit la poser lui-même. Les fonctions qui ne vivent
 # que dans schema.sql sont le socle : elles sont là depuis
 # toujours, chez tout le monde.
+#
+# UNE FONCTION DU SOCLE QU'UN FICHIER REPOSE N'EN DEVIENT PAS
+# NOUVELLE. « role_courant() » est sur toute base en service depuis
+# les rôles ; « connexion-sms.sql » la repose pour y ajouter le code
+# SMS de l'équipe, il ne la fait pas naître. Sans cette liste, chaque
+# fichier qui l'appelle — quatorze — devrait la recopier, et avec
+# elle tout le mécanisme du SMS, pour se prémunir d'une absence qui
+# n'existe nulle part. Ce qui DÉPEND de la nouvelle version
+# (« equipe_en_service() » et les siennes) reste soumis à la règle :
+# seul « connexion-sms.sql » les appelle, et il les pose.
 # =========================================================
+SOCLE_REPOSE="role_courant"
 echo
 NEES="$(for f in "$RACINE"/supabase/*.sql; do
   [ "$(basename "$f")" = "schema.sql" ] && continue
   grep -o 'create or replace function public\.[a-z_]*' "$f" || true
-done | sed 's/.*public\.//' | sort -u)"
+done | sed 's/.*public\.//' | sort -u | grep -vxF -f <(printf '%s\n' $SOCLE_REPOSE))"
 
 NB_NEES="$(printf '%s\n' "$NEES" | grep -c . || true)"
 gris "migrations : $NB_NEES fonction(s) nées après le socle."
