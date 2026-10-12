@@ -3082,7 +3082,7 @@ le transport corrigé est redéployé dans les trois le soir même.
   base en ligne. 1298 constats en tout.
 - [`tools/eprouver-sms.sh`](tools/eprouver-sms.sh) : le transport, le hook
   (dont le destinataire d'un changement de numéro) et `code-connexion` —
-  107 constats, l'empreinte de référence partagée avec la base.
+  105 constats, l'empreinte de référence partagée avec la base.
 - [`tools/banc-connexion-sms.mjs`](tools/banc-connexion-sms.mjs) : 70
   constats au navigateur, côté client ; **huit sabotages** le font
   tomber.
@@ -3153,7 +3153,7 @@ Trois pièges qui coûtent des heures :
 - **Un `HTTP 200` de CREATISINTER ne veut pas dire « envoyé ».** La
   réponse porte un `status` et un code d'état ; seuls
   `SUBMITTED`, `SENT`, `DELIVERED` et `PROGRAMMED` valent succès. Le
-  transport (`functions/_partage/sms.ts`) le vérifie, et 107 assertions
+  transport (`functions/_partage/sms.ts`) le vérifie, et 105 assertions
   (`tools/eprouver-sms.sh`) l'éprouvent — avec le hook et
   `code-connexion`.
 - **Le texte part sous `content`, pas sous `message`.** Sous `message`,
