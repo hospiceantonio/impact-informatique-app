@@ -3057,6 +3057,17 @@ l'interrupteur est éteint** : le code de l'équipe n'est exigé qu'une fois
 allumé, depuis les Réglages. La mise en route — secrets, fonctions, hook
 de Supabase — est dans la section suivante.
 
+**Il est appliqué sur la base en ligne depuis le 12 octobre 2026.**
+Vérifié aussitôt, sans rien écrire : les 15 fonctions du fichier sont en
+ligne identiques au dépôt, à l'octet près ; leurs droits sont ceux du
+dépôt — inscrire ou annuler un code, la clé de service seule ; les codes
+et l'interrupteur ne se lisent pas depuis l'API ; l'interrupteur est
+éteint ; les deux règles de `profils` ouvrent la fiche toute fraîche.
+**Neuf comptes de l'équipe sur treize ont retrouvé leur créateur** dans
+le journal ; les quatre autres sont nés hors de l'application. Les trois
+fonctions sont déployées le même jour : `hook-sms-auth` sans vérification
+du jeton, `tester-sms` et `code-connexion` avec.
+
 ### Les bancs
 
 - [`supabase/tests/99u-connexion-sms.sql`](supabase/tests/99u-connexion-sms.sql) :
