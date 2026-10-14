@@ -1,0 +1,40 @@
+{
+  "package": "com.impactinformatique.admin",
+  "versionName": "3.54.1",
+  "versionCode": 96,
+  "platform": "Android emulator API 34",
+  "source": "BIZZOO-admin-preview.apks / universal.apk",
+  "screenshots": [
+    {
+      "name": "admin-01-catalogue.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "840af36e3fd8864b4c1fe4310f675e86f28eb889b23e38b53944bb2523299e92"
+    },
+    {
+      "name": "admin-02-stock.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "d3bf7d56e210c7aa82608a245c50da7e96f45a6791f93f39e6fcb8d902fd86cd"
+    },
+    {
+      "name": "admin-03-categories.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "f61867dad9781fb90c5e52337aab5c5a9e8f977625cdb602b7821ce3e5374f00"
+    },
+    {
+      "name": "admin-04-modifier-produit.png",
+      "width": 1080,
+      "height": 1920,
+      "sha256": "ec7dd05ce05afba6a7b28162cd7174b1adda77630d0be96321d5673bdf344943"
+    }
+  ],
+  "submittedBundleSha256": "f2595d8b6e9362f2d6105fa1621aa3cd40c8edf64ffba839dc05c8e12ea54185",
+  "businessViewModulesMatchSubmittedBundle": true,
+  "businessViewModulesChecked": [
+    "js/vues/produits.js",
+    "js/vues/categories.js"
+  ],
+  "styleDifference": "Submitted bundle adds UGC conditions overlay selectors; existing screen styles are unchanged."
+}

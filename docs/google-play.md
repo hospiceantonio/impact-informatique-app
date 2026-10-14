@@ -235,6 +235,42 @@ Preuve locale : `docs/publication-evidence/2026-10-02/google-admin-review.jpg`.
 BIZZOO client affiche également **Modifications en cours d'examen**, sans
 modification restante à envoyer. Les deux apps Android sont donc soumises.
 
+## Correction des captures et nouvelle soumission du 14 octobre 2026
+
+Google a refusé BIZZOO Admin le 7 octobre pour manque de clarté des captures
+françaises de la fiche Play (règle sur les métadonnées). Les anciens visuels
+montraient la connexion et les conditions d'utilisation.
+
+Sur accord du propriétaire, ils ont été remplacés par quatre captures natives
+Android de BIZZOO Admin 3.54.1 (96), dans cet ordre :
+
+1. Catalogue connecté de la boutique Matériel net, avec 52 produits.
+2. Stock, filtres de disponibilité et quantités par article.
+3. Catégories et rayons, avec leurs commandes de gestion.
+4. Formulaire de modification d'un produit existant, avec sa photo.
+
+Les images mesurent 1080 x 1920 pixels (9:16), restent sous 8 Mo, et ne
+contiennent ni mot de passe ni coordonnées de clients. Les écrans ont été
+ouverts avec le compte de revue existant. Aucun produit, stock ou dossier
+client n'a été modifié pour les captures. L'émulateur API 34 dédié
+`BIZZOO_Store_API34` a été arrêté après le travail.
+
+Les captures proviennent de l'APK de prévisualisation 96. Les modules de vues
+produits et catégories sont identiques à ceux de l'AAB 96 soumis ; les styles
+existants des écrans sont identiques, l'AAB ajoutant les sélecteurs de la boîte
+de conditions UGC. Les empreintes des fichiers et de l'AAB sont conservées
+avec les preuves dans `publication-evidence/2026-10-14/captures-manifest.json`.
+
+La fiche française a été enregistrée, puis les dix modifications du dossier
+refusé ont été envoyées à nouveau depuis la vue d'ensemble de la publication.
+La console affiche **Modifications en cours d'examen**, sans modification
+restante à envoyer. Les contrôles automatiques sont encore en cours lors de
+ce constat. Aucun nouveau refus n'est affiché après cet envoi ; l'approbation
+et la disponibilité publique d'Admin restent à confirmer par Google.
+
+Preuves : les quatre fichiers `admin-*.png` et
+`publication-evidence/2026-10-14/google-admin-resubmission.jpg`.
+
 ## Sources officielles vérifiées
 
 - [Cible Android 16 / API 36](https://developer.android.com/google/play/requirements/target-sdk)
