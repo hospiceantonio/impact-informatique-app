@@ -353,7 +353,10 @@ titre("3. Une page vue par écran, et pas une de plus");
   /* Le catalogue se met à jour pendant qu'on lit : l'écran se
      redessine, mais personne n'a navigué. */
   await o.page.evaluate(() => document.dispatchEvent(new Event("catalogue:maj")));
-  await pause(900);
+  /* Au-delà des deux secondes après lesquelles un écran compte de toute
+     façon : un écran redessiné pris pour une visite aurait eu le temps
+     de se déclarer. */
+  await pause(2600);
   ok(vues().length === 3 && traces(o.journal, "ViewContent").length === 1,
     "un écran redessiné n'ajoute ni page vue ni produit consulté");
 
