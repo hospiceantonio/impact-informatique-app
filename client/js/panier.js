@@ -239,9 +239,13 @@ const Panier = (() => {
     const liste = mesCommandes();
     const c = liste.find((x) => x.id === id);
     if (!c) return null;
+    const avant = c.etat;
     c.etat = etat;
     Object.assign(c, extra || {});
     ecrireCommandes(liste);
+    /* LA BASE vient de confirmer le versement d'une commande passée sur
+       ce téléphone : c'est le seul moment où un achat existe. */
+    if (etat === "payee" && avant !== "payee" && typeof Pixel !== "undefined") Pixel.achat(c);
     return c;
   }
 

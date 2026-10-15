@@ -179,8 +179,12 @@ const App = { evenementInstallation: null };
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
     }
 
+    /* Un écran redessiné sur place n'est pas une visite : seule une
+       vraie navigation compte pour la publicité. */
+    if (!conserverPosition) Pixel.debutEcran(ecran);
     try {
       await route.vue(vue, chemin.match(route.motif), params);
+      if (!conserverPosition) Pixel.finEcran(ecran);
     } catch (err) {
       console.error(err);
       vue.innerHTML =

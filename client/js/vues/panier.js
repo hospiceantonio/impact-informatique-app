@@ -213,7 +213,10 @@ const VuePanier = (() => {
       UI.toast("Panier vidé", "ok");
       location.hash = "#/";
     };
-    UI.$("#pa-commander").onclick = () => { location.hash = "#/commande"; };
+    UI.$("#pa-commander").onclick = () => {
+      Pixel.debutCommande(Panier.lignes(), Panier.total(), Panier.devise());
+      location.hash = "#/commande";
+    };
 
     for (const bouton of UI.$$("[data-panier-action]", vue)) {
       bouton.onclick = () => {
@@ -756,7 +759,12 @@ const VuePanier = (() => {
         autre.setAttribute("aria-checked", String(autre === ligne));
       }
     };
-    for (const ligne of lignes) ligne.onclick = () => choisir(ligne);
+    for (const ligne of lignes) {
+      ligne.onclick = () => {
+        choisir(ligne);
+        Pixel.infosPaiement(Panier.lignes(), aRegler(), Panier.devise(), ligne.dataset.reseau);
+      };
+    }
     const champ = UI.$("#co-mm-tel");
     if (!champ) return;
     champ.oninput = () => {
@@ -795,6 +803,9 @@ const VuePanier = (() => {
     }
 
     garderCoordonnees(client);
+    /* Le moyen de paiement est arrêté : celui qu'on a choisi, ou celui
+       qu'on a gardé. Le module ne le dit qu'une fois par écran. */
+    Pixel.infosPaiement(Panier.lignes(), aRegler(), Panier.devise(), mm ? mm.reseau : "kkiapay");
 
     const libelle = bouton.innerHTML;
     bouton.disabled = true;

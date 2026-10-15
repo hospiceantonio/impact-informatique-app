@@ -308,6 +308,10 @@ const VueCompte = (() => {
       try {
         const r = await Compte.inscrire(email, mdp, nom, type, message,
           type === "revendeur" ? lirePosition() : null);
+        /* Le compte existe, confirmation par e-mail ou non. Un revendeur
+           a, en plus, déposé sa demande. */
+        Pixel.inscription(type);
+        if (type === "revendeur") Pixel.demandeRevendeur();
         if (r.confirmation) {
           /* BIZZOO demande une confirmation par e-mail : il n'y a pas de
              session, donc rien à afficher d'autre que la marche à suivre. */
@@ -888,6 +892,7 @@ const VueCompte = (() => {
         demander.disabled = true;
         try {
           await Compte.demanderRevendeur(message, lirePosition());
+          Pixel.demandeRevendeur();
           UI.toast("Demande envoyée à BIZZOO.");
           monCompte(vue);
         } catch (err) {

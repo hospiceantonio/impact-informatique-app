@@ -37,6 +37,29 @@
   }
 </script>
 
+<!-- LE PIXEL META, sur l'adresse officielle seulement : la copie de
+     GitHub Pages ne parle pas à Meta. Jamais quand l'adresse porte un
+     jeton — Meta reçoit l'adresse de la page avec chaque événement. La
+     configuration automatique est coupée : la boutique dit elle-même ce
+     qui s'y passe (client/js/pixel.js). -->
+<script>
+  if (["www.bizzoomarket.com", "bizzoomarket.com"].indexOf(location.hostname) >= 0
+      && !/(^|[#&?/])(access_token|refresh_token|error_code|token_hash)=/.test(location.href)) {
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq.disablePushState = true;
+    fbq('set', 'autoConfig', false, '1786119222612781');
+    fbq('init', '1786119222612781');
+    fbq('track', 'PageView');
+  }
+</script>
+
 <style>
   /* LES POLICES VIENNENT DE L'APPLICATION CLIENTE : un seul jeu de
      fichiers pour la vitrine et pour la boutique, et rien à charger

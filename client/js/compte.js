@@ -588,6 +588,9 @@ const Compte = (() => {
       type: "sms", phone: numero, token: String(code || "").trim(),
     });
     if (!depuisReponse(d, "")) throw new Error("Code incorrect ou expiré.");
+    /* Le premier code validé crée le compte : la publicité ne compte que
+       cette naissance-là, pas chaque retour. */
+    if (typeof Pixel !== "undefined") Pixel.entreeParCode(d && d.user);
     await assurerFiche("");
     await chargerPrix();
     return session;
