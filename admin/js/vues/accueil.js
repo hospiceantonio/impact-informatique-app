@@ -6,8 +6,22 @@ const VueAccueil = (() => {
 
   async function afficher(vue) {
     const admin = Supabase.estAdmin();
+    const enseigne = Supabase.estCompteEnseigne();
+    const icone = (href, label, nom) =>
+      '<a class="btn-ic" href="' + href + '" aria-label="' + label + '">' + UI.icone(nom) + "</a>";
 
-    UI.entete({ accueil: true, actions: admin
+    /* LE COMPTE DE BIZZOO A SA PROPRE RANGÉE. Ni historique ni comptes :
+       la base ne lui en rend rien. Les commandes selon son interrupteur,
+       les réglages selon « Les boutiques » — sinon son compte. Les avis
+       et les réclamations toujours : il répond pour toutes les boutiques,
+       et sans ces icônes il n'aurait aucun chemin vers eux. */
+    UI.entete({ accueil: true, actions: enseigne
+      ? (Supabase.peutVoirCommandes() ? icone("#/commandes", "Commandes", "boite") : "") +
+        icone("#/avis", "Avis des clients", "etoile") +
+        icone("#/sav", "Réclamations", "alerte") +
+        (admin ? icone("#/reglages", "Réglages", "reglages")
+               : icone("#/compte", "Mon compte", "personne"))
+      : admin
       ? '<a class="btn-ic" href="#/commandes" aria-label="Commandes">' + UI.icone("boite") + "</a>" +
         '<a class="btn-ic" href="#/historique" aria-label="Historique">' + UI.icone("horloge") + "</a>" +
         '<a class="btn-ic" href="#/comptes" aria-label="Comptes">' + UI.icone("equipe") + "</a>" +
@@ -143,8 +157,9 @@ const VueAccueil = (() => {
        est : tout ce qui suit ne concerne que cette boutique-là. */
     const courante = Store.boutiqueCourante();
     if (courante) {
-      /* Seul le super administrateur passe d'une boutique à l'autre. */
-      const peutChanger = Supabase.estSuper();
+      /* Le super administrateur et le compte de BIZZOO passent d'une
+         boutique à l'autre ; les autres restent dans la leur. */
+      const peutChanger = Supabase.peutChangerDeBoutique();
       html +=
         '<a class="carte carte-boutique-active"' +
           (peutChanger ? ' href="#/boutiques"' : "") + ">" +
@@ -156,6 +171,8 @@ const VueAccueil = (() => {
           (courante.actif ? "" : " · fermée aux clients") + "</small></span>" +
           (peutChanger ? UI.icone("chevron", "ic-sm") : "") +
         "</a>";
+      /* Le live TikTok : la place, remplie une fois l'écran posé. */
+      if (admin) html += '<div class="carte carte-live" id="carte-live" hidden></div>';
     }
 
     /* ---- Le stock ----
@@ -193,8 +210,12 @@ const VueAccueil = (() => {
        La question qu'on se pose en ouvrant l'application. Mais pas la
        même selon qui ouvre : l'enseigne veut savoir ce qu'elle garde,
        une boutique ce qui lui revient. Deux écrans, deux fonctions en
-       base — ici on n'annonce à chacun que le sien. */
-    html += Supabase.estSuper()
+       base — ici on n'annonce à chacun que le sien.
+
+       ET AU COMPTE DE BIZZOO, AUCUN : la première fonction est au
+       superadministrateur seul, la seconde part de la boutique du
+       compte, et il n'en a pas. La carte l'aurait mené à un refus. */
+    if (!enseigne) html += Supabase.estSuper()
       ? '<a class="carte carte-benefice" href="#/statistiques">' +
           '<div class="carte-titre">' + UI.icone("promo", "ic-sm") +
             " Ce que rapportent les boutiques</div>" +
@@ -309,7 +330,9 @@ const VueAccueil = (() => {
 
     /* ---- Dernières actions (administrateur) ---- */
     let journal = [];
-    if (admin) {
+    /* Le journal ne montre que des lignes de boutique : au compte de
+       BIZZOO, la base n'en rend aucune. Inutile de le lui demander. */
+    if (admin && !enseigne) {
       try { journal = await Store.lireJournal(4, 0); } catch (_) { /* table pas encore créée */ }
     }
     if (journal.length) {
@@ -350,6 +373,74 @@ const VueAccueil = (() => {
     html += "</div>";
 
     vue.innerHTML = html;
+    if (courante) remplirLive(vue, courante);
+  }
+
+  /* ---------- Le live TikTok ----------
+     « Démarrer le live TikTok » : tous les téléphones où BIZZOO est
+     installée reçoivent une notification, qui ouvre la page TikTok de la
+     boutique. Pendant le live, l'application et le site montrent un
+     bandeau « En live ». */
+  async function remplirLive(vue, courante) {
+    const zone = UI.$("#carte-live", vue);
+    if (!zone) return;
+    let live = null;
+    try { live = await Store.liveEnCours(courante.id); } catch (_) {
+      return;   // base d'avant le live : on ne propose rien
+    }
+    if (!zone.isConnected) return;
+    zone.hidden = false;
+    const tiktok = String(courante.tiktok || "").trim();
+    if (live) {
+      const depuis = new Date(live.debut);
+      zone.innerHTML =
+        '<div class="carte-titre"><span class="live-point"></span> En live sur TikTok</div>' +
+        '<p class="aide" style="margin:0 0 12px">Depuis ' +
+          Utils.echapper(depuis.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
+          ". Les clients voient le bandeau « En live » dans l'application et sur le site.</p>" +
+        '<button type="button" class="btn btn-clair btn-danger-clair" id="live-arreter">' +
+          UI.icone("fermer") + "Arrêter le live</button>";
+      UI.$("#live-arreter", zone).onclick = async (e) => {
+        e.target.disabled = true;
+        try {
+          await Store.arreterLive(courante.id);
+          UI.toast("Live arrêté.");
+        } catch (err) { UI.toast(err.message, "err"); }
+        remplirLive(vue, courante);
+      };
+      return;
+    }
+    zone.innerHTML =
+      '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Live TikTok</div>" +
+      (tiktok
+        ? '<p class="aide" style="margin:0 0 12px">Vous passez en direct sur TikTok ? Prévenez ' +
+            "tous les clients : une notification arrive sur chaque téléphone où BIZZOO est " +
+            "installée, et l'ouvrir mène droit à votre page TikTok. Trois lives par jour au " +
+            "plus.</p>" +
+          '<button type="button" class="btn" id="live-demarrer">' + UI.icone("video") +
+            "Démarrer le live TikTok</button>"
+        : '<p class="aide" style="margin:0">Ajoutez d\'abord le compte TikTok de la boutique ' +
+            'dans <a href="#/reglages">Réglages</a> (réseaux sociaux) : c\'est la page que la ' +
+            "notification ouvrira.</p>");
+    const bouton = UI.$("#live-demarrer", zone);
+    if (!bouton) return;
+    bouton.onclick = async () => {
+      const sur = await UI.confirmer({
+        titre: "Démarrer le live TikTok ?",
+        texte: "Tous les clients de BIZZOO vont recevoir « " + courante.nomBoutique +
+          " est en live sur TikTok ». Lancez votre live sur TikTok d'abord.",
+        bouton: "Prévenir les clients",
+      });
+      if (!sur) return;
+      bouton.disabled = true;
+      try {
+        const r = await Store.demarrerLive(courante.id);
+        UI.toast(r.message || "Live annoncé.", r.push === false && !r.deja ? "alerte" : undefined);
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+      remplirLive(vue, courante);
+    };
   }
 
   return { afficher };

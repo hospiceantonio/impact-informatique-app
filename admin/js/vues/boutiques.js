@@ -304,6 +304,12 @@ const VueBoutiques = (() => {
         ? UI.interrupteur({ id: "bq-actif", label: "Boutique ouverte", actif: boutique.actif,
             aide: "Fermée, elle disparaît de l'application des clients. Son catalogue reste intact." })
         : "") +
+      (boutique && boutique.id
+        ? UI.liensPartage([
+            { nom: "La boutique", lien: UI.lienPartage("boutique", boutique.id) },
+            { nom: "Son catalogue", lien: UI.lienPartage("catalogue", boutique.id) },
+          ])
+        : "") +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="bq-enregistrer">' + UI.icone("check") +
           (boutique ? "Enregistrer" : "Créer la boutique") + "</button>" +
@@ -431,16 +437,25 @@ const VueBoutiques = (() => {
       return;
     }
 
+    /* LE COMPTE DE BIZZOO N'A QUE LE CHOIX DE LA BOUTIQUE OUVERTE. Créer,
+       ranger, renommer ou supprimer une boutique reste au super
+       administrateur : la liste à crayons ne paraît que pour lui. Régler
+       la boutique ouverte, s'il en a l'interrupteur, se fait dans
+       Réglages — comme pour l'administrateur d'une boutique. */
+    const gere = Supabase.estSuper();
+
     vue.innerHTML =
-      '<div class="carte">' +
-        '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Vos boutiques (" + boutiques.length + ")</div>" +
-        '<p class="aide" style="margin:-4px 0 12px">Elles s\'affichent chez les clients dans cet ordre. ' +
-          "Touchez le crayon pour changer le nom, l'icône ou fermer une boutique.</p>" +
-        boutiques.map((b, i) =>
-          htmlLigne(b, courante && b.id === courante.id, i === 0, i === boutiques.length - 1)).join("") +
-        '<button type="button" class="btn" id="bq-nouvelle" style="margin-top:14px">' +
-          UI.icone("plus") + "Créer une boutique</button>" +
-      "</div>" +
+      (gere
+        ? '<div class="carte">' +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Vos boutiques (" + boutiques.length + ")</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">Elles s\'affichent chez les clients dans cet ordre. ' +
+              "Touchez le crayon pour changer le nom, l'icône ou fermer une boutique.</p>" +
+            boutiques.map((b, i) =>
+              htmlLigne(b, courante && b.id === courante.id, i === 0, i === boutiques.length - 1)).join("") +
+            '<button type="button" class="btn" id="bq-nouvelle" style="margin-top:14px">' +
+              UI.icone("plus") + "Créer une boutique</button>" +
+          "</div>"
+        : "") +
 
       '<div class="carte">' +
         '<div class="carte-titre">Boutique ouverte</div>' +

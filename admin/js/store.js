@@ -492,13 +492,16 @@ const Store = (() => {
   const lireBoutique = (id) => boutiques.find((b) => b.id === id) || null;
 
   /**
-   * Choisit la boutique sur laquelle on travaille. Un modérateur ne peut
-   * pas en sortir : la base le lui refuserait de toute façon.
+   * Choisit la boutique sur laquelle on travaille. Un compte de boutique
+   * ne peut pas en sortir : la base le lui refuserait de toute façon. Le
+   * compte d'enseigne, lui, passe de l'une à l'autre — la base lui
+   * répond oui partout (« peut_agir_sur() »), dans la limite de ses
+   * interrupteurs.
    */
   function choisirBoutique(id) {
     const cible = lireBoutique(id);
     if (!cible) throw new Error("Cette boutique n'existe plus.");
-    if (!Supabase.estSuper() && cible.id !== Supabase.boutiqueDuCompte()) {
+    if (!Supabase.peutChangerDeBoutique() && cible.id !== Supabase.boutiqueDuCompte()) {
       throw new Error("Votre compte ne gère que la boutique « " +
         ((lireBoutique(Supabase.boutiqueDuCompte()) || {}).nomBoutique || "qui lui est confiée") + " ».");
     }
@@ -512,8 +515,12 @@ const Store = (() => {
   function boutiqueDeDepart() {
     const duCompte = Supabase.boutiqueDuCompte();
     if (duCompte && lireBoutique(duCompte)) return duCompte;
-    /* Sans boutique attribuée, seul le superadministrateur circule. */
-    if (!Supabase.estSuper() && Supabase.rolesActifs()) return "";
+    /* Sans boutique attribuée, seuls le superadministrateur et le compte
+       d'enseigne circulent. Le compte d'enseigne était oublié ici : il
+       démarrait sans boutique, et l'application l'arrêtait sur
+       « Boutique à confier » — un administrateur de BIZZOO ne pouvait
+       tout simplement pas entrer. */
+    if (!Supabase.peutChangerDeBoutique() && Supabase.rolesActifs()) return "";
     let memorisee = "";
     try { memorisee = localStorage.getItem(CLE_BOUTIQUE) || ""; } catch (_) { /* sans importance */ }
     if (memorisee && lireBoutique(memorisee)) return memorisee;
@@ -842,7 +849,8 @@ const Store = (() => {
     return Number(combien) || 0;
   }
 
-  /** Ce que le livreur connecté a à porter. AUCUN montant n'en sort. */
+  /** Ce que le livreur connecté a à porter, et — seul montant qui en
+   *  sorte — ce qu'il doit encaisser à la livraison. */
   async function mesLivraisons() {
     const lignes = await Supabase.rpcLecture("mes_livraisons", {});
     return (lignes || []).map((l) => ({
@@ -858,6 +866,9 @@ const Store = (() => {
       etat: l.etat || "preparee",
       articles: Array.isArray(l.articles) ? l.articles : [],
       payeLe: l.paye_le || "",
+      /* La part du reste qui revient à SA boutique : ce qu'il réclame
+         au client. Zéro quand tout a été payé en ligne. */
+      aEncaisser: Math.max(0, Number(l.a_encaisser) || 0),
     }));
   }
 
@@ -901,6 +912,12 @@ const Store = (() => {
       peutBoutiques: l.peut_boutiques === true,
       peutFinances: l.peut_finances === true,
       creeLe: versMs(l.cree_le),
+      /* Qui l'a créé, et son numéro vérifié par un code reçu. Écrits par
+         la base, jamais par cet écran ; une base d'avant ne les a pas, et
+         l'écran dit alors simplement qu'il ne sait pas. */
+      creePar: l.cree_par || "",
+      creeParNom: l.cree_par_nom || "",
+      telVerifie: l.tel_verifie === true,
     };
   }
 
@@ -917,6 +934,47 @@ const Store = (() => {
      traduit en « null ». */
   const ENSEIGNE = "__enseigne";
 
+  /* ---------- La position des livreurs ----------
+     Un livreur valide son compte en enregistrant sa position : la
+     géolocalisation de son téléphone, et son adresse. C'est lui qui
+     l'écrit (« enregistrer_ma_position ») ; sa boutique et l'enseigne la
+     lisent. */
+
+  /** La position de chaque livreur visible, par identifiant. null : base d'avant. */
+  async function positionsLivreurs() {
+    try {
+      const lignes = await Supabase.requete("GET",
+        "positions_livreurs?select=profil_id,latitude,longitude,adresse,enregistre_le",
+        undefined, { avecSession: true });
+      const parId = {};
+      for (const l of lignes || []) parId[l.profil_id] = l;
+      return parId;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** La position du livreur connecté : la ligne, null s'il n'en a pas,
+      undefined si la base ne connaît pas encore la question. */
+  async function maPosition() {
+    const moi = Supabase.identifiant();
+    if (!moi) return undefined;
+    try {
+      const lignes = await Supabase.requete("GET",
+        "positions_livreurs?select=*&profil_id=eq." + encodeURIComponent(moi),
+        undefined, { avecSession: true });
+      return (lignes || [])[0] || null;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
+  async function enregistrerMaPosition({ latitude, longitude, adresse, precision }) {
+    return Supabase.rpcLecture("enregistrer_ma_position", {
+      lat: latitude, lng: longitude, adresse: String(adresse || "").trim(),
+      precision_m: precision == null ? null : Math.round(precision) });
+  }
+
   async function listerComptes() {
     const lignes = await Supabase.requete("GET",
       "profils?select=*&order=role.asc,email.asc", undefined, { avecSession: true });
@@ -931,6 +989,12 @@ const Store = (() => {
   async function creerCompte(email, motDePasse, role, boutiqueRattachee, nom, tel) {
     const adresse = String(email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
+    /* LE NUMÉRO N'EST PLUS FACULTATIF : c'est là que part le code de
+       connexion par SMS. Un compte créé sans numéro ne pourrait plus
+       entrer le jour où l'enseigne exige le code. */
+    if (String(tel || "").replace(/\D/g, "").length < 8) {
+      throw new Error("Indiquez son numéro de téléphone : c'est là que partira son code de connexion.");
+    }
     if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
     if (!ROLES[role]) throw new Error("Choisissez le rôle du compte.");
 
@@ -1340,6 +1404,12 @@ const Store = (() => {
       decidePar: l.decide_par || "",
       decideLe: l.decide_le ? Date.parse(l.decide_le) || 0 : 0,
       motif: l.motif || "",
+      /* Où se trouve son commerce : l'adresse écrite, et la position
+         relevée par son téléphone. La base les rend ; il manquait de les
+         reprendre ici, et l'écran ne les voyait jamais. */
+      adresse: l.adresse || "",
+      latitude: l.latitude == null ? null : Number(l.latitude),
+      longitude: l.longitude == null ? null : Number(l.longitude),
     };
   }
 
@@ -1399,6 +1469,81 @@ const Store = (() => {
         (c.code || ""),
       "Codes promo", undefined, null);
     return cle;
+  }
+
+  /* ---------- Les codes des particuliers ----------
+     Un compte CLIENT, un code à son nom : le client qui le tape a sa
+     remise, le propriétaire touche sa commission à la livraison. */
+
+  async function creerParrain({ prenom, nom, email, motDePasse, code, remise, commission }) {
+    const adresse = String(email || "").trim().toLowerCase();
+    const complet = (String(prenom || "").trim() + " " + String(nom || "").trim()).trim();
+    if (!complet) throw new Error("Le nom et le prénom de la personne.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Une adresse e-mail valide.");
+    if (String(motDePasse || "").length < 8) {
+      throw new Error("Le mot de passe fait au moins 8 caractères.");
+    }
+    const cree = await Supabase.creerCompte(adresse, motDePasse,
+      { compte: "client", nom: complet, type: "client" });
+    const cle = await Supabase.rpcLecture("creer_code_parrain", {
+      compte: cree.id, le_code: code || "", remise: Number(remise) || 0,
+      taux: Number(commission) || 0, nom: complet });
+    journaliser("boutique", "modification",
+      "Code de particulier posé : " + cle + " (" + complet + ")", "Codes promo", undefined, null);
+    return { code: cle, email: adresse, nom: complet, confirmationRequise: cree.confirmationRequise };
+  }
+
+  async function listerParrains() {
+    const lignes = await Supabase.rpcLecture("parrains_liste", {});
+    return (lignes || []).map((l) => ({
+      code: l.code, nom: l.libelle || "", email: l.email || "",
+      remise: Number(l.remise) || 0, commission: Number(l.commission) || 0,
+      actif: l.actif !== false, ventes: Number(l.ventes) || 0,
+      gagne: Number(l.gagne) || 0, retire: Number(l.retire) || 0,
+      enAttente: Number(l.en_attente) || 0, solde: Number(l.solde) || 0,
+    }));
+  }
+
+  async function retraitsATraiter() {
+    const lignes = await Supabase.rpcLecture("retraits_a_traiter", {});
+    return (lignes || []).map((l) => ({
+      id: l.id, code: l.code || "", email: l.email || "", montant: Number(l.montant) || 0,
+      numero: l.numero || "", reseau: l.reseau || "", etat: l.etat,
+      demandeLe: l.demande_le, traiteLe: l.traite_le, reference: l.reference || "",
+      motif: l.motif || "",
+    }));
+  }
+
+  async function traiterRetrait(id, payee, reference, motif) {
+    const etat = await Supabase.rpcLecture("traiter_retrait", {
+      cible: id, payee: !!payee, la_reference: reference || "", le_motif: motif || "" });
+    journaliser("boutique", "modification",
+      (payee ? "Retrait versé" : "Retrait refusé") + " (n° " + id + ")", "Codes promo", undefined, null);
+    return etat;
+  }
+
+  /* ---------- Le live TikTok ----------
+     Le démarrer passe par la fonction Edge « annoncer-live » : c'est
+     elle qui envoie la notification à tous les téléphones. La base, elle,
+     décide qui en a le droit. */
+
+  async function demarrerLive(boutique) {
+    const d = await Supabase.fonctionEdge("annoncer-live", { boutique });
+    if (!d || !d.ok) throw new Error((d && d.message) || "Le live n'a pas pu démarrer.");
+    if (!d.deja) {
+      journaliser("boutique", "modification", "Live TikTok démarré", "Live TikTok",
+        undefined, boutique);
+    }
+    return d;
+  }
+
+  async function arreterLive(boutique) {
+    await Supabase.rpcLecture("arreter_live", { cible: boutique });
+  }
+
+  async function liveEnCours(boutique) {
+    const lignes = await Supabase.rpcLecture("lives_en_cours", {});
+    return (lignes || []).find((l) => l.boutique_id === boutique) || null;
   }
 
   /** Ce que les remises ont coûté sur la période, par boutique. */
@@ -1836,6 +1981,9 @@ const Store = (() => {
   }
 
   function commandeDepuisLigne(l) {
+    /* Le reste à la livraison, tel que la base le rend à CE compte :
+       toutes les parts pour l'enseigne, la sienne pour une boutique. */
+    const restes = l.restes || null;
     const lignes = (l.commande_lignes || []).map((x) => ({
       id: x.id,
       boutiqueId: x.boutique_id || "",
@@ -1864,6 +2012,16 @@ const Store = (() => {
          qui revient à la boutique qui regarde. */
       total: Number(l.total) || 0,
       montant: lignes.reduce((somme, x) => somme + x.prix * x.quantite, 0),
+      /* L'ACOMPTE payé en ligne, et ce qui reste à encaisser à la
+         livraison. Une commande d'avant l'acompte n'en porte pas : elle
+         s'est payée en entier. « aEncaisser » est la part de CE compte —
+         pour une boutique, la sienne ; pour l'enseigne, tout le reste. */
+      acompte: l.acompte == null ? Number(l.total) || 0 : Number(l.acompte) || 0,
+      tauxAcompte: l.taux_acompte == null ? 100 : Number(l.taux_acompte) || 100,
+      verse: l.verse == null ? null : Number(l.verse),
+      /* Les frais de livraison, dans le total : une fois par commande. */
+      fraisLivraison: Math.max(0, Number(l.frais_livraison) || 0),
+      aEncaisser: restes ? Math.max(0, Number(restes.reste) || 0) : 0,
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
       /* Partie au prix revendeur ? La boutique touche la même chose
@@ -1905,18 +2063,39 @@ const Store = (() => {
        connecté lit ses propres lignes depuis que les comptes clients
        existent. Ces deux chiffres-là arrivent par
        « statistiques_ventes() », qui vérifie qui appelle. */
-    let chemin = "commandes?select=*,commande_lignes(" +
+    /* « restes » : le reste à encaisser à la livraison, que la base
+       calcule et filtre selon qui regarde. Une base d'avant l'acompte ne
+       le connaît pas et refuserait toute la lecture : on relit alors
+       sans lui, et l'on ne le redemande plus. */
+    const suite = ",commande_lignes(" +
       "id,boutique_id,produit_id,nom,code,reference,prix,quantite,etat,confirme_le" +
       ")&order=cree_le.desc" +
-      "&limit=" + (o.combien || 100);
-    if (o.etat) chemin += "&etat=eq." + encodeURIComponent(o.etat);
-    const lignes = await Supabase.requete("GET", chemin, undefined, { avecSession: true });
+      "&limit=" + (o.combien || 100) +
+      (o.etat ? "&etat=eq." + encodeURIComponent(o.etat) : "");
+    let lignes;
+    if (avecRestes) {
+      try {
+        lignes = await Supabase.requete("GET", "commandes?select=*,restes" + suite,
+          undefined, { avecSession: true });
+      } catch (err) {
+        /* « Supabase.requete » traduit une colonne inconnue en « mise à
+           jour de la base » : c'est ce message-là qui arrive ici. */
+        if (!/restes|does not exist|could not find|mise à jour de la base/i.test(err.message || "")) throw err;
+        avecRestes = false;
+      }
+    }
+    if (!avecRestes) {
+      lignes = await Supabase.requete("GET", "commandes?select=*" + suite,
+        undefined, { avecSession: true });
+    }
     return (lignes || [])
       .map(commandeDepuisLigne)
       /* Une commande dont la base n'a renvoyé aucune ligne ne parle pas
          de cette boutique : elle n'a rien à faire à l'écran. */
       .filter((c) => c.lignes.length);
   }
+
+  let avecRestes = true;
 
   /** Combien de lignes payées attendent encore d'être préparées. */
   async function commandesEnAttente() {
@@ -1979,24 +2158,49 @@ const Store = (() => {
       fournisseur: l.fournisseur || "kkiapay",
       clePublique: l.cle_publique || "",
       bacASable: l.bac_a_sable !== false,
+      /* L'acompte à la commande, en pour cent. Une base d'avant ne le
+         connaît pas : null, et l'écran ne propose pas d'y toucher. */
+      tauxAcompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
+      /* Les frais de livraison par commande. Même règle. */
+      fraisLivraison: l.frais_livraison == null ? null : Number(l.frais_livraison),
     };
   }
 
   async function majPaiement(maj) {
     const fournisseur = maj.fournisseur === "kkiapay" ? "kkiapay" : "feexpay";
-    await Supabase.requete("PATCH", "paiement?id=eq.1", {
+    const corps = {
       actif: !!maj.actif,
       fournisseur,
       cle_publique: (maj.clePublique || "").trim(),
       bac_a_sable: !!maj.bacASable,
       maj_le: new Date().toISOString(),
-    });
+    };
+    /* Le taux ne part que s'il est connu : une base d'avant l'acompte
+       refuserait toute la mise à jour pour une colonne qu'elle n'a pas.
+       La base le borne de 1 à 100 ; on ne lui envoie rien d'autre. */
+    if (maj.tauxAcompte != null) {
+      const taux = Math.round(Number(maj.tauxAcompte));
+      if (!(taux >= 1 && taux <= 100)) {
+        throw new Error("L'acompte se règle entre 1 et 100 %.");
+      }
+      corps.taux_acompte = taux;
+    }
+    if (maj.fraisLivraison != null) {
+      const frais = Math.round(Number(maj.fraisLivraison));
+      if (!(frais >= 0 && frais <= 100000)) {
+        throw new Error("Les frais de livraison vont de 0 à 100 000 FCFA.");
+      }
+      corps.frais_livraison = frais;
+    }
+    await Supabase.requete("PATCH", "paiement?id=eq.1", corps);
     /* Changer d'agrégateur engage l'argent de toute l'enseigne : le
        journal doit dire LEQUEL, pas seulement « modifié ». */
     const nom = fournisseur === "feexpay" ? "FeexPay" : "KkiaPay";
     journaliser("boutique", "modification",
       "Paiement en ligne " + (maj.actif ? "ouvert" : "fermé") + " — " + nom +
-      (fournisseur === "kkiapay" && maj.bacASable ? " (mode essai)" : ""),
+      (fournisseur === "kkiapay" && maj.bacASable ? " (mode essai)" : "") +
+      (corps.taux_acompte != null ? " — acompte " + corps.taux_acompte + " %" : "") +
+      (corps.frais_livraison != null ? " — livraison " + corps.frais_livraison + " FCFA" : ""),
       nom, undefined, null);
   }
 
@@ -2359,15 +2563,23 @@ const Store = (() => {
 
     const pastille = {
       icone: (donnees.icone || "categories").trim() || "categories",
-      couleur: (donnees.couleur || "#2550B7").trim() || "#2550B7",
       en_avant: donnees.enAvant === true,
     };
+    /* LA COULEUR NE SE CHOISIT PLUS depuis la 3.56 : toutes les tuiles
+       ont le même fond. Une catégorie existante garde la sienne — les
+       applications d'avant s'en servent encore —, une nouvelle prend
+       le bleu de BIZZOO. */
+    if (donnees.couleur !== undefined) {
+      pastille.couleur = (donnees.couleur || "#2550B7").trim() || "#2550B7";
+    } else if (!existante) {
+      pastille.couleur = "#2550B7";
+    }
 
-    /* LA PHOTO DU ROND. `donnees.photo` vaut { dataUrl } pour une
-       nouvelle, { chemin } pour garder celle en place ou choisir une
-       illustration de l'application (« img/categories/… », rien à
-       envoyer : elle y est déjà), null pour la retirer ; absente, on
-       n'y touche pas.
+    /* LA PHOTO DE LA TUILE. `donnees.photo` vaut { dataUrl } pour une
+       nouvelle, { chemin } pour garder celle en place, null pour la
+       retirer ; absente, on n'y touche pas — c'est ainsi qu'une
+       illustration d'avant la 3.56 (« img/categories/… ») reste en
+       base pour les applications déjà installées.
 
        Dans « enseigne/categories/ » et nulle part ailleurs : le stockage
        y réserve le dépôt au superadministrateur, et la base refuse tout
@@ -3361,6 +3573,9 @@ const Store = (() => {
     listerClients, lireClient, commandesDuClient,
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
+    creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
+    positionsLivreurs, maPosition, enregistrerMaPosition,
+    demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,

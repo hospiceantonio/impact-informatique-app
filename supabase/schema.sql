@@ -179,15 +179,17 @@ create table if not exists public.categories (
   id          text primary key,
   boutique_id text references public.boutiques(id) on delete cascade,
   nom         text not null,
-  -- La pastille ronde de l'écran « Catégories », comme celle d'une
-  -- boutique : une icône DÉJÀ DESSINÉE dans les deux applications, et
-  -- une couleur de fond. Rien à téléverser, rien à stocker, et la liste
-  -- s'affiche hors connexion.
+  -- L'icône de sa tuile, sur l'accueil et l'écran « Catégories » : une
+  -- image DÉJÀ DANS les deux applications (« img/pictos/<icone>.png »,
+  -- depuis la 3.56 ; avant, une icône d'un trait). Rien à téléverser,
+  -- rien à stocker, et la liste s'affiche hors connexion. La couleur ne
+  -- sert plus qu'aux applications d'avant la 3.56 : les tuiles ont
+  -- toutes le même fond.
   icone       text not null default 'categories',
   couleur     text not null default '#0B5CF5',
-  -- LA PHOTO DU ROND, facultative (voir plus bas).
+  -- LA PHOTO DE LA TUILE, facultative (voir plus bas).
   image       text not null default '',
-  -- Les quinze ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
+  -- Les trente ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
   -- les autres attendent derrière « Voir toutes les catégories ».
   en_avant    boolean not null default false,
   ordre       int  not null default 0,
@@ -197,10 +199,9 @@ alter table public.categories add column if not exists icone    text not null de
 alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
 alter table public.categories add column if not exists en_avant boolean not null default false;
 
--- LA PHOTO DU ROND, comme sur la DA : sur l'accueil et l'écran
--- « Catégories », elle remplit la pastille ; sans elle, l'icône et sa
--- couleur restent — et elles reviennent aussi quand la photo ne se
--- charge pas (hors connexion).
+-- LA PHOTO DE LA TUILE : sur l'accueil et l'écran « Catégories », elle
+-- prend la place de l'icône ; sans elle, l'icône reste — et elle
+-- revient aussi quand la photo ne se charge pas (hors connexion).
 --
 -- UN CHEMIN, JAMAIS UNE ADRESSE, et dans l'un de deux dossiers :
 --
@@ -208,10 +209,13 @@ alter table public.categories add column if not exists en_avant boolean not null
 --     dépose depuis l'admin. C'est le dossier que le stockage réserve
 --     au superadministrateur (voir « peut_deposer »), comme la liste
 --     elle-même lui est réservée ;
---   « img/categories/ », dans l'application : les illustrations qui
---     voyagent avec elle — dans l'APK comme sur le site —, et
---     s'affichent donc sans réseau. Chaque catégorie de BIZZOO en
---     reçoit une à sa création (voir la liste plus bas).
+--   « img/categories/ » : les illustrations en 3D qui voyageaient avec
+--     les applications jusqu'à la 3.55. La base en ligne les garde,
+--     parce que les applications déjà installées les montrent encore ;
+--     depuis la 3.56, les applications ne lisent plus ces chemins et
+--     montrent l'icône. Seules les catégories nouvelles de la 3.56 en
+--     reçoivent encore une (« categories-rangement.sql »), pour ces
+--     mêmes applications installées.
 --
 -- Une adresse libre ferait charger à l'accueil de tous les clients une
 -- image posée n'importe où.
@@ -610,11 +614,93 @@ revoke all on function public.rattraper_anciens_admins()
   from public, anon, authenticated;
 select public.rattraper_anciens_admins();
 
+-- ---------- La session de l'équipe, confirmée par SMS ----------
+-- Quand l'enseigne l'exige, un compte de l'équipe reçoit un code par SMS
+-- à CHAQUE connexion, et n'a aucun droit tant qu'il ne l'a pas rendu.
+-- Le détail — l'envoi, la saisie, l'interrupteur — est au chapitre « La
+-- connexion de l'équipe confirmée par SMS », à la fin de ce fichier.
+-- Seul ce qui suit doit vivre ICI, avant « role_courant() » : la base
+-- vérifie déjà des droits pendant que ce fichier se charge, et la
+-- fonction doit trouver tout ce qu'elle lit déjà posé.
+--
+-- L'INTERRUPTEUR VIT À PART, pas dans « reglages » : cette table-là n'est
+-- posée que bien plus loin. Il part éteint — rien ne change tant qu'un
+-- superadministrateur ne l'a pas allumé.
+create table if not exists public.securite_equipe (
+  id         int primary key default 1 check (id = 1),
+  sms_exige  boolean not null default false,
+  change_le  timestamptz,
+  change_par text not null default ''
+);
+insert into public.securite_equipe (id) values (1) on conflict (id) do nothing;
+
+-- Les sessions qui ont rendu leur code. « session_id » est celui que
+-- GoTrue pose dans chaque jeton : une connexion, une session, un code.
+create table if not exists public.sessions_sms (
+  session_id   uuid primary key,
+  utilisateur  uuid not null,
+  confirmee_le timestamptz not null default now()
+);
+
+-- Invisibles depuis l'API : aucune règle de lecture, aucun droit. Seules
+-- les fonctions de confiance y touchent.
+alter table public.securite_equipe enable row level security;
+alter table public.sessions_sms enable row level security;
+revoke all on public.securite_equipe from public, anon, authenticated;
+revoke all on public.sessions_sms from public, anon, authenticated;
+
+-- La session du jeton en cours. Un jeton sans session — la clé de
+-- service, un visiteur — n'en a pas, et rien ne le confirme.
+create or replace function public.session_courante() returns uuid
+language sql stable as $$
+  select case when s ~* '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z'
+              then s::uuid end
+    from (select coalesce(auth.jwt() ->> 'session_id', '') as s) x;
+$$;
+
+-- L'enseigne exige-t-elle le code ? Une ligne absente répond « non » :
+-- même règle que le compte obligatoire. Un accident ne doit pas enfermer
+-- toute l'équipe dehors un samedi soir.
+create or replace function public.sms_equipe_exige() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select s.sms_exige from public.securite_equipe s where s.id = 1), false);
+$$;
+
+-- Cette session a-t-elle rendu son code ?
+create or replace function public.session_confirmee() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.sessions_sms s
+     where s.session_id = public.session_courante()
+       and s.utilisateur = auth.uid());
+$$;
+
+-- L'équipe est-elle en service ? Oui quand rien n'est exigé ; sinon,
+-- seulement avec une session confirmée.
+create or replace function public.equipe_en_service() returns boolean
+language sql stable security definer set search_path = public as $$
+  select not public.sms_equipe_exige() or public.session_confirmee();
+$$;
+revoke all on function public.session_courante() from public, anon;
+revoke all on function public.sms_equipe_exige() from public, anon;
+revoke all on function public.session_confirmee() from public, anon;
+revoke all on function public.equipe_en_service() from public, anon;
+grant execute on function public.session_courante() to authenticated;
+grant execute on function public.sms_equipe_exige() to authenticated;
+grant execute on function public.session_confirmee() to authenticated;
+grant execute on function public.equipe_en_service() to authenticated;
+
 -- Rôle du compte connecté. « security definer » : la fonction lit la table
 -- sans repasser par les règles RLS — sinon les règles s'appelleraient elles-mêmes.
+--
+-- QUAND L'ENSEIGNE EXIGE LE CODE SMS, une session dont le code n'a pas
+-- été rendu n'a AUCUN rang : ni superadministrateur, ni administrateur,
+-- ni livreur. Tous les droits de l'équipe découlent d'ici — un seul
+-- endroit à fermer, et tout est fermé.
 create or replace function public.role_courant() returns text
 language sql stable security definer set search_path = public as $$
-  select role from public.profils where id = auth.uid() and actif;
+  select role from public.profils
+   where id = auth.uid() and actif and public.equipe_en_service();
 $$;
 
 -- Le superadministrateur : l'enseigne entière, boutiques comprises.
@@ -665,12 +751,18 @@ $$;
 -- qui a lui aussi une boutique nulle quand on l'a créé sans en choisir
 -- une. « pas superadministrateur » parce que celui-là n'a pas besoin
 -- d'interrupteurs : lui en poser l'enfermerait dans sa propre maison.
+--
+-- Elle lit la fiche elle-même : elle doit donc AUSSI passer par
+-- « role_courant() », qui sait si la session a donné son code SMS.
+-- Sans cela, un compte de BIZZOO entré sans son code aurait gardé ses
+-- interrupteurs — et les commandes de toutes les boutiques avec eux.
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
     select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
       from public.profils p
-     where p.id = auth.uid() and p.actif), false);
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
 $$;
 
 -- Un interrupteur de l'enseigne, lu sur la fiche du compte. Il ne vaut
@@ -733,9 +825,14 @@ $$;
 
 -- La boutique à laquelle le compte est rattaché. Null pour un
 -- administrateur : il n'est enfermé nulle part.
+--
+-- Null aussi pour une session qui n'a pas donné son code SMS quand
+-- l'enseigne l'exige : partout où elle sert, une boutique nulle ferme
+-- la porte au lieu de l'ouvrir.
 create or replace function public.boutique_du_compte() returns text
 language sql stable security definer set search_path = public as $$
-  select boutique_id from public.profils where id = auth.uid() and actif;
+  select boutique_id from public.profils
+   where id = auth.uid() and actif and public.role_courant() is not null;
 $$;
 
 -- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
@@ -833,13 +930,17 @@ drop policy if exists "profils ajout admin" on public.profils;
 drop policy if exists "profils modification admin" on public.profils;
 drop policy if exists "profils suppression admin" on public.profils;
 -- Chacun voit sa fiche. Le superadministrateur voit toute l'enseigne ;
--- l'administrateur, l'équipe de sa boutique.
+-- l'administrateur, l'équipe de sa boutique — et la fiche toute fraîche
+-- qu'il est en train de créer : sans la voir, PostgreSQL ne le laisse
+-- pas lui donner son rang (voir « profils modification admin »).
 create policy "profils lecture" on public.profils
   for select to authenticated using (
     id = auth.uid()
     or public.est_super()
     or (public.est_admin() and boutique_id is not null
-        and boutique_id = public.boutique_du_compte()));
+        and boutique_id = public.boutique_du_compte())
+    or (public.est_admin() and role = 'moderateur' and not actif
+        and boutique_id is null and cree_le > now() - interval '15 minutes'));
 
 -- Créer, modifier, supprimer un compte : le superadministrateur sans
 -- limite ; l'administrateur seulement des MODÉRATEURS de SA boutique —
@@ -849,12 +950,22 @@ create policy "profils ajout admin" on public.profils
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
         and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+-- « Créer un compte » passe par deux temps : l'inscription pose une
+-- fiche en attente, SANS boutique, puis l'administrateur lui donne son
+-- rang. Le premier membre de « using » exigeait une fiche déjà de sa
+-- boutique : l'administrateur d'une boutique ne pouvait donc jamais
+-- finir de créer un modérateur — seul le superadministrateur y
+-- arrivait. Le second lui ouvre la fiche toute fraîche, encore en
+-- attente, née dans le quart d'heure ; « with check » ne change pas :
+-- elle ne peut devenir qu'un modérateur de SA boutique.
 create policy "profils modification admin" on public.profils
   for update to authenticated
   using (
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()))
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    or (public.est_admin() and role = 'moderateur' and not actif
+        and boutique_id is null and cree_le > now() - interval '15 minutes'))
   with check (
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
@@ -1517,6 +1628,18 @@ begin
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   etat := case when accord then 'validee' else 'refusee' end;
+
+  -- UN REVENDEUR VALIDE SON COMPTE EN ACTIVANT SA POSITION : la
+  -- géolocalisation de son téléphone, ET son adresse écrite. Sans elles,
+  -- BIZZOO ne l'accepte pas (il peut toujours refuser).
+  if accord and not exists (
+       select 1 from public.clients c
+        where c.id = cible
+          and c.revendeur_latitude is not null and c.revendeur_longitude is not null
+          and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
+    raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
 
   perform set_config('bizzoo.revendeur', 'oui', true);
   update public.clients
@@ -2303,7 +2426,39 @@ begin
       check (fournisseur in ('kkiapay', 'feexpay'));
   end if;
 end $$;
+
+-- L'ACOMPTE À LA COMMANDE, en pour cent du total. Le client le règle en
+-- ligne pour que sa commande parte ; le reste se paie à la livraison.
+-- C'est ce qui écarte les commandes fictives : commander engage déjà de
+-- l'argent. Le superadministrateur seul le règle, par la même politique
+-- d'écriture que l'agrégateur. 100 revient à tout faire payer en ligne,
+-- comme avant.
+alter table public.paiement
+  add column if not exists taux_acompte int not null default 10;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_taux_acompte_borne') then
+    alter table public.paiement
+      add constraint paiement_taux_acompte_borne
+      check (taux_acompte between 1 and 100);
+  end if;
+end $$;
 insert into public.paiement (id) values (1) on conflict (id) do nothing;
+
+-- LES FRAIS DE LIVRAISON, en FCFA, par commande. Fixes pour l'instant
+-- (1 000) ; ils dépendront plus tard de la distance. Ils s'ajoutent au
+-- montant des articles, et AUCUN code promo ne les touche. Le
+-- superadministrateur seul les règle, comme l'acompte.
+alter table public.paiement
+  add column if not exists frais_livraison int not null default 1000;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_frais_livraison_borne') then
+    alter table public.paiement
+      add constraint paiement_frais_livraison_borne
+      check (frais_livraison between 0 and 100000);
+  end if;
+end $$;
 
 alter table public.paiement enable row level security;
 drop policy if exists "paiement lecture"  on public.paiement;
@@ -2458,6 +2613,23 @@ alter table public.commandes add column if not exists revendeur boolean not null
 alter table public.commandes add column if not exists code_promo text not null default '';
 alter table public.commandes add column if not exists remise bigint not null default 0;
 
+-- L'ACOMPTE, figé à la création comme les prix : changer le taux demain
+-- ne réécrit pas les commandes d'hier.
+--   taux_acompte : le taux du jour, en pour cent ;
+--   acompte      : ce qui se paie en ligne pour que la commande parte ;
+--   verse        : ce que l'agrégateur a réellement encaissé.
+-- Le reste se paie à la livraison, à chaque boutique sa part
+-- (« restes_par_boutique », plus bas). Les trois sont vides sur les
+-- commandes d'avant : elles se payaient en entier.
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+-- Les frais de livraison de CETTE commande, figés à sa création. Ils
+-- font partie du total (ce que le client paie) mais pas des articles :
+-- ni la remise d'un code, ni la commission d'un particulier ne les
+-- touchent. 0 sur les commandes d'avant.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
 
@@ -2483,6 +2655,15 @@ begin
   new.remarque := '';
   new.annonce_le := null;
   new.paye_le := null;
+  -- L'acompte se pose APRÈS les lignes, par « creer_commande » : il se
+  -- calcule sur un total que la base n'a pas encore. Rien ne l'apporte
+  -- de dehors, pas plus que l'argent versé.
+  new.taux_acompte := null;
+  new.acompte := null;
+  new.verse := null;
+  -- Les frais de livraison aussi : « creer_commande » les pose, d'après
+  -- les réglages de l'enseigne. Le téléphone n'en décide pas.
+  new.frais_livraison := 0;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -2571,6 +2752,9 @@ begin
                        from public.commande_lignes l
                       where l.commande_id = cible), 0)
            - greatest(0, coalesce(c.remise, 0)))
+           -- Les frais de livraison s'ajoutent APRÈS la remise : un code
+           -- promo ne les touche pas.
+           + greatest(0, coalesce(c.frais_livraison, 0))
    where c.id = cible;
   perform set_config('bizzoo.interne', avant, true);
 end $$;
@@ -2631,6 +2815,12 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
+  or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -2755,6 +2945,113 @@ language sql stable security definer set search_path = public as $$
        and c.client_id = auth.uid());
 $$;
 grant execute on function public.ma_commande(text) to authenticated;
+
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Le client verse l'acompte en ligne ; le reste se paie à la porte. Une
+-- commande peut traverser plusieurs boutiques, qui livrent chacune SA
+-- part : chacune encaisse donc sa part du reste. La somme des parts
+-- tombe juste au franc près : l'arrondi va à la plus grosse.
+--
+-- CE QUI EST ANNULÉ NE SE PAIE PAS. Une boutique qui ne peut pas servir
+-- un article annule sa ligne : le client ne doit plus que ce qu'il
+-- recevra, remise comprise au prorata, moins ce qu'il a déjà versé. Une
+-- boutique dont tout est annulé n'a rien à encaisser.
+--
+-- Avant le paiement, c'est le reste PRÉVU : le total moins l'acompte.
+-- Une commande d'avant l'acompte s'est réglée en entier : il ne reste
+-- rien.
+--
+-- Réservée aux fonctions de la base : elle lit n'importe quelle commande
+-- sans demander qui appelle. Celles qui la servent au dehors vérifient
+-- d'abord à qui elles répondent.
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    -- LES FRAIS DE LIVRAISON ne se réduisent pas au prorata : tant qu'il
+    -- reste quelque chose à livrer, la course a lieu et coûte son prix.
+    -- Tout annulé, il n'y a pas de course, donc pas de frais.
+    select greatest(0, coalesce(round((c.total - c.frais) * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       + case when sum(p.servi) > 0 then c.frais else 0 end
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.frais, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
+-- ---------- Le reste, lu avec la commande ----------
+-- « commandes?select=*,restes » : PostgREST lit cette fonction comme une
+-- colonne de plus. Elle rend { "reste": …, "boutiques": { id: part } }.
+--
+-- À CHACUN CE QUI LE REGARDE, comme pour les lignes. L'enseigne et le
+-- client voient toutes les parts ; une boutique, la sienne seulement :
+-- c'est celle que son livreur ira encaisser. Les autres ne reçoivent
+-- rien. La commande est relue par son identifiant : appelée en direct,
+-- la fonction recevrait une ligne fabriquée, avec les montants qu'on
+-- voudrait.
+create or replace function public.restes(cmd public.commandes)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  o     public.commandes%rowtype;
+  tout  boolean;
+  chez  text;
+  parts jsonb;
+begin
+  select * into o from public.commandes c where c.id = cmd.id;
+  if not found then return null; end if;
+
+  tout := public.est_super()
+       or public.droit_enseigne('commandes')
+       or (o.client_id is not null and o.client_id = auth.uid());
+  if not tout then
+    chez := public.boutique_du_compte();
+    if chez is null or not public.est_equipe() or public.est_compte_enseigne()
+       or not exists (select 1 from public.commande_lignes l
+                       where l.commande_id = o.id and l.boutique_id = chez) then
+      return null;
+    end if;
+  end if;
+
+  select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
+    into parts
+    from public.restes_par_boutique(o.id) r
+   where r.boutique_id is not null and (tout or r.boutique_id = chez);
+
+  return jsonb_build_object(
+    'reste', (select coalesce(sum(r.a_encaisser), 0)
+                from public.restes_par_boutique(o.id) r
+               where tout or r.boutique_id = chez),
+    'boutiques', parts);
+end $$;
+revoke all on function public.restes(public.commandes) from public, anon;
+grant execute on function public.restes(public.commandes) to authenticated;
 
 -- ---------- « Je l'ai bien reçu » ----------
 -- LE CLIENT SEUL, et c'est tout l'intérêt. La boutique déclare avoir
@@ -2891,6 +3188,12 @@ begin
     if rang is distinct from 'livreur' then
       raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
     end if;
+    -- UN LIVREUR VALIDE SON COMPTE EN ENREGISTRANT SA POSITION. Tant
+    -- qu'il ne l'a pas fait, on ne lui confie rien.
+    if not exists (select 1 from public.positions_livreurs pl where pl.profil_id = livreur) then
+      raise exception 'Ce livreur n''a pas encore validé son compte : il doit ouvrir BIZZOO Admin et enregistrer sa position.'
+        using errcode = 'P0001';
+    end if;
   end if;
 
   perform set_config('bizzoo.livraison', 'oui', true);
@@ -2912,16 +3215,23 @@ grant execute on function public.assigner_livreur(text, text, uuid) to authentic
 
 -- ---------- Ce que le livreur a à porter ----------
 -- SES courses, et rien que les siennes. Pas celles de son collègue, pas
--- celles des autres boutiques — et AUCUN montant : ni le prix BIZZOO,
--- ni le prix payé. Regardez la liste des colonnes rendues : elle est la
--- réponse entière à « que voit un livreur ? ».
+-- celles des autres boutiques — et UN SEUL montant : ce qu'il doit
+-- encaisser à la porte, la part du reste qui revient à sa boutique. Ni
+-- le prix BIZZOO, ni le prix des articles, ni l'acompte. Regardez la
+-- liste des colonnes rendues : elle est la réponse entière à « que voit
+-- un livreur ? ».
+--
+-- « drop » avant « create » : la fonction a gagné une colonne, et
+-- PostgreSQL ne change pas ce qu'une fonction rend sans la retirer.
+drop function if exists public.mes_livraisons();
 create or replace function public.mes_livraisons()
 returns table (
   commande_id text, numero text,
   boutique_id text, nom_boutique text,
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
-  etat text, articles jsonb, paye_le timestamptz)
+  etat text, articles jsonb, paye_le timestamptz,
+  a_encaisser bigint)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -2938,7 +3248,12 @@ begin
            jsonb_agg(jsonb_build_object(
              'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
              order by l.nom),
-           c.paye_le
+           c.paye_le,
+           -- Ce qu'il réclame au client : la part du reste qui revient à
+           -- SA boutique. Zéro quand tout a été payé en ligne.
+           coalesce((select r.a_encaisser
+                       from public.restes_par_boutique(c.id) r
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
@@ -2953,6 +3268,54 @@ begin
 end $$;
 revoke all on function public.mes_livraisons() from public, anon;
 grant execute on function public.mes_livraisons() to authenticated;
+
+-- ---------- Qui me livre ----------
+-- LE CLIENT VOIT LE NOM ET LE NUMÉRO DU LIVREUR à qui chaque boutique a
+-- confié sa part, pour l'appeler ou lui écrire sur WhatsApp. Rien de
+-- plus : ni son e-mail, ni ses autres courses.
+--
+-- À QUI : au compte qui a passé la commande, ou à qui connaît son numéro
+-- ET le numéro de téléphone donné à la commande — la même règle que
+-- « suivre_commande », pour le client qui a commandé sans compte.
+--
+-- QUAND : une fois la commande payée, la course confiée, et tant que le
+-- client n'a pas confirmé l'avoir reçue. Après, le numéro du livreur n'a
+-- plus de raison de rester sous ses yeux. Une part annulée, un livreur
+-- désactivé : rien.
+--
+-- D'OÙ UNE FONCTION : le client ne lit pas « profils », et ne doit pas.
+drop function if exists public.livreurs_de_ma_commande(text, text);
+create or replace function public.livreurs_de_ma_commande(cible text, tel text default '')
+returns table (boutique_id text, nom text, telephone text, indicatif text)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  tel_donne text := regexp_replace(coalesce(tel, ''), '\D', '', 'g');
+begin
+  if not exists (
+    select 1 from public.commandes c
+     where c.id = cible
+       and not c.compte_supprime
+       and c.etat = 'payee'
+       and ((moi is not null and c.client_id = moi)
+            or (tel_donne <> '' and c.client_tel = tel_donne))) then
+    return;
+  end if;
+  return query
+    select distinct on (l.boutique_id)
+           l.boutique_id::text, coalesce(p.nom, '')::text, coalesce(p.tel, '')::text,
+           coalesce(nullif(b.indicatif, ''), '229')::text
+      from public.commande_lignes l
+      join public.profils p
+        on p.id = l.livreur_id and p.role = 'livreur' and p.actif
+      left join public.boutiques b on b.id = l.boutique_id
+     where l.commande_id = cible
+       and l.etat <> 'annulee'
+       and l.confirme_le is null
+     order by l.boutique_id;
+end $$;
+revoke all on function public.livreurs_de_ma_commande(text, text) from public;
+grant execute on function public.livreurs_de_ma_commande(text, text) to anon, authenticated;
 
 -- ---------- Le livreur avance sa course ----------
 -- DEUX ÉTAPES, ET PAS D'AUTRES : « je l'ai prise » et « je l'ai
@@ -3160,6 +3523,10 @@ $$;
 --
 -- Rend un objet : { ok, remise, raison }. « raison » est écrite pour
 -- être montrée telle quelle au client.
+-- Le code d'un particulier : à qui il appartient, et ce qu'il lui rapporte.
+alter table public.codes_promo add column if not exists parrain uuid;
+alter table public.codes_promo add column if not exists commission numeric(5,2) not null default 0;
+
 create or replace function public.remise_du_code(
   brut text, sous_total bigint, marge bigint,
   qui uuid default null, tel text default '')
@@ -3179,6 +3546,14 @@ declare
 begin
   if cle = '' then
     return jsonb_build_object('ok', false, 'remise', 0, 'raison', refus);
+  end if;
+  -- UN REVENDEUR A DÉJÀ SA REMISE : il achète au prix BIZZOO, sur tout le
+  -- catalogue. Un code s'y ajouterait, et sortirait une seconde fois de
+  -- la même marge. La caisse passe alors la commande sans le code.
+  if qui is not null and exists (select 1 from public.clients r
+                                 where r.id = qui and r.revendeur_etat = 'validee') then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'Votre compte revendeur achète déjà au prix BIZZOO : les codes promo ne s''y ajoutent pas.');
   end if;
   select * into c from public.codes_promo where code = cle;
   -- MÊME RÉPONSE pour « inconnu » et « fermé ». Distinguer les deux
@@ -3209,6 +3584,13 @@ begin
     end if;
   end if;
 
+  -- LE PROPRIÉTAIRE D'UN CODE NE S'EN SERT PAS : il toucherait une
+  -- commission sur ses propres achats.
+  if c.parrain is not null and qui is not null and qui = c.parrain then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'C''est votre code : il sert à vos clients, pas à vous.');
+  end if;
+
   -- « Une seule fois par client ». Un compte se reconnaît à son
   -- identifiant ; un visiteur sans compte, à son seul numéro — on le dit
   -- franchement plutôt que de laisser croire à une identification qui
@@ -3233,7 +3615,9 @@ begin
   -- la marge de l'enseigne ne regarde pas le client.
   if brute > plafond then brute := plafond; end if;
 
-  if brute <= 0 then
+  -- UN CODE DE PARTICULIER VAUT MÊME SANS REMISE : il porte la commission
+  -- de son propriétaire, et la commande doit le garder.
+  if brute <= 0 and c.parrain is null then
     return jsonb_build_object('ok', false, 'remise', 0,
       'raison', 'Ce code ne s''applique pas à ce panier.');
   end if;
@@ -3410,12 +3794,16 @@ end $$;
 revoke all on function public.remises_periode(date, date, text) from public, anon;
 grant execute on function public.remises_periode(date, date, text) to authenticated;
 
--- « drop » avant « create » : cette fonction a gagné un paramètre — le
--- code promo. Un paramètre par défaut n'en remplace pas une, il en crée
--- une seconde, et l'appel devient ambigu : « function is not unique ».
+-- « drop » avant « create » : cette fonction a gagné des paramètres — le
+-- code promo, puis l'acompte. Un paramètre par défaut n'en remplace pas
+-- une, il en crée une seconde, et l'appel devient ambigu : « function is
+-- not unique ».
 drop function if exists public.creer_commande(jsonb, jsonb);
+drop function if exists public.creer_commande(jsonb, jsonb, text);
+drop function if exists public.creer_commande(jsonb, jsonb, text, boolean);
 create or replace function public.creer_commande(
-  client jsonb, articles jsonb, code text default '')
+  client jsonb, articles jsonb, code text default '',
+  avec_acompte boolean default false, avec_frais boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -3431,6 +3819,7 @@ declare
   marge    bigint;
   verdict  jsonb;
   manque   record;
+  taux     int;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -3480,6 +3869,22 @@ begin
     left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
     left(coalesce(trim(client ->> 'adresse'), ''), 300),
     left(coalesce(trim(client ->> 'note'), ''), 500));
+
+  -- ---------- Les frais de livraison ----------
+  -- AVANT les lignes : chaque ligne posée recalcule le total, qui les
+  -- compte. Le montant est celui des réglages du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE LES DEMANDE PAS, et n'en paie donc pas :
+  -- elle ne saurait pas les montrer, et le client paierait un montant
+  -- qu'on ne lui a jamais annoncé.
+  -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
+  if coalesce(avec_frais, false) then
+    update public.commandes
+       set frais_livraison = greatest(0, coalesce(
+             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
+     where id = nouvelle;
+  end if;
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -3563,6 +3968,30 @@ begin
     end if;
   end if;
 
+  -- ---------- L'acompte ----------
+  -- APRÈS le code promo : l'acompte se prend sur ce que le client doit
+  -- vraiment, remise déduite. Le taux est celui du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE DEMANDE RIEN. Elle fait payer le total et
+  -- dit « Payée » une fois le versement reçu : sa commande se règle donc
+  -- en entier, comme elle l'annonce au client. Lui faire payer un acompte
+  -- sans qu'elle sache le dire laisserait croire au client qu'il ne doit
+  -- plus rien, et le livreur arriverait avec une somme à réclamer.
+  --
+  -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
+  -- plus que le total.
+  taux := case when coalesce(avec_acompte, false)
+               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
+               else 100 end;
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes c
+     set taux_acompte = taux,
+         acompte = case when c.total <= 0 then 0
+                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
+   where c.id = nouvelle;
+  perform set_config('bizzoo.interne', '', true);
+
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'etat', c.etat,
@@ -3570,6 +3999,12 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Les frais de livraison, à part : le récapitulatif les montre sur
+       leur propre ligne. */
+    'frais_livraison', c.frais_livraison,
+    /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
+    'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
+    'reste', greatest(0, c.total - c.acompte),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -3577,6 +4012,10 @@ begin
                'whatsapp', coalesce((select b.whatsapp from public.boutiques b where b.id = g.boutique_id), ''),
                'indicatif', coalesce((select b.indicatif from public.boutiques b where b.id = g.boutique_id), '229'),
                'montant', g.montant,
+               /* Ce que CETTE boutique encaissera à la livraison. */
+               'a_encaisser', coalesce((select r.a_encaisser
+                                          from public.restes_par_boutique(c.id) r
+                                         where r.boutique_id is not distinct from g.boutique_id), 0),
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
@@ -3596,8 +4035,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) to anon, authenticated;
 
 -- ---------- Suivre sa commande ----------
 -- Après le paiement, l'application ATTEND que l'état bouge, elle ne
@@ -3617,7 +4056,19 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'numero', c.numero, 'etat', c.etat, 'total', c.total, 'devise', c.devise,
-    'paye_le', c.paye_le, 'remarque', c.remarque);
+    'paye_le', c.paye_le, 'remarque', c.remarque,
+    'frais_livraison', c.frais_livraison,
+    -- L'acompte, ce qui a été versé, et ce qui reste à payer à la
+    -- livraison, boutique par boutique. Une commande d'avant l'acompte
+    -- se payait en entier : son acompte est son total.
+    'taux_acompte', coalesce(c.taux_acompte, 100),
+    'acompte', coalesce(c.acompte, c.total),
+    'verse', c.verse,
+    'reste', (select coalesce(sum(r.a_encaisser), 0)
+                from public.restes_par_boutique(c.id) r),
+    'restes', (select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
+                 from public.restes_par_boutique(c.id) r
+                where r.boutique_id is not null));
 end $$;
 revoke all on function public.suivre_commande(text, text) from public;
 grant execute on function public.suivre_commande(text, text) to anon, authenticated;
@@ -3665,6 +4116,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   c   public.commandes%rowtype;
   net text := left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64);
+  du  int;
 begin
   if net = '' then return jsonb_build_object('ok', false, 'raison', 'transaction absente'); end if;
 
@@ -3690,6 +4142,10 @@ begin
     return jsonb_build_object('ok', true, 'deja', true, 'numero', c.numero);
   end if;
 
+  -- CE QUI EST ATTENDU EN LIGNE, c'est l'acompte : le reste se paie à la
+  -- livraison. Une commande d'avant l'acompte se payait en entier.
+  du := coalesce(c.acompte, c.total);
+
   perform set_config('bizzoo.paiement', 'oui', true);
 
   -- Cette transaction est déjà rattachée à une autre commande. On le
@@ -3703,36 +4159,41 @@ begin
     -- L'agrégateur et l'opérateur se reprennent tout seuls sur la ligne
     -- d'ouverture : c'est « noter_versement » qui s'en charge.
     perform public.noter_versement(c.id, 'conflit', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
       'Transaction déjà rattachée à une autre commande.');
     return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
   end if;
 
-  -- Le montant qui compte est celui que KkiaPay annonce. S'il manque
+  -- Le montant qui compte est celui que l'agrégateur annonce. S'il manque
   -- quelque chose, on ne valide pas : on écrit ce qu'on a reçu, et la
   -- boutique tranche. La preuve, elle, n'est pas posée : la commande
   -- n'est pas payée.
-  if coalesce(montant, 0) < c.total then
+  if coalesce(montant, 0) < du then
     update public.commandes
        set remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
-                      || ' reçus sur ' || c.total::text || ' attendus'
+                      || ' reçus sur ' || du::text || ' attendus'
                       || ' (transaction ' || net || ').'
      where id = c.id;
     perform public.noter_versement(c.id, 'incomplete', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
-      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || c.total::text || ' attendus.');
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
+      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || du::text || ' attendus.');
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
 
+  -- « verse » garde ce qui est RÉELLEMENT entré : c'est de lui que se
+  -- déduit ce que le livreur réclamera. Un client qui a tout payé en
+  -- ligne ne doit plus rien à la porte.
   update public.commandes
      set etat = 'payee', paye_le = now(), transaction_id = net,
-         confirme_par = '', remarque = ''
+         confirme_par = '', remarque = '', verse = coalesce(montant, 0)
    where id = c.id;
   -- La remarque vient d'être effacée sur la commande : c'est le journal,
   -- désormais, qui garde ce qui s'est passé avant cette réussite.
   perform public.noter_versement(c.id, 'payee', qui, '',
-    c.fournisseur_ref, net, c.total, coalesce(montant, 0), 'Versement encaissé.');
-  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total);
+    c.fournisseur_ref, net, du, coalesce(montant, 0),
+    case when du < c.total then 'Acompte encaissé.' else 'Versement encaissé.' end);
+  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total,
+                            'verse', coalesce(montant, 0));
 end $$;
 
 -- LE POINT À NE PAS MANQUER : révoquer du seul pseudo-rôle « public »
@@ -3974,9 +4435,9 @@ begin
 
   -- Au journal. C'est ICI, et nulle part ailleurs, qu'on sait chez quel
   -- opérateur la demande est partie : ni la notification ni la
-  -- vérification ne le rappellent.
-  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '', c.total, 0,
-    'Demande de paiement envoyée.');
+  -- vérification ne le rappellent. Ce qui est demandé, c'est l'acompte.
+  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '',
+    coalesce(c.acompte, c.total), 0, 'Demande de paiement envoyée.');
   return true;
 end $$;
 
@@ -3991,6 +4452,11 @@ revoke all on function public.noter_reference(text, text, text, text)
 -- Le numéro de téléphone du client fait office de mot de passe, comme
 -- pour « suivre_commande » : sans lui, n'importe qui ferait sonner le
 -- téléphone d'un inconnu avec une demande de paiement.
+--
+-- « total » EST CE QUE L'AGRÉGATEUR DOIT DEMANDER : l'acompte, depuis
+-- qu'il existe. La fonction Edge « feexpay » demande ce champ-là, telle
+-- qu'elle est déployée : elle n'a pas à changer. Le total de la commande
+-- entière voyage à part, sous « total_commande ».
 create or replace function public.commande_pour_paiement(cible text, tel text)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -4003,7 +4469,8 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'etat', c.etat,
-    'total', c.total, 'devise', c.devise,
+    'total', coalesce(c.acompte, c.total), 'devise', c.devise,
+    'acompte', coalesce(c.acompte, c.total), 'total_commande', c.total,
     'nom', c.client_nom, 'tel', c.client_tel,
     'reference', c.fournisseur_ref,
     -- Pour que l'Edge Function refuse une relance AVANT d'appeler
@@ -4058,10 +4525,13 @@ begin
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   perform set_config('bizzoo.paiement', 'oui', true);
+  -- Ce dont l'enseigne se porte garante, c'est de l'ACOMPTE : le reste
+  -- se paie à la livraison, et reste dû.
   update public.commandes
-     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne')
+     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne'),
+         verse = coalesce(acompte, total)
    where id = cible and etat <> 'payee'
-  returning total into montant;
+  returning verse into montant;
 
   -- Au journal, et NOMMÉMENT « main ». Un encaissement à la main n'est
   -- pas un versement comme un autre : personne ne l'a vérifié chez
@@ -4368,37 +4838,64 @@ declare
   b        record;
   numero   text := coalesce(new.numero, '');
   client   uuid := new.client_id;
+  devise   text := ' ' || coalesce(nullif(new.devise, ''), 'FCFA');
+  reste    bigint;
 begin
   if new.etat is not distinct from old.etat or new.etat <> 'payee' then
     return new;
   end if;
 
+  -- CE QUI RESTE À PAYER À LA LIVRAISON. À zéro — tout réglé en ligne —
+  -- les messages restent ceux d'avant l'acompte. Les montants s'écrivent
+  -- comme dans les applications : « 13 500 FCFA ».
+  select coalesce(sum(r.a_encaisser), 0) into reste
+    from public.restes_par_boutique(new.id) r;
+
   -- Le client, s'il a un compte. Une commande passée sans compte n'a
   -- personne à prévenir — le reçu lui est déjà revenu par WhatsApp.
   if client is not null then
     perform public.notifier(array[client], 'commande_payee',
-      'Paiement reçu',
-      'Votre commande ' || numero || ' est confirmée. Nous la préparons.',
+      case when reste > 0 then 'Acompte reçu' else 'Paiement reçu' end,
+      'Votre commande ' || numero || ' est confirmée. Nous la préparons.' ||
+        case when reste > 0
+             then ' Reste à payer à la livraison : ' ||
+                  replace(to_char(reste, 'FM999,999,999,990'), ',', ' ') || devise || '.'
+             else '' end,
       '#/commande/' || new.id, new.id, null, true);
   end if;
 
-  -- Chaque boutique concernée, une fois.
-  for b in select distinct l.boutique_id from public.commande_lignes l
-            where l.commande_id = new.id and l.boutique_id is not null loop
+  -- Chaque boutique concernée, une fois, avec CE QU'ELLE encaissera : sa
+  -- part du reste, que son livreur réclamera à la porte.
+  for b in select r.boutique_id, r.a_encaisser
+             from public.restes_par_boutique(new.id) r
+            where r.boutique_id is not null loop
     perform public.notifier(public.equipe_de(b.boutique_id), 'commande_payee',
-      'Nouvelle commande payée',
-      'La commande ' || numero || ' est payée. À préparer.',
+      case when b.a_encaisser > 0 then 'Nouvelle commande confirmée' else 'Nouvelle commande payée' end,
+      case when b.a_encaisser > 0
+           then 'La commande ' || numero || ' est confirmée par son acompte. À préparer — ' ||
+                replace(to_char(b.a_encaisser, 'FM999,999,999,990'), ',', ' ') || devise ||
+                ' à encaisser à la livraison.'
+           else 'La commande ' || numero || ' est payée. À préparer.' end,
       '#/commandes/' || new.id, new.id, b.boutique_id, true);
   end loop;
 
   perform public.notifier(public.enseigne_des_commandes(), 'commande_payee',
-    'Nouvelle commande payée',
-    'La commande ' || numero || ' vient d''être payée.',
+    case when reste > 0 then 'Nouvelle commande confirmée' else 'Nouvelle commande payée' end,
+    'La commande ' || numero ||
+      case when reste > 0 then ' vient d''être confirmée par son acompte.'
+           else ' vient d''être payée.' end,
     '#/commandes/' || new.id, new.id, null, true);
 
   perform public.notifier(public.les_superadmins(), 'commande_payee',
-    'Paiement encaissé',
-    'La commande ' || numero || ' est payée.',
+    case when reste > 0 then 'Acompte encaissé' else 'Paiement encaissé' end,
+    'La commande ' || numero ||
+      case when reste > 0
+           then ' : acompte de ' ||
+                replace(to_char(coalesce(new.verse, new.acompte, 0), 'FM999,999,999,990'), ',', ' ') ||
+                devise || ' encaissé, ' ||
+                replace(to_char(reste, 'FM999,999,999,990'), ',', ' ') || devise ||
+                ' à encaisser à la livraison.'
+           else ' est payée.' end,
     '#/commandes/' || new.id, new.id, null, true);
 
   return new;
@@ -5857,7 +6354,7 @@ revoke all on function public.produits_populaires(int)
 grant execute on function public.produits_populaires(int) to anon, authenticated;
 
 -- ---------- La liste de BIZZOO ----------
--- Quinze secteurs, soixante-quatorze rayons. Ils arrivent une fois ;
+-- Vingt-neuf secteurs, cent vingt-trois rayons. Ils arrivent une fois ;
 -- ensuite c'est le superadministrateur qui les tient depuis
 -- l'application — renommer, réordonner, ajouter, retirer.
 --
@@ -5865,75 +6362,58 @@ grant execute on function public.produits_populaires(int) to anon, authenticated
 -- ne doit pas être remise à l'état d'usine à chaque relecture du
 -- fichier. Ce qui est posé reste posé.
 --
--- « en_avant » désigne les huit de l'accueil. Les quinze ne tiennent
--- pas sur un premier écran, et les montrer toutes reviendrait à n'en
--- montrer aucune.
+-- « en_avant » désigne les huit de l'accueil. Les vingt-neuf ne
+-- tiennent pas sur un premier écran, et les montrer toutes reviendrait
+-- à n'en montrer aucune.
 --
--- « image » : l'illustration de son rond, celle qui voyage avec
--- l'application (« client/img/categories/ »). Une base déjà en place
--- les reçoit par « categories-photos.sql ».
+-- « ordre » range la liste par thème : high-tech, enfants et école,
+-- maison, mobilité, mode, alimentation, loisirs, professionnels,
+-- services. La place 3 est celle d'« Électro-ménagers & Cuisinière »,
+-- créée depuis l'admin sur la base en ligne.
+--
+-- « icone » : l'icône de sa tuile, l'une de celles des planches
+-- choisies par l'enseigne (« img/pictos/ », dans les deux
+-- applications). Pas d'image : l'icône suffit. Une base déjà en place
+-- reçoit les icônes par « categories-icones.sql », et la liste rangée
+-- par « categories-rangement.sql ».
 insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
-  ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1, 'img/categories/robe.jpg'),
-  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2, 'img/categories/ordinateur.jpg'),
-  ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3, 'img/categories/voiture.jpg'),
-  ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4, 'img/categories/maison.jpg'),
-  ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5, 'img/categories/rouge-a-levres.jpg'),
-  ('cat_restauration', null, 'Restauration & Alimentation',        'couverts', '#F96302', true,   6, 'img/categories/marmite.jpg'),
-  ('cat_supermarche',  null, 'Supermarché & Épicerie',             'chariot',  '#E62329', true,   7, 'img/categories/chariot.jpg'),
-  ('cat_logiciels',    null, 'Logiciels & Solutions professionnelles', 'ecran', '#0B7C8C', false, 8, 'img/categories/ecran.jpg'),
-  ('cat_bebe',         null, 'Bébé & Enfant',                      'cadeau',   '#3F51B5', false,  9, 'img/categories/nounours.jpg'),
-  ('cat_sport',        null, 'Sport & Loisirs',                    'ballon',   '#9A6B00', false, 10, 'img/categories/ballon.jpg'),
-  ('cat_bricolage',    null, 'Bricolage & Matériaux',              'outils',   '#546E7A', false, 11, 'img/categories/briques.jpg'),
-  ('cat_livres',       null, 'Livres, Éducation & Fournitures',    'livre',    '#7A4A32', false, 12, 'img/categories/livres.jpg'),
-  ('cat_bijoux',       null, 'Bijoux & Accessoires',               'diamant',  '#6C3FBF', false, 13, 'img/categories/bague.jpg'),
-  ('cat_animaux',      null, 'Animaux',                            'patte',    '#0F9D58', false, 14, 'img/categories/chien.jpg'),
-  ('cat_services',     null, 'Services',                           'sacoche',  '#0B7C8C', true,  15, 'img/categories/boite-a-outils.jpg')
+  ('cat_hightech',     null, 'Informatique & Électronique',   'informatique',     '#0B5CF5', true,   1, ''),
+  ('cat_logiciels',    null, 'Logiciels & Solutions pro',     'informatique',     '#0B7C8C', false,  2, ''),
+  ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',          '#2550B7', false,  4, ''),
+  ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',         '#2550B7', false,  5, ''),
+  ('cat_bebe',         null, 'Bébé & Enfants',                'bebe-enfant',      '#3F51B5', false,  6, ''),
+  ('cat_livres',       null, 'Livres & Fournitures scolaires', 'livres-education', '#7A4A32', false, 7, ''),
+  ('cat_formation',    null, 'Formation & Cours',             'formation',        '#2550B7', false,  8, ''),
+  ('cat_maison',       null, 'Maison & Déco',                 'maison-deco',      '#0F9D58', true,   9, ''),
+  ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',        '#2550B7', false, 10, ''),
+  ('cat_bricolage',    null, 'Bricolage & Matériaux',         'bricolage',        '#546E7A', false, 11, ''),
+  ('cat_auto',         null, 'Auto & Moto',                   'auto-moto',        '#001450', true,  12, ''),
+  ('cat_transport',    null, 'Transport & Location',          'transport',        '#2550B7', false, 13, ''),
+  ('cat_mode',         null, 'Mode & Vêtements',              'mode',             '#6C3FBF', true,  14, ''),
+  ('cat_bijoux',       null, 'Bijoux & Accessoires',          'bijoux',           '#6C3FBF', false, 15, ''),
+  ('cat_beaute',       null, 'Beauté & Bien-être',            'beaute',           '#D81B60', true,  16, ''),
+  ('cat_supermarche',  null, 'Supermarché & Épicerie',        'alimentation',     '#E62329', true,  17, ''),
+  ('cat_restauration', null, 'Restauration',                  'restauration',     '#F96302', true,  18, ''),
+  ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',      '#2550B7', false, 19, ''),
+  ('cat_animaux',      null, 'Animaux',                       'animaux',          '#0F9D58', false, 20, ''),
+  ('cat_sport',        null, 'Sport & Loisirs',               'sport-loisirs',    '#9A6B00', false, 21, ''),
+  ('cat_musique',      null, 'Musique & Instruments',         'musique',          '#2550B7', false, 22, ''),
+  ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',        '#2550B7', false, 23, ''),
+  ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',           '#2550B7', false, 24, ''),
+  ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel',     '#2550B7', false, 25, ''),
+  ('cat_bureau',       null, 'Équipements de bureau',         'bureau',           '#2550B7', false, 26, ''),
+  ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro',     '#2550B7', false, 27, ''),
+  ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',       '#2550B7', false, 28, ''),
+  ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',       '#2550B7', false, 29, ''),
+  ('cat_services',     null, 'Services & Prestataires',       'services',         '#0B7C8C', true,  30, '')
 on conflict (id) do nothing;
 
 insert into public.sous_categories (id, categorie_id, nom, ordre) values
-  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
-  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
-  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
-  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
-  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
-
   ('sc_hightech_smartphones',  'cat_hightech', 'Smartphones',       1),
   ('sc_hightech_ordinateurs',  'cat_hightech', 'Ordinateurs',       2),
   ('sc_hightech_tablettes',    'cat_hightech', 'Tablettes',         3),
   ('sc_hightech_accessoires',  'cat_hightech', 'Accessoires',       4),
   ('sc_hightech_tv',           'cat_hightech', 'TV & audio',        5),
-
-  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
-  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
-  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
-  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
-  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
-  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
-
-  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
-  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
-  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
-  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
-  ('sc_maison_jardinage',      'cat_maison', 'Jardinage',           5),
-
-  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
-  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
-  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
-  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
-  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
-
-  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
-  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
-  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
-  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
-  ('sc_resto_epicerie',        'cat_restauration', 'Épicerie',       5),
-  ('sc_resto_frais',           'cat_restauration', 'Produits frais', 6),
-
-  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
-  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
-  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
-  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
-  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
 
   ('sc_logiciels_gestion',     'cat_logiciels', 'Logiciels de gestion',      1),
   ('sc_logiciels_compta',      'cat_logiciels', 'Comptabilité',              2),
@@ -5942,10 +6422,96 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_logiciels_licences',    'cat_logiciels', 'Licences',                  5),
   ('sc_logiciels_entreprises', 'cat_logiciels', 'Solutions pour entreprises', 6),
 
+  ('sc_energie_solaire',        'cat_energie', 'Panneaux & kits solaires', 1),
+  ('sc_energie_batteries',      'cat_energie', 'Batteries & onduleurs',    2),
+  ('sc_energie_groupes',        'cat_energie', 'Groupes électrogènes',     3),
+  ('sc_energie_eclairage',      'cat_energie', 'Éclairage',                4),
+  ('sc_brico_electricite',      'cat_energie', 'Électricité',              5),
+
+  ('sc_securite_cameras',       'cat_securite', 'Caméras de surveillance',      1),
+  ('sc_securite_alarmes',       'cat_securite', 'Alarmes & détecteurs',         2),
+  ('sc_securite_acces',         'cat_securite', 'Serrures & contrôle d''accès', 3),
+
   ('sc_bebe_vetements',        'cat_bebe', 'Vêtements',             1),
   ('sc_bebe_jouets',           'cat_bebe', 'Jouets',                2),
   ('sc_bebe_puericulture',     'cat_bebe', 'Puériculture',          3),
   ('sc_bebe_mobilier',         'cat_bebe', 'Mobilier enfant',       4),
+
+  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
+  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
+  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
+
+  ('sc_livres_formations',      'cat_formation', 'Formations',                 1),
+  ('sc_formation_cours',        'cat_formation', 'Cours particuliers',         2),
+  ('sc_formation_langues',      'cat_formation', 'Langues',                    3),
+  ('sc_formation_informatique', 'cat_formation', 'Informatique & bureautique', 4),
+
+  ('sc_maison_meubles',        'cat_maison', 'Meubles',             1),
+  ('sc_maison_decoration',     'cat_maison', 'Décoration',          2),
+  ('sc_maison_electromenager', 'cat_maison', 'Électroménager',      3),
+  ('sc_maison_cuisine',        'cat_maison', 'Cuisine',             4),
+
+  ('sc_maison_jardinage',       'cat_jardinage', 'Jardinage',                  1),
+  ('sc_jardinage_plantes',      'cat_jardinage', 'Plantes & fleurs',           2),
+  ('sc_jardinage_outils',       'cat_jardinage', 'Outils de jardin',           3),
+  ('sc_jardinage_entretien',    'cat_jardinage', 'Entretien d''espaces verts', 4),
+
+  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
+  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
+  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
+  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+
+  ('sc_auto_vehicules',        'cat_auto', 'Véhicules',             1),
+  ('sc_auto_motos',            'cat_auto', 'Motos',                 2),
+  ('sc_auto_pieces',           'cat_auto', 'Pièces détachées',      3),
+  ('sc_auto_pneus',            'cat_auto', 'Pneus',                 4),
+  ('sc_auto_accessoires',      'cat_auto', 'Accessoires auto',      5),
+  ('sc_auto_entretien',        'cat_auto', 'Entretien',             6),
+
+  ('sc_transport_location',     'cat_transport', 'Location de véhicules',     1),
+  ('sc_transport_demenagement', 'cat_transport', 'Déménagement',              2),
+  ('sc_transport_marchandises', 'cat_transport', 'Transport de marchandises', 3),
+  ('sc_transport_coursiers',    'cat_transport', 'Livraison & coursiers',     4),
+
+  ('sc_mode_homme',            'cat_mode', 'Homme',                 1),
+  ('sc_mode_femme',            'cat_mode', 'Femme',                 2),
+  ('sc_mode_enfant',           'cat_mode', 'Enfant',                3),
+  ('sc_mode_chaussures',       'cat_mode', 'Chaussures',            4),
+  ('sc_mode_sacs',             'cat_mode', 'Sacs & accessoires',    5),
+
+  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
+  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
+  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
+  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+
+  ('sc_beaute_cosmetiques',    'cat_beaute', 'Cosmétiques',         1),
+  ('sc_beaute_parfums',        'cat_beaute', 'Parfums',             2),
+  ('sc_beaute_soins',          'cat_beaute', 'Soins',               3),
+  ('sc_beaute_coiffure',       'cat_beaute', 'Coiffure',            4),
+  ('sc_beaute_accessoires',    'cat_beaute', 'Accessoires beauté',  5),
+
+  ('sc_super_alimentation',    'cat_supermarche', 'Alimentation',       1),
+  ('sc_super_menagers',        'cat_supermarche', 'Produits ménagers',  2),
+  ('sc_super_bebe',            'cat_supermarche', 'Produits pour bébé', 3),
+  ('sc_super_hygiene',         'cat_supermarche', 'Hygiène',            4),
+  ('sc_super_boissons',        'cat_supermarche', 'Boissons',           5),
+  ('sc_resto_epicerie',        'cat_supermarche', 'Épicerie',           6),
+  ('sc_resto_frais',           'cat_supermarche', 'Produits frais',     7),
+
+  ('sc_resto_restaurants',     'cat_restauration', 'Restaurants',    1),
+  ('sc_resto_fastfood',        'cat_restauration', 'Fast-food',      2),
+  ('sc_resto_plats_locaux',    'cat_restauration', 'Plats locaux',   3),
+  ('sc_resto_boissons',        'cat_restauration', 'Boissons',       4),
+
+  ('sc_agri_semences',          'cat_agriculture', 'Semences & plants',     1),
+  ('sc_agri_engrais',           'cat_agriculture', 'Engrais & traitements', 2),
+  ('sc_agri_materiel',          'cat_agriculture', 'Matériel agricole',     3),
+  ('sc_agri_elevage',           'cat_agriculture', 'Élevage',               4),
+  ('sc_agri_produits',          'cat_agriculture', 'Produits de la ferme',  5),
+
+  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
+  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
+  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
 
   ('sc_sport_equipements',     'cat_sport', 'Équipements sportifs', 1),
   ('sc_sport_vetements',       'cat_sport', 'Vêtements de sport',   2),
@@ -5953,25 +6519,40 @@ insert into public.sous_categories (id, categorie_id, nom, ordre) values
   ('sc_sport_jeux',            'cat_sport', 'Jeux',                 4),
   ('sc_sport_loisirs',         'cat_sport', 'Loisirs',              5),
 
-  ('sc_brico_outillage',       'cat_bricolage', 'Outillage',                  1),
-  ('sc_brico_materiaux',       'cat_bricolage', 'Matériaux de construction',  2),
-  ('sc_brico_electricite',     'cat_bricolage', 'Électricité',                3),
-  ('sc_brico_plomberie',       'cat_bricolage', 'Plomberie',                  4),
-  ('sc_brico_quincaillerie',   'cat_bricolage', 'Quincaillerie',              5),
+  ('sc_musique_instruments',    'cat_musique', 'Instruments de musique', 1),
+  ('sc_musique_sono',           'cat_musique', 'Sonorisation',           2),
+  ('sc_musique_accessoires',    'cat_musique', 'Accessoires',            3),
 
-  ('sc_livres_livres',         'cat_livres', 'Livres',               1),
-  ('sc_livres_fournitures',    'cat_livres', 'Fournitures scolaires', 2),
-  ('sc_livres_papeterie',      'cat_livres', 'Papeterie',            3),
-  ('sc_livres_formations',     'cat_livres', 'Formations',           4),
+  ('sc_artisanat_objets',       'cat_artisanat', 'Objets d''art & artisanat', 1),
+  ('sc_artisanat_tissus',       'cat_artisanat', 'Tissus & pagnes',           2),
+  ('sc_artisanat_locaux',       'cat_artisanat', 'Produits locaux',           3),
 
-  ('sc_bijoux_bijoux',         'cat_bijoux', 'Bijoux',               1),
-  ('sc_bijoux_montres',        'cat_bijoux', 'Montres',              2),
-  ('sc_bijoux_lunettes',       'cat_bijoux', 'Lunettes',             3),
-  ('sc_bijoux_accessoires',    'cat_bijoux', 'Accessoires',          4),
+  ('sc_cadeaux_cadeaux',        'cat_cadeaux', 'Cadeaux',             1),
+  ('sc_cadeaux_fete',           'cat_cadeaux', 'Articles de fête',    2),
+  ('sc_cadeaux_emballages',     'cat_cadeaux', 'Emballages & cartes', 3),
 
-  ('sc_animaux_alimentation',  'cat_animaux', 'Alimentation',        1),
-  ('sc_animaux_accessoires',   'cat_animaux', 'Accessoires',         2),
-  ('sc_animaux_hygiene',       'cat_animaux', 'Hygiène',             3),
+  ('sc_event_decoration',       'cat_evenementiel', 'Décoration d''événements',   1),
+  ('sc_event_location',         'cat_evenementiel', 'Location de matériel',       2),
+  ('sc_event_organisation',     'cat_evenementiel', 'Organisation d''événements', 3),
+
+  ('sc_bureau_mobilier',        'cat_bureau', 'Mobilier de bureau',    1),
+  ('sc_bureau_materiel',        'cat_bureau', 'Matériel de bureau',    2),
+  ('sc_bureau_fournitures',     'cat_bureau', 'Fournitures de bureau', 3),
+
+  ('sc_pro_restauration',       'cat_materiel_pro', 'Équipements de restauration',   1),
+  ('sc_pro_salon',              'cat_materiel_pro', 'Équipements de salon & beauté', 2),
+  ('sc_pro_machines',           'cat_materiel_pro', 'Machines professionnelles',     3),
+  ('sc_pro_medical',            'cat_materiel_pro', 'Matériel médical',              4),
+
+  ('sc_imprimerie_impression',  'cat_imprimerie', 'Impression',                1),
+  ('sc_imprimerie_enseignes',   'cat_imprimerie', 'Enseignes & signalétique',  2),
+  ('sc_imprimerie_objets',      'cat_imprimerie', 'Objets publicitaires',      3),
+  ('sc_imprimerie_graphisme',   'cat_imprimerie', 'Graphisme & communication', 4),
+
+  ('sc_gros_alimentation',      'cat_grossistes', 'Alimentation en gros',        1),
+  ('sc_gros_boissons',          'cat_grossistes', 'Boissons en gros',            2),
+  ('sc_gros_hygiene',           'cat_grossistes', 'Hygiène & entretien en gros', 3),
+  ('sc_gros_emballages',        'cat_grossistes', 'Emballages',                  4),
 
   ('sc_services_reparation',   'cat_services', 'Réparation',              1),
   ('sc_services_installation', 'cat_services', 'Installation',            2),
@@ -6396,3 +6977,971 @@ revoke all on function public.traiter_signalement_produit(bigint, text)
   from public, anon, authenticated;
 grant execute on function public.traiter_signalement_produit(bigint, text)
   to authenticated;
+
+-- =========================================================
+-- La connexion de l'équipe confirmée par SMS, et qui a créé
+-- quel compte (3.58.0)
+--
+-- DEUX PORTES, DEUX MÉCANISMES, et le choix n'est pas un hasard.
+--
+--   LE CLIENT ENTRE PAR SON NUMÉRO : le code est celui de GoTrue, et
+--   le numéro est l'identifiant. Rien à écrire ici — voir le chapitre
+--   « Vérification du numéro ».
+--
+--   L'ÉQUIPE GARDE SON E-MAIL ET SON MOT DE PASSE, et reçoit EN PLUS un
+--   code à chaque connexion. Ce code-là est le nôtre, et pour une
+--   raison précise : GoTrue marque de la même étiquette (« otp ») une
+--   session ouverte par un code SMS et une session ouverte par un lien
+--   reçu par e-mail. La base ne saurait pas les distinguer. Le seul
+--   témoin d'un SMS reçu est un code que NOUS avons envoyé, et que la
+--   personne nous rend.
+--
+-- Le code est rattaché à la SESSION (« session_id » du jeton), pas au
+-- compte : chaque connexion demande le sien, et un code rendu sur un
+-- téléphone n'ouvre rien sur un autre. L'interrupteur, les sessions
+-- confirmées et « equipe_en_service() » sont posés plus haut, avant
+-- « role_courant() », qui les lit.
+--
+-- TANT QUE L'ENSEIGNE NE L'EXIGE PAS, rien ne change. L'interrupteur ne
+-- s'allume qu'entre les mains d'un superadministrateur qui vient de
+-- recevoir et de rendre son propre code : la preuve que le SMS arrive,
+-- avant de fermer la porte à toute l'équipe.
+-- =========================================================
+
+-- ---------- Le numéro de l'équipe, et qui a créé le compte ----------
+-- « tel » est répété ici : un fichier qui pose une règle d'écriture pose
+-- aussi les colonnes qu'elle lit.
+alter table public.profils add column if not exists tel text not null default '';
+-- Vérifié par un code reçu, jamais déclaré : voir « profil_trace() ».
+alter table public.profils add column if not exists tel_verifie boolean not null default false;
+alter table public.profils add column if not exists tel_verifie_le timestamptz;
+-- Qui a créé ce compte. SANS lien vers « auth.users » : la trace doit
+-- survivre à la suppression du compte de celui qui l'a créé. Son nom est
+-- figé au moment de la création, pour la même raison.
+alter table public.profils add column if not exists cree_par uuid;
+alter table public.profils add column if not exists cree_par_nom text not null default '';
+
+-- ---------- Les codes envoyés ----------
+-- Hachés, jamais en clair : une copie de la base ne doit pas permettre
+-- d'ouvrir une session à la place de quelqu'un. Les lignes ne
+-- s'effacent pas — un code rendu, remplacé ou annulé change d'état — et
+-- c'est ce qui permet de compter les envois de l'heure passée.
+create table if not exists public.codes_connexion (
+  id          bigint generated always as identity primary key,
+  session_id  uuid not null,
+  utilisateur uuid not null,
+  tel         text not null default '',
+  code_hache  text not null,
+  envoye_le   timestamptz not null default now(),
+  expire_le   timestamptz not null,
+  essais      int not null default 0,
+  etat        text not null default 'envoye'
+              check (etat in ('envoye', 'remplace', 'annule', 'utilise', 'epuise'))
+);
+create index if not exists codes_connexion_session
+  on public.codes_connexion(session_id, envoye_le desc);
+create index if not exists codes_connexion_utilisateur
+  on public.codes_connexion(utilisateur, envoye_le desc);
+alter table public.codes_connexion enable row level security;
+revoke all on public.codes_connexion from public, anon, authenticated;
+
+-- ---------- Enregistrer un code, au nom de la fonction Edge ----------
+-- C'est la fonction Edge « code-connexion » qui tire le code : elle seule
+-- le connaît en clair, et elle n'en confie ici que l'empreinte. D'où les
+-- droits : la clé de service, et personne d'autre. Ouverte à un compte
+-- connecté, elle laisserait chacun inscrire l'empreinte d'un code qu'il
+-- aurait choisi — et le rendre sans avoir rien reçu.
+--
+-- LE FREIN est ici, en base : trente secondes entre deux codes, cinq par
+-- heure. Côté application, il se contournerait — et chaque code est un
+-- SMS payé par l'enseigne.
+create or replace function public.enregistrer_code_connexion(
+  qui uuid, session uuid, hache text)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  p       public.profils%rowtype;
+  numero  text;
+  dernier timestamptz;
+  recents int;
+  nouveau bigint;
+begin
+  if qui is null or session is null or coalesce(hache, '') !~ '\A[0-9a-f]{64}\Z' then
+    return jsonb_build_object('ok', false, 'raison', 'requete');
+  end if;
+  select * into p from public.profils where id = qui;
+  if not found or not p.actif then
+    return jsonb_build_object('ok', false, 'raison', 'hors_equipe');
+  end if;
+  if exists (select 1 from public.sessions_sms s
+              where s.session_id = session and s.utilisateur = qui) then
+    return jsonb_build_object('ok', false, 'raison', 'deja_confirmee');
+  end if;
+  -- Le numéro est celui que l'administrateur a enregistré, jamais un
+  -- numéro tapé au moment de se connecter : sinon un mot de passe volé
+  -- suffirait, le voleur donnerait le sien.
+  numero := regexp_replace(coalesce(p.tel, ''), '\D', '', 'g');
+  if length(numero) < 8 then
+    return jsonb_build_object('ok', false, 'raison', 'sans_numero');
+  end if;
+
+  select max(c.envoye_le),
+         count(*) filter (where c.envoye_le > now() - interval '1 hour')
+    into dernier, recents
+    from public.codes_connexion c
+   where c.utilisateur = qui and c.etat <> 'annule';
+  if dernier is not null and dernier > now() - interval '30 seconds' then
+    return jsonb_build_object('ok', false, 'raison', 'trop_tot',
+      'attente', greatest(1, ceil(extract(epoch from
+        (dernier + interval '30 seconds' - now()))))::int);
+  end if;
+  if coalesce(recents, 0) >= 5 then
+    return jsonb_build_object('ok', false, 'raison', 'trop_de_codes');
+  end if;
+
+  -- Un seul code vaut pour une session : le précédent cède.
+  update public.codes_connexion set etat = 'remplace'
+   where session_id = session and utilisateur = qui and etat = 'envoye';
+  insert into public.codes_connexion (session_id, utilisateur, tel, code_hache, expire_le)
+  values (session, qui, numero, lower(hache), now() + interval '10 minutes')
+  returning id into nouveau;
+  return jsonb_build_object('ok', true, 'id', nouveau, 'tel', numero);
+end $$;
+revoke all on function public.enregistrer_code_connexion(uuid, uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.enregistrer_code_connexion(uuid, uuid, text) to service_role;
+
+-- Le SMS n'est pas parti : le code ne compte pas. Sans cela, une
+-- passerelle en panne ferait épuiser les cinq envois de l'heure sans
+-- qu'un seul SMS ait coûté quoi que ce soit — ni servi à rien.
+create or replace function public.annuler_code_connexion(code_id bigint)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.codes_connexion set etat = 'annule'
+   where id = code_id and etat = 'envoye';
+end $$;
+revoke all on function public.annuler_code_connexion(bigint)
+  from public, anon, authenticated;
+grant execute on function public.annuler_code_connexion(bigint) to service_role;
+
+-- ---------- Rendre le code ----------
+-- UNE ERREUR NE SE LÈVE PAS ICI, ELLE SE RÉPOND. Lever ferait annuler
+-- la transaction — et avec elle le compteur d'essais qu'on vient
+-- d'augmenter : on pourrait alors essayer les un million de codes un par
+-- un. Cinq essais par code, cinq codes par heure : vingt-cinq chances
+-- sur un million.
+create or replace function public.confirmer_code_connexion(code text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  qui   uuid := auth.uid();
+  sid   uuid := public.session_courante();
+  c     public.codes_connexion%rowtype;
+  saisi text := regexp_replace(coalesce(code, ''), '\D', '', 'g');
+begin
+  if qui is null or sid is null then
+    return jsonb_build_object('ok', false, 'raison', 'sans_session');
+  end if;
+  if exists (select 1 from public.sessions_sms s
+              where s.session_id = sid and s.utilisateur = qui) then
+    return jsonb_build_object('ok', true, 'deja', true);
+  end if;
+
+  select * into c from public.codes_connexion
+   where session_id = sid and utilisateur = qui and etat = 'envoye'
+   order by envoye_le desc
+   limit 1
+   for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'raison', 'sans_code');
+  end if;
+  if c.expire_le < now() then
+    update public.codes_connexion set etat = 'epuise' where id = c.id;
+    return jsonb_build_object('ok', false, 'raison', 'expire');
+  end if;
+
+  -- L'empreinte porte la session : le même code tiré pour une autre
+  -- connexion n'aurait pas la même.
+  if length(saisi) <> 6
+     or encode(digest(saisi || ':' || sid::text, 'sha256'), 'hex') <> c.code_hache then
+    update public.codes_connexion
+       set essais = essais + 1,
+           etat = case when essais + 1 >= 5 then 'epuise' else etat end
+     where id = c.id;
+    return jsonb_build_object('ok', false, 'raison', 'code_faux',
+      'restants', greatest(0, 4 - c.essais));
+  end if;
+
+  update public.codes_connexion set etat = 'utilise' where id = c.id;
+  insert into public.sessions_sms (session_id, utilisateur)
+  values (sid, qui)
+  on conflict (session_id) do nothing;
+
+  -- LE NUMÉRO EST VÉRIFIÉ : la personne a rendu le code qu'on y avait
+  -- envoyé. À condition qu'il n'ait pas changé entre-temps — sinon c'est
+  -- l'ancien qui a reçu le code, pas celui qu'on lirait maintenant.
+  perform set_config('bizzoo.compte', 'oui', true);
+  update public.profils
+     set tel_verifie = true, tel_verifie_le = now()
+   where id = qui and not tel_verifie
+     and regexp_replace(coalesce(tel, ''), '\D', '', 'g') = c.tel;
+  perform set_config('bizzoo.compte', '', true);
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function public.confirmer_code_connexion(text) from public, anon;
+grant execute on function public.confirmer_code_connexion(text) to authenticated;
+
+-- ---------- Où en est la connexion ----------
+-- Lue par l'application admin juste après le mot de passe : faut-il
+-- demander un code, et vers quel numéro ? Elle répond MÊME à une session
+-- sans droits — c'est tout son objet. Elle ne dit du numéro que ses deux
+-- derniers chiffres : la personne connaît le sien, et une session
+-- ouverte avec un mot de passe volé n'a pas à apprendre le reste.
+create or replace function public.etat_connexion()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  p      public.profils%rowtype;
+  numero text;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('equipe', false, 'sms_exige', public.sms_equipe_exige());
+  end if;
+  select * into p from public.profils where id = auth.uid();
+  if not found or not p.actif then
+    return jsonb_build_object('equipe', false, 'sms_exige', public.sms_equipe_exige());
+  end if;
+  numero := regexp_replace(coalesce(p.tel, ''), '\D', '', 'g');
+  return jsonb_build_object(
+    'equipe', true,
+    'sms_exige', public.sms_equipe_exige(),
+    'session_confirmee', public.session_confirmee(),
+    'numero', length(numero) >= 8,
+    'fin_numero', case when length(numero) >= 8 then right(numero, 2) else '' end,
+    'tel_verifie', p.tel_verifie);
+end $$;
+revoke all on function public.etat_connexion() from public, anon;
+grant execute on function public.etat_connexion() to authenticated;
+
+-- ---------- L'interrupteur ----------
+-- Au superadministrateur seul. ET POUR L'ALLUMER, IL FAUT AVOIR SOI-MÊME
+-- REÇU ET RENDU SON CODE dans cette session : c'est la preuve que la
+-- passerelle livre. Sans elle, allumer avec une clé SMS fausse ou un
+-- crédit épuisé fermerait la porte à toute l'équipe — à commencer par
+-- celui qui vient de l'allumer.
+--
+-- Pour l'éteindre en catastrophe, sans application : dans l'éditeur SQL
+-- de Supabase, « update public.securite_equipe set sms_exige = false; ».
+create or replace function public.regler_sms_equipe(exige boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  voulu boolean := coalesce(exige, false);
+  qui   text;
+begin
+  if not public.est_super() then
+    raise exception 'Réservé au superadministrateur';
+  end if;
+  if voulu and not public.session_confirmee() then
+    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger de toute l''équipe.';
+  end if;
+  select coalesce(nullif(trim(p.nom), ''), p.email, '') into qui
+    from public.profils p where p.id = auth.uid();
+  insert into public.securite_equipe (id, sms_exige, change_le, change_par)
+  values (1, voulu, now(), coalesce(qui, ''))
+  on conflict (id) do update
+    set sms_exige = excluded.sms_exige,
+        change_le = excluded.change_le,
+        change_par = excluded.change_par;
+  -- Au journal, au nom de celui qui décide : la ligne y est écrite par
+  -- la base, pas par l'écran.
+  insert into public.journal (famille, action, libelle, cible)
+  values ('compte', 'modification',
+          case when voulu
+               then 'Connexion de l''équipe : code SMS exigé à chaque connexion'
+               else 'Connexion de l''équipe : code SMS plus exigé' end,
+          '');
+  return voulu;
+end $$;
+revoke all on function public.regler_sms_equipe(boolean) from public, anon;
+grant execute on function public.regler_sms_equipe(boolean) to authenticated;
+
+-- ---------- Qui a créé le compte ----------
+-- Un nom lisible, figé au moment de la création : « Awa (superadministrateur) ».
+create or replace function public.nom_du_createur(qui uuid)
+returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce(nullif(trim(p.nom), ''), nullif(p.email, ''), 'compte inconnu')
+         || ' (' || p.role || ')'
+    from public.profils p
+   where p.id = qui;
+$$;
+revoke all on function public.nom_du_createur(uuid) from public, anon, authenticated;
+
+-- LA BASE ÉCRIT LA TRACE, L'APPLICATION NE FAIT QUE LA LIRE.
+--
+-- Le créateur, c'est le compte de l'équipe qui donne ses droits à une
+-- fiche toute fraîche — encore en attente, née dans le quart d'heure.
+-- C'est exactement ce que fait « Créer un compte » : l'inscription pose
+-- la fiche, et une seconde plus tard l'administrateur lui donne son rang.
+-- Une fiche réveillée plus tard — un compte inscrit hors de
+-- l'application, qu'on active des jours après — n'a pas de créateur : on
+-- ne prête pas à celui qui active un compte qu'il n'a pas créé.
+--
+-- Et ce qui ne se déclare pas : ni le créateur, ni la date, ni un numéro
+-- vérifié. Changer de numéro annule sa vérification — sans quoi on
+-- vérifierait un numéro, puis on le remplacerait par un autre.
+--
+-- « bizzoo.compte » est ce qui distingue les écritures de confiance —
+-- le code rendu, le rattrapage plus bas — d'une requête ordinaire.
+create or replace function public.profil_trace() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  qui  uuid := auth.uid();
+  deja public.profils%rowtype;
+begin
+  if coalesce(current_setting('bizzoo.compte', true), '') = 'oui' then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    -- UNE FICHE QUI EXISTE DÉJÀ NE NAÎT PAS UNE SECONDE FOIS. Une insertion
+    -- qui la vise finit en mise à jour (« on conflict ») : c'est ainsi que
+    -- l'Historique remet la fiche d'avant quand on annule, ENTIÈRE. Elle
+    -- passe d'abord par ici, et « excluded » porte ce que cette règle y
+    -- a mis : y nommer le créateur du moment faisait échouer toute
+    -- annulation sur « la création ne se réécrit pas ». On y reporte donc
+    -- la trace en place, et la règle de la mise à jour juge le reste.
+    select * into deja from public.profils where id = new.id;
+    if found then
+      new.cree_par := deja.cree_par;
+      new.cree_par_nom := deja.cree_par_nom;
+      new.cree_le := deja.cree_le;
+      new.tel_verifie := deja.tel_verifie;
+      new.tel_verifie_le := deja.tel_verifie_le;
+      return new;
+    end if;
+
+    new.cree_par := null;
+    new.cree_par_nom := '';
+    new.cree_le := now();
+    new.tel_verifie := false;
+    new.tel_verifie_le := null;
+    if qui is not null and qui <> new.id
+       and (public.est_super() or public.est_admin()) then
+      new.cree_par := qui;
+      new.cree_par_nom := coalesce(public.nom_du_createur(qui), '');
+    end if;
+    return new;
+  end if;
+
+  if new.cree_par is distinct from old.cree_par
+     or new.cree_par_nom is distinct from old.cree_par_nom
+     or new.cree_le is distinct from old.cree_le then
+    raise exception 'La création d''un compte ne se réécrit pas';
+  end if;
+  if new.tel_verifie is distinct from old.tel_verifie
+     or new.tel_verifie_le is distinct from old.tel_verifie_le then
+    raise exception 'Un numéro ne se déclare pas vérifié : c''est le code reçu par SMS qui le vérifie';
+  end if;
+
+  if regexp_replace(coalesce(new.tel, ''), '\D', '', 'g')
+     is distinct from regexp_replace(coalesce(old.tel, ''), '\D', '', 'g') then
+    new.tel_verifie := false;
+    new.tel_verifie_le := null;
+  end if;
+
+  if old.cree_par is null and not old.actif
+     and old.cree_le > now() - interval '15 minutes'
+     and qui is not null and qui <> old.id
+     and (public.est_super() or public.est_admin()) then
+    new.cree_par := qui;
+    new.cree_par_nom := coalesce(public.nom_du_createur(qui), '');
+  end if;
+  return new;
+end $$;
+
+create or replace trigger profils_trace
+  before insert or update on public.profils
+  for each row execute function public.profil_trace();
+
+-- ---------- Rattraper la trace des comptes d'avant ----------
+-- Les comptes créés avant ce fichier n'ont pas de créateur en fiche,
+-- mais le journal s'en souvient : « Modérateur ajouté : … », écrit au
+-- nom de celui qui l'a créé. On le reprend — une seule fois par compte,
+-- et seulement là où la fiche ne dit rien. Un compte né hors de
+-- l'application n'a pas de ligne au journal : il reste sans créateur, et
+-- l'écran le dit.
+create or replace function public.rattraper_createurs() returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int := 0;
+begin
+  perform set_config('bizzoo.compte', 'oui', true);
+  update public.profils p
+     set cree_par = c.id,
+         cree_par_nom = case
+           when c.id is not null
+             then coalesce(nullif(trim(c.nom), ''), nullif(c.email, ''), j.utilisateur)
+                  || ' (' || c.role || ')'
+           else j.utilisateur end
+    from (select distinct on (lower(x.cible)) lower(x.cible) as adresse,
+                 x.utilisateur
+            from public.journal x
+           where x.famille = 'compte' and x.action = 'ajout'
+             and x.cible <> '' and x.utilisateur <> ''
+           order by lower(x.cible), x.fait_le) j
+    left join public.profils c on lower(c.email) = lower(j.utilisateur)
+   where p.cree_par is null and p.cree_par_nom = ''
+     and lower(p.email) = j.adresse;
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.compte', '', true);
+  return combien;
+end $$;
+revoke all on function public.rattraper_createurs() from public, anon, authenticated;
+select public.rattraper_createurs();
+
+
+-- =========================================================
+-- Les codes des particuliers : une commission sur chaque vente
+-- =========================================================
+-- Un particulier reçoit un code. Le client qui le tape a sa remise ;
+-- le propriétaire touche un pourcentage de la commande sur son compte
+-- BIZZOO, qu'il voit dans l'application client et qu'il retire vers son
+-- numéro Mobile Money.
+--
+-- QUAND : à la LIVRAISON. La commission naît quand toutes les parts de
+-- la commande sont remises au client (les parts annulées ne comptent
+-- pas). Une commande annulée, ou jamais livrée, ne rapporte rien : il n'y
+-- a jamais de commission à reprendre.
+--
+-- COMBIEN : le taux du code, sur ce que le client a payé pour sa
+-- commande (remise déduite). PLAFONNÉ par ce que l'enseigne gagne encore
+-- sur la commande après la remise : la boutique touche son prix BIZZOO en
+-- entier, et une commission ne fait jamais vendre à perte.
+--
+-- UNE FOIS : une commission par commande, au plus — la base le garantit
+-- par une contrainte, pas par une précaution de l'application.
+--
+-- LES RETRAITS : le propriétaire DEMANDE ; le superadministrateur verse
+-- sur le numéro Mobile Money, puis marque « payé ». Pendant la demande,
+-- le montant n'est plus disponible : on ne retire pas deux fois la même
+-- somme.
+
+alter table public.codes_promo add column if not exists parrain uuid;
+alter table public.codes_promo add column if not exists commission numeric(5,2) not null default 0;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'codes_promo_commission_borne') then
+    alter table public.codes_promo
+      add constraint codes_promo_commission_borne check (commission between 0 and 50);
+  end if;
+end $$;
+create index if not exists codes_promo_parrain on public.codes_promo(parrain) where parrain is not null;
+
+create table if not exists public.gains_parrain (
+  id          bigserial primary key,
+  parrain     uuid not null,
+  commande_id text unique,
+  code        text not null default '',
+  base        bigint not null default 0,
+  taux        numeric(5,2) not null default 0,
+  montant     bigint not null check (montant >= 0),
+  cree_le     timestamptz not null default now()
+);
+create index if not exists gains_parrain_qui on public.gains_parrain(parrain, cree_le desc);
+
+create table if not exists public.retraits_parrain (
+  id          bigserial primary key,
+  parrain     uuid not null,
+  montant     bigint not null check (montant > 0),
+  numero      text not null,
+  reseau      text not null default '',
+  etat        text not null default 'demande' check (etat in ('demande', 'payee', 'refusee')),
+  demande_le  timestamptz not null default now(),
+  traite_le   timestamptz,
+  traite_par  uuid,
+  reference   text not null default '',
+  motif       text not null default ''
+);
+create index if not exists retraits_parrain_qui on public.retraits_parrain(parrain, demande_le desc);
+
+-- Lecture : chacun les siennes, le superadministrateur toutes. AUCUNE
+-- écriture directe : tout passe par les fonctions plus bas.
+alter table public.gains_parrain enable row level security;
+alter table public.retraits_parrain enable row level security;
+drop policy if exists "gains lecture" on public.gains_parrain;
+create policy "gains lecture" on public.gains_parrain
+  for select using (parrain = auth.uid() or public.est_super());
+drop policy if exists "retraits lecture" on public.retraits_parrain;
+create policy "retraits lecture" on public.retraits_parrain
+  for select using (parrain = auth.uid() or public.est_super());
+revoke insert, update, delete on public.gains_parrain from anon, authenticated;
+revoke insert, update, delete on public.retraits_parrain from anon, authenticated;
+grant select on public.gains_parrain to authenticated;
+grant select on public.retraits_parrain to authenticated;
+
+-- ---------- Créditer, à la livraison ----------
+create or replace function public.crediter_parrain(cible text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  c        public.commandes%rowtype;
+  k        public.codes_promo%rowtype;
+  restant  int;
+  livrees  int;
+  marge    bigint;
+  brut     bigint;
+  montant  bigint;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found or c.etat <> 'payee' or coalesce(c.code_promo, '') = '' then return 0; end if;
+  select * into k from public.codes_promo where code = c.code_promo;
+  if not found or k.parrain is null or coalesce(k.commission, 0) <= 0 then return 0; end if;
+  if exists (select 1 from public.gains_parrain g where g.commande_id = cible) then return 0; end if;
+
+  select count(*) filter (where l.etat not in ('remise', 'annulee')),
+         count(*) filter (where l.etat = 'remise'),
+         coalesce(sum(greatest(0, l.prix - l.prix_bizzoo) * l.quantite)
+                    filter (where l.etat <> 'annulee'), 0)
+    into restant, livrees, marge
+    from public.commande_lignes l where l.commande_id = cible;
+  if restant > 0 or livrees = 0 then return 0; end if;
+
+  -- Sur les ARTICLES, remise déduite : les frais de livraison paient la
+  -- course, ils ne rapportent rien au propriétaire du code.
+  brut := round(greatest(0, c.total - coalesce(c.frais_livraison, 0))
+                * least(50, greatest(0, k.commission)) / 100)::bigint;
+  montant := least(brut, greatest(0, marge - coalesce(c.remise, 0)));
+  if montant <= 0 then return 0; end if;
+
+  insert into public.gains_parrain (parrain, commande_id, code, base, taux, montant)
+  values (k.parrain, cible, k.code, greatest(0, c.total - coalesce(c.frais_livraison, 0)),
+          k.commission, montant)
+  on conflict (commande_id) do nothing;
+  if not found then return 0; end if;
+
+  perform public.notifier(array[k.parrain], 'commission',
+    'Commission créditée',
+    'La commande ' || c.numero || ' a été livrée : ' || montant::text ||
+      ' FCFA sur votre solde.',
+    '#/compte', null, null, true);
+  return montant;
+end $$;
+revoke all on function public.crediter_parrain(text) from public, anon, authenticated;
+
+create or replace function public.lignes_creditent_parrain() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.etat is distinct from old.etat and new.etat in ('remise', 'annulee') then
+    -- Jamais d'échec ici : une commission manquée se rattrape, une
+    -- livraison refusée à cause d'elle, non.
+    begin
+      perform public.crediter_parrain(new.commande_id);
+    exception when others then
+      raise warning 'commission non créditée pour % : %', new.commande_id, sqlerrm;
+    end;
+  end if;
+  return new;
+end $$;
+drop trigger if exists lignes_creditent_parrain on public.commande_lignes;
+create trigger lignes_creditent_parrain
+  after update of etat on public.commande_lignes
+  for each row execute function public.lignes_creditent_parrain();
+
+-- ---------- Ce que le propriétaire voit ----------
+create or replace function public.mon_solde_parrain() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  gagne   bigint;
+  retire  bigint;
+  attente bigint;
+begin
+  if moi is null or not exists (select 1 from public.codes_promo where parrain = moi) then
+    return null;
+  end if;
+  select coalesce(sum(montant), 0) into gagne from public.gains_parrain where parrain = moi;
+  select coalesce(sum(montant) filter (where etat = 'payee'), 0),
+         coalesce(sum(montant) filter (where etat = 'demande'), 0)
+    into retire, attente
+    from public.retraits_parrain where parrain = moi;
+  return jsonb_build_object(
+    'codes', (select coalesce(jsonb_agg(jsonb_build_object(
+                'code', k.code, 'remise', k.valeur, 'mode', k.mode,
+                'commission', k.commission, 'actif', k.actif) order by k.code), '[]'::jsonb)
+                from public.codes_promo k where k.parrain = moi),
+    'gagne', gagne, 'retire', retire, 'en_attente', attente,
+    'solde', gagne - retire - attente,
+    'gains', (select coalesce(jsonb_agg(jsonb_build_object(
+                'numero', o.numero, 'montant', g.montant, 'taux', g.taux,
+                'base', g.base, 'le', g.cree_le) order by g.cree_le desc), '[]'::jsonb)
+                from (select * from public.gains_parrain where parrain = moi
+                       order by cree_le desc limit 30) g
+                left join public.commandes o on o.id = g.commande_id),
+    'retraits', (select coalesce(jsonb_agg(jsonb_build_object(
+                'id', r.id, 'montant', r.montant, 'numero', r.numero, 'reseau', r.reseau,
+                'etat', r.etat, 'le', r.demande_le, 'traite_le', r.traite_le,
+                'motif', r.motif) order by r.demande_le desc), '[]'::jsonb)
+                from (select * from public.retraits_parrain where parrain = moi
+                       order by demande_le desc limit 30) r));
+end $$;
+revoke all on function public.mon_solde_parrain() from public, anon;
+grant execute on function public.mon_solde_parrain() to authenticated;
+
+-- ---------- Demander un retrait ----------
+create or replace function public.demander_retrait(montant bigint, numero text, reseau text default '')
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  numero_net text := regexp_replace(coalesce(numero, ''), '\D', '', 'g');
+  solde   bigint;
+  nouveau bigint;
+begin
+  if moi is null or not exists (select 1 from public.codes_promo where parrain = moi) then
+    raise exception 'Ce compte n''a pas de code promo.' using errcode = 'P0001';
+  end if;
+  if coalesce(montant, 0) < 500 then
+    raise exception 'Un retrait est de 500 FCFA au moins.' using errcode = 'P0001';
+  end if;
+  if length(numero_net) < 8 then
+    raise exception 'Indiquez le numéro Mobile Money qui recevra l''argent.' using errcode = 'P0001';
+  end if;
+  -- DEUX DEMANDES EN MÊME TEMPS ne retirent pas deux fois la même somme.
+  perform pg_advisory_xact_lock(hashtext('retrait:' || moi::text));
+  select (select coalesce(sum(g.montant), 0) from public.gains_parrain g where g.parrain = moi)
+       - (select coalesce(sum(r.montant), 0) from public.retraits_parrain r
+           where r.parrain = moi and r.etat in ('demande', 'payee'))
+    into solde;
+  if montant > solde then
+    raise exception 'Votre solde disponible est de % FCFA.', solde using errcode = 'P0001';
+  end if;
+  insert into public.retraits_parrain (parrain, montant, numero, reseau)
+  values (moi, montant, numero_net, upper(left(coalesce(reseau, ''), 20)))
+  returning id into nouveau;
+  perform public.notifier(
+    array(select p.id from public.profils p where p.role = 'superadministrateur' and p.actif),
+    'retrait_demande', 'Demande de retrait',
+    montant::text || ' FCFA vers ' || numero_net || ' — code promo d''un particulier.',
+    '#/codes', null, null, true);
+  return nouveau;
+end $$;
+revoke all on function public.demander_retrait(bigint, text, text) from public, anon;
+grant execute on function public.demander_retrait(bigint, text, text) to authenticated;
+
+-- ---------- Côté superadministrateur ----------
+-- Donner un code à un compte (créé juste avant, comme client).
+create or replace function public.creer_code_parrain(
+  compte uuid, le_code text, remise numeric, taux numeric, nom text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+declare cle text := public.code_normalise(le_code);
+begin
+  if not public.est_super() then
+    raise exception 'Réservé au superadministrateur.' using errcode = '42501';
+  end if;
+  if compte is null or not exists (select 1 from auth.users u where u.id = compte) then
+    raise exception 'Ce compte n''existe pas.' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.profils p where p.id = compte and p.role is not null
+               and p.actif) then
+    raise exception 'Un compte de l''équipe ne reçoit pas de code de particulier.' using errcode = 'P0001';
+  end if;
+  if length(cle) < 3 then
+    raise exception 'Le code fait au moins 3 lettres ou chiffres.' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.codes_promo where code = cle) then
+    raise exception 'Le code % existe déjà.', cle using errcode = 'P0001';
+  end if;
+  if coalesce(taux, 0) <= 0 or taux > 50 then
+    raise exception 'La commission va de 0,5 à 50 %%.' using errcode = 'P0001';
+  end if;
+  if coalesce(remise, 0) < 0 or remise > 50 then
+    raise exception 'La remise du client va de 0 à 50 %%.' using errcode = 'P0001';
+  end if;
+  insert into public.codes_promo (code, libelle, mode, valeur, une_par_client, actif,
+                                  parrain, commission, cree_par)
+  values (cle, coalesce(nullif(trim(nom), ''), 'Code de particulier'), 'pourcent',
+          coalesce(remise, 0), false, true, compte, taux,
+          coalesce((select email from public.profils where id = auth.uid()), ''));
+  return cle;
+end $$;
+revoke all on function public.creer_code_parrain(uuid, text, numeric, numeric, text) from public, anon;
+grant execute on function public.creer_code_parrain(uuid, text, numeric, numeric, text) to authenticated;
+
+create or replace function public.parrains_liste()
+returns table (code text, libelle text, parrain uuid, email text, remise numeric,
+               commission numeric, actif boolean, ventes int, gagne bigint,
+               retire bigint, en_attente bigint, solde bigint)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.est_super() then return; end if;
+  return query
+    select k.code, k.libelle, k.parrain, coalesce(u.email, '')::text, k.valeur, k.commission, k.actif,
+           (select count(*)::int from public.gains_parrain g where g.code = k.code),
+           coalesce((select sum(g.montant) from public.gains_parrain g where g.parrain = k.parrain), 0)::bigint,
+           coalesce((select sum(r.montant) from public.retraits_parrain r
+                      where r.parrain = k.parrain and r.etat = 'payee'), 0)::bigint,
+           coalesce((select sum(r.montant) from public.retraits_parrain r
+                      where r.parrain = k.parrain and r.etat = 'demande'), 0)::bigint,
+           (coalesce((select sum(g.montant) from public.gains_parrain g where g.parrain = k.parrain), 0)
+            - coalesce((select sum(r.montant) from public.retraits_parrain r
+                         where r.parrain = k.parrain and r.etat in ('demande', 'payee')), 0))::bigint
+      from public.codes_promo k
+      left join auth.users u on u.id = k.parrain
+     where k.parrain is not null
+     order by k.code;
+end $$;
+revoke all on function public.parrains_liste() from public, anon;
+grant execute on function public.parrains_liste() to authenticated;
+
+create or replace function public.retraits_a_traiter()
+returns table (id bigint, code text, email text, montant bigint, numero text, reseau text,
+               etat text, demande_le timestamptz, traite_le timestamptz, reference text, motif text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.est_super() then return; end if;
+  return query
+    select r.id,
+           coalesce((select string_agg(k.code, ', ') from public.codes_promo k
+                      where k.parrain = r.parrain), '')::text,
+           coalesce(u.email, '')::text, r.montant, r.numero, r.reseau, r.etat,
+           r.demande_le, r.traite_le, r.reference, r.motif
+      from public.retraits_parrain r
+      left join auth.users u on u.id = r.parrain
+     order by (r.etat = 'demande') desc, r.demande_le desc
+     limit 100;
+end $$;
+revoke all on function public.retraits_a_traiter() from public, anon;
+grant execute on function public.retraits_a_traiter() to authenticated;
+
+create or replace function public.traiter_retrait(cible bigint, payee boolean,
+  la_reference text default '', le_motif text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+declare r public.retraits_parrain%rowtype;
+begin
+  if not public.est_super() then
+    raise exception 'Réservé au superadministrateur.' using errcode = '42501';
+  end if;
+  select * into r from public.retraits_parrain where id = cible for update;
+  if not found then raise exception 'Demande introuvable.' using errcode = 'P0001'; end if;
+  if r.etat <> 'demande' then
+    raise exception 'Cette demande est déjà traitée.' using errcode = 'P0001';
+  end if;
+  update public.retraits_parrain
+     set etat = case when payee then 'payee' else 'refusee' end,
+         traite_le = now(), traite_par = auth.uid(),
+         reference = left(coalesce(la_reference, ''), 80),
+         motif = left(coalesce(le_motif, ''), 300)
+   where id = cible;
+  perform public.notifier(array[r.parrain], 'retrait',
+    case when payee then 'Retrait versé' else 'Retrait refusé' end,
+    case when payee
+      then r.montant::text || ' FCFA ont été envoyés au ' || r.numero || '.'
+      else 'Votre demande de ' || r.montant::text || ' FCFA n''a pas été versée'
+           || coalesce(' : ' || nullif(le_motif, ''), '.') end,
+    '#/compte', null, null, true);
+  return case when payee then 'payee' else 'refusee' end;
+end $$;
+revoke all on function public.traiter_retrait(bigint, boolean, text, text) from public, anon;
+grant execute on function public.traiter_retrait(bigint, boolean, text, text) to authenticated;
+
+-- =========================================================
+-- LE LIVE TIKTOK (3.58.0)
+-- =========================================================
+-- Une boutique passe en direct sur TikTok : son administrateur touche
+-- « Démarrer le live TikTok ». Tous les téléphones où l'application
+-- BIZZOO est installée reçoivent une notification ; la toucher ouvre la
+-- page TikTok de la boutique. Dans l'application et sur le site, un
+-- bandeau « En live » le dit aussi tant que le live dure.
+--
+-- La base tient le live et décide QUI peut le lancer ; l'envoi de la
+-- notification est l'affaire de la fonction Edge « annoncer-live », qui
+-- seule détient le compte de service Firebase.
+--
+-- GARDE-FOUS. Une notification à tous les clients, c'est lourd : un live
+-- déjà en cours ne se relance pas (pas de seconde notification), et une
+-- boutique n'annonce pas plus de trois lives par jour. Un live oublié
+-- s'éteint de lui-même au bout de quatre heures.
+
+create table if not exists public.lives_tiktok (
+  id          bigint generated always as identity primary key,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  lien        text not null,
+  debut       timestamptz not null default now(),
+  fin         timestamptz,
+  lance_par   uuid,
+  annonce_le  timestamptz,
+  annonce     text not null default ''
+);
+create index if not exists lives_tiktok_boutique on public.lives_tiktok(boutique_id, debut desc);
+
+-- Personne ne lit la table directement : « lives_en_cours » en dit ce
+-- qu'un client doit savoir, et rien de qui l'a lancé.
+alter table public.lives_tiktok enable row level security;
+revoke all on public.lives_tiktok from anon, authenticated;
+
+-- Le lien TikTok d'une boutique, tel qu'un navigateur l'ouvre :
+-- « @maboutique », « maboutique » ou une adresse complète.
+create or replace function public.lien_tiktok(brut text) returns text
+language sql immutable as $$
+  select case
+    when coalesce(trim(brut), '') = '' then ''
+    when trim(brut) ~* '^https?://' then trim(brut)
+    when trim(brut) ~* '^(www\.)?tiktok\.com/' then 'https://' || trim(brut)
+    else 'https://www.tiktok.com/@' || regexp_replace(trim(brut), '^@+', '')
+  end;
+$$;
+
+create or replace function public.lives_en_cours()
+returns table (boutique_id text, nom text, lien text, debut timestamptz)
+language sql stable security definer set search_path = public as $$
+  select l.boutique_id, b.nom, l.lien, l.debut
+    from public.lives_tiktok l
+    join public.boutiques b on b.id = l.boutique_id and b.actif
+   where l.fin is null and l.debut > now() - interval '4 hours'
+   order by l.debut desc;
+$$;
+revoke all on function public.lives_en_cours() from public;
+grant execute on function public.lives_en_cours() to anon, authenticated;
+
+create or replace function public.demarrer_live(cible text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  b       public.boutiques%rowtype;
+  lien    text;
+  courant public.lives_tiktok%rowtype;
+  nouveau bigint;
+begin
+  if not public.administre(cible) then
+    raise exception 'Seul l''administrateur de la boutique lance son live.' using errcode = '42501';
+  end if;
+  select * into b from public.boutiques where id = cible;
+  if not found then raise exception 'Boutique introuvable.' using errcode = 'P0001'; end if;
+  if not b.actif then
+    raise exception 'La boutique est fermée aux clients : ouvrez-la avant d''annoncer un live.'
+      using errcode = 'P0001';
+  end if;
+  lien := public.lien_tiktok(b.tiktok);
+  if lien = '' then
+    raise exception 'Ajoutez d''abord le compte TikTok de la boutique (Réglages → Réseaux sociaux).'
+      using errcode = 'P0001';
+  end if;
+  -- On ne lance pas deux fois le même live : pas de seconde notification.
+  perform pg_advisory_xact_lock(hashtext('live:' || cible));
+  select * into courant from public.lives_tiktok
+   where boutique_id = cible and fin is null and debut > now() - interval '4 hours'
+   order by debut desc limit 1;
+  if found then
+    return jsonb_build_object('id', courant.id, 'boutique', cible, 'nom', b.nom,
+      'lien', courant.lien, 'deja', true);
+  end if;
+  if (select count(*) from public.lives_tiktok
+       where boutique_id = cible and debut > now() - interval '24 hours') >= 3 then
+    raise exception 'Trois lives annoncés en 24 heures : c''est le maximum, pour ne pas lasser les clients.'
+      using errcode = 'P0001';
+  end if;
+  -- Un live oublié depuis plus de quatre heures se ferme ici.
+  update public.lives_tiktok set fin = now() where boutique_id = cible and fin is null;
+  insert into public.lives_tiktok (boutique_id, lien, lance_par)
+  values (cible, lien, auth.uid()) returning id into nouveau;
+  return jsonb_build_object('id', nouveau, 'boutique', cible, 'nom', b.nom,
+    'lien', lien, 'deja', false);
+end $$;
+revoke all on function public.demarrer_live(text) from public, anon;
+grant execute on function public.demarrer_live(text) to authenticated;
+
+create or replace function public.arreter_live(cible text) returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int;
+begin
+  if not public.administre(cible) then
+    raise exception 'Seul l''administrateur de la boutique arrête son live.' using errcode = '42501';
+  end if;
+  update public.lives_tiktok set fin = now() where boutique_id = cible and fin is null;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.arreter_live(text) from public, anon;
+grant execute on function public.arreter_live(text) to authenticated;
+
+-- La fonction Edge note ce qu'a répondu Firebase. Clé de service seule :
+-- personne d'autre n'écrit qu'un live a été annoncé.
+create or replace function public.noter_annonce_live(cible bigint, resultat text) returns void
+language sql security definer set search_path = public as $$
+  update public.lives_tiktok
+     set annonce_le = now(), annonce = left(coalesce(resultat, ''), 300)
+   where id = cible;
+$$;
+revoke all on function public.noter_annonce_live(bigint, text) from public, anon, authenticated;
+grant execute on function public.noter_annonce_live(bigint, text) to service_role;
+
+-- =========================================================
+-- LA POSITION DES LIVREURS (3.58.0)
+-- =========================================================
+-- Un livreur VALIDE SON COMPTE en enregistrant sa position : la
+-- géolocalisation de son téléphone, et son adresse écrite. BIZZOO Admin
+-- le lui demande à la connexion, avant tout le reste ; tant qu'il ne
+-- l'a pas fait, aucune course ne lui est confiée (« assigner_livreur »).
+--
+-- La position s'écrit par « enregistrer_ma_position », et par le livreur
+-- lui-même : personne ne la pose à sa place, personne ne la retouche à
+-- la main. L'enseigne les lit toutes ; une boutique, celles de ses
+-- livreurs.
+
+create table if not exists public.positions_livreurs (
+  profil_id      uuid primary key references public.profils(id) on delete cascade,
+  latitude       double precision not null,
+  longitude      double precision not null,
+  precision_m    int,
+  adresse        text not null default '',
+  enregistre_le  timestamptz not null default now()
+);
+alter table public.positions_livreurs enable row level security;
+drop policy if exists "positions livreurs lecture" on public.positions_livreurs;
+create policy "positions livreurs lecture" on public.positions_livreurs
+  for select to authenticated
+  using (profil_id = auth.uid()
+         or public.est_super()
+         or exists (select 1 from public.profils p
+                     where p.id = positions_livreurs.profil_id
+                       and public.administre(p.boutique_id)));
+revoke all on public.positions_livreurs from anon;
+revoke insert, update, delete on public.positions_livreurs from authenticated;
+grant select on public.positions_livreurs to authenticated;
+
+create or replace function public.enregistrer_ma_position(
+  lat double precision, lng double precision, adresse text, precision_m int default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  la  double precision := public.coord_valable(lat, 90);
+  lo  double precision := public.coord_valable(lng, 180);
+  ad  text := left(trim(coalesce(adresse, '')), 200);
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul un livreur enregistre sa position ici.' using errcode = '42501';
+  end if;
+  -- « 0, 0 » : un téléphone qui n'a rien trouvé, jamais Cotonou.
+  if la is null or lo is null or (la = 0 and lo = 0) then
+    raise exception 'Position introuvable : activez la localisation du téléphone, puis réessayez.'
+      using errcode = 'P0001';
+  end if;
+  if length(ad) < 3 then
+    raise exception 'Indiquez aussi votre adresse : quartier, repère.' using errcode = 'P0001';
+  end if;
+  insert into public.positions_livreurs (profil_id, latitude, longitude, precision_m, adresse, enregistre_le)
+  values (moi, la, lo, greatest(0, precision_m), ad, now())
+  on conflict (profil_id) do update
+     set latitude = excluded.latitude, longitude = excluded.longitude,
+         precision_m = excluded.precision_m, adresse = excluded.adresse,
+         enregistre_le = now();
+  return jsonb_build_object('latitude', la, 'longitude', lo, 'adresse', ad, 'le', now());
+end $$;
+revoke all on function public.enregistrer_ma_position(double precision, double precision, text, int)
+  from public, anon;
+grant execute on function public.enregistrer_ma_position(double precision, double precision, text, int)
+  to authenticated;
+

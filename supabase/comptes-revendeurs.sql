@@ -57,12 +57,17 @@ alter table public.profils
 alter table public.profils
   add column if not exists peut_finances  boolean not null default false;
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
     select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
       from public.profils p
-     where p.id = auth.uid() and p.actif), false);
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
 $$;
 revoke all on function public.est_compte_enseigne() from public, anon;
 grant execute on function public.est_compte_enseigne() to authenticated;
@@ -142,6 +147,9 @@ alter table public.commande_lignes add column if not exists taux_marge numeric;
 alter table public.commandes add column if not exists transaction_annoncee text not null default '';
 alter table public.commandes add column if not exists fournisseur_ref text not null default '';
 alter table public.commandes add column if not exists tentative_le timestamptz;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
 
 -- ---------------------------------------------------------
 -- 2. Le prix d'un revendeur, en un seul endroit
@@ -232,7 +240,8 @@ $$;
 -- administrateur : il n'est enfermé nulle part.
 create or replace function public.boutique_du_compte() returns text
 language sql stable security definer set search_path = public as $$
-  select boutique_id from public.profils where id = auth.uid() and actif;
+  select boutique_id from public.profils
+   where id = auth.uid() and actif and public.role_courant() is not null;
 $$;
 
 -- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
@@ -498,6 +507,15 @@ begin
   new.remarque := '';
   new.annonce_le := null;
   new.paye_le := null;
+  -- L'acompte se pose APRÈS les lignes, par « creer_commande » : il se
+  -- calcule sur un total que la base n'a pas encore. Rien ne l'apporte
+  -- de dehors, pas plus que l'argent versé.
+  new.taux_acompte := null;
+  new.acompte := null;
+  new.verse := null;
+  -- Les frais de livraison aussi : « creer_commande » les pose, d'après
+  -- les réglages de l'enseigne. Le téléphone n'en décide pas.
+  new.frais_livraison := 0;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -606,6 +624,12 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
+  or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -674,6 +698,18 @@ begin
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   etat := case when accord then 'validee' else 'refusee' end;
+
+  -- UN REVENDEUR VALIDE SON COMPTE EN ACTIVANT SA POSITION : la
+  -- géolocalisation de son téléphone, ET son adresse écrite. Sans elles,
+  -- BIZZOO ne l'accepte pas (il peut toujours refuser).
+  if accord and not exists (
+       select 1 from public.clients c
+        where c.id = cible
+          and c.revendeur_latitude is not null and c.revendeur_longitude is not null
+          and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
+    raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
 
   perform set_config('bizzoo.revendeur', 'oui', true);
   update public.clients

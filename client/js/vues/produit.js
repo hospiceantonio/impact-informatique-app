@@ -174,7 +174,15 @@ const VueProduit = (() => {
        droite, et pas de titre — le nom du produit est en grand juste
        sous la photo. Le cœur est en haut, loin de la photo : posé
        dessus, il se touchait par accident en la faisant défiler. */
-    UI.entete({ titre: "", retour: true, actions: UI.coeur(p.id, "coeur-entete") });
+    UI.entete({ titre: "", retour: true,
+      actions: UI.boutonPartager("p-partager") + UI.coeur(p.id, "coeur-entete") });
+    const partage = document.getElementById("p-partager");
+    if (partage) {
+      partage.onclick = () => UI.partager({
+        titre: p.nom, texte: p.nom + " — " + Utils.fmtMontant(p.prix, Catalogue.deviseDe(p)) + " sur BIZZOO",
+        lien: Utils.lienPartage("produit", p.id),
+      });
+    }
 
     /* Message WhatsApp : référence, prix et description complète du produit. */
     const description = (p.description || "").split(/\n+/)

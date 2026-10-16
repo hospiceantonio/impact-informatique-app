@@ -42,6 +42,10 @@ alter table public.commande_lignes
 -- Avec ce qu'elle appelle, pour qu'une base qui n'aurait pas reçu les
 -- fichiers précédents dans l'ordre ne s'arrête pas à la première vente.
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.compte_exige() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select r.compte_obligatoire from public.reglages r where r.id = 1), false);
@@ -70,11 +74,18 @@ begin
                        from public.commande_lignes l
                       where l.commande_id = cible), 0)
            - greatest(0, coalesce(c.remise, 0)))
+           -- Les frais de livraison s'ajoutent APRÈS la remise : un code
+           -- promo ne les touche pas.
+           + greatest(0, coalesce(c.frais_livraison, 0))
    where c.id = cible;
   perform set_config('bizzoo.interne', avant, true);
 end $$;
 
 revoke all on function public.commande_total(text) from public, anon, authenticated;
+
+-- Le code d'un particulier : à qui il appartient, et ce qu'il lui rapporte.
+alter table public.codes_promo add column if not exists parrain uuid;
+alter table public.codes_promo add column if not exists commission numeric(5,2) not null default 0;
 
 create or replace function public.remise_du_code(
   brut text, sous_total bigint, marge bigint,
@@ -95,6 +106,14 @@ declare
 begin
   if cle = '' then
     return jsonb_build_object('ok', false, 'remise', 0, 'raison', refus);
+  end if;
+  -- UN REVENDEUR A DÉJÀ SA REMISE : il achète au prix BIZZOO, sur tout le
+  -- catalogue. Un code s'y ajouterait, et sortirait une seconde fois de
+  -- la même marge. La caisse passe alors la commande sans le code.
+  if qui is not null and exists (select 1 from public.clients r
+                                 where r.id = qui and r.revendeur_etat = 'validee') then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'Votre compte revendeur achète déjà au prix BIZZOO : les codes promo ne s''y ajoutent pas.');
   end if;
   select * into c from public.codes_promo where code = cle;
   -- MÊME RÉPONSE pour « inconnu » et « fermé ». Distinguer les deux
@@ -125,6 +144,13 @@ begin
     end if;
   end if;
 
+  -- LE PROPRIÉTAIRE D'UN CODE NE S'EN SERT PAS : il toucherait une
+  -- commission sur ses propres achats.
+  if c.parrain is not null and qui is not null and qui = c.parrain then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'C''est votre code : il sert à vos clients, pas à vous.');
+  end if;
+
   -- « Une seule fois par client ». Un compte se reconnaît à son
   -- identifiant ; un visiteur sans compte, à son seul numéro — on le dit
   -- franchement plutôt que de laisser croire à une identification qui
@@ -149,7 +175,9 @@ begin
   -- la marge de l'enseigne ne regarde pas le client.
   if brute > plafond then brute := plafond; end if;
 
-  if brute <= 0 then
+  -- UN CODE DE PARTICULIER VAUT MÊME SANS REMISE : il porte la commission
+  -- de son propriétaire, et la commande doit le garder.
+  if brute <= 0 and c.parrain is null then
     return jsonb_build_object('ok', false, 'remise', 0,
       'raison', 'Ce code ne s''applique pas à ce panier.');
   end if;
@@ -159,10 +187,60 @@ end $$;
 revoke all on function public.remise_du_code(text, bigint, bigint, uuid, text)
   from public, anon, authenticated;
 
-drop function if exists public.creer_commande(jsonb, jsonb);
+-- ---------- Ce qui reste à payer à la livraison ----------
+-- Recopié de schema.sql, avec les colonnes qu'il lit : les fonctions
+-- plus bas s'en servent depuis l'acompte à la commande (« acompte.sql »).
+alter table public.paiement add column if not exists taux_acompte int not null default 10;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language sql stable security definer set search_path = public as $$
+  with commande as (
+    select c.total::numeric as total,
+           greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    -- LES FRAIS DE LIVRAISON ne se réduisent pas au prorata : tant qu'il
+    -- reste quelque chose à livrer, la course a lieu et coûte son prix.
+    -- Tout annulé, il n'y a pas de course, donc pas de frais.
+    select greatest(0, coalesce(round((c.total - c.frais) * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       + case when sum(p.servi) > 0 then c.frais else 0 end
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.frais, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+$$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
 
+drop function if exists public.creer_commande(jsonb, jsonb);
+drop function if exists public.creer_commande(jsonb, jsonb, text);
+drop function if exists public.creer_commande(jsonb, jsonb, text, boolean);
 create or replace function public.creer_commande(
-  client jsonb, articles jsonb, code text default '')
+  client jsonb, articles jsonb, code text default '',
+  avec_acompte boolean default false, avec_frais boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -178,6 +256,7 @@ declare
   marge    bigint;
   verdict  jsonb;
   manque   record;
+  taux     int;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -227,6 +306,22 @@ begin
     left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
     left(coalesce(trim(client ->> 'adresse'), ''), 300),
     left(coalesce(trim(client ->> 'note'), ''), 500));
+
+  -- ---------- Les frais de livraison ----------
+  -- AVANT les lignes : chaque ligne posée recalcule le total, qui les
+  -- compte. Le montant est celui des réglages du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE LES DEMANDE PAS, et n'en paie donc pas :
+  -- elle ne saurait pas les montrer, et le client paierait un montant
+  -- qu'on ne lui a jamais annoncé.
+  -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
+  if coalesce(avec_frais, false) then
+    update public.commandes
+       set frais_livraison = greatest(0, coalesce(
+             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
+     where id = nouvelle;
+  end if;
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -310,6 +405,30 @@ begin
     end if;
   end if;
 
+  -- ---------- L'acompte ----------
+  -- APRÈS le code promo : l'acompte se prend sur ce que le client doit
+  -- vraiment, remise déduite. Le taux est celui du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE DEMANDE RIEN. Elle fait payer le total et
+  -- dit « Payée » une fois le versement reçu : sa commande se règle donc
+  -- en entier, comme elle l'annonce au client. Lui faire payer un acompte
+  -- sans qu'elle sache le dire laisserait croire au client qu'il ne doit
+  -- plus rien, et le livreur arriverait avec une somme à réclamer.
+  --
+  -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
+  -- plus que le total.
+  taux := case when coalesce(avec_acompte, false)
+               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
+               else 100 end;
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes c
+     set taux_acompte = taux,
+         acompte = case when c.total <= 0 then 0
+                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
+   where c.id = nouvelle;
+  perform set_config('bizzoo.interne', '', true);
+
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'etat', c.etat,
@@ -317,6 +436,12 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Les frais de livraison, à part : le récapitulatif les montre sur
+       leur propre ligne. */
+    'frais_livraison', c.frais_livraison,
+    /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
+    'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
+    'reste', greatest(0, c.total - c.acompte),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -324,6 +449,10 @@ begin
                'whatsapp', coalesce((select b.whatsapp from public.boutiques b where b.id = g.boutique_id), ''),
                'indicatif', coalesce((select b.indicatif from public.boutiques b where b.id = g.boutique_id), '229'),
                'montant', g.montant,
+               /* Ce que CETTE boutique encaissera à la livraison. */
+               'a_encaisser', coalesce((select r.a_encaisser
+                                          from public.restes_par_boutique(c.id) r
+                                         where r.boutique_id is not distinct from g.boutique_id), 0),
                'lignes', g.lignes) order by g.montant desc)
         from (select l.boutique_id,
                      sum(l.prix * l.quantite) as montant,
@@ -343,8 +472,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) to anon, authenticated;
 
 -- ---------- Qui prévenir ----------
 

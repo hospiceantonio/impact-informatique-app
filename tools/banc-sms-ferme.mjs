@@ -15,7 +15,9 @@
         les autres portes restent ; un ancien lien vers « Entrer avec
         mon numéro » dit que ce n'est pas encore ouvert, et par où
         passer ;
-     2. SMS OUVERT : tout est là, comme avant ;
+     2. SMS OUVERT : le numéro passe devant (3.58.0) — « Se connecter »
+        ouvre sur lui, et un compte e-mail d'avant est prié de
+        confirmer le sien ;
      3. DANS LE DOUTE, ON MONTRE : Supabase injoignable, réponse
         illisible — les chemins restent, un refus clair vaut mieux
         qu'un chemin caché à tort ;
@@ -131,15 +133,28 @@ const texte = (page) => page.evaluate(() => document.querySelector("#vue, main, 
 const toast = (page) => page.evaluate(() =>
   [...document.querySelectorAll("#toasts .toast, .toast")].map((t) => t.textContent).join(" | "));
 
-/* Ce que chaque écran montre des chemins par SMS. */
-const chemins = (page) => page.evaluate(() => ({
-  carteConnexion: [...document.querySelectorAll('a[href="#/connexion-tel"]')].length,
-  verifier: !!document.querySelector("#cp-verifier"),
-  pitchVerifie: /Un numéro vérifié vous rend/.test(document.body.innerText),
-  orphelines: /sur ce téléphone seulement/.test(document.body.innerText),
-  formulaireTel: !!document.querySelector("#cp-envoyer"),
-  ferme: !!document.querySelector("#cp-sms-ferme"),
-}));
+/* Ce que chaque écran montre des chemins par SMS.
+
+   Depuis 3.58.0, « Se connecter » OUVRE sur le numéro quand le SMS
+   marche : la porte n'est plus un lien vers « #/connexion-tel », c'est le
+   formulaire lui-même (#cp-envoyer). L'e-mail recule derrière un lien
+   (#/connexion-email) — et revient devant, visible, quand le SMS est
+   fermé. */
+const chemins = (page) => page.evaluate(() => {
+  const visible = (s) => { const el = document.querySelector(s); return !!el && !el.closest("[hidden]"); };
+  return {
+    carteConnexion: [...document.querySelectorAll('a[href="#/connexion-tel"]')].length,
+    porteNumero: visible("#cp-envoyer"),
+    formulaireEmail: visible("#cp-entrer"),
+    lienAncien: !!document.querySelector('a[href="#/connexion-email"]'),
+    verifier: !!document.querySelector("#cp-verifier"),
+    pitchVerifie: /Un numéro vérifié vous rend/.test(document.body.innerText),
+    numeroRequis: !!document.querySelector("#cp-numero-requis"),
+    orphelines: /sur ce téléphone seulement/.test(document.body.innerText),
+    formulaireTel: !!document.querySelector("#cp-envoyer"),
+    ferme: !!document.querySelector("#cp-sms-ferme"),
+  };
+});
 
 titre("1. SMS fermé : les chemins par SMS se retirent");
 {
@@ -147,10 +162,17 @@ titre("1. SMS fermé : les chemins par SMS se retirent");
   await aller(page, "#/connexion");
   let c = await chemins(page);
   const t = await texte(page);
-  ok(c.carteConnexion === 0 && !/Sans mot de passe/.test(t),
-    "l'écran de connexion n'offre plus « Entrer avec mon numéro »");
-  ok(/Se connecter/.test(t) && /Créer mon compte/.test(t) && /Mot de passe oublié/.test(t),
-    "l'e-mail, la création de compte et le mot de passe oublié restent");
+  ok(c.carteConnexion === 0 && !c.porteNumero && !c.lienAncien && !/Avec mon numéro/.test(t),
+    "l'écran de connexion n'offre plus d'entrer avec son numéro");
+  ok(c.formulaireEmail && /Se connecter/.test(t) && /Créer mon compte/.test(t) &&
+     /Mot de passe oublié/.test(t),
+    "l'e-mail revient devant, avec la création de compte et le mot de passe oublié");
+  await aller(page, "#/inscription");
+  const ins = await page.evaluate(() => ({
+    email: !!document.querySelector("#cp-email") && !document.querySelector("#cp-email").closest("[hidden]"),
+    tel: !!document.querySelector("#cp-tel"),
+  }));
+  ok(ins.email && !ins.tel, "« Créer mon compte » redemande un e-mail et un mot de passe, pas un numéro");
 
   await aller(page, "#/connexion-tel");
   c = await chemins(page);
@@ -159,7 +181,7 @@ titre("1. SMS fermé : les chemins par SMS se retirent");
   ok(/pas encore\s+ouverts/.test(t2) && await page.$('#cp-sms-ferme a[href="#/connexion"]') &&
      await page.$('#cp-sms-ferme a[href="#/inscription"]'),
     "et montre les deux autres portes : se connecter, créer son compte");
-  ok(reglages.length === 1, "Supabase n'a été interrogé qu'une fois pour deux écrans (" + reglages.length + ")");
+  ok(reglages.length === 1, "Supabase n'a été interrogé qu'une fois pour trois écrans (" + reglages.length + ")");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -171,10 +193,10 @@ titre("1 bis. SMS fermé : la commande qui exige un compte");
   const c = await chemins(page);
   const t = await texte(page);
   ok(/Un compte pour commander/.test(t), "l'écran invite bien à ouvrir un compte");
-  ok(c.carteConnexion === 0, "sans « Entrer avec mon numéro »");
+  ok(c.carteConnexion === 0 && !/code reçu par SMS/.test(t), "sans parler de SMS");
   ok(!!(await page.$('a[href="#/inscription"][data-vers-compte]')) &&
      !!(await page.$('a[href="#/connexion"][data-vers-compte]')),
-    "« Créer mon compte » et « Se connecter » restent, et ramènent à la commande");
+    "« Créer mon compte » et « J'ai déjà un compte » restent, et ramènent à la commande");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -196,21 +218,27 @@ titre("1 ter. SMS fermé : Mon compte et Mes commandes, numéro non vérifié");
   await ctx.close();
 }
 
-titre("2. SMS ouvert : tout est là, comme avant");
+titre("2. SMS ouvert : le numéro passe devant");
 {
   const { page, ctx, erreurs } = await ouvrir({ sms: true, connecte: false });
   await aller(page, "#/connexion");
   let c = await chemins(page);
-  ok(c.carteConnexion === 1, "« Entrer avec mon numéro » sur l'écran de connexion");
+  ok(c.porteNumero && !c.formulaireEmail && c.lienAncien,
+    "« Se connecter » ouvre sur le numéro ; l'e-mail recule derrière un lien");
   await aller(page, "#/connexion-tel");
   c = await chemins(page);
   ok(c.formulaireTel && !c.ferme, "le formulaire du numéro");
   await ctx.close();
 
+  /* Un compte e-mail d'avant le SMS, resté connecté : la session de
+     « ouvrir » ne porte pas de numéro. Mon compte lui demande de le
+     confirmer — une carte devant tout le reste, qui remplace l'invitation
+     plus discrète sous le champ. */
   const second = await ouvrir({ sms: true, connecte: true, locales: true });
   await aller(second.page, "#/compte", 1800);
   c = await chemins(second.page);
-  ok(c.verifier && c.pitchVerifie, "« Vérifier par SMS » dans Mon compte");
+  ok(c.numeroRequis && !!(await second.page.$("#cp-confirmer")) && !c.verifier,
+    "Mon compte demande de confirmer son numéro, une fois");
   await aller(second.page, "#/mes-commandes", 1800);
   c = await chemins(second.page);
   ok(c.orphelines, "l'invitation à vérifier dans Mes commandes");
@@ -219,8 +247,9 @@ titre("2. SMS ouvert : tout est là, comme avant");
 
   const troisieme = await ouvrir({ sms: true, panier: true });
   await aller(troisieme.page, "#/commande", 2200);
-  c = await chemins(troisieme.page);
-  ok(c.carteConnexion === 1, "« Entrer avec mon numéro » quand la commande exige un compte");
+  const t3 = await texte(troisieme.page);
+  ok(!!(await troisieme.page.$('a[href="#/connexion"][data-vers-compte]')) && /code reçu par SMS/.test(t3),
+    "la commande qui exige un compte dit qu'un code par SMS suffit");
   await troisieme.ctx.close();
 }
 
@@ -249,7 +278,8 @@ titre("4. Un refus en anglais se traduit");
     "le client lit une phrase française qui dit quoi faire (« " + t.slice(0, 70) + "… »)");
   await aller(page, "#/connexion");
   const c = await chemins(page);
-  ok(c.carteConnexion === 0, "et la carte « Entrer avec mon numéro » se retire ensuite");
+  ok(!c.porteNumero && c.formulaireEmail,
+    "et « Se connecter » rouvre ensuite sur l'e-mail, sans le numéro");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -259,12 +289,14 @@ titre("4 bis. Le même refus, depuis Mon compte");
   const { page, ctx, envois } = await ouvrir({ sms: true, connecte: true,
     otp: { status: 422, corps: { code: 422, error_code: "phone_provider_disabled", msg: "Unsupported phone provider" } } });
   await aller(page, "#/compte", 1800);
-  await page.click("#cp-verifier");
+  await page.click("#cp-confirmer");
+  await page.waitForTimeout(400);
+  await page.click("#cp-envoyer");
   await page.waitForTimeout(900);
   const t = await toast(page);
-  ok(envois.includes("user"), "la vérification a été demandée");
+  ok(envois.includes("user"), "la confirmation du numéro a été demandée");
   ok(/pas encore ouverts/.test(t) && !/Unsupported/i.test(t), "le refus se lit en français");
-  ok(await page.evaluate(() => { const b = document.querySelector("#cp-verifier"); return !!b && !b.disabled; }),
+  ok(await page.evaluate(() => { const b = document.querySelector("#cp-envoyer"); return !!b && !b.disabled; }),
     "le bouton revient : rien n'est bloqué");
   await ctx.close();
 }

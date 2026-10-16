@@ -244,6 +244,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   c   public.commandes%rowtype;
   net text := left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9_-]', '', 'g'), 64);
+  du  int;
 begin
   if net = '' then return jsonb_build_object('ok', false, 'raison', 'transaction absente'); end if;
 
@@ -269,6 +270,10 @@ begin
     return jsonb_build_object('ok', true, 'deja', true, 'numero', c.numero);
   end if;
 
+  -- CE QUI EST ATTENDU EN LIGNE, c'est l'acompte : le reste se paie à la
+  -- livraison. Une commande d'avant l'acompte se payait en entier.
+  du := coalesce(c.acompte, c.total);
+
   perform set_config('bizzoo.paiement', 'oui', true);
 
   -- Cette transaction est déjà rattachée à une autre commande. On le
@@ -282,36 +287,41 @@ begin
     -- L'agrégateur et l'opérateur se reprennent tout seuls sur la ligne
     -- d'ouverture : c'est « noter_versement » qui s'en charge.
     perform public.noter_versement(c.id, 'conflit', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
       'Transaction déjà rattachée à une autre commande.');
     return jsonb_build_object('ok', true, 'conflit', true, 'numero', c.numero);
   end if;
 
-  -- Le montant qui compte est celui que KkiaPay annonce. S'il manque
+  -- Le montant qui compte est celui que l'agrégateur annonce. S'il manque
   -- quelque chose, on ne valide pas : on écrit ce qu'on a reçu, et la
   -- boutique tranche. La preuve, elle, n'est pas posée : la commande
   -- n'est pas payée.
-  if coalesce(montant, 0) < c.total then
+  if coalesce(montant, 0) < du then
     update public.commandes
        set remarque = 'Paiement incomplet : ' || coalesce(montant, 0)::text
-                      || ' reçus sur ' || c.total::text || ' attendus'
+                      || ' reçus sur ' || du::text || ' attendus'
                       || ' (transaction ' || net || ').'
      where id = c.id;
     perform public.noter_versement(c.id, 'incomplete', qui, '',
-      c.fournisseur_ref, net, c.total, coalesce(montant, 0),
-      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || c.total::text || ' attendus.');
+      c.fournisseur_ref, net, du, coalesce(montant, 0),
+      'Reçu ' || coalesce(montant, 0)::text || ' sur ' || du::text || ' attendus.');
     return jsonb_build_object('ok', true, 'incomplet', true, 'numero', c.numero);
   end if;
 
+  -- « verse » garde ce qui est RÉELLEMENT entré : c'est de lui que se
+  -- déduit ce que le livreur réclamera. Un client qui a tout payé en
+  -- ligne ne doit plus rien à la porte.
   update public.commandes
      set etat = 'payee', paye_le = now(), transaction_id = net,
-         confirme_par = '', remarque = ''
+         confirme_par = '', remarque = '', verse = coalesce(montant, 0)
    where id = c.id;
   -- La remarque vient d'être effacée sur la commande : c'est le journal,
   -- désormais, qui garde ce qui s'est passé avant cette réussite.
   perform public.noter_versement(c.id, 'payee', qui, '',
-    c.fournisseur_ref, net, c.total, coalesce(montant, 0), 'Versement encaissé.');
-  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total);
+    c.fournisseur_ref, net, du, coalesce(montant, 0),
+    case when du < c.total then 'Acompte encaissé.' else 'Versement encaissé.' end);
+  return jsonb_build_object('ok', true, 'numero', c.numero, 'total', c.total,
+                            'verse', coalesce(montant, 0));
 end $$;
 
 -- LE POINT À NE PAS MANQUER : révoquer du seul pseudo-rôle « public »
@@ -359,9 +369,9 @@ begin
 
   -- Au journal. C'est ICI, et nulle part ailleurs, qu'on sait chez quel
   -- opérateur la demande est partie : ni la notification ni la
-  -- vérification ne le rappellent.
-  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '', c.total, 0,
-    'Demande de paiement envoyée.');
+  -- vérification ne le rappellent. Ce qui est demandé, c'est l'acompte.
+  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '',
+    coalesce(c.acompte, c.total), 0, 'Demande de paiement envoyée.');
   return true;
 end $$;
 
@@ -379,10 +389,13 @@ begin
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   perform set_config('bizzoo.paiement', 'oui', true);
+  -- Ce dont l'enseigne se porte garante, c'est de l'ACOMPTE : le reste
+  -- se paie à la livraison, et reste dû.
   update public.commandes
-     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne')
+     set etat = 'payee', paye_le = now(), confirme_par = coalesce(qui, 'enseigne'),
+         verse = coalesce(acompte, total)
    where id = cible and etat <> 'payee'
-  returning total into montant;
+  returning verse into montant;
 
   -- Au journal, et NOMMÉMENT « main ». Un encaissement à la main n'est
   -- pas un versement comme un autre : personne ne l'a vérifié chez

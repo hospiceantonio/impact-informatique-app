@@ -26,6 +26,11 @@
       « tel_verifie » à qui n'est pas la vérification par SMS. Ce
       module ne l'envoie jamais — et s'il le faisait, il serait
       refusé.
+
+   4. ON ENTRE PAR SON NUMÉRO (3.58.0). Le SMS ouvert, un compte se
+      crée et s'ouvre avec un numéro et un code ; l'e-mail ne sert
+      plus qu'aux comptes d'avant, et une seule fois : le temps de
+      confirmer leur numéro (voir « Le numéro d'abord »).
    ========================================================= */
 
 const Compte = (() => {
@@ -36,6 +41,13 @@ const Compte = (() => {
 
   let fiche = null;     // la ligne « clients », une fois lue
   const ecouteurs = [];
+
+  /* UN ANCIEN COMPTE E-MAIL QUI N'A PAS ENCORE CONFIRMÉ SON NUMÉRO. Son
+     mot de passe est bon, mais il n'entre pas encore : la session que
+     GoTrue vient de rendre attend ici, EN MÉMOIRE SEULEMENT, le temps de
+     confirmer le numéro par SMS. Fermez l'application à ce moment-là, et
+     vous n'êtes pas connecté — c'est voulu. */
+  let attente = null;   // { reponse, email, tel }
 
   /* ---------- La règle de la maison ----------
 
@@ -101,6 +113,9 @@ const Compte = (() => {
 
   function garder(s) {
     session = s;
+    /* Une vraie session remplace toujours celle qui attendait : sinon le
+       code du numéro partirait, plus tard, au nom d'un autre compte. */
+    if (s) attente = null;
     try {
       if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
       else localStorage.removeItem(CLE_SESSION);
@@ -196,6 +211,10 @@ const Compte = (() => {
   async function appelAuth(chemin, corps, avecSession, methode) {
     const c = Catalogue.configuration();
     if (!c) throw new Error("L'application n'est pas reliée à la base.");
+    /* La session qui attend son numéro passe AVANT celle du téléphone :
+       c'est elle, et elle seule, qui demande et confirme ce numéro-là. */
+    const porteur = !avecSession ? ""
+      : (attente && attente.reponse.access_token) || (session && session.access_token) || "";
     let reponse;
     try {
       reponse = await fetch(c.url + "/auth/v1/" + chemin, {
@@ -203,7 +222,7 @@ const Compte = (() => {
         headers: {
           "apikey": c.cle,
           "Content-Type": "application/json",
-          ...(avecSession && session ? { "Authorization": "Bearer " + session.access_token } : {}),
+          ...(porteur ? { "Authorization": "Bearer " + porteur } : {}),
         },
         body: corps ? JSON.stringify(corps) : "{}",
       });
@@ -416,17 +435,111 @@ const Compte = (() => {
     return { confirmation: false, revendeur: estRevendeurEnAttente() };
   }
 
+  /**
+   * Entrer avec son e-mail et son mot de passe — la porte des comptes
+   * ouverts avant le SMS.
+   *
+   * Rend { numero: false } quand le compte est entré, et { numero: true,
+   * tel } quand il doit d'abord confirmer son numéro : la session attend
+   * alors, et l'écran enchaîne sur le code.
+   */
   async function connecter(email, motDePasse) {
+    const adresse = String(email || "").trim();
     const d = await appelAuth("token?grant_type=password", {
-      email: String(email || "").trim(), password: motDePasse,
+      email: adresse, password: motDePasse,
     });
-    depuisReponse(d, email);
+    const aConfirmer = await numeroAttendu(d);
+    if (aConfirmer) {
+      /* Le compte d'avant, s'il y en avait un, sort : on ne laisse pas
+         l'un connecté pendant que l'autre confirme son numéro. */
+      if (session) garder(null);
+      attente = { reponse: d, email: (d.user && d.user.email) || adresse, tel: aConfirmer.tel };
+      return { numero: true, tel: aConfirmer.tel };
+    }
+    attente = null;
+    depuisReponse(d, adresse);
     await assurerFiche("");
     await chargerPrix();
-    return courriel();
+    return { numero: false };
+  }
+
+  /* ---------- Le numéro d'abord ----------
+
+     Le SMS ouvert, on n'entre plus chez BIZZOO sans un numéro confirmé.
+     Les comptes créés par SMS en ont un par construction ; les comptes
+     ouverts AVANT, avec un e-mail, le confirment une fois — à leur
+     prochaine connexion —, puis entrent avec lui.
+
+     TROIS EXCEPTIONS, qui ont chacune leur raison :
+       — le SMS fermé ou incertain : on n'enferme pas dehors quelqu'un
+         qu'on ne pourrait pas faire entrer autrement ;
+       — un numéro déjà confirmé chez GoTrue : c'est fait ;
+       — l'équipe : elle a sa propre porte, et son propre code, dans
+         l'application vendeur.
+
+     CE N'EST PAS UN VERROU DE LA BASE. La porte e-mail reste ouverte chez
+     Supabase — l'application vendeur s'en sert pour créer les comptes de
+     l'équipe. Ce qui est ici décide de ce que l'application propose. */
+
+  /** Lire une table avec un jeton précis — celui qui attend, souvent. */
+  async function lireAvec(jetonPrecis, chemin) {
+    const c = Catalogue.configuration();
+    if (!c || !jetonPrecis) return null;
+    const r = await fetch(c.url + "/rest/v1/" + chemin, {
+      headers: { "apikey": c.cle, "Authorization": "Bearer " + jetonPrecis },
+    });
+    return r.ok ? r.json() : null;
+  }
+
+  /** Ce compte doit-il confirmer son numéro avant d'entrer ? null, ou { tel }. */
+  async function numeroAttendu(d) {
+    if (!d || !d.access_token) return null;
+    const u = d.user || {};
+    if (u.phone_confirmed_at || u.phone) return null;
+    if (await smsDisponible() !== true) return null;
+    try {
+      const equipe = await lireAvec(d.access_token, "profils?select=id&limit=1");
+      if (Array.isArray(equipe) && equipe.length) return null;
+    } catch (_) { /* on demandera le numéro : c'est le cas le plus sûr */ }
+    let tel = "";
+    try {
+      const lignes = await lireAvec(d.access_token, "clients?select=tel&limit=1");
+      tel = (lignes && lignes[0] && lignes[0].tel) || "";
+    } catch (_) { /* le client le tapera */ }
+    return { tel };
+  }
+
+  /** Renoncer à confirmer : la session qui attendait est oubliée. */
+  const abandonnerAttente = () => { attente = null; };
+  const numeroEnAttente = () => (attente ? attente.tel : null);
+
+  /**
+   * Le numéro de ce compte est-il confirmé chez GoTrue ? Le jeton le dit
+   * sans aller rien demander : « phone » n'y figure qu'une fois le numéro
+   * confirmé — à la création par SMS, ou au code d'un changement de
+   * numéro.
+   */
+  function numeroConfirme() {
+    const c = contenuDuJeton();
+    return !!((c && c.phone) || (session && session.tel));
+  }
+
+  /**
+   * Ce compte, DÉJÀ CONNECTÉ, doit-il encore confirmer son numéro ? C'est
+   * le cas d'une session ouverte par e-mail avant le SMS, et gardée
+   * depuis sur le téléphone : on le lui demande dans « Mon compte », et
+   * avant de commander.
+   */
+  async function numeroAConfirmer() {
+    if (!session || numeroConfirme()) return false;
+    if (await smsDisponible() !== true) return false;
+    return !(await chargerEquipe());
   }
 
   async function deconnecter() {
+    /* La session qui attendait s'oublie AVANT : sinon c'est elle que la
+       déconnexion viserait, et non celle du téléphone. */
+    attente = null;
     try { await appelAuth("logout", {}, true); } catch (_) { /* déjà expirée */ }
     garder(null);
     /* Le catalogue redevient celui de tout le monde, séance tenante :
@@ -561,8 +674,18 @@ const Compte = (() => {
    * que de griser : un bouton qui ne mène nulle part n'apprend rien.
    */
   async function masquerSiSmsFerme(racine) {
-    if (await smsDisponible() !== false) return;
-    for (const el of (racine || document).querySelectorAll("[data-sms]")) el.remove();
+    const ouvert = await smsDisponible();
+    const ici = racine || document;
+    /* Et l'inverse : ce qui ne sert QUE sans SMS — le formulaire e-mail
+       de la connexion, celui de l'inscription — attend, caché, marqué
+       « data-sans-sms ». Il se montre quand le SMS est fermé, et
+       disparaît sinon : dans le doute, c'est le SMS qu'on montre. */
+    for (const el of ici.querySelectorAll("[data-sans-sms]")) {
+      if (ouvert === false) el.hidden = false;
+      else el.remove();
+    }
+    if (ouvert !== false) return;
+    for (const el of ici.querySelectorAll("[data-sms]")) el.remove();
   }
 
   /** Porte 1 — demander un code pour entrer par son numéro. */
@@ -581,19 +704,28 @@ const Compte = (() => {
     return numero;
   }
 
-  /** Porte 1 — valider le code, et entrer. */
+  /**
+   * Porte 1 — valider le code, et entrer.
+   *
+   * Rend { nouveau } : le compte vient-il de naître ? Le même code ouvre
+   * un compte qui existe et en crée un qui n'existe pas — c'est ce qui
+   * évite de dire à n'importe qui quels numéros ont un compte chez
+   * BIZZOO. On le devine aux deux dates du SERVEUR, création et dernière
+   * entrée, jamais à l'horloge du téléphone.
+   */
   async function confirmerCodeConnexion(tel, code) {
     const numero = telInternational(tel);
     const d = await appelAuth("verify", {
       type: "sms", phone: numero, token: String(code || "").trim(),
     });
     if (!depuisReponse(d, "")) throw new Error("Code incorrect ou expiré.");
-    /* Le premier code validé crée le compte : la publicité ne compte que
-       cette naissance-là, pas chaque retour. */
-    if (typeof Pixel !== "undefined") Pixel.entreeParCode(d && d.user);
     await assurerFiche("");
     await chargerPrix();
-    return session;
+    const u = d.user || {};
+    const ecart = Date.parse(u.last_sign_in_at || "") - Date.parse(u.created_at || "");
+    /* « utilisateur » sert à la publicité : c'est l'écran, qui sait si une
+       demande de revendeur accompagne l'inscription, qui la déclare. */
+    return { nouveau: ecart >= 0 && ecart < 15 * 60000, utilisateur: d.user || null };
   }
 
   /** Porte 2 — demander un code pour vérifier son numéro, déjà connecté. */
@@ -619,13 +751,18 @@ const Compte = (() => {
    */
   async function confirmerCodeNumero(tel, code) {
     const numero = telInternational(tel);
+    const enAttente = !!attente;
+    const email = enAttente ? attente.email : (session ? session.email : "");
     const d = await appelAuth("verify", {
       type: "phone_change", phone: numero, token: String(code || "").trim(),
     });
     /* La vérification rend une nouvelle session : on la garde, sinon le
-       jeton en main ignorerait le numéro tout juste confirmé. */
-    if (d && d.access_token) depuisReponse(d, session ? session.email : "");
+       jeton en main ignorerait le numéro tout juste confirmé. Pour un
+       ancien compte e-mail, c'est elle qui le fait enfin entrer. */
+    if (d && d.access_token) depuisReponse(d, email);
+    if (enAttente && !session) throw new Error("Code incorrect ou expiré.");
     const a_jour = await charger(true);
+    if (enAttente) await chargerPrix();
     if (a_jour && !a_jour.tel_verifie) {
       throw new Error(
         "Ce numéro est déjà vérifié sur un autre compte BIZZOO. " +
@@ -729,6 +866,11 @@ const Compte = (() => {
        la pastille qui dit lequel des deux. */
     confirme:     { mot: "Reçu confirmé",      court: "Livré",    niveau: 4,
                     classe: "badge-ok", confirme: true },
+    /* Payée par son ACOMPTE : le premier palier, mais le client doit
+       encore le reste à la livraison. « Payé » lui laisserait croire
+       qu'il ne doit plus rien. */
+    acompte:      { mot: "Acompte payé",       court: "Acompte payé", niveau: 1,
+                    classe: "badge-commande" },
   };
 
   /** Les quatre paliers de la barre, dans l'ordre. */
@@ -755,7 +897,8 @@ const Compte = (() => {
        client, la commande est payée et attend. Lui annoncer « vue par
        la boutique » ne lui dit rien de ce qu'il attend vraiment — et
        c'est pourquoi ces deux-là retombent sur « Payé ». */
-    return STATUTS[moins] || STATUTS.payee;
+    const statut = STATUTS[moins] || STATUTS.payee;
+    return statut === STATUTS.payee && Number(commande.reste) > 0 ? STATUTS.acompte : statut;
   }
 
   /** Les quatre paliers, pour que l'écran dessine la barre. */
@@ -775,6 +918,9 @@ const Compte = (() => {
    * l'enseigne, et le client veut savoir qui prépare quoi.
    */
   function commandeDepuisBase(l) {
+    /* Le reste à la livraison, boutique par boutique, tel que la base
+       l'a partagé (« restes »). Absent sur une base d'avant l'acompte. */
+    const restes = (l.restes && l.restes.boutiques) || {};
     const parBoutique = new Map();
     for (const x of (l.commande_lignes || [])) {
       const cle = x.boutique_id || "";
@@ -786,6 +932,7 @@ const Compte = (() => {
           whatsapp: (b && b.whatsapp) || "",
           indicatif: (b && b.indicatif) || "229",
           montant: 0,
+          a_encaisser: Math.max(0, Number(restes[cle]) || 0),
           lignes: [],
         });
       }
@@ -817,6 +964,14 @@ const Compte = (() => {
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
       remarque: l.remarque || "",
+      /* L'acompte payé en ligne, et ce qui reste pour la livraison. Une
+         commande d'avant l'acompte n'en porte pas : elle se payait en
+         entier, et il ne lui reste rien. */
+      acompte: l.acompte == null ? null : Number(l.acompte),
+      taux_acompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
+      verse: l.verse == null ? null : Number(l.verse),
+      reste: l.restes ? Math.max(0, Number(l.restes.reste) || 0) : 0,
+      frais_livraison: Math.max(0, Number(l.frais_livraison) || 0),
       client: {
         nom: l.client_nom || "", tel: l.client_tel || "",
         indicatif: l.client_indicatif || "229",
@@ -837,13 +992,45 @@ const Compte = (() => {
     "id,numero,total,devise,etat,remarque,note,cree_le,revendeur," +
     "client_nom,client_tel,client_indicatif,client_adresse," +
     "commande_lignes(boutique_id,produit_id,nom,code,reference,prix,quantite,etat,confirme_le)";
+  /* L'acompte, ce qui a été versé, et le reste partagé entre les
+     boutiques — « restes » est une fonction de la base que PostgREST lit
+     comme une colonne. */
+  const CHAMPS_ACOMPTE = ",acompte,taux_acompte,verse,restes";
+  let avecAcompte = true;
+  /* Les frais de livraison : une base d'avant n'a pas la colonne. */
+  const CHAMPS_FRAIS = ",frais_livraison";
+  let avecFrais = true;
+
+  /**
+   * Lire des commandes avec leur acompte. Une base d'avant l'acompte ne
+   * connaît pas ces colonnes et refuse toute la lecture : on relit alors
+   * sans elles, et l'on ne les redemande plus.
+   */
+  async function lireCommandes(suite) {
+    if (avecAcompte && avecFrais) {
+      try {
+        return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE +
+          CHAMPS_FRAIS + suite);
+      } catch (err) {
+        if (!/frais_livraison/i.test(err.message || "")) throw err;
+        avecFrais = false;
+      }
+    }
+    if (avecAcompte) {
+      try {
+        return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE + suite);
+      } catch (err) {
+        if (!/acompte|verse|restes|does not exist|could not find/i.test(err.message || "")) throw err;
+        avecAcompte = false;
+      }
+    }
+    return rest("GET", "commandes?select=" + CHAMPS_COMMANDE + suite);
+  }
 
   /** Les commandes de ce compte, les plus récentes d'abord. */
   async function mesCommandes(combien) {
     if (!session) return [];
-    const lignes = await rest("GET",
-      "commandes?select=" + CHAMPS_COMMANDE +
-      "&order=cree_le.desc&limit=" + (Number(combien) || 50));
+    const lignes = await lireCommandes("&order=cree_le.desc&limit=" + (Number(combien) || 50));
     return (lignes || []).map(commandeDepuisBase);
   }
 
@@ -860,9 +1047,7 @@ const Compte = (() => {
   /** Une commande précise — pour un reçu que ce téléphone n'a pas gardé. */
   async function commande(id) {
     if (!session || !id) return null;
-    const lignes = await rest("GET",
-      "commandes?select=" + CHAMPS_COMMANDE +
-      "&id=eq." + encodeURIComponent(id) + "&limit=1");
+    const lignes = await lireCommandes("&id=eq." + encodeURIComponent(id) + "&limit=1");
     return lignes && lignes.length ? commandeDepuisBase(lignes[0]) : null;
   }
 
@@ -1030,6 +1215,21 @@ const Compte = (() => {
     return fiche;
   }
 
+  /**
+   * Le nom seul — celui qu'on demande à un compte qui vient de naître
+   * par SMS. « enregistrer » renverrait aussi l'adresse, vide à ce
+   * moment-là, et effacerait celle qu'il aurait déjà donnée.
+   */
+  async function enregistrerNom(nom) {
+    const id = identifiant();
+    if (!id) throw new Error("Vous n'êtes pas connecté.");
+    const maj = await rest("PATCH", "clients?id=eq." + encodeURIComponent(id),
+      { nom: String(nom || "").trim().slice(0, 120), maj_le: new Date().toISOString() },
+      { "Prefer": "return=representation" });
+    fiche = (maj && maj[0]) || fiche;
+    return fiche;
+  }
+
   /* ---------- Client ordinaire, ou revendeur ----------
 
      Un revendeur achète pour revendre : validé par BIZZOO, il paie le
@@ -1146,7 +1346,8 @@ const Compte = (() => {
     connecte, courriel, identite, identifiant, moi, charger,
     inscrire, connecter, deconnecter, motDePasseOublie,
     lireRetourEmail, changerMotDePasse,
-    enregistrer, assurerSession, jeton, surChangement,
+    abandonnerAttente, numeroEnAttente, numeroConfirme, numeroAConfirmer,
+    enregistrer, enregistrerNom, assurerSession, jeton, surChangement,
     etatRevendeur, estRevendeur, estRevendeurEnAttente, motifRevendeur,
     demanderRevendeur, annulerRevendeur, enregistrerPosition, chargerPrix,
     telInternational, telNational, telAffichage,

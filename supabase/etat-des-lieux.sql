@@ -408,10 +408,11 @@ with controles(rang, element, ok) as (values
        where n.nspname = 'public' and p.proname = 'verifier_code')),
   -- La caisse doit savoir recevoir un code : sans ce troisième
   -- paramètre, le client taperait un code que la commande ignorerait.
-  (74, 'La caisse reçoit le code (creer_commande à 3 paramètres)', exists (
+  -- Le quatrième, l'acompte, est venu ensuite (contrôle 120).
+  (74, 'La caisse reçoit le code (creer_commande, 3e paramètre)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-         and p.pronargs = 3)),
+         and p.pronargs >= 3)),
   -- Sans celle-ci, le bénéfice affiché serait surévalué de toutes les
   -- remises accordées : il se calcule sur les lignes, où la remise
   -- n'apparaît pas.
@@ -507,8 +508,9 @@ with controles(rang, element, ok) as (values
   -- Le livreur porte la marchandise ; il n'a pas à savoir ce qu'elle
   -- vaut. Une règle RLS choisit les LIGNES et les rend entières : seule
   -- une fonction peut retenir des colonnes. On lit donc ce qu'elle
-  -- annonce rendre, et on y cherche de l'argent.
-  (90, 'Sans voir un seul montant', exists (
+  -- annonce rendre, et on y cherche de l'argent. Depuis l'acompte, UN
+  -- montant y figure : ce qu'il encaisse à la porte (contrôle 123).
+  (90, 'Sans voir le prix de ce qu''il porte', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'mes_livraisons'
          and pg_get_function_result(p.oid) not like '%prix%'
@@ -678,7 +680,114 @@ with controles(rang, element, ok) as (values
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'stock_rendre'
          and not has_function_privilege('anon', p.oid, 'EXECUTE')
-         and not has_function_privilege('authenticated', p.oid, 'EXECUTE')))
+         and not has_function_privilege('authenticated', p.oid, 'EXECUTE'))),
+
+  -- ---------- L'acompte à la commande ----------
+  -- Le taux est dans les réglages du paiement, et seul le
+  -- superadministrateur y écrit.
+  (119, 'L''acompte à la commande, réglé par vous (paiement.taux_acompte)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement'
+         and column_name = 'taux_acompte')
+    and exists (select 1 from pg_constraint where conname = 'paiement_taux_acompte_borne')),
+  -- La base le calcule et le fige sur la commande ; une application
+  -- d'avant, qui ne le demande pas, fait payer le total.
+  (120, 'La commande pose son acompte (creer_commande, 4e paramètre)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.pronargs >= 4 and p.prosrc like '%taux_acompte%')
+    and exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'commandes'
+                   and column_name = 'verse')),
+  -- L'agrégateur demande l'acompte, et le paiement le reconnaît.
+  (121, 'L''agrégateur ne demande que l''acompte', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'commande_pour_paiement'
+         and p.prosrc like '%coalesce(c.acompte, c.total)%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'marquer_payee'
+         and p.prosrc like '%coalesce(c.acompte, c.total)%')),
+  -- Le reste, boutique par boutique. Elle lit n'importe quelle commande :
+  -- personne ne l'appelle du dehors.
+  (122, 'Le reste se paie à la livraison, à chaque boutique sa part', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'restes_par_boutique'
+         and not has_function_privilege('anon', p.oid, 'EXECUTE')
+         and not has_function_privilege('authenticated', p.oid, 'EXECUTE'))),
+  (123, 'Le livreur voit ce qu''il doit encaisser (mes_livraisons)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'mes_livraisons'
+         and pg_get_function_result(p.oid) like '%a_encaisser%')),
+
+  -- ---------- La connexion de l'équipe confirmée par SMS ----------
+  (124, 'L''interrupteur du code SMS de l''équipe (securite_equipe)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'securite_equipe')
+    and exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'sessions_sms')),
+  -- C'est « role_courant() » qui ferme : tous les droits de l'équipe en
+  -- découlent.
+  (125, 'Sans son code, une session de l''équipe n''a aucun rang (role_courant)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'role_courant'
+         and p.prosrc like '%equipe_en_service()%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'est_compte_enseigne'
+         and p.prosrc like '%role_courant()%')),
+  -- Inscrire un code : la fonction Edge seule. Ouverte à un compte, elle
+  -- laisserait chacun choisir le code qu'il rendrait ensuite.
+  (126, 'Les codes s''inscrivent par la seule fonction Edge (enregistrer_code_connexion)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enregistrer_code_connexion'
+         and not has_function_privilege('anon', p.oid, 'EXECUTE')
+         and not has_function_privilege('authenticated', p.oid, 'EXECUTE'))),
+  (127, 'Le code se rend, et l''écran sait quand le demander (confirmer_code_connexion, etat_connexion)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'confirmer_code_connexion'
+         and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'etat_connexion')),
+  -- Qui a créé quel compte : écrit par la base, pas par l'écran.
+  (128, 'Qui a créé quel compte, et quand (profils.cree_par)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'profils'
+         and column_name = 'cree_par')
+    and exists (
+      select 1 from pg_trigger t
+       where t.tgname = 'profils_trace' and not t.tgisinternal)),
+  -- Les frais de livraison : réglés par l'enseigne, figés sur la
+  -- commande, comptés dans le total, hors remise.
+  (129, 'Les frais de livraison (paiement.frais_livraison, creer_commande, 5e paramètre)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement'
+         and column_name = 'frais_livraison')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.pronargs = 5 and p.prosrc like '%frais_livraison%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'commande_total'
+         and p.prosrc like '%frais_livraison%')),
+  -- Revendeurs et livreurs valident leur compte par leur position.
+  (130, 'La position valide les livreurs et les revendeurs (positions_livreurs, enregistrer_ma_position)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'positions_livreurs')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enregistrer_ma_position')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'assigner_livreur'
+         and p.prosrc like '%positions_livreurs%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'valider_revendeur'
+         and p.prosrc like '%revendeur_latitude%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
@@ -696,6 +805,15 @@ select rang                                            as "#",
 --          case when coalesce(cle_publique, '') = '' then 'aucune'
 --               else left(cle_publique, 8) || '…' end as "Clé publique"
 --     from public.paiement;
+
+-- ---------- Facultatif : quel acompte à la commande ? ----------
+-- Le contrôle 119 dit que le réglage EXISTE. Celui-ci dit sa valeur. Il
+-- se change depuis l'application admin — Réglages → « Paiement en ligne ».
+--
+--   select taux_acompte || ' %' as "Acompte à la commande",
+--          case when taux_acompte = 100 then 'tout se paie en ligne'
+--               else 'le reste à la livraison' end as "Le reste"
+--     from public.paiement where id = 1;
 
 -- ---------- Facultatif : l'interrupteur est-il allumé ? ----------
 -- Le contrôle 46 dit que l'interrupteur EXISTE. Celui-ci dit dans quelle
@@ -725,3 +843,20 @@ select rang                                            as "#",
 --     join public.boutiques b on b.id = p.boutique_id
 --     left join public.produits_prive pv on pv.produit_id = p.id
 --    order by b.nom, p.nom limit 3;
+
+-- ---------- Facultatif : l'équipe, son numéro, et qui l'a créée ----------
+-- Avant d'exiger le code SMS de toute l'équipe : chaque compte doit avoir
+-- un numéro. « Jamais confirmé » veut dire qu'aucun code n'y a encore été
+-- reçu ; « SANS NUMÉRO », que ce compte ne pourrait plus entrer du tout.
+--
+--   select (select case when sms_exige then 'EXIGÉ à chaque connexion'
+--                       else 'pas exigé' end from public.securite_equipe)
+--            as "Code SMS de l'équipe",
+--          coalesce(nullif(p.nom, ''), p.email) as "Compte", p.role as "Rang",
+--          case when length(regexp_replace(p.tel, '\D', '', 'g')) < 8 then 'SANS NUMÉRO'
+--               when p.tel_verifie then 'vérifié'
+--               else 'jamais confirmé' end as "Numéro",
+--          to_char(p.cree_le, 'DD/MM/YYYY HH24:MI') as "Créé le",
+--          coalesce(nullif(p.cree_par_nom, ''), 'hors de l''application') as "Par"
+--     from public.profils p
+--    order by p.role, 3;

@@ -199,8 +199,18 @@ const Supabase = (() => {
     if (lequel === "produits") return profil.peutModifier !== false;
     return false;
   };
-  /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique. */
-  const estAdmin = () => estSuper() || role() === "administrateur";
+  /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique.
+      POUR UN COMPTE D'ENSEIGNE, C'EST L'INTERRUPTEUR « LES BOUTIQUES »
+      QUI DÉCIDE, pas son rang : exactement ce que fait « administre() »
+      en base. Sans cela, un administrateur de BIZZOO à qui l'on n'a pas
+      ouvert les boutiques voyait les réglages et le slider… que la base
+      lui refusait à l'enregistrement. */
+  const estAdmin = () => estSuper() ||
+    (estCompteEnseigne() ? droitEnseigne("boutiques") : role() === "administrateur");
+  /** Passe d'une boutique à l'autre : le superadministrateur, et le
+      compte d'enseigne, qui travaille sur toutes. Les autres restent
+      dans la leur — et le livreur n'a pas besoin d'en ouvrir une. */
+  const peutChangerDeBoutique = () => estSuper() || estCompteEnseigne();
   /** Retoucher un produit déjà au catalogue : les administrateurs toujours,
       le modérateur si on le lui a accordé. Pour un compte d'enseigne,
       c'est SON interrupteur qui décide, quel que soit son rang. */
@@ -428,8 +438,13 @@ const Supabase = (() => {
      le serveur. La session renvoyée pour le nouveau venu est jetée —
      l'administrateur reste connecté sur son propre compte. */
 
-  async function creerCompte(email, motDePasse) {
-    const d = await appelAuth("signup", { email, password: motDePasse });
+  async function creerCompte(email, motDePasse, donnees) {
+    /* « donnees » : les métadonnées du compte. Un particulier qui reçoit
+       un code promo est un CLIENT (« compte: client ») : la base ne lui
+       fabrique pas de fiche d'équipe en attente. */
+    const d = await appelAuth("signup", donnees
+      ? { email, password: motDePasse, data: donnees }
+      : { email, password: motDePasse });
     const u = d.user || d;
     if (!u || !u.id) throw new Error("Le compte n'a pas pu être créé.");
     /* Supabase répond poliment même si l'adresse est déjà prise : dans ce
@@ -507,6 +522,35 @@ const Supabase = (() => {
     return d;
   }
 
+  /* ---------- Le code SMS de l'équipe ----------
+     Quand l'enseigne l'exige, le mot de passe ne suffit plus : la base ne
+     reconnaît aucun droit à la session tant que le code reçu par SMS n'a
+     pas été rendu. Ces quatre appels sont tout ce que l'écran en sait —
+     le code lui-même ne passe jamais par ici, il ne circule que par SMS. */
+
+  /** Faut-il un code, et vers quel numéro ? Null sur une base d'avant le
+      code SMS : rien n'y est exigé, l'application s'ouvre comme avant. */
+  async function etatConnexion() {
+    try {
+      return await rpcLecture("etat_connexion", {});
+    } catch (err) {
+      if (err && err.deconnecte) throw err;
+      if (/Could not find|does not exist|mise à jour de la base/i.test(err.message || "")) return null;
+      throw err;
+    }
+  }
+
+  /** Fait partir un code au numéro de la fiche. La fonction Edge répond
+      même quand elle refuse, avec la raison : on la rend telle quelle. */
+  const demanderCodeConnexion = () => fonctionEdge("code-connexion", {});
+
+  /** Rend le code. La base confirme la session, ou dit pourquoi non. */
+  const confirmerCodeConnexion = (code) =>
+    rpcLecture("confirmer_code_connexion", { code: String(code || "") });
+
+  /** L'interrupteur : au superadministrateur seul, et la base le vérifie. */
+  const reglerSmsEquipe = (exige) => rpcLecture("regler_sms_equipe", { exige: !!exige });
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -519,8 +563,9 @@ const Supabase = (() => {
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     estCompteEnseigne, droitEnseigne, peutVoirCommandes, peutVoirFinances,
-    compteActif, rolesActifs,
+    peutChangerDeBoutique, compteActif, rolesActifs,
     creerCompte, changerMotDePasse, rpc, rpcLecture, fonctionEdge,
+    etatConnexion, demanderCodeConnexion, confirmerCodeConnexion, reglerSmsEquipe,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

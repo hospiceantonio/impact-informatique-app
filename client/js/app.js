@@ -27,6 +27,9 @@ const App = { evenementInstallation: null };
     { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v), onglet: "/" },
     /* Les produits d'une boutique : l'onglet « Produits » de sa fiche y
        mène aussi, pour qui veut la liste entière avec ses tris. */
+    /* LE CATALOGUE D'UNE BOUTIQUE, par un lien partagé : on entre chez
+       elle, puis tous ses produits. */
+    { motif: /^\/boutique\/([^/]+)\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/" },
     { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/" },
     /* « Nos produits » : le « Voir tout » de l'accueil. Tout le
        catalogue de BIZZOO en galerie, les derniers arrivés d'abord. */
@@ -58,6 +61,8 @@ const App = { evenementInstallation: null };
     /* Entrer par son numéro : au Bénin, beaucoup de clients ont un
        téléphone et pas d'adresse e-mail. */
     { motif: /^\/connexion-tel$/, vue: (v) => VueCompte.connexionTel(v), onglet: "/compte" },
+    /* La porte des comptes ouverts avec un e-mail, avant le SMS. */
+    { motif: /^\/connexion-email$/, vue: (v) => VueCompte.connexionEmail(v), onglet: "/compte" },
     { motif: /^\/inscription$/, vue: (v) => VueCompte.inscription(v), onglet: "/compte" },
     { motif: /^\/mot-de-passe$/, vue: (v, m, p) => VueCompte.motDePasse(v, p), onglet: "/compte" },
     /* Là où ramène le lien de « Mot de passe oublié » (Compte.lireRetourEmail). */
@@ -185,6 +190,7 @@ const App = { evenementInstallation: null };
     try {
       await route.vue(vue, chemin.match(route.motif), params);
       if (!conserverPosition) Pixel.finEcran(ecran);
+      poserLives(vue, chemin);
     } catch (err) {
       console.error(err);
       vue.innerHTML =
@@ -199,6 +205,41 @@ const App = { evenementInstallation: null };
       if (memorisee) restaurerHauteur(memorisee);
       else window.scrollTo(0, 0);
     }
+  }
+
+  /* ---------- « En live sur TikTok » ----------
+     Quand une boutique annonce son live, l'accueil le montre en tête, et
+     la fiche de la boutique aussi. La notification n'atteint que les
+     téléphones où l'application est installée : le bandeau prévient tous
+     les autres, site web compris. Une minute de mémoire, pour ne pas
+     redemander à chaque écran. */
+  let lives = { quand: 0, liste: [] };
+
+  async function poserLives(vue, chemin) {
+    const boutique = /^\/boutique\/([^/]+)$/.exec(chemin);
+    if (chemin !== "/" && !boutique) return;
+    if (Date.now() - lives.quand > 60000) {
+      try {
+        const l = await Paiement.lives();
+        lives = { quand: Date.now(), liste: Array.isArray(l) ? l : [] };
+      } catch (_) {
+        lives = { quand: Date.now(), liste: [] };   // base d'avant le live : rien
+      }
+    }
+    const montrer = lives.liste.filter((l) => !boutique || l.boutique_id === boutique[1]);
+    /* L'écran a pu changer pendant la question. */
+    if (!montrer.length || (location.hash.replace(/^#/, "") || "/").split("?")[0] !== chemin) return;
+    const ancien = vue.querySelector(".bandeau-lives");
+    if (ancien) ancien.remove();
+    const zone = document.createElement("div");
+    zone.className = "bandeau-lives";
+    zone.innerHTML = montrer.slice(0, 3).map((l) =>
+      '<a class="bandeau-live" href="' + Utils.echapper(l.lien) + '" target="_blank" rel="noopener">' +
+        '<span class="live-point"></span>' +
+        "<span><strong>" + Utils.echapper(l.nom) + "</strong> est en live sur TikTok</span>" +
+        '<span class="bandeau-live-voir">Regarder</span>' +
+      "</a>").join("");
+    vue.prepend(zone);
   }
 
   /* ---------- La boutique du moment ----------
@@ -227,7 +268,7 @@ const App = { evenementInstallation: null };
     if (chemin === "/" || chemin === "/infos" || chemin === "/nos-produits") {
       Catalogue.quitterBoutique();
     }
-    const laBoutique = /^\/boutique\/([^/]+)$/.exec(chemin);
+    const laBoutique = /^\/boutique\/([^/]+)(\/produits)?$/.exec(chemin);
     if (laBoutique) Catalogue.choisirBoutique(laBoutique[1]);
 
     const produit = /^\/produit\/([^/]+)$/.exec(chemin);
@@ -296,7 +337,7 @@ const App = { evenementInstallation: null };
        écrirait à la dernière boutique visitée, qui n'a peut-être rien à
        voir avec ce que le client regarde. */
     const flotte = enBoutique() &&
-      /^\/(boutique\/[^/]+|produit\/[^/]+|produits)$/.test(chemin || "");
+      /^\/(boutique\/[^/]+(\/produits)?|produit\/[^/]+|produits)$/.test(chemin || "");
 
     /* ---------- À QUI l'on écrit ----------
        Le bouton vu DANS une boutique écrit à CETTE boutique : le client
@@ -454,6 +495,11 @@ const App = { evenementInstallation: null };
        premier coup et non après un aller-retour sous les doigts. */
     if (typeof Compte !== "undefined") {
       Compte.chargerRegles().catch(() => { /* hors connexion : la dernière connue */ });
+      /* Le SMS est-il ouvert ? Demandé dès l'ouverture, pour que l'écran
+         « Se connecter » s'ouvre directement sur la bonne porte — le
+         numéro, ou l'e-mail — au lieu de changer sous les yeux. Une seule
+         question par ouverture : les écrans reprennent cette réponse. */
+      Compte.smsDisponible();
     }
 
     /* ---------- Les notifications ----------

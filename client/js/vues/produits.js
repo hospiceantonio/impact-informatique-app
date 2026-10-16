@@ -59,8 +59,15 @@ const VueProduits = (() => {
         ? produits.length + " produit" + (produits.length > 1 ? "s" : "") +
           (toutesBoutiques ? " dans toutes les boutiques" : "")
         : "",
-      actions: UI.boutonRecherche(),
+      actions: (choisie ? UI.boutonPartager("pr-partager") : "") + UI.boutonRecherche(),
     });
+    const partage = document.getElementById("pr-partager");
+    if (partage && choisie) {
+      partage.onclick = () => UI.partager({
+        titre: "Catalogue " + choisie.nom, texte: "Le catalogue de " + choisie.nom + " sur BIZZOO",
+        lien: Utils.lienPartage("catalogue", choisie.id),
+      });
+    }
 
     const bandeau = toutesBoutiques ? "" : UI.bandeauBoutique();
     if (!produits.length) {

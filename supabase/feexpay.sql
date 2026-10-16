@@ -50,12 +50,17 @@ alter table public.profils
 alter table public.profils
   add column if not exists peut_finances  boolean not null default false;
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
     select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
       from public.profils p
-     where p.id = auth.uid() and p.actif), false);
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
 $$;
 revoke all on function public.est_compte_enseigne() from public, anon;
 grant execute on function public.est_compte_enseigne() to authenticated;
@@ -198,7 +203,8 @@ $$;
 -- administrateur : il n'est enfermé nulle part.
 create or replace function public.boutique_du_compte() returns text
 language sql stable security definer set search_path = public as $$
-  select boutique_id from public.profils where id = auth.uid() and actif;
+  select boutique_id from public.profils
+   where id = auth.uid() and actif and public.role_courant() is not null;
 $$;
 
 -- A-t-il le droit de toucher à ce qui appartient à cette boutique-là ?
@@ -233,6 +239,9 @@ grant execute on function public.boutique_du_compte() to authenticated;
 grant execute on function public.peut_agir_sur(text) to authenticated;
 
 alter table public.commandes add column if not exists compte_supprime boolean not null default false;
+alter table public.commandes add column if not exists taux_acompte int;
+alter table public.commandes add column if not exists acompte int;
+alter table public.commandes add column if not exists verse int;
 
 create or replace function public.commande_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -271,6 +280,12 @@ begin
   or new.fournisseur_ref is distinct from old.fournisseur_ref
   or new.tentative_le is distinct from old.tentative_le
   or new.confirme_par is distinct from old.confirme_par
+  -- L'acompte et ce qui a été versé. Les réécrire, c'est changer ce que
+  -- le livreur va réclamer à la porte du client.
+  or new.taux_acompte is distinct from old.taux_acompte
+  or new.acompte is distinct from old.acompte
+  or new.verse is distinct from old.verse
+  or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -454,9 +469,9 @@ begin
 
   -- Au journal. C'est ICI, et nulle part ailleurs, qu'on sait chez quel
   -- opérateur la demande est partie : ni la notification ni la
-  -- vérification ne le rappellent.
-  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '', c.total, 0,
-    'Demande de paiement envoyée.');
+  -- vérification ne le rappellent. Ce qui est demandé, c'est l'acompte.
+  perform public.noter_versement(c.id, 'ouverte', qui, ou, net, '',
+    coalesce(c.acompte, c.total), 0, 'Demande de paiement envoyée.');
   return true;
 end $$;
 
@@ -478,7 +493,8 @@ begin
   if not found then return null; end if;
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'etat', c.etat,
-    'total', c.total, 'devise', c.devise,
+    'total', coalesce(c.acompte, c.total), 'devise', c.devise,
+    'acompte', coalesce(c.acompte, c.total), 'total_commande', c.total,
     'nom', c.client_nom, 'tel', c.client_tel,
     'reference', c.fournisseur_ref,
     -- Pour que l'Edge Function refuse une relance AVANT d'appeler

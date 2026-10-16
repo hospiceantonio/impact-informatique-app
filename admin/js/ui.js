@@ -8,34 +8,28 @@ const UI = (() => {
   const $$ = (sel, base) => Array.from((base || document).querySelectorAll(sel));
   const e = Utils.echapper;
 
-  /* ---------- Marque (reprend la charte du logo officiel) ---------- */
+  /* ---------- Le logo : le B au chariot, puis le nom ---------- */
 
   /**
-   * La marque : l'icône même de l'application, celle qu'on voit sur
-   * l'écran d'accueil du téléphone. Un seul dessin pour les deux —
-   * plus de version approchée qui finirait par diverger.
-   * Le fichier est déjà gardé hors connexion par le service worker.
-   */
-  /**
-   * LE MOT-SYMBOLE BIZZOO, écrit et non dessiné.
-   *
-   * « Bizz » en bleu, « oo » en orange, et les deux points sous le
-   * mot. Le tracer en texte plutôt qu'en image lui donne trois choses
-   * qu'une image n'a pas : il reste net à toutes les tailles, il ne
-   * pèse rien, et il s'affiche sans réseau comme sans fichier.
-   *
-   * L'icône carrée, elle, reste une image : c'est le raccourci sur
-   * l'écran d'accueil du téléphone, et Android la veut en PNG.
+   * LE NOM BIZZOO, écrit et non dessiné : « Bizz » en bleu, « oo » en
+   * orange. En texte plutôt qu'en image, il reste net à toutes les
+   * tailles, ne pèse rien, et s'affiche sans réseau comme sans fichier.
+   * Plus de points dessous depuis la 3.56.1 : le B au chariot qui le
+   * précède porte ses deux roues orange.
    */
   function motSymbole(classe) {
     return (
       '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
         '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
-        '<span class="logo-points" aria-hidden="true"><i></i><i></i></span>' +
       "</span>"
     );
   }
 
+  /**
+   * La marque : l'icône même de l'application, celle qu'on voit sur
+   * l'écran d'accueil du téléphone — ici avec sa pastille « réglages ».
+   * Le fichier est déjà gardé hors connexion par le service worker.
+   */
   function marque(taille = 40) {
     return (
       '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
@@ -43,9 +37,17 @@ const UI = (() => {
     );
   }
 
+  /**
+   * LE LOGO DE BIZZOO, puis « Espace admin » sous le nom. La tuile est
+   * « icons/logo-bizzoo.png » : le B au chariot SANS la pastille
+   * « réglages » de l'icône de l'admin — c'est la marque de l'enseigne,
+   * la même que dans l'application des clients et sur le site.
+   */
   function logoAdmin() {
     return (
       '<span class="logo">' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo.png" alt="" aria-hidden="true"' +
+        ' width="40" height="40">' +
         '<span class="logo-textes">' +
           motSymbole() +
           '<span class="logo-sous">Espace admin</span>' +
@@ -121,6 +123,29 @@ const UI = (() => {
 
   function icone(nom, classe) {
     return '<svg class="ic' + (classe ? " " + classe : "") + '" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-' + nom + '"/></svg>';
+  }
+
+  /* L'ICÔNE D'UNE CATÉGORIE (3.56), la même que chez le client : l'une
+     de celles des trois planches choisies par l'enseigne, reprises telles
+     quelles (« img/pictos/<nom>.png »). Une icône qui n'en fait pas
+     partie — choisie avant la 3.56 — garde son dessin d'un trait : jamais
+     une pastille vide. */
+  const PICTOS = [
+    "informatique", "electromenager", "energie", "securite", "telephones",
+    "bebe-enfant", "livres-education", "formation", "maison-deco", "jardinage",
+    "bricolage", "immobilier", "auto-moto", "transport", "mode", "bijoux",
+    "beaute", "sante", "alimentation", "restauration", "agriculture",
+    "tracteur", "animaux", "sport-loisirs", "musique", "artisanat", "cadeau",
+    "evenementiel", "bureau", "materiel-pro", "imprimante", "grossistes",
+    "cartons", "services"];
+
+  function picto(nom) {
+    const cle = String(nom || "categories");
+    if (PICTOS.includes(cle)) {
+      return '<img class="picto" src="img/pictos/' + cle + '.png" alt="" draggable="false">';
+    }
+    /* Ni icône de l'image ni dessin d'un trait connu : les rayons. */
+    return icone(document.getElementById("i-" + cle) ? e(cle) : "categories");
   }
 
   /* ---------- Toasts ---------- */
@@ -640,8 +665,55 @@ const UI = (() => {
     );
   }
 
+  /* ---------- Les liens à partager ----------
+     L'ADRESSE OFFICIELLE de la boutique en ligne, quel que soit
+     l'endroit d'où l'on copie : un lien partagé sur WhatsApp ou sur une
+     page Facebook ouvre directement la boutique, son catalogue ou la
+     fiche du produit. */
+  const SITE_BOUTIQUE = "https://www.bizzoomarket.com/client/#/";
+  function lienPartage(type, id) {
+    const cle = encodeURIComponent(String(id || ""));
+    if (type === "produit") return SITE_BOUTIQUE + "produit/" + cle;
+    if (type === "catalogue") return SITE_BOUTIQUE + "boutique/" + cle + "/produits";
+    return SITE_BOUTIQUE + "boutique/" + cle;
+  }
+
+  /** Une carte de liens : chacun avec « Copier » et « WhatsApp ». */
+  function liensPartage(liens) {
+    return '<div class="carte liens-partage">' +
+      '<div class="carte-titre">' + icone("lien", "ic-sm") + " Liens à partager</div>" +
+      liens.map((l) =>
+        '<div class="lien-partage">' +
+          "<small>" + Utils.echapper(l.nom) + "</small>" +
+          '<input type="text" readonly value="' + Utils.echapper(l.lien) + '">' +
+          '<div class="btn-rangee">' +
+            '<button type="button" class="btn btn-clair" data-copier="' + Utils.echapper(l.lien) + '">' +
+              "Copier</button>" +
+            '<a class="btn btn-clair" target="_blank" rel="noopener" href="' +
+              Utils.echapper("https://wa.me/?text=" + encodeURIComponent(l.lien)) + '">' +
+              icone("whatsapp") + "WhatsApp</a>" +
+          "</div>" +
+        "</div>").join("") +
+    "</div>";
+  }
+
+  /* Un seul écouteur pour tous les boutons « Copier » de l'application. */
+  document.addEventListener("click", async (ev) => {
+    const b = ev.target.closest && ev.target.closest("[data-copier]");
+    if (!b) return;
+    const lien = b.dataset.copier;
+    try {
+      await navigator.clipboard.writeText(lien);
+    } catch (_) {
+      const champ = b.closest(".lien-partage") && b.closest(".lien-partage").querySelector("input");
+      if (champ) { champ.select(); try { document.execCommand("copy"); } catch (__) { /* sélectionné */ } }
+    }
+    toast("Lien copié", "ok");
+  });
+
   return {
-    $, $$, entete, icone, marque, motSymbole, logoAdmin, toast, majCloche,
+    lienPartage, liensPartage,
+    $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,

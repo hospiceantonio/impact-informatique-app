@@ -123,6 +123,14 @@ select essai.titre('Seul BIZZOO tranche');
 -- ---------------------------------------------------------
 -- L'administrateur d'une boutique gère ses produits, pas les comptes
 -- de l'enseigne : la remise engage TOUTES les boutiques.
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:CHEF::uuid);
 set role authenticated;
 select essai.refuse(
@@ -134,6 +142,14 @@ select essai.egal((select count(*)::int from public.revendeurs('')), 0,
 reset role;
 
 -- La demandeuse elle-même, encore moins.
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:AWA::uuid);
 set role authenticated;
 select essai.refuse(
@@ -158,6 +174,14 @@ reset role;
 -- ---------------------------------------------------------
 select essai.titre('BIZZOO valide');
 -- ---------------------------------------------------------
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:ENSEIGNE::uuid);
 set role authenticated;
 
@@ -296,6 +320,14 @@ select essai.egal((select prix from public.commande_lignes where commande_id = :
 -- ---------------------------------------------------------
 select essai.titre('Retirer le statut ne réécrit pas le passé');
 -- ---------------------------------------------------------
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:ENSEIGNE::uuid);
 set role authenticated;
 select essai.egal(
@@ -328,6 +360,14 @@ select essai.egal((select prix from public.commande_lignes where commande_id = :
 -- ---------------------------------------------------------
 select essai.titre('On ne se refait pas valider en changeant d''avis');
 -- ---------------------------------------------------------
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:ENSEIGNE::uuid);
 set role authenticated;
 select public.valider_revendeur(:AWA::uuid, true, '') as rendu \gset

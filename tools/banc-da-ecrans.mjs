@@ -212,11 +212,11 @@ titre("3. L'accueil dans l'ordre de la DA, et « Nos boutiques »");
     const titreBoutiques = [...vue.children].findIndex((x) =>
       x.matches(".section-titre") && /Nos boutiques partenaires/.test(x.textContent));
     return {
-      pilule: ordre(".recherche-pilule"), ronds: ordre(".cat-ronds"),
+      pilule: ordre(".recherche-pilule"), ronds: ordre(".cat-tuiles"),
       slider: ordre(".slider"), titreBoutiques, tuiles: ordre(".bou-tuiles"),
       offre: ordre(".offre-jour"),
       titre: [...vue.querySelectorAll(".section-titre h2")].map((h) => h.textContent.trim()),
-      noms: [...vue.querySelectorAll(".cat-rond-nom")].map((x) => x.textContent.trim()),
+      noms: [...vue.querySelectorAll(".cat-tuile-nom")].map((x) => x.textContent.trim()),
       lien: (document.querySelector(".recherche-pilule") || {}).getAttribute
         ? document.querySelector(".recherche-pilule").getAttribute("href") : "",
       toutVoir: [...vue.querySelectorAll(".section-lien")].map((a) => a.getAttribute("href")),
@@ -224,12 +224,12 @@ titre("3. L'accueil dans l'ordre de la DA, et « Nos boutiques »");
   });
   ok(m.pilule === 0, "la recherche est en tête, comme la DA");
   /* L'ORDRE VOULU PAR L'ENSEIGNE (3.50.0) : le slider en haut, puis
-     les catégories — la bannière ne passe plus après les ronds. */
+     les catégories — la bannière ne passe plus après leurs tuiles. */
   ok(m.slider === m.pilule + 1 && m.ronds === m.slider + 1,
-    "le slider juste sous la recherche, les catégories en ronds juste sous le slider");
+    "le slider juste sous la recherche, les catégories en tuiles juste sous le slider");
   ok(m.lien === "#/recherche", "la barre de recherche mène à la recherche");
   ok(m.noms.join(",") === "Mode,Électronique,Maison,Beauté",
-    "les ronds portent le nom court (" + m.noms.join(", ") + ")");
+    "les tuiles portent le nom court (" + m.noms.join(", ") + ")");
   ok(m.titre.includes("Nos boutiques partenaires"), "« Nos boutiques partenaires », le titre de la DA");
   /* L'offre du jour (et la publicité) passent AVANT les boutiques
      partenaires depuis la 3.50.0 : c'est l'ordre demandé par l'enseigne. */

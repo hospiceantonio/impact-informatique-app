@@ -181,6 +181,9 @@ select essai.egal(
 -- ---------------------------------------------------------
 select essai.titre('La course confiée : le livreur, et lui seul');
 
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid); set role authenticated;
 select public.assigner_livreur(:'vente', 'bou_informatique', :PORTEUR::uuid) as confie \gset
 reset role; select essai.personne();

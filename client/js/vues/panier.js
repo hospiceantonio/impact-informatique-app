@@ -53,6 +53,18 @@ const VuePanier = (() => {
     try { localStorage.setItem(CLE_COORDONNEES, JSON.stringify(c)); } catch (_) { /* privée */ }
   }
 
+  /* ---------- L'acompte et le reste ----------
+     Le client paie en ligne l'ACOMPTE, et le reste à la livraison, à
+     chaque boutique sa part. La base décide de tout : elle fige l'acompte
+     sur la commande et partage le reste entre les boutiques. Ces écrans
+     ne font que dire ce qu'elle a calculé.
+
+     Une commande d'avant l'acompte n'en porte pas : elle se payait en
+     entier, et il ne lui reste rien. */
+  const acompteDe = (c) => (c && c.acompte != null
+    ? Number(c.acompte) || 0 : Number(c && c.total) || 0);
+  const resteDe = (c) => Math.max(0, Number(c && c.reste) || 0);
+
   /* ---------- Le récapitulatif envoyé sur WhatsApp ----------
      Une boutique n'a pas à lire ce qui a été commandé ailleurs :
      chacune reçoit ses lignes à elle, et le total qui la concerne. */
@@ -74,6 +86,12 @@ const VuePanier = (() => {
       (numero ? "Commande " + numero + "\n" : "") +
       "Je souhaite commander :\n" + lignes.join("\n") +
       "\n\nTotal : " + Utils.fmtMontant(groupe.montant, devise) +
+      /* Ce que la boutique encaissera à la porte : l'acompte est déjà
+         chez BIZZOO. Sans cette ligne, elle réclamerait le total. */
+      (groupe.aEncaisser > 0
+        ? "\nAcompte payé en ligne. Reste à payer à la livraison : " +
+          Utils.fmtMontant(groupe.aEncaisser, devise)
+        : "") +
       (client && client.nom ? "\n\nNom : " + client.nom : "") +
       (client && client.adresse ? "\nAdresse : " + client.adresse : "");
   }
@@ -171,13 +189,25 @@ const VuePanier = (() => {
        LA LIVRAISON N'A PAS DE PRIX ICI, et on ne lui en invente pas : elle
        se convient avec chaque boutique. Écrire « 5 000 FCFA » comme la
        maquette, ce serait un chiffre que personne n'a fixé. */
+    /* LES FRAIS DE LIVRAISON, fixés par BIZZOO, une fois par commande :
+       ils s'ajoutent au total. Une base d'avant n'en a pas — la
+       livraison se convient alors avec la boutique, comme avant. */
+    const frais = Paiement.fraisLivraison();
+    const totalPanier = Panier.total() + frais;
     html +=
       '<div class="carte pa-recap">' +
         '<div class="pa-recap-ligne"><span>Sous-total</span><span>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
-        '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>' +
+        (frais > 0
+          ? '<div class="pa-recap-ligne pa-recap-frais"><span>Frais de livraison</span><span>' +
+              Utils.echapper(Utils.fmtMontant(frais, devise)) + "</span></div>"
+          : '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>') +
         '<div class="pa-recap-ligne pa-recap-total"><span>Total</span><strong>' +
-          Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
+          Utils.echapper(Utils.fmtMontant(totalPanier, devise)) + "</strong></div>" +
+        /* L'ACOMPTE, DÈS LE PANIER : le client doit savoir ce qu'il paiera
+           en commandant avant de taper ses coordonnées. C'est un aperçu ;
+           la base fixera l'acompte en créant la commande. */
+        recapAcompte(totalPanier, devise) +
         /* Dire au revendeur que ce total est déjà le sien : sans cela,
            il attend une remise à la caisse qui ne viendra pas — elle est
            déjà dans le chiffre qu'il lit. */
@@ -218,6 +248,17 @@ const VuePanier = (() => {
       location.hash = "#/commande";
     };
 
+    /* LES RÉGLAGES DU PAIEMENT ARRIVENT APRÈS L'ÉCRAN au démarrage : un
+       panier ouvert tout de suite se dessine sans eux. Le récapitulatif se
+       redessine quand ils sont là, pour annoncer l'acompte avant que le
+       client ne passe commande. */
+    if (!Paiement.connu()) {
+      Paiement.charger().then(() => {
+        if (location.hash === "#/panier" &&
+            (Paiement.disponible() || Paiement.fraisLivraison() > 0)) afficher(vue);
+      }).catch(() => { /* sans réglages : pas d'acompte à annoncer */ });
+    }
+
     for (const bouton of UI.$$("[data-panier-action]", vue)) {
       bouton.onclick = () => {
         const id = bouton.dataset.produit;
@@ -237,6 +278,21 @@ const VuePanier = (() => {
         afficher(vue);
       };
     }
+  }
+
+  /** « À payer à la commande » et « à la livraison », sous le total du
+   *  panier — quand le paiement est en ligne et qu'un acompte s'applique. */
+  function recapAcompte(total, devise) {
+    if (!Paiement.connu() || !Paiement.disponible()) return "";
+    const acompte = Paiement.acompteDe(total);
+    if (acompte >= total) return "";
+    return (
+      '<div class="pa-recap-ligne pa-recap-acompte"><span>À payer à la commande ' +
+        "<small>acompte de " + Paiement.tauxAcompte() + " %</small></span><span>" +
+        Utils.echapper(Utils.fmtMontant(acompte, devise)) + "</span></div>" +
+      '<div class="pa-recap-ligne"><span>À payer à la livraison</span><span>' +
+        Utils.echapper(Utils.fmtMontant(total - acompte, devise)) + "</span></div>"
+    );
   }
 
   /* UNE LIGNE DE LA DA : la photo, le nom, le prix, le compteur gris,
@@ -289,11 +345,12 @@ const VuePanier = (() => {
      Écran 2 bis — « il faut un compte »
 
      Ce n'est pas une porte close, c'est une porte à ouvrir : on
-     dit pourquoi, on rassure sur le panier, et on donne les trois
-     façons d'entrer — dont celle par SMS, qui ne demande ni
-     adresse e-mail ni mot de passe à retenir.
+     dit pourquoi, on rassure sur le panier, et on donne les deux
+     façons d'entrer — créer son compte, ou ouvrir celui qu'on a.
+     Le SMS ouvert, les deux passent par le numéro et un code :
+     ni adresse e-mail, ni mot de passe à retenir.
 
-     Les trois mènent au même endroit : « revenirVers » pose le
+     Les deux mènent au même endroit : « revenirVers » pose le
      retour, et l'écran de commande revient de lui-même une fois
      le compte ouvert.
      ===================================================== */
@@ -318,11 +375,11 @@ const VuePanier = (() => {
       '<div class="carte">' +
         '<a class="btn" href="#/inscription" data-vers-compte>' +
           UI.icone("compte") + "Créer mon compte</a>" +
-        '<a class="btn btn-clair" href="#/connexion-tel" data-vers-compte data-sms ' +
-          'style="margin-top:10px">' + UI.icone("telephone") +
-          "Entrer avec mon numéro</a>" +
-        '<p class="aide" style="margin:12px 0 0">Vous avez déjà un compte ? ' +
-          '<a href="#/connexion" data-vers-compte>Se connecter</a></p>' +
+        '<a class="btn btn-clair" href="#/connexion" data-vers-compte ' +
+          'style="margin-top:10px">' + UI.icone("check") +
+          "J'ai déjà un compte</a>" +
+        '<p class="aide" data-sms style="margin:12px 0 0">Avec votre numéro et un ' +
+          "code reçu par SMS : pas de mot de passe à retenir.</p>" +
       "</div>" +
 
       '<div class="carte">' +
@@ -351,8 +408,13 @@ const VuePanier = (() => {
 
   async function commander(vue) {
     promo = { code: "", remise: 0 };
+    /* LES RENVOIS VERS LE PANIER REMPLACENT L'ENTRÉE D'HISTORIQUE. Avec
+       « location.hash = », revenir en arrière depuis le panier ramenait
+       ici, qui renvoyait au panier, et ainsi de suite : après un achat
+       (panier vidé), le bouton retour du téléphone tournait entre ces
+       deux écrans sans jamais en sortir. */
     if (Panier.vide()) {
-      location.hash = "#/panier";
+      location.replace("#/panier");
       return;
     }
     /* Un article épuisé depuis l'ajout, ou une quantité que le stock ne
@@ -363,15 +425,21 @@ const VuePanier = (() => {
     const ramenees = Panier.ajusterAuStock();
     if (Panier.enRupture().length) {
       UI.toast("Un article de votre panier n'est plus disponible", "err");
-      location.hash = "#/panier";
+      location.replace("#/panier");
       return;
     }
     if (ramenees.length) {
       UI.toast("Le stock a changé : vérifiez les quantités de votre panier", "err");
-      location.hash = "#/panier";
+      location.replace("#/panier");
       return;
     }
-    if (!Paiement.connu()) await Paiement.charger();
+    /* LE TAUX DE L'ACOMPTE SE RELIT ICI : le superadministrateur a pu le
+       changer depuis l'ouverture de l'application, et le client doit voir
+       ce qu'il paiera vraiment. Déjà connus, les réglages dessinent
+       l'écran tout de suite et se relisent à côté (en bas). */
+    const reglagesConnus = Paiement.connu();
+    if (!reglagesConnus) await Paiement.charger();
+    const tauxLu = Paiement.tauxAcompte();
     /* La règle avant de dessiner, comme la fiche : on ne veut pas d'un
        formulaire qui s'affiche puis se remplace sous les doigts.
 
@@ -394,6 +462,18 @@ const VuePanier = (() => {
        vides puis se remplissent sous les doigts du client. */
     if (typeof Compte !== "undefined" && Compte.connecte()) {
       try { await Compte.charger(); } catch (_) { /* on commandera sans */ }
+      /* UN COMPTE E-MAIL D'AVANT LE SMS confirme son numéro avant de
+         commander — une fois, puis la commande reprend d'elle-même. Le
+         panier n'est pas touché. Voir « Le numéro d'abord » (compte.js). */
+      let aConfirmer = false;
+      try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on laisse passer */ }
+      if (aConfirmer) {
+        VueCompte.confirmerNumero(vue, {
+          tel: (Compte.moi() || {}).tel || "",
+          apres: () => commander(vue),
+        });
+        return;
+      }
     }
 
     /* L'enseigne exige un compte, et ce client n'en a pas : on s'arrête
@@ -479,8 +559,12 @@ const VuePanier = (() => {
          Montrer le champ quand même serait pire que de ne rien offrir :
          le client verrait 18 000 à l'écran puis enverrait un message
          disant 20 000. C'est exactement l'écart que tout ce travail
-         cherche à rendre impossible. */
-      (enLigne
+         cherche à rendre impossible.
+
+         ET PAS POUR UN REVENDEUR : il achète déjà au prix BIZZOO, et la
+         base refuserait le code. Lui montrer le champ, c'était l'inviter
+         à taper un code pour se le voir refuser. */
+      (enLigne && !Catalogue.auxPrixRevendeur()
         ? '<div class="carte" id="co-promo">' +
         '<div class="champ" style="margin:0">' +
           '<label for="co-code">Code promo <small>(si vous en avez un)</small></label>' +
@@ -496,10 +580,7 @@ const VuePanier = (() => {
         : "") +
 
       '<div class="carte pa-total">' +
-        '<div id="co-lignes-total">' +
-          '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
-            Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
-        "</div>" +
+        '<div id="co-lignes-total">' + htmlTotal(devise, enLigne) + "</div>" +
         (enLigne && !parFeexpay && Paiement.bacASable()
           ? '<div class="pa-essai">' + UI.icone("alerte", "ic-sm") +
             "<div><strong>Paiement en mode essai.</strong> Aucun argent ne sera prélevé, " +
@@ -511,7 +592,13 @@ const VuePanier = (() => {
                 ? "Vous recevrez une demande de paiement sur le numéro choisi : validez-la " +
                   "avec votre code Mobile Money."
                 : "Paiement Mobile Money ou carte, par KkiaPay.") +
-              " Votre commande n'est transmise aux boutiques qu'une fois le paiement confirmé."
+              " Votre commande n'est transmise aux boutiques qu'une fois le paiement confirmé." +
+              /* Ce qui se paie maintenant n'est que l'acompte : le dire
+                 avant le bouton, pas après le versement. */
+              (Paiement.acompteDe(aRegler()) < aRegler()
+                ? " Vous ne payez maintenant que l'acompte ; le reste se règle à la " +
+                  "livraison, auprès de la boutique."
+                : "")
             : "Le paiement en ligne n'est pas encore ouvert : votre commande part directement " +
               "à chaque boutique, qui vous rappellera pour le règlement et la livraison.") +
         "</p>" +
@@ -522,8 +609,7 @@ const VuePanier = (() => {
        qui ajoute au panier et sur le passage de commande. Le montant est
        dans le bouton : ce geste-là demande de l'argent, il le dit. */
     UI.barreAction(enLigne
-      ? '<button type="button" class="btn" id="co-payer">' +
-          "Payer " + Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</button>"
+      ? '<button type="button" class="btn" id="co-payer">' + libellePayer(devise) + "</button>"
       : '<button type="button" class="btn btn-wa" id="co-whatsapp">' + UI.icone("whatsapp") +
           "Envoyer sur WhatsApp</button>");
 
@@ -553,14 +639,7 @@ const VuePanier = (() => {
 
     /* Le numéro qui paie, et l'opérateur choisi. Ils ne sont là qu'avec
        FeexPay ; ailleurs on renvoie de quoi ne rien casser. */
-    const lirePaiement = () => {
-      const champ = UI.$("#co-mm-tel");
-      const actif = UI.$("#co-operateurs .pay-methode.active");
-      return {
-        numero: champ ? champ.value.trim() : "",
-        reseau: actif ? actif.dataset.reseau : "",
-      };
-    };
+    const lirePaiement = lireMobileMoney;
 
     if (parFeexpay) brancherMobileMoney();
 
@@ -598,6 +677,17 @@ const VuePanier = (() => {
     }
 
     brancherCode(vue, devise, boutonPayer);
+
+    /* Les réglages déjà connus se relisent à côté : si le taux a changé
+       entre-temps, le total et le bouton suivent. Une relecture qui échoue
+       garde ce qui était connu. */
+    if (reglagesConnus && enLigne) {
+      Paiement.charger({ garder: true }).then(() => {
+        if (Paiement.tauxAcompte() !== tauxLu && location.hash === "#/commande") {
+          rafraichirTotal(vue, devise, boutonPayer);
+        }
+      }).catch(() => { /* on garde ce qu'on a */ });
+    }
   }
 
   /* -----------------------------------------------------
@@ -609,26 +699,60 @@ const VuePanier = (() => {
      paierait un autre. */
 
   /** Ce que le client paiera, remise déduite. Aperçu : la base tranche. */
-  const aRegler = () => Math.max(0, Panier.total() - (promo.remise || 0));
+  /* Les frais de livraison s'ajoutent APRÈS la remise : un code promo
+     ne les touche pas. */
+  const aRegler = () => Math.max(0, Panier.total() - (promo.remise || 0)) +
+    Paiement.fraisLivraison();
+
+  /**
+   * Le récapitulatif du formulaire : le code et ce qu'il retire, puis le
+   * total — et, quand un acompte s'applique, ce qui se paie MAINTENANT et
+   * ce qui restera pour la livraison. L'acompte se prend sur le total
+   * remise déduite, comme la base le fera.
+   */
+  function htmlTotal(devise, enLigne) {
+    const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, devise));
+    const total = aRegler();
+    const acompte = enLigne ? Paiement.acompteDe(total) : total;
+    const frais = Paiement.fraisLivraison();
+    return (promo.remise > 0 || frais > 0
+        ? '<div class="pa-total-ligne"><span>Sous-total</span><span>' +
+            fmt(Panier.total()) + "</span></div>"
+        : "") +
+      (promo.remise > 0
+        ? '<div class="pa-total-ligne co-remise"><span>Code ' +
+            Utils.echapper(promo.code) + "</span><span>− " + fmt(promo.remise) + "</span></div>"
+        : "") +
+      (frais > 0
+        ? '<div class="pa-total-ligne co-frais"><span>Frais de livraison</span><span>' +
+            fmt(frais) + "</span></div>"
+        : "") +
+      (acompte < total
+        ? '<div class="pa-total-ligne"><span>Total de la commande</span><span>' +
+            fmt(total) + "</span></div>" +
+          '<div class="pa-total-ligne co-acompte"><span>À payer maintenant ' +
+            "<small>acompte de " + Paiement.tauxAcompte() + " %</small></span><strong>" +
+            fmt(acompte) + "</strong></div>" +
+          '<div class="pa-total-ligne co-reste"><span>Reste à payer à la livraison</span><span>' +
+            fmt(total - acompte) + "</span></div>"
+        : '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
+            fmt(total) + "</strong></div>");
+  }
+
+  /** Le bouton dit ce qu'il demande : l'acompte, ou le total. */
+  function libellePayer(devise) {
+    const total = aRegler();
+    const acompte = Paiement.acompteDe(total);
+    return acompte < total
+      ? "Payer l'acompte · " + Utils.echapper(Utils.fmtMontant(acompte, devise))
+      : "Payer " + Utils.echapper(Utils.fmtMontant(total, devise));
+  }
 
   /** Redessine le total et le bouton après un code appliqué ou retiré. */
   function rafraichirTotal(vue, devise, boutonPayer) {
     const bloc = UI.$("#co-lignes-total", vue);
-    if (bloc) {
-      bloc.innerHTML = promo.remise > 0
-        ? '<div class="pa-total-ligne"><span>Sous-total</span><span>' +
-            Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
-          '<div class="pa-total-ligne co-remise"><span>Code ' +
-            Utils.echapper(promo.code) + "</span><span>− " +
-            Utils.echapper(Utils.fmtMontant(promo.remise, devise)) + "</span></div>" +
-          '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
-            Utils.echapper(Utils.fmtMontant(aRegler(), devise)) + "</strong></div>"
-        : '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
-            Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>";
-    }
-    if (boutonPayer) {
-      boutonPayer.innerHTML = "Payer " + Utils.echapper(Utils.fmtMontant(aRegler(), devise));
-    }
+    if (bloc) bloc.innerHTML = htmlTotal(devise, true);
+    if (boutonPayer) boutonPayer.innerHTML = libellePayer(devise);
   }
 
   function brancherCode(vue, devise, boutonPayer) {
@@ -734,20 +858,38 @@ const VuePanier = (() => {
         "</div>"
       );
     }
-    const suggere = Paiement.operateurDuNumero(c.tel);
     return (
       '<div class="carte co-mm">' +
         '<div class="carte-titre carte-titre-bleu">Méthode de paiement</div>' +
-        '<div class="pay-methodes" id="co-operateurs" role="radiogroup" aria-label="Opérateur">' +
-          OPERATEURS.map((o) => ligneMethode(o, o.cle === suggere)).join("") +
-        "</div>" +
-        '<div class="champ" style="margin:14px 0 0"><label for="co-mm-tel">Numéro qui paie</label>' +
-          '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
-            Utils.echapper(c.tel) + '">' +
-          '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
-            "celui d'un proche qui règle pour vous.</p></div>" +
+        choixMobileMoney(c) +
       "</div>"
     );
+  }
+
+  /** L'opérateur et le numéro qui paie : le formulaire de commande, et le
+   *  reçu quand il faut réessayer. */
+  function choixMobileMoney(c) {
+    const suggere = Paiement.operateurDuNumero(c.tel);
+    return (
+      '<div class="pay-methodes" id="co-operateurs" role="radiogroup" aria-label="Opérateur">' +
+        OPERATEURS.map((o) => ligneMethode(o, o.cle === suggere)).join("") +
+      "</div>" +
+      '<div class="champ" style="margin:14px 0 0"><label for="co-mm-tel">Numéro qui paie</label>' +
+        '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
+          Utils.echapper(c.tel) + '">' +
+        '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
+          "celui d'un proche qui règle pour vous.</p></div>"
+    );
+  }
+
+  /** Ce que le client a choisi dans ce même bloc. */
+  function lireMobileMoney() {
+    const champ = UI.$("#co-mm-tel");
+    const actif = UI.$("#co-operateurs .pay-methode.active");
+    return {
+      numero: champ ? champ.value.trim() : "",
+      reseau: actif ? actif.dataset.reseau : "",
+    };
   }
 
   /** L'opérateur se met à jour pendant qu'on tape, sans jamais forcer. */
@@ -841,6 +983,13 @@ const VuePanier = (() => {
     Panier.memoriser({
       id: commande.id, numero: commande.numero, total: commande.total,
       devise: commande.devise, etat: commande.etat || "a_payer",
+      /* L'acompte et le reste tels que la base les a fixés. Une base
+         d'avant l'acompte n'en renvoie pas : la commande se paie alors en
+         entier, et le reçu le dira. */
+      acompte: commande.acompte, taux_acompte: commande.taux_acompte,
+      reste: commande.reste,
+      /* Les frais de livraison que la base a figés sur la commande. */
+      frais_livraison: Number(commande.frais_livraison) || 0,
       client, boutiques: commande.boutiques || [],
     });
 
@@ -858,7 +1007,10 @@ const VuePanier = (() => {
         UI.toast("Validez la demande sur votre téléphone");
       } else {
         const reponse = await Paiement.payer({
-          montant: commande.total, commande: commande.id,
+          /* L'ACOMPTE, tel que la base l'a fixé — jamais l'aperçu de
+             l'écran. Un versement plus petit que ce que la base attend
+             resterait « incomplet ». */
+          montant: acompteDe(commande), commande: commande.id,
           nom: client.nom, tel: client.indicatif + client.tel,
         });
         transaction = reponse.transactionId || "";
@@ -869,14 +1021,17 @@ const VuePanier = (() => {
       /* Un paiement abandonné n'est pas une commande perdue : elle
          attend, et le reçu propose de reprendre. */
       UI.toast(err.message || "Le paiement n'a pas abouti", "err");
-      location.hash = "#/commande/" + commande.id;
+      location.replace("#/commande/" + commande.id);
       return;
     }
 
     if (transaction) await Paiement.signalerTransaction(commande.id, transaction);
     Panier.majEtat(commande.id, "a_payer", { transaction });
     Panier.vider();
-    location.hash = "#/commande/" + commande.id;
+    /* Le reçu REMPLACE le formulaire dans l'historique : revenir en
+       arrière depuis le reçu mène au panier, pas à un formulaire qui
+       n'a plus rien à commander. */
+    location.replace("#/commande/" + commande.id);
   }
 
   /* =====================================================
@@ -957,36 +1112,229 @@ const VuePanier = (() => {
        celui où l'encaissement est constaté : on patiente, on n'annonce
        pas. Avec KkiaPay, une transaction a été rendue au téléphone ;
        avec FeexPay il n'y en a aucune — c'est notre serveur qui ira
-       demander, alors on attend dès que la commande est à payer. */
-    if (commande.etat === "a_payer"
-        && (commande.transaction || Paiement.fournisseur() === "feexpay")) {
-      const etat = await Paiement.attendreConfirmation(commande.id, commande.client.tel);
-      if (etat && (etat.etat !== commande.etat || etat.remarque)) {
-        /* « majEtat » ne sait noter que ce que CE téléphone garde : une
-           commande lue dans la base n'y figure pas, et il rend null. On
-           met donc à jour l'objet qu'on a en main, et le téléphone en
-           plus quand il la connaît. Sans cela, un reçu ouvert depuis un
-           autre appareil se vidait à la confirmation du paiement. */
-        commande.etat = etat.etat;
-        commande.remarque = etat.remarque || "";
-        Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "" });
-        if (location.hash === "#/commande/" + id) {
-          if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
-          dessinerRecu(vue, commande);
-        }
-      } else if (location.hash === "#/commande/" + id) {
-        const attente = UI.$("#re-attente");
-        if (attente) {
-          attente.innerHTML = UI.icone("horloge", "ic-sm") +
-            "<div>La confirmation tarde. Si vous avez bien été débité, la boutique " +
-            "recevra votre commande dès que " +
-            (Paiement.fournisseur() === "feexpay" ? "FeexPay aura confirmé le versement"
-                                                  : "KkiaPay l'aura signalée") +
-            " — vous n'avez rien à refaire. Gardez le numéro <strong>" +
-            Utils.echapper(commande.numero) + "</strong>.</div>";
-        }
+       demander, alors on attend dès que la commande est à payer.
+
+       L'ATTENTE N'EST PAS ATTENDUE ICI. L'application dessine ses écrans
+       un par un : tant que celui-ci n'avait pas rendu la main — une
+       minute et demie de vérifications —, retour, « Mes commandes » ou
+       l'accueil restaient sans effet, et le client se croyait enfermé
+       dans le reçu. L'attente part donc à côté ; quitter l'écran
+       l'arrête. */
+    if (commande.etat === "a_payer") {
+      if (commande.transaction || Paiement.fournisseur() === "feexpay") {
+        suivrePaiement(vue, commande, id);
+      } else {
+        poserAttente(vue, commande, id, "arretee", {});
       }
     }
+  }
+
+  /* -----------------------------------------------------
+     L'attente du versement, et la main laissée au client
+     -----------------------------------------------------
+     Quatre états d'une même carte, sous l'en-tête du reçu :
+
+       attente   le sablier, et « Arrêter l'attente » ;
+       arretee   plus de sablier : ce qui se passera si le client a
+                 été débité, « Vérifier à nouveau » et « Fermer » ;
+       echec     FeexPay a répondu que le versement n'a pas abouti —
+                 rien n'a été débité : on le dit, et l'on propose de
+                 réessayer, ou de fermer ;
+       rien      aucune demande n'est partie pour cette commande : on
+                 propose de la régler.
+
+     « Réessayer » n'apparaît qu'après un verdict de FeexPay — un refus
+     ou l'absence de toute demande. Pendant une attente, une seconde
+     demande ferait sonner le téléphone deux fois, et le client pourrait
+     payer deux fois : c'est pour cela que le sablier répète « Ne payez
+     pas une seconde fois ». */
+
+  /** L'attente en cours (une seule à la fois) : la nouvelle arrête l'ancienne. */
+  let attenteEnCours = null;
+
+  function carteAttente(commande, etat, info) {
+    const feexpay = Paiement.fournisseur() === "feexpay";
+    if (etat === "attente") {
+      return '<div class="carte pa-avertissement re-attente" id="re-attente" data-etat="attente">' +
+        '<span class="chargement-rond"></span>' +
+        '<div class="re-attente-corps"><p>' + (feexpay
+          ? "Validez la demande sur votre téléphone, avec votre code Mobile Money. " +
+            "Nous allons ensuite demander à FeexPay si le versement a abouti."
+          : "Nous attendons la confirmation de KkiaPay. Cela prend quelques secondes.") +
+          " Ne payez pas une seconde fois.</p>" +
+          '<div class="re-attente-actions">' +
+            '<button type="button" class="btn btn-clair" data-attente="arreter">' +
+              UI.icone("fermer", "ic-sm") + "Arrêter l'attente</button>" +
+          "</div>" +
+        "</div></div>";
+    }
+    if (etat === "arretee") {
+      const debut = info.motif === "tarde" ? "La confirmation tarde. "
+        : info.motif === "arret" ? "Vous avez arrêté l'attente. "
+        : "Le paiement n'est pas encore confirmé. ";
+      return '<div class="carte pa-avertissement re-attente" id="re-attente" data-etat="arretee">' +
+        UI.icone("horloge", "ic-sm") +
+        '<div class="re-attente-corps"><p>' + debut +
+          "Si vous avez validé la demande et que vous avez été débité, la boutique recevra " +
+          "votre commande dès que " +
+          (feexpay ? "FeexPay aura confirmé le versement" : "KkiaPay l'aura signalée") +
+          " — vous n'avez rien à refaire. Gardez le numéro <strong>" +
+          Utils.echapper(commande.numero) + "</strong>.</p>" +
+          '<div class="re-attente-actions">' +
+            '<button type="button" class="btn btn-clair" data-attente="verifier">' +
+              UI.icone("actualiser", "ic-sm") + "Vérifier à nouveau</button>" +
+            '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
+          "</div>" +
+        "</div></div>";
+    }
+    /* « echec » et « rien » : FeexPay seulement. Le choix de l'opérateur
+       et du numéro reprend celui du formulaire de commande. */
+    const message = etat === "echec"
+      ? Utils.echapper(info.erreur || "Le versement n'a pas abouti. Rien n'a été débité.")
+      : "Aucune demande de paiement n'est en cours pour cette commande : rien n'est parti " +
+        "sur votre téléphone. Vous pouvez la régler maintenant.";
+    return '<div class="carte re-attente re-attente-echec" id="re-attente" data-etat="' + etat + '">' +
+      '<div class="re-echec-tete">' + UI.icone("alerte", "ic-sm") + "<p>" + message + "</p></div>" +
+      (feexpay ? choixMobileMoney(commande.client || {}) : "") +
+      '<div class="btn-rangee re-attente-boutons">' +
+        (feexpay
+          ? '<button type="button" class="btn" data-attente="payer">' +
+              (etat === "echec" ? "Réessayer le paiement" : "Payer maintenant") + "</button>"
+          : "") +
+        '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
+      "</div></div>";
+  }
+
+  /** Pose (ou remplace) la carte, et branche ses boutons. */
+  function poserAttente(vue, commande, id, etat, info, controle) {
+    const html = carteAttente(commande, etat, info || {});
+    const ancienne = UI.$("#re-attente", vue);
+    if (ancienne) {
+      ancienne.outerHTML = html;
+    } else {
+      const entete = UI.$(".re-entete", vue);
+      if (entete) entete.insertAdjacentHTML("afterend", html);
+      else vue.insertAdjacentHTML("afterbegin", html);
+    }
+    const carte = UI.$("#re-attente", vue);
+    if (!carte) return;
+    if (etat === "echec" || etat === "rien") brancherMobileMoney();
+    carte.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-attente]");
+      if (!b) return;
+      const quoi = b.dataset.attente;
+      if (quoi === "arreter") {
+        if (controle) controle.arrete = true;
+        poserAttente(vue, commande, id, "arretee", { motif: "arret" });
+      } else if (quoi === "verifier") {
+        suivrePaiement(vue, commande, id);
+      } else if (quoi === "fermer") {
+        carte.remove();
+      } else if (quoi === "payer") {
+        relancerPaiement(vue, commande, id, b);
+      }
+    });
+  }
+
+  /** Attendre la confirmation, sans jamais retenir le client sur l'écran. */
+  async function suivrePaiement(vue, commande, id) {
+    if (attenteEnCours) attenteEnCours.arrete = true;
+    const controle = { arrete: false };
+    attenteEnCours = controle;
+    const ici = () => location.hash === "#/commande/" + id;
+    /* Quitter le reçu arrête l'attente : elle n'a plus personne à
+       prévenir, et elle continuait d'interroger FeexPay pour rien. */
+    const quitter = () => { if (!ici()) controle.arrete = true; };
+    window.addEventListener("hashchange", quitter);
+    poserAttente(vue, commande, id, "attente", {}, controle);
+    let etat = null;
+    try {
+      etat = await Paiement.attendreConfirmation(commande.id, commande.client.tel, 0, controle);
+    } finally {
+      window.removeEventListener("hashchange", quitter);
+      if (attenteEnCours === controle) attenteEnCours = null;
+    }
+    /* Parti, ou arrêté à la main : la carte dit déjà ce qu'il faut. */
+    if (controle.arrete || !ici()) return;
+    if (etat && etat.echoue) {
+      poserAttente(vue, commande, id, "echec", { erreur: etat.erreur });
+      return;
+    }
+    if (etat && etat.rien) {
+      poserAttente(vue, commande, id, "rien", {});
+      return;
+    }
+    if (etat && (etat.etat !== commande.etat || etat.remarque)) {
+      /* « majEtat » ne sait noter que ce que CE téléphone garde : une
+         commande lue dans la base n'y figure pas, et il rend null. On
+         met donc à jour l'objet qu'on a en main, et le téléphone en
+         plus quand il la connaît. Sans cela, un reçu ouvert depuis un
+         autre appareil se vidait à la confirmation du paiement. */
+      commande.etat = etat.etat;
+      commande.remarque = etat.remarque || "";
+      /* Ce qui a été versé et ce qui reste, boutique par boutique : la
+         base le sait maintenant pour de bon. */
+      const plus = suiteDuVersement(commande, etat);
+      Panier.majEtat(commande.id, etat.etat, { remarque: etat.remarque || "", ...plus });
+      if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
+      dessinerRecu(vue, commande);
+      /* Encore à payer — un versement incomplet : plus de sablier, la
+         remarque de l'en-tête dit le reste. */
+      if (commande.etat === "a_payer") poserAttente(vue, commande, id, "arretee", {});
+      return;
+    }
+    poserAttente(vue, commande, id, "arretee", { motif: "tarde" });
+  }
+
+  /**
+   * Reporte sur la commande ce que « suivre_commande » dit de l'argent :
+   * l'acompte, le versé, le reste, et la part de chaque boutique. Rend ce
+   * qu'il faut noter sur le téléphone. Une base d'avant l'acompte n'en dit
+   * rien : la commande garde ce qu'elle avait.
+   */
+  function suiteDuVersement(commande, suivi) {
+    if (!suivi || suivi.reste == null) return {};
+    commande.acompte = suivi.acompte;
+    commande.verse = suivi.verse;
+    commande.reste = suivi.reste;
+    const restes = suivi.restes || {};
+    for (const b of commande.boutiques || []) {
+      if (b && b.id in restes) b.a_encaisser = restes[b.id];
+    }
+    return { acompte: commande.acompte, verse: commande.verse, reste: commande.reste,
+             boutiques: commande.boutiques };
+  }
+
+  /** Une nouvelle demande, pour la même commande — après un refus seulement. */
+  async function relancerPaiement(vue, commande, id, bouton) {
+    const mm = lireMobileMoney();
+    if (!mm.reseau) {
+      UI.toast("Choisissez votre opérateur Mobile Money", "err");
+      return;
+    }
+    if (!/\d{6}/.test(Utils.normaliserTel(mm.numero))) {
+      UI.toast("Indiquez le numéro qui va payer", "err");
+      const champ = UI.$("#co-mm-tel");
+      if (champ) champ.focus();
+      return;
+    }
+    const libelle = bouton.innerHTML;
+    bouton.disabled = true;
+    bouton.innerHTML = '<span class="chargement-rond"></span>Envoi de la demande…';
+    try {
+      await Paiement.ouvrirFeexpay({
+        commande: commande.id, tel: commande.client.tel,
+        numero: mm.numero, reseau: mm.reseau,
+      });
+    } catch (err) {
+      bouton.disabled = false;
+      bouton.innerHTML = libelle;
+      UI.toast(err.message || "Le paiement n'a pas pu s'ouvrir", "err");
+      return;
+    }
+    if (location.hash !== "#/commande/" + id) return;
+    UI.toast("Validez la demande sur votre téléphone");
+    suivrePaiement(vue, commande, id);
   }
 
   /* -----------------------------------------------------
@@ -1078,10 +1426,19 @@ const VuePanier = (() => {
   function dessinerRecu(vue, commande) {
     const etat = ETATS[commande.etat] || ETATS.a_payer;
     const payee = commande.etat === "payee";
+    /* L'ACOMPTE ET LE RESTE. Payée par son acompte, la commande n'est pas
+       soldée : « Payée » laisserait croire au client qu'il ne doit plus
+       rien, et le livreur arriverait avec une somme à réclamer. */
+    const acompte = acompteDe(commande);
+    const reste = resteDe(commande);
+    const avecAcompte = acompte < commande.total || reste > 0;
+    const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, commande.devise));
     const groupes = (commande.boutiques || []).map((b) => ({
       boutique: Catalogue.boutiques().find((x) => x.id === b.id) ||
         { id: b.id, nom: b.nom, whatsapp: b.whatsapp, indicatif: b.indicatif, tel: "" },
       montant: b.montant,
+      /* Ce que CETTE boutique encaissera à la livraison. */
+      aEncaisser: Math.max(0, Number(b.a_encaisser) || 0),
       /* Où en est CETTE boutique, et si le client a déjà confirmé. Les
          deux viennent de la base ; une commande qui ne vit que sur le
          téléphone n'en sait rien, et l'écran ne montre alors pas le
@@ -1109,7 +1466,10 @@ const VuePanier = (() => {
           "<p>Merci pour votre commande. " + (connecte
             ? "Vous serez prévenu à chaque étape, jusqu'à la livraison."
             : "Gardez le numéro <strong>" + Utils.echapper(commande.numero) +
-              "</strong> : c'est lui qui vous permet de la suivre.") + "</p>" +
+              "</strong> : c'est lui qui vous permet de la suivre.") +
+            (reste > 0
+              ? " Le reste, <strong>" + fmt(reste) + "</strong>, se paie à la livraison."
+              : "") + "</p>" +
           '<a class="btn" href="#/mes-commandes">Voir mes commandes</a>' +
           '<a class="btn btn-clair" href="#/">Retour à l\'accueil</a>' +
         "</section>"
@@ -1119,9 +1479,29 @@ const VuePanier = (() => {
       heros +
       '<div class="carte re-entete">' +
         '<div class="re-numero">' + Utils.echapper(commande.numero) + "</div>" +
-        '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.nom) + "</span>" +
+        '<span class="badge ' + etat.classe + '">' +
+          Utils.echapper(payee && reste > 0 ? "Acompte payé" : etat.nom) + "</span>" +
         '<div class="re-montant">' +
           Utils.echapper(Utils.fmtMontant(commande.total, commande.devise)) + "</div>" +
+        (Number(commande.frais_livraison) > 0
+          ? '<div class="re-frais">dont ' + fmt(Number(commande.frais_livraison)) +
+              " de frais de livraison</div>"
+          : "") +
+        /* Ce qui se paie en ligne, puis à la porte. Avant le versement,
+           l'acompte est « à payer » ; après, c'est ce que l'agrégateur a
+           réellement reçu. */
+        (avecAcompte
+          ? '<div class="re-acompte">' +
+              '<div class="re-acompte-ligne"><span>' +
+                (payee ? "Acompte payé" : "Acompte à payer") +
+                (Number(commande.taux_acompte) > 0 && Number(commande.taux_acompte) < 100
+                  ? " <small>" + Number(commande.taux_acompte) + " %</small>" : "") +
+                "</span><strong>" +
+                fmt(payee && commande.verse != null ? commande.verse : acompte) + "</strong></div>" +
+              '<div class="re-acompte-ligne re-acompte-reste"><span>Reste à payer à la livraison</span>' +
+                "<strong>" + fmt(reste) + "</strong></div>" +
+            "</div>"
+          : "") +
         (commande.remarque
           ? '<div class="pa-avertissement" style="margin-top:12px">' + UI.icone("alerte", "ic-sm") +
             "<div>" + Utils.echapper(commande.remarque) + "</div></div>"
@@ -1130,21 +1510,20 @@ const VuePanier = (() => {
 
       (payee
         ? '<div class="carte pa-confirme">' + UI.icone("check") +
-            "<div><strong>Paiement confirmé.</strong> " +
+            "<div><strong>" + (reste > 0 ? "Acompte reçu." : "Paiement confirmé.") + "</strong> " +
             (groupes.length > 1
               ? "Les boutiques concernées ont reçu votre commande dans leur compte. " +
                 "Elles vous rappellent au "
               : "La boutique a reçu votre commande dans son compte. Elle vous rappelle au ") +
             Utils.echapper(Compte.telAffichage(commande.client.tel, commande.client.indicatif)) +
-            " pour la remise.</div></div>"
-        : '<div class="carte pa-avertissement" id="re-attente">' +
-            '<span class="chargement-rond"></span>' +
-            "<div>" + (Paiement.fournisseur() === "feexpay"
-              ? "Validez la demande sur votre téléphone, avec votre code Mobile Money. " +
-                "Nous allons ensuite demander à FeexPay si le versement a abouti."
-              : "Nous attendons la confirmation de KkiaPay. Cela prend quelques secondes.") +
-            " Ne payez pas une seconde fois.</div>" +
-          "</div>") +
+            " pour la remise." +
+            (reste > 0 ? " Le reste se paie à la livraison." : "") + "</div></div>"
+        /* L'ATTENTE NE CONCERNE QU'UNE COMMANDE À PAYER. Le sablier
+           tournait aussi sur une commande au paiement non abouti, ou
+           annulée, où plus rien n'arrivera — et répétait « Ne payez pas
+           une seconde fois » à qui n'avait rien payé. Le reçu pose la
+           carte ; « suivrePaiement » la fait vivre. */
+        : commande.etat === "a_payer" ? carteAttente(commande, "attente", {}) : "") +
 
       groupes.map((g) =>
         '<div class="carte pa-groupe">' +
@@ -1160,7 +1539,19 @@ const VuePanier = (() => {
             "</strong></div>").join("") +
           '<div class="pa-sous-total"><span>Sous-total</span><strong>' +
             Utils.echapper(Utils.fmtMontant(g.montant, commande.devise)) + "</strong></div>" +
+          /* Plusieurs boutiques livrent chacune leur part : chacune
+             encaisse la sienne, et le client doit savoir combien donner
+             à qui. */
+          (groupes.length > 1 && g.aEncaisser > 0
+            ? '<div class="pa-sous-total re-a-livrer"><span>À payer à sa livraison</span><strong>' +
+                fmt(g.aEncaisser) + "</strong></div>"
+            : "") +
           blocSuivi(commande, g) +
+          /* La place du livreur, remplie quand la base répond. */
+          (payee
+            ? '<div class="re-livreur" data-livreur-pour="' + Utils.echapper(g.boutique.id || "") +
+                '" hidden></div>'
+            : "") +
         "</div>").join("") +
 
       (payee
@@ -1182,6 +1573,51 @@ const VuePanier = (() => {
             '<a class="btn btn-clair" href="#/">Continuer mes achats</a>' +
           "</div>" +
         "</div>");
+    if (payee) remplirLivreurs(vue, commande);
+  }
+
+  /* -----------------------------------------------------
+     Qui vous livre
+     -----------------------------------------------------
+     Le livreur à qui la boutique a confié sa part : son nom, et de quoi
+     l'appeler ou lui écrire sur WhatsApp. La base ne le dit qu'au client
+     de la commande, une fois la course confiée, et jusqu'à ce qu'il
+     confirme l'avoir reçue. Rien à montrer, ou une base qui ne connaît
+     pas encore la question : la place reste vide, sans un mot. */
+  async function remplirLivreurs(vue, commande) {
+    let liste;
+    try {
+      liste = await Paiement.livreurs(commande.id, (commande.client && commande.client.tel) || "");
+    } catch (_) {
+      return;
+    }
+    for (const l of Array.isArray(liste) ? liste : []) {
+      const zone = UI.$$("[data-livreur-pour]", vue)
+        .find((z) => z.dataset.livreurPour === String(l.boutique_id || ""));
+      if (!zone) continue;
+      const nom = String(l.nom || "").trim() || "Votre livreur";
+      const tel = String(l.telephone || "").trim();
+      const indicatif = String(l.indicatif || "229");
+      const appel = tel ? Utils.lienTel(tel, indicatif) : "";
+      const message = "Bonjour " + nom + ", je suis le client de la commande " +
+        (commande.numero || "") + ". ";
+      const wa = tel ? Utils.lienWhatsApp(tel, message, indicatif) : "";
+      zone.innerHTML =
+        '<div class="re-livreur-tete">' + UI.icone("compte", "ic-sm") +
+          "<div><small>Votre livreur</small><strong>" + Utils.echapper(nom) + "</strong>" +
+          (tel ? "<span>" + Utils.echapper(Compte.telAffichage(tel, indicatif)) + "</span>" : "") +
+          "</div></div>" +
+        (appel || wa
+          ? '<div class="btn-rangee re-livreur-actions">' +
+              (appel ? '<a class="btn btn-clair" href="' + Utils.echapper(appel) + '">' +
+                UI.icone("tel") + "Appeler</a>" : "") +
+              (wa ? '<a class="btn btn-wa" href="' + Utils.echapper(wa) +
+                '" target="_blank" rel="noopener">' + UI.icone("whatsapp") + "WhatsApp</a>" : "") +
+            "</div>"
+          : '<p class="aide" style="margin:8px 0 0">Son numéro n\'est pas encore enregistré : ' +
+            "la boutique peut vous mettre en relation.</p>");
+      zone.hidden = false;
+    }
   }
 
   /* =====================================================
@@ -1201,7 +1637,12 @@ const VuePanier = (() => {
       ? Compte.statutLivraison(c) : null;
     const etat = suivi
       ? { court: suivi.mot, nom: suivi.mot, classe: suivi.classe }
-      : (ETATS[c.etat] || ETATS.a_payer);
+      /* Payée par son acompte, sans suivi de la base — une commande que
+         ce téléphone garde : « Payée » laisserait croire qu'elle est
+         soldée. */
+      : c.etat === "payee" && resteDe(c) > 0
+        ? { court: "Acompte payé", nom: "Acompte payé", classe: ETATS.payee.classe }
+        : (ETATS[c.etat] || ETATS.a_payer);
     return '<a class="carte re-resume" href="#/commande/' + Utils.echapper(c.id) + '">' +
       '<div class="re-resume-ligne">' +
       "<div><div class=\"re-resume-numero\">" + Utils.echapper(c.numero) +
@@ -1217,6 +1658,11 @@ const VuePanier = (() => {
       "</div></div>" +
       '<div style="text-align:right">' +
         "<div><strong>" + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</strong></div>" +
+        /* Le reste à la livraison, tant qu'elle n'a pas eu lieu. */
+        (c.etat === "payee" && resteDe(c) > 0 && !(suivi && suivi.niveau >= 4)
+          ? '<div class="re-resume-reste">reste ' +
+              Utils.echapper(Utils.fmtMontant(resteDe(c), c.devise)) + " à la livraison</div>"
+          : "") +
         '<span class="badge ' + etat.classe + '">' +
           Utils.echapper(etat.court || etat.nom) + "</span>" +
       "</div></div>" +

@@ -17,14 +17,12 @@
     background:var(--fond);color:var(--encre);
     font-family:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
   main{width:min(440px,100%);text-align:center}
-  .logo-mot{display:inline-block;position:relative;font-size:34px;font-weight:700;
-    line-height:1;letter-spacing:-.01em;padding-bottom:.34em}
+  /* Le logo des applications : le B au chariot, puis le nom écrit. */
+  .logo{display:inline-flex;align-items:center;gap:.36em;font-size:34px;line-height:1}
+  .logo-tuile{flex:none;display:block;width:1.42em;height:1.42em}
+  .logo-mot{font-weight:700;line-height:1;letter-spacing:-.01em;white-space:nowrap}
   .logo-bizz{color:var(--bleu)}
   .logo-oo{color:var(--orange)}
-  .logo-points{position:absolute;left:.09em;bottom:.06em;display:flex;gap:.16em}
-  .logo-points i{width:.17em;height:.17em;border-radius:50%;display:block}
-  .logo-points i:first-child{background:var(--bleu)}
-  .logo-points i:last-child{background:var(--orange)}
   .code{margin:30px 0 4px;font-size:64px;font-weight:700;color:var(--bleu);letter-spacing:-2px}
   h1{margin:0 0 10px;font-size:22px}
   p{margin:0 0 26px;font-size:15px;line-height:1.55;color:var(--encre-douce)}
@@ -37,7 +35,7 @@
 </head>
 <body>
 <main>
-  <span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span><span class="logo-points" aria-hidden="true"><i></i><i></i></span></span>
+  <span class="logo"><img class="logo-tuile" data-image="client/icons/logo-bizzoo.png" alt="" width="48" height="48"><span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span></span></span>
   <div class="code" aria-hidden="true">404</div>
   <h1>Page introuvable</h1>
   <p>Cette adresse ne mène à aucune page de BIZZOO. Elle a peut-être changé,
@@ -59,6 +57,12 @@
     var liens = document.querySelectorAll("[data-lien]");
     for (var i = 0; i < liens.length; i++) {
       liens[i].setAttribute("href", base + liens[i].getAttribute("data-lien"));
+    }
+    /* L'image du logo de même : posée en relatif, elle serait cherchée
+       sous l'adresse inconnue elle-même. */
+    var images = document.querySelectorAll("[data-image]");
+    for (var j = 0; j < images.length; j++) {
+      images[j].setAttribute("src", base + images[j].getAttribute("data-image"));
     }
     var police = document.createElement("style");
     police.textContent = [400, 600, 700].map(function (g) {

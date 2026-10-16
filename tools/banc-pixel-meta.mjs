@@ -127,6 +127,8 @@ function nouvelEtat() {
     fiche: null,            // la fiche client du compte connecté
     demandes: 0,            // les demandes de compte revendeur enregistrées
     commande: null,         // la commande que « creer_commande » rendra
+    smsOuvert: true,        // le fournisseur « Phone » de Supabase
+    lent: 0,                // une base qui met ce temps à rendre les commandes
   };
 }
 
@@ -204,7 +206,7 @@ async function ouvrir({ adresse, etat = nouvelEtat(), avant = null, viewport = {
 
     if (url.pathname.startsWith("/auth/v1/")) {
       const a = url.pathname.slice("/auth/v1/".length);
-      if (a === "settings") return d({ external: { email: true, phone: true } });
+      if (a === "settings") return d({ external: { email: true, phone: etat.smsOuvert } });
       if (a === "signup") {
         const user = { id: "u-email-" + (etat.commandes.length + Date.now()), email: corps && corps.email,
           created_at: new Date().toISOString(), last_sign_in_at: new Date().toISOString(),
@@ -230,10 +232,14 @@ async function ouvrir({ adresse, etat = nouvelEtat(), avant = null, viewport = {
       return d(prochain || { etat: "a_payer" });
     }
     if (c.startsWith("rpc/rattacher_mes_commandes")) return d(0);
+    if (c.startsWith("commandes")) {
+      if (etat.lent) await pause(etat.lent);
+      return d([]);
+    }
     if (c.startsWith("rpc/")) return d([]);
     if (c.startsWith("reglages")) return d([{ compte_obligatoire: false }]);
     if (c.startsWith("paiement")) return d([{ id: 1, actif: true, fournisseur: "feexpay",
-      cle_publique: "", bac_a_sable: false }]);
+      cle_publique: "", bac_a_sable: false, taux_acompte: 10 }]);
     if (c.startsWith("produits")) return d(PRODUITS);
     if (c.startsWith("categories")) return d(CATEGORIES);
     if (c.startsWith("boutiques")) return d([BOUTIQUE]);
@@ -375,6 +381,28 @@ titre("3. Une page vue par écran, et pas une de plus");
   await o.ctx.close();
 }
 
+titre("3 bis. Un écran lent compte au bout de deux secondes");
+{
+  /* La commande d'un autre téléphone : le reçu la demande à la base, qui
+     met quatre secondes à répondre. L'écran « Lecture de la commande… »
+     est pourtant sous les yeux du client — il compte sans attendre. */
+  const etat = nouvelEtat();
+  etat.lent = 4000;
+  etat.fiche = { id: "u-client", nom: CLIENT.nom, tel: CLIENT.tel, indicatif: "229", tel_verifie: true,
+    type_compte: "client", revendeur_etat: "aucune" };
+  const o = await ouvrir({ adresse: SITE + "/client/index.html#/", etat,
+    avant: { "bizzoo-session": JSON.stringify({ access_token: jeton("u-client"), refresh_token: "r",
+      expire_a: Date.now() + 3600000, email: CLIENT.email, tel: "2290196000001" }) } });
+  await aller(o.page, "#/commande/cmd_ailleurs", 2600);
+  ok(traces(o.journal, "PageView").some((e) => /#\/commande\/cmd_ailleurs$/.test(e.url)),
+    "la commande lue au loin : sa page vue part avant la réponse de la base");
+  await pause(2500);
+  ok(traces(o.journal, "PageView").filter((e) => /#\/commande\/cmd_ailleurs$/.test(e.url)).length === 1,
+    "et la réponse, arrivée ensuite, ne la redit pas");
+  tousLesJournaux.push(...o.journal);
+  await o.ctx.close();
+}
+
 /* =====================================================
    4. Le produit consulté, l'ajout au panier
    ===================================================== */
@@ -424,7 +452,7 @@ titre("5. L'achat ne compte qu'une fois la base l'ayant confirmé");
 {
   const etat = nouvelEtat();
   etat.commande = { id: "cmd_1", numero: "BZ-000123", total: 41000, devise: "FCFA", etat: "a_payer",
-    code_promo: null, remise: 0,
+    code_promo: null, remise: 0, acompte: 4100, taux_acompte: 10,
     boutiques: [{ id: "bou_info", nom: "IMPACT", whatsapp: "0197000000", indicatif: "229", montant: 41000,
       lignes: [
         { nom: "Ordinateur portable", code: "100201", reference: "", prix: 18500, produit_id: "prod_a", quantite: 2 },
@@ -476,7 +504,9 @@ titre("5. L'achat ne compte qu'une fois la base l'ayant confirmé");
   ok(achats.length === 1, "la base confirme : UN achat (" + achats.length + ")");
   const p = (achats[0] || { args: [] }).args[2] || {};
   ok(p.value === 41000 && p.currency === "XOF" && Number.isInteger(p.value),
-    "le total payé, en nombre simple, en XOF (" + p.value + " " + p.currency + ")");
+    "la valeur de la commande, en nombre simple, en XOF (" + p.value + " " + p.currency + ")");
+  ok(p.acompte === 4100,
+    "et, à côté, l'acompte versé en ligne — le reste se paie à la livraison (" + p.acompte + ")");
   ok(JSON.stringify(p.content_ids) === '["prod_a","prod_b"]' && p.num_items === 3 &&
      p.content_type === "product", "les produits et les quantités de la commande (" + JSON.stringify(p) + ")");
   ok(p.order_id === "BZ-000123", "le numéro de commande (" + p.order_id + ")");
@@ -550,9 +580,53 @@ titre("5 bis. Un paiement qui n'aboutit pas n'est pas un achat");
    6. Les comptes
    ===================================================== */
 
+/* La position du téléphone, simulée, puis l'adresse : un revendeur
+   valide son compte avec elles (3.58.0). */
+async function positionner(page, prefixe) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition: (ok) => ok({ coords: { latitude: 6.3561, longitude: 2.4334, accuracy: 15 } }) } });
+  });
+  await page.fill("#" + prefixe + "-adresse", "Dantokpa, face à la pharmacie");
+  await page.click("#" + prefixe + "-relever");
+  await page.waitForTimeout(250);
+}
+
 titre("6. L'inscription, et la demande de compte revendeur");
+/* PAR LE NUMÉRO, la porte de la 3.58.0 : le nom, le numéro, le code. Le
+   compte naît au code validé ; un revendeur dépose sa demande juste après. */
+for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par son numéro, un revendeur", true]]) {
+  const etat = nouvelEtat();
+  etat.verifyUser = { id: "u-tel-" + (revendeur ? "rv" : "cl"), phone: "2290196000001",
+    created_at: new Date(Date.now() - 20000).toISOString(), last_sign_in_at: new Date().toISOString() };
+  const o = await ouvrir({ adresse: SITE + "/client/index.html#/inscription", etat });
+  if (revendeur) {
+    await o.page.click('[data-type="revendeur"]');
+    await o.page.fill("#cp-message", CLIENT.commerce);
+    await positionner(o.page, "cp-pos");
+  }
+  await o.page.fill("#cp-nom", CLIENT.nom);
+  await o.page.fill("#cp-tel", CLIENT.tel);
+  await o.page.click("#cp-creer-tel");
+  await pause(900);
+  await o.page.fill("#cp-code", "123456");
+  await pause(400);
+  const bouton = await o.page.$("#cp-valider:not([disabled])");
+  if (bouton) await bouton.click().catch(() => {});
+  await pause(2000);
+  const ins = donnees(o.journal, "CompleteRegistration");
+  ok(ins.length === 1 && ins[0].content_name === (revendeur ? "revendeur" : "client"),
+    quoi + " : une inscription (" + JSON.stringify(ins) + ")");
+  ok(traces(o.journal, "Lead").length === (revendeur ? 1 : 0),
+    revendeur ? "et sa demande de revendeur, partie une fois le compte ouvert" : "et aucune demande de revendeur");
+  tousLesJournaux.push(...o.journal);
+  await o.ctx.close();
+}
+/* PAR L'E-MAIL, quand le SMS est fermé. */
 {
-  const o = await ouvrir({ adresse: SITE + "/client/index.html#/inscription" });
+  const etat = nouvelEtat();
+  etat.smsOuvert = false;
+  const o = await ouvrir({ adresse: SITE + "/client/index.html#/inscription", etat });
   await o.page.fill("#cp-nom", CLIENT.nom);
   await o.page.fill("#cp-email", CLIENT.email);
   await o.page.fill("#cp-mdp", "secret-essai");
@@ -560,7 +634,7 @@ titre("6. L'inscription, et la demande de compte revendeur");
   await pause(1500);
   const ins = donnees(o.journal, "CompleteRegistration");
   ok(ins.length === 1 && ins[0].content_name === "client",
-    "un compte client créé : une inscription (" + JSON.stringify(ins) + ")");
+    "par l'e-mail (SMS fermé), un compte client : une inscription (" + JSON.stringify(ins) + ")");
   ok(traces(o.journal, "Lead").length === 0, "et aucune demande de revendeur");
   tousLesJournaux.push(...o.journal);
   await o.ctx.close();
@@ -568,9 +642,11 @@ titre("6. L'inscription, et la demande de compte revendeur");
 {
   const etat = nouvelEtat();
   etat.signupConfirmation = true;
+  etat.smsOuvert = false;
   const o = await ouvrir({ adresse: SITE + "/client/index.html#/inscription", etat });
   await o.page.click('[data-type="revendeur"]');
   await o.page.fill("#cp-message", CLIENT.commerce);
+  await positionner(o.page, "cp-pos");
   await o.page.fill("#cp-nom", CLIENT.nom);
   await o.page.fill("#cp-email", CLIENT.email);
   await o.page.fill("#cp-mdp", "secret-essai");
@@ -595,6 +671,7 @@ titre("6. L'inscription, et la demande de compte revendeur");
   ok(!!formulaire, "le compte client propose de devenir revendeur");
   if (formulaire) {
     await o.page.fill("#cp-rv-message", CLIENT.commerce);
+    await positionner(o.page, "cp-rv-pos");
     await o.page.click("#cp-rv-demander");
     await pause(1500);
   }

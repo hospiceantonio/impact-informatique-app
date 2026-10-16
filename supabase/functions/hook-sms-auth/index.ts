@@ -85,7 +85,10 @@ Deno.serve(async (requete) => {
     );
   }
 
-  let charge: { user?: { phone?: string }; sms?: { otp?: string } };
+  let charge: {
+    user?: { phone?: string; new_phone?: string };
+    sms?: { otp?: string; phone?: string };
+  };
   try {
     charge = JSON.parse(corps);
   } catch (_) {
@@ -95,7 +98,19 @@ Deno.serve(async (requete) => {
     );
   }
 
-  const numero = String(charge?.user?.phone ?? "");
+  /* LE DESTINATAIRE N'EST PAS TOUJOURS « user.phone ». Quand un compte
+     confirme un NOUVEAU numéro — le client qui avait ouvert son compte
+     par e-mail, celui qui change de numéro —, le code part vers le
+     nouveau, et « user.phone » est l'ancien : vide pour un compte
+     e-mail. Lire celui-là, c'était ne rien envoyer du tout, et laisser
+     le client attendre un code qui ne viendrait jamais.
+
+     GoTrue nomme le destinataire dans « sms.phone » ; une version qui ne
+     le ferait pas porte le nouveau numéro dans « user.new_phone ». L'ancien
+     ne sert qu'en dernier recours : c'est alors une simple connexion, où
+     les trois coïncident. */
+  const numero = String(
+    charge?.sms?.phone || charge?.user?.new_phone || charge?.user?.phone || "");
   const code = String(charge?.sms?.otp ?? "");
   if (!numero || !code) {
     return new Response(

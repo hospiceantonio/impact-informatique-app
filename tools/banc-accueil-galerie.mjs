@@ -184,7 +184,7 @@ const plan = (page) => page.evaluate(() => {
   return {
     pilule: rang((x) => x.matches(".recherche-pilule")),
     slider: rang((x) => x.matches(".slider")),
-    ronds: rang((x) => x.matches(".cat-ronds")),
+    ronds: rang((x) => x.matches(".cat-tuiles")),
     offre: rang((x) => x.matches(".offre-jour")),
     titrePub: titreDe("Publicité"),
     pub: rang((x) => x.matches(".pub-rangee")),
@@ -232,7 +232,7 @@ titre("1. L'accueil dans l'ordre demandé");
   ok(m.titrePopulaires === -1, "sans ventes, pas de rangée « Produits populaires »");
 
   const ronds = await page.evaluate(() =>
-    [...document.querySelectorAll(".cat-ronds .cat-rond-lien")].map((a) =>
+    [...document.querySelectorAll(".cat-tuiles .cat-tuile-lien")].map((a) =>
       a.getAttribute("href").replace("#/categorie/", "")));
   ok(ronds.length === 8, "HUIT catégories, pas quatre (" + ronds.length + ")");
   ok(ronds.join(",") === HUIT_ATTENDUES.join(","),
@@ -240,7 +240,7 @@ titre("1. L'accueil dans l'ordre demandé");
     ronds.join(", ") + ")");
   const rangees = await page.evaluate(() => {
     const par = new Map();
-    for (const c of document.querySelectorAll(".cat-ronds .cat-rond-lien")) {
+    for (const c of document.querySelectorAll(".cat-tuiles .cat-tuile-lien")) {
       const y = Math.round(c.getBoundingClientRect().top);
       par.set(y, (par.get(y) || 0) + 1);
     }
@@ -486,7 +486,7 @@ titre("5. Le catalogue d'une boutique se remplit de la même façon");
 /* ================================================================== */
 titre("6. La loupe, sur chaque écran où l'on parcourt des produits");
 {
-  /* LE CHEMIN SIGNALÉ, tel quel : l'accueil, un rond de catégorie, et
+  /* LE CHEMIN SIGNALÉ, tel quel : l'accueil, une tuile de catégorie, et
      plus de recherche. Sur l'accueil elle est la pilule du haut ; entré
      dans la catégorie, elle doit être la loupe de l'en-tête. */
   const { page, ctx, erreurs } = await ouvrir();
@@ -494,11 +494,11 @@ titre("6. La loupe, sur chaque écran où l'on parcourt des produits");
     const a = document.querySelector('#topbar a.btn-ic[href="#/recherche"]');
     return a ? a.getAttribute("aria-label") : "";
   });
-  await page.click('.cat-ronds a[href="#/categorie/cat_2"]');
+  await page.click('.cat-tuiles a[href="#/categorie/cat_2"]');
   await page.waitForTimeout(1100);
   ok(await page.evaluate(() => location.hash) === "#/categorie/cat_2" &&
      !!(await page.$(".sous-rayon, .ligne-sous-rayon, a[href^='#/categorie/cat_2?sc=']")),
-    "un rond de l'accueil ouvre la catégorie, sur la liste de ses rayons");
+    "une tuile de l'accueil ouvre la catégorie, sur la liste de ses rayons");
   ok(/Rechercher/.test(await loupe()), "la loupe est là, dans l'en-tête de la catégorie");
   await page.click('a[href="#/categorie/cat_2?sc=tout"]');
   await page.waitForTimeout(1100);

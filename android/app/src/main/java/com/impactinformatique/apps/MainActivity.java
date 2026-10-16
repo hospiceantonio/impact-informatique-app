@@ -209,6 +209,12 @@ public class MainActivity extends Activity {
 
         demanderNotifications();
         VerificateurCatalogue.programmer(this);
+        /* Les lives TikTok des boutiques : s'abonner au sujet « tous »
+           (application client seulement, et seulement si Firebase est
+           réglé dans android/firebase.properties). */
+        if (getResources().getBoolean(R.bool.notifications_actives)) {
+            ServiceNotifications.abonner(this);
+        }
     }
 
     /**
@@ -553,6 +559,27 @@ public class MainActivity extends Activity {
          * faire. Ce pont ne fait qu'éviter de sortir de l'application
          * pour aller chercher une icône sur l'écran d'accueil.
          */
+        /**
+         * Partager un lien — une boutique, son catalogue, un produit —
+         * par le partage du téléphone : WhatsApp, Messenger, SMS… ce que
+         * la personne a installé. Le navigateur de l'application n'en a
+         * pas : sans ce pont, il ne resterait que « copier le lien ».
+         */
+        @JavascriptInterface
+        public void partager(String titre, String texte) {
+            runOnUiThread(() -> {
+                try {
+                    Intent envoi = new Intent(Intent.ACTION_SEND);
+                    envoi.setType("text/plain");
+                    envoi.putExtra(Intent.EXTRA_SUBJECT, titre);
+                    envoi.putExtra(Intent.EXTRA_TEXT, texte);
+                    startActivity(Intent.createChooser(envoi, "Partager"));
+                } catch (Exception e) {
+                    annoncer("Impossible de partager : " + e.getMessage());
+                }
+            });
+        }
+
         @JavascriptInterface
         public void ouvrirEspaceVendeur() {
             runOnUiThread(() -> {

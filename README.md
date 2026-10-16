@@ -315,13 +315,13 @@ réseau, ce qui, ici, arrive tous les jours. Aucune requête ne sort de
 l'application : le banc le vérifie en écoutant *tout* ce que la page
 demande.
 
-**Le logo n'est pas une image.** « Bizz » en bleu, « oo » en orange et
-les deux points sous le B sont écrits par la feuille de style
-(`motSymbole()` dans `ui.js`). Il reste net à toutes les tailles, suit la
-couleur du thème, et ne coûte aucun fichier. L'icône de l'application —
-le B au panier — reste une image : c'est un dessin fait pour un écran
-d'accueil, et elle n'a pas sa place à côté du mot. Posée en tête du menu
-latéral, elle donnait deux marques l'une contre l'autre.
+**Le logo : le B au chariot, puis le nom (depuis la 3.56.1).** La tuile
+du B est une image, `icons/logo-bizzoo.png`, tirée de l'œuvre comme les
+icônes. Le nom, lui, reste écrit par la feuille de style (`motSymbole()`
+dans `ui.js`) : « Bizz » en bleu, « oo » en orange. Il reste net à toutes
+les tailles, suit la couleur du thème et ne coûte aucun fichier. Les deux
+points qu'il portait dessous sont partis : les deux roues orange du B
+les portent. Voir « Le logo partout, et des captures à jour ».
 
 **Sur l'orange, du blanc — c'est le choix de la DA corrigée, pas le plus
 lisible.** Du blanc sur `#FF8A00` donne **2,36:1**, sous le seuil de
@@ -1173,11 +1173,13 @@ carte) et le mot laissé à la commande. **Deux gestes seulement** : « Je
 l'ai prise » et « Je l'ai remise ». Préparer reste à la boutique,
 annuler aussi, et c'est toujours le client qui confirme avoir reçu.
 
-### Il ne voit aucun montant
+### Il ne voit qu'un montant : ce qu'il encaisse
 
-Ni le prix payé, ni le prix BIZZOO, ni la marge — pas même une devise à
-l'écran. Ce n'est pas une politesse d'affichage : `mes_livraisons()`
-**ne rend aucune colonne d'argent**.
+Ni le prix payé, ni le prix BIZZOO, ni la marge, ni l'acompte. Depuis
+l'acompte à la commande (3.57.0), un seul chiffre lui parvient : **ce
+qu'il doit encaisser à la livraison**, la part du reste qui revient à
+sa boutique (`a_encaisser`). Ce n'est pas une politesse d'affichage :
+`mes_livraisons()` **ne rend aucune autre colonne d'argent**.
 
 C'est là qu'une distinction compte. Une règle RLS choisit les **lignes**
 et les rend *entières* : elle ne sait pas retenir une colonne. Donner au
@@ -1421,8 +1423,9 @@ l'acheteur autant de classements qu'il y a de commerces —
 « Ordinateurs » chez l'un ne rejoint jamais « Ordinateurs » chez
 l'autre, et aucune liste ne peut plus les réunir.
 
-La liste est désormais celle de **BIZZOO** : quinze secteurs,
-soixante-quatorze rayons, écrits par le **superadministrateur seul**.
+La liste est désormais celle de **BIZZOO** : trente secteurs rangés par
+thème, et leurs rayons, écrits par le **superadministrateur seul** (voir
+« La liste rangée », plus bas).
 
 ```
 Catégorie de BIZZOO            ← l'enseigne l'écrit
@@ -1475,7 +1478,7 @@ vide, elle, reste au menu — un menu annonce aussi ce qu'on peut venir y
 chercher.
 
 Sur l'accueil, l'enseigne en met quelques-unes en avant ; les autres
-attendent derrière « Voir toutes les catégories ». Quinze lignes sur un
+attendent derrière « Voir toutes les catégories ». Trente lignes sur un
 premier écran, c'est n'en montrer aucune.
 
 **Un défaut que le banc a laissé passer, et pourquoi.** Enregistrer un
@@ -1514,66 +1517,246 @@ les font tomber : rendre la liste à l'équipe, retirer le contrôle du
 secteur, laisser passer la catégorie soufflée par l'application,
 permettre le changement de secteur à la main.
 
+## Les icônes des catégories (3.56)
+
+L'enseigne a choisi trois planches d'icônes — trait bleu nuit, une
+touche orange — et demandé **exactement celles-là**, attribuées aux
+catégories :
+
+- la première, douze icônes sur des carrés bleu-gris
+  ([`docs/icones-categories-source.webp`](docs/icones-categories-source.webp)) :
+  Alimentation, Restauration, Mode, Beauté, Téléphones, Informatique,
+  Électroménager, Maison & Déco, Auto & Moto, Santé, Immobilier,
+  Services ;
+- les deux suivantes, vingt-deux icônes sur des carrés blancs
+  ([`-2.jpg`](docs/icones-categories-source-2.jpg),
+  [`-3.jpg`](docs/icones-categories-source-3.jpg)) : Bébé & Enfants,
+  Sport & Loisirs, Bijoux & Accessoires, Livres & Fournitures scolaires,
+  Bricolage & Matériaux, Animaux, Agriculture & Élevage, Cadeaux & Fêtes,
+  Équipements de bureau, Grossistes & Fournisseurs, Énergie solaire &
+  Électricité, Sécurité & Surveillance, Musique & Instruments,
+  Artisanat & Produits locaux, Jardinage & Espaces verts, Imprimerie &
+  Communication, Événementiel & Décoration, Matériel professionnel,
+  Transport & Location, Formation & Cours — plus un tracteur et des
+  cartons, variantes d'Agriculture et de Grossistes.
+
+Ce sont elles, **telles quelles** : chacune est découpée dans sa
+planche, sans le nom écrit dessous, et le fond de sa tuile est rendu
+transparent. Rien n'y est redessiné ni recoloré — le bleu nuit des
+planches blanches est un peu plus sombre, leur orange un peu plus
+jaune, et ce sont les leurs. Les quatre icônes construites un temps
+dans le style de la première planche (Bébé, Sport, Livres, Animaux)
+cèdent la place à celles des planches.
+
+Les planches n'ont pas la même échelle : les icônes des planches
+blanches sont ramenées à la taille médiane des douze premières, et
+toutes se posent sur le même carré. Les douze premières restent
+identiques au pixel près ; le trait des vingt-deux autres est plus fin,
+comme sur leurs planches.
+
+### Sur l'écran
+
+- **L'accueil** : les huit catégories en tuiles, comme sur les
+  planches — le carré bleu-gris, l'icône, le nom dessous, dans la
+  tuile. Le nom tient sur deux lignes au plus (« Électro- / ménagers ») ;
+  un seul mot trop long pour la tuile finit par « … » au lieu d'être
+  coupé net.
+- **L'écran « Catégories »** : la même tuile, en petit, devant chaque
+  nom.
+- **L'admin** : la même pastille dans la liste ; dans la fiche
+  (Catégories → Modifier), le choix de l'**icône** montre les
+  trente-quatre sur leur tuile, dans l'ordre des catégories et sous les
+  noms des planches. Une même icône peut servir à plusieurs catégories.
+
+La couleur de chaque catégorie ne se choisit plus : toutes les tuiles
+ont le même fond. La base garde la couleur de chacune, parce que les
+applications d'avant s'en servent encore.
+
+### La liste rangée
+
+Les nouvelles planches apportaient leurs catégories. Rapprochées de
+celles qui existaient, elles donnent une liste de **trente**, rangée par
+thème ([`categories-rangement.sql`](supabase/categories-rangement.sql),
+à appliquer sur la base en ligne — voir plus bas) :
+
+| # | Catégorie | Icône | Accueil |
+|---|-----------|-------|---------|
+| 1 | Informatique & Électronique | Informatique | ✔ |
+| 2 | Logiciels & Solutions pro | Informatique | ✔ |
+| 3 | Électro-ménagers & Cuisinière | Électroménager | ✔ |
+| 4 | Énergie solaire & Électricité *(nouvelle)* | Énergie solaire & Électricité | |
+| 5 | Sécurité & Surveillance *(nouvelle)* | Sécurité & Surveillance | |
+| 6 | Bébé & Enfants | Bébé & Enfants | ✔ |
+| 7 | Livres & Fournitures scolaires | Livres & Fournitures scolaires | ✔ |
+| 8 | Formation & Cours *(nouvelle)* | Formation & Cours | |
+| 9 | Maison & Déco | Maison & Déco | ✔ |
+| 10 | Jardinage & Espaces verts *(nouvelle)* | Jardinage & Espaces verts | |
+| 11 | Bricolage & Matériaux | Bricolage & Matériaux | ✔ |
+| 12 | Auto & Moto | Auto & Moto | ✔ |
+| 13 | Transport & Location *(nouvelle)* | Transport & Location | |
+| 14 | Mode & Vêtements | Mode | |
+| 15 | Bijoux & Accessoires | Bijoux & Accessoires | |
+| 16 | Beauté & Bien-être | Beauté | |
+| 17 | Supermarché & Épicerie | Alimentation | |
+| 18 | Restauration | Restauration | |
+| 19 | Agriculture & Élevage *(nouvelle)* | Agriculture & Élevage (feuille et épi) | |
+| 20 | Animaux | Animaux | |
+| 21 | Sport & Loisirs | Sport & Loisirs | |
+| 22 | Musique & Instruments *(nouvelle)* | Musique & Instruments | |
+| 23 | Artisanat & Produits locaux *(nouvelle)* | Artisanat & Produits locaux | |
+| 24 | Cadeaux & Fêtes *(nouvelle)* | Cadeaux & Fêtes | |
+| 25 | Événementiel & Décoration *(nouvelle)* | Événementiel & Décoration | |
+| 26 | Équipements de bureau *(nouvelle)* | Équipements de bureau | |
+| 27 | Matériel professionnel *(nouvelle)* | Matériel professionnel | |
+| 28 | Imprimerie & Communication *(nouvelle)* | Imprimerie & Communication | |
+| 29 | Grossistes & Fournisseurs *(nouvelle)* | Grossistes & Fournisseurs | |
+| 30 | Services & Prestataires | Services | |
+
+Ce que le rangement a changé :
+
+- **quatorze catégories nouvelles**, avec quelques rayons de départ
+  chacune, que l'enseigne retouche dans l'admin ;
+- **les noms des planches** pour celles qui existaient : « Bébé &
+  Enfants », « Livres & Fournitures scolaires », « Bricolage &
+  Matériaux » (c'était « Btp et matériaux. ») ; et ceux qu'imposait le
+  rangement : « Maison & Déco » (le jardinage a sa catégorie),
+  « Restauration » (l'alimentation, c'est le supermarché),
+  « Informatique & Électronique » (le « & » de toutes). « Électro-ménagers
+  & Cuisinière », nommée par l'enseigne, garde son nom ;
+- **des rayons vides déménagent**, pour qu'un même rayon ne soit pas à
+  deux endroits : Électricité (de Bricolage vers Énergie solaire),
+  Formations (de Livres vers Formation & Cours), Jardinage (de Maison
+  vers Jardinage & Espaces verts), Épicerie et Produits frais (de
+  Restauration vers le supermarché) ;
+- **« Prestataires de services » rejoint « Services »**, qui devient
+  « Services & Prestataires » : ses rayons (Électricien, Informaticien,
+  Vitrier, Plombier) y passent, et son « Informaticien » remplace
+  « Informatique » ;
+- **Bijoux & Accessoires et Bricolage & Matériaux** ont leur icône à
+  elles : elles portaient celles de Mode et d'Immobilier ;
+- **l'ordre par thème** : high-tech, enfants et école, maison,
+  mobilité, mode, alimentation, loisirs, professionnels, services. Les
+  huit de l'accueil restent les mêmes ; les flèches de la liste, dans
+  l'admin, changent l'ordre si l'enseigne en préfère un autre.
+
+Rien ne s'y perd : un rayon qui a des produits ne déménage pas, une
+catégorie qui a des produits ou des boutiques ne s'efface pas, aucun
+produit ne change de rayon. Un nom ou une icône que l'enseigne avait
+déjà changés ne sont pas touchés. Le fichier ne joue **qu'une fois** :
+dès que l'une des quatorze existe, il ne fait plus rien — le rejouer ne
+défait jamais un nom, un ordre ou une suppression décidés depuis dans
+l'admin. Une base neuve naît déjà rangée : `schema.sql` sème les
+vingt-neuf (toutes sauf « Électro-ménagers & Cuisinière », créée depuis
+l'admin) et leurs cent vingt-trois rayons.
+
+Téléphones, Santé et Immobilier ne servent encore à aucune catégorie ;
+elles restent dans le choix de la fiche, avec le tracteur et les
+cartons, pour celles qui viendront.
+
+[`tests/99s-categories-rangement.sql`](supabase/tests/99s-categories-rangement.sql)
+éprouve le rangement en 38 constats. Il refait la base en ligne
+d'avant — ses dix-sept catégories, dont les deux créées depuis l'admin,
+ses noms, ses illustrations, son ordre, ses huit de l'accueil — et lui
+colle `categories-rangement.sql` : elle arrive exactement à la liste de
+`schema.sql` (les quatorze, leurs rayons, les noms, les icônes,
+l'ordre), sans qu'aucun produit change de rayon ni aucune boutique de
+secteur. Rejoué après des retouches dans l'admin, le fichier ne fait
+rien. Une seconde fois, avec un nom déjà changé par l'enseigne, un
+produit dans un rayon qui devait déménager et une boutique rangée dans
+« Prestataires » : le nom reste, le rayon reste, « Prestataires » ne
+s'efface pas. Deux sabotages font tomber chacun un constat : laisser
+déménager un rayon qui a des produits, laisser le fichier rejouer.
+
+### Sans gêner les applications déjà installées
+
+Les icônes sont des images de l'application (`img/pictos/`, dans le
+client et dans l'admin, dans la coquille hors connexion) ; la colonne
+`icone` de la base dit laquelle. Changer cette colonne ne se voit pas
+dans les applications 3.54 et 3.55 : elles posent leur illustration en
+3D **par-dessus** l'icône. La base garde donc ces illustrations
+(`image = 'img/categories/…'`) — et les applications 3.56 **ne lisent
+plus ces chemins** : elles montrent l'icône. Personne ne voit sa tuile
+se vider le jour de la mise à jour.
+
+Les catégories nouvelles, elles, n'existaient pas pour ces
+applications. Sept reçoivent l'illustration d'avant qui dit la même
+chose : le panier tressé (Artisanat), la plante en pot (Jardinage,
+Agriculture), la mallette (Bureau), les outils (Matériel
+professionnel), la moto (Transport), les livres (Formation). Trois ont
+une clé que l'application cliente d'avant sait dessiner d'un trait
+(`energie`, `cadeau`, `imprimante`). Sécurité, Musique, Événementiel et
+Grossistes n'ont ni l'un ni l'autre : dans une application 3.54 ou
+3.55, leur pastille reste une pastille de couleur, sans dessin, jusqu'à
+la mise à jour.
+
+La fiche de l'admin ne réécrit la photo **que si on l'a touchée** :
+renommer une catégorie ou changer son icône laisse l'illustration
+d'avant en place pour les applications installées. Une vraie photo,
+elle, recouvre l'icône partout.
+
+Une icône qui ne fait pas partie des trente-quatre — choisie avec une
+admin d'avant — garde son dessin d'un trait, en bleu nuit ; une icône
+inconnue retombe sur celle des rayons. Jamais une tuile vide.
+
+À coller dans Supabase, dans l'ordre :
+[`categories-icones.sql`](supabase/categories-icones.sql) (déjà
+appliqué sur la base en ligne), puis
+[`categories-rangement.sql`](supabase/categories-rangement.sql) (pas
+encore : il attend l'accord de l'enseigne, parce qu'il efface
+« Prestataires de services » une fois ses rayons déplacés). Le premier
+ne touche qu'une catégorie qui a **encore son ancienne icône** ; le
+second ne joue qu'une fois. Rejoués, ni l'un ni l'autre ne défait un
+choix fait depuis dans l'admin, et aucun ne touche à l'image d'une
+catégorie qui existait.
+
+### Refaire les icônes
+
+```bash
+python3 tools/icones-categories.py
+```
+
+Il découpe les trente-quatre dans les trois planches de `docs/` et les
+pose dans les deux applications. Refaites ainsi, elles sont identiques,
+octet pour octet, à celles du dépôt.
+
 ## La photo d'une catégorie
 
-Sur la DA, les ronds des catégories de l'accueil portent une **photo**.
-Chaque catégorie en reçoit maintenant une, **facultative**, que le
+Sur la DA, les catégories de l'accueil portaient une **photo**. Chaque
+catégorie peut en recevoir une, **facultative**, que le
 superadministrateur pose dans l'application admin :
-**Catégories → Modifier → Photo du rond (facultative)**. La même photo
-remplit la pastille de l'écran « Catégories », chez le client, et celle
-de la liste dans l'admin.
+**Catégories → Modifier → Photo de la tuile (facultative)**. Depuis la
+3.56, elle prend la place de l'icône — sur l'accueil, sur l'écran
+« Catégories » et dans la liste de l'admin.
 
-### Les illustrations de BIZZOO
+### Les illustrations en 3D d'avant (jusqu'à la 3.55)
 
-Chaque catégorie de la liste porte d'office une **illustration** : un
-objet en 3D sur le fond pastel de sa couleur, comme les ronds de la DA —
-une robe pour la Mode, un ordinateur pour le High-Tech, une voiture pour
-l'Auto & Moto, une maison, un rouge à lèvres, une marmite, un chariot,
-une boîte à outils pour les Services… Vingt-quatre en tout : une par
-catégorie, et neuf autres au choix (une moto, un téléphone, une plante…).
+De la 3.47 à la 3.55, chaque catégorie portait d'office une
+**illustration** : un objet en 3D (Fluent Emoji de Microsoft, licence
+MIT) sur le fond pastel de sa couleur, embarqué dans les deux
+applications (`img/categories/`). Depuis la 3.56, ce sont les icônes de
+l'enseigne (voir plus haut) : les illustrations ne voyagent plus avec
+les applications, et `categories-photos.sql` n'en pose plus. Seules
+sept catégories nouvelles en reçoivent une, de `categories-rangement.sql`,
+pour les applications installées.
 
-Ce ne sont **pas des photos de vos produits**, et rien ne le prétend :
-les images de la maquette elle-même font 29 px une fois découpées, trop
-peu pour un rond de 62 px, et les banques de photos ne sont pas
-joignables d'ici. Les objets sont les **Fluent Emoji 3D de Microsoft**,
-sous licence MIT (libres, usage commercial compris) ; l'avis de licence
-les accompagne (`img/categories/LICENCE.txt`), et
-[`tools/illustrations-categories.py`](tools/illustrations-categories.py)
-les recompose à l'identique.
-
-Elles **voyagent avec l'application** — dans l'APK comme sur le site,
-dans `client/img/categories/` et `admin/img/categories/` — et la base
-les désigne par leur chemin (`img/categories/robe.jpg`). L'accueil les
-montre donc **sans réseau**, dès la première ouverture : elles sont dans
-la coquille hors connexion des deux applications, et le contrôle de la
-coquille refuse une illustration oubliée.
-
-La base en ligne les a reçues par
-[`categories-photos.sql`](supabase/categories-photos.sql) — **une seule
-fois** : tant qu'aucune catégorie n'a d'image. Recoller le fichier ne
-remet jamais une illustration que l'enseigne a retirée ou remplacée.
+La base en ligne **garde leurs chemins** (`img/categories/robe.jpg`…) :
+les applications 3.54 et 3.55 déjà installées les montrent encore. Les
+applications 3.56 ne lisent plus ces chemins, et la fiche de l'admin ne
+les efface pas en passant.
 
 ### Poser, remplacer, retirer
 
-- **Choisir une illustration** : dans la fiche, sous « Photo du rond »,
-  la galerie les montre toutes, rondes ; un appui suffit. Celle en place
-  est cerclée de bleu. Rien ne part au stockage : elle est déjà dans
-  l'application.
-- **Mettre une vraie photo** : le carré « Ajouter » de la fiche. L'aperçu
-  est **rond**, comme chez le client : on voit tout de suite ce que les
+- **Mettre une photo** : le carré « Ajouter » de la fiche. L'aperçu a
+  les **coins arrondis** de la tuile : on voit tout de suite ce que les
   coins perdront. Une photo carrée, le sujet au centre, convient le mieux.
-- **Remplacer** : la croix, puis « Ajouter » ou une illustration.
-- **Retirer** : la croix, puis « Enregistrer ». Le rond retrouve son
+- **Remplacer** : la croix, puis « Ajouter ».
+- **Retirer** : la croix, puis « Enregistrer ». La tuile retrouve son
   icône.
-
-Quand une image est posée, la pastille de l'écran « Catégories » passe au
-**pastel**, comme le rond de l'accueil : sous l'image, l'aplat foncé
-d'avant débordait d'un fin liseré au bord du cercle.
 
 L'application **réduit la photo à 480 px** et l'enregistre en JPEG avant
 de l'envoyer — une photo de téléphone de plusieurs Mo n'en garde que
-quelques dizaines de Ko : le plus grand rond n'a pas besoin de plus, même
-sur l'écran le plus fin.
+quelques dizaines de Ko : la plus grande tuile n'a pas besoin de plus,
+même sur l'écran le plus fin.
 
 ### L'icône en secours
 
@@ -1582,18 +1765,19 @@ charge, on voit l'icône ; si elle ne vient pas — hors connexion, sur un
 téléphone qui ne l'a jamais vue, ou fichier retiré du stockage —, elle
 **s'efface** et l'icône reste. Jamais un carré d'image cassée à l'accueil.
 Une seule écoute par application, posée une fois pour tous les écrans
-(`data-secours`), sans attribut `onerror` dans le HTML.
+(`data-secours`), sans attribut `onerror` dans le HTML. L'icône est une
+image elle aussi : seule la photo porte `data-secours`.
 
 ### Ce que la base garde
 
 - **Un chemin, jamais une adresse**, dans l'un de deux dossiers :
   `enseigne/categories/` (une photo, dans le seau) ou `img/categories/`
-  (une illustration, dans l'application). La règle
-  `categories_image_chemin` refuse tout le reste — une adresse internet,
-  un autre dossier, un `..`, un fichier caché — même au
-  superadministrateur : ce n'est pas une question de droit, c'est la
-  forme de la donnée. Une adresse libre ferait charger à l'accueil de
-  tous les clients une image posée n'importe où.
+  (une illustration d'avant la 3.56, gardée pour les applications
+  installées). La règle `categories_image_chemin` refuse tout le reste —
+  une adresse internet, un autre dossier, un `..`, un fichier caché —
+  même au superadministrateur : ce n'est pas une question de droit,
+  c'est la forme de la donnée. Une adresse libre ferait charger à
+  l'accueil de tous les clients une image posée n'importe où.
 - **L'enseigne seule la pose**, comme elle seule écrit la liste ; le
   stockage réserve déjà `enseigne/` au superadministrateur. Aucune règle
   de stockage n'a changé.
@@ -1611,48 +1795,39 @@ Une seule écoute par application, posée une fois pour tous les écrans
   suppression.
 
 À coller dans Supabase : [`categories-photos.sql`](supabase/categories-photos.sql)
-(déjà appliqué sur la base en ligne, illustrations comprises).
+(déjà appliqué sur la base en ligne).
 
 ### Le banc
 
 [`tests/99o-categories-photos.sql`](supabase/tests/99o-categories-photos.sql)
-force les portes en 34 constats — dont l'état des lieux du stockage
+force les portes en 39 constats — dont l'état des lieux du stockage
 **tel qu'il part chez le gérant**, lu dans le dépôt : c'est sa liste
 d'orphelins qu'on éprouve, pas une copie. Il lit aussi les deux dossiers
-d'illustrations sur le disque : chacune de celles que la base désigne
-doit y être, dans le client **et** dans l'admin. Et il recolle
-`categories-photos.sql` pour prouver qu'un choix de l'enseigne survit.
+d'icônes sur le disque : chacune de celles que la base désigne doit y
+être, dans le client **et** dans l'admin, et les deux dossiers doivent
+coïncider. Il refait la base en ligne d'avant la 3.56 — icônes d'un
+trait, illustrations par-dessus — et lui recolle
+`categories-icones.sql` : chacune reçoit la sienne, l'illustration reste,
+et rejoué, le fichier ne défait pas un choix fait dans l'admin.
+
 [`tools/banc-categories-photos.mjs`](tools/banc-categories-photos.mjs) en
-ajoute 101 au navigateur, dans les deux applications : la photo remplit
-le rond et se trouve par-dessus l'icône (mesuré), l'icône revient quand
-la photo manque, rien ne déborde à 320 px, le chemin est échappé ; la
-liste que `schema.sql` sème montre ses quinze illustrations, lues à côté
-de la page et jamais dans le seau ; dans l'admin, la galerie, et ce qui
-part au stockage et vers la base, corps compris.
+ajoute 128 au navigateur, dans les deux applications : les trente-quatre
+icônes identiques, octet pour octet, et connues des trois codes qui les
+nomment ; « cadeau », qui est aussi le nom d'un dessin d'un trait
+d'avant, montre celle de la planche ; chaque tuile montre l'icône que la base lui donne, lue à côté
+de la page ; la photo la recouvre (mesuré) et l'icône revient quand la
+photo manque ; une illustration d'avant n'est même pas demandée ; une
+icône d'avant garde son trait, une inconnue retombe sur celle des
+rayons ; rien ne déborde à 320 px, le chemin est échappé ; dans l'admin,
+le choix des trente-quatre, dans l'ordre des catégories, et ce qui part
+au stockage et vers la base, corps compris — ni couleur ni photo
+réécrites sans raison.
 
-Dix-neuf sabotages, un par un, et chacun fait tomber au moins un
-constat. En base : retirer la règle du premier caractère (« .. » passe),
-oublier la photo dans l'état des lieux du stockage (elle devient
-« supprimable »). Au navigateur : ne plus effacer une image cassée — chez
-le client comme dans l'admin —, ne plus découper le rond, poser la photo
-sous l'icône ou à côté, ne plus échapper le chemin, oublier l'écran
-« Catégories », déposer hors de `enseigne/categories/`, écrire la ligne
-avant la fin de l'envoi, effacer l'ancienne photo, retirer le verrou du
-bouton, écrire la colonne inchangée, envoyer la photo sans la réduire,
-continuer après un envoi refusé, ne plus montrer la photo dans la liste
-de l'admin, taire la photo au journal. Le dix-neuvième — ne plus découper
-la pastille de l'admin — fait plus qu'échouer : la photo, libérée, recouvre
-toute la carte et **bloque le bouton « Modifier »**. La découpe évite
-aussi cela.
-
-Onze de plus pour les illustrations. En base : laisser passer un fichier
-caché, reposer les illustrations à chaque relecture du fichier (celle que
-l'enseigne a retirée revient), retirer une illustration de l'admin. Au
-navigateur : chercher les illustrations dans le seau — chez le client
-comme dans l'admin —, oublier le dossier dans la galerie, ne plus y
-allumer le choix, remettre l'aplat foncé sous l'image — des deux côtés —,
-retirer une illustration de l'admin. Et à la coquille hors connexion,
-en oublier une dans la liste.
+Trois sabotages, un par un, et chacun fait tomber au moins un constat :
+relire les illustrations d'avant chez le client (elles sont demandées
+au réseau), faire réécrire la photo à chaque enregistrement de la fiche
+(l'illustration des applications installées serait effacée), retirer le
+secours d'une icône inconnue (la tuile resterait vide).
 
 ```bash
 PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-categories-photos.mjs
@@ -2016,7 +2191,7 @@ interrupteurs** :
 | Les commandes | toutes les boutiques | allumé |
 | Le catalogue | produits et rayons de toutes | allumé |
 | Les boutiques | régler une boutique | éteint |
-| Les chiffres | journal et statistiques | éteint |
+| Les chiffres | rien encore — voir « Il entrait en base, pas dans l'application » | éteint |
 
 Le rang nomme la personne ; les interrupteurs disent ce qu'elle
 touche. « Admin de BIZZOO » ne veut pas dire la même chose chez vous
@@ -2062,6 +2237,67 @@ vingt-deux constats sur la **base** et non sur les boutons — zéro
 ligne rendue, zéro ligne touchée, refus à l'insertion.
 
 À coller : [`comptes-enseigne.sql`](supabase/comptes-enseigne.sql).
+
+### Il entrait en base, pas dans l'application (3.55.0)
+
+Le gérant passait un compte en « administrateur de BIZZOO »… et ce
+compte s'arrêtait sur **« Boutique à confier »**, sans rien à toucher.
+La base était prête — `peut_agir_sur()` lui répond oui partout — mais
+l'application admin, plus ancienne que les comptes d'enseigne, ne le
+laissait pas entrer : au démarrage, seul le superadministrateur
+recevait une boutique à ouvrir, et la porte arrêtait tout compte sans
+boutique ouverte. Le banc de la base était vert : il éprouvait la base,
+pas la porte.
+
+Désormais :
+
+- **il entre sur une boutique** — la dernière qu'il a ouverte, sinon la
+  première — et en change depuis la carte « Boutique ouverte » de
+  l'accueil, comme le superadministrateur. Il crée un produit dans la
+  boutique de son choix. Créer, renommer, ranger ou supprimer une
+  boutique reste au superadministrateur ;
+- **ses interrupteurs décident de l'écran**, comme ils décident en base :
+
+| interrupteur | à l'écran |
+| --- | --- |
+| Les commandes | l'icône et l'écran des commandes |
+| Le catalogue | retoucher les produits (déjà en place) |
+| Les boutiques | Réglages et slider de la boutique ouverte — ce que `administre()` lui ouvre ; sans lui, « Mon compte » remplace « Réglages » |
+| Les chiffres | rien encore : voir plus bas |
+
+- **ni historique, ni comptes, ni chiffres** : la base ne lui en rend
+  rien. Le journal et les comptes ne lui montrent que des lignes de
+  boutique, ou sa propre fiche ; `statistiques_ventes()` est au
+  superadministrateur, et `statistiques_boutique()` part de la boutique
+  du compte. Ces écrans le renvoient à l'accueil en disant pourquoi,
+  plutôt que de lui montrer des pages vides qu'il prendrait pour une
+  panne ;
+- **« Mon compte » dit ce qu'il est** : « Administrateur de BIZZOO —
+  toutes les boutiques · commandes, catalogue ».
+
+**Le livreur de BIZZOO était arrêté par la même porte** : aucune
+boutique, et il n'en ouvre pas. Il va maintenant droit à ses courses.
+
+**La porte ne regarde plus que les comptes de boutique** dont la
+boutique n'existe plus. Son second conseil — « exécuter le dernier
+fichier SQL pour monter en super administrateur » — est retiré : depuis
+la garde `rattraper_anciens_admins()`, ce fichier ne promeut plus
+personne dès qu'un superadministrateur existe. Le conseil menait à une
+impasse.
+
+**L'interrupteur « Les chiffres » n'ouvre encore rien.**
+`peut_voir_finances()` existe en base, mais aucune règle ne l'appelle :
+le journal des versements et les statistiques de l'enseigne restent au
+superadministrateur. L'allumer ne change donc rien. Le brancher est une
+décision à prendre d'abord : il montrerait les marges et les bénéfices
+de toutes les boutiques.
+
+[`tools/banc-compte-enseigne.mjs`](tools/banc-compte-enseigne.mjs) ouvre
+l'application avec chacun des comptes — administrateur et modérateur de
+BIZZOO, livreur de BIZZOO, compte dont la boutique a disparu, modérateur
+de boutique, superadministrateur : 49 constats. Quatre sabotages
+tombent, dont la panne d'origine : réserver de nouveau le départ au
+superadministrateur remet « Boutique à confier ».
 
 ## Les notifications
 
@@ -2114,8 +2350,12 @@ s'annoncer une commande livrée, ni une boutique se fabriquer un accusé
 de réception. La seule écriture permise est `lue_le`, sur ses propres
 lignes.
 
-**Aucun montant n'y entre.** La règle des prix fermés au livreur ne
-servirait à rien si le texte d'une notification les recopiait.
+**Un montant n'y entre que s'il regarde son destinataire.** Depuis
+l'acompte (3.57.0), le client lit ce qui lui reste à payer à la
+livraison, chaque boutique ce qu'elle encaissera, le superadministrateur
+l'acompte reçu et le reste. Le livreur, lui, n'en reçoit aucun : la
+règle des prix fermés au livreur ne servirait à rien si le texte d'une
+notification les recopiait.
 
 ### La cloche, le panneau, les trois bips
 
@@ -2337,8 +2577,6 @@ choisit dans Admin → Réglages → BIZZOO.
 
 ### Le principe, à ne jamais contourner
 
-### Le principe, à ne jamais contourner
-
 **L'application ne valide jamais un paiement.** Avec KkiaPay elle ouvre
 la page de paiement, et c'est KkiaPay qui, une fois l'argent encaissé,
 appelle une fonction serveur. Avec FeexPay elle ne fait qu'inviter notre
@@ -2428,8 +2666,8 @@ essais à la production sans reconstruire ni republier les APK.
 
 - **Le client n'écrit pas les prix.** Il envoie des identifiants et des
   quantités ; `creer_commande()` relit le catalogue, fige le nom, la
-  référence et le prix, et calcule le total. C'est ce total-là qui part
-  chez KkiaPay.
+  référence et le prix, et calcule le total — puis l'acompte (3.57.0).
+  C'est cet acompte-là qui part chez l'agrégateur.
 - **Le client ne se déclare pas payé.** Une commande naît « à payer », et
   le déclencheur `commande_verrous` refuse tout passage à « payée » qui
   ne vienne pas de `marquer_payee()`.
@@ -2483,11 +2721,384 @@ pas été confirmée par la banque.
   boutique » — le message part alors du WhatsApp du client, avec le
   détail déjà écrit.
 
+## Le paiement qui n'aboutit pas (3.56.1)
+
+Après un paiement Mobile Money refusé, le reçu répétait en boucle
+« Validez la demande sur votre téléphone, avec votre code Mobile Money.
+Nous allons ensuite demander à FeexPay si le versement a abouti. Ne
+payez pas une seconde fois. » — et l'on ne pouvait plus quitter l'écran.
+Quatre causes, que le navigateur a d'abord reproduites :
+
+- **Le refus n'était pas lu.** FeexPay répondait FAILED, notre fonction
+  `feexpay` le disait (`echoue`), mais l'application ne regardait pas sa
+  réponse : le sablier tournait une minute et demie, puis annonçait
+  « vous n'avez rien à refaire » à un client qui n'avait rien payé — et
+  tout recommençait à chaque réouverture du reçu.
+- **Le reçu retenait le client.** L'application dessine ses écrans un
+  par un, et le reçu ne rendait la main qu'au bout de son attente :
+  pendant une minute et demie, le retour, « Mes commandes » ou l'accueil
+  restaient sans effet.
+- **Le sablier tournait aussi là où plus rien n'arrivera** : sur une
+  commande « Paiement non abouti » ou annulée, sans aucun moyen de
+  l'arrêter.
+- **Le retour arrière tournait en rond.** Après l'achat, revenir en
+  arrière depuis le panier ramenait au formulaire de commande, qui, le
+  panier vidé, renvoyait au panier : le bouton retour du téléphone
+  passait de l'un à l'autre sans jamais sortir.
+
+### Une carte qui laisse la main
+
+Le message devient une carte, sous l'en-tête du reçu, qui a toujours un
+bouton pour en sortir :
+
+| Ce qui se passe | Ce que dit la carte | Ses boutons |
+|---|---|---|
+| On attend la confirmation | le sablier, « Validez la demande… Ne payez pas une seconde fois. » | **Arrêter l'attente** |
+| L'attente est arrêtée, ou a duré une minute et demie | plus de sablier : si le client a validé et a été débité, la boutique recevra sa commande dès que FeexPay aura confirmé — rien à refaire, garder le numéro BZ-… | **Vérifier à nouveau**, **Fermer** |
+| FeexPay a refusé le versement | sa raison (« rien n'a été débité »), puis l'opérateur et le numéro qui paie | **Réessayer le paiement**, **Fermer** |
+| Aucune demande n'est partie pour cette commande | « rien n'est parti sur votre téléphone », l'opérateur et le numéro | **Payer maintenant**, **Fermer** |
+
+- **Arrêter l'attente** cesse d'interroger FeexPay ; **Fermer** retire
+  la carte ; **Vérifier à nouveau** relance l'attente.
+- **L'attente ne retient plus l'écran.** Elle part à côté, et quitter le
+  reçu l'arrête : « Mes commandes », l'accueil et le retour répondent
+  aussitôt.
+- **Rouvrir le reçu d'un versement refusé le dit tout de suite** : avec
+  FeexPay, la première vérification part sans attendre.
+- **Une commande « Paiement non abouti » ou annulée n'a plus de carte.**
+- **Le retour arrière sort.** Les renvois vers le panier et vers le reçu
+  remplacent l'écran précédent dans l'historique (`location.replace`) :
+  depuis le reçu, retour mène au panier, puis à l'accueil.
+
+**Réessayer ne vient qu'après un verdict** de FeexPay : un refus, ou
+aucune demande ouverte. Pendant l'attente, une seconde demande ferait
+sonner le téléphone deux fois, et le client pourrait payer deux fois —
+c'est pour cela que le sablier dit « Ne payez pas une seconde fois », et
+qu'il n'a pas ce bouton. La nouvelle demande porte sur **la même
+commande**, avec l'opérateur et le numéro choisis ; notre fonction
+refuse toujours une commande qui n'est plus à payer, et une seconde
+demande moins de trente secondes après la précédente.
+
+**L'argent, lui, ne dépend toujours pas du téléphone.** « Arrêter » ou
+« Fermer » ne touchent pas à la commande : elle reste « à payer », et si
+le versement aboutit malgré tout, la notification de FeexPay la fait
+passer à « payée » (voir « La notification de FeexPay n'est pas
+signée »). L'application ne conclut rien ; elle cesse seulement
+d'attendre devant le client.
+
+[`tools/banc-paiement-echoue.mjs`](tools/banc-paiement-echoue.mjs)
+rejoue tout cela au navigateur, FeexPay et la base simulés, en 40
+constats : le refus arrête l'attente en moins de quatre secondes, après
+une seule question à FeexPay ; « Fermer » ; « Réessayer », qui repart
+sur la même commande avec l'opérateur et le numéro choisis, jusqu'à
+« Commande confirmée » quand la base le dit ; « Arrêter l'attente » et
+« Vérifier à nouveau » ; « Mes commandes » affiché en moins d'une
+seconde quand on quitte le reçu, et l'attente arrêtée avec lui ;
+« Payer maintenant » sans demande en cours ; aucune carte sur
+une commande non aboutie ou annulée ; le retour arrière après un achat,
+et depuis le formulaire ouvert panier vide. Quatre sabotages le font
+tomber : ignorer le refus, laisser le reçu attendre la fin de l'attente,
+renvoyer au panier ou au reçu sans remplacer l'entrée d'historique.
+
+## L'acompte à la commande (3.57.0)
+
+Pour écarter les commandes fictives, le client paie en ligne **une part
+du total — l'acompte —** pour que sa commande parte ; **le reste se paie
+à la livraison**. Le taux est au superadministrateur : **Réglages →
+BIZZOO → Paiement en ligne → « Acompte à la commande »**, de 1 à 100 %.
+Il part à 10 % ; 100 % revient à tout faire payer en ligne, comme avant.
+
+### Ce que fait la base
+
+- **Le taux** vit dans `paiement.taux_acompte`, borné de 1 à 100, et
+  seul le superadministrateur l'écrit — la même règle que le choix de
+  l'agrégateur.
+- **La base calcule l'acompte, jamais le téléphone.**
+  `creer_commande(client, articles, code, avec_acompte)` le fixe
+  *après* le code promo : le taux du jour sur le total remise déduite,
+  au franc supérieur, **100 FCFA au moins** (le minimum de FeexPay),
+  jamais plus que le total. Il est figé sur la commande
+  (`taux_acompte`, `acompte`) : changer le taux ne réécrit pas les
+  commandes passées. Personne ne le réécrit ensuite — pas même le
+  superadministrateur, que `commande_verrous` arrête comme pour le total.
+- **L'agrégateur ne demande que l'acompte.** `commande_pour_paiement`
+  le rend sous `total` : la fonction Edge `feexpay` déployée demande ce
+  champ-là, et **n'a pas eu à changer**. KkiaPay reçoit l'acompte de
+  l'application ; dans les deux cas, `marquer_payee` le vérifie, et un
+  versement plus petit reste « incomplet ». Ce qui est réellement entré
+  se garde dans `verse`. Le journal des versements attend l'acompte, et
+  écrit « Acompte encaissé ».
+- **La commande part dès l'acompte reçu** : elle passe à « payée », les
+  boutiques sont prévenues et le stock décompté, comme avant.
+- **Le reste se partage entre les boutiques** (`restes_par_boutique`).
+  Une commande qui traverse deux boutiques est livrée en deux fois, et
+  chacune encaisse sa part ; la somme des parts tombe juste au franc près
+  (l'arrondi va à la plus grosse). **Un article annulé ne se paie pas** :
+  le client ne doit plus que ce qu'il recevra, remise comprise au
+  prorata, moins ce qu'il a versé ; une boutique dont tout est annulé n'a
+  rien à encaisser.
+- **À chacun ce qui le regarde.** `commandes?select=*,restes` — une
+  fonction que PostgREST lit comme une colonne — rend toutes les parts au
+  client et à l'enseigne, sa part à une boutique, rien aux autres ; elle
+  relit la commande par son identifiant, si bien qu'une ligne fabriquée
+  n'y change rien. Le livreur lit `a_encaisser` dans `mes_livraisons()`,
+  et rien d'autre.
+- **Les notifications le disent** : « Acompte reçu » et le reste au
+  client ; à chaque boutique, ce qu'elle encaissera ; au
+  superadministrateur, l'acompte encaissé et le reste. Une commande
+  réglée en entier garde les mots d'avant.
+- **L'enseigne qui confirme à la main** (`confirmer_paiement`) se porte
+  garante de l'acompte, pas du total.
+
+### Ce que voient les écrans
+
+| Où | Ce qui s'affiche |
+|---|---|
+| Le panier | sous le total : « À payer à la commande — acompte de 10 % » et « À payer à la livraison » |
+| Le formulaire de commande | « Total de la commande », « À payer maintenant », « Reste à payer à la livraison » — code promo compris — et le bouton **Payer l'acompte · 30 000 FCFA** |
+| Le reçu | « Acompte à payer », puis, payée : le badge « Acompte payé », « Acompte reçu. », le reste sous la coche, et pour chaque boutique ce qu'on lui donnera |
+| Le message WhatsApp à une boutique | « Acompte payé en ligne. Reste à payer à la livraison : … » — sa part seulement |
+| « Mes commandes » | « Acompte payé », et « reste … à la livraison » tant que la livraison n'a pas eu lieu |
+| Admin — Réglages (superadministrateur) | le champ « Acompte à la commande (%) », refusé hors de 1 à 100 |
+| Admin — Commandes | « Acompte payé en ligne (10 %) » et « À encaisser à la livraison » : sa part pour une boutique, tout le reste pour l'enseigne ; la feuille « Confier » dit au livreur ce qu'il encaissera |
+| Admin — Mes courses (livreur) | « À encaisser : … », « Rien à encaisser : tout est payé », ou « Encaissé à la livraison » une fois remise |
+
+### Les applications déjà installées
+
+**Elles ne changent pas.** Les applications 3.54 des stores ne savent
+rien de l'acompte : elles n'envoient pas `avec_acompte`, leurs commandes
+se règlent donc en entier (taux 100), comme elles l'annoncent au client.
+L'acompte vaut pour les commandes passées depuis la 3.57.0. Dans l'autre
+sens, une application 3.57.0 face à une base d'avant retire le paramètre
+inconnu et fait payer le total : la réponse de la base décide de ce que
+l'écran affiche.
+
+### Ce qui change pour l'argent
+
+- **BIZZOO encaisse l'acompte en ligne ; la boutique — son livreur —
+  encaisse le reste à la porte.** Pour ces commandes, le règlement entre
+  BIZZOO et ses boutiques change de sens : c'est désormais la boutique
+  qui a l'essentiel en main, et BIZZOO qui garde l'acompte. Les chiffres
+  de vente ne bougent pas — une commande compte toujours au moment où
+  elle passe à « payée » —, mais ce règlement se fait hors de
+  l'application.
+- **Une commande annulée après l'acompte** se rembourse hors de
+  l'application, comme un paiement entier aujourd'hui.
+- **Paiement en ligne fermé, pas d'acompte** : la commande part sur
+  WhatsApp et rien n'est créé en base.
+
+### Le fichier à coller
+
+[`supabase/acompte.sql`](supabase/acompte.sql). Il se suffit — il pose
+les colonnes et les fonctions dont il a besoin — et se rejoue sans
+dommage. Les applications installées n'en voient rien, puisqu'elles ne
+demandent pas l'acompte.
+
+**Il est appliqué sur la base en ligne depuis le 11 octobre 2026**,
+collé par le propriétaire dans le SQL Editor : le fichier retire puis
+repose deux fonctions, et l'outil Supabase de Claude attendait pour cela
+une confirmation qui n'arrivait jamais. Vérifié aussitôt, sans rien
+écrire : les 27 fonctions du fichier sont en ligne identiques au dépôt,
+aux fins de ligne près ; `paiement.taux_acompte` est en place, borné de
+1 à 100, à 10 % ; `creer_commande` prend ses quatre paramètres ; les
+droits sont ceux du dépôt ; PostgREST a rechargé son schéma dans la
+seconde. Les commandes d'avant n'ont pas d'acompte : elles se sont
+payées en entier.
+
+Pour le recoller sur une autre base, copier le fichier **en entier** —
+le bouton « Copy raw file » de GitHub le fait. Un premier collage,
+coupé à la ligne 100 par un aperçu du fichier, a été refusé par la base
+avant d'exécuter quoi que ce soit.
+
+### Les bancs
+
+- [`supabase/tests/99t-acompte.sql`](supabase/tests/99t-acompte.sql) :
+  92 constats sur un vrai PostgreSQL — le taux et qui l'écrit, le calcul
+  (plancher, plafond, arrondi, code promo), une application d'avant, le
+  verrou, l'encaissement incomplet puis entier, le partage au franc près,
+  l'article annulé, qui voit quelle part, le livreur, les notifications,
+  la confirmation à la main, la commande d'avant l'acompte. **Neuf
+  sabotages le font tomber**, chacun sur la règle qu'il casse.
+- [`tools/banc-acompte.mjs`](tools/banc-acompte.mjs) : 66 constats au
+  navigateur, la base et les agrégateurs simulés — de l'annonce dans le
+  panier jusqu'à l'écran du livreur, en passant par la base d'avant et le
+  petit téléphone. **Huit sabotages le font tomber.** Les 20 autres bancs
+  navigateur passent toujours : 1021 constats en tout, aucun échec.
+
+## Le numéro d'abord, et qui a créé quel compte (3.58.0)
+
+Le compte SMS de BIZZOO est prêt : **on crée son compte et on s'y connecte
+désormais avec son numéro et un code reçu par SMS.** Et chaque compte de
+l'équipe dit **qui l'a créé, le jour et l'heure.**
+
+### Le client : son numéro, et un code
+
+| Pour | Il faut |
+|---|---|
+| Créer son compte | son nom, son numéro, le code reçu |
+| Se connecter | son numéro, le code reçu |
+| Un compte ouvert avant, avec un e-mail | l'e-mail et le mot de passe **une dernière fois**, puis le code envoyé à son numéro — ensuite, le numéro suffit |
+
+- **« Se connecter » ouvre sur le numéro.** L'e-mail recule derrière un
+  lien, « Entrer avec mon e-mail », pour les seuls comptes d'avant
+  (`#/connexion-email`). « Créer mon compte » ne demande plus ni e-mail
+  ni mot de passe.
+- **Le même code crée et ouvre.** GoTrue crée le compte au premier code
+  validé et ouvre celui qui existe déjà : l'écran ne dit donc à personne
+  quels numéros ont un compte chez BIZZOO. Un compte né à la porte « Se
+  connecter » donne son nom juste après — et ce nom s'écrit seul, sans
+  effacer une adresse déjà donnée. « Créer mon compte » avec un numéro
+  qui en avait déjà un ouvre ce compte-là, et le dit.
+- **La demande de revendeur** se fait toujours à l'inscription : elle part
+  une fois le compte ouvert, avec sa session. Un statut déjà acquis ne se
+  redemande pas.
+- **L'ancien compte e-mail n'entre pas sur son seul mot de passe.** La
+  session que GoTrue rend attend **en mémoire seulement** : rien n'est
+  gardé sur le téléphone avant le code, et « Annuler » le laisse dehors.
+  Le code validé, il entre, et les commandes passées avec ce numéro le
+  rejoignent.
+- **Resté connecté depuis avant**, un compte e-mail est prié de confirmer
+  son numéro dans « Mon compte » — une carte devant tout le reste — et
+  **avant de commander** : la commande reprend d'elle-même ensuite, panier
+  intact.
+- **Trois exceptions, voulues.** Le SMS fermé ou incertain : on n'enferme
+  personne dehors sur une réponse qu'on n'a pas — fermé, l'e-mail et le
+  mot de passe reviennent devant, comme avant. Un numéro déjà confirmé
+  chez GoTrue. Un compte de l'équipe, qui a sa propre porte.
+
+**Ce n'est pas un verrou de la base**, et c'est voulu : la porte e-mail
+reste ouverte chez Supabase, parce que l'application admin s'en sert pour
+créer les comptes de l'équipe (`/auth/v1/signup`). C'est l'application
+client qui ne propose plus que le numéro.
+
+### L'équipe : un code à chaque connexion
+
+Quand le superadministrateur l'exige, chaque compte de l'équipe —
+administrateurs, modérateurs, livreurs — rend **un code reçu par SMS à
+chaque connexion**, en plus de son mot de passe. **Tant qu'il ne l'a pas
+rendu, la base ne lui reconnaît aucun droit** : `role_courant()` ne répond
+rien à une session non confirmée, et toutes les règles de l'équipe en
+découlent — `est_admin()`, `est_super()`, `boutique_du_compte()`,
+`est_compte_enseigne()`… Un mot de passe volé n'ouvre plus rien.
+
+Pourquoi pas le code de GoTrue, comme pour les clients ? Parce que GoTrue
+marque **toute** session ouverte par un code de la même façon — un lien
+reçu par e-mail compris : rien n'y distinguerait « a reçu un SMS sur le
+numéro de sa fiche ». Les codes de l'équipe sont donc les nôtres :
+
+- tirés par la fonction Edge **`code-connexion`** (déployée **avec**
+  vérification du jeton), envoyés au numéro **de la fiche** — jamais à un
+  numéro tapé à l'écran ;
+- gardés **hachés avec la session** (`sha256(code:session)`) : un code ne
+  vaut que pour la connexion qui l'a demandé, et ne revient jamais à
+  l'application ;
+- **10 minutes**, **5 essais**, un renvoi toutes les **30 secondes**, **5
+  codes par heure** — en base, où rien ne les contourne ;
+- inscrits par la seule clé de service : un compte connecté ne choisit
+  pas son propre code.
+
+Rendre son code vérifie aussi **le numéro de la fiche** ; le changer
+annule cette vérification. **Un nouveau compte de l'équipe ne se crée plus
+sans numéro** : c'est là que partira son code.
+
+**L'interrupteur** est dans **Réglages → BIZZOO → « Connexion de l'équipe
+par SMS »**, au superadministrateur seul. La carte compte l'équipe et
+**nomme qui n'a pas de numéro** — il ne pourrait plus entrer. Elle ne
+s'allume qu'**après que le superadministrateur a reçu et rendu son propre
+code** : c'est la preuve que la passerelle livre, avant d'en dépendre. La
+base le refuse sinon.
+
+En cas d'urgence — plus de crédit SMS, et plus personne n'entre —, dans le
+SQL Editor de Supabase :
+
+```sql
+update public.securite_equipe set sms_exige = false;
+```
+
+### Qui a créé quel compte
+
+Chaque compte de l'équipe porte **son créateur, son nom et son rang au
+moment de la création, la date et l'heure** (`profils.cree_par`,
+`cree_par_nom`, `cree_le`). La base les écrit — un déclencheur, au moment
+où un administrateur donne son rang à la fiche toute neuve — et **personne
+ne les réécrit ensuite**, pas même le superadministrateur.
+
+- **Admin → Comptes** : sous chaque compte, « Créé le 10 octobre 2026 à
+  14:05 par Sena (superadministrateur) · numéro vérifié », et la même
+  ligne en tête de sa fiche. Un compte né hors de l'application —
+  tableau de bord de Supabase, inscription seule — le dit : « — hors de
+  l'application ».
+- **Les comptes d'avant** retrouvent leur créateur dans le journal
+  (« Modérateur ajouté : … », écrit au nom de celui qui l'a créé), une
+  fois, sans jamais écraser une trace déjà posée.
+- **Admin → Fiches clients** : un compte client s'ouvre toujours par le
+  client lui-même ; la fiche dit par quelle porte — « avec son adresse
+  e-mail », ou « avec son numéro, confirmé par un code SMS ».
+
+Au passage, un défaut d'avant est tombé : un administrateur de boutique
+ne pouvait pas finir de créer un modérateur — la fiche toute neuve, sans
+boutique encore, lui était invisible. Les deux règles de `profils` le
+laissent désormais voir et compléter **cette** fiche, un quart d'heure
+durant, et rien d'autre.
+
+Et un piège a été évité de justesse : **l'Historique annule une
+modification de compte en remettant la fiche d'avant entière**, par un
+upsert. L'insertion passe d'abord par la règle de création, qui y aurait
+nommé le créateur du moment — et toute annulation aurait échoué sur « la
+création ne se réécrit pas ». Une insertion qui vise une fiche existante y
+reporte donc la trace en place ; un upsert qui *écrit* un autre créateur
+reste refusé.
+
+### Le fichier à coller, et les fonctions
+
+[`supabase/connexion-sms.sql`](supabase/connexion-sms.sql) se suffit, se
+rejoue sans dommage et ne supprime rien. **Il ne change rien tant que
+l'interrupteur est éteint** : le code de l'équipe n'est exigé qu'une fois
+allumé, depuis les Réglages. La mise en route — secrets, fonctions, hook
+de Supabase — est dans la section suivante.
+
+**Il est appliqué sur la base en ligne depuis le 12 octobre 2026.**
+Vérifié aussitôt, sans rien écrire : les 15 fonctions du fichier sont en
+ligne identiques au dépôt, à l'octet près ; leurs droits sont ceux du
+dépôt — inscrire ou annuler un code, la clé de service seule ; les codes
+et l'interrupteur ne se lisent pas depuis l'API ; l'interrupteur est
+éteint ; les deux règles de `profils` ouvrent la fiche toute fraîche.
+**Neuf comptes de l'équipe sur treize ont retrouvé leur créateur** dans
+le journal ; les quatre autres sont nés hors de l'application. Les trois
+fonctions sont déployées le même jour : `hook-sms-auth` sans vérification
+du jeton, `tester-sms` et `code-connexion` avec. Le premier essai depuis
+les Réglages a montré que la passerelle attend le texte sous `content` :
+le transport corrigé est redéployé dans les trois le soir même.
+
+### Les bancs
+
+- [`supabase/tests/99u-connexion-sms.sql`](supabase/tests/99u-connexion-sms.sql) :
+  104 constats sur un vrai PostgreSQL — qui inscrit un code, le frein et
+  le plafond, les essais, l'expiration, le code d'une autre session,
+  l'interrupteur, la base qui ferme sans code, la trace, l'annulation et
+  le rattrapage. **Treize sabotages le font tomber**, chacun sur la règle
+  qu'il casse ; trois d'entre eux sont arrêtés plus tôt encore par
+  l'état des lieux (contrôles 124 à 128), qui fait le même constat sur la
+  base en ligne. 1298 constats en tout.
+- [`tools/eprouver-sms.sh`](tools/eprouver-sms.sh) : le transport, le hook
+  (dont le destinataire d'un changement de numéro) et `code-connexion` —
+  105 constats, l'empreinte de référence partagée avec la base.
+- [`tools/banc-connexion-sms.mjs`](tools/banc-connexion-sms.mjs) : 70
+  constats au navigateur, côté client ; **huit sabotages** le font
+  tomber.
+- [`tools/banc-connexion-equipe.mjs`](tools/banc-connexion-equipe.mjs) : 46
+  constats, côté admin ; **douze sabotages** le font tomber.
+- [`tools/banc-sms-ferme.mjs`](tools/banc-sms-ferme.mjs) suit la nouvelle
+  porte : le SMS fermé, tout revient comme avant.
+
+Les 21 autres bancs navigateur passent toujours : 1119 constats en tout,
+sur 23 bancs, aucun échec.
+
 ## Vérification du numéro (entrer par SMS)
 
 Au Bénin, beaucoup d'acheteurs n'ont pas d'adresse e-mail mais tous ont
-un numéro. L'application propose donc **deux portes** pour ouvrir un
-compte : e-mail + mot de passe, ou **numéro + code reçu par SMS**.
+un numéro. **Depuis la 3.58.0, le numéro est LA porte** (section
+précédente) ; l'e-mail ne sert plus qu'aux comptes ouverts avant.
 
 Rien n'est fabriqué à la main : le code est **celui de GoTrue**, et
 `auth.users.phone_confirmed_at` est le seul ancrage. Un déclencheur
@@ -2505,12 +3116,16 @@ depuis un ordinateur :
    supabase secrets set SMS_HOOK_SECRET=…  # celui que Supabase affiche à l'étape 3
    ```
 
-2. **Les deux fonctions** :
+2. **Les trois fonctions** :
 
    ```bash
    supabase functions deploy hook-sms-auth --no-verify-jwt
    supabase functions deploy tester-sms
+   supabase functions deploy code-connexion
    ```
+
+   `tester-sms` et `code-connexion` gardent la vérification du jeton : un
+   SMS coûte de l'argent, et seul un compte connecté peut en demander.
 
    `--no-verify-jwt` est indispensable : c'est Supabase lui-même qui
    appelle ce point d'entrée, sans jeton d'utilisateur. Ce qui le protège
@@ -2519,23 +3134,33 @@ depuis un ordinateur :
    minutes contre le rejeu. Sans `SMS_HOOK_SECRET`, la fonction refuse de
    démarrer plutôt que de laisser passer.
 
-3. **Dashboard → Authentication → Providers → Phone** : activer, puis
-   **Send SMS hook** → `https://<projet>.supabase.co/functions/v1/hook-sms-auth`.
-   Supabase affiche alors le secret `whsec_…` : c'est lui qui va dans
-   `SMS_HOOK_SECRET`.
+3. **Dashboard → Authentication → Hooks → Send SMS hook**, de type
+   **HTTPS** → `https://<projet>.supabase.co/functions/v1/hook-sms-auth`,
+   puis « Generate secret » : le secret `v1,whsec_…` va tel quel dans
+   `SMS_HOOK_SECRET`. Ensuite **Authentication → Sign In / Providers →
+   Phone** : activer, avec la confirmation du numéro — sans elle, aucun
+   code ne part, et le hook n'est jamais appelé. Le formulaire réclame
+   quand même un fournisseur (Twilio) et ses champs : y mettre
+   `inutilise`. Le hook prend sa place, ces valeurs ne servent jamais.
 
 4. **Éprouver pour de vrai**, depuis l'app admin : Réglages → *Essayer la
    passerelle SMS*. L'écran rend **la réponse brute de la passerelle** —
    c'est voulu : si un champ ne porte pas le nom attendu, la réponse le
    dit elle-même.
 
-Deux pièges qui coûtent des heures :
+Trois pièges qui coûtent des heures :
 
 - **Un `HTTP 200` de CREATISINTER ne veut pas dire « envoyé ».** La
   réponse porte un `status` et un code d'état ; seuls
   `SUBMITTED`, `SENT`, `DELIVERED` et `PROGRAMMED` valent succès. Le
-  transport (`functions/_partage/sms.ts`) le vérifie, et 64 assertions
-  (`tools/eprouver-sms.sh`) l'éprouvent.
+  transport (`functions/_partage/sms.ts`) le vérifie, et 105 assertions
+  (`tools/eprouver-sms.sh`) l'éprouvent — avec le hook et
+  `code-connexion`.
+- **Le texte part sous `content`, pas sous `message`.** Sous `message`,
+  la clé est acceptée mais l'envoi refusé : « MISSING_PARAMETERS_CONTENT —
+  Required parameter [content] or [text] is missing ». Côté client, cela
+  se voyait seulement comme « Unexpected status code returned from hook:
+  500 ».
 - **Le numéro a trois formes.** `0197121596` est ce que le client tape et
   ce que la base range ; `+2290197121596` est ce que GoTrue **exige** en
   entrée ; `2290197121596` — sans le `+` — est ce qu'il **range**. Relire
@@ -2556,7 +3181,7 @@ traduit s'il arrive quand même. La question ne se pose qu'une fois par
 ouverture de l'application : le jour où l'enseigne active le SMS, les
 chemins reviennent au lancement suivant, sans nouvelle version.
 [`tools/banc-sms-ferme.mjs`](tools/banc-sms-ferme.mjs) l'éprouve :
-trente-deux constats, trois sabotages qui le font rougir.
+trente-trois constats, trois sabotages qui le font rougir.
 
 ## Deux applications, un seul point d'entrée
 
@@ -2979,7 +3604,8 @@ remplace le sac de courses partout : l'écran d'accueil du téléphone
 connexion de l'admin, la vignette d'un produit sans photo —
 `UI.marque()` affiche le fichier d'icône lui-même.
 
-`node tools/make-icons.js` en tire les 48 images des deux applications,
+`node tools/make-icons.js` en tire les 48 images des deux applications
+(50 depuis que le logo a la sienne, `icons/logo-bizzoo.png`, en 3.56.1),
 et la silhouette des notifications :
 
 | Forme | Où | Ce qu'on y voit |
@@ -3119,6 +3745,96 @@ les cartes Clients, Versements et Codes promo de l'enseigne avaient le
 même défaut. Toute carte-lien est désormais un bloc (`:where(a).carte`,
 qui laisse aux variantes en flex le dernier mot), et `banc-da` mesure
 que chaque carte-lien enveloppe son titre.
+
+## Le logo partout, et des captures à jour (3.56.1)
+
+La version web portait encore l'ancien logo, et ses captures montraient
+l'accueil d'avant. Deux oublis, et un piège :
+
+- **Le logo.** À la 3.52.0, le B au chariot n'a remplacé que les
+  icônes : l'écran du téléphone, l'onglet du navigateur, la connexion de
+  l'admin. Partout ailleurs restait « Bizzoo » écrit avec ses deux
+  points : l'en-tête et le pied du site, sa page 404, le haut des deux
+  applications, leur menu sur ordinateur.
+- **Les captures.** Les quatre écrans de la vitrine et l'image de
+  partage dataient de la 3.54.0. L'accueil y montrait encore les ronds
+  de couleur d'avant les icônes des planches (3.56.0).
+- **Le piège.** L'hébergement laisse les navigateurs garder une image
+  une semaine, et WhatsApp garde l'aperçu d'une adresse. Une image
+  refaite sous le même nom ne se voit donc pas tout de suite.
+
+### Le logo : le B au chariot, puis le nom
+
+C'est le choix de l'enseigne, parmi trois propositions (la tuile et le
+nom, la tuile seule, le nom seul). La tuile est
+`icons/logo-bizzoo.png`, que `tools/make-icons.js` tire de l'œuvre dans
+les deux applications. Dans l'admin aussi, c'est la tuile **sans** la
+pastille « réglages » : la marque de BIZZOO, pas l'icône d'une
+application. Les deux service workers la gardent hors connexion. Le nom
+reste écrit, en bleu et orange, sans les deux points : les roues du B
+les portent.
+
+Où il est :
+- **le site** : l'en-tête, le pied (« Bizz » en blanc sur le bleu nuit),
+  la page 404 ;
+- **l'application des clients** : la barre du haut de l'accueil (le
+  slogan sous le nom, à droite de la tuile), le menu sur ordinateur,
+  « À propos de BIZZOO », la couverture d'une boutique sans photo ;
+- **l'admin** : la barre du haut (« Espace admin » sous le nom), le menu
+  sur ordinateur (« Admin » sous le nom).
+
+Le logo est plus large qu'avant, et deux endroits manquaient de place.
+- **La barre du haut de l'admin.** Le superadministrateur y a cinq
+  boutons : à 360 px, ils recouvraient « Bizzoo », sans que rien ne
+  déborde de l'écran. Le logo se règle sur la place qui lui reste : en
+  entier à partir de 390 px, plus petit à 360, la tuile seule à 320.
+- **L'en-tête du site.** « Ouvrir la boutique » y passait sur deux
+  lignes à 390 px. Au téléphone, l'en-tête se resserre, et sous 360 px
+  le bouton ne dit plus que « Boutique ». Le grand bouton orange du
+  bandeau, juste dessous, le dit en toutes lettres.
+
+En passant, les liens légaux du pied du site (mentions, confidentialité,
+conditions, suppression de compte) sont rentrés dans sa marge. Posés en
+dehors, ils touchaient le bord de l'écran, en grand.
+
+### Les captures
+
+Elles sont refaites depuis l'application 3.56.1, dans la même mise en
+scène que les précédentes : 390 px, en double densité, réduites à
+540 × 1169, JPEG qualité 82. Les huit catégories de l'accueil sont
+celles que range `categories-rangement.sql`, avec leurs icônes.
+
+**Seul l'accueil change.** Les trois autres écrans (la boutique, le
+produit, le paiement) sortent identiques à l'octet près : ni le logo ni
+les catégories n'y figurent. L'image de partage (1200 × 630, 89 Ko)
+porte le nouveau logo et le nouvel accueil.
+
+**Les adresses portent la version des images** :
+`vitrine/ecran-accueil.jpg?v=3.56.1`, et de même pour les trois autres
+écrans et pour `og:image`. Une adresse nouvelle oblige navigateurs et
+WhatsApp à reprendre l'image.
+
+**À refaire quand l'accueil ou le logo changent** : les quatre captures,
+l'image de partage, puis le `?v=` dans `index.html` (captures et
+`og:image`) et dans `client/index.html` (`og:image`).
+
+`banc-da` regarde le logo lui-même, et pas seulement son texte :
+- la tuile est bien celle du logo, chargée, devant le nom ;
+- les deux points sont partis ;
+- le site, sa page 404, la barre du haut et le menu des deux
+  applications ;
+- la barre de l'admin à 320, 360 et 390 px, avec ses cinq boutons ;
+- l'en-tête du site sur une ligne, de 320 à 1440 px.
+
+`banc-mise-en-ligne` ouvre la page 404 sous une adresse profonde, et
+vérifie que son logo s'affiche. Il lit aussi `og:image` versionnée.
+Six sabotages les font tomber :
+- la tuile retirée de l'accueil ;
+- les points remis ;
+- l'admin sans réglage de place ;
+- l'icône à pastille au lieu du logo ;
+- l'en-tête du site qui ne se resserre plus ;
+- le logo de la 404 en adresse relative.
 
 ## La barre du bas à deux visages (3.54.0)
 
@@ -3272,12 +3988,28 @@ page, comme Meta le conseille : il doit rester après la redirection.
 part, à qui, et comment s'y opposer. Elle est générée par
 `tools/generer-mentions.py`, comme les autres pages légales.
 
+### Ce que la 3.58.0 y change
+
+- **L'inscription par numéro.** Le compte naît au code validé ; c'est
+  l'écran (`apresEntree`) qui la déclare, parce que lui seul sait si une
+  demande de revendeur l'accompagne : `CompleteRegistration` porte alors
+  « revendeur », et `Lead` part une fois la demande enregistrée. Un numéro
+  qui avait déjà son compte n'est pas un inscrit. L'inscription par e-mail
+  ne vit plus que quand le SMS est fermé ; elle déclare comme avant.
+- **L'acompte.** La valeur de `Purchase` reste **celle de la commande** :
+  c'est ce que le client achète, et ce que la publicité doit mesurer. Ce
+  qui a été versé en ligne part à côté, dans `acompte` ; le reste se paie à
+  la livraison. L'achat part toujours à la confirmation du versement, et
+  pas avant.
+
 ### Le banc
 
 [`tools/banc-pixel-meta.mjs`](tools/banc-pixel-meta.mjs) sert le site sous
 sa vraie adresse, remplace le script de Meta par un enregistreur, et note
 chaque appel au moment où il part, avec l'adresse que Meta recevrait :
-**71 constats**, de l'APK sans pixel au jeton qui ne part jamais.
+**78 constats** sur la 3.58.0 (71 sur la 3.54.2 en ligne : l'inscription
+par numéro, l'acompte et un écran lent s'y ajoutent), de l'APK sans pixel
+au jeton qui ne part jamais.
 **Seize sabotages le font tomber**, chacun là où il casse : le pixel dans
 l'APK, `disablePushState` ou `autoConfig` oubliés, le code de Meta collé en
 tête de vitrine, l'écran redirigé ou redessiné compté, le reçu jamais compté
@@ -3285,12 +4017,264 @@ pendant qu'il attend le paiement, l'achat oublié, compté au clic sur
 « Payer » ou compté pour une vieille commande, un numéro parti dans la
 recherche, le partage pris pour un contact, chaque retour par numéro compté
 comme une inscription, les montants en texte, la demande de revendeur
-perdue, le moyen de paiement redit.
+perdue, le moyen de paiement redit. Sur la 3.58.0, **vingt** : les mêmes —
+le reçu, qui y rend la main tout de suite depuis la 3.56.1, cède la place
+à un écran lent, la commande d'un autre téléphone que la base met quatre
+secondes à rendre —, et quatre sur ce qu'elle ajoute : l'inscription par
+numéro non déclarée, la demande de revendeur qui l'accompagne perdue,
+l'acompte non transmis, l'achat qui vaudrait l'acompte au lieu de la
+commande.
 
 ```bash
 PLAYWRIGHT=<chemin>/playwright-core/index.js \
 CHROMIUM=<chemin>/chrome node tools/banc-pixel-meta.mjs
 ```
+
+## Qui me livre : le livreur sur le reçu (3.58.0)
+
+Sur le reçu d'une commande payée, sous chaque boutique, le client voit
+**le livreur à qui la course est confiée** : son nom, son numéro, et deux
+boutons — **Appeler** et **WhatsApp**. Le message WhatsApp part tout
+prêt : « Bonjour Sèna, je suis le client de la commande BZ-… ». Une
+commande qui traverse deux boutiques montre deux livreurs, chacun sous la
+sienne ; une boutique qui n'a pas encore confié sa part ne montre rien.
+
+**C'est la base qui décide qui le voit**, par une seule fonction,
+`livreurs_de_ma_commande(cible, tel)` — le client ne lit toujours pas la
+table des comptes. Elle ne rend que le nom, le numéro et l'indicatif ; ni
+e-mail, ni adresse, ni montant. Et seulement :
+
+- au compte qui a passé la commande, ou à qui donne le numéro de
+  téléphone de la commande (le client sans compte, comme pour le suivi) ;
+- une fois la commande payée et la course confiée ;
+- tant que le client n'a pas confirmé « J'ai bien reçu » — après, le
+  numéro du livreur n'a plus à rester sous ses yeux ;
+- jamais pour une part annulée, ni pour un livreur désactivé.
+
+Un livreur sans numéro paraît sous son nom, avec une phrase : la boutique
+peut mettre le client en relation. **Pour que les boutons apparaissent,
+le numéro doit être rempli** dans la fiche du livreur (Comptes, dans
+l'application admin). La politique de confidentialité le dit (version du
+16 octobre 2026).
+
+**À coller une fois dans Supabase** : [`supabase/livreur-client.sql`](supabase/livreur-client.sql)
+— une fonction en lecture, aucune table ne change, relançable. Tant
+qu'elle n'est pas posée, le reçu ne montre simplement pas de livreur.
+
+**Elle est posée sur la base en ligne depuis le 16 octobre 2026.**
+Vérifié aussitôt, sans rien écrire : la fonction existe avec ses deux
+paramètres, en `security definer`, ouverte à `anon` et `authenticated` ;
+elle ne rend que le nom, le numéro et l'indicatif, porte les quatre
+conditions (payée, réception non confirmée, livreur actif, numéro de la
+commande), et ne rend rien pour une commande inconnue.
+
+### Les bancs
+
+- [`supabase/tests/99v-livreur-client.sql`](supabase/tests/99v-livreur-client.sql) :
+  14 constats sur un vrai PostgreSQL — rien avant la course confiée, le
+  bon client seulement, le numéro de la commande pour qui n'a pas de
+  compte, rien pour une commande impayée ou un livreur désactivé, et le
+  numéro qui disparaît à la réception confirmée.
+- [`tools/banc-livreur-client.mjs`](tools/banc-livreur-client.mjs) : 12
+  constats au navigateur — la question posée avec la commande et son
+  numéro, le livreur sous SA boutique, `tel:+229…` et `wa.me/229…` justes,
+  rien quand la base ne rend rien ou ne connaît pas encore la fonction,
+  aucune question pour une commande impayée.
+
+## Les liens de partage : boutique, catalogue, produit (3.58.0)
+
+Chaque boutique, son catalogue et chaque produit ont un lien qui ouvre
+**directement** le bon écran :
+
+| | Lien |
+|---|---|
+| Une boutique | `https://www.bizzoomarket.com/client/#/boutique/<id>` |
+| Son catalogue | `https://www.bizzoomarket.com/client/#/boutique/<id>/produits` |
+| Un produit | `https://www.bizzoomarket.com/client/#/produit/<id>` |
+
+C'est **toujours l'adresse officielle**, même depuis l'application
+Android, qui sert ses fichiers depuis le téléphone.
+
+- **Dans l'application client** : « Partager la boutique » sous
+  « Suivre », une icône de partage dans l'en-tête de la fiche produit et
+  du catalogue d'une boutique. L'application Android ouvre le partage du
+  téléphone (WhatsApp, Messenger, SMS…) par un nouveau pont,
+  `AndroidPont.partager` — il faut donc un nouvel APK. Ailleurs : le
+  partage du navigateur, ou une feuille « WhatsApp / Copier le lien ».
+- **Dans l'admin** : une carte « Liens à partager » sur la fiche d'une
+  boutique (la boutique, son catalogue) et sur celle d'un produit, avec
+  « Copier » et « WhatsApp ».
+
+Banc : [`tools/banc-partage.mjs`](tools/banc-partage.mjs), 12 constats.
+
+## Les codes promo : pas pour les revendeurs, et ceux des particuliers (3.58.0)
+
+**Un revendeur n'a pas de code promo.** Il achète déjà au prix BIZZOO :
+un code s'ajouterait à cette remise et sortirait une seconde fois de la
+même marge. La base le refuse, à l'aperçu comme à la caisse, en le
+disant ; le champ du code n'apparaît plus dans son panier.
+À coller : [`supabase/revendeur-sans-code.sql`](supabase/revendeur-sans-code.sql).
+
+**Le code d'un particulier.** Dans l'admin, *Codes promo → Nouveau code de
+particulier* (superadministrateur) : prénom, nom, e-mail, mot de passe, le
+code, la remise du client (0 à 50 %) et la commission de la personne
+(0,5 à 50 %). Un compte **client** est créé à son nom, puis le code.
+
+- Le client qui tape le code a sa remise. La personne ne peut pas
+  utiliser son propre code.
+- La commission naît à la **livraison** : quand toutes les parts non
+  annulées de la commande sont remises. Une commande annulée ou jamais
+  livrée ne rapporte rien. Exemple : 2 % d'une commande de 100 000 FCFA
+  = 2 000 FCFA. Une commission par commande, garantie par la base.
+- Elle sort de la marge de l'enseigne et la base la **plafonne** à ce
+  que l'enseigne gagne encore sur la commande après la remise.
+- La personne se connecte à l'application client (*Entrer avec une
+  adresse e-mail*), voit **Mes gains** dans *Mon compte* (code, solde,
+  historique) et demande un retrait (500 FCFA au moins) vers son numéro
+  Mobile Money. Le montant demandé n'est plus disponible.
+- L'admin voit les **retraits à verser** sous la liste des codes : on
+  envoie l'argent, puis *Versé* avec la référence du transfert, ou
+  *Refuser* avec un motif (le montant revient sur le solde).
+
+À coller : [`supabase/codes-particuliers.sql`](supabase/codes-particuliers.sql).
+
+Bancs : [`supabase/tests/99w-revendeur-sans-code.sql`](supabase/tests/99w-revendeur-sans-code.sql),
+[`supabase/tests/99x-codes-particuliers.sql`](supabase/tests/99x-codes-particuliers.sql)
+(commission, plafond, annulation, solde, retraits, droits) et
+[`tools/banc-codes-particuliers.mjs`](tools/banc-codes-particuliers.mjs), 14 constats.
+
+## Le live TikTok (3.58.0)
+
+Une boutique passe en direct sur TikTok : son administrateur (ou le
+superadministrateur) ouvre l'**accueil de BIZZOO Admin** sur la boutique
+et touche **Démarrer le live TikTok**. Après confirmation :
+
+- **tous les téléphones où l'application BIZZOO (Android) est installée**
+  reçoivent « *IMPACT est en live sur TikTok* » ; toucher la notification
+  ouvre **directement la page TikTok de la boutique** (l'application
+  TikTok si elle est installée) ;
+- l'**accueil** de l'application et du site, et la **fiche de la
+  boutique**, montrent un bandeau noir « *… est en live sur TikTok —
+  Regarder* » tant que le live dure ;
+- **Arrêter le live** retire le bandeau. Un live oublié s'éteint seul au
+  bout de 4 heures.
+
+Garde-fous : seul l'administrateur de la boutique lance son live (pas un
+modérateur, pas un client) ; la boutique doit avoir son compte TikTok
+(Réglages → réseaux sociaux) et être ouverte ; un live en cours ne se
+réannonce pas ; **trois lives par jour au plus** par boutique.
+
+Comment ça marche : la base ouvre le live (`demarrer_live`, qui décide des
+droits) ; la fonction Edge [`annoncer-live`](supabase/functions/annoncer-live/index.ts)
+envoie la notification par **Firebase Cloud Messaging** au sujet `tous`,
+auquel l'application client s'abonne à son ouverture
+([`ServiceNotifications.java`](android/app/src/main/java/com/impactinformatique/apps/ServiceNotifications.java)).
+Le message ne porte que des données : c'est l'application qui construit
+la notification et ouvre le lien TikTok.
+
+### Ce qu'il faut régler (une fois)
+
+1. **Créer le projet Firebase** : console.firebase.google.com → *Ajouter
+   un projet* (« BIZZOO »), Google Analytics facultatif.
+2. **Ajouter l'application Android** `com.impactinformatique.client`
+   (Paramètres du projet → Général → *Ajouter une application* → Android).
+   Remplir [`android/firebase.properties`](android/firebase.properties)
+   avec l'ID de l'application, la clé API, l'ID et le numéro du projet.
+   Ce sont des identifiants **publics** (ils sont dans tout APK
+   Firebase) : on peut les transmettre.
+3. **Le compte de service** : Paramètres du projet → *Comptes de service*
+   → *Générer une nouvelle clé privée*. Le fichier JSON téléchargé est un
+   **secret** : ne jamais l'envoyer dans une conversation ni le mettre
+   dans le dépôt. Le coller **en entier** dans Supabase → *Edge Functions*
+   → *Secrets* → nouveau secret `FIREBASE_COMPTE_SERVICE`.
+4. **Déployer la fonction** : `supabase functions deploy annoncer-live`
+   (avec la vérification du jeton, sans `--no-verify-jwt`).
+5. **Un nouvel APK client** (Firebase y entre) : les téléphones doivent
+   le réinstaller pour recevoir les notifications. Le bandeau, lui,
+   marche tout de suite, site compris.
+
+Sans Firebase réglé, le bouton ouvre quand même le live (le bandeau
+s'affiche) et l'admin est prévenu que la notification n'est pas partie.
+L'application iPhone ne reçoit pas ces notifications (il faudrait un
+compte Apple Developer et APNs) ; elle voit le bandeau.
+
+À coller : [`supabase/live-tiktok.sql`](supabase/live-tiktok.sql).
+
+Bancs : [`supabase/tests/99y-live-tiktok.sql`](supabase/tests/99y-live-tiktok.sql)
+(droits, refus, une seule annonce, trois par jour, lecture publique),
+[`supabase/functions/tests/live.mjs`](supabase/functions/tests/live.mjs)
+via `tools/eprouver-live.sh` (19 constats : jeton, signature RS256,
+message, Firebase absent ou qui refuse) et
+[`tools/banc-live-tiktok.mjs`](tools/banc-live-tiktok.mjs) (16 constats).
+
+## Les frais de livraison (3.58.0)
+
+**1 000 FCFA par commande** pour l'instant, une seule fois même si
+plusieurs boutiques livrent. Ils dépendront plus tard de critères comme la
+distance.
+
+- Le client paie **le montant des articles + les frais de livraison**. Le
+  panier, le formulaire de commande et le reçu montrent la ligne
+  « Frais de livraison ».
+- **Aucun code promo ne les touche** : la remise se calcule sur les
+  articles seuls, et la commission d'un particulier aussi.
+- L'acompte se prend sur le total, frais compris. À la livraison, les
+  frais ne diminuent pas si un article est annulé ; si **tout** est
+  annulé, il n'y a pas de course, donc pas de frais.
+- Le superadministrateur règle le montant dans *Réglages → BIZZOO →
+  Paiement → Frais de livraison* (0 à 100 000 FCFA ; 0 = pas de frais).
+  Le montant est **figé** sur chaque commande à sa création : le changer
+  ne réécrit pas les commandes passées, et personne ne peut le modifier
+  après coup.
+- **Les applications d'avant la 3.58.0 ne font pas payer les frais** :
+  elles ne sauraient pas les afficher. C'est le paramètre `avec_frais`
+  de `creer_commande` qui les active ; seule la 3.58.0 l'envoie.
+
+À coller : [`supabase/frais-livraison.sql`](supabase/frais-livraison.sql)
+— **au moment de mettre la 3.58.0 en ligne**, pas avant.
+
+Bancs : [`supabase/tests/99z-frais-livraison.sql`](supabase/tests/99z-frais-livraison.sql)
+(24 constats : total, remise, acompte, annulations, verrou, commission) et
+[`tools/banc-frais-livraison.mjs`](tools/banc-frais-livraison.mjs) (21 constats).
+
+## Les livreurs à part, et la position qui valide les comptes (3.58.0)
+
+**Les livreurs ont leur propre écran.** Dans BIZZOO Admin, *Comptes*
+montre l'équipe (modérateurs, administrateurs, superadministrateurs) et
+une carte **« Les livreurs »** qui mène à leur écran (*#/livreurs*, aussi
+depuis *Réglages → Gérer les livreurs*). On y voit chaque livreur, pour
+quelle boutique il porte (ou BIZZOO), et s'il a validé sa position ; le
+bouton **« Créer un livreur »** est à part de « Créer un compte », qui ne
+propose plus ce rang. La fiche d'un livreur le garde livreur.
+
+**Un livreur valide son compte par sa position.** À sa première
+connexion, BIZZOO Admin l'arrête sur *« Validez votre compte »* : il écrit
+son adresse, puis touche *Activer ma position et valider* (localisation du
+téléphone). Tant qu'il ne l'a pas fait, **aucune course ne peut lui être
+confiée** : la base le refuse (`assigner_livreur`). Sa position est
+visible de sa boutique et de l'enseigne (table `positions_livreurs`,
+écrite seulement par `enregistrer_ma_position`, par le livreur lui-même).
+
+**Un revendeur valide son compte par sa position.** Dans l'application
+client, la demande de compte revendeur ne part plus sans **la position du
+téléphone** (bouton *Activer ma position*) **et** l'adresse ; le « lien de
+carte » à coller a disparu. Une demande déjà en attente sans position
+affiche *« Validez votre compte : votre position »* dans *Mon compte*.
+Dans l'admin, *Valider* est désactivé tant que la position manque, et la
+base refuse de toute façon (`valider_revendeur`) ; refuser reste possible.
+Les revendeurs déjà validés ne perdent rien.
+
+Correction au passage : l'écran admin des revendeurs n'affichait jamais
+l'adresse ni la carte (les champs n'étaient pas repris de la base).
+
+À coller : [`supabase/positions-comptes.sql`](supabase/positions-comptes.sql)
+— au moment de mettre la 3.58.0 en ligne : avant, les livreurs de la
+version en ligne n'ont pas d'écran pour enregistrer leur position, et
+plus aucune course ne pourrait leur être confiée.
+
+Bancs : [`supabase/tests/99zz-positions-comptes.sql`](supabase/tests/99zz-positions-comptes.sql)
+(20 constats) et [`tools/banc-positions-comptes.mjs`](tools/banc-positions-comptes.mjs)
+(26 constats).
 
 ## Structure
 
@@ -3316,12 +4300,22 @@ impact-informatique-app/
 │   ├── journal-versements.sql       # Une ligne par tentative de paiement, jamais retouchée
 │   ├── codes-promo.sql              # Une remise sort de la marge de l'enseigne, jamais de la boutique
 │   ├── cycle-commande.sql           # Cinq étapes, et l'accusé de réception que le client seul pose
-│   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, aucun montant
+│   ├── role-livreur.sql             # Le porteur : un écran, deux gestes, un seul montant (ce qu'il encaisse)
 │   ├── categories-bizzoo.sql        # La liste des rayons : celle de l'enseigne, et d'elle seule
-│   ├── categories-photos.sql        # La photo du rond d'une catégorie : un chemin, un seul dossier
+│   ├── categories-photos.sql        # La photo d'une catégorie : un chemin, un seul dossier
+│   ├── categories-icones.sql        # L'icône de chaque catégorie (3.56), sans toucher à l'image
+│   ├── categories-rangement.sql     # Trente catégories rangées par thème (3.56), une seule fois
 │   ├── feexpay.sql                  # Le second agrégateur, au choix de l'enseigne
 │   ├── stock-et-droits.sql          # Bilan de santé : la règle du stock, quatre portes fermées aux visiteurs
 │   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
+│   ├── acompte.sql                  # L'acompte à la commande (3.57.0) : en ligne l'acompte, le reste à la livraison
+│   ├── connexion-sms.sql            # Le code SMS de l'équipe, et qui a créé quel compte (3.58.0)
+│   ├── livreur-client.sql           # Le client voit qui lui livre sa commande (3.58.0)
+│   ├── revendeur-sans-code.sql      # Pas de code promo pour un revendeur (3.58.0)
+│   ├── codes-particuliers.sql       # Les codes des particuliers : commission, solde, retraits (3.58.0)
+│   ├── live-tiktok.sql              # Le live TikTok : démarrer, arrêter, lives en cours (3.58.0)
+│   ├── frais-livraison.sql          # Les frais de livraison : 1 000 FCFA par commande, hors code promo (3.58.0)
+│   ├── positions-comptes.sql        # Livreurs et revendeurs valident leur compte par leur position (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
@@ -3330,15 +4324,17 @@ impact-informatique-app/
 │   ├── functions/feexpay-webhook/   # Sa notification — non signée, donc jamais crue
 │   ├── functions/_partage/sms.ts    # Le transport SMS : un 200 n'est pas un succès
 │   ├── functions/hook-sms-auth/     # Livrer le code de connexion — la signature est le seul contrôle
+│   ├── functions/code-connexion/    # Le code de l'équipe : tiré ici, haché avec la session, jamais rendu
 │   └── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
-│   ├── img/categories/       # Les illustrations des ronds (Fluent Emoji 3D, MIT)
+│   ├── icons/                # Les icônes de l'application, et la tuile du logo (logo-bizzoo.png)
+│   ├── img/pictos/           # Les icônes des catégories : celles de l'image de l'enseigne
 │   └── js/
 │       ├── catalogue.js      # Lecture de la base + copie hors connexion + prix du compte
-│       ├── compte.js         # Le compte du client : session, fiche, demande de revendeur
+│       ├── compte.js         # Le compte du client : son numéro et son code, sa fiche, sa demande de revendeur
 │       ├── avis.js           # Lire les avis sans compte, en donner un si l'on a payé
 │       ├── sav.js            # Réclamations : la boutique d'abord, BIZZOO en recours
 │       ├── panier.js         # Le panier : des identifiants, jamais des prix
@@ -3348,7 +4344,8 @@ impact-informatique-app/
 ├── admin/                    # Application du gérant
 │   ├── config.js
 │   ├── index.html / styles.css / manifest.webmanifest / sw.js
-│   ├── img/categories/       # Les mêmes illustrations, pour la liste et la galerie
+│   ├── icons/                # Ses icônes (à pastille « réglages »), et la tuile du logo, sans
+│   ├── img/pictos/           # Les mêmes icônes, pour la liste et la fiche
 │   └── js/
 │       ├── supabase.js       # Connexion, base, stockage des photos
 │       ├── store.js          # Logique métier (slider, rôles, validations…)
@@ -3363,7 +4360,7 @@ impact-informatique-app/
 │   └── signature/            # Clé de TEST (pas celle du Play Store)
 ├── apk/                      # APK construits par GitHub Actions
 ├── index.html                # La vitrine : l'accueil du site
-├── vitrine/                  # Ses captures, et l'image de l'aperçu partagé
+├── vitrine/                  # Ses captures, et l'image de l'aperçu partagé (adresses en « ?v= »)
 ├── 404.html / robots.txt / sitemap.xml   # Ce qu'attend un site en ligne
 ├── hebergement/htaccess      # Le .htaccess de www.bizzoomarket.com (Apache, LiteSpeed)
 ├── DEMARRER-BIZZOO.bat       # Windows : double-cliquer pour tout ouvrir en local
@@ -3371,10 +4368,10 @@ impact-informatique-app/
 └── tools/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
-    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie et navigation-boutique
+    ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique, compte-enseigne et paiement-echoue
     ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
-    ├── illustrations-categories.py # Les illustrations des ronds de catégories
+    ├── icones-categories.py  # Les icônes des catégories, découpées dans les trois planches
     ├── make-icons.js         # Icônes PWA + Android + notification (node tools/make-icons.js)
     ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)

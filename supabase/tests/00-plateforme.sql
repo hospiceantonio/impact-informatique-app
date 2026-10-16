@@ -62,6 +62,16 @@ language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
 
+-- Le jeton entier, tel que Supabase le rend : c'est là que GoTrue pose
+-- « session_id ». Même définition que la vraie, au caractère près.
+create or replace function auth.jwt() returns jsonb
+language sql stable as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claim', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')
+  )::jsonb
+$$;
+
 create table if not exists storage.buckets (
   id text primary key, name text, public boolean default false,
   file_size_limit bigint, allowed_mime_types text[]);
@@ -173,6 +183,18 @@ create or replace function essai.devenir(compte uuid) returns void
 language plpgsql as $$
 begin
   perform set_config('request.jwt.claim.sub', coalesce(compte::text, ''), false);
+  perform set_config('request.jwt.claims',
+    case when compte is null then ''
+         else jsonb_build_object('sub', compte)::text end, false);
+end $$;
+
+/** Le même compte, dans une session nommée : une connexion précise. */
+create or replace function essai.devenir(compte uuid, session uuid) returns void
+language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(compte::text, ''), false);
+  perform set_config('request.jwt.claims',
+    jsonb_build_object('sub', compte, 'session_id', session)::text, false);
 end $$;
 
 /** Redevenir un visiteur : personne, aucun jeton. */
@@ -180,6 +202,7 @@ create or replace function essai.personne() returns void
 language plpgsql as $$
 begin
   perform set_config('request.jwt.claim.sub', '', false);
+  perform set_config('request.jwt.claims', '', false);
 end $$;
 
 grant execute on all functions in schema essai to anon, authenticated, service_role;

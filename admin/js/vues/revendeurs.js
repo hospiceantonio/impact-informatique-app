@@ -49,8 +49,15 @@ const VueRevendeurs = (() => {
     );
   }
 
+  /* LA POSITION VALIDE LE COMPTE : relevée par le téléphone ET une
+     adresse écrite. Sans elles, la base refuse la validation — le bouton
+     le dit d'avance. */
+  const positionComplete = (r) => r.latitude !== null && r.longitude !== null &&
+    String(r.adresse || "").trim().length >= 3;
+
   function htmlDemande(r) {
     const etat = ETATS[r.etat] || ETATS.en_attente;
+    const complete = positionComplete(r);
     const tel = r.tel ? "+" + r.indicatif + " " + r.tel : "";
     return (
       '<div class="carte rv-carte" data-compte="' + Utils.echapper(r.id) + '">' +
@@ -75,9 +82,16 @@ const VueRevendeurs = (() => {
            d'un geste — et si le demandeur n'a rien donné, on le dit
            plutôt que de laisser un blanc qu'on interprète mal. */
         blocOu(r) +
+        (r.etat !== "validee" && !complete
+          ? '<div class="rv-position-manque">' + UI.icone("alerte", "ic-sm") +
+              " Position pas encore validée : le demandeur doit activer la localisation " +
+              "de son téléphone et indiquer son adresse dans son compte. Vous pouvez " +
+              "refuser, pas valider.</div>"
+          : "") +
         (r.etat === "en_attente"
           ? '<div class="btn-rangee" style="margin-top:12px">' +
-              '<button type="button" class="btn" data-valider="' + Utils.echapper(r.id) + '">' +
+              '<button type="button" class="btn" data-valider="' + Utils.echapper(r.id) + '"' +
+                (complete ? "" : " disabled") + ">" +
                 UI.icone("check") + "Valider</button>" +
               '<button type="button" class="btn btn-danger-clair" data-refuser="' +
                 Utils.echapper(r.id) + '">' + UI.icone("fermer") + "Refuser</button>" +
@@ -96,7 +110,7 @@ const VueRevendeurs = (() => {
                   Utils.echapper(r.id) + '">' + UI.icone("fermer") +
                   "Retirer le statut</button>"
                 : '<button type="button" class="btn btn-clair" data-valider="' +
-                  Utils.echapper(r.id) + '">' + UI.icone("check") +
+                  Utils.echapper(r.id) + '"' + (complete ? "" : " disabled") + ">" + UI.icone("check") +
                   "Valider finalement</button>") +
             "</div>") +
       "</div>"

@@ -258,6 +258,21 @@ const Utils = (() => {
     await enregistrerBlob(nomFichier, blob);
   }
 
+  /* ---------- Les liens à partager ----------
+     TOUJOURS L'ADRESSE OFFICIELLE, quel que soit l'endroit d'où l'on
+     partage. L'application Android sert ses fichiers depuis le
+     téléphone : « location » y donnerait une adresse que personne
+     d'autre ne peut ouvrir. Un lien partagé ouvre directement l'écran
+     visé : la boutique, son catalogue, ou la fiche du produit. */
+  const SITE_BOUTIQUE = "https://www.bizzoomarket.com/client/#/";
+
+  function lienPartage(type, id) {
+    const cle = encodeURIComponent(String(id || ""));
+    if (type === "produit") return SITE_BOUTIQUE + "produit/" + cle;
+    if (type === "catalogue") return SITE_BOUTIQUE + "boutique/" + cle + "/produits";
+    return SITE_BOUTIQUE + "boutique/" + cle;
+  }
+
   /** Texte multi-lignes -> paragraphes HTML sûrs. */
   function paragraphes(texte) {
     const morceaux = String(texte || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
@@ -273,6 +288,6 @@ const Utils = (() => {
     normaliserTel, lienWhatsApp, lienTel,
     sansAccent, tempo, paragraphes,
     versNomFichier, enregistrerBlob, telechargerImage,
-    RESEAUX, lienReseau, lienSite,
+    RESEAUX, lienReseau, lienSite, lienPartage,
   };
 })();

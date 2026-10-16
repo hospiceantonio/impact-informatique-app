@@ -230,14 +230,19 @@ const Pixel = (() => {
     const lignes = [];
     for (const b of commande.boutiques || []) for (const l of b.lignes || []) lignes.push(l);
     const numero = String(commande.numero || commande.id);
-    envoyer("Purchase", {
+    /* AVEC L'ACOMPTE, la valeur reste celle de la commande : c'est ce que
+       le client achète, et ce que la publicité doit mesurer. Ce qui a été
+       versé en ligne part à côté — le reste se paie à la livraison. */
+    const total = valeur(commande.total);
+    const acompte = commande.acompte != null ? valeur(commande.acompte) : total;
+    envoyer("Purchase", Object.assign({
       content_ids: ids(lignes.map((l) => l.produit_id)),
       content_type: "product",
       num_items: lignes.reduce((s, l) => s + (Number(l.quantite) || 0), 0),
-      value: valeur(commande.total),
+      value: total,
       currency: devise(commande.devise),
       order_id: numero,
-    }, { eventID: "achat-" + numero });
+    }, acompte < total ? { acompte } : {}), { eventID: "achat-" + numero });
   }
 
   /* ---------- 6 et 7. Le compte, et la demande de revendeur ---------- */

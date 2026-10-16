@@ -58,11 +58,11 @@ insert into public.profils (id, email, role, boutique_id, actif) values
 on conflict (id) do update
    set role = 'administrateur', boutique_id = 'bou_essai_mode', actif = true;
 
-select essai.egal((select count(*)::int from public.categories), 15,
-  'les quinze catégories de BIZZOO sont là');
-select essai.egal((select count(*)::int from public.sous_categories), 74,
-  'et leurs soixante-quatorze rayons');
--- Les quinze ne tiennent pas sur un accueil : huit s'y montrent.
+select essai.egal((select count(*)::int from public.categories), 29,
+  'les vingt-neuf catégories de BIZZOO sont là');
+select essai.egal((select count(*)::int from public.sous_categories), 123,
+  'et leurs cent vingt-trois rayons');
+-- Les vingt-neuf ne tiennent pas sur un accueil : huit s'y montrent.
 select essai.egal((select count(*)::int from public.categories where en_avant), 8,
   'huit sont mises en avant pour l''accueil');
 select essai.verifie(
@@ -108,7 +108,7 @@ select essai.sans_effet(
 
 -- Il la LIT, en revanche : sans cela il ne pourrait pas classer ses
 -- propres produits.
-select essai.egal((select count(*)::int from public.categories), 15,
+select essai.egal((select count(*)::int from public.categories), 29,
   'mais il la lit en entier');
 reset role;
 select essai.personne();
@@ -267,10 +267,10 @@ select essai.titre('LA LISTE SE LIT SANS COMPTE');
 -- C'est le menu de la vitrine : un visiteur qui ne le verrait pas
 -- n'aurait plus d'écran « Catégories » du tout.
 set role anon;
-select essai.egal((select count(*)::int from public.categories), 15,
-  'un visiteur lit les quinze catégories');
-select essai.egal((select count(*)::int from public.sous_categories), 74,
-  'et les soixante-quatorze rayons');
+select essai.egal((select count(*)::int from public.categories), 29,
+  'un visiteur lit les vingt-neuf catégories');
+select essai.egal((select count(*)::int from public.sous_categories), 123,
+  'et les cent vingt-trois rayons');
 select essai.verifie(
   (select count(*) > 0 from public.categories where icone <> '' and couleur <> ''),
   'avec leur pastille : icône et couleur');

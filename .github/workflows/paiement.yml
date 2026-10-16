@@ -12,6 +12,7 @@ on:
       - "supabase/functions/**"
       - "tools/eprouver-paiement.sh"
       - "tools/eprouver-sms.sh"
+      - "tools/eprouver-live.sh"
       - ".github/workflows/paiement.yml"
   pull_request:
     paths:
@@ -42,3 +43,9 @@ jobs:
       # seul contrôle entre l'Internet et le crédit SMS de l'enseigne.
       - name: Forcer les portes du SMS
         run: bash tools/eprouver-sms.sh
+
+      # Une notification à TOUS les clients : elle ne part que pour un
+      # live nouveau, lancé par qui en a le droit, et la clé privée de
+      # Firebase ne ressort jamais.
+      - name: Forcer les portes du live TikTok
+        run: bash tools/eprouver-live.sh
