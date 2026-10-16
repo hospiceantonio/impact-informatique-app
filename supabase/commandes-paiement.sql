@@ -793,6 +793,14 @@ begin
   if cle = '' then
     return jsonb_build_object('ok', false, 'remise', 0, 'raison', refus);
   end if;
+  -- UN REVENDEUR A DÉJÀ SA REMISE : il achète au prix BIZZOO, sur tout le
+  -- catalogue. Un code s'y ajouterait, et sortirait une seconde fois de
+  -- la même marge. La caisse passe alors la commande sans le code.
+  if qui is not null and exists (select 1 from public.clients r
+                                 where r.id = qui and r.revendeur_etat = 'validee') then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'Votre compte revendeur achète déjà au prix BIZZOO : les codes promo ne s''y ajoutent pas.');
+  end if;
   select * into c from public.codes_promo where code = cle;
   -- MÊME RÉPONSE pour « inconnu » et « fermé ». Distinguer les deux
   -- dirait à qui essaie des codes au hasard lesquels ont existé.

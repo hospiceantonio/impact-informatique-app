@@ -550,8 +550,12 @@ const VuePanier = (() => {
          Montrer le champ quand même serait pire que de ne rien offrir :
          le client verrait 18 000 à l'écran puis enverrait un message
          disant 20 000. C'est exactement l'écart que tout ce travail
-         cherche à rendre impossible. */
-      (enLigne
+         cherche à rendre impossible.
+
+         ET PAS POUR UN REVENDEUR : il achète déjà au prix BIZZOO, et la
+         base refuserait le code. Lui montrer le champ, c'était l'inviter
+         à taper un code pour se le voir refuser. */
+      (enLigne && !Catalogue.auxPrixRevendeur()
         ? '<div class="carte" id="co-promo">' +
         '<div class="champ" style="margin:0">' +
           '<label for="co-code">Code promo <small>(si vous en avez un)</small></label>' +
