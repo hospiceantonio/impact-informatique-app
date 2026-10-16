@@ -4061,6 +4061,13 @@ l'application admin). La politique de confidentialité le dit (version du
 — une fonction en lecture, aucune table ne change, relançable. Tant
 qu'elle n'est pas posée, le reçu ne montre simplement pas de livreur.
 
+**Elle est posée sur la base en ligne depuis le 16 octobre 2026.**
+Vérifié aussitôt, sans rien écrire : la fonction existe avec ses deux
+paramètres, en `security definer`, ouverte à `anon` et `authenticated` ;
+elle ne rend que le nom, le numéro et l'indicatif, porte les quatre
+conditions (payée, réception non confirmée, livreur actif, numéro de la
+commande), et ne rend rien pour une commande inconnue.
+
 ### Les bancs
 
 - [`supabase/tests/99v-livreur-client.sql`](supabase/tests/99v-livreur-client.sql) :
