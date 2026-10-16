@@ -1629,6 +1629,18 @@ begin
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   etat := case when accord then 'validee' else 'refusee' end;
 
+  -- UN REVENDEUR VALIDE SON COMPTE EN ACTIVANT SA POSITION : la
+  -- géolocalisation de son téléphone, ET son adresse écrite. Sans elles,
+  -- BIZZOO ne l'accepte pas (il peut toujours refuser).
+  if accord and not exists (
+       select 1 from public.clients c
+        where c.id = cible
+          and c.revendeur_latitude is not null and c.revendeur_longitude is not null
+          and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
+    raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
   perform set_config('bizzoo.revendeur', 'oui', true);
   update public.clients
      set revendeur_etat       = etat,
@@ -3175,6 +3187,12 @@ begin
             or p.boutique_id = public.boutique_du_compte());
     if rang is distinct from 'livreur' then
       raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
+    end if;
+    -- UN LIVREUR VALIDE SON COMPTE EN ENREGISTRANT SA POSITION. Tant
+    -- qu'il ne l'a pas fait, on ne lui confie rien.
+    if not exists (select 1 from public.positions_livreurs pl where pl.profil_id = livreur) then
+      raise exception 'Ce livreur n''a pas encore validé son compte : il doit ouvrir BIZZOO Admin et enregistrer sa position.'
+        using errcode = 'P0001';
     end if;
   end if;
 
@@ -7858,3 +7876,72 @@ language sql security definer set search_path = public as $$
 $$;
 revoke all on function public.noter_annonce_live(bigint, text) from public, anon, authenticated;
 grant execute on function public.noter_annonce_live(bigint, text) to service_role;
+
+-- =========================================================
+-- LA POSITION DES LIVREURS (3.58.0)
+-- =========================================================
+-- Un livreur VALIDE SON COMPTE en enregistrant sa position : la
+-- géolocalisation de son téléphone, et son adresse écrite. BIZZOO Admin
+-- le lui demande à la connexion, avant tout le reste ; tant qu'il ne
+-- l'a pas fait, aucune course ne lui est confiée (« assigner_livreur »).
+--
+-- La position s'écrit par « enregistrer_ma_position », et par le livreur
+-- lui-même : personne ne la pose à sa place, personne ne la retouche à
+-- la main. L'enseigne les lit toutes ; une boutique, celles de ses
+-- livreurs.
+
+create table if not exists public.positions_livreurs (
+  profil_id      uuid primary key references public.profils(id) on delete cascade,
+  latitude       double precision not null,
+  longitude      double precision not null,
+  precision_m    int,
+  adresse        text not null default '',
+  enregistre_le  timestamptz not null default now()
+);
+alter table public.positions_livreurs enable row level security;
+drop policy if exists "positions livreurs lecture" on public.positions_livreurs;
+create policy "positions livreurs lecture" on public.positions_livreurs
+  for select to authenticated
+  using (profil_id = auth.uid()
+         or public.est_super()
+         or exists (select 1 from public.profils p
+                     where p.id = positions_livreurs.profil_id
+                       and public.administre(p.boutique_id)));
+revoke all on public.positions_livreurs from anon;
+revoke insert, update, delete on public.positions_livreurs from authenticated;
+grant select on public.positions_livreurs to authenticated;
+
+create or replace function public.enregistrer_ma_position(
+  lat double precision, lng double precision, adresse text, precision_m int default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  la  double precision := public.coord_valable(lat, 90);
+  lo  double precision := public.coord_valable(lng, 180);
+  ad  text := left(trim(coalesce(adresse, '')), 200);
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul un livreur enregistre sa position ici.' using errcode = '42501';
+  end if;
+  -- « 0, 0 » : un téléphone qui n'a rien trouvé, jamais Cotonou.
+  if la is null or lo is null or (la = 0 and lo = 0) then
+    raise exception 'Position introuvable : activez la localisation du téléphone, puis réessayez.'
+      using errcode = 'P0001';
+  end if;
+  if length(ad) < 3 then
+    raise exception 'Indiquez aussi votre adresse : quartier, repère.' using errcode = 'P0001';
+  end if;
+  insert into public.positions_livreurs (profil_id, latitude, longitude, precision_m, adresse, enregistre_le)
+  values (moi, la, lo, greatest(0, precision_m), ad, now())
+  on conflict (profil_id) do update
+     set latitude = excluded.latitude, longitude = excluded.longitude,
+         precision_m = excluded.precision_m, adresse = excluded.adresse,
+         enregistre_le = now();
+  return jsonb_build_object('latitude', la, 'longitude', lo, 'adresse', ad, 'le', now());
+end $$;
+revoke all on function public.enregistrer_ma_position(double precision, double precision, text, int)
+  from public, anon;
+grant execute on function public.enregistrer_ma_position(double precision, double precision, text, int)
+  to authenticated;
+

@@ -153,6 +153,12 @@ begin
     if rang is distinct from 'livreur' then
       raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
     end if;
+    -- UN LIVREUR VALIDE SON COMPTE EN ENREGISTRANT SA POSITION. Tant
+    -- qu'il ne l'a pas fait, on ne lui confie rien.
+    if not exists (select 1 from public.positions_livreurs pl where pl.profil_id = livreur) then
+      raise exception 'Ce livreur n''a pas encore validé son compte : il doit ouvrir BIZZOO Admin et enregistrer sa position.'
+        using errcode = 'P0001';
+    end if;
   end if;
 
   perform set_config('bizzoo.livraison', 'oui', true);

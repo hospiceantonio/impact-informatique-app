@@ -440,6 +440,9 @@ reset role;
 -- ---------------------------------------------------------
 select essai.titre('7. Le livreur voit ce qu''il encaisse');
 
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid);
 set role authenticated;
 update public.commande_lignes set etat = 'preparee'
@@ -447,6 +450,9 @@ update public.commande_lignes set etat = 'preparee'
 select public.assigner_livreur(:'duo_id', 'bou_informatique', :PORTEUR::uuid) as confie1 \gset
 reset role;
 
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:EQUIPE::uuid);
 set role authenticated;
 update public.commande_lignes set etat = 'preparee'

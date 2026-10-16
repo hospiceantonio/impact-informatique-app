@@ -704,6 +704,7 @@ const VueReglages = (() => {
           "des produits et des catégories, sans accès aux réglages.</p>" +
         '<div class="btn-rangee">' +
           '<a class="btn" href="#/comptes">' + UI.icone("equipe") + "Gérer l'équipe</a>" +
+          '<a class="btn btn-clair" href="#/livreurs">' + UI.icone("voiture") + "Gérer les livreurs</a>" +
           '<a class="btn btn-clair" href="#/compte">' + UI.icone("cle") + "Mon mot de passe</a>" +
         "</div>" +
         '<button type="button" class="btn btn-clair" id="c-deconnexion" style="margin-top:10px">Se déconnecter</button>' +

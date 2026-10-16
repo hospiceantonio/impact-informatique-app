@@ -148,12 +148,20 @@ async function ouvrir() {
 }
 
 /* ------------------------------------------------------------------ */
-titre("1. Le rang « Livreur » est dans le menu de création");
+titre("1. Le livreur se crée par SON bouton, à part de l'équipe");
 {
   const { page, ctx } = await ouvrir();
   await page.evaluate(() => { location.hash = "#/comptes"; });
   await page.waitForTimeout(1500);
   await page.click("#cp-nouveau");
+  await page.waitForTimeout(700);
+  const equipe = await page.evaluate(() =>
+    [...(document.querySelector("#nc-role") || { options: [] }).options].map((o) => o.value));
+  ok(!equipe.includes("livreur"),
+    "« Créer un compte » ne propose plus « Livreur » (" + equipe.join(", ") + ")");
+  await page.evaluate(() => { UI.fermerFeuille(); location.hash = "#/livreurs"; });
+  await page.waitForTimeout(1500);
+  await page.click("#lv-nouveau");
   await page.waitForTimeout(700);
   const m = await page.evaluate(() => {
     const menu = document.querySelector("#nc-role");
@@ -163,8 +171,8 @@ titre("1. Le rang « Livreur » est dans le menu de création");
       tel: !!document.querySelector("#nc-tel"),
     };
   });
-  ok(m.rangs.includes("livreur"),
-    "« Livreur » se choisit à la création (" + m.rangs.join(", ") + ")");
+  ok(m.rangs.length === 1 && m.rangs[0] === "livreur",
+    "l'écran « Livreurs » a son bouton « Créer un livreur » (" + m.rangs.join(", ") + ")");
   /* LE CHAMP DOIT ÊTRE LÀ AVANT D'ÊTRE ENVOYÉ : sans lui, il n'y a
      rien à remplir, et le compte part avec son adresse pour seul nom. */
   ok(m.nom, "le champ « Nom » est demandé");
@@ -176,15 +184,14 @@ titre("1. Le rang « Livreur » est dans le menu de création");
 titre("2. Le nom et le numéro PARTENT vers la base");
 {
   const { page, ctx } = await ouvrir();
-  await page.evaluate(() => { location.hash = "#/comptes"; });
+  await page.evaluate(() => { location.hash = "#/livreurs"; });
   await page.waitForTimeout(1500);
-  await page.click("#cp-nouveau");
+  await page.click("#lv-nouveau");
   await page.waitForTimeout(700);
   await page.fill("#nc-email", "neuf@impact.bj");
   await page.fill("#nc-mdp", "motdepasse");
   await page.fill("#nc-nom", "Ablo");
   await page.fill("#nc-tel", "0197000099");
-  await page.selectOption("#nc-role", "livreur");
   await page.selectOption("#nc-boutique", "bou_tech");
   await page.click("#nc-creer");
   await page.waitForTimeout(1400);

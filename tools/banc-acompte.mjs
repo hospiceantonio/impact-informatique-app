@@ -415,6 +415,9 @@ async function ouvrirAdmin({ moi, hash, paiement = null, restesConnus = true, co
       const id = (u.searchParams.get("id") || "").replace(/^eq\./, "");
       return d(id ? [PROFILS[id]].filter(Boolean) : Object.values(PROFILS));
     }
+    /* Le livreur a validé sa position (3.58.0). */
+    if (c.startsWith("positions_livreurs")) return d([{ profil_id: "x", latitude: 6.37,
+      longitude: 2.39, adresse: "Cotonou", enregistre_le: "2026-10-16T08:00:00Z" }]);
     if (c === "rpc/mes_livraisons") return d(courses);
     if (c === "rpc/livreurs_boutique") return d([{ id: PORTEUR, email: "porteur@alpha.bj", nom: "Rohim",
       tel: "0197000011", actif: true, bizzoo: false }]);

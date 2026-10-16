@@ -4237,6 +4237,45 @@ Bancs : [`supabase/tests/99z-frais-livraison.sql`](supabase/tests/99z-frais-livr
 (24 constats : total, remise, acompte, annulations, verrou, commission) et
 [`tools/banc-frais-livraison.mjs`](tools/banc-frais-livraison.mjs) (21 constats).
 
+## Les livreurs à part, et la position qui valide les comptes (3.58.0)
+
+**Les livreurs ont leur propre écran.** Dans BIZZOO Admin, *Comptes*
+montre l'équipe (modérateurs, administrateurs, superadministrateurs) et
+une carte **« Les livreurs »** qui mène à leur écran (*#/livreurs*, aussi
+depuis *Réglages → Gérer les livreurs*). On y voit chaque livreur, pour
+quelle boutique il porte (ou BIZZOO), et s'il a validé sa position ; le
+bouton **« Créer un livreur »** est à part de « Créer un compte », qui ne
+propose plus ce rang. La fiche d'un livreur le garde livreur.
+
+**Un livreur valide son compte par sa position.** À sa première
+connexion, BIZZOO Admin l'arrête sur *« Validez votre compte »* : il écrit
+son adresse, puis touche *Activer ma position et valider* (localisation du
+téléphone). Tant qu'il ne l'a pas fait, **aucune course ne peut lui être
+confiée** : la base le refuse (`assigner_livreur`). Sa position est
+visible de sa boutique et de l'enseigne (table `positions_livreurs`,
+écrite seulement par `enregistrer_ma_position`, par le livreur lui-même).
+
+**Un revendeur valide son compte par sa position.** Dans l'application
+client, la demande de compte revendeur ne part plus sans **la position du
+téléphone** (bouton *Activer ma position*) **et** l'adresse ; le « lien de
+carte » à coller a disparu. Une demande déjà en attente sans position
+affiche *« Validez votre compte : votre position »* dans *Mon compte*.
+Dans l'admin, *Valider* est désactivé tant que la position manque, et la
+base refuse de toute façon (`valider_revendeur`) ; refuser reste possible.
+Les revendeurs déjà validés ne perdent rien.
+
+Correction au passage : l'écran admin des revendeurs n'affichait jamais
+l'adresse ni la carte (les champs n'étaient pas repris de la base).
+
+À coller : [`supabase/positions-comptes.sql`](supabase/positions-comptes.sql)
+— au moment de mettre la 3.58.0 en ligne : avant, les livreurs de la
+version en ligne n'ont pas d'écran pour enregistrer leur position, et
+plus aucune course ne pourrait leur être confiée.
+
+Bancs : [`supabase/tests/99zz-positions-comptes.sql`](supabase/tests/99zz-positions-comptes.sql)
+(20 constats) et [`tools/banc-positions-comptes.mjs`](tools/banc-positions-comptes.mjs)
+(26 constats).
+
 ## Structure
 
 ```
@@ -4276,6 +4315,7 @@ impact-informatique-app/
 │   ├── codes-particuliers.sql       # Les codes des particuliers : commission, solde, retraits (3.58.0)
 │   ├── live-tiktok.sql              # Le live TikTok : démarrer, arrêter, lives en cours (3.58.0)
 │   ├── frais-livraison.sql          # Les frais de livraison : 1 000 FCFA par commande, hors code promo (3.58.0)
+│   ├── positions-comptes.sql        # Livreurs et revendeurs valident leur compte par leur position (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

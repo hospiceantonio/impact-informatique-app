@@ -29,6 +29,14 @@ values (:REVENDEUR::uuid, 'Grossiste', '97555001', 'revendeur', 'validee', 'essa
        (:CLIENTE::uuid, 'Adjoa', '97555002', 'client', 'aucune', '', '')
 on conflict (id) do nothing;
 -- LE STATUT SE DÉCIDE À L'ENSEIGNE : la base ignore celui qu'on écrit.
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select public.valider_revendeur(:REVENDEUR::uuid, true, '') as v \gset
 reset role; select essai.personne();

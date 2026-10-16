@@ -2199,3 +2199,5 @@ a.pub-carte:active{transform:scale(.98)}
 @media (prefers-reduced-motion:reduce){.live-point{animation:none}}
 /* Les frais de livraison, sous le montant du reçu */
 .re-frais{margin-top:4px;font-size:13px;color:var(--encre-douce)}
+/* Une demande revendeur qui attend sa position */
+.cp-ou-requis{border:1.5px solid var(--orange, #FF8A00)}

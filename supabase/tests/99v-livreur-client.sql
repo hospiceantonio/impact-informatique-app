@@ -65,6 +65,9 @@ select essai.egal((select count(*)::int from public.livreurs_de_ma_commande(:'cm
   'payée mais pas encore confiée : aucun livreur à montrer');
 reset role; select essai.personne();
 
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid); set role authenticated;
 update public.commande_lignes set etat = 'preparee' where commande_id = :'cmd';
 select public.assigner_livreur(:'cmd', 'bou_informatique', :PORTEUR2::uuid) as n \gset

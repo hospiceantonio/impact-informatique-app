@@ -1727,3 +1727,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   background:#E5243B;margin-right:6px;vertical-align:middle;animation:live-pouls 1.4s ease-in-out infinite}
 @keyframes live-pouls{50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.live-point{animation:none}}
+/* Les livreurs, à part : leur position validée, ou non */
+.carte-livreurs{display:block;text-decoration:none;color:inherit;border:1.5px solid var(--bleu, #0B5CF5)}
+.livreur-bloc{padding-bottom:6px;border-bottom:1px solid var(--trait, #eee);margin-bottom:6px}
+.livreur-bloc:last-of-type{border-bottom:0}
+.livreur-position{font-size:12.5px;line-height:1.45;margin:2px 0 4px 44px}
+.livreur-position-ok{color:var(--vert, #1E8E3E)}
+.livreur-position-manque{color:#8A5B00}
+.rv-position-manque{margin:8px 0 0;font-size:12.5px;line-height:1.45;color:#8A5B00}

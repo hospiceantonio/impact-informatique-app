@@ -934,6 +934,47 @@ const Store = (() => {
      traduit en « null ». */
   const ENSEIGNE = "__enseigne";
 
+  /* ---------- La position des livreurs ----------
+     Un livreur valide son compte en enregistrant sa position : la
+     géolocalisation de son téléphone, et son adresse. C'est lui qui
+     l'écrit (« enregistrer_ma_position ») ; sa boutique et l'enseigne la
+     lisent. */
+
+  /** La position de chaque livreur visible, par identifiant. null : base d'avant. */
+  async function positionsLivreurs() {
+    try {
+      const lignes = await Supabase.requete("GET",
+        "positions_livreurs?select=profil_id,latitude,longitude,adresse,enregistre_le",
+        undefined, { avecSession: true });
+      const parId = {};
+      for (const l of lignes || []) parId[l.profil_id] = l;
+      return parId;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** La position du livreur connecté : la ligne, null s'il n'en a pas,
+      undefined si la base ne connaît pas encore la question. */
+  async function maPosition() {
+    const moi = Supabase.identifiant();
+    if (!moi) return undefined;
+    try {
+      const lignes = await Supabase.requete("GET",
+        "positions_livreurs?select=*&profil_id=eq." + encodeURIComponent(moi),
+        undefined, { avecSession: true });
+      return (lignes || [])[0] || null;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
+  async function enregistrerMaPosition({ latitude, longitude, adresse, precision }) {
+    return Supabase.rpcLecture("enregistrer_ma_position", {
+      lat: latitude, lng: longitude, adresse: String(adresse || "").trim(),
+      precision_m: precision == null ? null : Math.round(precision) });
+  }
+
   async function listerComptes() {
     const lignes = await Supabase.requete("GET",
       "profils?select=*&order=role.asc,email.asc", undefined, { avecSession: true });
@@ -1363,6 +1404,12 @@ const Store = (() => {
       decidePar: l.decide_par || "",
       decideLe: l.decide_le ? Date.parse(l.decide_le) || 0 : 0,
       motif: l.motif || "",
+      /* Où se trouve son commerce : l'adresse écrite, et la position
+         relevée par son téléphone. La base les rend ; il manquait de les
+         reprendre ici, et l'écran ne les voyait jamais. */
+      adresse: l.adresse || "",
+      latitude: l.latitude == null ? null : Number(l.latitude),
+      longitude: l.longitude == null ? null : Number(l.longitude),
     };
   }
 
@@ -3527,6 +3574,7 @@ const Store = (() => {
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
+    positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,

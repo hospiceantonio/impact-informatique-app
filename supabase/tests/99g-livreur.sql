@@ -117,6 +117,9 @@ select essai.personne();
 -- ---------------------------------------------------------
 select essai.titre('La boutique confie, et seulement à SON livreur');
 -- ---------------------------------------------------------
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid);
 set role authenticated;
 
@@ -183,6 +186,9 @@ reset role;
 select essai.personne();
 
 -- Un livreur ne se confie pas une course à lui-même.
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:PORTEUR::uuid);
 set role authenticated;
 select essai.refuse(

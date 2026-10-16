@@ -144,6 +144,9 @@ reset role; select essai.personne();
 select essai.egal((select total::bigint from public.commandes where id = :'c4'), 20000::bigint,
   'la commande : 20 000 − 1 000 de remise + 1 000 de frais');
 select public.marquer_payee(:'c4', 'TRX-FRAIS-4', 20000, 'feexpay') as p4 \gset
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid); set role authenticated;
 update public.commande_lignes set etat = 'preparee' where commande_id = :'c4';
 select public.assigner_livreur(:'c4', 'bou_informatique', :PORTEUR2::uuid) as n4 \gset

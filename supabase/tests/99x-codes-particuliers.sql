@@ -98,6 +98,9 @@ select public.marquer_payee(:'cmd', 'TRX-PARRAIN',
 select essai.egal((select count(*)::int from public.gains_parrain where commande_id = :'cmd'), 0,
   'payée : pas encore de commission');
 
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid); set role authenticated;
 update public.commande_lignes set etat = 'preparee' where commande_id = :'cmd';
 select public.assigner_livreur(:'cmd', 'bou_informatique', :PORTEUR2::uuid) as n \gset
@@ -137,6 +140,9 @@ select essai.egal((select code_promo from public.commandes where id = :'serre'),
   'un code sans remise reste sur la commande : il porte la commission');
 select public.marquer_payee(:'serre', 'TRX-SERRE',
   (select coalesce(acompte, total) from public.commandes where id = :'serre'), 'feexpay') as e2 \gset
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid); set role authenticated;
 update public.commande_lignes set etat = 'preparee' where commande_id = :'serre';
 select public.assigner_livreur(:'serre', 'bou_informatique', :PORTEUR2::uuid) as n2 \gset

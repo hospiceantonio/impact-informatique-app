@@ -84,6 +84,8 @@
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true,
       horsEnseigne: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true },
+    /* Les livreurs, à part de l'équipe : leur bouton, leur liste. */
+    { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages", admin: true },
   ];
@@ -149,6 +151,9 @@
      navigations rapprochées — un renvoi automatique suivi d'un appui, par
      exemple — se chevauchent, et la plus lente écrase la plus récente. */
   let file = Promise.resolve();
+  /* Pour quel compte la position est-elle déjà validée ? Demandé une fois
+     par compte : un autre livreur qui se connecte est redemandé. */
+  let positionValideePour = "";
 
   function naviguer() {
     file = file.then(dessinerEcran).catch((err) => { console.error(err); });
@@ -199,6 +204,24 @@
        notifications sont le premier écran qui appartienne à tout le
        monde : marquer « livreur: true » les aurait fermées à la
        boutique, ce qui est exactement l'inverse. */
+    /* ---------- Le livreur valide d'abord son compte ----------
+       Sa position (localisation du téléphone) et son adresse, avant
+       tout le reste. Son compte reste ouvert : il doit pouvoir se
+       déconnecter. Une base d'avant ne connaît pas la question
+       (« undefined ») : on ne bloque personne. */
+    if (estLivreur() && chemin !== "/compte" && positionValideePour !== Supabase.identifiant()) {
+      const p = await Store.maPosition();
+      if (p === null) {
+        document.getElementById("tabbar").style.display = "none";
+        VueComptes.validerPosition(vue, () => {
+          positionValideePour = Supabase.identifiant();
+          naviguer();
+        });
+        return;
+      }
+      positionValideePour = Supabase.identifiant();
+    }
+
     if (estLivreur() && !route.livreur && !route.tous && chemin !== "/compte") {
       location.hash = "#/livraisons";
       return;

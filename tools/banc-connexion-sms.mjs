@@ -308,6 +308,18 @@ titre("4. « Créer mon compte » : le nom, le numéro, le code");
   await page.fill("#cp-message", "Boutique Mensah, accessoires téléphone");
   await page.fill("#cp-pos-adresse", "Dantokpa, face à la pharmacie");
   await page.click("#cp-creer-tel");
+  await page.waitForTimeout(300);
+  ok(note.otp.length === 0 && /Activez votre position/.test(await toasts(page)),
+    "« Pour revendre » sans position du téléphone : rien ne part");
+  /* La position du téléphone, simulée : sans elle, la demande de
+     revendeur ne part plus (3.58.0). */
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition: (ok) => ok({ coords: { latitude: 6.3561, longitude: 2.4334, accuracy: 15 } }) } });
+  });
+  await page.click("#cp-pos-relever");
+  await page.waitForTimeout(300);
+  await page.click("#cp-creer-tel");
   await page.waitForTimeout(700);
   const e = note.otp[0] || {};
   ok(e.phone === "+2290161000022" && e.data && e.data.nom === "Koffi Mensah" && e.data.compte === "client",

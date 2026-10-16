@@ -699,6 +699,18 @@ begin
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
   etat := case when accord then 'validee' else 'refusee' end;
 
+  -- UN REVENDEUR VALIDE SON COMPTE EN ACTIVANT SA POSITION : la
+  -- géolocalisation de son téléphone, ET son adresse écrite. Sans elles,
+  -- BIZZOO ne l'accepte pas (il peut toujours refuser).
+  if accord and not exists (
+       select 1 from public.clients c
+        where c.id = cible
+          and c.revendeur_latitude is not null and c.revendeur_longitude is not null
+          and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
+    raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
   perform set_config('bizzoo.revendeur', 'oui', true);
   update public.clients
      set revendeur_etat       = etat,

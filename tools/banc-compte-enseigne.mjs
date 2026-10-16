@@ -100,6 +100,9 @@ async function ouvrir(profil, avant) {
     if (req.method() === "GET") lectures.push(c + u.search);
     const d = (x) => route.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify(x) });
+    /* Le livreur a validé sa position (3.58.0). */
+    if (c.startsWith("positions_livreurs")) return d([{ profil_id: "x", latitude: 6.37,
+      longitude: 2.39, adresse: "Cotonou", enregistre_le: "2026-10-16T08:00:00Z" }]);
     if (c.startsWith("rpc/")) return d(c === "rpc/mes_livraisons" ? [] : null);
     if (req.method() !== "GET") return route.fulfill({ status: 204, body: "" });
     if (c.startsWith("profils")) return d([profil]);

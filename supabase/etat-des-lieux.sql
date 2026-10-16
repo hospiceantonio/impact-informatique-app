@@ -772,7 +772,22 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'commande_total'
-         and p.prosrc like '%frais_livraison%'))
+         and p.prosrc like '%frais_livraison%')),
+  -- Revendeurs et livreurs valident leur compte par leur position.
+  (130, 'La position valide les livreurs et les revendeurs (positions_livreurs, enregistrer_ma_position)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'positions_livreurs')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enregistrer_ma_position')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'assigner_livreur'
+         and p.prosrc like '%positions_livreurs%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'valider_revendeur'
+         and p.prosrc like '%revendeur_latitude%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

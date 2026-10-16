@@ -148,6 +148,9 @@ select public.marquer_payee(:'cmd', 'TRX-TOURNEE',
   (select total from public.commandes where id = :'cmd'), 'feexpay') as e \gset
 select id as lig from public.commande_lignes where commande_id = :'cmd' \gset
 
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:CHEF::uuid); set role authenticated;
 update public.commande_lignes set etat = 'preparee' where id = :'lig';
 
@@ -244,6 +247,9 @@ select essai.egal(
 -- veut dire qu'on PEUT lui confier une course partout, pas qu'il les
 -- prend de lui-même — et « peut_agir_sur » l'en écarte, parce qu'un
 -- livreur n'est pas « l'équipe ».
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+  select p.id, 6.3703, 2.3912, 'Cotonou (essai)' from public.profils p where p.role = 'livreur'
+  on conflict (profil_id) do nothing;  -- les livreurs ont validé leur position
 select essai.devenir(:TOURNEE::uuid); set role authenticated;
 select essai.refuse(
   format($$select public.assigner_livreur(%L, 'bou_informatique', %L::uuid)$$,

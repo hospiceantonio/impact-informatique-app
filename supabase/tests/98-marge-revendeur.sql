@@ -139,6 +139,14 @@ select essai.egal((select revendeur_mode from public.boutiques
 -- revalide — par la porte prévue, celle de l'enseigne : le verrou de
 -- « clients » refuse qu'on écrive « revendeur_etat » directement, et il
 -- a bien raison de le faire.
+update public.clients
+   set revendeur_latitude = coalesce(revendeur_latitude, 6.3703),
+       revendeur_longitude = coalesce(revendeur_longitude, 2.3912),
+       revendeur_adresse = case when length(trim(revendeur_adresse)) >= 3 then revendeur_adresse
+                                else 'Dantokpa (essai)' end
+ where revendeur_etat <> 'validee'
+   and (revendeur_latitude is null or revendeur_longitude is null
+        or length(trim(revendeur_adresse)) < 3);  -- les revendeurs ont validé leur position
 select essai.devenir(:ENSEIGNE::uuid);
 set role authenticated;
 select essai.egal(public.valider_revendeur(:AWA::uuid, true, ''), 'validee',

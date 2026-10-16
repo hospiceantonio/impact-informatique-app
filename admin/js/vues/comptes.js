@@ -194,8 +194,11 @@ const VueComptes = (() => {
   function ouvrirFiche(compte, apres) {
     /* On ne propose que les rangs qu'on a le droit de donner — et celui
        du compte, pour que le menu montre au moins ce qu'il est. */
-    const rolesOfferts = Array.from(new Set(Store.rolesAttribuables().concat([compte.role])))
-      .filter((cle) => Store.ROLES[cle]);
+    /* LES LIVREURS SE GÈRENT À PART (écran « Livreurs ») : un livreur
+       reste livreur, et un compte de l'équipe ne le devient pas d'ici. */
+    const rolesOfferts = compte.role === "livreur" ? ["livreur"]
+      : Array.from(new Set(Store.rolesAttribuables().concat([compte.role])))
+          .filter((cle) => Store.ROLES[cle] && cle !== "livreur");
 
     const corps = UI.ouvrirFeuille(compte.email || "Compte",
       '<p class="aide" style="margin:0 0 14px">' + Utils.echapper(traceCreation(compte)) +
@@ -399,7 +402,7 @@ const VueComptes = (() => {
 
   /* ---------- Créer un compte ---------- */
 
-  function ouvrirCreation(apres) {
+  function ouvrirCreation(apres, livreur) {
     /* LE LIVREUR EST DANS LA LISTE, et il y manquait. On pouvait le
        nommer, mais seulement APRÈS coup : il fallait créer un
        modérateur puis changer son rang dans sa fiche. Personne ne
@@ -408,14 +411,18 @@ const VueComptes = (() => {
        L'ordre suit le plus courant, pas la hiérarchie : on crée des
        modérateurs et des livreurs tous les jours, un administrateur
        une fois. Et le menu disparaît quand il n'y a pas le choix. */
-    const rangs = ["moderateur", "livreur", "administrateur", "superadministrateur"]
+    /* LES LIVREURS ONT LEUR PROPRE BOUTON (écran « Livreurs ») : ici,
+       l'un ou l'autre, jamais mélangés. */
+    const rangs = (livreur ? ["livreur"]
+      : ["moderateur", "administrateur", "superadministrateur"])
       .filter((cle) => Store.rolesAttribuables().includes(cle));
     if (!rangs.length) {
-      UI.toast("Votre compte ne peut pas créer d'autres comptes.", "err");
+      UI.toast(livreur ? "Votre compte ne peut pas créer de livreur."
+        : "Votre compte ne peut pas créer d'autres comptes.", "err");
       return;
     }
 
-    const corps = UI.ouvrirFeuille("Nouveau compte",
+    const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : "Nouveau compte",
       UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
         type: "email", placeholder: "prenom@exemple.com",
         aide: "C'est avec elle que la personne se connectera." }) +
@@ -433,7 +440,7 @@ const VueComptes = (() => {
         placeholder: "01 97 00 00 00",
         aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
           "qu'on appelle quand le client n'est pas chez lui." }) +
-      '<div class="champ">' +
+      '<div class="champ"' + (livreur ? " hidden" : "") + ">" +
         '<label for="nc-role">Rôle</label>' +
         '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +
           rangs.map((cle, i) =>
@@ -452,8 +459,15 @@ const VueComptes = (() => {
               : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
         : "") +
+      (livreur
+        ? '<p class="aide" style="margin:12px 0 0">À sa première connexion à BIZZOO Admin, le ' +
+            "livreur devra <strong>valider son compte en enregistrant sa position</strong> " +
+            "(localisation du téléphone et adresse). Avant cela, aucune course ne peut lui " +
+            "être confiée.</p>"
+        : "") +
       '<div class="btn-rangee" style="margin-top:18px">' +
-        '<button type="button" class="btn" id="nc-creer">' + UI.icone("plus") + "Créer le compte</button>" +
+        '<button type="button" class="btn" id="nc-creer">' + UI.icone("plus") +
+          (livreur ? "Créer le livreur" : "Créer le compte") + "</button>" +
       "</div>" +
       '<div id="nc-resultat"></div>');
 
@@ -491,7 +505,7 @@ const VueComptes = (() => {
         UI.$("#nc-resultat", corps).innerHTML =
           '<p class="aide" style="color:var(--rouge);margin:12px 0 0">' + Utils.echapper(err.message) + "</p>";
         bouton.disabled = false;
-        bouton.innerHTML = UI.icone("plus") + "Créer le compte";
+        bouton.innerHTML = UI.icone("plus") + (livreur ? "Créer le livreur" : "Créer le compte");
       }
     };
   }
@@ -515,16 +529,27 @@ const VueComptes = (() => {
     }
 
     const moi = Supabase.identifiant();
+    /* LES LIVREURS NE SONT PLUS MÉLANGÉS À L'ÉQUIPE : ils ont leur écran,
+       leur bouton de création et leur gestion. */
+    const nbLivreurs = comptes.filter((c) => c.role === "livreur").length;
+    comptes = comptes.filter((c) => c.role !== "livreur");
     vue.innerHTML =
+      (Store.rolesAttribuables().includes("livreur")
+        ? '<a class="carte carte-livreurs" href="#/livreurs">' +
+            '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Les livreurs (" +
+              nbLivreurs + ")</div>" +
+            '<p class="aide" style="margin:0">Ils se créent et se gèrent à part : touchez ici ' +
+              "pour les voir, en ajouter un, et savoir qui a validé sa position.</p>" +
+          "</a>"
+        : "") +
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("equipe", "ic-sm") + " L'équipe (" + comptes.length + ")</div>" +
         '<p class="aide" style="margin:-4px 0 12px">Le <strong>super administrateur</strong> tient ' +
           "toute l'enseigne : les boutiques, les réglages BIZZOO et les comptes. " +
           "L'<strong>administrateur</strong> a tous les droits sur SA boutique — produits, rayons, " +
           "slider, réglages et ses modérateurs. Le <strong>modérateur</strong> s'occupe des produits " +
-          "et des rayons de sa boutique, rien d'autre. Le <strong>livreur</strong> ne voit que " +
-          "les courses qu'on lui confie, sans aucun montant : il porte pour une boutique, ou " +
-          "pour <strong>BIZZOO</strong> et alors pour toutes.</p>" +
+          "et des rayons de sa boutique, rien d'autre. Les <strong>livreurs</strong> se gèrent " +
+          "dans leur propre écran.</p>" +
         (comptes.length
           ? comptes.map((c) => htmlLigne(c, c.id === moi)).join("")
           : '<p class="aide" style="margin:0">Aucun compte enregistré.</p>') +
@@ -543,7 +568,7 @@ const VueComptes = (() => {
           "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits.</p>" +
       "</div>";
 
-    UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue));
+    UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue), false);
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {
         const compte = comptes.find((c) => c.id === bouton.dataset.compte);
@@ -621,5 +646,118 @@ const VueComptes = (() => {
     };
   }
 
-  return { afficher, monCompte };
+  /* ---------- Les livreurs (écran à part) ----------
+     Créés par leur propre bouton, listés à part, avec ce qui compte pour
+     eux : pour quelle boutique ils portent, leur numéro, et s'ils ont
+     VALIDÉ leur compte en enregistrant leur position. */
+
+  async function livreurs(vue) {
+    UI.entete({ titre: "Livreurs", retour: true, sous: "Qui porte, et d'où" });
+    vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des livreurs…</div>';
+    let comptes, positions;
+    try {
+      [comptes, positions] = await Promise.all([Store.listerComptes(), Store.positionsLivreurs()]);
+    } catch (err) {
+      vue.innerHTML = '<div class="carte"><div class="carte-titre">Livreurs indisponibles</div>' +
+        '<p class="aide" style="margin:0">' + Utils.echapper(err.message) + "</p></div>";
+      return;
+    }
+    const liste = comptes.filter((c) => c.role === "livreur");
+    const valides = positions ? liste.filter((c) => positions[c.id]).length : 0;
+    const ligne = (c) => {
+      const p = positions && positions[c.id];
+      const etat = !positions ? ""
+        : p
+          ? '<div class="livreur-position livreur-position-ok">' + UI.icone("check", "ic-sm") +
+              " Position validée le " + Utils.echapper(Utils.fmtDateHeure(p.enregistre_le)) +
+              (p.adresse ? " — " + Utils.echapper(p.adresse) : "") +
+              ' · <a href="https://www.google.com/maps?q=' + Number(p.latitude) + "," +
+                Number(p.longitude) + '" target="_blank" rel="noopener">voir sur la carte</a></div>'
+          : '<div class="livreur-position livreur-position-manque">' + UI.icone("alerte", "ic-sm") +
+              " Position pas encore validée : aucune course ne peut lui être confiée.</div>";
+      return '<div class="livreur-bloc">' + htmlLigne(c, false) + etat + "</div>";
+    };
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Les livreurs (" + liste.length + ")</div>" +
+        '<p class="aide" style="margin:-4px 0 12px">Le livreur ne voit que les courses qu\'on ' +
+          "lui confie, sans aucun montant. Il porte pour une boutique, ou pour " +
+          "<strong>BIZZOO</strong> et alors pour toutes. Il <strong>valide son compte en " +
+          "enregistrant sa position</strong> à sa première connexion" +
+          (positions ? " — " + valides + " sur " + liste.length + " l'ont fait" : "") + ".</p>" +
+        (liste.length ? liste.map(ligne).join("")
+          : '<p class="aide" style="margin:0">Aucun livreur pour l\'instant.</p>') +
+        '<button type="button" class="btn" id="lv-nouveau" style="margin-top:14px">' +
+          UI.icone("plus") + "Créer un livreur</button>" +
+      "</div>";
+    UI.$("#lv-nouveau", vue).onclick = () => ouvrirCreation(() => livreurs(vue), true);
+    for (const bouton of UI.$$("[data-compte]", vue)) {
+      bouton.onclick = () => {
+        const compte = liste.find((c) => c.id === bouton.dataset.compte);
+        if (compte) ouvrirFiche(compte, () => livreurs(vue));
+      };
+    }
+  }
+
+  /* ---------- Le livreur valide son compte ----------
+     À la connexion, avant tout le reste : sa position (la localisation du
+     téléphone) et son adresse. La base refuse de lui confier une course
+     tant qu'il ne l'a pas fait. */
+
+  function validerPosition(vue, suite) {
+    UI.entete({ titre: "Validez votre compte" });
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Enregistrez votre position</div>" +
+        '<p class="aide" style="margin:0 0 12px">Pour recevoir des courses, votre compte de ' +
+          "livreur doit être validé : indiquez votre adresse, puis activez la localisation " +
+          "de votre téléphone.</p>" +
+        UI.champTexte({ id: "vp-adresse", label: "Votre adresse", obligatoire: true,
+          placeholder: "Quartier, repère… ex. Akpakpa, face au marché",
+          aide: "C'est ce qui permet de vous situer." }) +
+        '<button type="button" class="btn" id="vp-activer">' + UI.icone("carte") +
+          "Activer ma position et valider</button>" +
+        '<div id="vp-etat"></div>' +
+      "</div>" +
+      '<div class="carte"><a class="btn btn-clair" href="#/compte">' + UI.icone("personne") +
+        "Mon compte</a></div>";
+    const etat = UI.$("#vp-etat", vue);
+    const dire = (texte, err) => {
+      etat.innerHTML = '<p class="aide" style="margin:10px 0 0' + (err ? ";color:var(--rouge)" : "") +
+        '">' + Utils.echapper(texte) + "</p>";
+    };
+    const bouton = UI.$("#vp-activer", vue);
+    bouton.onclick = () => {
+      const adresse = UI.$("#vp-adresse", vue).value.trim();
+      if (adresse.length < 3) {
+        dire("Indiquez d'abord votre adresse : quartier, repère.", true);
+        UI.$("#vp-adresse", vue).focus();
+        return;
+      }
+      if (!navigator.geolocation) {
+        dire("Ce téléphone ne permet pas de relever la position.", true);
+        return;
+      }
+      bouton.disabled = true;
+      dire("Relevé de la position…");
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          await Store.enregistrerMaPosition({ latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude, adresse, precision: pos.coords.accuracy });
+          UI.toast("Compte validé : votre position est enregistrée.", "ok");
+          suite();
+        } catch (err) {
+          dire(err.message, true);
+          bouton.disabled = false;
+        }
+      }, (err) => {
+        dire(err.code === 1
+          ? "Autorisation refusée : autorisez la localisation pour BIZZOO Admin dans les réglages du téléphone, puis réessayez."
+          : "Position introuvable : activez la localisation (GPS) et sortez à l'air libre, puis réessayez.", true);
+        bouton.disabled = false;
+      }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    };
+  }
+
+  return { afficher, monCompte, livreurs, validerPosition };
 })();

@@ -376,14 +376,20 @@ const VueCompte = (() => {
      avec un préfixe d'identifiants, plutôt que de le recopier — deux
      copies finissent toujours par diverger.
 
-     TROIS FAÇONS DE RÉPONDRE, et aucune n'est obligatoire :
+     LES DEUX SONT OBLIGATOIRES : un revendeur VALIDE SON COMPTE en
+     activant sa position.
        l'adresse écrite, qui est ce qui permet vraiment de trouver au
          Bénin — un quartier, un repère ;
-       le bouton, qui relève la position du téléphone ;
-       un lien de carte collé, pour qui a déjà épinglé sa boutique.
+       la position du téléphone (géolocalisation), relevée par le bouton.
 
-     Un revendeur qui refuse la localisation n'est pas bloqué : BIZZOO
-     décidera sur ce qu'il aura bien voulu donner. */
+     Sans elles, la demande ne part pas — et BIZZOO ne pourrait pas la
+     valider : la base le refuse. */
+
+  /** La position est-elle complète : relevée ET une adresse écrite ? */
+  const positionComplete = (p) => !!p && p.latitude !== null && p.latitude !== undefined &&
+    p.longitude !== null && p.longitude !== undefined && String(p.adresse || "").trim().length >= 3;
+  const MANQUE_POSITION = "Activez votre position (bouton « Activer ma position ») et indiquez " +
+    "votre adresse : c'est ce qui valide votre compte revendeur.";
 
   function blocPosition(p, valeurs) {
     const v = valeurs || {};
@@ -395,12 +401,8 @@ const VueCompte = (() => {
         '<p class="aide" style="margin:6px 0 0">C\'est ce qui permet de vous trouver.</p>' +
       "</div>" +
       '<button type="button" class="btn btn-clair" id="' + p + '-relever">' +
-        UI.icone("itineraire") + "Utiliser ma position</button>" +
-      '<div id="' + p + '-etat"></div>' +
-      '<div class="champ" style="margin-top:12px">' +
-        '<label for="' + p + '-lien">…ou collez un lien de carte <small>(facultatif)</small></label>' +
-        '<input id="' + p + '-lien" type="text" inputmode="url" ' +
-          'placeholder="https://maps.app.goo.gl/…"></div>'
+        UI.icone("itineraire") + "Activer ma position</button>" +
+      '<div id="' + p + '-etat"></div>'
     );
   }
 
@@ -554,6 +556,9 @@ const VueCompte = (() => {
         if (type === "revendeur" && !message) {
           return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
         }
+        if (type === "revendeur" && !positionComplete(lirePosition())) {
+          return UI.toast(MANQUE_POSITION, "alerte");
+        }
         const revendeur = type === "revendeur" ? { message, position: lirePosition() } : null;
         creerTel.disabled = true;
         try {
@@ -584,6 +589,9 @@ const VueCompte = (() => {
       if (mdp.length < 6) return UI.toast("Six caractères au minimum.", "alerte");
       if (type === "revendeur" && !message) {
         return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
+      }
+      if (type === "revendeur" && !positionComplete(lirePosition())) {
+        return UI.toast(MANQUE_POSITION, "alerte");
       }
       const bouton = creer;
       bouton.disabled = true;
@@ -1179,14 +1187,23 @@ const VueCompte = (() => {
     const pos = Compte.positionRevendeur();
     const situe = pos.latitude !== null && pos.longitude !== null;
     const rien = !pos.adresse && !situe;
+    /* UNE DEMANDE EN ATTENTE SANS POSITION COMPLÈTE ne peut pas être
+       validée : on le dit, et le formulaire est déjà ouvert. */
+    const aCompleter = etat === "en_attente" && !positionComplete(pos);
     const carte = situe
       ? "https://www.google.com/maps/search/?api=1&query=" + pos.latitude + "," + pos.longitude
       : "";
 
     return (
-      '<div class="carte" id="cp-ou">' +
+      '<div class="carte' + (aCompleter ? " cp-ou-requis" : "") + '" id="cp-ou">' +
         '<div class="carte-titre">' + UI.icone("itineraire", "ic-sm") +
-          " Où se trouve votre commerce</div>" +
+          (aCompleter ? " Validez votre compte : votre position" : " Où se trouve votre commerce") +
+          "</div>" +
+        (aCompleter
+          ? '<p class="aide" style="margin:0 0 12px"><strong>BIZZOO ne peut pas valider votre ' +
+            "demande sans votre position.</strong> Indiquez votre adresse, puis touchez « Activer " +
+            "ma position ».</p>"
+          : "") +
         (rien
           ? '<p class="aide" style="margin:0 0 12px">Vous ne l\'avez pas encore dit. ' +
             "C'est ce qui permet à BIZZOO de vous trouver, et de vous livrer.</p>"
@@ -1199,9 +1216,10 @@ const VueCompte = (() => {
                   'rel="noopener">Voir sur la carte</a></div>'
                 : "") +
             "</div>") +
-        '<button type="button" class="btn btn-clair" id="cp-ou-ouvrir">' +
+        '<button type="button" class="btn btn-clair" id="cp-ou-ouvrir"' +
+          (aCompleter ? " hidden" : "") + ">" +
           UI.icone("carte") + (rien ? "Ajouter ma position" : "Modifier") + "</button>" +
-        '<div id="cp-ou-edition" hidden style="margin-top:14px">' +
+        '<div id="cp-ou-edition"' + (aCompleter ? "" : " hidden") + ' style="margin-top:14px">' +
           blocPosition("cp-ou-pos", pos) +
           '<button type="button" class="btn" id="cp-ou-enregistrer" style="margin-top:12px">' +
             UI.icone("check") + "Enregistrer</button>" +
@@ -1226,6 +1244,7 @@ const VueCompte = (() => {
     const enregistrer = UI.$("#cp-ou-enregistrer", vue);
     if (!enregistrer) return;
     enregistrer.addEventListener("click", async () => {
+      if (!positionComplete(lirePosition())) return UI.toast(MANQUE_POSITION, "alerte");
       enregistrer.disabled = true;
       try {
         await Compte.enregistrerPosition(lirePosition());
@@ -1304,6 +1323,7 @@ const VueCompte = (() => {
       demander.addEventListener("click", async () => {
         const message = UI.$("#cp-rv-message", vue).value.trim();
         if (!message) return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
+        if (!positionComplete(lirePosition())) return UI.toast(MANQUE_POSITION, "alerte");
         demander.disabled = true;
         try {
           await Compte.demanderRevendeur(message, lirePosition());
