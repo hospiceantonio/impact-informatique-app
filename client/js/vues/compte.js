@@ -917,6 +917,9 @@ const VueCompte = (() => {
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") +
           "Enregistrer</button>" +
       "</div>" +
+      /* Les gains d'un code de particulier : la place seulement, remplie
+         si la base dit que ce compte a un code. */
+      '<div class="carte cp-gains" id="cp-gains" hidden></div>' +
       carteRevendeur() +
       carteOuRevendeur() +
       '<div class="carte">' +
@@ -951,6 +954,7 @@ const VueCompte = (() => {
     brancherOuRevendeur(vue);
     brancherVerification(vue, moi);
     Compte.masquerSiSmsFerme(vue);
+    remplirGains(vue, moi);
 
     const confirmer = UI.$("#cp-confirmer", vue);
     if (confirmer) {
@@ -986,6 +990,106 @@ const VueCompte = (() => {
       UI.toast("À bientôt.");
       location.hash = "#/";
     });
+  }
+
+  /* ---------- Mes gains : le code d'un particulier ----------
+
+     BIZZOO a confié un code à cette personne. Chaque commande passée avec
+     lui et LIVRÉE lui rapporte sa commission. Elle voit ici son solde, ce
+     qui l'a fait, et demande un retrait vers son Mobile Money ; BIZZOO
+     verse, puis le marque. Le solde se calcule en base, jamais ici. */
+
+  const ETATS_RETRAIT = { demande: "En cours", payee: "Versé", refusee: "Refusé" };
+
+  async function remplirGains(vue, moi) {
+    const zone = UI.$("#cp-gains", vue);
+    if (!zone) return;
+    let d = null;
+    try { d = await Paiement.soldeParrain(); } catch (_) { /* base d'avant : rien */ }
+    if (!d || !zone.isConnected) return;
+    const devise = (Catalogue.boutique() || {}).devise || "FCFA";
+    const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, devise));
+    const codes = (d.codes || []).filter((c) => c.actif !== false).map((c) => c.code);
+    zone.hidden = false;
+    zone.innerHTML =
+      '<div class="carte-titre">' + UI.icone("cadeau", "ic-sm") + " Mes gains</div>" +
+      (codes.length
+        ? '<p class="aide" style="margin:0 0 10px">Votre code : <strong class="cp-gains-code">' +
+            Utils.echapper(codes.join(", ")) + "</strong>. Chaque commande livrée avec lui " +
+            "vous rapporte votre commission.</p>"
+        : "") +
+      '<div class="cp-gains-solde"><small>Disponible</small><strong id="cp-solde">' +
+        m(d.solde) + "</strong></div>" +
+      '<div class="cp-gains-detail">' +
+        "<span>Gagné " + m(d.gagne) + "</span>" +
+        "<span>Versé " + m(d.retire) + "</span>" +
+        (Number(d.en_attente) > 0 ? "<span>En cours " + m(d.en_attente) + "</span>" : "") +
+      "</div>" +
+      (Number(d.solde) >= 500
+        ? '<button type="button" class="btn" id="cp-retrait-ouvrir" style="margin-top:12px">' +
+            UI.icone("telephone") + "Retirer vers Mobile Money</button>"
+        : '<p class="aide" style="margin:10px 0 0">Un retrait est possible dès 500 ' +
+            Utils.echapper(devise) + ".</p>") +
+      '<div id="cp-retrait" hidden style="margin-top:12px">' +
+        '<div class="champ"><label for="cp-retrait-montant">Montant</label>' +
+          '<input id="cp-retrait-montant" inputmode="numeric" value="' +
+            (Number(d.solde) || 0) + '"></div>' +
+        '<div class="champ"><label for="cp-retrait-numero">Numéro Mobile Money</label>' +
+          '<input id="cp-retrait-numero" type="tel" inputmode="tel" value="' +
+            Utils.echapper((moi && moi.tel) || "") + '"></div>' +
+        '<div class="champ"><label for="cp-retrait-reseau">Réseau</label>' +
+          '<select id="cp-retrait-reseau"><option value="MTN">MTN MoMo</option>' +
+            '<option value="Moov">Moov Money</option><option value="Celtiis">Celtiis Cash</option>' +
+          "</select></div>" +
+        '<button type="button" class="btn" id="cp-retrait-envoyer">' + UI.icone("check") +
+          "Demander le retrait</button>" +
+        '<p class="aide" style="margin:8px 0 0">BIZZOO vous verse le montant, puis le ' +
+          "marque ici. En attendant, il n'est plus disponible.</p>" +
+      "</div>" +
+      ((d.gains || []).length || (d.retraits || []).length
+        ? '<div class="cp-gains-liste">' +
+            (d.retraits || []).map((r) =>
+              '<div class="cp-gains-ligne"><span>Retrait · ' +
+                Utils.echapper(ETATS_RETRAIT[r.etat] || r.etat) +
+                (r.etat === "refusee" && r.motif ? " — " + Utils.echapper(r.motif) : "") +
+              "</span><strong>− " + m(r.montant) + "</strong></div>").join("") +
+            (d.gains || []).map((g) =>
+              '<div class="cp-gains-ligne"><span>Commande ' + Utils.echapper(g.numero || "") +
+                " · " + Utils.echapper(String(g.taux).replace(".", ",")) + " %</span>" +
+                "<strong>+ " + m(g.montant) + "</strong></div>").join("") +
+          "</div>"
+        : '<p class="aide" style="margin:10px 0 0">Pas encore de commission : elle arrive ' +
+            "quand une commande passée avec votre code est livrée.</p>");
+
+    const ouvrir = UI.$("#cp-retrait-ouvrir", zone);
+    if (ouvrir) {
+      ouvrir.addEventListener("click", () => {
+        UI.$("#cp-retrait", zone).hidden = false;
+        ouvrir.hidden = true;
+        const op = Paiement.operateurDuNumero(UI.$("#cp-retrait-numero", zone).value);
+        if (/moov/i.test(op)) UI.$("#cp-retrait-reseau", zone).value = "Moov";
+        else if (/celtiis/i.test(op)) UI.$("#cp-retrait-reseau", zone).value = "Celtiis";
+      });
+    }
+    const envoyer = UI.$("#cp-retrait-envoyer", zone);
+    if (envoyer) {
+      envoyer.addEventListener("click", async () => {
+        const montant = Number(String(UI.$("#cp-retrait-montant", zone).value).replace(/\D/g, ""));
+        const numero = UI.$("#cp-retrait-numero", zone).value.trim();
+        if (!(montant >= 500)) return UI.toast("Un retrait est de 500 " + devise + " au moins.", "alerte");
+        if (montant > Number(d.solde)) return UI.toast("C'est plus que votre solde.", "alerte");
+        if (numero.replace(/\D/g, "").length < 8) return UI.toast("Votre numéro Mobile Money.", "alerte");
+        envoyer.disabled = true;
+        try {
+          await Paiement.demanderRetrait(montant, numero, UI.$("#cp-retrait-reseau", zone).value);
+          UI.toast("Demande envoyée : BIZZOO vous verse le montant.");
+          remplirGains(vue, moi);
+        } catch (err) {
+          envoyer.disabled = false;
+          UI.toast(err.message, "alerte");
+        }
+      });
+    }
   }
 
   /* ---------- Compte revendeur ----------

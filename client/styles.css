@@ -2177,3 +2177,12 @@ a.pub-carte:active{transform:scale(.98)}
   border-radius:var(--r-sm);font:inherit;font-size:13px;color:var(--encre-douce);background:var(--fond);
 }
 .feuille-partage-fermer{display:block;margin:14px auto 0;background:none;border:0;padding:6px 10px;font:inherit;cursor:pointer}
+/* Mes gains : le code d'un particulier */
+.cp-gains-code{letter-spacing:.04em}
+.cp-gains-solde{display:flex;flex-direction:column;gap:2px}
+.cp-gains-solde small{color:var(--encre-douce, #666);font-size:12.5px}
+.cp-gains-solde strong{font-size:26px;font-weight:800;color:var(--orange-fonce, #E8590C)}
+.cp-gains-detail{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:13px;color:var(--encre-douce, #666)}
+.cp-gains-liste{margin-top:12px;border-top:1px solid rgba(0,0,0,.08)}
+.cp-gains-ligne{display:flex;justify-content:space-between;gap:10px;padding:8px 0;font-size:13.5px;border-bottom:1px solid rgba(0,0,0,.05)}
+.cp-gains-ligne strong{white-space:nowrap}

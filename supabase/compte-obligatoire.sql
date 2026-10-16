@@ -177,6 +177,10 @@ revoke all on function public.commande_total(text) from public, anon, authentica
 --
 -- Rend un objet : { ok, remise, raison }. « raison » est écrite pour
 -- être montrée telle quelle au client.
+-- Le code d'un particulier : à qui il appartient, et ce qu'il lui rapporte.
+alter table public.codes_promo add column if not exists parrain uuid;
+alter table public.codes_promo add column if not exists commission numeric(5,2) not null default 0;
+
 create or replace function public.remise_du_code(
   brut text, sous_total bigint, marge bigint,
   qui uuid default null, tel text default '')
@@ -234,6 +238,13 @@ begin
     end if;
   end if;
 
+  -- LE PROPRIÉTAIRE D'UN CODE NE S'EN SERT PAS : il toucherait une
+  -- commission sur ses propres achats.
+  if c.parrain is not null and qui is not null and qui = c.parrain then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'C''est votre code : il sert à vos clients, pas à vous.');
+  end if;
+
   -- « Une seule fois par client ». Un compte se reconnaît à son
   -- identifiant ; un visiteur sans compte, à son seul numéro — on le dit
   -- franchement plutôt que de laisser croire à une identification qui
@@ -258,7 +269,9 @@ begin
   -- la marge de l'enseigne ne regarde pas le client.
   if brute > plafond then brute := plafond; end if;
 
-  if brute <= 0 then
+  -- UN CODE DE PARTICULIER VAUT MÊME SANS REMISE : il porte la commission
+  -- de son propriétaire, et la commande doit le garder.
+  if brute <= 0 and c.parrain is null then
     return jsonb_build_object('ok', false, 'remise', 0,
       'raison', 'Ce code ne s''applique pas à ce panier.');
   end if;

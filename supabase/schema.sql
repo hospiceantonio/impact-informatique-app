@@ -3473,6 +3473,10 @@ $$;
 --
 -- Rend un objet : { ok, remise, raison }. « raison » est écrite pour
 -- être montrée telle quelle au client.
+-- Le code d'un particulier : à qui il appartient, et ce qu'il lui rapporte.
+alter table public.codes_promo add column if not exists parrain uuid;
+alter table public.codes_promo add column if not exists commission numeric(5,2) not null default 0;
+
 create or replace function public.remise_du_code(
   brut text, sous_total bigint, marge bigint,
   qui uuid default null, tel text default '')
@@ -3530,6 +3534,13 @@ begin
     end if;
   end if;
 
+  -- LE PROPRIÉTAIRE D'UN CODE NE S'EN SERT PAS : il toucherait une
+  -- commission sur ses propres achats.
+  if c.parrain is not null and qui is not null and qui = c.parrain then
+    return jsonb_build_object('ok', false, 'remise', 0,
+      'raison', 'C''est votre code : il sert à vos clients, pas à vous.');
+  end if;
+
   -- « Une seule fois par client ». Un compte se reconnaît à son
   -- identifiant ; un visiteur sans compte, à son seul numéro — on le dit
   -- franchement plutôt que de laisser croire à une identification qui
@@ -3554,7 +3565,9 @@ begin
   -- la marge de l'enseigne ne regarde pas le client.
   if brute > plafond then brute := plafond; end if;
 
-  if brute <= 0 then
+  -- UN CODE DE PARTICULIER VAUT MÊME SANS REMISE : il porte la commission
+  -- de son propriétaire, et la commande doit le garder.
+  if brute <= 0 and c.parrain is null then
     return jsonb_build_object('ok', false, 'remise', 0,
       'raison', 'Ce code ne s''applique pas à ce panier.');
   end if;
@@ -7316,3 +7329,345 @@ begin
 end $$;
 revoke all on function public.rattraper_createurs() from public, anon, authenticated;
 select public.rattraper_createurs();
+
+
+-- =========================================================
+-- Les codes des particuliers : une commission sur chaque vente
+-- =========================================================
+-- Un particulier reçoit un code. Le client qui le tape a sa remise ;
+-- le propriétaire touche un pourcentage de la commande sur son compte
+-- BIZZOO, qu'il voit dans l'application client et qu'il retire vers son
+-- numéro Mobile Money.
+--
+-- QUAND : à la LIVRAISON. La commission naît quand toutes les parts de
+-- la commande sont remises au client (les parts annulées ne comptent
+-- pas). Une commande annulée, ou jamais livrée, ne rapporte rien : il n'y
+-- a jamais de commission à reprendre.
+--
+-- COMBIEN : le taux du code, sur ce que le client a payé pour sa
+-- commande (remise déduite). PLAFONNÉ par ce que l'enseigne gagne encore
+-- sur la commande après la remise : la boutique touche son prix BIZZOO en
+-- entier, et une commission ne fait jamais vendre à perte.
+--
+-- UNE FOIS : une commission par commande, au plus — la base le garantit
+-- par une contrainte, pas par une précaution de l'application.
+--
+-- LES RETRAITS : le propriétaire DEMANDE ; le superadministrateur verse
+-- sur le numéro Mobile Money, puis marque « payé ». Pendant la demande,
+-- le montant n'est plus disponible : on ne retire pas deux fois la même
+-- somme.
+
+alter table public.codes_promo add column if not exists parrain uuid;
+alter table public.codes_promo add column if not exists commission numeric(5,2) not null default 0;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'codes_promo_commission_borne') then
+    alter table public.codes_promo
+      add constraint codes_promo_commission_borne check (commission between 0 and 50);
+  end if;
+end $$;
+create index if not exists codes_promo_parrain on public.codes_promo(parrain) where parrain is not null;
+
+create table if not exists public.gains_parrain (
+  id          bigserial primary key,
+  parrain     uuid not null,
+  commande_id text unique,
+  code        text not null default '',
+  base        bigint not null default 0,
+  taux        numeric(5,2) not null default 0,
+  montant     bigint not null check (montant >= 0),
+  cree_le     timestamptz not null default now()
+);
+create index if not exists gains_parrain_qui on public.gains_parrain(parrain, cree_le desc);
+
+create table if not exists public.retraits_parrain (
+  id          bigserial primary key,
+  parrain     uuid not null,
+  montant     bigint not null check (montant > 0),
+  numero      text not null,
+  reseau      text not null default '',
+  etat        text not null default 'demande' check (etat in ('demande', 'payee', 'refusee')),
+  demande_le  timestamptz not null default now(),
+  traite_le   timestamptz,
+  traite_par  uuid,
+  reference   text not null default '',
+  motif       text not null default ''
+);
+create index if not exists retraits_parrain_qui on public.retraits_parrain(parrain, demande_le desc);
+
+-- Lecture : chacun les siennes, le superadministrateur toutes. AUCUNE
+-- écriture directe : tout passe par les fonctions plus bas.
+alter table public.gains_parrain enable row level security;
+alter table public.retraits_parrain enable row level security;
+drop policy if exists "gains lecture" on public.gains_parrain;
+create policy "gains lecture" on public.gains_parrain
+  for select using (parrain = auth.uid() or public.est_super());
+drop policy if exists "retraits lecture" on public.retraits_parrain;
+create policy "retraits lecture" on public.retraits_parrain
+  for select using (parrain = auth.uid() or public.est_super());
+revoke insert, update, delete on public.gains_parrain from anon, authenticated;
+revoke insert, update, delete on public.retraits_parrain from anon, authenticated;
+grant select on public.gains_parrain to authenticated;
+grant select on public.retraits_parrain to authenticated;
+
+-- ---------- Créditer, à la livraison ----------
+create or replace function public.crediter_parrain(cible text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  c        public.commandes%rowtype;
+  k        public.codes_promo%rowtype;
+  restant  int;
+  livrees  int;
+  marge    bigint;
+  brut     bigint;
+  montant  bigint;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found or c.etat <> 'payee' or coalesce(c.code_promo, '') = '' then return 0; end if;
+  select * into k from public.codes_promo where code = c.code_promo;
+  if not found or k.parrain is null or coalesce(k.commission, 0) <= 0 then return 0; end if;
+  if exists (select 1 from public.gains_parrain g where g.commande_id = cible) then return 0; end if;
+
+  select count(*) filter (where l.etat not in ('remise', 'annulee')),
+         count(*) filter (where l.etat = 'remise'),
+         coalesce(sum(greatest(0, l.prix - l.prix_bizzoo) * l.quantite)
+                    filter (where l.etat <> 'annulee'), 0)
+    into restant, livrees, marge
+    from public.commande_lignes l where l.commande_id = cible;
+  if restant > 0 or livrees = 0 then return 0; end if;
+
+  brut := round(greatest(0, c.total) * least(50, greatest(0, k.commission)) / 100)::bigint;
+  montant := least(brut, greatest(0, marge - coalesce(c.remise, 0)));
+  if montant <= 0 then return 0; end if;
+
+  insert into public.gains_parrain (parrain, commande_id, code, base, taux, montant)
+  values (k.parrain, cible, k.code, greatest(0, c.total), k.commission, montant)
+  on conflict (commande_id) do nothing;
+  if not found then return 0; end if;
+
+  perform public.notifier(array[k.parrain], 'commission',
+    'Commission créditée',
+    'La commande ' || c.numero || ' a été livrée : ' || montant::text ||
+      ' FCFA sur votre solde.',
+    '#/compte', null, null, true);
+  return montant;
+end $$;
+revoke all on function public.crediter_parrain(text) from public, anon, authenticated;
+
+create or replace function public.lignes_creditent_parrain() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.etat is distinct from old.etat and new.etat in ('remise', 'annulee') then
+    -- Jamais d'échec ici : une commission manquée se rattrape, une
+    -- livraison refusée à cause d'elle, non.
+    begin
+      perform public.crediter_parrain(new.commande_id);
+    exception when others then
+      raise warning 'commission non créditée pour % : %', new.commande_id, sqlerrm;
+    end;
+  end if;
+  return new;
+end $$;
+drop trigger if exists lignes_creditent_parrain on public.commande_lignes;
+create trigger lignes_creditent_parrain
+  after update of etat on public.commande_lignes
+  for each row execute function public.lignes_creditent_parrain();
+
+-- ---------- Ce que le propriétaire voit ----------
+create or replace function public.mon_solde_parrain() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  gagne   bigint;
+  retire  bigint;
+  attente bigint;
+begin
+  if moi is null or not exists (select 1 from public.codes_promo where parrain = moi) then
+    return null;
+  end if;
+  select coalesce(sum(montant), 0) into gagne from public.gains_parrain where parrain = moi;
+  select coalesce(sum(montant) filter (where etat = 'payee'), 0),
+         coalesce(sum(montant) filter (where etat = 'demande'), 0)
+    into retire, attente
+    from public.retraits_parrain where parrain = moi;
+  return jsonb_build_object(
+    'codes', (select coalesce(jsonb_agg(jsonb_build_object(
+                'code', k.code, 'remise', k.valeur, 'mode', k.mode,
+                'commission', k.commission, 'actif', k.actif) order by k.code), '[]'::jsonb)
+                from public.codes_promo k where k.parrain = moi),
+    'gagne', gagne, 'retire', retire, 'en_attente', attente,
+    'solde', gagne - retire - attente,
+    'gains', (select coalesce(jsonb_agg(jsonb_build_object(
+                'numero', o.numero, 'montant', g.montant, 'taux', g.taux,
+                'base', g.base, 'le', g.cree_le) order by g.cree_le desc), '[]'::jsonb)
+                from (select * from public.gains_parrain where parrain = moi
+                       order by cree_le desc limit 30) g
+                left join public.commandes o on o.id = g.commande_id),
+    'retraits', (select coalesce(jsonb_agg(jsonb_build_object(
+                'id', r.id, 'montant', r.montant, 'numero', r.numero, 'reseau', r.reseau,
+                'etat', r.etat, 'le', r.demande_le, 'traite_le', r.traite_le,
+                'motif', r.motif) order by r.demande_le desc), '[]'::jsonb)
+                from (select * from public.retraits_parrain where parrain = moi
+                       order by demande_le desc limit 30) r));
+end $$;
+revoke all on function public.mon_solde_parrain() from public, anon;
+grant execute on function public.mon_solde_parrain() to authenticated;
+
+-- ---------- Demander un retrait ----------
+create or replace function public.demander_retrait(montant bigint, numero text, reseau text default '')
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  numero_net text := regexp_replace(coalesce(numero, ''), '\D', '', 'g');
+  solde   bigint;
+  nouveau bigint;
+begin
+  if moi is null or not exists (select 1 from public.codes_promo where parrain = moi) then
+    raise exception 'Ce compte n''a pas de code promo.' using errcode = 'P0001';
+  end if;
+  if coalesce(montant, 0) < 500 then
+    raise exception 'Un retrait est de 500 FCFA au moins.' using errcode = 'P0001';
+  end if;
+  if length(numero_net) < 8 then
+    raise exception 'Indiquez le numéro Mobile Money qui recevra l''argent.' using errcode = 'P0001';
+  end if;
+  -- DEUX DEMANDES EN MÊME TEMPS ne retirent pas deux fois la même somme.
+  perform pg_advisory_xact_lock(hashtext('retrait:' || moi::text));
+  select (select coalesce(sum(g.montant), 0) from public.gains_parrain g where g.parrain = moi)
+       - (select coalesce(sum(r.montant), 0) from public.retraits_parrain r
+           where r.parrain = moi and r.etat in ('demande', 'payee'))
+    into solde;
+  if montant > solde then
+    raise exception 'Votre solde disponible est de % FCFA.', solde using errcode = 'P0001';
+  end if;
+  insert into public.retraits_parrain (parrain, montant, numero, reseau)
+  values (moi, montant, numero_net, upper(left(coalesce(reseau, ''), 20)))
+  returning id into nouveau;
+  perform public.notifier(
+    array(select p.id from public.profils p where p.role = 'superadministrateur' and p.actif),
+    'retrait_demande', 'Demande de retrait',
+    montant::text || ' FCFA vers ' || numero_net || ' — code promo d''un particulier.',
+    '#/codes', null, null, true);
+  return nouveau;
+end $$;
+revoke all on function public.demander_retrait(bigint, text, text) from public, anon;
+grant execute on function public.demander_retrait(bigint, text, text) to authenticated;
+
+-- ---------- Côté superadministrateur ----------
+-- Donner un code à un compte (créé juste avant, comme client).
+create or replace function public.creer_code_parrain(
+  compte uuid, le_code text, remise numeric, taux numeric, nom text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+declare cle text := public.code_normalise(le_code);
+begin
+  if not public.est_super() then
+    raise exception 'Réservé au superadministrateur.' using errcode = '42501';
+  end if;
+  if compte is null or not exists (select 1 from auth.users u where u.id = compte) then
+    raise exception 'Ce compte n''existe pas.' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.profils p where p.id = compte and p.role is not null
+               and p.actif) then
+    raise exception 'Un compte de l''équipe ne reçoit pas de code de particulier.' using errcode = 'P0001';
+  end if;
+  if length(cle) < 3 then
+    raise exception 'Le code fait au moins 3 lettres ou chiffres.' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.codes_promo where code = cle) then
+    raise exception 'Le code % existe déjà.', cle using errcode = 'P0001';
+  end if;
+  if coalesce(taux, 0) <= 0 or taux > 50 then
+    raise exception 'La commission va de 0,5 à 50 %%.' using errcode = 'P0001';
+  end if;
+  if coalesce(remise, 0) < 0 or remise > 50 then
+    raise exception 'La remise du client va de 0 à 50 %%.' using errcode = 'P0001';
+  end if;
+  insert into public.codes_promo (code, libelle, mode, valeur, une_par_client, actif,
+                                  parrain, commission, cree_par)
+  values (cle, coalesce(nullif(trim(nom), ''), 'Code de particulier'), 'pourcent',
+          coalesce(remise, 0), false, true, compte, taux,
+          coalesce((select email from public.profils where id = auth.uid()), ''));
+  return cle;
+end $$;
+revoke all on function public.creer_code_parrain(uuid, text, numeric, numeric, text) from public, anon;
+grant execute on function public.creer_code_parrain(uuid, text, numeric, numeric, text) to authenticated;
+
+create or replace function public.parrains_liste()
+returns table (code text, libelle text, parrain uuid, email text, remise numeric,
+               commission numeric, actif boolean, ventes int, gagne bigint,
+               retire bigint, en_attente bigint, solde bigint)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.est_super() then return; end if;
+  return query
+    select k.code, k.libelle, k.parrain, coalesce(u.email, '')::text, k.valeur, k.commission, k.actif,
+           (select count(*)::int from public.gains_parrain g where g.code = k.code),
+           coalesce((select sum(g.montant) from public.gains_parrain g where g.parrain = k.parrain), 0)::bigint,
+           coalesce((select sum(r.montant) from public.retraits_parrain r
+                      where r.parrain = k.parrain and r.etat = 'payee'), 0)::bigint,
+           coalesce((select sum(r.montant) from public.retraits_parrain r
+                      where r.parrain = k.parrain and r.etat = 'demande'), 0)::bigint,
+           (coalesce((select sum(g.montant) from public.gains_parrain g where g.parrain = k.parrain), 0)
+            - coalesce((select sum(r.montant) from public.retraits_parrain r
+                         where r.parrain = k.parrain and r.etat in ('demande', 'payee')), 0))::bigint
+      from public.codes_promo k
+      left join auth.users u on u.id = k.parrain
+     where k.parrain is not null
+     order by k.code;
+end $$;
+revoke all on function public.parrains_liste() from public, anon;
+grant execute on function public.parrains_liste() to authenticated;
+
+create or replace function public.retraits_a_traiter()
+returns table (id bigint, code text, email text, montant bigint, numero text, reseau text,
+               etat text, demande_le timestamptz, traite_le timestamptz, reference text, motif text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.est_super() then return; end if;
+  return query
+    select r.id,
+           coalesce((select string_agg(k.code, ', ') from public.codes_promo k
+                      where k.parrain = r.parrain), '')::text,
+           coalesce(u.email, '')::text, r.montant, r.numero, r.reseau, r.etat,
+           r.demande_le, r.traite_le, r.reference, r.motif
+      from public.retraits_parrain r
+      left join auth.users u on u.id = r.parrain
+     order by (r.etat = 'demande') desc, r.demande_le desc
+     limit 100;
+end $$;
+revoke all on function public.retraits_a_traiter() from public, anon;
+grant execute on function public.retraits_a_traiter() to authenticated;
+
+create or replace function public.traiter_retrait(cible bigint, payee boolean,
+  la_reference text default '', le_motif text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+declare r public.retraits_parrain%rowtype;
+begin
+  if not public.est_super() then
+    raise exception 'Réservé au superadministrateur.' using errcode = '42501';
+  end if;
+  select * into r from public.retraits_parrain where id = cible for update;
+  if not found then raise exception 'Demande introuvable.' using errcode = 'P0001'; end if;
+  if r.etat <> 'demande' then
+    raise exception 'Cette demande est déjà traitée.' using errcode = 'P0001';
+  end if;
+  update public.retraits_parrain
+     set etat = case when payee then 'payee' else 'refusee' end,
+         traite_le = now(), traite_par = auth.uid(),
+         reference = left(coalesce(la_reference, ''), 80),
+         motif = left(coalesce(le_motif, ''), 300)
+   where id = cible;
+  perform public.notifier(array[r.parrain], 'retrait',
+    case when payee then 'Retrait versé' else 'Retrait refusé' end,
+    case when payee
+      then r.montant::text || ' FCFA ont été envoyés au ' || r.numero || '.'
+      else 'Votre demande de ' || r.montant::text || ' FCFA n''a pas été versée'
+           || coalesce(' : ' || nullif(le_motif, ''), '.') end,
+    '#/compte', null, null, true);
+  return case when payee then 'payee' else 'refusee' end;
+end $$;
+revoke all on function public.traiter_retrait(bigint, boolean, text, text) from public, anon;
+grant execute on function public.traiter_retrait(bigint, boolean, text, text) to authenticated;

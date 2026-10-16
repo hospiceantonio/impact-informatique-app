@@ -438,8 +438,13 @@ const Supabase = (() => {
      le serveur. La session renvoyée pour le nouveau venu est jetée —
      l'administrateur reste connecté sur son propre compte. */
 
-  async function creerCompte(email, motDePasse) {
-    const d = await appelAuth("signup", { email, password: motDePasse });
+  async function creerCompte(email, motDePasse, donnees) {
+    /* « donnees » : les métadonnées du compte. Un particulier qui reçoit
+       un code promo est un CLIENT (« compte: client ») : la base ne lui
+       fabrique pas de fiche d'équipe en attente. */
+    const d = await appelAuth("signup", donnees
+      ? { email, password: motDePasse, data: donnees }
+      : { email, password: motDePasse });
     const u = d.user || d;
     if (!u || !u.id) throw new Error("Le compte n'a pas pu être créé.");
     /* Supabase répond poliment même si l'adresse est déjà prise : dans ce

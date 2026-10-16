@@ -126,12 +126,172 @@ const VueCodes = (() => {
             "Touchez le + en haut pour en créer un. Vos clients le taperont au " +
             "moment de régler leur panier."));
 
+    /* Les codes des particuliers : leur place, puis on la remplit. Une
+       base qui ne les connaît pas encore laisse le reste de l'écran tel. */
+    vue.insertAdjacentHTML("beforeend", '<div id="cd-particuliers"></div>');
+    particuliers(vue, UI.$("#cd-particuliers", vue), devise);
+
     for (const b of UI.$$("[data-modifier]", vue)) {
       b.onclick = () => formulaire(vue, codes.find((c) => c.code === b.dataset.modifier));
     }
     for (const b of UI.$$("[data-bascule]", vue)) {
       b.onclick = () => basculer(vue, codes.find((c) => c.code === b.dataset.bascule));
     }
+  }
+
+  /* ---------- Les codes des particuliers ----------
+     Une personne, un compte CLIENT à son nom, un code. Le client qui
+     tape le code a sa remise ; la personne touche sa commission quand la
+     commande est LIVRÉE, la voit dans l'application client, et demande
+     un retrait vers son numéro Mobile Money. BIZZOO verse, puis le
+     marque ici. */
+
+  async function particuliers(vue, zone, devise) {
+    if (!zone) return;
+    let parrains, retraits;
+    try {
+      [parrains, retraits] = await Promise.all([Store.listerParrains(), Store.retraitsATraiter()]);
+    } catch (err) {
+      zone.innerHTML =
+        '<div class="titre-section">Codes des particuliers</div>' +
+        '<div class="carte"><p class="aide" style="margin:0">' + Utils.echapper(err.message) +
+        "<br>Pour les mettre en place, exécutez le fichier supabase/codes-particuliers.sql.</p></div>";
+      return;
+    }
+    const m = (x) => Utils.echapper(Utils.fmtMontant(x, devise));
+    const attente = retraits.filter((r) => r.etat === "demande");
+    zone.innerHTML =
+      '<div class="titre-section">Codes des particuliers</div>' +
+      '<p class="aide" style="margin:0 4px 10px">Une personne recommande BIZZOO avec son ' +
+        "code : le client a sa remise, elle touche sa commission quand la commande est " +
+        "livrée. La commission sort de VOTRE marge, et la base la plafonne à ce que vous " +
+        "gagnez sur la commande.</p>" +
+      '<button type="button" class="btn" id="cd-parrain-nouveau" style="margin-bottom:12px">' +
+        UI.icone("plus") + "Nouveau code de particulier</button>" +
+      (attente.length
+        ? '<div class="carte cd-retraits"><div class="carte-titre">Retraits à verser (' +
+            attente.length + ")</div>" +
+          attente.map((r) =>
+            '<div class="cd-retrait" data-retrait="' + r.id + '">' +
+              "<div><strong>" + m(r.montant) + "</strong> · " + Utils.echapper(r.code) +
+                '<div class="aide" style="margin:2px 0 0">' +
+                  Utils.echapper((r.reseau ? r.reseau + " " : "") + r.numero) + " · " +
+                  Utils.echapper(r.email) + " · " + Utils.echapper(Utils.fmtDate(r.demandeLe)) +
+                "</div></div>" +
+              '<div class="btn-rangee" style="margin-top:8px">' +
+                '<button type="button" class="btn btn-clair btn-danger-clair" data-refuser="' +
+                  r.id + '">Refuser</button>' +
+                '<button type="button" class="btn" data-verser="' + r.id + '">' +
+                  UI.icone("check") + "Versé</button>" +
+              "</div>" +
+            "</div>").join("") +
+          "</div>"
+        : "") +
+      (parrains.length
+        ? parrains.map((p) =>
+            '<div class="carte cd-carte' + (p.actif ? "" : " cd-ferme") + '" data-parrain="' +
+              Utils.echapper(p.code) + '">' +
+              '<div class="cd-haut"><div>' +
+                '<strong class="cd-code">' + Utils.echapper(p.code) + "</strong>" +
+                '<div class="aide">' + Utils.echapper(p.nom) + " · " + Utils.echapper(p.email) +
+                "</div></div>" +
+                '<span class="badge ' + (p.actif ? "badge-ok" : "badge-annulee") + '">' +
+                  (p.actif ? "Ouvert" : "Fermé") + "</span>" +
+              "</div>" +
+              '<div class="aide" style="margin:8px 0 0">Client : − ' +
+                Utils.echapper(Utils.fmtTaux(p.remise)) + " % · Commission : " +
+                Utils.echapper(Utils.fmtTaux(p.commission)) + " %</div>" +
+              '<div class="cd-chiffres"><span>' + p.ventes + " commande" +
+                (p.ventes > 1 ? "s" : "") + " livrée" + (p.ventes > 1 ? "s" : "") +
+                " · versé " + m(p.retire) + "</span>" +
+                "<strong>Solde " + m(p.solde) + "</strong></div>" +
+            "</div>").join("")
+        : UI.vide("cadeau", "Aucun code de particulier",
+            "Créez-en un : un compte au nom de la personne, et son code."));
+
+    UI.$("#cd-parrain-nouveau", zone).onclick = () => formulaireParrain(vue);
+    for (const b of UI.$$("[data-verser]", zone)) {
+      b.onclick = async () => {
+        const r = retraits.find((x) => String(x.id) === b.dataset.verser);
+        const ref = await UI.demanderTexte({
+          titre: "Retrait versé ?",
+          texte: "Vous avez envoyé " + Utils.fmtMontant(r.montant, devise) + " au " +
+            (r.reseau ? r.reseau + " " : "") + r.numero + ". Notez la référence du transfert.",
+          libelle: "Référence du transfert Mobile Money", bouton: "Marquer versé" });
+        if (ref === null) return;
+        try {
+          await Store.traiterRetrait(r.id, true, ref, "");
+          UI.toast("Retrait marqué versé.");
+          afficher(vue);
+        } catch (err) { UI.toast(err.message, "err"); }
+      };
+    }
+    for (const b of UI.$$("[data-refuser]", zone)) {
+      b.onclick = async () => {
+        const r = retraits.find((x) => String(x.id) === b.dataset.refuser);
+        const motif = await UI.demanderTexte({
+          titre: "Refuser ce retrait ?",
+          texte: "Le montant revient sur le solde de la personne, qui verra votre motif.",
+          libelle: "Pourquoi", bouton: "Refuser", danger: true });
+        if (motif === null) return;
+        try {
+          await Store.traiterRetrait(r.id, false, "", motif);
+          UI.toast("Retrait refusé : le montant revient sur son solde.");
+          afficher(vue);
+        } catch (err) { UI.toast(err.message, "err"); }
+      };
+    }
+  }
+
+  function formulaireParrain(vue) {
+    const corps = UI.ouvrirFeuille("Nouveau code de particulier",
+      '<div class="aide" style="margin:0 0 14px">Un compte CLIENT est créé au nom de la ' +
+        "personne. Elle se connecte à l'application client avec cet e-mail et ce mot de " +
+        "passe, et y voit ses gains.</div>" +
+      UI.champTexte({ id: "pa-prenom", label: "Prénom", obligatoire: true }) +
+      UI.champTexte({ id: "pa-nom", label: "Nom", obligatoire: true }) +
+      UI.champTexte({ id: "pa-email", label: "E-mail", obligatoire: true, type: "email" }) +
+      UI.champTexte({ id: "pa-mdp", label: "Mot de passe", obligatoire: true, type: "password",
+        aide: "8 caractères au moins. Transmettez-le à la personne en main propre." }) +
+      UI.champTexte({ id: "pa-code", label: "Son code promo", obligatoire: true,
+        placeholder: "RODRIGUE", aide: "Lettres et chiffres. Ses clients le taperont." }) +
+      UI.champTexte({ id: "pa-remise", label: "Remise du client (%)", placeholder: "0",
+        aide: "Ce que le client gagne en tapant le code. 0 = aucune remise." }) +
+      UI.champTexte({ id: "pa-commission", label: "Commission de la personne (%)",
+        obligatoire: true, placeholder: "2",
+        aide: "Sur le montant payé, créditée à la livraison. Exemple : 2 % d'une commande " +
+              "de 100 000 = 2 000." }) +
+      '<button type="button" class="btn" id="pa-creer" style="margin-top:16px">' +
+        UI.icone("check") + "Créer le compte et le code</button>");
+
+    const val = (id) => (UI.$("#" + id, corps).value || "").trim();
+    const nombre = (id) => Number(val(id).replace(",", ".") || 0);
+    UI.$("#pa-creer", corps).onclick = async () => {
+      const d = {
+        prenom: val("pa-prenom"), nom: val("pa-nom"), email: val("pa-email"),
+        motDePasse: UI.$("#pa-mdp", corps).value, code: val("pa-code"),
+        remise: nombre("pa-remise"), commission: nombre("pa-commission"),
+      };
+      if (!d.prenom || !d.nom) return UI.toast("Le prénom et le nom de la personne.", "err");
+      if (!d.code) return UI.toast("Son code promo.", "err");
+      if (!(d.commission > 0) || d.commission > 50) {
+        return UI.toast("La commission va de 0,5 à 50 %.", "err");
+      }
+      if (d.remise < 0 || d.remise > 50) return UI.toast("La remise va de 0 à 50 %.", "err");
+      const bouton = UI.$("#pa-creer", corps);
+      bouton.disabled = true;
+      try {
+        const r = await Store.creerParrain(d);
+        UI.fermerFeuille();
+        UI.toast(r.confirmationRequise
+          ? "Code " + r.code + " créé. La personne doit d'abord confirmer son e-mail."
+          : "Code " + r.code + " créé.");
+        afficher(vue);
+      } catch (err) {
+        bouton.disabled = false;
+        UI.toast(err.message, "err");
+      }
+    };
   }
 
   /** Fermer un code, ou le rouvrir. */

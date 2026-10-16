@@ -4107,6 +4107,42 @@ Android, qui sert ses fichiers depuis le téléphone.
 
 Banc : [`tools/banc-partage.mjs`](tools/banc-partage.mjs), 12 constats.
 
+## Les codes promo : pas pour les revendeurs, et ceux des particuliers (3.58.0)
+
+**Un revendeur n'a pas de code promo.** Il achète déjà au prix BIZZOO :
+un code s'ajouterait à cette remise et sortirait une seconde fois de la
+même marge. La base le refuse, à l'aperçu comme à la caisse, en le
+disant ; le champ du code n'apparaît plus dans son panier.
+À coller : [`supabase/revendeur-sans-code.sql`](supabase/revendeur-sans-code.sql).
+
+**Le code d'un particulier.** Dans l'admin, *Codes promo → Nouveau code de
+particulier* (superadministrateur) : prénom, nom, e-mail, mot de passe, le
+code, la remise du client (0 à 50 %) et la commission de la personne
+(0,5 à 50 %). Un compte **client** est créé à son nom, puis le code.
+
+- Le client qui tape le code a sa remise. La personne ne peut pas
+  utiliser son propre code.
+- La commission naît à la **livraison** : quand toutes les parts non
+  annulées de la commande sont remises. Une commande annulée ou jamais
+  livrée ne rapporte rien. Exemple : 2 % d'une commande de 100 000 FCFA
+  = 2 000 FCFA. Une commission par commande, garantie par la base.
+- Elle sort de la marge de l'enseigne et la base la **plafonne** à ce
+  que l'enseigne gagne encore sur la commande après la remise.
+- La personne se connecte à l'application client (*Entrer avec une
+  adresse e-mail*), voit **Mes gains** dans *Mon compte* (code, solde,
+  historique) et demande un retrait (500 FCFA au moins) vers son numéro
+  Mobile Money. Le montant demandé n'est plus disponible.
+- L'admin voit les **retraits à verser** sous la liste des codes : on
+  envoie l'argent, puis *Versé* avec la référence du transfert, ou
+  *Refuser* avec un motif (le montant revient sur le solde).
+
+À coller : [`supabase/codes-particuliers.sql`](supabase/codes-particuliers.sql).
+
+Bancs : [`supabase/tests/99w-revendeur-sans-code.sql`](supabase/tests/99w-revendeur-sans-code.sql),
+[`supabase/tests/99x-codes-particuliers.sql`](supabase/tests/99x-codes-particuliers.sql)
+(commission, plafond, annulation, solde, retraits, droits) et
+[`tools/banc-codes-particuliers.mjs`](tools/banc-codes-particuliers.mjs), 14 constats.
+
 ## Structure
 
 ```
@@ -4142,6 +4178,8 @@ impact-informatique-app/
 │   ├── acompte.sql                  # L'acompte à la commande (3.57.0) : en ligne l'acompte, le reste à la livraison
 │   ├── connexion-sms.sql            # Le code SMS de l'équipe, et qui a créé quel compte (3.58.0)
 │   ├── livreur-client.sql           # Le client voit qui lui livre sa commande (3.58.0)
+│   ├── revendeur-sans-code.sql      # Pas de code promo pour un revendeur (3.58.0)
+│   ├── codes-particuliers.sql       # Les codes des particuliers : commission, solde, retraits (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

@@ -1424,6 +1424,57 @@ const Store = (() => {
     return cle;
   }
 
+  /* ---------- Les codes des particuliers ----------
+     Un compte CLIENT, un code à son nom : le client qui le tape a sa
+     remise, le propriétaire touche sa commission à la livraison. */
+
+  async function creerParrain({ prenom, nom, email, motDePasse, code, remise, commission }) {
+    const adresse = String(email || "").trim().toLowerCase();
+    const complet = (String(prenom || "").trim() + " " + String(nom || "").trim()).trim();
+    if (!complet) throw new Error("Le nom et le prénom de la personne.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Une adresse e-mail valide.");
+    if (String(motDePasse || "").length < 8) {
+      throw new Error("Le mot de passe fait au moins 8 caractères.");
+    }
+    const cree = await Supabase.creerCompte(adresse, motDePasse,
+      { compte: "client", nom: complet, type: "client" });
+    const cle = await Supabase.rpcLecture("creer_code_parrain", {
+      compte: cree.id, le_code: code || "", remise: Number(remise) || 0,
+      taux: Number(commission) || 0, nom: complet });
+    journaliser("boutique", "modification",
+      "Code de particulier posé : " + cle + " (" + complet + ")", "Codes promo", undefined, null);
+    return { code: cle, email: adresse, nom: complet, confirmationRequise: cree.confirmationRequise };
+  }
+
+  async function listerParrains() {
+    const lignes = await Supabase.rpcLecture("parrains_liste", {});
+    return (lignes || []).map((l) => ({
+      code: l.code, nom: l.libelle || "", email: l.email || "",
+      remise: Number(l.remise) || 0, commission: Number(l.commission) || 0,
+      actif: l.actif !== false, ventes: Number(l.ventes) || 0,
+      gagne: Number(l.gagne) || 0, retire: Number(l.retire) || 0,
+      enAttente: Number(l.en_attente) || 0, solde: Number(l.solde) || 0,
+    }));
+  }
+
+  async function retraitsATraiter() {
+    const lignes = await Supabase.rpcLecture("retraits_a_traiter", {});
+    return (lignes || []).map((l) => ({
+      id: l.id, code: l.code || "", email: l.email || "", montant: Number(l.montant) || 0,
+      numero: l.numero || "", reseau: l.reseau || "", etat: l.etat,
+      demandeLe: l.demande_le, traiteLe: l.traite_le, reference: l.reference || "",
+      motif: l.motif || "",
+    }));
+  }
+
+  async function traiterRetrait(id, payee, reference, motif) {
+    const etat = await Supabase.rpcLecture("traiter_retrait", {
+      cible: id, payee: !!payee, la_reference: reference || "", le_motif: motif || "" });
+    journaliser("boutique", "modification",
+      (payee ? "Retrait versé" : "Retrait refusé") + " (n° " + id + ")", "Codes promo", undefined, null);
+    return etat;
+  }
+
   /** Ce que les remises ont coûté sur la période, par boutique. */
   async function remisesPeriode({ depuis, jusqu, boutique } = {}) {
     const lignes = await Supabase.rpcLecture("remises_periode", {
@@ -3439,6 +3490,7 @@ const Store = (() => {
     listerClients, lireClient, commandesDuClient,
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
+    creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
     listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,

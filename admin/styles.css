@@ -1718,3 +1718,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   width:100%;padding:9px 11px;border:1px solid var(--trait);border-radius:10px;
   font:inherit;font-size:12.5px;color:var(--encre-douce);background:var(--fond);margin-bottom:8px;
 }
+/* Codes des particuliers : les retraits à verser */
+.cd-retraits{border:1.5px solid var(--orange-fonce)}
+.cd-retrait{padding:10px 0;border-top:1px solid var(--bord, #eee)}
+.cd-retrait:first-of-type{border-top:0}

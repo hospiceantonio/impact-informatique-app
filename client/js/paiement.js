@@ -378,6 +378,13 @@ const Paiement = (() => {
       pour le client qui l'a passée. */
   const livreurs = (id, tel) => rpc("livreurs_de_ma_commande", { cible: id, tel: tel || "" });
 
+  /* Le propriétaire d'un code de particulier : son solde, et ses retraits.
+     null quand le compte n'a pas de code — la carte ne s'affiche pas. */
+  const soldeParrain = () => rpc("mon_solde_parrain", {});
+  const demanderRetrait = (montant, numero, reseau) =>
+    rpc("demander_retrait", { montant: Math.round(Number(montant) || 0),
+      numero: String(numero || ""), reseau: String(reseau || "") });
+
   /** L'état d'une commande, tel que la base le connaît. */
   const suivre = (id, tel) => rpc("suivre_commande", { cible: id, tel });
 
@@ -460,5 +467,6 @@ const Paiement = (() => {
     tauxAcompte, acompteDe,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, attendreConfirmation, livreurs,
+    soldeParrain, demanderRetrait,
   };
 })();
