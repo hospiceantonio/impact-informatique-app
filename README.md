@@ -4081,6 +4081,32 @@ commande), et ne rend rien pour une commande inconnue.
   rien quand la base ne rend rien ou ne connaît pas encore la fonction,
   aucune question pour une commande impayée.
 
+## Les liens de partage : boutique, catalogue, produit (3.58.0)
+
+Chaque boutique, son catalogue et chaque produit ont un lien qui ouvre
+**directement** le bon écran :
+
+| | Lien |
+|---|---|
+| Une boutique | `https://www.bizzoomarket.com/client/#/boutique/<id>` |
+| Son catalogue | `https://www.bizzoomarket.com/client/#/boutique/<id>/produits` |
+| Un produit | `https://www.bizzoomarket.com/client/#/produit/<id>` |
+
+C'est **toujours l'adresse officielle**, même depuis l'application
+Android, qui sert ses fichiers depuis le téléphone.
+
+- **Dans l'application client** : « Partager la boutique » sous
+  « Suivre », une icône de partage dans l'en-tête de la fiche produit et
+  du catalogue d'une boutique. L'application Android ouvre le partage du
+  téléphone (WhatsApp, Messenger, SMS…) par un nouveau pont,
+  `AndroidPont.partager` — il faut donc un nouvel APK. Ailleurs : le
+  partage du navigateur, ou une feuille « WhatsApp / Copier le lien ».
+- **Dans l'admin** : une carte « Liens à partager » sur la fiche d'une
+  boutique (la boutique, son catalogue) et sur celle d'un produit, avec
+  « Copier » et « WhatsApp ».
+
+Banc : [`tools/banc-partage.mjs`](tools/banc-partage.mjs), 12 constats.
+
 ## Structure
 
 ```

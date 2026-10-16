@@ -304,6 +304,12 @@ const VueBoutiques = (() => {
         ? UI.interrupteur({ id: "bq-actif", label: "Boutique ouverte", actif: boutique.actif,
             aide: "Fermée, elle disparaît de l'application des clients. Son catalogue reste intact." })
         : "") +
+      (boutique && boutique.id
+        ? UI.liensPartage([
+            { nom: "La boutique", lien: UI.lienPartage("boutique", boutique.id) },
+            { nom: "Son catalogue", lien: UI.lienPartage("catalogue", boutique.id) },
+          ])
+        : "") +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="bq-enregistrer">' + UI.icone("check") +
           (boutique ? "Enregistrer" : "Créer la boutique") + "</button>" +

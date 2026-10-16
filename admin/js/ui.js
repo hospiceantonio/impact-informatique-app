@@ -665,7 +665,54 @@ const UI = (() => {
     );
   }
 
+  /* ---------- Les liens à partager ----------
+     L'ADRESSE OFFICIELLE de la boutique en ligne, quel que soit
+     l'endroit d'où l'on copie : un lien partagé sur WhatsApp ou sur une
+     page Facebook ouvre directement la boutique, son catalogue ou la
+     fiche du produit. */
+  const SITE_BOUTIQUE = "https://www.bizzoomarket.com/client/#/";
+  function lienPartage(type, id) {
+    const cle = encodeURIComponent(String(id || ""));
+    if (type === "produit") return SITE_BOUTIQUE + "produit/" + cle;
+    if (type === "catalogue") return SITE_BOUTIQUE + "boutique/" + cle + "/produits";
+    return SITE_BOUTIQUE + "boutique/" + cle;
+  }
+
+  /** Une carte de liens : chacun avec « Copier » et « WhatsApp ». */
+  function liensPartage(liens) {
+    return '<div class="carte liens-partage">' +
+      '<div class="carte-titre">' + icone("lien", "ic-sm") + " Liens à partager</div>" +
+      liens.map((l) =>
+        '<div class="lien-partage">' +
+          "<small>" + Utils.echapper(l.nom) + "</small>" +
+          '<input type="text" readonly value="' + Utils.echapper(l.lien) + '">' +
+          '<div class="btn-rangee">' +
+            '<button type="button" class="btn btn-clair" data-copier="' + Utils.echapper(l.lien) + '">' +
+              "Copier</button>" +
+            '<a class="btn btn-clair" target="_blank" rel="noopener" href="' +
+              Utils.echapper("https://wa.me/?text=" + encodeURIComponent(l.lien)) + '">' +
+              icone("whatsapp") + "WhatsApp</a>" +
+          "</div>" +
+        "</div>").join("") +
+    "</div>";
+  }
+
+  /* Un seul écouteur pour tous les boutons « Copier » de l'application. */
+  document.addEventListener("click", async (ev) => {
+    const b = ev.target.closest && ev.target.closest("[data-copier]");
+    if (!b) return;
+    const lien = b.dataset.copier;
+    try {
+      await navigator.clipboard.writeText(lien);
+    } catch (_) {
+      const champ = b.closest(".lien-partage") && b.closest(".lien-partage").querySelector("input");
+      if (champ) { champ.select(); try { document.execCommand("copy"); } catch (__) { /* sélectionné */ } }
+    }
+    toast("Lien copié", "ok");
+  });
+
   return {
+    lienPartage, liensPartage,
     $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     ouvrirVisionneuse, fermerVisionneuse,

@@ -760,6 +760,8 @@ const VueAccueil = (() => {
         '<button type="button" class="btn' + (suivie ? " btn-clair" : "") + '" id="bou-suivre" ' +
           'aria-pressed="' + suivie + '">' +
           (suivie ? UI.icone("check") + "Boutique suivie" : "Suivre") + "</button>" +
+        '<button type="button" class="btn btn-clair bou-partager" id="bou-partager">' +
+          UI.icone("partager") + "Partager la boutique</button>" +
         '<div class="bou-onglets" role="tablist">' +
           ONGLETS_FICHE.map((o) =>
             '<button type="button" role="tab" class="bou-onglet' + (o.cle === onglet ? " actif" : "") +
@@ -770,6 +772,10 @@ const VueAccueil = (() => {
       '<div id="bou-contenu"></div>';
 
     brancherSuivre(b);
+    UI.$("#bou-partager", vue).onclick = () => UI.partager({
+      titre: b.nom, texte: "Découvrez " + b.nom + " sur BIZZOO",
+      lien: Utils.lienPartage("boutique", b.id),
+    });
 
     const contenu = UI.$("#bou-contenu", vue);
     const montrer = (cle) => {

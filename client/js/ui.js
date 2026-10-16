@@ -940,6 +940,61 @@ const UI = (() => {
       icone("recherche") + "</a>";
   }
 
+  function boutonPartager(id) {
+    return '<button type="button" class="btn-ic" id="' + id + '" aria-label="Partager">' +
+      icone("partager") + "</button>";
+  }
+
+  /* ---------- Partager un lien ----------
+     Le partage du téléphone d'abord : l'application Android a le sien
+     (le pont), le navigateur le sien quand il en a. Sinon, une petite
+     feuille : WhatsApp, ou copier le lien. */
+  async function partager({ titre, texte, lien }) {
+    const message = (texte ? texte + "\n" : "") + lien;
+    const pont = typeof AndroidPont !== "undefined" ? AndroidPont : null;
+    if (pont && typeof pont.partager === "function") {
+      try { pont.partager(titre || "BIZZOO", message); return; } catch (_) { /* le navigateur */ }
+    }
+    if (navigator.share) {
+      try { await navigator.share({ title: titre || "BIZZOO", text: texte || "", url: lien }); return; }
+      catch (err) { if (err && err.name === "AbortError") return; }
+    }
+    feuillePartage(titre, message, lien);
+  }
+
+  function feuillePartage(titre, message, lien) {
+    const ancienne = document.getElementById("feuille-partage");
+    if (ancienne) ancienne.remove();
+    const f = document.createElement("div");
+    f.id = "feuille-partage";
+    f.className = "feuille-partage";
+    f.innerHTML =
+      '<div class="feuille-partage-fond" data-fermer></div>' +
+      '<div class="feuille-partage-corps" role="dialog" aria-label="Partager">' +
+        '<div class="carte-titre">' + Utils.echapper(titre || "Partager") + "</div>" +
+        '<input class="feuille-partage-lien" type="text" readonly value="' + Utils.echapper(lien) + '">' +
+        '<div class="btn-rangee">' +
+          '<a class="btn btn-wa" target="_blank" rel="noopener" href="' +
+            Utils.echapper("https://wa.me/?text=" + encodeURIComponent(message)) + '">' +
+            icone("whatsapp") + "WhatsApp</a>" +
+          '<button type="button" class="btn btn-clair" id="feuille-partage-copier">Copier le lien</button>' +
+        "</div>" +
+        '<button type="button" class="lien-texte feuille-partage-fermer" data-fermer>Fermer</button>' +
+      "</div>";
+    document.body.appendChild(f);
+    for (const el of f.querySelectorAll("[data-fermer]")) el.onclick = () => f.remove();
+    f.querySelector("#feuille-partage-copier").onclick = async () => {
+      const champ = f.querySelector(".feuille-partage-lien");
+      try {
+        await navigator.clipboard.writeText(lien);
+      } catch (_) {
+        champ.select();
+        try { document.execCommand("copy"); } catch (__) { /* le lien reste sélectionné */ }
+      }
+      toast("Lien copié", "ok");
+    };
+  }
+
   /* ---------- L'action du bas d'un écran de parcours ----------
      « Ajouter au panier », « Passer la commande », « Payer » : fixée au
      bas de l'écran, à la place de la barre d'onglets que ces écrans
@@ -1068,5 +1123,6 @@ const UI = (() => {
     pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide, recherchePilule, boutonRecherche, barreAction, retirerAction,
+    boutonPartager, partager,
   };
 })();

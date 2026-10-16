@@ -27,6 +27,9 @@ const App = { evenementInstallation: null };
     { motif: /^\/promos$/, vue: (v) => VueCategories.promos(v), onglet: "/" },
     /* Les produits d'une boutique : l'onglet « Produits » de sa fiche y
        mène aussi, pour qui veut la liste entière avec ses tris. */
+    /* LE CATALOGUE D'UNE BOUTIQUE, par un lien partagé : on entre chez
+       elle, puis tous ses produits. */
+    { motif: /^\/boutique\/([^/]+)\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/" },
     { motif: /^\/produits$/, vue: (v) => VueProduits.afficher(v), onglet: "/" },
     /* « Nos produits » : le « Voir tout » de l'accueil. Tout le
        catalogue de BIZZOO en galerie, les derniers arrivés d'abord. */
@@ -229,7 +232,7 @@ const App = { evenementInstallation: null };
     if (chemin === "/" || chemin === "/infos" || chemin === "/nos-produits") {
       Catalogue.quitterBoutique();
     }
-    const laBoutique = /^\/boutique\/([^/]+)$/.exec(chemin);
+    const laBoutique = /^\/boutique\/([^/]+)(\/produits)?$/.exec(chemin);
     if (laBoutique) Catalogue.choisirBoutique(laBoutique[1]);
 
     const produit = /^\/produit\/([^/]+)$/.exec(chemin);
@@ -298,7 +301,7 @@ const App = { evenementInstallation: null };
        écrirait à la dernière boutique visitée, qui n'a peut-être rien à
        voir avec ce que le client regarde. */
     const flotte = enBoutique() &&
-      /^\/(boutique\/[^/]+|produit\/[^/]+|produits)$/.test(chemin || "");
+      /^\/(boutique\/[^/]+(\/produits)?|produit\/[^/]+|produits)$/.test(chemin || "");
 
     /* ---------- À QUI l'on écrit ----------
        Le bouton vu DANS une boutique écrit à CETTE boutique : le client

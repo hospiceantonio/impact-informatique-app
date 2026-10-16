@@ -2162,3 +2162,18 @@ a.pub-carte:active{transform:scale(.98)}
 /* Le code du produit parmi les pastilles : lisible, pas criard. */
 .fiche-badges .fiche-code{margin:0;padding:3px 8px;font-size:11.5px;font-weight:700;
   letter-spacing:.04em}
+
+/* ---------- Partager ---------- */
+.bou-partager{margin-top:8px}
+.feuille-partage{position:fixed;inset:0;z-index:300;display:flex;align-items:flex-end;justify-content:center}
+.feuille-partage-fond{position:absolute;inset:0;background:rgba(9,26,81,.35)}
+.feuille-partage-corps{
+  position:relative;width:100%;max-width:520px;background:var(--blanc);
+  border-radius:var(--r-lg) var(--r-lg) 0 0;padding:18px 16px calc(16px + var(--safe-b));
+  box-shadow:var(--ombre-forte);
+}
+.feuille-partage-lien{
+  width:100%;margin:6px 0 12px;padding:10px 12px;border:1px solid var(--trait);
+  border-radius:var(--r-sm);font:inherit;font-size:13px;color:var(--encre-douce);background:var(--fond);
+}
+.feuille-partage-fermer{display:block;margin:14px auto 0;background:none;border:0;padding:6px 10px;font:inherit;cursor:pointer}

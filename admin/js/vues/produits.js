@@ -695,6 +695,9 @@ const VueProduits = (() => {
       Supabase.peutChangerDeBoutique();
 
     vue.innerHTML =
+      (existant
+        ? UI.liensPartage([{ nom: "Ce produit", lien: UI.lienPartage("produit", existant.id) }])
+        : "") +
       (laBoutique
         ? '<div class="carte">' +
             '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Boutique</div>" +
