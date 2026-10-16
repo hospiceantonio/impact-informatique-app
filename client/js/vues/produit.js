@@ -112,6 +112,8 @@ const VueProduit = (() => {
         poser();
         return;
       }
+      /* Ce qui est vraiment entré, pas ce qui était demandé. */
+      Pixel.ajoutPanier(p, r.ajoute, Catalogue.deviseDe(p));
       UI.toast(r.ajoute < quantite
         ? "Il n'en restait que " + r.ajoute + " de plus : " + r.ajoute +
           (r.ajoute > 1 ? " ajoutés" : " ajouté") + " au panier"
@@ -166,6 +168,7 @@ const VueProduit = (() => {
     const boutique = Catalogue.boutique();
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     const similaires = Catalogue.similaires(p, 4);
+    Pixel.produitVu(p, Catalogue.deviseDe(p));
 
     /* L'EN-TÊTE DE LA DA : le retour à gauche, le cœur et le panier à
        droite, et pas de titre — le nom du produit est en grand juste

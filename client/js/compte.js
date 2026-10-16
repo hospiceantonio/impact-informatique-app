@@ -723,7 +723,9 @@ const Compte = (() => {
     await chargerPrix();
     const u = d.user || {};
     const ecart = Date.parse(u.last_sign_in_at || "") - Date.parse(u.created_at || "");
-    return { nouveau: ecart >= 0 && ecart < 15 * 60000 };
+    /* « utilisateur » sert à la publicité : c'est l'écran, qui sait si une
+       demande de revendeur accompagne l'inscription, qui la déclare. */
+    return { nouveau: ecart >= 0 && ecart < 15 * 60000, utilisateur: d.user || null };
   }
 
   /** Porte 2 — demander un code pour vérifier son numéro, déjà connecté. */

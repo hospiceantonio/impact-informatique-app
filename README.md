@@ -3924,6 +3924,112 @@ La conformité doit être évaluée sur les fonctionnalités réellement propos�
 localisation facultative, notifications, photos, comptes et commandes.
 La présence d'icônes adaptatives et d'une cible Android récente ne suffit pas.
 
+## Le pixel Meta (3.54.2, site web seulement)
+
+Le pixel **1786119222612781** mesure la publicité de BIZZOO sur Facebook
+et Instagram. Tout passe par
+[`client/js/pixel.js`](client/js/pixel.js) : les écrans disent « ceci
+vient d'arriver », le module décide de ce qui part, et quand.
+
+**Il ne vit que sur l'adresse officielle**, `www.bizzoomarket.com` (et
+`bizzoomarket.com`). Les applications Android et iPhone servent les mêmes
+fichiers, mais depuis le téléphone : pas de pixel, donc rien à déclarer de
+plus sur Google Play, et pas d'autorisation de suivi à demander sur
+l'iPhone. La copie de GitHub Pages ne parle pas à Meta non plus.
+L'application admin n'a pas de pixel.
+
+| Événement | Quand il part |
+|---|---|
+| `PageView` | à chaque écran de la boutique, et à l'ouverture de la vitrine |
+| `ViewContent` | une fiche produit ouverte : identifiant, nom, prix, XOF |
+| `AddToCart` | « Ajouter au panier » — ce qui est vraiment entré, pas ce qui était demandé |
+| `InitiateCheckout` | « Passer la commande » : le panier entier, son total |
+| `AddPaymentInfo` | le choix de l'opérateur, ou « Payer » si on a gardé celui proposé — une fois par écran |
+| `Purchase` | **quand la base confirme le versement**, jamais au clic sur « Payer » : total payé, produits, quantités, numéro de commande |
+| `CompleteRegistration` | un compte créé par e-mail, ou par numéro — la naissance du compte, pas chaque retour |
+| `Lead` | une demande de compte revendeur, à l'inscription ou depuis « Mon compte » |
+| `Search` | ce qu'on a fini de taper : une pause d'une seconde et demie, ou Entrée |
+| `Contact` | un lien WhatsApp vers un numéro, `tel:` ou `mailto:` — un partage WhatsApp n'en est pas un |
+
+**Un envoi par action.** Un écran redessiné — catalogue mis à jour, prix
+d'un revendeur arrivés — n'est pas une visite. Un écran qui renvoie aussitôt
+ailleurs (le panier vide qui ramène à l'accueil) non plus : seul le second
+compte. Un écran qui travaille longtemps compte au bout de deux secondes
+s'il est toujours affiché : le reçu, qui patiente jusqu'à la confirmation du
+paiement, aurait sinon compté une minute et demie trop tard — ou jamais. Meta suit d'ordinaire tout seul les changements d'adresse des
+applications d'une page ; `disablePushState` le lui interdit, sinon chaque
+écran compterait deux fois. Un achat est gardé en mémoire sur le téléphone,
+avec un `eventID` (`achat-BZ-…`) : un reçu rouvert, une confirmation relue
+ne le recomptent pas. Seules comptent les commandes passées depuis ce
+téléphone, et depuis moins d'une semaine : une vieille commande restée « à
+payer », dont la confirmation n'est relue qu'aujourd'hui, ne devient pas un
+achat du jour.
+
+**Rien de personnel.** Ni nom, ni numéro, ni e-mail : des identifiants de
+produits, des montants en nombre entier (18500, pas « 18 500 FCFA »), la
+monnaie (XOF), un numéro de commande. Une recherche qui ressemble à un
+numéro ou à une adresse e-mail ne part pas. La configuration automatique
+de Meta (`autoConfig`) est coupée : elle relève d'elle-même les clics et le
+contenu des pages. *Dans le Gestionnaire d'événements, la « correspondance
+avancée automatique » doit rester éteinte* : elle irait chercher, de son
+côté, les e-mails et numéros tapés dans les formulaires.
+
+**Jamais de jeton vers Meta.** Le lien « mot de passe oublié » ramène le
+client avec sa session dans l'adresse, et Meta reçoit l'adresse avec chaque
+événement. Le pixel ne se charge donc qu'au premier écran dessiné, quand
+l'application a lu le jeton et nettoyé l'adresse ; et rien ne part tant
+qu'elle en porte un. Sur la vitrine, la redirection vers la boutique passe
+avant le pixel. Le code de Meta ne se colle donc **pas** tel quel en tête de
+page, comme Meta le conseille : il doit rester après la redirection.
+
+**Sans bandeau de consentement**, par décision de l'enseigne. La
+[politique de confidentialité](legal/confidentialite.html) (section
+« Mesure publicitaire sur le site », version du 15 octobre 2026) dit ce qui
+part, à qui, et comment s'y opposer. Elle est générée par
+`tools/generer-mentions.py`, comme les autres pages légales.
+
+### Ce que la 3.58.0 y change
+
+- **L'inscription par numéro.** Le compte naît au code validé ; c'est
+  l'écran (`apresEntree`) qui la déclare, parce que lui seul sait si une
+  demande de revendeur l'accompagne : `CompleteRegistration` porte alors
+  « revendeur », et `Lead` part une fois la demande enregistrée. Un numéro
+  qui avait déjà son compte n'est pas un inscrit. L'inscription par e-mail
+  ne vit plus que quand le SMS est fermé ; elle déclare comme avant.
+- **L'acompte.** La valeur de `Purchase` reste **celle de la commande** :
+  c'est ce que le client achète, et ce que la publicité doit mesurer. Ce
+  qui a été versé en ligne part à côté, dans `acompte` ; le reste se paie à
+  la livraison. L'achat part toujours à la confirmation du versement, et
+  pas avant.
+
+### Le banc
+
+[`tools/banc-pixel-meta.mjs`](tools/banc-pixel-meta.mjs) sert le site sous
+sa vraie adresse, remplace le script de Meta par un enregistreur, et note
+chaque appel au moment où il part, avec l'adresse que Meta recevrait :
+**78 constats** sur la 3.58.0 (71 sur la 3.54.2 en ligne : l'inscription
+par numéro, l'acompte et un écran lent s'y ajoutent), de l'APK sans pixel
+au jeton qui ne part jamais.
+**Seize sabotages le font tomber**, chacun là où il casse : le pixel dans
+l'APK, `disablePushState` ou `autoConfig` oubliés, le code de Meta collé en
+tête de vitrine, l'écran redirigé ou redessiné compté, le reçu jamais compté
+pendant qu'il attend le paiement, l'achat oublié, compté au clic sur
+« Payer » ou compté pour une vieille commande, un numéro parti dans la
+recherche, le partage pris pour un contact, chaque retour par numéro compté
+comme une inscription, les montants en texte, la demande de revendeur
+perdue, le moyen de paiement redit. Sur la 3.58.0, **vingt** : les mêmes —
+le reçu, qui y rend la main tout de suite depuis la 3.56.1, cède la place
+à un écran lent, la commande d'un autre téléphone que la base met quatre
+secondes à rendre —, et quatre sur ce qu'elle ajoute : l'inscription par
+numéro non déclarée, la demande de revendeur qui l'accompagne perdue,
+l'acompte non transmis, l'achat qui vaudrait l'acompte au lieu de la
+commande.
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js \
+CHROMIUM=<chemin>/chrome node tools/banc-pixel-meta.mjs
+```
+
 ## Structure
 
 ```

@@ -126,6 +126,12 @@ const VueRecherche = (() => {
     zone.addEventListener("click", changerPortee);
 
     champ.addEventListener("input", Utils.tempo(rendre, 200));
+    /* Pour la publicité, une recherche est ce qu'on a fini de taper :
+       une pause, ou Entrée. Les lettres d'avant ne comptent pas. */
+    champ.addEventListener("input", Utils.tempo(() => Pixel.recherche(champ.value), 1500));
+    champ.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") Pixel.recherche(champ.value);
+    });
     rendre();
     if (!dernierTerme) champ.focus();
   }

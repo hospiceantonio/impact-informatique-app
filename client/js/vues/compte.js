@@ -250,6 +250,10 @@ const VueCompte = (() => {
           "partie : refaites-la depuis Mon compte.", "alerte");
       }
     }
+    /* La publicité : la naissance du compte — le module ne la compte
+       qu'une fois, et jamais pour un retour —, puis la demande partie. */
+    Pixel.entreeParCode(r && r.utilisateur, o.revendeur ? "revendeur" : "client");
+    if (demandee) Pixel.demandeRevendeur();
     const mot = o.inscription && !nouveau ? "Ce numéro avait déjà son compte : vous y êtes."
       : demandee ? "Bienvenue ! Votre demande est partie."
       : nouveau ? "Bienvenue !" : "Bonjour !";
@@ -586,6 +590,10 @@ const VueCompte = (() => {
       try {
         const r = await Compte.inscrire(email, mdp, nom, type, message,
           type === "revendeur" ? lirePosition() : null);
+        /* Le compte existe, confirmation par e-mail ou non. Un revendeur
+           a, en plus, déposé sa demande. */
+        Pixel.inscription(type);
+        if (type === "revendeur") Pixel.demandeRevendeur();
         if (r.confirmation) {
           /* BIZZOO demande une confirmation par e-mail : il n'y a pas de
              session, donc rien à afficher d'autre que la marche à suivre. */
@@ -1195,6 +1203,7 @@ const VueCompte = (() => {
         demander.disabled = true;
         try {
           await Compte.demanderRevendeur(message, lirePosition());
+          Pixel.demandeRevendeur();
           UI.toast("Demande envoyée à BIZZOO.");
           monCompte(vue);
         } catch (err) {
