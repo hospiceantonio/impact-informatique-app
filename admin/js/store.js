@@ -1972,6 +1972,8 @@ const Store = (() => {
       acompte: l.acompte == null ? Number(l.total) || 0 : Number(l.acompte) || 0,
       tauxAcompte: l.taux_acompte == null ? 100 : Number(l.taux_acompte) || 100,
       verse: l.verse == null ? null : Number(l.verse),
+      /* Les frais de livraison, dans le total : une fois par commande. */
+      fraisLivraison: Math.max(0, Number(l.frais_livraison) || 0),
       aEncaisser: restes ? Math.max(0, Number(restes.reste) || 0) : 0,
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
@@ -2112,6 +2114,8 @@ const Store = (() => {
       /* L'acompte à la commande, en pour cent. Une base d'avant ne le
          connaît pas : null, et l'écran ne propose pas d'y toucher. */
       tauxAcompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
+      /* Les frais de livraison par commande. Même règle. */
+      fraisLivraison: l.frais_livraison == null ? null : Number(l.frais_livraison),
     };
   }
 
@@ -2134,6 +2138,13 @@ const Store = (() => {
       }
       corps.taux_acompte = taux;
     }
+    if (maj.fraisLivraison != null) {
+      const frais = Math.round(Number(maj.fraisLivraison));
+      if (!(frais >= 0 && frais <= 100000)) {
+        throw new Error("Les frais de livraison vont de 0 à 100 000 FCFA.");
+      }
+      corps.frais_livraison = frais;
+    }
     await Supabase.requete("PATCH", "paiement?id=eq.1", corps);
     /* Changer d'agrégateur engage l'argent de toute l'enseigne : le
        journal doit dire LEQUEL, pas seulement « modifié ». */
@@ -2141,7 +2152,8 @@ const Store = (() => {
     journaliser("boutique", "modification",
       "Paiement en ligne " + (maj.actif ? "ouvert" : "fermé") + " — " + nom +
       (fournisseur === "kkiapay" && maj.bacASable ? " (mode essai)" : "") +
-      (corps.taux_acompte != null ? " — acompte " + corps.taux_acompte + " %" : ""),
+      (corps.taux_acompte != null ? " — acompte " + corps.taux_acompte + " %" : "") +
+      (corps.frais_livraison != null ? " — livraison " + corps.frais_livraison + " FCFA" : ""),
       nom, undefined, null);
   }
 

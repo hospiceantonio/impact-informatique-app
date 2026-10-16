@@ -50,6 +50,10 @@ alter table public.profils
 alter table public.profils
   add column if not exists peut_finances  boolean not null default false;
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -281,6 +285,7 @@ begin
   or new.taux_acompte is distinct from old.taux_acompte
   or new.acompte is distinct from old.acompte
   or new.verse is distinct from old.verse
+  or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;

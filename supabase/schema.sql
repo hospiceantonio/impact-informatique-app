@@ -2433,6 +2433,21 @@ begin
 end $$;
 insert into public.paiement (id) values (1) on conflict (id) do nothing;
 
+-- LES FRAIS DE LIVRAISON, en FCFA, par commande. Fixes pour l'instant
+-- (1 000) ; ils dépendront plus tard de la distance. Ils s'ajoutent au
+-- montant des articles, et AUCUN code promo ne les touche. Le
+-- superadministrateur seul les règle, comme l'acompte.
+alter table public.paiement
+  add column if not exists frais_livraison int not null default 1000;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_frais_livraison_borne') then
+    alter table public.paiement
+      add constraint paiement_frais_livraison_borne
+      check (frais_livraison between 0 and 100000);
+  end if;
+end $$;
+
 alter table public.paiement enable row level security;
 drop policy if exists "paiement lecture"  on public.paiement;
 drop policy if exists "paiement ecriture" on public.paiement;
@@ -2597,6 +2612,11 @@ alter table public.commandes add column if not exists remise bigint not null def
 alter table public.commandes add column if not exists taux_acompte int;
 alter table public.commandes add column if not exists acompte int;
 alter table public.commandes add column if not exists verse int;
+-- Les frais de livraison de CETTE commande, figés à sa création. Ils
+-- font partie du total (ce que le client paie) mais pas des articles :
+-- ni la remise d'un code, ni la commission d'un particulier ne les
+-- touchent. 0 sur les commandes d'avant.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
@@ -2629,6 +2649,9 @@ begin
   new.taux_acompte := null;
   new.acompte := null;
   new.verse := null;
+  -- Les frais de livraison aussi : « creer_commande » les pose, d'après
+  -- les réglages de l'enseigne. Le téléphone n'en décide pas.
+  new.frais_livraison := 0;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -2717,6 +2740,9 @@ begin
                        from public.commande_lignes l
                       where l.commande_id = cible), 0)
            - greatest(0, coalesce(c.remise, 0)))
+           -- Les frais de livraison s'ajoutent APRÈS la remise : un code
+           -- promo ne les touche pas.
+           + greatest(0, coalesce(c.frais_livraison, 0))
    where c.id = cible;
   perform set_config('bizzoo.interne', avant, true);
 end $$;
@@ -2782,6 +2808,7 @@ begin
   or new.taux_acompte is distinct from old.taux_acompte
   or new.acompte is distinct from old.acompte
   or new.verse is distinct from old.verse
+  or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -2930,6 +2957,7 @@ returns table (boutique_id text, a_encaisser bigint)
 language sql stable security definer set search_path = public as $$
   with commande as (
     select c.total::numeric as total,
+           greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
            coalesce(c.verse, c.acompte, c.total)::numeric as deja
       from public.commandes c
      where c.id = cible
@@ -2943,11 +2971,15 @@ language sql stable security definer set search_path = public as $$
   ), reste as (
     -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
     -- qui est déjà versé.
-    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+    -- LES FRAIS DE LIVRAISON ne se réduisent pas au prorata : tant qu'il
+    -- reste quelque chose à livrer, la course a lieu et coûte son prix.
+    -- Tout annulé, il n'y a pas de course, donc pas de frais.
+    select greatest(0, coalesce(round((c.total - c.frais) * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       + case when sum(p.servi) > 0 then c.frais else 0 end
                        - c.deja) as du,
            sum(p.servi) as servi
       from commande c, parts p
-     group by c.total, c.deja
+     group by c.total, c.frais, c.deja
   ), repartie as (
     select p.boutique,
            coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
@@ -3750,9 +3782,10 @@ grant execute on function public.remises_periode(date, date, text) to authentica
 -- not unique ».
 drop function if exists public.creer_commande(jsonb, jsonb);
 drop function if exists public.creer_commande(jsonb, jsonb, text);
+drop function if exists public.creer_commande(jsonb, jsonb, text, boolean);
 create or replace function public.creer_commande(
   client jsonb, articles jsonb, code text default '',
-  avec_acompte boolean default false)
+  avec_acompte boolean default false, avec_frais boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -3818,6 +3851,22 @@ begin
     left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
     left(coalesce(trim(client ->> 'adresse'), ''), 300),
     left(coalesce(trim(client ->> 'note'), ''), 500));
+
+  -- ---------- Les frais de livraison ----------
+  -- AVANT les lignes : chaque ligne posée recalcule le total, qui les
+  -- compte. Le montant est celui des réglages du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE LES DEMANDE PAS, et n'en paie donc pas :
+  -- elle ne saurait pas les montrer, et le client paierait un montant
+  -- qu'on ne lui a jamais annoncé.
+  -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
+  if coalesce(avec_frais, false) then
+    update public.commandes
+       set frais_livraison = greatest(0, coalesce(
+             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
+     where id = nouvelle;
+  end if;
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -3932,6 +3981,9 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Les frais de livraison, à part : le récapitulatif les montre sur
+       leur propre ligne. */
+    'frais_livraison', c.frais_livraison,
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
@@ -3965,8 +4017,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text, boolean) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text, boolean) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) to anon, authenticated;
 
 -- ---------- Suivre sa commande ----------
 -- Après le paiement, l'application ATTEND que l'état bouge, elle ne
@@ -3987,6 +4039,7 @@ begin
   return jsonb_build_object(
     'numero', c.numero, 'etat', c.etat, 'total', c.total, 'devise', c.devise,
     'paye_le', c.paye_le, 'remarque', c.remarque,
+    'frais_livraison', c.frais_livraison,
     -- L'acompte, ce qui a été versé, et ce qui reste à payer à la
     -- livraison, boutique par boutique. Une commande d'avant l'acompte
     -- se payait en entier : son acompte est son total.
@@ -7436,12 +7489,16 @@ begin
     from public.commande_lignes l where l.commande_id = cible;
   if restant > 0 or livrees = 0 then return 0; end if;
 
-  brut := round(greatest(0, c.total) * least(50, greatest(0, k.commission)) / 100)::bigint;
+  -- Sur les ARTICLES, remise déduite : les frais de livraison paient la
+  -- course, ils ne rapportent rien au propriétaire du code.
+  brut := round(greatest(0, c.total - coalesce(c.frais_livraison, 0))
+                * least(50, greatest(0, k.commission)) / 100)::bigint;
   montant := least(brut, greatest(0, marge - coalesce(c.remise, 0)));
   if montant <= 0 then return 0; end if;
 
   insert into public.gains_parrain (parrain, commande_id, code, base, taux, montant)
-  values (k.parrain, cible, k.code, greatest(0, c.total), k.commission, montant)
+  values (k.parrain, cible, k.code, greatest(0, c.total - coalesce(c.frais_livraison, 0)),
+          k.commission, montant)
   on conflict (commande_id) do nothing;
   if not found then return 0; end if;
 

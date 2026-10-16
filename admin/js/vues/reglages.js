@@ -627,6 +627,21 @@ const VueReglages = (() => {
                 "total quoi que dise ce réglage.</div>" +
             "</div>" +
 
+            /* ---- Les frais de livraison ----
+               Un montant par commande, ajouté au total. Aucun code promo
+               ne les touche. Fixes pour l'instant ; ils dépendront plus
+               tard de la distance. */
+            '<div class="champ" id="pay-bloc-frais" hidden>' +
+              '<label for="pay-frais">Frais de livraison</label>' +
+              '<div class="champ-montant">' +
+                '<input id="pay-frais" inputmode="numeric" autocomplete="off" placeholder="1000">' +
+                '<span class="devise">FCFA</span>' +
+              "</div>" +
+              '<div class="aide">Ajoutés une fois à chaque commande, même si plusieurs ' +
+                "boutiques livrent. Les codes promo ne les touchent pas. 0 : pas de frais. " +
+                "Les applications d'avant la 3.58.0 ne les font pas payer.</div>" +
+            "</div>" +
+
             UI.interrupteur({ id: "pay-actif", label: "Ouvrir le paiement aux clients",
               actif: false,
               aide: "À n\'ouvrir qu\'une fois un paiement réussi de bout en bout." }) +
@@ -773,6 +788,10 @@ const VueReglages = (() => {
           UI.$("#pay-acompte").value = String(p.tauxAcompte);
           UI.$("#pay-bloc-acompte").hidden = false;
         }
+        if (p.fraisLivraison != null) {
+          UI.$("#pay-frais").value = String(p.fraisLivraison);
+          UI.$("#pay-bloc-frais").hidden = false;
+        }
       }).catch(() => { /* base d'avant les achats intégrés : carte vide */ });
 
       boutonPaiement.onclick = async () => {
@@ -801,12 +820,23 @@ const VueReglages = (() => {
             return;
           }
         }
+        const blocFrais = UI.$("#pay-bloc-frais");
+        let fraisLivraison = null;
+        if (blocFrais && !blocFrais.hidden) {
+          const brut = UI.$("#pay-frais").value.trim().replace(/\s|fcfa/gi, "");
+          fraisLivraison = /^\d{1,6}$/.test(brut) ? Number(brut) : NaN;
+          if (!(fraisLivraison >= 0 && fraisLivraison <= 100000)) {
+            UI.toast("Les frais de livraison vont de 0 à 100 000 FCFA", "err");
+            UI.$("#pay-frais").focus();
+            return;
+          }
+        }
         boutonPaiement.disabled = true;
         try {
           await Store.majPaiement({
             actif, fournisseur, clePublique: cle,
             bacASable: UI.$("#pay-essai").checked,
-            tauxAcompte,
+            tauxAcompte, fraisLivraison,
           });
           const nom = fournisseur === "feexpay" ? "FeexPay" : "KkiaPay";
           UI.toast((actif

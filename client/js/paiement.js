@@ -123,7 +123,8 @@ const Paiement = (() => {
    */
   async function charger(options) {
     const c = Catalogue.configuration();
-    if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true, tauxAcompte: 100 });
+    if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true, tauxAcompte: 100,
+                                 fraisLivraison: 0 });
     try {
       const reponse = await fetch(c.url + "/rest/v1/paiement?select=*&id=eq.1",
         { headers: { "apikey": c.cle } });
@@ -139,19 +140,25 @@ const Paiement = (() => {
            superadministrateur. Une base d'avant ne le connaît pas : on y
            payait le total, et c'est donc ce qu'on annonce. */
         tauxAcompte: tauxValable(ligne.taux_acompte),
+        /* LES FRAIS DE LIVRAISON, par commande, en FCFA. Une base d'avant
+           ne les connaît pas : il n'y en a pas, et on n'en annonce pas. */
+        fraisLivraison: Math.max(0, Math.round(Number(ligne.frais_livraison) || 0)),
       };
     } catch (_) {
       if (options && options.garder && reglages) return reglages;
       /* Base d'avant le paiement, ou hors connexion : la boutique
          fonctionne comme avant, commande par WhatsApp. */
       reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true,
-                   tauxAcompte: 100 };
+                   tauxAcompte: 100, fraisLivraison: 0 };
     }
     return reglages;
   }
 
   const fournisseur = () => (reglages && reglages.fournisseur) || "kkiapay";
   const tauxAcompte = () => (reglages && reglages.tauxAcompte) || 100;
+  /** Les frais de livraison d'une commande. Un APERÇU : la base fige les
+      siens sur la commande, et c'est ce montant-là qui se paie. */
+  const fraisLivraison = () => (reglages && reglages.fraisLivraison) || 0;
 
   /**
    * L'acompte que la base posera sur ce total. C'EST UN APERÇU, pour que
@@ -343,6 +350,14 @@ const Paiement = (() => {
    * l'écran suit la réponse.
    */
   async function creerCommande(client, articles, code) {
+    /* Du plus récent au plus ancien : une base d'avant les frais de
+       livraison, ou d'avant l'acompte, ne connaît pas ces paramètres. */
+    try {
+      return await rpc("creer_commande",
+        { client, articles, code: code || "", avec_acompte: true, avec_frais: true });
+    } catch (err) {
+      if (!err.inconnue) throw err;
+    }
     try {
       return await rpc("creer_commande",
         { client, articles, code: code || "", avec_acompte: true });
@@ -467,7 +482,7 @@ const Paiement = (() => {
 
   return {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
-    tauxAcompte, acompteDe,
+    tauxAcompte, acompteDe, fraisLivraison,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,

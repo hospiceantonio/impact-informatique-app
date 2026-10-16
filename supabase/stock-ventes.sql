@@ -42,6 +42,10 @@ alter table public.commande_lignes
 -- Avec ce qu'elle appelle, pour qu'une base qui n'aurait pas reçu les
 -- fichiers précédents dans l'ordre ne s'arrête pas à la première vente.
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.compte_exige() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select r.compte_obligatoire from public.reglages r where r.id = 1), false);
@@ -70,6 +74,9 @@ begin
                        from public.commande_lignes l
                       where l.commande_id = cible), 0)
            - greatest(0, coalesce(c.remise, 0)))
+           -- Les frais de livraison s'ajoutent APRÈS la remise : un code
+           -- promo ne les touche pas.
+           + greatest(0, coalesce(c.frais_livraison, 0))
    where c.id = cible;
   perform set_config('bizzoo.interne', avant, true);
 end $$;
@@ -192,6 +199,7 @@ returns table (boutique_id text, a_encaisser bigint)
 language sql stable security definer set search_path = public as $$
   with commande as (
     select c.total::numeric as total,
+           greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
            coalesce(c.verse, c.acompte, c.total)::numeric as deja
       from public.commandes c
      where c.id = cible
@@ -205,11 +213,15 @@ language sql stable security definer set search_path = public as $$
   ), reste as (
     -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
     -- qui est déjà versé.
-    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+    -- LES FRAIS DE LIVRAISON ne se réduisent pas au prorata : tant qu'il
+    -- reste quelque chose à livrer, la course a lieu et coûte son prix.
+    -- Tout annulé, il n'y a pas de course, donc pas de frais.
+    select greatest(0, coalesce(round((c.total - c.frais) * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       + case when sum(p.servi) > 0 then c.frais else 0 end
                        - c.deja) as du,
            sum(p.servi) as servi
       from commande c, parts p
-     group by c.total, c.deja
+     group by c.total, c.frais, c.deja
   ), repartie as (
     select p.boutique,
            coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
@@ -225,9 +237,10 @@ revoke all on function public.restes_par_boutique(text) from public, anon, authe
 
 drop function if exists public.creer_commande(jsonb, jsonb);
 drop function if exists public.creer_commande(jsonb, jsonb, text);
+drop function if exists public.creer_commande(jsonb, jsonb, text, boolean);
 create or replace function public.creer_commande(
   client jsonb, articles jsonb, code text default '',
-  avec_acompte boolean default false)
+  avec_acompte boolean default false, avec_frais boolean default false)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -293,6 +306,22 @@ begin
     left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
     left(coalesce(trim(client ->> 'adresse'), ''), 300),
     left(coalesce(trim(client ->> 'note'), ''), 500));
+
+  -- ---------- Les frais de livraison ----------
+  -- AVANT les lignes : chaque ligne posée recalcule le total, qui les
+  -- compte. Le montant est celui des réglages du jour, figé sur la
+  -- commande.
+  --
+  -- UNE APPLICATION D'AVANT NE LES DEMANDE PAS, et n'en paie donc pas :
+  -- elle ne saurait pas les montrer, et le client paierait un montant
+  -- qu'on ne lui a jamais annoncé.
+  -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
+  if coalesce(avec_frais, false) then
+    update public.commandes
+       set frais_livraison = greatest(0, coalesce(
+             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
+     where id = nouvelle;
+  end if;
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -407,6 +436,9 @@ begin
        le dire : un client qui a tapé un code et ne le voit nulle part
        croit qu'il n'a pas été pris. */
     'code_promo', c.code_promo, 'remise', c.remise,
+    /* Les frais de livraison, à part : le récapitulatif les montre sur
+       leur propre ligne. */
+    'frais_livraison', c.frais_livraison,
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
@@ -440,8 +472,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text, boolean) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text, boolean) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) to anon, authenticated;
 
 -- ---------- Qui prévenir ----------
 

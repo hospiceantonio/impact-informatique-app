@@ -4207,6 +4207,36 @@ via `tools/eprouver-live.sh` (19 constats : jeton, signature RS256,
 message, Firebase absent ou qui refuse) et
 [`tools/banc-live-tiktok.mjs`](tools/banc-live-tiktok.mjs) (16 constats).
 
+## Les frais de livraison (3.58.0)
+
+**1 000 FCFA par commande** pour l'instant, une seule fois même si
+plusieurs boutiques livrent. Ils dépendront plus tard de critères comme la
+distance.
+
+- Le client paie **le montant des articles + les frais de livraison**. Le
+  panier, le formulaire de commande et le reçu montrent la ligne
+  « Frais de livraison ».
+- **Aucun code promo ne les touche** : la remise se calcule sur les
+  articles seuls, et la commission d'un particulier aussi.
+- L'acompte se prend sur le total, frais compris. À la livraison, les
+  frais ne diminuent pas si un article est annulé ; si **tout** est
+  annulé, il n'y a pas de course, donc pas de frais.
+- Le superadministrateur règle le montant dans *Réglages → BIZZOO →
+  Paiement → Frais de livraison* (0 à 100 000 FCFA ; 0 = pas de frais).
+  Le montant est **figé** sur chaque commande à sa création : le changer
+  ne réécrit pas les commandes passées, et personne ne peut le modifier
+  après coup.
+- **Les applications d'avant la 3.58.0 ne font pas payer les frais** :
+  elles ne sauraient pas les afficher. C'est le paramètre `avec_frais`
+  de `creer_commande` qui les active ; seule la 3.58.0 l'envoie.
+
+À coller : [`supabase/frais-livraison.sql`](supabase/frais-livraison.sql)
+— **au moment de mettre la 3.58.0 en ligne**, pas avant.
+
+Bancs : [`supabase/tests/99z-frais-livraison.sql`](supabase/tests/99z-frais-livraison.sql)
+(24 constats : total, remise, acompte, annulations, verrou, commission) et
+[`tools/banc-frais-livraison.mjs`](tools/banc-frais-livraison.mjs) (21 constats).
+
 ## Structure
 
 ```
@@ -4245,6 +4275,7 @@ impact-informatique-app/
 │   ├── revendeur-sans-code.sql      # Pas de code promo pour un revendeur (3.58.0)
 │   ├── codes-particuliers.sql       # Les codes des particuliers : commission, solde, retraits (3.58.0)
 │   ├── live-tiktok.sql              # Le live TikTok : démarrer, arrêter, lives en cours (3.58.0)
+│   ├── frais-livraison.sql          # Les frais de livraison : 1 000 FCFA par commande, hors code promo (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

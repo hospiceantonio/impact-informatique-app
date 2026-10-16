@@ -64,6 +64,10 @@ alter table public.profils
 alter table public.profils
   add column if not exists peut_finances  boolean not null default false;
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -372,6 +376,7 @@ returns table (boutique_id text, a_encaisser bigint)
 language sql stable security definer set search_path = public as $$
   with commande as (
     select c.total::numeric as total,
+           greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
            coalesce(c.verse, c.acompte, c.total)::numeric as deja
       from public.commandes c
      where c.id = cible
@@ -385,11 +390,15 @@ language sql stable security definer set search_path = public as $$
   ), reste as (
     -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
     -- qui est déjà versé.
-    select greatest(0, coalesce(round(c.total * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+    -- LES FRAIS DE LIVRAISON ne se réduisent pas au prorata : tant qu'il
+    -- reste quelque chose à livrer, la course a lieu et coûte son prix.
+    -- Tout annulé, il n'y a pas de course, donc pas de frais.
+    select greatest(0, coalesce(round((c.total - c.frais) * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       + case when sum(p.servi) > 0 then c.frais else 0 end
                        - c.deja) as du,
            sum(p.servi) as servi
       from commande c, parts p
-     group by c.total, c.deja
+     group by c.total, c.frais, c.deja
   ), repartie as (
     select p.boutique,
            coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,

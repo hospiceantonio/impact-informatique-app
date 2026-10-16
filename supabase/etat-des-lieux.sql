@@ -695,7 +695,7 @@ with controles(rang, element, ok) as (values
   (120, 'La commande pose son acompte (creer_commande, 4e paramètre)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-         and p.pronargs = 4 and p.prosrc like '%taux_acompte%')
+         and p.pronargs >= 4 and p.prosrc like '%taux_acompte%')
     and exists (select 1 from information_schema.columns
                  where table_schema = 'public' and table_name = 'commandes'
                    and column_name = 'verse')),
@@ -758,7 +758,21 @@ with controles(rang, element, ok) as (values
          and column_name = 'cree_par')
     and exists (
       select 1 from pg_trigger t
-       where t.tgname = 'profils_trace' and not t.tgisinternal))
+       where t.tgname = 'profils_trace' and not t.tgisinternal)),
+  -- Les frais de livraison : réglés par l'enseigne, figés sur la
+  -- commande, comptés dans le total, hors remise.
+  (129, 'Les frais de livraison (paiement.frais_livraison, creer_commande, 5e paramètre)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement'
+         and column_name = 'frais_livraison')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.pronargs = 5 and p.prosrc like '%frais_livraison%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'commande_total'
+         and p.prosrc like '%frais_livraison%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

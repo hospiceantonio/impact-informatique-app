@@ -971,6 +971,7 @@ const Compte = (() => {
       taux_acompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
       verse: l.verse == null ? null : Number(l.verse),
       reste: l.restes ? Math.max(0, Number(l.restes.reste) || 0) : 0,
+      frais_livraison: Math.max(0, Number(l.frais_livraison) || 0),
       client: {
         nom: l.client_nom || "", tel: l.client_tel || "",
         indicatif: l.client_indicatif || "229",
@@ -996,6 +997,9 @@ const Compte = (() => {
      comme une colonne. */
   const CHAMPS_ACOMPTE = ",acompte,taux_acompte,verse,restes";
   let avecAcompte = true;
+  /* Les frais de livraison : une base d'avant n'a pas la colonne. */
+  const CHAMPS_FRAIS = ",frais_livraison";
+  let avecFrais = true;
 
   /**
    * Lire des commandes avec leur acompte. Une base d'avant l'acompte ne
@@ -1003,6 +1007,15 @@ const Compte = (() => {
    * sans elles, et l'on ne les redemande plus.
    */
   async function lireCommandes(suite) {
+    if (avecAcompte && avecFrais) {
+      try {
+        return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE +
+          CHAMPS_FRAIS + suite);
+      } catch (err) {
+        if (!/frais_livraison/i.test(err.message || "")) throw err;
+        avecFrais = false;
+      }
+    }
     if (avecAcompte) {
       try {
         return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE + suite);

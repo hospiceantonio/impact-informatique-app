@@ -269,6 +269,12 @@ const VueCommandes = (() => {
             (c.montant !== c.total
               ? '<div class="cmd-part">sur ' + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</div>"
               : "") +
+            /* Les frais de livraison sont dans le total, pas dans les
+               articles de la boutique. */
+            (c.fraisLivraison > 0
+              ? '<div class="cmd-part">dont ' +
+                  Utils.echapper(Utils.fmtMontant(c.fraisLivraison, c.devise)) + " de livraison</div>"
+              : "") +
           "</div>" +
         "</div>" +
         /* L'ACOMPTE ET CE QUI RESTE À ENCAISSER. La boutique doit le savoir

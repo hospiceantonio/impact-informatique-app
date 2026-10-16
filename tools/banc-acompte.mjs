@@ -331,8 +331,12 @@ titre("8. Sans acompte, tout est comme avant");
   await page.click("#co-payer");
   await page.waitForFunction(() => location.hash === "#/commande/cmd_x", null, { timeout: 8000 })
     .catch(() => {});
-  ok(serveur.creations.length === 2 && "avec_acompte" in serveur.creations[0] &&
-     !("avec_acompte" in serveur.creations[1]),
+  /* Trois essais depuis la 3.58.0 : avec les frais de livraison, puis
+     avec l'acompte seul, puis sans rien. */
+  const derniere = serveur.creations[serveur.creations.length - 1] || {};
+  ok(serveur.creations.length === 3 && "avec_frais" in serveur.creations[0] &&
+     "avec_acompte" in serveur.creations[1] && !("avec_frais" in serveur.creations[1]) &&
+     !("avec_acompte" in derniere),
     "le paramètre inconnu est retiré, et la commande repart sans lui (" + serveur.creations.length + " appels)");
   const montant = await page.evaluate(() => (window.__kkiapay || {}).amount);
   ok(montant === 300000, "KkiaPay demande le total, comme la base le veut (" + montant + ")");

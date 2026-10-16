@@ -17,6 +17,10 @@
 
 alter table public.clients add column if not exists revendeur_etat text not null default 'aucune';
 
+-- Les frais de livraison (3.58.0) : lus par les fonctions plus bas.
+alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+alter table public.paiement add column if not exists frais_livraison int not null default 1000;
+
 create or replace function public.code_normalise(brut text) returns text
 language sql immutable as $$
   select left(regexp_replace(upper(coalesce(brut, '')), '[^A-Z0-9]', '', 'g'), 24);
@@ -251,12 +255,16 @@ begin
     from public.commande_lignes l where l.commande_id = cible;
   if restant > 0 or livrees = 0 then return 0; end if;
 
-  brut := round(greatest(0, c.total) * least(50, greatest(0, k.commission)) / 100)::bigint;
+  -- Sur les ARTICLES, remise déduite : les frais de livraison paient la
+  -- course, ils ne rapportent rien au propriétaire du code.
+  brut := round(greatest(0, c.total - coalesce(c.frais_livraison, 0))
+                * least(50, greatest(0, k.commission)) / 100)::bigint;
   montant := least(brut, greatest(0, marge - coalesce(c.remise, 0)));
   if montant <= 0 then return 0; end if;
 
   insert into public.gains_parrain (parrain, commande_id, code, base, taux, montant)
-  values (k.parrain, cible, k.code, greatest(0, c.total), k.commission, montant)
+  values (k.parrain, cible, k.code, greatest(0, c.total - coalesce(c.frais_livraison, 0)),
+          k.commission, montant)
   on conflict (commande_id) do nothing;
   if not found then return 0; end if;
 

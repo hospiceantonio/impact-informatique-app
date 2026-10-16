@@ -189,17 +189,25 @@ const VuePanier = (() => {
        LA LIVRAISON N'A PAS DE PRIX ICI, et on ne lui en invente pas : elle
        se convient avec chaque boutique. Écrire « 5 000 FCFA » comme la
        maquette, ce serait un chiffre que personne n'a fixé. */
+    /* LES FRAIS DE LIVRAISON, fixés par BIZZOO, une fois par commande :
+       ils s'ajoutent au total. Une base d'avant n'en a pas — la
+       livraison se convient alors avec la boutique, comme avant. */
+    const frais = Paiement.fraisLivraison();
+    const totalPanier = Panier.total() + frais;
     html +=
       '<div class="carte pa-recap">' +
         '<div class="pa-recap-ligne"><span>Sous-total</span><span>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
-        '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>' +
+        (frais > 0
+          ? '<div class="pa-recap-ligne pa-recap-frais"><span>Frais de livraison</span><span>' +
+              Utils.echapper(Utils.fmtMontant(frais, devise)) + "</span></div>"
+          : '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>') +
         '<div class="pa-recap-ligne pa-recap-total"><span>Total</span><strong>' +
-          Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</strong></div>" +
+          Utils.echapper(Utils.fmtMontant(totalPanier, devise)) + "</strong></div>" +
         /* L'ACOMPTE, DÈS LE PANIER : le client doit savoir ce qu'il paiera
            en commandant avant de taper ses coordonnées. C'est un aperçu ;
            la base fixera l'acompte en créant la commande. */
-        recapAcompte(Panier.total(), devise) +
+        recapAcompte(totalPanier, devise) +
         /* Dire au revendeur que ce total est déjà le sien : sans cela,
            il attend une remise à la caisse qui ne viendra pas — elle est
            déjà dans le chiffre qu'il lit. */
@@ -246,7 +254,8 @@ const VuePanier = (() => {
        client ne passe commande. */
     if (!Paiement.connu()) {
       Paiement.charger().then(() => {
-        if (location.hash === "#/panier" && Paiement.disponible()) afficher(vue);
+        if (location.hash === "#/panier" &&
+            (Paiement.disponible() || Paiement.fraisLivraison() > 0)) afficher(vue);
       }).catch(() => { /* sans réglages : pas d'acompte à annoncer */ });
     }
 
@@ -586,7 +595,7 @@ const VuePanier = (() => {
               " Votre commande n'est transmise aux boutiques qu'une fois le paiement confirmé." +
               /* Ce qui se paie maintenant n'est que l'acompte : le dire
                  avant le bouton, pas après le versement. */
-              (Paiement.acompteDe(Panier.total()) < Panier.total()
+              (Paiement.acompteDe(aRegler()) < aRegler()
                 ? " Vous ne payez maintenant que l'acompte ; le reste se règle à la " +
                   "livraison, auprès de la boutique."
                 : "")
@@ -690,7 +699,10 @@ const VuePanier = (() => {
      paierait un autre. */
 
   /** Ce que le client paiera, remise déduite. Aperçu : la base tranche. */
-  const aRegler = () => Math.max(0, Panier.total() - (promo.remise || 0));
+  /* Les frais de livraison s'ajoutent APRÈS la remise : un code promo
+     ne les touche pas. */
+  const aRegler = () => Math.max(0, Panier.total() - (promo.remise || 0)) +
+    Paiement.fraisLivraison();
 
   /**
    * Le récapitulatif du formulaire : le code et ce qu'il retire, puis le
@@ -702,11 +714,18 @@ const VuePanier = (() => {
     const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, devise));
     const total = aRegler();
     const acompte = enLigne ? Paiement.acompteDe(total) : total;
-    return (promo.remise > 0
+    const frais = Paiement.fraisLivraison();
+    return (promo.remise > 0 || frais > 0
         ? '<div class="pa-total-ligne"><span>Sous-total</span><span>' +
-            fmt(Panier.total()) + "</span></div>" +
-          '<div class="pa-total-ligne co-remise"><span>Code ' +
+            fmt(Panier.total()) + "</span></div>"
+        : "") +
+      (promo.remise > 0
+        ? '<div class="pa-total-ligne co-remise"><span>Code ' +
             Utils.echapper(promo.code) + "</span><span>− " + fmt(promo.remise) + "</span></div>"
+        : "") +
+      (frais > 0
+        ? '<div class="pa-total-ligne co-frais"><span>Frais de livraison</span><span>' +
+            fmt(frais) + "</span></div>"
         : "") +
       (acompte < total
         ? '<div class="pa-total-ligne"><span>Total de la commande</span><span>' +
@@ -969,6 +988,8 @@ const VuePanier = (() => {
          entier, et le reçu le dira. */
       acompte: commande.acompte, taux_acompte: commande.taux_acompte,
       reste: commande.reste,
+      /* Les frais de livraison que la base a figés sur la commande. */
+      frais_livraison: Number(commande.frais_livraison) || 0,
       client, boutiques: commande.boutiques || [],
     });
 
@@ -1462,6 +1483,10 @@ const VuePanier = (() => {
           Utils.echapper(payee && reste > 0 ? "Acompte payé" : etat.nom) + "</span>" +
         '<div class="re-montant">' +
           Utils.echapper(Utils.fmtMontant(commande.total, commande.devise)) + "</div>" +
+        (Number(commande.frais_livraison) > 0
+          ? '<div class="re-frais">dont ' + fmt(Number(commande.frais_livraison)) +
+              " de frais de livraison</div>"
+          : "") +
         /* Ce qui se paie en ligne, puis à la porte. Avant le versement,
            l'acompte est « à payer » ; après, c'est ce que l'agrégateur a
            réellement reçu. */

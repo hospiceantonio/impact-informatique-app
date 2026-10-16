@@ -2197,3 +2197,5 @@ a.pub-carte:active{transform:scale(.98)}
   animation:live-pouls 1.4s ease-in-out infinite}
 @keyframes live-pouls{50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.live-point{animation:none}}
+/* Les frais de livraison, sous le montant du reçu */
+.re-frais{margin-top:4px;font-size:13px;color:var(--encre-douce)}
