@@ -216,12 +216,10 @@ titre("2. Le nom et le numéro PARTENT vers la base");
 titre("3. « BIZZOO » est offert pour un livreur, et part en « aucune boutique »");
 {
   const { page, ctx } = await ouvrir();
-  await page.evaluate(() => { location.hash = "#/comptes"; });
+  await page.evaluate(() => { location.hash = "#/livreurs"; });
   await page.waitForTimeout(1500);
-  await page.click("#cp-nouveau");
+  await page.click("#lv-nouveau");
   await page.waitForTimeout(700);
-  await page.selectOption("#nc-role", "livreur");
-  await page.waitForTimeout(250);
 
   const menu = await page.evaluate(() => {
     const m = document.querySelector("#nc-boutique");
@@ -259,10 +257,11 @@ titre("3. « BIZZOO » est offert pour un livreur, et part en « aucune boutique
 }
 
 /* ------------------------------------------------------------------ */
-titre("4. La liste des comptes ne prend plus ce choix pour un oubli");
+titre("4. La liste des livreurs ne prend plus ce choix pour un oubli");
 {
   const { page, ctx } = await ouvrir();
-  await page.evaluate(() => { location.hash = "#/comptes"; });
+  /* Les livreurs ont leur écran depuis la 3.58.0. */
+  await page.evaluate(() => { location.hash = "#/livreurs"; });
   await page.waitForTimeout(1600);
   const texte = await page.evaluate(() => document.body.innerText);
   ok(/BIZZOO — porte pour toutes les boutiques/.test(texte),

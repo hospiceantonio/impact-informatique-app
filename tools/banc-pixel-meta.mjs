@@ -580,6 +580,18 @@ titre("5 bis. Un paiement qui n'aboutit pas n'est pas un achat");
    6. Les comptes
    ===================================================== */
 
+/* La position du téléphone, simulée, puis l'adresse : un revendeur
+   valide son compte avec elles (3.58.0). */
+async function positionner(page, prefixe) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition: (ok) => ok({ coords: { latitude: 6.3561, longitude: 2.4334, accuracy: 15 } }) } });
+  });
+  await page.fill("#" + prefixe + "-adresse", "Dantokpa, face à la pharmacie");
+  await page.click("#" + prefixe + "-relever");
+  await page.waitForTimeout(250);
+}
+
 titre("6. L'inscription, et la demande de compte revendeur");
 /* PAR LE NUMÉRO, la porte de la 3.58.0 : le nom, le numéro, le code. Le
    compte naît au code validé ; un revendeur dépose sa demande juste après. */
@@ -591,6 +603,7 @@ for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par so
   if (revendeur) {
     await o.page.click('[data-type="revendeur"]');
     await o.page.fill("#cp-message", CLIENT.commerce);
+    await positionner(o.page, "cp-pos");
   }
   await o.page.fill("#cp-nom", CLIENT.nom);
   await o.page.fill("#cp-tel", CLIENT.tel);
@@ -633,6 +646,7 @@ for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par so
   const o = await ouvrir({ adresse: SITE + "/client/index.html#/inscription", etat });
   await o.page.click('[data-type="revendeur"]');
   await o.page.fill("#cp-message", CLIENT.commerce);
+  await positionner(o.page, "cp-pos");
   await o.page.fill("#cp-nom", CLIENT.nom);
   await o.page.fill("#cp-email", CLIENT.email);
   await o.page.fill("#cp-mdp", "secret-essai");
@@ -657,6 +671,7 @@ for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par so
   ok(!!formulaire, "le compte client propose de devenir revendeur");
   if (formulaire) {
     await o.page.fill("#cp-rv-message", CLIENT.commerce);
+    await positionner(o.page, "cp-rv-pos");
     await o.page.click("#cp-rv-demander");
     await pause(1500);
   }

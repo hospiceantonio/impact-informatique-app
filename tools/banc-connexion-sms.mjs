@@ -345,6 +345,13 @@ titre("4 bis. Un numéro qui avait déjà son compte");
   await page.fill("#cp-nom", "K. Mensah");
   await page.click('[data-type="revendeur"]');
   await page.fill("#cp-message", "Ma boutique");
+  await page.fill("#cp-pos-adresse", "Cotonou, Ganhi");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition: (ok) => ok({ coords: { latitude: 6.36, longitude: 2.42, accuracy: 15 } }) } });
+  });
+  await page.click("#cp-pos-relever");
+  await page.waitForTimeout(250);
   await page.fill("#cp-tel", "0161000022");
   await page.click("#cp-creer-tel");
   await page.waitForTimeout(600);
