@@ -1475,6 +1475,30 @@ const Store = (() => {
     return etat;
   }
 
+  /* ---------- Le live TikTok ----------
+     Le démarrer passe par la fonction Edge « annoncer-live » : c'est
+     elle qui envoie la notification à tous les téléphones. La base, elle,
+     décide qui en a le droit. */
+
+  async function demarrerLive(boutique) {
+    const d = await Supabase.fonctionEdge("annoncer-live", { boutique });
+    if (!d || !d.ok) throw new Error((d && d.message) || "Le live n'a pas pu démarrer.");
+    if (!d.deja) {
+      journaliser("boutique", "modification", "Live TikTok démarré", "Live TikTok",
+        undefined, boutique);
+    }
+    return d;
+  }
+
+  async function arreterLive(boutique) {
+    await Supabase.rpcLecture("arreter_live", { cible: boutique });
+  }
+
+  async function liveEnCours(boutique) {
+    const lignes = await Supabase.rpcLecture("lives_en_cours", {});
+    return (lignes || []).find((l) => l.boutique_id === boutique) || null;
+  }
+
   /** Ce que les remises ont coûté sur la période, par boutique. */
   async function remisesPeriode({ depuis, jusqu, boutique } = {}) {
     const lignes = await Supabase.rpcLecture("remises_periode", {
@@ -3491,6 +3515,7 @@ const Store = (() => {
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
+    demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,

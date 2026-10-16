@@ -171,6 +171,8 @@ const VueAccueil = (() => {
           (courante.actif ? "" : " · fermée aux clients") + "</small></span>" +
           (peutChanger ? UI.icone("chevron", "ic-sm") : "") +
         "</a>";
+      /* Le live TikTok : la place, remplie une fois l'écran posé. */
+      if (admin) html += '<div class="carte carte-live" id="carte-live" hidden></div>';
     }
 
     /* ---- Le stock ----
@@ -371,6 +373,74 @@ const VueAccueil = (() => {
     html += "</div>";
 
     vue.innerHTML = html;
+    if (courante) remplirLive(vue, courante);
+  }
+
+  /* ---------- Le live TikTok ----------
+     « Démarrer le live TikTok » : tous les téléphones où BIZZOO est
+     installée reçoivent une notification, qui ouvre la page TikTok de la
+     boutique. Pendant le live, l'application et le site montrent un
+     bandeau « En live ». */
+  async function remplirLive(vue, courante) {
+    const zone = UI.$("#carte-live", vue);
+    if (!zone) return;
+    let live = null;
+    try { live = await Store.liveEnCours(courante.id); } catch (_) {
+      return;   // base d'avant le live : on ne propose rien
+    }
+    if (!zone.isConnected) return;
+    zone.hidden = false;
+    const tiktok = String(courante.tiktok || "").trim();
+    if (live) {
+      const depuis = new Date(live.debut);
+      zone.innerHTML =
+        '<div class="carte-titre"><span class="live-point"></span> En live sur TikTok</div>' +
+        '<p class="aide" style="margin:0 0 12px">Depuis ' +
+          Utils.echapper(depuis.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
+          ". Les clients voient le bandeau « En live » dans l'application et sur le site.</p>" +
+        '<button type="button" class="btn btn-clair btn-danger-clair" id="live-arreter">' +
+          UI.icone("fermer") + "Arrêter le live</button>";
+      UI.$("#live-arreter", zone).onclick = async (e) => {
+        e.target.disabled = true;
+        try {
+          await Store.arreterLive(courante.id);
+          UI.toast("Live arrêté.");
+        } catch (err) { UI.toast(err.message, "err"); }
+        remplirLive(vue, courante);
+      };
+      return;
+    }
+    zone.innerHTML =
+      '<div class="carte-titre">' + UI.icone("video", "ic-sm") + " Live TikTok</div>" +
+      (tiktok
+        ? '<p class="aide" style="margin:0 0 12px">Vous passez en direct sur TikTok ? Prévenez ' +
+            "tous les clients : une notification arrive sur chaque téléphone où BIZZOO est " +
+            "installée, et l'ouvrir mène droit à votre page TikTok. Trois lives par jour au " +
+            "plus.</p>" +
+          '<button type="button" class="btn" id="live-demarrer">' + UI.icone("video") +
+            "Démarrer le live TikTok</button>"
+        : '<p class="aide" style="margin:0">Ajoutez d\'abord le compte TikTok de la boutique ' +
+            'dans <a href="#/reglages">Réglages</a> (réseaux sociaux) : c\'est la page que la ' +
+            "notification ouvrira.</p>");
+    const bouton = UI.$("#live-demarrer", zone);
+    if (!bouton) return;
+    bouton.onclick = async () => {
+      const sur = await UI.confirmer({
+        titre: "Démarrer le live TikTok ?",
+        texte: "Tous les clients de BIZZOO vont recevoir « " + courante.nomBoutique +
+          " est en live sur TikTok ». Lancez votre live sur TikTok d'abord.",
+        bouton: "Prévenir les clients",
+      });
+      if (!sur) return;
+      bouton.disabled = true;
+      try {
+        const r = await Store.demarrerLive(courante.id);
+        UI.toast(r.message || "Live annoncé.", r.push === false && !r.deja ? "alerte" : undefined);
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+      remplirLive(vue, courante);
+    };
   }
 
   return { afficher };

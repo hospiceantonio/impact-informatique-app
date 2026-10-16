@@ -4143,6 +4143,70 @@ Bancs : [`supabase/tests/99w-revendeur-sans-code.sql`](supabase/tests/99w-revend
 (commission, plafond, annulation, solde, retraits, droits) et
 [`tools/banc-codes-particuliers.mjs`](tools/banc-codes-particuliers.mjs), 14 constats.
 
+## Le live TikTok (3.58.0)
+
+Une boutique passe en direct sur TikTok : son administrateur (ou le
+superadministrateur) ouvre l'**accueil de BIZZOO Admin** sur la boutique
+et touche **Démarrer le live TikTok**. Après confirmation :
+
+- **tous les téléphones où l'application BIZZOO (Android) est installée**
+  reçoivent « *IMPACT est en live sur TikTok* » ; toucher la notification
+  ouvre **directement la page TikTok de la boutique** (l'application
+  TikTok si elle est installée) ;
+- l'**accueil** de l'application et du site, et la **fiche de la
+  boutique**, montrent un bandeau noir « *… est en live sur TikTok —
+  Regarder* » tant que le live dure ;
+- **Arrêter le live** retire le bandeau. Un live oublié s'éteint seul au
+  bout de 4 heures.
+
+Garde-fous : seul l'administrateur de la boutique lance son live (pas un
+modérateur, pas un client) ; la boutique doit avoir son compte TikTok
+(Réglages → réseaux sociaux) et être ouverte ; un live en cours ne se
+réannonce pas ; **trois lives par jour au plus** par boutique.
+
+Comment ça marche : la base ouvre le live (`demarrer_live`, qui décide des
+droits) ; la fonction Edge [`annoncer-live`](supabase/functions/annoncer-live/index.ts)
+envoie la notification par **Firebase Cloud Messaging** au sujet `tous`,
+auquel l'application client s'abonne à son ouverture
+([`ServiceNotifications.java`](android/app/src/main/java/com/impactinformatique/apps/ServiceNotifications.java)).
+Le message ne porte que des données : c'est l'application qui construit
+la notification et ouvre le lien TikTok.
+
+### Ce qu'il faut régler (une fois)
+
+1. **Créer le projet Firebase** : console.firebase.google.com → *Ajouter
+   un projet* (« BIZZOO »), Google Analytics facultatif.
+2. **Ajouter l'application Android** `com.impactinformatique.client`
+   (Paramètres du projet → Général → *Ajouter une application* → Android).
+   Remplir [`android/firebase.properties`](android/firebase.properties)
+   avec l'ID de l'application, la clé API, l'ID et le numéro du projet.
+   Ce sont des identifiants **publics** (ils sont dans tout APK
+   Firebase) : on peut les transmettre.
+3. **Le compte de service** : Paramètres du projet → *Comptes de service*
+   → *Générer une nouvelle clé privée*. Le fichier JSON téléchargé est un
+   **secret** : ne jamais l'envoyer dans une conversation ni le mettre
+   dans le dépôt. Le coller **en entier** dans Supabase → *Edge Functions*
+   → *Secrets* → nouveau secret `FIREBASE_COMPTE_SERVICE`.
+4. **Déployer la fonction** : `supabase functions deploy annoncer-live`
+   (avec la vérification du jeton, sans `--no-verify-jwt`).
+5. **Un nouvel APK client** (Firebase y entre) : les téléphones doivent
+   le réinstaller pour recevoir les notifications. Le bandeau, lui,
+   marche tout de suite, site compris.
+
+Sans Firebase réglé, le bouton ouvre quand même le live (le bandeau
+s'affiche) et l'admin est prévenu que la notification n'est pas partie.
+L'application iPhone ne reçoit pas ces notifications (il faudrait un
+compte Apple Developer et APNs) ; elle voit le bandeau.
+
+À coller : [`supabase/live-tiktok.sql`](supabase/live-tiktok.sql).
+
+Bancs : [`supabase/tests/99y-live-tiktok.sql`](supabase/tests/99y-live-tiktok.sql)
+(droits, refus, une seule annonce, trois par jour, lecture publique),
+[`supabase/functions/tests/live.mjs`](supabase/functions/tests/live.mjs)
+via `tools/eprouver-live.sh` (19 constats : jeton, signature RS256,
+message, Firebase absent ou qui refuse) et
+[`tools/banc-live-tiktok.mjs`](tools/banc-live-tiktok.mjs) (16 constats).
+
 ## Structure
 
 ```
@@ -4180,6 +4244,7 @@ impact-informatique-app/
 │   ├── livreur-client.sql           # Le client voit qui lui livre sa commande (3.58.0)
 │   ├── revendeur-sans-code.sql      # Pas de code promo pour un revendeur (3.58.0)
 │   ├── codes-particuliers.sql       # Les codes des particuliers : commission, solde, retraits (3.58.0)
+│   ├── live-tiktok.sql              # Le live TikTok : démarrer, arrêter, lives en cours (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

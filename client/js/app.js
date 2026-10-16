@@ -190,6 +190,7 @@ const App = { evenementInstallation: null };
     try {
       await route.vue(vue, chemin.match(route.motif), params);
       if (!conserverPosition) Pixel.finEcran(ecran);
+      poserLives(vue, chemin);
     } catch (err) {
       console.error(err);
       vue.innerHTML =
@@ -204,6 +205,41 @@ const App = { evenementInstallation: null };
       if (memorisee) restaurerHauteur(memorisee);
       else window.scrollTo(0, 0);
     }
+  }
+
+  /* ---------- « En live sur TikTok » ----------
+     Quand une boutique annonce son live, l'accueil le montre en tête, et
+     la fiche de la boutique aussi. La notification n'atteint que les
+     téléphones où l'application est installée : le bandeau prévient tous
+     les autres, site web compris. Une minute de mémoire, pour ne pas
+     redemander à chaque écran. */
+  let lives = { quand: 0, liste: [] };
+
+  async function poserLives(vue, chemin) {
+    const boutique = /^\/boutique\/([^/]+)$/.exec(chemin);
+    if (chemin !== "/" && !boutique) return;
+    if (Date.now() - lives.quand > 60000) {
+      try {
+        const l = await Paiement.lives();
+        lives = { quand: Date.now(), liste: Array.isArray(l) ? l : [] };
+      } catch (_) {
+        lives = { quand: Date.now(), liste: [] };   // base d'avant le live : rien
+      }
+    }
+    const montrer = lives.liste.filter((l) => !boutique || l.boutique_id === boutique[1]);
+    /* L'écran a pu changer pendant la question. */
+    if (!montrer.length || (location.hash.replace(/^#/, "") || "/").split("?")[0] !== chemin) return;
+    const ancien = vue.querySelector(".bandeau-lives");
+    if (ancien) ancien.remove();
+    const zone = document.createElement("div");
+    zone.className = "bandeau-lives";
+    zone.innerHTML = montrer.slice(0, 3).map((l) =>
+      '<a class="bandeau-live" href="' + Utils.echapper(l.lien) + '" target="_blank" rel="noopener">' +
+        '<span class="live-point"></span>' +
+        "<span><strong>" + Utils.echapper(l.nom) + "</strong> est en live sur TikTok</span>" +
+        '<span class="bandeau-live-voir">Regarder</span>' +
+      "</a>").join("");
+    vue.prepend(zone);
   }
 
   /* ---------- La boutique du moment ----------

@@ -2186,3 +2186,14 @@ a.pub-carte:active{transform:scale(.98)}
 .cp-gains-liste{margin-top:12px;border-top:1px solid rgba(0,0,0,.08)}
 .cp-gains-ligne{display:flex;justify-content:space-between;gap:10px;padding:8px 0;font-size:13.5px;border-bottom:1px solid rgba(0,0,0,.05)}
 .cp-gains-ligne strong{white-space:nowrap}
+/* « En live sur TikTok » : l'accueil et la fiche de la boutique */
+.bandeau-lives{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
+.bandeau-live{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:14px;
+  background:#111;color:#fff;text-decoration:none;font-size:14px;line-height:1.35}
+.bandeau-live strong{font-weight:800}
+.bandeau-live-voir{margin-left:auto;padding:6px 12px;border-radius:999px;background:#E5243B;
+  color:#fff;font-weight:700;font-size:13px;white-space:nowrap}
+.live-point{flex:none;display:inline-block;width:10px;height:10px;border-radius:50%;background:#E5243B;
+  animation:live-pouls 1.4s ease-in-out infinite}
+@keyframes live-pouls{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.live-point{animation:none}}

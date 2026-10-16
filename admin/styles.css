@@ -1722,3 +1722,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cd-retraits{border:1.5px solid var(--orange-fonce)}
 .cd-retrait{padding:10px 0;border-top:1px solid var(--bord, #eee)}
 .cd-retrait:first-of-type{border-top:0}
+/* Le live TikTok, sur l'accueil */
+.carte-live .live-point,.live-point{display:inline-block;width:10px;height:10px;border-radius:50%;
+  background:#E5243B;margin-right:6px;vertical-align:middle;animation:live-pouls 1.4s ease-in-out infinite}
+@keyframes live-pouls{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.live-point{animation:none}}

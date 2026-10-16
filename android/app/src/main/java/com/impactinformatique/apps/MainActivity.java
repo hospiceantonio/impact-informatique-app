@@ -209,6 +209,12 @@ public class MainActivity extends Activity {
 
         demanderNotifications();
         VerificateurCatalogue.programmer(this);
+        /* Les lives TikTok des boutiques : s'abonner au sujet « tous »
+           (application client seulement, et seulement si Firebase est
+           réglé dans android/firebase.properties). */
+        if (getResources().getBoolean(R.bool.notifications_actives)) {
+            ServiceNotifications.abonner(this);
+        }
     }
 
     /**

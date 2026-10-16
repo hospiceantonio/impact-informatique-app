@@ -42,6 +42,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Les notifications de BIZZOO (Firebase) : « telle boutique est en
+             live sur TikTok ». Seule l'application client s'abonne. -->
+        <service
+            android:name=".ServiceNotifications"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Permet à l'appareil photo d'écrire la photo prise dans l'application. -->
         <provider
             android:name="androidx.core.content.FileProvider"

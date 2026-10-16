@@ -380,6 +380,9 @@ const Paiement = (() => {
 
   /* Le propriétaire d'un code de particulier : son solde, et ses retraits.
      null quand le compte n'a pas de code — la carte ne s'affiche pas. */
+  /* Les boutiques en live sur TikTok en ce moment : le bandeau « En
+     live » de l'accueil et de la fiche d'une boutique. */
+  const lives = () => rpc("lives_en_cours", {});
   const soldeParrain = () => rpc("mon_solde_parrain", {});
   const demanderRetrait = (montant, numero, reseau) =>
     rpc("demander_retrait", { montant: Math.round(Number(montant) || 0),
@@ -467,6 +470,6 @@ const Paiement = (() => {
     tauxAcompte, acompteDe,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, attendreConfirmation, livreurs,
-    soldeParrain, demanderRetrait,
+    soldeParrain, demanderRetrait, lives,
   };
 })();
