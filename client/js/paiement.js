@@ -374,6 +374,10 @@ const Paiement = (() => {
     } catch (_) { /* sans importance : la notification de KkiaPay fait foi */ }
   }
 
+  /** Le livreur de chaque boutique de la commande — nom et numéro —,
+      pour le client qui l'a passée. */
+  const livreurs = (id, tel) => rpc("livreurs_de_ma_commande", { cible: id, tel: tel || "" });
+
   /** L'état d'une commande, tel que la base le connaît. */
   const suivre = (id, tel) => rpc("suivre_commande", { cible: id, tel });
 
@@ -455,6 +459,6 @@ const Paiement = (() => {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
-    signalerTransaction, suivre, attendreConfirmation,
+    signalerTransaction, suivre, attendreConfirmation, livreurs,
   };
 })();

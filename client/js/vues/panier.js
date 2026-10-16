@@ -1518,6 +1518,11 @@ const VuePanier = (() => {
                 fmt(g.aEncaisser) + "</strong></div>"
             : "") +
           blocSuivi(commande, g) +
+          /* La place du livreur, remplie quand la base répond. */
+          (payee
+            ? '<div class="re-livreur" data-livreur-pour="' + Utils.echapper(g.boutique.id || "") +
+                '" hidden></div>'
+            : "") +
         "</div>").join("") +
 
       (payee
@@ -1539,6 +1544,51 @@ const VuePanier = (() => {
             '<a class="btn btn-clair" href="#/">Continuer mes achats</a>' +
           "</div>" +
         "</div>");
+    if (payee) remplirLivreurs(vue, commande);
+  }
+
+  /* -----------------------------------------------------
+     Qui vous livre
+     -----------------------------------------------------
+     Le livreur à qui la boutique a confié sa part : son nom, et de quoi
+     l'appeler ou lui écrire sur WhatsApp. La base ne le dit qu'au client
+     de la commande, une fois la course confiée, et jusqu'à ce qu'il
+     confirme l'avoir reçue. Rien à montrer, ou une base qui ne connaît
+     pas encore la question : la place reste vide, sans un mot. */
+  async function remplirLivreurs(vue, commande) {
+    let liste;
+    try {
+      liste = await Paiement.livreurs(commande.id, (commande.client && commande.client.tel) || "");
+    } catch (_) {
+      return;
+    }
+    for (const l of Array.isArray(liste) ? liste : []) {
+      const zone = UI.$$("[data-livreur-pour]", vue)
+        .find((z) => z.dataset.livreurPour === String(l.boutique_id || ""));
+      if (!zone) continue;
+      const nom = String(l.nom || "").trim() || "Votre livreur";
+      const tel = String(l.telephone || "").trim();
+      const indicatif = String(l.indicatif || "229");
+      const appel = tel ? Utils.lienTel(tel, indicatif) : "";
+      const message = "Bonjour " + nom + ", je suis le client de la commande " +
+        (commande.numero || "") + ". ";
+      const wa = tel ? Utils.lienWhatsApp(tel, message, indicatif) : "";
+      zone.innerHTML =
+        '<div class="re-livreur-tete">' + UI.icone("compte", "ic-sm") +
+          "<div><small>Votre livreur</small><strong>" + Utils.echapper(nom) + "</strong>" +
+          (tel ? "<span>" + Utils.echapper(Compte.telAffichage(tel, indicatif)) + "</span>" : "") +
+          "</div></div>" +
+        (appel || wa
+          ? '<div class="btn-rangee re-livreur-actions">' +
+              (appel ? '<a class="btn btn-clair" href="' + Utils.echapper(appel) + '">' +
+                UI.icone("tel") + "Appeler</a>" : "") +
+              (wa ? '<a class="btn btn-wa" href="' + Utils.echapper(wa) +
+                '" target="_blank" rel="noopener">' + UI.icone("whatsapp") + "WhatsApp</a>" : "") +
+            "</div>"
+          : '<p class="aide" style="margin:8px 0 0">Son numéro n\'est pas encore enregistré : ' +
+            "la boutique peut vous mettre en relation.</p>");
+      zone.hidden = false;
+    }
   }
 
   /* =====================================================

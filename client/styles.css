@@ -1260,6 +1260,17 @@ a.pub-carte:active{transform:scale(.98)}
   font-size:13px;line-height:1.5;
 }
 .re-recu .ic{flex:none;margin-top:2px}
+.re-livreur{
+  margin-top:12px;padding:11px 12px;border-radius:12px;
+  background:var(--tuile);
+}
+.re-livreur-tete{display:flex;align-items:center;gap:10px}
+.re-livreur-tete .ic{flex:none;color:var(--bleu)}
+.re-livreur-tete div{display:flex;flex-direction:column;line-height:1.35}
+.re-livreur-tete small{font-size:11.5px;color:var(--encre-douce)}
+.re-livreur-tete strong{font-size:14.5px}
+.re-livreur-tete span{font-size:13px;color:var(--encre-douce)}
+.re-livreur-actions{margin-top:10px}
 .re-suivi-annule{
   display:flex;align-items:flex-start;gap:8px;
   font-size:13px;line-height:1.5;color:var(--rouge-fonce);

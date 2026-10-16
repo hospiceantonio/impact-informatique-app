@@ -4030,6 +4030,50 @@ PLAYWRIGHT=<chemin>/playwright-core/index.js \
 CHROMIUM=<chemin>/chrome node tools/banc-pixel-meta.mjs
 ```
 
+## Qui me livre : le livreur sur le reçu (3.58.0)
+
+Sur le reçu d'une commande payée, sous chaque boutique, le client voit
+**le livreur à qui la course est confiée** : son nom, son numéro, et deux
+boutons — **Appeler** et **WhatsApp**. Le message WhatsApp part tout
+prêt : « Bonjour Sèna, je suis le client de la commande BZ-… ». Une
+commande qui traverse deux boutiques montre deux livreurs, chacun sous la
+sienne ; une boutique qui n'a pas encore confié sa part ne montre rien.
+
+**C'est la base qui décide qui le voit**, par une seule fonction,
+`livreurs_de_ma_commande(cible, tel)` — le client ne lit toujours pas la
+table des comptes. Elle ne rend que le nom, le numéro et l'indicatif ; ni
+e-mail, ni adresse, ni montant. Et seulement :
+
+- au compte qui a passé la commande, ou à qui donne le numéro de
+  téléphone de la commande (le client sans compte, comme pour le suivi) ;
+- une fois la commande payée et la course confiée ;
+- tant que le client n'a pas confirmé « J'ai bien reçu » — après, le
+  numéro du livreur n'a plus à rester sous ses yeux ;
+- jamais pour une part annulée, ni pour un livreur désactivé.
+
+Un livreur sans numéro paraît sous son nom, avec une phrase : la boutique
+peut mettre le client en relation. **Pour que les boutons apparaissent,
+le numéro doit être rempli** dans la fiche du livreur (Comptes, dans
+l'application admin). La politique de confidentialité le dit (version du
+16 octobre 2026).
+
+**À coller une fois dans Supabase** : [`supabase/livreur-client.sql`](supabase/livreur-client.sql)
+— une fonction en lecture, aucune table ne change, relançable. Tant
+qu'elle n'est pas posée, le reçu ne montre simplement pas de livreur.
+
+### Les bancs
+
+- [`supabase/tests/99v-livreur-client.sql`](supabase/tests/99v-livreur-client.sql) :
+  14 constats sur un vrai PostgreSQL — rien avant la course confiée, le
+  bon client seulement, le numéro de la commande pour qui n'a pas de
+  compte, rien pour une commande impayée ou un livreur désactivé, et le
+  numéro qui disparaît à la réception confirmée.
+- [`tools/banc-livreur-client.mjs`](tools/banc-livreur-client.mjs) : 12
+  constats au navigateur — la question posée avec la commande et son
+  numéro, le livreur sous SA boutique, `tel:+229…` et `wa.me/229…` justes,
+  rien quand la base ne rend rien ou ne connaît pas encore la fonction,
+  aucune question pour une commande impayée.
+
 ## Structure
 
 ```
@@ -4064,6 +4108,7 @@ impact-informatique-app/
 │   ├── stock-ventes.sql             # Le stock suit les ventes : excédent refusé, décompte payé, retour annulé
 │   ├── acompte.sql                  # L'acompte à la commande (3.57.0) : en ligne l'acompte, le reste à la livraison
 │   ├── connexion-sms.sql            # Le code SMS de l'équipe, et qui a créé quel compte (3.58.0)
+│   ├── livreur-client.sql           # Le client voit qui lui livre sa commande (3.58.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
