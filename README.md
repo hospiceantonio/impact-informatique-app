@@ -4340,6 +4340,32 @@ Bancs : [`supabase/tests/99zzz-connexion-telephone.sql`](supabase/tests/99zzz-co
 réécrit (101 constats, application client) ; contrôle 131 de
 l'état des lieux.
 
+## Une mise à jour du site se voit tout de suite (3.59.0)
+
+**Le symptôme.** Après une mise à jour du site, un lien de partage ouvert
+sur un téléphone qui connaissait déjà BIZZOO montrait l'ancienne version ;
+la nouvelle n'apparaissait qu'à l'ouverture suivante.
+
+**La cause.** Le service worker (`client/sw.js`, `admin/sw.js`) servait
+sa coquille gardée *avant* le réseau, et ne rangeait la nouvelle qu'en
+arrière-plan.
+
+**Désormais : le réseau d'abord.** En ligne, chaque ouverture reçoit la
+version du serveur. Hors connexion — ou réseau de plus de 4 secondes —,
+la version gardée prend le relais : BIZZOO s'ouvre toujours sans réseau.
+À l'installation, les fichiers sont pris au serveur, jamais au cache du
+navigateur.
+
+**Pour les téléphones qui ont encore l'ancien service worker** : la
+correction leur arrive à leur prochaine ouverture (le navigateur
+vérifie `sw.js` à chaque visite). Cette fois encore, ils peuvent voir
+l'ancienne version une dernière fois ; ensuite, plus jamais.
+
+Banc : [`tools/banc-mise-a-jour.mjs`](tools/banc-mise-a-jour.mjs)
+(8 constats) — il rejoue la scène sur une copie : visite, mise à jour du
+site, lien rouvert, puis serveur coupé. L'ancien service worker y montre
+la version A ; le nouveau, la B.
+
 ## Structure
 
 ```
