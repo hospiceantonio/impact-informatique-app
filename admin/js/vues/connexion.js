@@ -55,8 +55,13 @@ const VueConnexion = (() => {
       '<div class="carte carte-connexion">' +
         UI.marque(72) +
         '<h2 style="font-size:19px;font-weight:800;margin-top:6px">Espace admin</h2>' +
-        '<p class="aide" style="margin:0 0 6px;text-align:center">Connectez-vous avec le compte du gérant pour gérer le catalogue.</p>' +
-        UI.champTexte({ id: "cx-email", label: "Email", type: "email", placeholder: "gerant@exemple.com" }) +
+        '<p class="aide" style="margin:0 0 6px;text-align:center">Connectez-vous avec votre compte BIZZOO. ' +
+          "Livreurs : votre numéro, votre mot de passe, puis le code reçu par SMS.</p>" +
+        /* UN SEUL CHAMP, DEUX PORTES. Un « @ » : l'e-mail et le mot de
+           passe, comme toujours. Des chiffres : le numéro, le mot de passe,
+           puis un code par SMS — la porte des livreurs. */
+        UI.champTexte({ id: "cx-email", label: "E-mail ou numéro de téléphone", type: "text",
+          placeholder: "gerant@exemple.com ou 01 97 12 15 96" }) +
         '<div class="champ">' +
           '<label for="cx-mdp">Mot de passe</label>' +
           '<input id="cx-mdp" type="password" autocomplete="current-password">' +
@@ -72,8 +77,21 @@ const VueConnexion = (() => {
       erreur.textContent = "";
       bouton.disabled = true;
       bouton.textContent = "Connexion…";
+      const identifiant = UI.$("#cx-email").value.trim();
+      const mdp = UI.$("#cx-mdp").value;
+      if (Supabase.estNumero(identifiant)) {
+        try {
+          const r = await Supabase.connexionTelephone(identifiant, mdp);
+          codeTelephone(vue, r, apresConnexion);
+        } catch (err) {
+          erreur.textContent = err.message || "Connexion impossible.";
+          bouton.disabled = false;
+          bouton.textContent = "Se connecter";
+        }
+        return;
+      }
       try {
-        await Supabase.connexion(UI.$("#cx-email").value.trim(), UI.$("#cx-mdp").value);
+        await Supabase.connexion(identifiant, mdp);
         Store.journaliser("compte", "connexion", "Connexion à l'application admin", Supabase.utilisateur());
         UI.toast("Bienvenue !", "ok");
         apresConnexion();
@@ -89,6 +107,71 @@ const VueConnexion = (() => {
     UI.$("#cx-connecter").onclick = lancer;
     UI.$("#cx-mdp").addEventListener("keydown", (ev) => { if (ev.key === "Enter") lancer(); });
     UI.$("#cx-email").focus();
+  }
+
+  /* ---------- Le code du numéro (livreurs) ----------
+     Le mot de passe est juste ; le code reçu par SMS ouvre la session.
+     C'est Supabase qui génère, fait expirer et vérifie ce code. */
+  function codeTelephone(vue, r, apresConnexion) {
+    UI.entete({ accueil: true });
+    vue.innerHTML =
+      '<div class="carte carte-connexion" id="cx-code-tel">' +
+        UI.marque(72) +
+        '<h2 style="font-size:19px;font-weight:800;margin-top:6px">Votre code</h2>' +
+        '<p class="aide" style="margin:0 0 6px;text-align:center">Un code à six chiffres part vers le ' +
+          "<strong>" + Utils.echapper(r.affichage || "") + "</strong>. Il expire dans quelques minutes.</p>" +
+        '<div class="champ"><label for="cx-code-chiffres">Code reçu par SMS</label>' +
+          '<input id="cx-code-chiffres" type="text" inputmode="numeric" autocomplete="one-time-code" ' +
+            'maxlength="6" placeholder="6 chiffres"></div>' +
+        '<button type="button" class="btn" id="cx-code-valider">' + UI.icone("check") + "Valider</button>" +
+        '<button type="button" class="btn btn-clair" id="cx-code-renvoyer" style="margin-top:10px">' +
+          "Renvoyer un code</button>" +
+        '<button type="button" class="btn btn-clair" id="cx-code-retour" style="margin-top:10px">' +
+          "Annuler</button>" +
+        '<div class="aide" id="cx-code-etat" role="status" aria-live="polite" ' +
+          'style="text-align:center"></div>' +
+      "</div>";
+
+    const champ = UI.$("#cx-code-chiffres");
+    const etat = UI.$("#cx-code-etat");
+    champ.focus();
+    let enCours = false;
+    const valider = async () => {
+      if (enCours) return;
+      const code = champ.value.replace(/\D/g, "");
+      if (code.length !== 6) { etat.textContent = "Le code a six chiffres."; return; }
+      enCours = true;
+      UI.$("#cx-code-valider").disabled = true;
+      try {
+        await Supabase.confirmerCodeTelephone(code);
+      } catch (err) {
+        etat.textContent = err.message || "Le code n'a pas été accepté.";
+        enCours = false;
+        UI.$("#cx-code-valider").disabled = false;
+        return;
+      }
+      Store.journaliser("compte", "connexion", "Connexion par numéro et code SMS", Supabase.utilisateur());
+      UI.toast("Bienvenue !", "ok");
+      apresConnexion();
+    };
+    UI.$("#cx-code-valider").onclick = valider;
+    champ.addEventListener("keydown", (ev) => { if (ev.key === "Enter") valider(); });
+    champ.addEventListener("input", () => {
+      champ.value = champ.value.replace(/\D/g, "").slice(0, 6);
+      if (champ.value.length === 6) valider();
+    });
+    UI.$("#cx-code-renvoyer").onclick = async (ev) => {
+      const b = ev.currentTarget;
+      b.disabled = true;
+      try {
+        await Supabase.renvoyerCodeTelephone();
+        etat.textContent = "Nouveau code envoyé.";
+      } catch (err) {
+        etat.textContent = err.message || "Le code n'a pas pu partir.";
+      }
+      setTimeout(() => { b.disabled = false; }, 30000);
+    };
+    UI.$("#cx-code-retour").onclick = () => connexion(vue, apresConnexion);
   }
 
   /* ---------- Étape 3 : le code reçu par SMS ----------

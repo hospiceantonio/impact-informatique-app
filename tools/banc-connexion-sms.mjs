@@ -92,15 +92,16 @@ async function ouvrir(o = {}) {
     });
   }, {
     session: o.session ? {
-      access_token: jwt({ sub: o.session.sub || ANCIEN, email: o.session.email || "awa@essai.bj",
+      access_token: jwt({ sub: o.session.sub || ANCIEN, email: "email" in o.session ? o.session.email : "awa@essai.bj",
         phone: o.session.phone || "", session_id: "a1000000-0000-4000-8000-000000000001" }),
       refresh_token: "r", expire_a: Date.now() + 3600000,
-      email: o.session.email || "awa@essai.bj", tel: o.session.phone || "",
+      email: "email" in o.session ? o.session.email : "awa@essai.bj", tel: o.session.phone || "",
     } : null,
     panier: !!o.panier,
   });
 
-  const note = { otp: [], verify: [], put: [], token: [], patch: [], profils: [], clients: [], rattacher: 0 };
+  const note = { otp: [], verify: [], put: [], token: [], patch: [], profils: [], clients: [], rattacher: 0,
+    signup: [], resend: [], logout: [] };
   let fiche = o.fiche === undefined
     ? { id: MOI, nom: "Awa", tel: "0197000011", indicatif: "229", tel_verifie: false,
         type_compte: "client", revendeur_etat: "aucune", adresse: "Cotonou, Fidjrossè" }
@@ -119,8 +120,18 @@ async function ouvrir(o = {}) {
       return json(200, { external: { email: true, phone: sms === true }, disable_signup: false });
     }
     if (chemin === "otp") { note.otp.push(corps); return json(200, {}); }
+    if (chemin === "resend") { note.resend.push(corps); return json(200, {}); }
+    if (chemin === "signup") {
+      note.signup.push(corps);
+      if (o.dejaInscrit) return json(422, { code: 422, error_code: "user_already_exists", msg: "User already registered" });
+      return json(200, { id: MOI, phone: String(corps.phone || "").replace(/\D/g, ""), identities: [{ id: "x" }] });
+    }
     if (chemin === "user" && req.method() === "PUT") {
       note.put.push({ corps, auth: req.headers()["authorization"] || "" });
+      if (corps.email) {
+        return json(200, { id: MOI, email: o.emailEnAttente ? "" : corps.email,
+          new_email: o.emailEnAttente ? corps.email : undefined, phone: "2290197121596" });
+      }
       return json(200, { id: ANCIEN, email: "awa@essai.bj", phone: "", new_phone: corps.phone });
     }
     if (chemin === "verify") {
@@ -141,6 +152,20 @@ async function ouvrir(o = {}) {
           last_sign_in_at: maintenant.toISOString() },
       });
     }
+    if (chemin.startsWith("token") && corps.phone) {
+      note.token.push(corps);
+      if (corps.password !== "secret-essai") {
+        return json(400, { code: 400, error_code: "invalid_credentials", msg: "Invalid login credentials" });
+      }
+      if (o.nonConfirme) return json(400, { error: "invalid_grant", error_description: "Phone not confirmed" });
+      return json(200, {
+        access_token: jwt({ sub: MOI, phone: corps.phone.replace(/\D/g, ""), email: "",
+          session_id: "d4000000-0000-4000-8000-000000000004" }),
+        token_type: "bearer", expires_in: 3600, refresh_token: "rm",
+        user: { id: MOI, phone: corps.phone.replace(/\D/g, ""), email: "",
+          phone_confirmed_at: "2026-02-01T10:00:00Z" },
+      });
+    }
     if (chemin.startsWith("token")) {
       note.token.push(corps);
       const m = o.motDePasse || {};
@@ -153,7 +178,10 @@ async function ouvrir(o = {}) {
           created_at: "2026-01-05T09:00:00Z", last_sign_in_at: maintenant.toISOString() },
       });
     }
-    if (chemin === "logout") return route.fulfill({ status: 204, body: "" });
+    if (chemin === "logout") {
+      note.logout.push({ portee: url.searchParams.get("scope") || "", auth: req.headers()["authorization"] || "" });
+      return route.fulfill({ status: 204, body: "" });
+    }
     return json(200, {});
   });
 
@@ -214,33 +242,51 @@ const taperCode = async (page, code) => {
   await page.keyboard.type(code, { delay: 20 });
 };
 
-titre("1. « Se connecter » ouvre sur le numéro");
+titre("1. « Se connecter » : le numéro et le mot de passe");
 {
   const { page, ctx, erreurs, note } = await ouvrir({ sms: true, fiche: { id: MOI, nom: "Awa",
     tel: "0197121596", indicatif: "229", tel_verifie: true, type_compte: "client",
     revendeur_etat: "aucune", adresse: "Cotonou" } });
   await aller(page, "#/connexion");
-  ok(await visible(page, "#cp-tel") && await visible(page, "#cp-envoyer"), "le numéro est devant");
-  ok(!(await page.$("#cp-email")) && !(await page.$("#cp-mdp")), "ni e-mail, ni mot de passe à l'écran");
-  ok(!!(await page.$('a[href="#/connexion-email"]')), "les comptes d'avant ont leur lien");
+  ok(await visible(page, "#cp-tel") && await visible(page, "#cp-mdp-tel") && await visible(page, "#cp-envoyer"),
+    "le numéro et le mot de passe sont devant");
+  ok(!(await page.$("#cp-email")), "pas d'e-mail à l'écran");
+  ok(!!(await page.$('a[href="#/connexion-email"]')), "l'e-mail a son lien, en secours");
+  ok(!!(await page.$('a[href="#/mot-de-passe"]')), "« Mot de passe oublié » est là");
   ok(!!(await page.$('a[href="#/inscription"]')), "« Créer mon compte » reste");
 
   await page.click("#cp-envoyer");
   await page.waitForTimeout(400);
-  ok(note.otp.length === 0 && /Tapez votre numéro/.test(await toasts(page)),
-    "sans numéro, aucun code ne part");
-
+  ok(note.token.length === 0 && /Tapez votre numéro/.test(await toasts(page)),
+    "sans numéro, rien ne part");
   await page.fill("#cp-tel", "01 97 12 15 96");
   await page.click("#cp-envoyer");
+  await page.waitForTimeout(400);
+  ok(note.token.length === 0 && /mot de passe/.test(await toasts(page)),
+    "sans mot de passe, rien ne part");
+
+  await page.fill("#cp-mdp-tel", "mauvais");
+  await page.click("#cp-envoyer");
   await page.waitForTimeout(700);
+  ok(note.token.length === 1 && note.otp.length === 0 &&
+     /Numéro ou mot de passe incorrect/.test(await toasts(page)),
+    "mauvais mot de passe : « Numéro ou mot de passe incorrect », et AUCUN code ne part");
+
+  await page.fill("#cp-mdp-tel", "secret-essai");
+  await page.click("#cp-envoyer");
+  await page.waitForTimeout(800);
+  const t = note.token[1] || {};
+  ok(t.phone === "+2290197121596" && t.password === "secret-essai" && !t.email,
+    "le mot de passe se vérifie avec le numéro, au format de GoTrue (" + t.phone + ")");
   const envoi = note.otp[0] || {};
-  ok(envoi.phone === "+2290197121596", "le code part au format de GoTrue (" + envoi.phone + ")");
-  ok(envoi.create_user === true && envoi.data && envoi.data.compte === "client",
-    "avec « compte: client » : la base n'en fera pas une fiche d'équipe");
+  ok(envoi.phone === "+2290197121596" && envoi.create_user === false,
+    "puis le code part — sans jamais créer de compte");
+  ok(!(await garde(page)) && !(await connecte(page)),
+    "le mot de passe seul n'ouvre rien : rien n'est gardé avant le code");
   ok(await visible(page, "#cp-code") && /\+229 01 97 12 15 96/.test(await page.innerText("#vue")),
     "l'écran du code rappelle le numéro, par groupes de deux");
 
-  titre("2. Le sixième chiffre valide, une fois");
+  titre("2. Le sixième chiffre valide, une fois — et la session du mot de passe se ferme");
   await taperCode(page, "123456");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(1500);
@@ -249,7 +295,11 @@ titre("1. « Se connecter » ouvre sur le numéro");
   ok(v.type === "sms" && v.phone === "+2290197121596" && v.token === "123456",
     "le code vérifié est celui tapé, pour ce numéro");
   const s = await garde(page);
-  ok(!!s && s.tel === "2290197121596", "la session est gardée, avec son numéro");
+  ok(!!s && s.tel === "2290197121596", "la session du code est gardée, avec son numéro");
+  const sortie = note.logout[0] || {};
+  const charge = (sortie.auth || "").split(".")[1] || "";
+  ok(sortie.portee === "local" && /d4000000/.test(Buffer.from(charge, "base64").toString()),
+    "la session du mot de passe est fermée — elle seule (« scope=local »)");
   ok(await hash(page) === "#/compte" && /Bonjour/.test(await toasts(page)),
     "le client entre : « Bonjour ! », et Mon compte");
   ok(!/Code incorrect/.test(await toasts(page)), "aucun « code incorrect » après coup");
@@ -257,62 +307,84 @@ titre("1. « Se connecter » ouvre sur le numéro");
   await ctx.close();
 }
 
-titre("3. Un compte né à la porte « Se connecter » donne son nom");
+titre("3. Mot de passe oublié (ou jamais choisi) : le code, puis le mot de passe");
 {
-  const { page, ctx, erreurs, note } = await ouvrir({ sms: true, verifie: { nouveau: true },
+  const { page, ctx, erreurs, note } = await ouvrir({ sms: true, verifie: { nouveau: false },
     fiche: { id: MOI, nom: "", tel: "0197121596", indicatif: "229", tel_verifie: true,
       type_compte: "client", revendeur_etat: "aucune", adresse: "Cotonou, Akpakpa" } });
   await aller(page, "#/connexion");
+  await page.click("#cp-oubli");
+  await page.waitForTimeout(900);
+  ok(await visible(page, "#cp-oubli-tel") && await visible(page, "#cp-email"),
+    "deux chemins : le numéro d'abord, l'e-mail ensuite");
   await page.fill("#cp-tel", "0197121596");
-  await page.click("#cp-envoyer");
-  await page.waitForTimeout(600);
+  await page.click("#cp-oubli-envoyer");
+  await page.waitForTimeout(700);
+  ok((note.otp[0] || {}).create_user === false && note.token.length === 0,
+    "un code part, sans mot de passe et sans créer de compte");
   await taperCode(page, "111111");
   await page.waitForTimeout(1500);
-  ok(await visible(page, "#cp-nommer"), "on lui demande son nom");
-  await page.click("#cp-nommer-ok");
+  ok(await visible(page, "#cp-choisir-mdp"), "le code passé, on choisit son mot de passe");
+  await page.fill("#cp-nouveau", "nouveau-mdp");
+  await page.fill("#cp-encore", "autre-chose");
+  await page.click("#cp-changer");
   await page.waitForTimeout(300);
-  ok(note.patch.length === 0 && /Votre nom/.test(await toasts(page)), "un nom vide ne part pas");
+  ok(!note.put.length && /pas identiques/.test(await toasts(page)), "deux saisies différentes : rien ne part");
+  await page.fill("#cp-encore", "nouveau-mdp");
+  await page.click("#cp-changer");
+  await page.waitForTimeout(1200);
+  ok(!!(note.put[0] || {}).corps && note.put[0].corps.password === "nouveau-mdp",
+    "le mot de passe s'enregistre sur la session du code");
+  ok(await visible(page, "#cp-nommer"), "un compte sans nom le donne ensuite");
   await page.fill("#cp-nom", "Awa Dossou");
   await page.click("#cp-nommer-ok");
   await page.waitForTimeout(1200);
   const p = note.patch[0] || {};
   ok(p.nom === "Awa Dossou" && Object.keys(p).sort().join(",") === "maj_le,nom",
     "seul le nom s'écrit — l'adresse déjà donnée ne s'efface pas (" + Object.keys(p).join(",") + ")");
-  ok(await hash(page) === "#/compte" && /Bienvenue/.test(await toasts(page)), "« Bienvenue ! », et Mon compte");
+  ok(await hash(page) === "#/compte", "et il arrive dans Mon compte");
   sansErreur(erreurs);
   await ctx.close();
 }
 
-titre("4. « Créer mon compte » : le nom, le numéro, le code");
+titre("4. « Créer mon compte » : le nom, le numéro, un mot de passe, le code");
 {
   const { page, ctx, erreurs, note } = await ouvrir({ sms: true, verifie: { nouveau: true },
     fiche: { id: MOI, nom: "Koffi Mensah", tel: "0161000022", indicatif: "229", tel_verifie: true,
       type_compte: "client", revendeur_etat: "aucune", adresse: "" } });
   await aller(page, "#/inscription");
-  ok(!(await page.$("#cp-email")) && !(await page.$("#cp-mdp")), "plus d'e-mail ni de mot de passe");
-  ok(await visible(page, "#cp-nom") && await visible(page, "#cp-tel") && await visible(page, "#cp-creer-tel"),
-    "le nom, le numéro, et « Recevoir mon code »");
+  ok(!(await page.$("#cp-email")), "pas d'e-mail exigé");
+  ok(await visible(page, "#cp-nom") && await visible(page, "#cp-tel") &&
+     await visible(page, "#cp-mdp-nouveau") && await visible(page, "#cp-creer-tel"),
+    "le nom, le numéro, le mot de passe, et « Créer mon compte »");
 
   await page.fill("#cp-tel", "0161000022");
   await page.click("#cp-creer-tel");
   await page.waitForTimeout(300);
-  ok(note.otp.length === 0 && /Votre nom/.test(await toasts(page)), "sans nom, rien ne part");
-
+  ok(note.signup.length === 0 && /Votre nom/.test(await toasts(page)), "sans nom, rien ne part");
   await page.fill("#cp-nom", "Koffi Mensah");
+  await page.click("#cp-creer-tel");
+  await page.waitForTimeout(300);
+  ok(note.signup.length === 0 && /six caractères/.test(await toasts(page)), "sans mot de passe, rien ne part");
+  await page.fill("#cp-mdp-nouveau", "secret-essai");
+  await page.fill("#cp-mdp-encore", "secret-autre");
+  await page.click("#cp-creer-tel");
+  await page.waitForTimeout(300);
+  ok(note.signup.length === 0 && /pas identiques/.test(await toasts(page)),
+    "deux mots de passe différents : rien ne part");
+  await page.fill("#cp-mdp-encore", "secret-essai");
+
   await page.click('[data-type="revendeur"]');
   await page.click("#cp-creer-tel");
   await page.waitForTimeout(300);
-  ok(note.otp.length === 0 && /quel commerce/.test(await toasts(page)),
+  ok(note.signup.length === 0 && /quel commerce/.test(await toasts(page)),
     "« Pour revendre » demande d'abord quel commerce");
-
   await page.fill("#cp-message", "Boutique Mensah, accessoires téléphone");
   await page.fill("#cp-pos-adresse", "Dantokpa, face à la pharmacie");
   await page.click("#cp-creer-tel");
   await page.waitForTimeout(300);
-  ok(note.otp.length === 0 && /Activez votre position/.test(await toasts(page)),
+  ok(note.signup.length === 0 && /Activez votre position/.test(await toasts(page)),
     "« Pour revendre » sans position du téléphone : rien ne part");
-  /* La position du téléphone, simulée : sans elle, la demande de
-     revendeur ne part plus (3.58.0). */
   await page.evaluate(() => {
     Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
       getCurrentPosition: (ok) => ok({ coords: { latitude: 6.3561, longitude: 2.4334, accuracy: 15 } }) } });
@@ -321,11 +393,19 @@ titre("4. « Créer mon compte » : le nom, le numéro, le code");
   await page.waitForTimeout(300);
   await page.click("#cp-creer-tel");
   await page.waitForTimeout(700);
-  const e = note.otp[0] || {};
-  ok(e.phone === "+2290161000022" && e.data && e.data.nom === "Koffi Mensah" && e.data.compte === "client",
-    "le code part avec le nom du nouveau compte");
+  const e = note.signup[0] || {};
+  ok(e.phone === "+2290161000022" && e.password === "secret-essai" && !e.email &&
+     e.data && e.data.nom === "Koffi Mensah" && e.data.compte === "client",
+    "l'inscription part : numéro, mot de passe, nom, « compte: client » — sans e-mail");
+  ok(note.otp.length === 0 && await visible(page, "#cp-code"),
+    "le code de confirmation vient de l'inscription elle-même");
+  await page.click("#cp-renvoyer");
+  await page.waitForTimeout(400);
+  ok((note.resend[0] || {}).type === "sms" && note.resend[0].phone === "+2290161000022",
+    "« Renvoyer le code » redemande celui de l'inscription");
   await taperCode(page, "222222");
   await page.waitForTimeout(1800);
+  ok((note.verify[0] || {}).type === "sms", "le code se vérifie");
   const demande = note.patch.find((x) => x.type_compte === "revendeur") || {};
   ok(demande.revendeur_message === "Boutique Mensah, accessoires téléphone" &&
      demande.revendeur_adresse === "Dantokpa, face à la pharmacie",
@@ -338,27 +418,67 @@ titre("4. « Créer mon compte » : le nom, le numéro, le code");
 
 titre("4 bis. Un numéro qui avait déjà son compte");
 {
-  const { page, ctx, erreurs, note } = await ouvrir({ sms: true, verifie: { nouveau: false },
-    fiche: { id: MOI, nom: "Koffi Mensah", tel: "0161000022", indicatif: "229", tel_verifie: true,
-      type_compte: "revendeur", revendeur_etat: "validee", adresse: "Cotonou" } });
+  const { page, ctx, erreurs } = await ouvrir({ sms: true, dejaInscrit: true });
   await aller(page, "#/inscription");
   await page.fill("#cp-nom", "K. Mensah");
-  await page.click('[data-type="revendeur"]');
-  await page.fill("#cp-message", "Ma boutique");
-  await page.fill("#cp-pos-adresse", "Cotonou, Ganhi");
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
-      getCurrentPosition: (ok) => ok({ coords: { latitude: 6.36, longitude: 2.42, accuracy: 15 } }) } });
-  });
-  await page.click("#cp-pos-relever");
-  await page.waitForTimeout(250);
   await page.fill("#cp-tel", "0161000022");
+  await page.fill("#cp-mdp-nouveau", "secret-essai");
+  await page.fill("#cp-mdp-encore", "secret-essai");
   await page.click("#cp-creer-tel");
-  await page.waitForTimeout(600);
-  await taperCode(page, "333333");
-  await page.waitForTimeout(1800);
-  ok(/avait déjà son compte/.test(await toasts(page)), "on le dit : « Ce numéro avait déjà son compte »");
-  ok(!note.patch.length, "ni le nom ni le statut de revendeur déjà acquis ne sont réécrits");
+  await page.waitForTimeout(800);
+  ok(/déjà un compte BIZZOO/.test(await toasts(page)) && !(await page.$("#cp-code")),
+    "on le dit, et on l'envoie se connecter — pas d'écran de code");
+  ok(!/avec cet e-mail/.test(await toasts(page)), "le message parle du numéro, pas d'un e-mail");
+  sansErreur(erreurs);
+  await ctx.close();
+}
+
+titre("4 ter. Le mot de passe est juste, le numéro pas encore confirmé");
+{
+  const { page, ctx, erreurs, note } = await ouvrir({ sms: true, nonConfirme: true });
+  await aller(page, "#/connexion");
+  await page.fill("#cp-tel", "0161000022");
+  await page.fill("#cp-mdp-tel", "secret-essai");
+  await page.click("#cp-envoyer");
+  await page.waitForTimeout(800);
+  ok(note.otp.length === 0 && (note.resend[0] || {}).type === "sms" && await visible(page, "#cp-code"),
+    "le code de confirmation est redemandé — pas un refus « mot de passe incorrect »");
+  ok(!/incorrect/.test(await toasts(page)), "aucun « incorrect » affiché");
+  sansErreur(erreurs);
+  await ctx.close();
+}
+
+titre("4 quater. Mon compte : ajouter son e-mail de secours, changer son mot de passe");
+for (const enAttente of [false, true]) {
+  const { page, ctx, erreurs, note } = await ouvrir({ sms: true, emailEnAttente: enAttente,
+    session: { sub: MOI, phone: "2290197121596", email: "" },
+    fiche: { id: MOI, nom: "Awa", tel: "0197121596", indicatif: "229", tel_verifie: true,
+      type_compte: "client", revendeur_etat: "aucune", adresse: "Cotonou" } });
+  await aller(page, "#/compte", 1800);
+  ok(await visible(page, "#cp-connexion") && /facultatif/.test(await page.innerText("#cp-connexion")),
+    "la carte « Mes accès » propose l'e-mail, facultatif");
+  await page.fill("#cp-email-secours", "pas-une-adresse");
+  await page.click("#cp-email-ajouter");
+  await page.waitForTimeout(400);
+  ok(!note.put.length && /pas valide/.test(await toasts(page)), "une adresse mal formée ne part pas");
+  await page.fill("#cp-email-secours", "Awa@Essai.bj");
+  await page.click("#cp-email-ajouter");
+  await page.waitForTimeout(1500);
+  const put = note.put[0] || { corps: {} };
+  ok(put.corps.email === "awa@essai.bj" && /Bearer /.test(put.auth),
+    "l'adresse part, en minuscules, avec la session du client");
+  if (!enAttente) {
+    ok(/E-mail enregistré/.test(await toasts(page)) &&
+       /awa@essai\.bj/.test(await page.innerText("#cp-connexion")),
+      "appliquée tout de suite : la carte la montre");
+    ok((await garde(page)).email === "awa@essai.bj", "et la session la garde");
+  } else {
+    ok(/Ouvrez le message envoyé à/.test(await toasts(page)),
+      "un lien à confirmer : on le dit, au lieu de crier victoire");
+  }
+  await page.click("#cp-mdp-changer");
+  await page.waitForTimeout(400);
+  ok(await visible(page, "#cp-choisir-mdp"), "« Changer mon mot de passe » ouvre le formulaire");
   sansErreur(erreurs);
   await ctx.close();
 }
@@ -369,8 +489,8 @@ titre("5. L'ancien compte e-mail confirme son numéro avant d'entrer");
   await aller(page, "#/connexion");
   await page.click('a[href="#/connexion-email"]');
   await page.waitForTimeout(900);
-  ok(await visible(page, "#cp-email") && /une dernière fois/.test(await page.innerText("#vue")),
-    "la porte des comptes d'avant explique ce qui va suivre");
+  ok(await visible(page, "#cp-email") && /sans code/.test(await page.innerText("#vue")),
+    "la porte e-mail explique ce qu'elle est : le secours, sans code");
   await page.fill("#cp-email", "awa@essai.bj");
   await page.fill("#cp-mdp", "secret-essai");
   await page.click("#cp-entrer");

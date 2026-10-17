@@ -4276,6 +4276,70 @@ Bancs : [`supabase/tests/99zz-positions-comptes.sql`](supabase/tests/99zz-positi
 (20 constats) et [`tools/banc-positions-comptes.mjs`](tools/banc-positions-comptes.mjs)
 (26 constats).
 
+## Entrer avec son numéro, son mot de passe, et un code (3.59.0)
+
+**Clients et livreurs** entrent désormais avec leur **numéro de téléphone
+et leur mot de passe, puis un code reçu par SMS**. L'adresse e-mail n'est
+plus exigée nulle part.
+
+**Client — créer son compte.** *Créer mon compte* demande le nom, le
+numéro et un mot de passe (deux fois). Supabase envoie un code par SMS ;
+le code validé ouvre le compte. « Pour revendre » garde sa demande, son
+commerce et sa position.
+
+**Client — se connecter.** *Se connecter* demande le numéro et le mot de
+passe. Mauvais mot de passe : refus, et **aucun SMS ne part**. Mot de
+passe juste : le code part, et c'est lui qui ouvre la session. La session
+ouverte par le seul mot de passe n'est jamais gardée : elle est fermée
+dès le code validé (`logout?scope=local`).
+
+**Mot de passe oublié — ou jamais choisi.** Les comptes ouverts par SMS
+avant la 3.59.0 n'ont pas de mot de passe. *Mot de passe oublié* propose
+d'abord le numéro : un code, puis le choix du mot de passe. Le lien par
+e-mail reste, pour qui a un e-mail.
+
+**L'e-mail, facultatif, porte de secours.** Dans *Mon compte*, la carte
+*Mes accès* permet d'ajouter son e-mail et de changer son mot de passe.
+Sans son téléphone, on entre alors par *Entrer avec mon e-mail* : e-mail et
+mot de passe, **sans code** (choix de BIZZOO). Un compte d'avant, ouvert
+avec un e-mail et sans numéro, y confirme son numéro une fois, comme en
+3.58.0.
+
+**Livreurs.** *Créer un livreur* (BIZZOO Admin) demande d'abord son
+**numéro**, un mot de passe, son nom, et son e-mail **facultatif**. Le
+compte naît par le numéro (`compte: equipe` dans les métadonnées, sans
+quoi la base le prendrait pour un acheteur). Supabase lui envoie alors un
+SMS de confirmation : il peut l'ignorer. À l'écran de connexion de
+BIZZOO Admin, le champ accepte **un e-mail ou un numéro** : avec un numéro,
+le livreur donne son mot de passe, puis le code reçu par SMS (ce code
+confirme aussi son numéro la première fois). L'e-mail noté sur sa fiche
+devient, à cette première connexion, sa porte de secours : e-mail et mot
+de passe, sans code. **Les autres comptes de l'équipe ne changent pas** :
+e-mail et mot de passe, et le code d'équipe quand l'enseigne l'exige.
+
+**Ce que la base change** ([`supabase/connexion-telephone.sql`](supabase/connexion-telephone.sql)) :
+
+- `profil_nouveau_compte` pose la fiche d'équipe en attente d'un compte né
+  par numéro avec `compte: equipe` ;
+- `au_numero_confirme` ne pose jamais de fiche client à un tel compte ;
+- `session_confirmee` reconnaît, **pour un livreur seulement**, la session
+  ouverte par le code Supabase (jeton signé : méthode `otp`, numéro
+  confirmé) : quand l'enseigne exige le code d'équipe, il n'a pas à rendre
+  un second code.
+
+**À savoir, honnêtement.** C'est l'application qui enchaîne mot de passe
+puis code : la base ne distingue pas une session « mot de passe + code »
+d'une session « code seul ». Le code seul reste, volontairement, le
+chemin de *Mot de passe oublié*. Côté Supabase, laisser **Authentication →
+Sign In / Providers → Phone → « Enable phone confirmations »** coché (s'il
+ne l'est pas, l'application redemande quand même le code).
+
+Bancs : [`supabase/tests/99zzz-connexion-telephone.sql`](supabase/tests/99zzz-connexion-telephone.sql)
+(9 constats), [`tools/banc-connexion-telephone.mjs`](tools/banc-connexion-telephone.mjs)
+(28 constats, BIZZOO Admin) et [`tools/banc-connexion-sms.mjs`](tools/banc-connexion-sms.mjs)
+réécrit (101 constats, application client) ; contrôle 131 de
+l'état des lieux.
+
 ## Structure
 
 ```
@@ -4316,6 +4380,7 @@ impact-informatique-app/
 │   ├── live-tiktok.sql              # Le live TikTok : démarrer, arrêter, lives en cours (3.58.0)
 │   ├── frais-livraison.sql          # Les frais de livraison : 1 000 FCFA par commande, hors code promo (3.58.0)
 │   ├── positions-comptes.sql        # Livreurs et revendeurs valident leur compte par leur position (3.58.0)
+│   ├── connexion-telephone.sql      # Numéro + mot de passe + code : livreurs créés par leur numéro (3.59.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

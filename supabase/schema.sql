@@ -672,7 +672,19 @@ language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.sessions_sms s
      where s.session_id = public.session_courante()
-       and s.utilisateur = auth.uid());
+       and s.utilisateur = auth.uid())
+  /* UN LIVREUR ENTRÉ PAR SON NUMÉRO a déjà rendu un code : celui de
+     Supabase (numéro, mot de passe, puis code — 3.59.0). Le jeton le
+     dit, signé par GoTrue : méthode « otp », numéro confirmé. Lui
+     redemander le code de l'équipe, ce serait deux SMS pour une seule
+     porte. Les autres rangs gardent leur code d'équipe, inchangé. */
+  or (coalesce(auth.jwt() ->> 'phone', '') <> ''
+      and exists (select 1 from jsonb_array_elements(
+                    case when jsonb_typeof(auth.jwt() -> 'amr') = 'array'
+                         then auth.jwt() -> 'amr' else '[]'::jsonb end) a
+                   where a ->> 'method' = 'otp')
+      and exists (select 1 from public.profils p
+                   where p.id = auth.uid() and p.role = 'livreur'));
 $$;
 
 -- L'équipe est-elle en service ? Oui quand rien n'est exigé ; sinon,
@@ -900,10 +912,13 @@ begin
   if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' then
     return new;
   end if;
-  /* Et l'équipe n'entre pas par SMS : elle a des adresses e-mail. Un
-     compte qui n'a qu'un numéro est un acheteur, même si les
-     métadonnées manquent — elles viennent du téléphone, après tout. */
-  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> '' then
+  /* Un compte qui n'a qu'un numéro est un acheteur, même si les
+     métadonnées manquent — elles viennent du téléphone, après tout.
+     SAUF « compte: equipe » : c'est un livreur que l'administrateur crée
+     par son numéro (3.59.0). Il reçoit, comme les autres, sa fiche en
+     attente — que l'administrateur active dans la foulée. */
+  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> ''
+     and coalesce(new.raw_user_meta_data ->> 'compte', '') <> 'equipe' then
     return new;
   end if;
   insert into public.profils (id, email, role, actif)
@@ -5392,6 +5407,13 @@ begin
   -- d'équipe : lui poser une fiche client ferait de lui les deux à la
   -- fois, ce que « compte_unique » refuse — et à raison.
   if exists (select 1 from public.profils p where p.id = new.id and p.actif) then
+    return new;
+  end if;
+  -- Un livreur créé par son numéro (« compte: equipe ») n'est pas un
+  -- acheteur, même avant que sa fiche soit activée. Sans ce test, un
+  -- Supabase réglé pour confirmer les numéros d'office lui poserait une
+  -- fiche client à la création — et sa fiche d'équipe serait refusée.
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'equipe' then
     return new;
   end if;
 

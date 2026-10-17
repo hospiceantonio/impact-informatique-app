@@ -422,10 +422,19 @@ const VueComptes = (() => {
       return;
     }
 
+    /* UN LIVREUR ENTRE PAR SON NUMÉRO : numéro, mot de passe, puis un
+       code reçu par SMS. Son e-mail est facultatif — s'il en a un, il
+       devient sa porte de secours, sans code. L'équipe garde l'e-mail. */
     const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : "Nouveau compte",
-      UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
-        type: "email", placeholder: "prenom@exemple.com",
-        aide: "C'est avec elle que la personne se connectera." }) +
+      (livreur
+        ? UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
+            placeholder: "01 97 00 00 00",
+            aide: "C'est avec lui qu'il se connectera : son numéro, son mot de passe, puis " +
+              "un code reçu par SMS. C'est aussi le numéro qu'on appelle quand le client " +
+              "n'est pas chez lui." })
+        : UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
+            type: "email", placeholder: "prenom@exemple.com",
+            aide: "C'est avec elle que la personne se connectera." })) +
       UI.champTexte({ id: "nc-mdp", label: "Mot de passe", obligatoire: true,
         type: "password", placeholder: "6 caractères minimum",
         aide: "À lui communiquer ; elle pourra le changer elle-même ensuite." }) +
@@ -436,10 +445,15 @@ const VueComptes = (() => {
          appeler. */
       UI.champTexte({ id: "nc-nom", label: "Nom", placeholder: "Rohim",
         aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
-      UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
-        placeholder: "01 97 00 00 00",
-        aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
-          "qu'on appelle quand le client n'est pas chez lui." }) +
+      (livreur
+        ? UI.champTexte({ id: "nc-email", label: "Adresse e-mail (facultatif)",
+            type: "email", placeholder: "prenom@exemple.com",
+            aide: "Sa porte de secours : sans son téléphone, il entrera avec cet e-mail " +
+              "et son mot de passe, sans code." })
+        : UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
+            placeholder: "01 97 00 00 00",
+            aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
+              "qu'on appelle quand le client n'est pas chez lui." })) +
       '<div class="champ"' + (livreur ? " hidden" : "") + ">" +
         '<label for="nc-role">Rôle</label>' +
         '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +
@@ -498,7 +512,7 @@ const VueComptes = (() => {
         if (compte.confirmationRequise) {
           UI.toast("Compte créé — il doit d'abord confirmer son adresse par email.", "ok");
         } else {
-          UI.toast(nomRole(compte.role) + " ajouté : " + compte.email, "ok");
+          UI.toast(nomRole(compte.role) + " ajouté : " + (compte.email || compte.tel || compte.nom), "ok");
         }
         apres();
       } catch (err) {

@@ -96,10 +96,13 @@ begin
   if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' then
     return new;
   end if;
-  /* Et l'équipe n'entre pas par SMS : elle a des adresses e-mail. Un
-     compte qui n'a qu'un numéro est un acheteur, même si les
-     métadonnées manquent — elles viennent du téléphone, après tout. */
-  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> '' then
+  /* Un compte qui n'a qu'un numéro est un acheteur, même si les
+     métadonnées manquent — elles viennent du téléphone, après tout.
+     SAUF « compte: equipe » : c'est un livreur que l'administrateur crée
+     par son numéro (3.59.0). Il reçoit, comme les autres, sa fiche en
+     attente — que l'administrateur active dans la foulée. */
+  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> ''
+     and coalesce(new.raw_user_meta_data ->> 'compte', '') <> 'equipe' then
     return new;
   end if;
   insert into public.profils (id, email, role, actif)
@@ -166,6 +169,13 @@ begin
   -- d'équipe : lui poser une fiche client ferait de lui les deux à la
   -- fois, ce que « compte_unique » refuse — et à raison.
   if exists (select 1 from public.profils p where p.id = new.id and p.actif) then
+    return new;
+  end if;
+  -- Un livreur créé par son numéro (« compte: equipe ») n'est pas un
+  -- acheteur, même avant que sa fiche soit activée. Sans ce test, un
+  -- Supabase réglé pour confirmer les numéros d'office lui poserait une
+  -- fiche client à la création — et sa fiche d'équipe serait refusée.
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'equipe' then
     return new;
   end if;
 

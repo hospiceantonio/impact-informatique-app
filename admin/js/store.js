@@ -988,7 +988,13 @@ const Store = (() => {
    */
   async function creerCompte(email, motDePasse, role, boutiqueRattachee, nom, tel) {
     const adresse = String(email || "").trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
+    /* UN LIVREUR ENTRE PAR SON NUMÉRO : son e-mail est facultatif. Le
+       reste de l'équipe garde l'e-mail comme identifiant. */
+    const parNumero = role === "livreur";
+    if (parNumero ? adresse && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)
+                  : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) {
+      throw new Error("Indiquez une adresse email valide.");
+    }
     /* LE NUMÉRO N'EST PLUS FACULTATIF : c'est là que part le code de
        connexion par SMS. Un compte créé sans numéro ne pourrait plus
        entrer le jour où l'enseigne exige le code. */
@@ -1032,7 +1038,12 @@ const Store = (() => {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
 
-    const cree = await Supabase.creerCompte(adresse, motDePasse);
+    /* « compte: equipe » : un compte né d'un numéro passerait, sinon,
+       pour un acheteur — la base ne lui poserait pas de fiche. */
+    const cree = parNumero
+      ? await Supabase.creerCompteTelephone(tel, motDePasse,
+          { compte: "equipe", nom: String(nom || "").trim() })
+      : await Supabase.creerCompte(adresse, motDePasse);
     /* LE NOM ET LE NUMÉRO SONT POSÉS ICI, à la création, et pas
        laissés pour plus tard. « Plus tard » n'arrive pas : le compte
        part en service avec son adresse e-mail pour seul nom, et c'est
@@ -1045,7 +1056,8 @@ const Store = (() => {
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
     const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")"
       : role === "livreur" ? " (BIZZOO — toutes les boutiques)" : "";
-    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse + ou, adresse,
+    const qui = adresse || String(tel || "").trim();
+    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + qui + ou, qui,
       undefined, attachee || null);
     return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
   }

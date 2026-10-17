@@ -90,7 +90,19 @@ language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.sessions_sms s
      where s.session_id = public.session_courante()
-       and s.utilisateur = auth.uid());
+       and s.utilisateur = auth.uid())
+  /* UN LIVREUR ENTRÉ PAR SON NUMÉRO a déjà rendu un code : celui de
+     Supabase (numéro, mot de passe, puis code — 3.59.0). Le jeton le
+     dit, signé par GoTrue : méthode « otp », numéro confirmé. Lui
+     redemander le code de l'équipe, ce serait deux SMS pour une seule
+     porte. Les autres rangs gardent leur code d'équipe, inchangé. */
+  or (coalesce(auth.jwt() ->> 'phone', '') <> ''
+      and exists (select 1 from jsonb_array_elements(
+                    case when jsonb_typeof(auth.jwt() -> 'amr') = 'array'
+                         then auth.jwt() -> 'amr' else '[]'::jsonb end) a
+                   where a ->> 'method' = 'otp')
+      and exists (select 1 from public.profils p
+                   where p.id = auth.uid() and p.role = 'livreur'));
 $$;
 
 -- L'équipe est-elle en service ? Oui quand rien n'est exigé ; sinon,

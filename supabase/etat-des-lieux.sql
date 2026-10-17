@@ -787,7 +787,19 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'valider_revendeur'
-         and p.prosrc like '%revendeur_latitude%'))
+         and p.prosrc like '%revendeur_latitude%')),
+  (131, 'Les livreurs entrent par leur numéro (fiche « compte: equipe », code Supabase reconnu)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'profil_nouveau_compte'
+         and p.prosrc like '%''equipe''%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'au_numero_confirme'
+         and p.prosrc like '%''equipe''%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'session_confirmee'
+         and p.prosrc like '%amr%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

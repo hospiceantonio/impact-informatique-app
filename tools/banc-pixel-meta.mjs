@@ -593,8 +593,9 @@ async function positionner(page, prefixe) {
 }
 
 titre("6. L'inscription, et la demande de compte revendeur");
-/* PAR LE NUMÉRO, la porte de la 3.58.0 : le nom, le numéro, le code. Le
-   compte naît au code validé ; un revendeur dépose sa demande juste après. */
+/* PAR LE NUMÉRO, la porte de la 3.59.0 : le nom, le numéro, un mot de
+   passe, le code. Le compte s'ouvre au code validé ; un revendeur dépose
+   sa demande juste après. */
 for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par son numéro, un revendeur", true]]) {
   const etat = nouvelEtat();
   etat.verifyUser = { id: "u-tel-" + (revendeur ? "rv" : "cl"), phone: "2290196000001",
@@ -607,6 +608,8 @@ for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par so
   }
   await o.page.fill("#cp-nom", CLIENT.nom);
   await o.page.fill("#cp-tel", CLIENT.tel);
+  await o.page.fill("#cp-mdp-nouveau", "secret-essai");
+  await o.page.fill("#cp-mdp-encore", "secret-essai");
   await o.page.click("#cp-creer-tel");
   await pause(900);
   await o.page.fill("#cp-code", "123456");
@@ -702,6 +705,7 @@ titre("6 bis. Entrer par son numéro : seule la naissance du compte compte");
         await aller(o.page, "#/connexion-tel");
       }
       await o.page.fill("#cp-tel", CLIENT.tel);
+      await o.page.fill("#cp-mdp-tel", "secret-essai");
       await o.page.click("#cp-envoyer");
       await pause(900);
       /* Le sixième chiffre valide tout seul ; « Valider » ne sert qu'à

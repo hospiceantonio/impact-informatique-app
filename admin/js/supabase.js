@@ -103,6 +103,25 @@ const Supabase = (() => {
     const donnees = await reponse.json().catch(() => ({}));
     if (!reponse.ok) {
       const code = donnees.error_code || donnees.error || "";
+      const texte = donnees.msg || donnees.error_description || donnees.message || "";
+      /* Avant « identifiants invalides » : GoTrue range ce refus sous le
+         même « invalid_grant », et ne le prononce qu'une fois le mot de
+         passe vérifié. Il ne manque que le code qui confirmera le numéro. */
+      if (code === "phone_not_confirmed" || /phone not confirmed/i.test(texte)) {
+        const e = new Error("Numéro pas encore confirmé.");
+        e.code = "phone_not_confirmed";
+        throw e;
+      }
+      if (code === "otp_expired" || /token has expired|invalid otp/i.test(texte)) {
+        throw new Error("Code incorrect ou expiré. Demandez-en un nouveau.");
+      }
+      if (code === "over_sms_send_rate_limit" || reponse.status === 429) {
+        throw new Error("Trop de tentatives. Patientez une minute.");
+      }
+      if (code === "phone_exists" || code === "user_already_exists" ||
+          /already registered|phone.*already/i.test(texte)) {
+        throw new Error("Ce numéro ou cette adresse a déjà un compte BIZZOO.");
+      }
       if (code === "invalid_credentials" || code === "invalid_grant" ||
           /invalid login credentials/i.test(donnees.msg || donnees.error_description || "")) {
         throw new Error("Email ou mot de passe incorrect.");
@@ -121,6 +140,104 @@ const Supabase = (() => {
       expire_a: (d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000),
       email: d.user && d.user.email ? d.user.email : email,
     });
+    return utilisateur();
+  }
+
+  /* ---------- Le numéro, la porte des livreurs ----------
+     Numéro et mot de passe, puis un code reçu par SMS — le même chemin
+     que les clients. Le mot de passe se vérifie d'abord ; la session
+     qu'il ouvre n'est pas gardée : elle attend le code, puis elle est
+     fermée. C'est la session du code qui entre, et la base la reconnaît
+     (« session_confirmee » : un livreur entré par code n'a pas à en
+     rendre un second quand l'enseigne exige le code de l'équipe). */
+
+  const INDICATIF = "229";
+  function telInternational(brut) {
+    let chiffres = String(brut || "").replace(/\D/g, "");
+    if (!chiffres) return "";
+    if (chiffres.startsWith("00")) chiffres = chiffres.slice(2);
+    if (!chiffres.startsWith(INDICATIF)) chiffres = INDICATIF + chiffres;
+    return "+" + chiffres;
+  }
+  /** « +229 01 97 12 15 96 » : un numéro se dicte par groupes de deux. */
+  function telAffichage(brut) {
+    let chiffres = String(brut || "").replace(/\D/g, "");
+    if (chiffres.startsWith(INDICATIF) && chiffres.length > INDICATIF.length + 7) {
+      chiffres = chiffres.slice(INDICATIF.length);
+    }
+    return chiffres ? "+" + INDICATIF + " " + (chiffres.match(/.{1,2}/g) || []).join(" ") : "";
+  }
+  /** Ce qu'on tape ressemble-t-il à un numéro plutôt qu'à un e-mail ? */
+  const estNumero = (texte) => !/@/.test(texte || "") &&
+    String(texte || "").replace(/\D/g, "").length >= 8;
+
+  let attenteTel = null;
+
+  async function connexionTelephone(tel, motDePasse) {
+    const numero = telInternational(tel);
+    let jetonMdp = "";
+    let confirme = true;
+    try {
+      const d = await appelAuth("token?grant_type=password", { phone: numero, password: motDePasse });
+      jetonMdp = d.access_token || "";
+    } catch (err) {
+      if (err.code === "phone_not_confirmed") confirme = false;
+      else if (/incorrect/.test(err.message || "")) throw new Error("Numéro ou mot de passe incorrect.");
+      else throw err;
+    }
+    /* Un compte que l'administrateur vient de créer n'a pas encore son
+       numéro confirmé : son code se redemande par « resend ». Le même
+       code, validé, confirme le numéro et ouvre la session. */
+    const envoyer = confirme
+      ? () => appelAuth("otp", { phone: numero, create_user: false })
+      : () => appelAuth("resend", { type: "sms", phone: numero });
+    await envoyer();
+    attenteTel = { numero, jetonMdp, envoyer };
+    return { numero, affichage: telAffichage(numero) };
+  }
+
+  async function renvoyerCodeTelephone() {
+    if (!attenteTel) throw new Error("Reprenez la connexion depuis le début.");
+    await attenteTel.envoyer();
+  }
+
+  async function confirmerCodeTelephone(code) {
+    if (!attenteTel) throw new Error("Reprenez la connexion depuis le début.");
+    const d = await appelAuth("verify", {
+      type: "sms", phone: attenteTel.numero, token: String(code || "").replace(/\D/g, ""),
+    });
+    if (!d.access_token) throw new Error("Code incorrect ou expiré.");
+    garderSession({
+      access_token: d.access_token,
+      refresh_token: d.refresh_token,
+      expire_a: (d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000),
+      email: (d.user && d.user.email) || telAffichage(attenteTel.numero),
+    });
+    /* « scope=local » : sans lui, GoTrue fermerait TOUTES les sessions du
+       compte — celle du code comprise. */
+    const jetonMdp = attenteTel.jetonMdp;
+    attenteTel = null;
+    const c = configuration();
+    if (jetonMdp && c) {
+      fetch(c.url + "/auth/v1/logout?scope=local", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + jetonMdp, "Content-Type": "application/json" },
+        body: "{}",
+      }).catch(() => { /* elle expirera d'elle-même */ });
+    }
+    /* L'e-mail que l'administrateur a noté sur la fiche devient, à la
+       première connexion, la seconde porte du compte : GoTrue n'accepte
+       qu'un identifiant à l'inscription, le numéro est passé d'abord. */
+    if (!(d.user && d.user.email)) {
+      try {
+        const lignes = await requete("GET", "profils?select=email&id=eq." +
+          encodeURIComponent((d.user && d.user.id) || ""), undefined, { avecSession: true });
+        const email = ((lignes || [])[0] || {}).email || "";
+        if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          await appelAuth("user", { email }, true, "PUT");
+        }
+      } catch (_) { /* la porte e-mail attendra : le numéro suffit */ }
+    }
     return utilisateur();
   }
 
@@ -460,6 +577,22 @@ const Supabase = (() => {
     };
   }
 
+  /**
+   * Un compte créé par son NUMÉRO — les livreurs. Pas d'e-mail exigé :
+   * GoTrue envoie au livreur un code de confirmation, et c'est sa
+   * première connexion (numéro, mot de passe, code) qui le confirme.
+   */
+  async function creerCompteTelephone(tel, motDePasse, donnees) {
+    const numero = telInternational(tel);
+    const d = await appelAuth("signup", { phone: numero, password: motDePasse, data: donnees || {} });
+    const u = d.user || d;
+    if (!u || !u.id) throw new Error("Le compte n'a pas pu être créé.");
+    if (Array.isArray(u.identities) && u.identities.length === 0) {
+      throw new Error("Ce numéro a déjà un compte BIZZOO.");
+    }
+    return { id: u.id, tel: numero, confirmationRequise: false };
+  }
+
   /** Change le mot de passe du compte connecté. */
   async function changerMotDePasse(nouveau) {
     await appelAuth("user", { password: nouveau }, true, "PUT");
@@ -564,7 +697,8 @@ const Supabase = (() => {
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     estCompteEnseigne, droitEnseigne, peutVoirCommandes, peutVoirFinances,
     peutChangerDeBoutique, compteActif, rolesActifs,
-    creerCompte, changerMotDePasse, rpc, rpcLecture, fonctionEdge,
+    creerCompte, creerCompteTelephone, changerMotDePasse,
+    connexionTelephone, renvoyerCodeTelephone, confirmerCodeTelephone, estNumero, telAffichage, rpc, rpcLecture, fonctionEdge,
     etatConnexion, demanderCodeConnexion, confirmerCodeConnexion, reglerSmsEquipe,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
