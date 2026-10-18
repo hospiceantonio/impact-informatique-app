@@ -810,7 +810,18 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'profil_nouveau_compte'
-         and p.prosrc like '%numero_de_livreur%'))
+         and p.prosrc like '%numero_de_livreur%')),
+  (133, 'L''administrateur de BIZZOO gère livreurs et revendeurs (est_admin_bizzoo, creer_fiche_revendeur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_fiche_revendeur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'valider_revendeur'
+         and p.prosrc like '%est_admin_bizzoo%')
+    and exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'profils'
+         and policyname = 'profils ajout admin' and with_check like '%est_admin_bizzoo%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

@@ -25,6 +25,16 @@
 
 -- Les fonctions qu'appellent celles qui suivent, telles quelles.
 -- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
+
 create or replace function public.numero_de_livreur(numero text) returns boolean
 language sql stable security definer set search_path = public as $$
   select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
@@ -131,6 +141,7 @@ create policy "positions livreurs lecture" on public.positions_livreurs
   for select to authenticated
   using (profil_id = auth.uid()
          or public.est_super()
+         or public.est_admin_bizzoo()
          or exists (select 1 from public.profils p
                      where p.id = positions_livreurs.profil_id
                        and public.administre(p.boutique_id)));
@@ -181,7 +192,8 @@ declare
   qui  text;
   etat text;
 begin
-  if not public.est_super() then
+  -- Le superadministrateur, ou un administrateur de BIZZOO (3.59.0).
+  if not (public.est_super() or public.est_admin_bizzoo()) then
     raise exception 'Seul BIZZOO valide un compte revendeur';
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();

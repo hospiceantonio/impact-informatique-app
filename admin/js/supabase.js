@@ -316,6 +316,11 @@ const Supabase = (() => {
     if (lequel === "produits") return profil.peutModifier !== false;
     return false;
   };
+  /** L'administrateur de BIZZOO (3.59.0) : un administrateur sans
+      boutique. Il crée et gère les livreurs, crée les revendeurs et
+      valide leurs demandes. Le miroir de « est_admin_bizzoo() ». */
+  const estAdminBizzoo = () => !!profil && profil.actif && !profil.boutiqueId &&
+    profil.role === "administrateur";
   /** Droits d'administration — sur toute l'enseigne, ou sur sa boutique.
       POUR UN COMPTE D'ENSEIGNE, C'EST L'INTERRUPTEUR « LES BOUTIQUES »
       QUI DÉCIDE, pas son rang : exactement ce que fait « administre() »
@@ -695,7 +700,7 @@ const Supabase = (() => {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
-    estCompteEnseigne, droitEnseigne, peutVoirCommandes, peutVoirFinances,
+    estCompteEnseigne, estAdminBizzoo, droitEnseigne, peutVoirCommandes, peutVoirFinances,
     peutChangerDeBoutique, compteActif, rolesActifs,
     creerCompte, creerCompteTelephone, changerMotDePasse,
     connexionTelephone, renvoyerCodeTelephone, confirmerCodeTelephone, estNumero, telAffichage, rpc, rpcLecture, fonctionEdge,

@@ -62,6 +62,26 @@ alter table public.clients add column if not exists revendeur_motif text not nul
 -- 2. Ce qui n'est pas une coordonnée
 -- ---------------------------------------------------------
 -- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.est_compte_enseigne() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
+$$;
+
+
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
+
 create or replace function public.numero_de_livreur(numero text) returns boolean
 language sql stable security definer set search_path = public as $$
   select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
@@ -232,7 +252,7 @@ language sql stable security definer set search_path = public as $$
          c.revendeur_adresse, c.revendeur_latitude, c.revendeur_longitude
     from public.clients c
     left join auth.users u on u.id = c.id
-   where public.est_super()
+   where (public.est_super() or public.est_admin_bizzoo())
      and c.revendeur_etat <> 'aucune'
      and (coalesce(filtre, '') = '' or c.revendeur_etat = filtre)
    order by c.revendeur_demande_le desc nulls last;

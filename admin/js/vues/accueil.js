@@ -48,7 +48,7 @@ const VueAccueil = (() => {
       /* Les commerçants qui demandent à acheter au prix BIZZOO. Eux
          aussi attendent une réponse, et cette réponse n'appartient
          qu'à l'enseigne. */
-      Supabase.estSuper()
+      Supabase.estSuper() || Supabase.estAdminBizzoo()
         ? Store.listerRevendeurs("en_attente").catch(() => [])
         : Promise.resolve([]),
       /* Les avis des clients. Un avis sans réponse est un client qui
@@ -98,6 +98,21 @@ const VueAccueil = (() => {
     /* ---- Les commerçants qui veulent le prix BIZZOO ----
        Une demande de compte revendeur n'attend pas une boutique : elle
        attend l'enseigne, et personne d'autre ne la verra. */
+    /* ---- L'administrateur de BIZZOO : livreurs et revendeurs (3.59.0) ----
+       Ses deux écrans, à portée de main : il crée les livreurs et les
+       revendeurs, et valide les demandes. */
+    if (Supabase.estAdminBizzoo() && !Supabase.estSuper()) {
+      html +=
+        '<div class="carte" id="ac-livreurs-revendeurs">' +
+          '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Livreurs et revendeurs</div>" +
+          '<p class="aide" style="margin:0 0 10px">Créez les comptes des livreurs et des ' +
+            "revendeurs, et validez les demandes de compte revendeur.</p>" +
+          '<div class="btn-rangee">' +
+            '<a class="btn btn-clair" href="#/livreurs">' + UI.icone("voiture") + "Les livreurs</a>" +
+            '<a class="btn btn-clair" href="#/revendeurs">' + UI.icone("personne") + "Les revendeurs</a>" +
+          "</div>" +
+        "</div>";
+    }
     if (revendeurs.length) {
       const combien = revendeurs.length + " demande" + (revendeurs.length > 1 ? "s" : "");
       html +=

@@ -777,6 +777,18 @@ language sql stable security definer set search_path = public as $$
      and public.role_courant() is not null;
 $$;
 
+-- L'ADMINISTRATEUR DE BIZZOO : un administrateur rattaché à aucune
+-- boutique (3.59.0). Il crée et gère les livreurs, crée les comptes
+-- revendeurs et valide leurs demandes — comme le superadministrateur,
+-- mais sans toucher au reste de l'équipe. Un modérateur de BIZZOO, non.
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
 -- Un interrupteur de l'enseigne, lu sur la fiche du compte. Il ne vaut
 -- VRAI que pour un compte d'enseigne : sur un compte de boutique la
 -- colonne existe aussi, et sans cette condition elle lui ouvrirait des
@@ -966,7 +978,9 @@ create policy "profils lecture" on public.profils
     or (public.est_admin() and boutique_id is not null
         and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
-        and boutique_id is null and cree_le > now() - interval '15 minutes'));
+        and boutique_id is null and cree_le > now() - interval '15 minutes')
+    -- L'administrateur de BIZZOO voit tous les livreurs (3.59.0).
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 
 -- Créer, modifier, supprimer un compte : le superadministrateur sans
 -- limite ; l'administrateur seulement des MODÉRATEURS de SA boutique —
@@ -975,7 +989,9 @@ create policy "profils ajout admin" on public.profils
   for insert to authenticated with check (
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    -- L'administrateur de BIZZOO crée des livreurs, et rien d'autre.
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 -- « Créer un compte » passe par deux temps : l'inscription pose une
 -- fiche en attente, SANS boutique, puis l'administrateur lui donne son
 -- rang. Le premier membre de « using » exigeait une fiche déjà de sa
@@ -991,16 +1007,21 @@ create policy "profils modification admin" on public.profils
     or (public.est_admin() and role = 'moderateur'
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
-        and boutique_id is null and cree_le > now() - interval '15 minutes'))
+        and boutique_id is null and cree_le > now() - interval '15 minutes')
+    or (public.est_admin_bizzoo() and role = 'livreur'))
   with check (
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
+    -- de personne un administrateur ni un modérateur.
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 
 -- ---------- Gestion des comptes par l'administrateur ----------
 -- Supprimer un compte ou changer son mot de passe demande des droits que
@@ -1569,7 +1590,7 @@ language sql stable security definer set search_path = public as $$
          c.revendeur_adresse, c.revendeur_latitude, c.revendeur_longitude
     from public.clients c
     left join auth.users u on u.id = c.id
-   where public.est_super()
+   where (public.est_super() or public.est_admin_bizzoo())
      and c.revendeur_etat <> 'aucune'
      and (coalesce(filtre, '') = '' or c.revendeur_etat = filtre)
    order by c.revendeur_demande_le desc nulls last;
@@ -1702,7 +1723,8 @@ declare
   qui  text;
   etat text;
 begin
-  if not public.est_super() then
+  -- Le superadministrateur, ou un administrateur de BIZZOO (3.59.0).
+  if not (public.est_super() or public.est_admin_bizzoo()) then
     raise exception 'Seul BIZZOO valide un compte revendeur';
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
@@ -1750,6 +1772,43 @@ end $$;
 revoke all on function public.valider_revendeur(uuid, boolean, text)
   from public, anon, authenticated;
 grant execute on function public.valider_revendeur(uuid, boolean, text) to authenticated;
+
+-- ---------- BIZZOO crée un compte revendeur (3.59.0) ----------
+-- L'application admin inscrit le compte (numéro + mot de passe, comme le
+-- client le ferait), puis pose ici sa fiche : une DEMANDE en attente,
+-- avec le commerce et l'adresse. Le revendeur entre ensuite avec son
+-- numéro, son mot de passe et le code reçu par SMS, active la position de
+-- son téléphone dans « Mon compte » — et BIZZOO valide.
+--
+-- Seulement sur un compte tout neuf (moins d'une heure), qui n'est ni de
+-- l'équipe ni déjà client : on ne réécrit pas la fiche de quelqu'un.
+create or replace function public.creer_fiche_revendeur(
+  cible uuid, nom text, tel text, message text default '', adresse text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.est_super() or public.est_admin_bizzoo()) then
+    raise exception 'Seul BIZZOO crée un compte revendeur';
+  end if;
+  if not exists (select 1 from auth.users u
+                  where u.id = cible and u.created_at > now() - interval '1 hour') then
+    raise exception 'Ce compte n''est pas un compte qu''on vient de créer';
+  end if;
+  if exists (select 1 from public.profils p where p.id = cible)
+     or exists (select 1 from public.clients c where c.id = cible) then
+    raise exception 'Ce compte a déjà sa fiche';
+  end if;
+  if length(regexp_replace(coalesce(tel, ''), '\D', '', 'g')) < 8 then
+    raise exception 'Le numéro du revendeur est incomplet';
+  end if;
+  insert into public.clients (id, nom, tel, type_compte, revendeur_message, revendeur_adresse)
+  values (cible, left(trim(coalesce(nom, '')), 120), tel, 'revendeur',
+          left(trim(coalesce(message, '')), 300), left(trim(coalesce(adresse, '')), 200));
+  return 'en_attente';
+end $$;
+revoke all on function public.creer_fiche_revendeur(uuid, text, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.creer_fiche_revendeur(uuid, text, text, text, text) to authenticated;
 
 create table if not exists public.journal (
   id          bigint generated always as identity primary key,
@@ -7998,6 +8057,7 @@ create policy "positions livreurs lecture" on public.positions_livreurs
   for select to authenticated
   using (profil_id = auth.uid()
          or public.est_super()
+         or public.est_admin_bizzoo()
          or exists (select 1 from public.profils p
                      where p.id = positions_livreurs.profil_id
                        and public.administre(p.boutique_id)));

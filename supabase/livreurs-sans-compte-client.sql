@@ -31,6 +31,26 @@ alter table public.clients add column if not exists revendeur_decide_le timestam
 alter table public.clients add column if not exists revendeur_motif text not null default '';
 
 -- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.est_compte_enseigne() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
+$$;
+
+
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
+
 create or replace function public.coord_valable(valeur double precision, borne double precision)
 returns double precision
 language sql immutable as $$
@@ -232,7 +252,8 @@ declare
   qui  text;
   etat text;
 begin
-  if not public.est_super() then
+  -- Le superadministrateur, ou un administrateur de BIZZOO (3.59.0).
+  if not (public.est_super() or public.est_admin_bizzoo()) then
     raise exception 'Seul BIZZOO valide un compte revendeur';
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();

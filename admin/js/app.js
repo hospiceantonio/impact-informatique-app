@@ -41,7 +41,8 @@
     { motif: /^\/validations$/, vue: (v) => VueValidations.afficher(v), super: true },
     /* Valider un revendeur, c'est lui ouvrir le prix BIZZOO dans TOUTES
        les boutiques : la décision appartient à l'enseigne seule. */
-    { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), super: true },
+    /* « adminBizzoo » : l'administrateur de BIZZOO y entre aussi (3.59.0). */
+    { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), super: true, adminBizzoo: true },
     /* Les fiches clients : l'enseigne seule. Une boutique voit déjà le
        nom et le numéro sur SES commandes ; lui ouvrir le fichier entier,
        ce serait lui remettre celui de toutes les autres. La base rend
@@ -85,7 +86,8 @@
       horsEnseigne: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true },
     /* Les livreurs, à part de l'équipe : leur bouton, leur liste. */
-    { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true },
+    { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages", admin: true },
   ];
@@ -231,13 +233,16 @@
       location.hash = "#/";
       return;
     }
-    if (route.super && !Supabase.estSuper() &&
+    /* L'administrateur de BIZZOO passe là où la route le nomme : les
+       livreurs et les revendeurs (3.59.0). */
+    const parAdminBizzoo = route.adminBizzoo && Supabase.estAdminBizzoo();
+    if (route.super && !Supabase.estSuper() && !parAdminBizzoo &&
         !(route.enseigne && Supabase.estCompteEnseigne())) {
       UI.toast("Cet écran est réservé au super administrateur.", "err");
       location.hash = "#/";
       return;
     }
-    if (route.horsEnseigne && Supabase.estCompteEnseigne()) {
+    if (route.horsEnseigne && Supabase.estCompteEnseigne() && !parAdminBizzoo) {
       UI.toast("Cet écran ne concerne pas les comptes de BIZZOO.", "err");
       location.hash = "#/";
       return;
@@ -245,7 +250,7 @@
     /* Pour un compte d'enseigne, « administrateur » se lit sur son
        interrupteur, pas sur son rang : le dire, sinon « réservé à
        l'administrateur » répondrait à un administrateur de BIZZOO. */
-    if (route.admin && !Supabase.estAdmin()) {
+    if (route.admin && !Supabase.estAdmin() && !parAdminBizzoo) {
       UI.toast(Supabase.estCompteEnseigne()
         ? "Il faut l'interrupteur « Les boutiques » pour ouvrir cet écran."
         : "Cet écran est réservé à l'administrateur.", "err");

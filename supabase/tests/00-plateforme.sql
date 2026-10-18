@@ -55,6 +55,8 @@ alter table auth.users
   add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
 alter table auth.users add column if not exists phone text;
 alter table auth.users add column if not exists phone_confirmed_at timestamptz;
+-- La date de création, sous son nom Supabase : « creer_fiche_revendeur » la lit.
+alter table auth.users add column if not exists created_at timestamptz not null default now();
 
 -- Le compte connecté, tel que PostgREST le pose sur la session.
 create or replace function auth.uid() returns uuid

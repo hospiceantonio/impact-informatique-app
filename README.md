@@ -4404,6 +4404,39 @@ Bancs : [`supabase/tests/99zzzz-livreur-pas-client.sql`](supabase/tests/99zzzz-l
 (14 constats), [`tools/banc-livreur-compte-client.mjs`](tools/banc-livreur-compte-client.mjs)
 (25 constats) ; contrôle 132 de l'état des lieux.
 
+## L'administrateur de BIZZOO gère livreurs et revendeurs ; la boutique voit ses livreurs (3.59.0)
+
+**L'administrateur de BIZZOO** — un compte *administrateur* rattaché à
+aucune boutique — fait désormais, comme le superadministrateur :
+
+- **les livreurs** : il les voit tous, avec leur position ; il crée un
+  livreur (par son numéro, pour BIZZOO ou pour une boutique), modifie sa
+  fiche, le retire. **Il ne nomme personne d'autre** : ni modérateur, ni
+  administrateur, ni superadministrateur — la base le refuse ;
+- **les revendeurs** : *Créer un revendeur* (écran *Comptes revendeurs*)
+  demande son nom, son numéro, un mot de passe, son commerce et
+  l'adresse de son commerce. Le compte naît par le numéro, avec une
+  **demande en attente**. Le revendeur entre dans l'application BIZZOO
+  (numéro, mot de passe, code SMS), **active la position de son
+  téléphone** dans *Mon compte*, puis l'administrateur **valide** — la
+  base refuse toujours de valider sans position.
+
+Son accueil porte une carte *Livreurs et revendeurs*, et les demandes en
+attente s'y affichent. Un **modérateur** de BIZZOO n'a pas ces droits.
+
+**L'administrateur d'une boutique voit ses livreurs** (*Comptes → Les
+livreurs*) : ceux de sa boutique, avec leur position et leur numéro, et
+ceux de **BIZZOO** qui portent pour toutes les boutiques. Il ne les crée
+ni ne les modifie : un nouveau livreur se demande à BIZZOO.
+
+À coller : [`supabase/admin-bizzoo-livreurs-revendeurs.sql`](supabase/admin-bizzoo-livreurs-revendeurs.sql).
+Les règles de `profils` sont aussi reportées dans `connexion-sms.sql`,
+qui les redéfinissait : l'ordre des fichiers n'y change plus rien.
+
+Bancs : [`supabase/tests/99zzzzz-admin-bizzoo.sql`](supabase/tests/99zzzzz-admin-bizzoo.sql)
+(25 constats) et [`tools/banc-admin-bizzoo.mjs`](tools/banc-admin-bizzoo.mjs)
+(27 constats) ; contrôle 133 de l'état des lieux.
+
 ## Structure
 
 ```
@@ -4446,6 +4479,7 @@ impact-informatique-app/
 │   ├── positions-comptes.sql        # Livreurs et revendeurs valident leur compte par leur position (3.58.0)
 │   ├── connexion-telephone.sql      # Numéro + mot de passe + code : livreurs créés par leur numéro (3.59.0)
 │   ├── livreurs-sans-compte-client.sql # Un livreur n'est ni acheteur ni revendeur (3.59.0)
+│   ├── admin-bizzoo-livreurs-revendeurs.sql # L'admin de BIZZOO : livreurs, revendeurs, validation (3.59.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

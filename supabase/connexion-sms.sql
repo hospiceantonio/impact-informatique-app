@@ -151,6 +151,17 @@ language sql stable security definer set search_path = public as $$
    where id = auth.uid() and actif and public.role_courant() is not null;
 $$;
 
+-- Lue par les règles plus bas (3.59.0), recopiée telle quelle.
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
+
+
 -- ---------- Un administrateur de boutique crée ses modérateurs ----------
 -- « Créer un compte » passe par deux temps : l'inscription pose une
 -- fiche en attente, SANS boutique, puis l'administrateur lui donne son
@@ -167,7 +178,9 @@ alter policy "profils lecture" on public.profils
     or (public.est_admin() and boutique_id is not null
         and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
-        and boutique_id is null and cree_le > now() - interval '15 minutes'));
+        and boutique_id is null and cree_le > now() - interval '15 minutes')
+    -- L'administrateur de BIZZOO voit tous les livreurs (3.59.0).
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 
 alter policy "profils modification admin" on public.profils
   using (
@@ -175,11 +188,14 @@ alter policy "profils modification admin" on public.profils
     or (public.est_admin() and role = 'moderateur'
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
-        and boutique_id is null and cree_le > now() - interval '15 minutes'))
+        and boutique_id is null and cree_le > now() - interval '15 minutes')
+    or (public.est_admin_bizzoo() and role = 'livreur'))
   with check (
     public.est_super()
     or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    -- Un livreur reste un livreur (3.59.0).
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 
 -- =========================================================
 -- La connexion de l'équipe confirmée par SMS, et qui a créé

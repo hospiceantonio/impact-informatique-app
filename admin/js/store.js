@@ -809,6 +809,9 @@ const Store = (() => {
        exigent une boutique non nulle, et il n'en a pas — la base
        refuserait. Lui proposer le bouton, c'était promettre un geste
        qui échoue. */
+    /* SAUF L'ADMINISTRATEUR DE BIZZOO, pour un seul rang : le livreur
+       (3.59.0). La base le lui permet, et rien d'autre. */
+    if (Supabase.estAdminBizzoo()) return ["livreur"];
     if (Supabase.estCompteEnseigne()) return [];
     /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
     return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
@@ -1019,7 +1022,7 @@ const Store = (() => {
          c'était faire d'un menu laissé vide un compte qui regarde
          toutes les boutiques — le contraire de ce qu'on voulait. */
       if (choix === ENSEIGNE) {
-        if (!Supabase.estSuper()) {
+        if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() && role === "livreur")) {
           throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
         }
         attachee = null;
@@ -1034,7 +1037,8 @@ const Store = (() => {
     if (!rolesAttribuables().includes(role)) {
       throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
     }
-    if (!Supabase.estSuper() && (attachee || "") !== Supabase.boutiqueDuCompte()) {
+    if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() && role === "livreur") &&
+        (attachee || "") !== Supabase.boutiqueDuCompte()) {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
 
@@ -1060,6 +1064,30 @@ const Store = (() => {
     journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + qui + ou, qui,
       undefined, attachee || null);
     return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
+  }
+
+  /**
+   * BIZZOO crée un revendeur (3.59.0) : le compte naît par son numéro,
+   * comme un client qui s'inscrit, puis la base pose sa fiche — une
+   * demande en attente, avec son commerce et son adresse.
+   */
+  async function creerRevendeur({ nom, tel, motDePasse, commerce, adresse }) {
+    const n = String(nom || "").trim();
+    const t = String(tel || "").trim();
+    if (!n) throw new Error("Indiquez le nom du revendeur.");
+    if (t.replace(/\D/g, "").length < 8) throw new Error("Indiquez son numéro de téléphone.");
+    if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
+    if (String(adresse || "").trim().length < 3) throw new Error("Indiquez l'adresse de son commerce.");
+    if (!(Supabase.estSuper() || Supabase.estAdminBizzoo())) {
+      throw new Error("Seul BIZZOO crée un compte revendeur.");
+    }
+    const cree = await Supabase.creerCompteTelephone(t, motDePasse, { compte: "client", nom: n });
+    await Supabase.rpc("creer_fiche_revendeur", {
+      cible: cree.id, nom: n, tel: t, message: String(commerce || "").trim(),
+      adresse: String(adresse || "").trim(),
+    });
+    journaliser("compte", "ajout", "Revendeur créé : " + n + " (" + t + ")", n);
+    return cree;
   }
 
   async function majCompte(id, maj) {
@@ -3573,7 +3601,7 @@ const Store = (() => {
     listerBoutiques, lireBoutique, boutiqueCourante, choisirBoutique,
     sauverBoutique, basculerBoutique, deplacerBoutique, supprimerBoutique,
     journaliser, lireJournal,
-    listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,
+    listerComptes, creerCompte, creerRevendeur, majCompte, supprimerCompte, changerMotDePasseCompte,
     estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     sousCategoriesDuSecteur, produitsClasses, changerSecteur,

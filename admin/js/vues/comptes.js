@@ -34,7 +34,7 @@ const VueComptes = (() => {
        deux, c'était offrir deux façons de ne pas choisir de boutique —
        l'une volontaire, l'autre par distraction — qui auraient donné le
        même compte d'enseigne. Une seule porte, nommée. */
-    const enseigne = avecEnseigne && Supabase.estSuper()
+    const enseigne = avecEnseigne && (Supabase.estSuper() || Supabase.estAdminBizzoo())
       ? '<option value="__enseigne"' + (selection ? "" : " selected") +
         ">BIZZOO — toutes les boutiques</option>"
       : "";
@@ -466,9 +466,9 @@ const VueComptes = (() => {
       (Store.listerBoutiques().length
         ? '<div class="champ" id="nc-zone-boutique">' +
             '<label for="nc-boutique">Boutique confiée <span class="obligatoire">*</span></label>' +
-            '<select id="nc-boutique"' + (Supabase.estSuper() ? "" : " disabled") + ">" +
+            '<select id="nc-boutique"' + (Supabase.estSuper() || Supabase.estAdminBizzoo() ? "" : " disabled") + ">" +
               optionsBoutiques((Store.boutiqueCourante() || {}).id, true) + "</select>" +
-            '<div class="aide" id="nc-boutique-aide">' + (Supabase.estSuper()
+            '<div class="aide" id="nc-boutique-aide">' + (Supabase.estSuper() || Supabase.estAdminBizzoo()
               ? aideBoutique(rangs[0])
               : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
@@ -492,7 +492,7 @@ const VueComptes = (() => {
       /* Un administrateur les gère toutes : pas de boutique à choisir. */
       if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "superadministrateur";
       const aide = UI.$("#nc-boutique-aide", corps);
-      if (aide && Supabase.estSuper()) aide.innerHTML = aideBoutique(selecteur.value);
+      if (aide && (Supabase.estSuper() || Supabase.estAdminBizzoo())) aide.innerHTML = aideBoutique(selecteur.value);
     };
 
     UI.$("#nc-creer", corps).onclick = async () => {
@@ -668,9 +668,20 @@ const VueComptes = (() => {
   async function livreurs(vue) {
     UI.entete({ titre: "Livreurs", retour: true, sous: "Qui porte, et d'où" });
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des livreurs…</div>';
+    /* DEUX REGARDS (3.59.0). Le superadministrateur et l'administrateur
+       de BIZZOO GÈRENT : tous les livreurs, leur fiche, « Créer un
+       livreur ». L'administrateur d'une boutique REGARDE ceux qui lui
+       sont assignés : les livreurs de sa boutique, et ceux de BIZZOO qui
+       portent pour toutes — sans rien modifier, la base ne le lui permet
+       pas. */
+    const gere = Supabase.estSuper() || Supabase.estAdminBizzoo();
     let comptes, positions;
     try {
-      [comptes, positions] = await Promise.all([Store.listerComptes(), Store.positionsLivreurs()]);
+      [comptes, positions] = await Promise.all([
+        gere ? Store.listerComptes() : Store.listerLivreurs().then((l) => l.map((c) => ({
+          id: c.id, email: c.email, nom: c.nom, tel: c.tel, actif: c.actif, role: "livreur",
+          boutiqueId: c.bizzoo ? "" : Supabase.boutiqueDuCompte(), bizzoo: c.bizzoo }))),
+        Store.positionsLivreurs()]);
     } catch (err) {
       vue.innerHTML = '<div class="carte"><div class="carte-titre">Livreurs indisponibles</div>' +
         '<p class="aide" style="margin:0">' + Utils.echapper(err.message) + "</p></div>";
@@ -680,7 +691,12 @@ const VueComptes = (() => {
     const valides = positions ? liste.filter((c) => positions[c.id]).length : 0;
     const ligne = (c) => {
       const p = positions && positions[c.id];
+      /* La position d'un livreur de BIZZOO n'est pas montrée à une
+         boutique : il porte pour toutes, sa boutique c'est l'enseigne. */
       const etat = !positions ? ""
+        : !gere && c.bizzoo
+          ? '<div class="livreur-position">' + UI.icone("voiture", "ic-sm") +
+              " Livreur de BIZZOO : il porte pour toutes les boutiques.</div>"
         : p
           ? '<div class="livreur-position livreur-position-ok">' + UI.icone("check", "ic-sm") +
               " Position validée le " + Utils.echapper(Utils.fmtDateHeure(p.enregistre_le)) +
@@ -689,7 +705,7 @@ const VueComptes = (() => {
                 Number(p.longitude) + '" target="_blank" rel="noopener">voir sur la carte</a></div>'
           : '<div class="livreur-position livreur-position-manque">' + UI.icone("alerte", "ic-sm") +
               " Position pas encore validée : aucune course ne peut lui être confiée.</div>";
-      return '<div class="livreur-bloc">' + htmlLigne(c, false) + etat + "</div>";
+      return '<div class="livreur-bloc">' + (gere ? htmlLigne(c, false) : ligneLecture(c)) + etat + "</div>";
     };
     vue.innerHTML =
       '<div class="carte">' +
@@ -701,9 +717,13 @@ const VueComptes = (() => {
           (positions ? " — " + valides + " sur " + liste.length + " l'ont fait" : "") + ".</p>" +
         (liste.length ? liste.map(ligne).join("")
           : '<p class="aide" style="margin:0">Aucun livreur pour l\'instant.</p>') +
-        '<button type="button" class="btn" id="lv-nouveau" style="margin-top:14px">' +
-          UI.icone("plus") + "Créer un livreur</button>" +
+        (gere
+          ? '<button type="button" class="btn" id="lv-nouveau" style="margin-top:14px">' +
+              UI.icone("plus") + "Créer un livreur</button>"
+          : '<p class="aide" style="margin:12px 0 0">Un nouveau livreur se demande à BIZZOO : ' +
+              "le superadministrateur ou un administrateur de BIZZOO le crée.</p>") +
       "</div>";
+    if (!gere) return;
     UI.$("#lv-nouveau", vue).onclick = () => ouvrirCreation(() => livreurs(vue), true);
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {
@@ -711,6 +731,20 @@ const VueComptes = (() => {
         if (compte) ouvrirFiche(compte, () => livreurs(vue));
       };
     }
+  }
+
+  /** Une ligne à lire seulement : le nom, le numéro pour l'appeler. */
+  function ligneLecture(c) {
+    const tel = String(c.tel || "").trim();
+    return (
+      '<div class="compte-ligne">' +
+        "<div><strong>" + Utils.echapper(c.nom || c.email || "Livreur") + "</strong>" +
+          (c.actif === false ? ' <small class="compte-inactif">(désactivé)</small>' : "") +
+          (tel ? '<div class="aide" style="margin:2px 0 0"><a href="tel:' +
+            Utils.echapper(tel.replace(/[^\d+]/g, "")) + '">' + Utils.echapper(tel) + "</a></div>" : "") +
+        "</div>" +
+      "</div>"
+    );
   }
 
   /* ---------- Le livreur valide son compte ----------
