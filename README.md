@@ -4366,6 +4366,44 @@ Banc : [`tools/banc-mise-a-jour.mjs`](tools/banc-mise-a-jour.mjs)
 site, lien rouvert, puis serveur coupé. L'ancien service worker y montre
 la version A ; le nouveau, la B.
 
+## Un livreur n'est ni acheteur ni revendeur (3.59.0)
+
+**Le constat** (message du CEO) : un livreur qui ouvrait l'application
+client se voyait proposer « Devenir revendeur », « Mes commandes » et
+« Retrouver mes commandes d'avant », comme un acheteur. La cause : un
+livreur créé par e-mail qui entrait par **son numéro** dans l'application
+client y recevait un **second compte**, client. En ligne, un livreur et
+deux administrateurs avaient ainsi un compte client à leur numéro.
+
+**Désormais :**
+
+- **le numéro d'un livreur n'ouvre plus de compte client** (inscription ou
+  code SMS) : l'application dit d'entrer avec le compte livreur ;
+- **un livreur ne devient pas revendeur**, même par un compte client
+  ouvert avant ; BIZZOO ne peut pas valider une telle demande (la refuser
+  reste possible) ;
+- **dans « Mon compte », un livreur** ne voit plus les rubriques
+  d'acheteur (revendeur, « Mes commandes », « Retrouver mes commandes
+  d'avant », « Vérifier par SMS ») : **« Mes courses »** les remplace —
+  à livrer, livrées ces deux derniers jours, ce qu'il y a à encaisser —,
+  avec le bouton de l'espace vendeur pour les faire avancer ;
+- **un compte client « double »** (ouvert avant avec le numéro d'un
+  livreur) est prévenu : « Ce numéro est celui d'un livreur », avec
+  « Me déconnecter » pour entrer avec son compte livreur.
+
+Le numéro se compare sur ses **huit derniers chiffres** (« 97 12 15 96 »
+et « 01 97 12 15 96 » sont le même téléphone).
+
+Au passage : un « non » à la question « ce compte est-il de l'équipe ? »
+posée sans session ne survit plus à la connexion qui suit.
+
+À coller : [`supabase/livreurs-sans-compte-client.sql`](supabase/livreurs-sans-compte-client.sql)
+(après `connexion-telephone.sql`).
+
+Bancs : [`supabase/tests/99zzzz-livreur-pas-client.sql`](supabase/tests/99zzzz-livreur-pas-client.sql)
+(14 constats), [`tools/banc-livreur-compte-client.mjs`](tools/banc-livreur-compte-client.mjs)
+(25 constats) ; contrôle 132 de l'état des lieux.
+
 ## Structure
 
 ```
@@ -4407,6 +4445,7 @@ impact-informatique-app/
 │   ├── frais-livraison.sql          # Les frais de livraison : 1 000 FCFA par commande, hors code promo (3.58.0)
 │   ├── positions-comptes.sql        # Livreurs et revendeurs valident leur compte par leur position (3.58.0)
 │   ├── connexion-telephone.sql      # Numéro + mot de passe + code : livreurs créés par leur numéro (3.59.0)
+│   ├── livreurs-sans-compte-client.sql # Un livreur n'est ni acheteur ni revendeur (3.59.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

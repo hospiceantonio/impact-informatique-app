@@ -85,9 +85,34 @@ create unique index if not exists clients_tel_verifie
 -- l'enseigne, où un clic distrait lui donnerait les droits d'un
 -- modérateur. On ajoute donc la seconde barrière : un compte sans
 -- e-mail et avec un numéro est un client, quoi qu'il ait déclaré.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+
 create or replace function public.profil_nouveau_compte() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  /* LE NUMÉRO D'UN LIVREUR N'OUVRE PAS DE COMPTE CLIENT (3.59.0). Avant,
+     un livreur qui entrait par son numéro dans l'application client y
+     recevait un second compte, d'acheteur — d'où « Devenir revendeur »
+     et « Mes commandes » sous ses yeux. Il entre avec SON compte. */
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') <> 'equipe'
+     and coalesce(new.phone, '') <> ''
+     and (coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' or coalesce(new.email, '') = '')
+     and public.numero_de_livreur(new.phone) then
+    raise exception 'NUMERO_LIVREUR : ce numéro est celui d''un livreur BIZZOO'
+      using errcode = 'P0001';
+  end if;
   /* UN CLIENT N'EST PAS UN COMPTE D'ÉQUIPE EN ATTENTE. L'application
      cliente s'inscrit en posant « compte: client » ; sans ce test, chaque
      acheteur apparaîtrait dans la liste des comptes de l'enseigne, et il

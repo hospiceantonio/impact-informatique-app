@@ -61,6 +61,20 @@ alter table public.profils
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -363,6 +377,11 @@ begin
     end if;
     if new.type_compte is distinct from old.type_compte then
       if new.type_compte = 'revendeur' then
+        -- UN LIVREUR NE DEVIENT PAS REVENDEUR (3.59.0), même par un compte
+        -- client ouvert avec son numéro.
+        if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+          raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+        end if;
         -- Déjà validé : on ne redemande pas ce qu'on a.
         if old.revendeur_etat <> 'validee' then
           new.revendeur_etat       := 'en_attente';
@@ -431,6 +450,9 @@ begin
     new.revendeur_etat       := 'aucune';
     new.revendeur_demande_le := null;
   else
+    if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+      raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+    end if;
     new.revendeur_etat       := 'en_attente';
     new.revendeur_demande_le := now();
   end if;
@@ -708,6 +730,14 @@ begin
           and c.revendeur_latitude is not null and c.revendeur_longitude is not null
           and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
     raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Une demande déposée avant la 3.59.0 avec le numéro d'un livreur ne
+  -- se valide pas : un livreur n'est pas revendeur.
+  if accord and exists (select 1 from public.clients c
+                         where c.id = cible and public.numero_de_livreur(c.tel)) then
+    raise exception 'Ce numéro est celui d''un livreur BIZZOO : un livreur ne devient pas revendeur.'
       using errcode = 'P0001';
   end if;
 

@@ -972,14 +972,33 @@ const VueCompte = (() => {
        parenthèse, la question ne serait jamais posée, et la carte
        n'apparaîtrait pas pour ceux-là mêmes à qui elle s'adresse. */
     try { await Compte.chargerEquipe(); } catch (_) { /* on ne propose rien */ }
+    /* UN LIVREUR N'EST PAS UN ACHETEUR (3.59.0) : ni « Devenir revendeur »,
+       ni « Mes commandes », ni « Retrouver mes commandes d'avant ». Ses
+       courses prennent la place de ses commandes. */
+    try { await Compte.chargerLivreur(); } catch (_) { /* base d'avant : rien ne change */ }
+    const livreur = Compte.estLivreur();
+    const double = Compte.estDoubleLivreur();
     moi = moi || { nom: "", tel: "", adresse: "", tel_verifie: false };
     /* Un compte e-mail d'avant le SMS, resté connecté sur ce téléphone :
        son numéro est à confirmer, une fois. La carte passe devant tout le
        reste, et remplace l'invitation plus discrète sous le champ. */
     let aConfirmer = false;
-    try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on ne demande rien */ }
+    if (!livreur) {
+      try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on ne demande rien */ }
+    }
 
     vue.innerHTML =
+      (double
+        ? '<div class="carte cp-numero-requis" id="cp-double-livreur">' +
+            '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") +
+              " Ce numéro est celui d'un livreur</div>" +
+            '<p class="aide" style="margin:0 0 10px">Ce compte client a été ouvert avec le numéro ' +
+              "d'un livreur BIZZOO. Un livreur n'achète pas et ne revend pas sur BIZZOO : entrez " +
+              "avec votre <strong>compte livreur</strong> pour retrouver vos courses.</p>" +
+            '<button type="button" class="btn" id="cp-double-sortir">' + UI.icone("retour") +
+              "Me déconnecter</button>" +
+          "</div>"
+        : "") +
       carteEspaceVendeur() +
       (aConfirmer
         ? '<div class="carte cp-numero-requis" id="cp-numero-requis">' +
@@ -1004,7 +1023,7 @@ const VueCompte = (() => {
           (moi.tel_verifie
             ? '<p class="aide cp-verifie" style="margin:6px 0 0">' + UI.icone("check", "ic-sm") +
               " Numéro vérifié. Il sert à retrouver vos commandes.</p>"
-            : aConfirmer ? ""
+            : aConfirmer || livreur ? ""
             : '<div data-sms><p class="aide" style="margin:6px 0 0">Un numéro vérifié vous rend les ' +
               "commandes passées avec lui, avant même d'avoir un compte.</p>" +
               '<button type="button" class="btn btn-clair" id="cp-verifier" ' +
@@ -1021,12 +1040,14 @@ const VueCompte = (() => {
       /* Les gains d'un code de particulier : la place seulement, remplie
          si la base dit que ce compte a un code. */
       '<div class="carte cp-gains" id="cp-gains" hidden></div>' +
-      carteRevendeur() +
-      carteOuRevendeur() +
+      (livreur ? "" : carteRevendeur() + carteOuRevendeur()) +
       '<div class="carte">' +
-        '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
-          "Mes commandes</a>" +
-        (moi.tel_verifie
+        (livreur
+          ? '<a class="btn btn-clair" href="#/mes-courses" id="cp-mes-courses">' + UI.icone("boite") +
+              "Mes courses</a>"
+          : '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
+              "Mes commandes</a>") +
+        (moi.tel_verifie && !livreur
           ? '<button type="button" class="btn btn-clair" id="cp-reprendre" ' +
             'style="margin-top:10px">' + UI.icone("actualiser") +
             "Retrouver mes commandes d'avant</button>"
@@ -1057,6 +1078,14 @@ const VueCompte = (() => {
     brancherConnexion(vue);
     Compte.masquerSiSmsFerme(vue);
     remplirGains(vue, moi);
+
+    const sortirDouble = UI.$("#cp-double-sortir", vue);
+    if (sortirDouble) {
+      sortirDouble.addEventListener("click", async () => {
+        await Compte.deconnecter();
+        location.hash = "#/connexion";
+      });
+    }
 
     const confirmer = UI.$("#cp-confirmer", vue);
     if (confirmer) {
@@ -1158,6 +1187,63 @@ const VueCompte = (() => {
         suite: () => monCompte(vue),
       }));
     }
+  }
+
+  /* ---------- Mes courses (un livreur) ----------
+
+     Un livreur n'a pas de commandes : il a des courses. La liste vient de
+     la base (« mes_livraisons ») : celles à livrer, et celles livrées ces
+     deux derniers jours. Pour les faire avancer, c'est l'espace vendeur. */
+  const ETAT_COURSE = { preparee: "À récupérer", en_livraison: "En livraison", remise: "Livrée" };
+
+  async function mesCourses(vue) {
+    UI.entete({ titre: "Mes courses", retour: true });
+    if (!Compte.connecte()) { location.hash = "#/connexion"; return; }
+    vue.innerHTML = '<div class="carte"><span class="chargement-rond"></span></div>';
+    try { await Compte.chargerLivreur(); } catch (_) { /* on lira quand même */ }
+    if (Compte.estDoubleLivreur()) {
+      vue.innerHTML =
+        '<div class="carte" id="cp-courses-double"><p class="aide" style="margin:0">Vos courses sont ' +
+          "dans votre <strong>compte livreur</strong>. Déconnectez-vous, puis entrez avec lui.</p></div>";
+      return;
+    }
+    if (!Compte.estLivreur()) { location.hash = "#/mes-commandes"; return; }
+    let courses = [];
+    try { courses = await Compte.mesCourses(); }
+    catch (err) {
+      vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' +
+        Utils.echapper(err.message) + "</p></div>";
+      return;
+    }
+    const carte = (c) => {
+      const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
+      return (
+        '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) + '">' +
+          '<div class="carte-titre">Commande ' + Utils.echapper(c.numero || c.commande_id) +
+            ' <small class="cp-course-etat">' + Utils.echapper(ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
+          '<p class="aide" style="margin:0">' + Utils.echapper(c.nom_boutique || "") + "</p>" +
+          '<p style="margin:6px 0 0"><strong>' + Utils.echapper(c.client_nom || "") + "</strong> — " +
+            Utils.echapper(c.client_adresse || "") + "</p>" +
+          (articles ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
+          (Number(c.a_encaisser) > 0
+            ? '<p style="margin:4px 0 0">À encaisser : <strong>' +
+                Utils.echapper(Utils.fmtMontant(Number(c.a_encaisser), "FCFA")) +
+              "</strong></p>"
+            : "") +
+        "</div>"
+      );
+    };
+    const aFaire = courses.filter((c) => c.etat !== "remise");
+    const faites = courses.filter((c) => c.etat === "remise");
+    vue.innerHTML =
+      '<div class="carte-titre" style="margin:4px 4px 8px">À livrer (' + aFaire.length + ")</div>" +
+      (aFaire.length ? aFaire.map(carte).join("")
+        : '<div class="carte"><p class="aide" style="margin:0">Aucune course à livrer.</p></div>') +
+      '<div class="carte-titre" style="margin:16px 4px 8px">Livrées (' + faites.length + ")</div>" +
+      (faites.length ? faites.map(carte).join("")
+        : '<div class="carte"><p class="aide" style="margin:0">Aucune course livrée ces deux derniers jours.</p></div>') +
+      carteEspaceVendeur();
+    brancherEspaceVendeur(vue);
   }
 
   /* ---------- Mes gains : le code d'un particulier ----------
@@ -1583,6 +1669,6 @@ const VueCompte = (() => {
 
   return {
     connexion, connexionTel, connexionEmail, inscription, motDePasse, nouveauMotDePasse,
-    monCompte, revenirVers, confirmerNumero,
+    monCompte, revenirVers, confirmerNumero, mesCourses,
   };
 })();

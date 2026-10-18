@@ -904,6 +904,17 @@ grant execute on function public.peut_voir_finances()  to authenticated;
 create or replace function public.profil_nouveau_compte() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  /* LE NUMÉRO D'UN LIVREUR N'OUVRE PAS DE COMPTE CLIENT (3.59.0). Avant,
+     un livreur qui entrait par son numéro dans l'application client y
+     recevait un second compte, d'acheteur — d'où « Devenir revendeur »
+     et « Mes commandes » sous ses yeux. Il entre avec SON compte. */
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') <> 'equipe'
+     and coalesce(new.phone, '') <> ''
+     and (coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' or coalesce(new.email, '') = '')
+     and public.numero_de_livreur(new.phone) then
+    raise exception 'NUMERO_LIVREUR : ce numéro est celui d''un livreur BIZZOO'
+      using errcode = 'P0001';
+  end if;
   /* UN CLIENT N'EST PAS UN COMPTE D'ÉQUIPE EN ATTENTE. L'application
      cliente s'inscrit en posant « compte: client » ; sans ce test, chaque
      acheteur apparaîtrait dans la liste des comptes de l'enseigne, et il
@@ -1149,6 +1160,51 @@ alter table public.clients enable row level security;
 -- compte, avec une autre adresse. C'est un petit inconfort contre une
 -- grande clarté : sans cette règle, chaque droit écrit pour l'équipe
 -- devrait être relu en se demandant « et si c'était aussi un client ? ».
+-- ---------- Ce numéro est-il celui d'un livreur ? ----------
+-- Un livreur n'est ni un acheteur ni un revendeur (3.59.0). Son numéro
+-- est sur sa fiche d'équipe ; on compare les HUIT DERNIERS CHIFFRES :
+-- « 97 12 15 96 », « 01 97 12 15 96 » et « +229 01 97 12 15 96 » sont le
+-- même téléphone — le Bénin est passé de 8 à 10 chiffres en ajoutant
+-- « 01 » devant. Réservée aux fonctions du serveur : elle ne dit à
+-- personne quels numéros sont ceux des livreurs.
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+-- Le compte connecté, vu de l'application client : un livreur (son
+-- propre compte), ou un compte client ouvert avec le numéro d'un
+-- livreur (« double ») — avant la 3.59.0, entrer par son numéro dans
+-- l'application client créait ce second compte. Ni l'un ni l'autre ne
+-- voit les rubriques d'acheteur.
+create or replace function public.mon_compte_livreur() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  livreur boolean;
+  numero text;
+begin
+  if moi is null then return jsonb_build_object('livreur', false, 'double', false); end if;
+  select exists (select 1 from public.profils p where p.id = moi and p.actif and p.role = 'livreur')
+    into livreur;
+  numero := coalesce(nullif(auth.jwt() ->> 'phone', ''),
+                     (select c.tel from public.clients c where c.id = moi), '');
+  return jsonb_build_object(
+    'livreur', livreur,
+    'double', not livreur
+              and not exists (select 1 from public.profils p where p.id = moi and p.actif)
+              and public.numero_de_livreur(numero));
+end $$;
+revoke all on function public.mon_compte_livreur() from public, anon;
+grant execute on function public.mon_compte_livreur() to authenticated;
+
 create or replace function public.compte_unique() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -1236,6 +1292,11 @@ begin
     end if;
     if new.type_compte is distinct from old.type_compte then
       if new.type_compte = 'revendeur' then
+        -- UN LIVREUR NE DEVIENT PAS REVENDEUR (3.59.0), même par un compte
+        -- client ouvert avec son numéro.
+        if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+          raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+        end if;
         -- Déjà validé : on ne redemande pas ce qu'on a.
         if old.revendeur_etat <> 'validee' then
           new.revendeur_etat       := 'en_attente';
@@ -1304,6 +1365,9 @@ begin
     new.revendeur_etat       := 'aucune';
     new.revendeur_demande_le := null;
   else
+    if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+      raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+    end if;
     new.revendeur_etat       := 'en_attente';
     new.revendeur_demande_le := now();
   end if;
@@ -1653,6 +1717,14 @@ begin
           and c.revendeur_latitude is not null and c.revendeur_longitude is not null
           and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
     raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Une demande déposée avant la 3.59.0 avec le numéro d'un livreur ne
+  -- se valide pas : un livreur n'est pas revendeur.
+  if accord and exists (select 1 from public.clients c
+                         where c.id = cible and public.numero_de_livreur(c.tel)) then
+    raise exception 'Ce numéro est celui d''un livreur BIZZOO : un livreur ne devient pas revendeur.'
       using errcode = 'P0001';
   end if;
 

@@ -120,7 +120,7 @@ const Compte = (() => {
       if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
       else localStorage.removeItem(CLE_SESSION);
     } catch (_) { /* navigation privée : la session vivra le temps de l'onglet */ }
-    if (!s) { fiche = null; equipe = null; }
+    if (!s) { fiche = null; equipe = null; livreur = null; }
     prevenir();
   }
 
@@ -151,7 +151,10 @@ const Compte = (() => {
 
   /** Ce compte est-il dans l'équipe ? Une lecture, et on la retient. */
   async function chargerEquipe() {
-    if (!session) { equipe = false; return false; }
+    /* Sans session, on répond sans RETENIR : sinon ce « non » survivait à
+       la connexion qui suit, et un compte de l'équipe passait pour un
+       client jusqu'à la fermeture de l'application. */
+    if (!session) return false;
     if (equipe !== null) return equipe;
     try {
       const lignes = await rest("GET", "profils?select=id&limit=1");
@@ -162,6 +165,37 @@ const Compte = (() => {
       equipe = false;
     }
     return equipe;
+  }
+
+  /* ---------- Un livreur n'est ni acheteur ni revendeur (3.59.0) ----------
+
+     Deux cas, et la base les reconnaît (« mon_compte_livreur ») :
+       — le compte du livreur lui-même, ouvert dans l'application client ;
+       — un « double » : un compte client ouvert avec le numéro d'un
+         livreur, avant que la base ne le refuse. On lui dit d'entrer avec
+         son compte livreur.
+     Ni l'un ni l'autre ne voit « Devenir revendeur », « Mes commandes »
+     ou « Retrouver mes commandes d'avant ». Une base d'avant ne connaît
+     pas la fonction : on ne change rien. */
+  let livreur = null;   // null = pas encore demandé
+  async function chargerLivreur() {
+    if (!session) return { livreur: false, double: false };
+    if (livreur) return livreur;
+    try {
+      const r = await rest("POST", "rpc/mon_compte_livreur", {});
+      livreur = { livreur: !!(r && r.livreur), double: !!(r && r.double) };
+    } catch (_) {
+      return { livreur: false, double: false };
+    }
+    return livreur;
+  }
+  const estLivreur = () => !!(livreur && (livreur.livreur || livreur.double));
+  const estDoubleLivreur = () => !!(livreur && livreur.double);
+
+  /** Les courses du livreur connecté : à livrer, et livrées ces deux derniers jours. */
+  async function mesCourses() {
+    const lignes = await rest("POST", "rpc/mes_livraisons", {});
+    return Array.isArray(lignes) ? lignes : [];
   }
 
   /* ---------- Où se trouve le commerce ----------
@@ -287,6 +321,12 @@ const Compte = (() => {
       }
       if (code === "phone_exists" || /phone.*already/i.test(texte)) {
         throw new Error("Ce numéro est déjà utilisé par un autre compte.");
+      }
+      /* Le numéro d'un livreur n'ouvre pas de compte client : la base le
+         refuse, et GoTrue n'en rend qu'une « erreur de base ». */
+      if (/database error saving new user|NUMERO_LIVREUR/i.test(texte)) {
+        throw new Error("Ce numéro est celui d'un livreur BIZZOO : il n'ouvre pas de compte " +
+          "client. Entrez avec votre compte livreur — son numéro et son mot de passe.");
       }
       if (code === "otp_disabled" || /signups not allowed/i.test(texte)) {
         throw new Error("Aucun compte BIZZOO avec ce numéro. Créez le vôtre.");
@@ -1509,6 +1549,6 @@ const Compte = (() => {
     mesCommandes, commande, statutLivraison, paliersLivraison, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,
-    chargerEquipe, estEquipe,
+    chargerEquipe, estEquipe, chargerLivreur, estLivreur, estDoubleLivreur, mesCourses,
   };
 })();

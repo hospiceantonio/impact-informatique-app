@@ -24,6 +24,20 @@
 -- livreurs.
 
 -- Les fonctions qu'appellent celles qui suivent, telles quelles.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+
 create or replace function public.administre(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_super()
@@ -182,6 +196,14 @@ begin
           and c.revendeur_latitude is not null and c.revendeur_longitude is not null
           and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
     raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Une demande déposée avant la 3.59.0 avec le numéro d'un livreur ne
+  -- se valide pas : un livreur n'est pas revendeur.
+  if accord and exists (select 1 from public.clients c
+                         where c.id = cible and public.numero_de_livreur(c.tel)) then
+    raise exception 'Ce numéro est celui d''un livreur BIZZOO : un livreur ne devient pas revendeur.'
       using errcode = 'P0001';
   end if;
 

@@ -50,6 +50,8 @@ const App = { evenementInstallation: null };
     { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v), sansOnglets: true },
     { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]), sansOnglets: true },
     { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v), onglet: "/compte" },
+    /* Un livreur n'a pas de commandes : il a des courses (3.59.0). */
+    { motif: /^\/mes-courses$/, vue: (v) => VueCompte.mesCourses(v), onglet: "/compte" },
     /* Le SAV : on y arrive depuis le reçu d'une commande payée, c'est
        là que le client est quand il constate le problème. */
     { motif: /^\/reclamations$/, vue: (v) => VueSAV.mesReclamations(v), onglet: "/compte" },

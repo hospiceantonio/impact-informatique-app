@@ -799,7 +799,18 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'session_confirmee'
-         and p.prosrc like '%amr%'))
+         and p.prosrc like '%amr%')),
+  (132, 'Un livreur n''est ni acheteur ni revendeur (numero_de_livreur, mon_compte_livreur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'mon_compte_livreur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'client_verrous'
+         and p.prosrc like '%numero_de_livreur%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'profil_nouveau_compte'
+         and p.prosrc like '%numero_de_livreur%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",
