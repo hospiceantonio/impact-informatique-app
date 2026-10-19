@@ -1193,7 +1193,12 @@ const VueCompte = (() => {
 
      Un livreur n'a pas de commandes : il a des courses. La liste vient de
      la base (« mes_livraisons ») : celles à livrer, et celles livrées ces
-     deux derniers jours. Pour les faire avancer, c'est l'espace vendeur. */
+     deux derniers jours. Pour les faire avancer, c'est l'espace vendeur.
+
+     LA FICHE (3.59.0), la même que l'alerte : où récupérer le colis, où
+     le livrer, le numéro du destinataire, les frais, le déjà-payé, ce
+     qui reste à récupérer. Et « Reçu » : le livreur accepte la course,
+     et c'est à ce moment que le client reçoit son nom et son numéro. */
   const ETAT_COURSE = { preparee: "À récupérer", en_livraison: "En livraison", remise: "Livrée" };
 
   async function mesCourses(vue) {
@@ -1215,7 +1220,55 @@ const VueCompte = (() => {
         Utils.echapper(err.message) + "</p></div>";
       return;
     }
+    const lienCarte = (adresse, lat, lng) =>
+      "https://www.google.com/maps/search/?api=1&query=" +
+      encodeURIComponent(lat != null && lng != null ? lat + "," + lng : adresse);
+    const lieu = (titre, nom, adresse, tel, indicatif, lat, lng) =>
+      '<div class="cp-course-lieu"><small>' + Utils.echapper(titre) + "</small>" +
+        "<strong>" + Utils.echapper(nom || "") + "</strong>" +
+        (adresse || (lat != null && lng != null)
+          ? '<a href="' + Utils.echapper(lienCarte(adresse, lat, lng)) + '" target="_blank" rel="noopener">' +
+            Utils.echapper(adresse || "Voir sur la carte") + "</a>"
+          : "") +
+        (tel ? '<a href="' + Utils.echapper(Utils.lienTel(tel, indicatif || "229")) + '">' +
+          Utils.echapper(Compte.telAffichage(tel, indicatif || "229")) + "</a>" : "") +
+      "</div>";
+    const carteFiche = (c) => {
+      const f = c.fiche;
+      const r = f.retrait || {};
+      const l = f.livraison || {};
+      const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
+      const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
+      const aAccepter = !c.recu_le && c.etat === "preparee";
+      return (
+        '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) +
+          '" data-boutique="' + Utils.echapper(c.boutique_id || "") + '">' +
+          '<div class="carte-titre">Commande ' + Utils.echapper(f.numero || c.numero || c.commande_id) +
+            ' <small class="cp-course-etat">' +
+            Utils.echapper(aAccepter ? "Nouvelle" : ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
+          (Number(f.a_encaisser) > 0
+            ? '<p class="cp-course-recuperer">' + (c.etat === "remise" ? "Récupéré" : "À récupérer") +
+              " : <strong>" + m(f.a_encaisser) + "</strong></p>"
+            : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
+          '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
+            "</strong> · Frais de livraison : <strong>" +
+            (Number(f.frais) > 0 ? m(f.frais) : "aucun") + "</strong></p>" +
+          lieu("Récupérer le colis", r.boutique || c.nom_boutique, r.adresse, r.tel, r.indicatif,
+            r.latitude, r.longitude) +
+          lieu("Livrer à", l.nom, l.adresse, l.tel, l.indicatif, null, null) +
+          (l.note ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(l.note) + "</p>" : "") +
+          (articles ? '<p class="aide" style="margin:6px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
+          (aAccepter
+            ? '<button type="button" class="btn cp-course-recu" style="margin-top:10px">' +
+              UI.icone("check") + "Reçu</button>" +
+              '<p class="aide" style="margin:6px 0 0">En touchant « Reçu », vous acceptez la course : ' +
+              "le client reçoit votre nom et votre numéro.</p>"
+            : "") +
+        "</div>"
+      );
+    };
     const carte = (c) => {
+      if (c.fiche && typeof c.fiche === "object") return carteFiche(c);
       const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
       return (
         '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) + '">' +
@@ -1244,6 +1297,20 @@ const VueCompte = (() => {
         : '<div class="carte"><p class="aide" style="margin:0">Aucune course livrée ces deux derniers jours.</p></div>') +
       carteEspaceVendeur();
     brancherEspaceVendeur(vue);
+    for (const b of UI.$$(".cp-course-recu", vue)) {
+      b.onclick = async () => {
+        const c = b.closest(".cp-course");
+        b.disabled = true;
+        try {
+          await Compte.accepterCourse(c.dataset.course, c.dataset.boutique);
+          UI.toast("Course acceptée : le client a reçu votre nom et votre numéro.");
+          mesCourses(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
   }
 
   /* ---------- Mes gains : le code d'un particulier ----------

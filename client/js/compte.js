@@ -198,6 +198,12 @@ const Compte = (() => {
     return Array.isArray(lignes) ? lignes : [];
   }
 
+  /** « Reçu » : le livreur accepte la course. La base envoie alors au
+      client le nom et le numéro du livreur, et prévient la boutique. */
+  async function accepterCourse(commande, boutique) {
+    return rest("POST", "rpc/accepter_course", { commande, boutique });
+  }
+
   /* ---------- Où se trouve le commerce ----------
 
      Une position n'est utile que si elle est VRAIE. On la relève donc
@@ -1549,6 +1555,6 @@ const Compte = (() => {
     mesCommandes, commande, statutLivraison, paliersLivraison, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,
-    chargerEquipe, estEquipe, chargerLivreur, estLivreur, estDoubleLivreur, mesCourses,
+    chargerEquipe, estEquipe, chargerLivreur, estLivreur, estDoubleLivreur, mesCourses, accepterCourse,
   };
 })();

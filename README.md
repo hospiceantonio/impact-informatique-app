@@ -4538,6 +4538,51 @@ Bancs : [`supabase/tests/99zzzzzzzz-conditions-boutiques.sql`](supabase/tests/99
 `99t-acompte.sql` et `99z-frais-livraison.sql` adaptés à la règle par
 boutique ; contrôle 136 de l'état des lieux.
 
+## Le parcours de livraison : la fiche du livreur, « Reçu », le livreur annoncé (3.59.0)
+
+**1. Quand la boutique confie la course** (*Confier* sur une commande
+préparée), le livreur reçoit une alerte — dans ses notifications, avec
+les trois bips — qui dit tout :
+
+- **Récupérer** : la boutique et son adresse ;
+- **Livrer à** : le nom et l'adresse du destinataire ;
+- **Destinataire** : son numéro ;
+- **Frais de livraison** de la boutique ;
+- **Déjà payé** : ce que le client a réglé à la commande pour cette boutique ;
+- **À récupérer** : ce qu'il reste à encaisser à la porte — ou « Rien à
+  récupérer : tout est payé ».
+
+Son écran *Mes courses* (application admin, et application client pour un
+livreur) rend la même fiche (`fiche_course`, rendue par `mes_livraisons`) :
+les adresses ouvrent la carte, les numéros s'appellent. **Aucun prix
+d'article** n'y figure.
+
+**2. « Reçu »** : en le touchant, le livreur accepte la course
+(`accepter_course` ; seul le livreur de la course le peut, deux fois ne
+compte qu'une). **À ce moment**, le client reçoit la notification
+*Votre livreur : Nom*, avec le numéro du livreur, et la boutique est
+prévenue (*Course acceptée par Nom*). Le reçu du client montre alors son
+livreur, avec *Appeler* et *WhatsApp* (`livreurs_de_ma_commande`) —
+**pas avant** : une course confiée mais pas acceptée ne dévoile personne.
+
+**3. Puis** *Je l'ai prise* et *Je l'ai remise*, comme avant (prendre la
+course sans avoir touché « Reçu » vaut acceptation). Une course confiée à un
+autre livreur repart de zéro : à lui d'accepter. Personne n'écrit « Reçu » à
+la main (`commande_lignes.recu_le`, verrouillé).
+
+**Qui voit quoi**
+
+| | Le livreur | Le client |
+|---|---|---|
+| Quand la course est confiée | la fiche complète (ci-dessus) | rien de nouveau |
+| Quand il touche « Reçu » | — | le nom et le numéro du livreur |
+| Toujours | jamais le prix des articles | jamais l'adresse personnelle du livreur |
+
+Base : [`supabase/livraison-parcours.sql`](supabase/livraison-parcours.sql).
+Bancs : [`supabase/tests/99zzzzzzzzz-parcours-livraison.sql`](supabase/tests/99zzzzzzzzz-parcours-livraison.sql),
+[`tools/banc-parcours-livraison.mjs`](tools/banc-parcours-livraison.mjs) ;
+contrôle 137 de l'état des lieux.
+
 ## Structure
 
 ```

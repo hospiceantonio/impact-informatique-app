@@ -28,6 +28,8 @@ const VueNotifications = (() => {
     reception_confirmee:   { nom: "Réceptions",  icone: "check" },
     commande_annulee:      { nom: "Annulations", icone: "alerte" },
     course_confiee:        { nom: "Courses",     icone: "voiture" },
+    /* « Reçu » touché : le nom et le numéro de son livreur. */
+    course_acceptee:       { nom: "Votre livreur", icone: "voiture" },
   };
   const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
 

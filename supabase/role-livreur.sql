@@ -68,6 +68,60 @@ alter table public.profils
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Les colonnes que les fonctions plus bas lisent (3.59.0).
+alter table public.commande_lignes add column if not exists recu_le timestamptz;
+
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -238,6 +292,11 @@ begin
      and new.livreur_id is distinct from old.livreur_id then
     raise exception 'Une livraison se confie depuis le compte de la boutique';
   end if;
+  -- « Reçu » se pose par « accepter_course », par le livreur lui-même.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.recu_le is distinct from old.recu_le then
+    raise exception 'Une course s''accepte depuis le compte du livreur';
+  end if;
 
   if new.commande_id is distinct from old.commande_id
   or new.boutique_id is distinct from old.boutique_id
@@ -359,7 +418,9 @@ begin
 
   perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set livreur_id = livreur
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.etat in ('preparee', 'en_livraison');
@@ -497,7 +558,8 @@ returns table (
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
   etat text, articles jsonb, paye_le timestamptz,
-  a_encaisser bigint)
+  a_encaisser bigint,
+  fiche jsonb, recu_le timestamptz)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -519,7 +581,10 @@ begin
            -- SA boutique. Zéro quand tout a été payé en ligne.
            coalesce((select r.a_encaisser
                        from public.restes_par_boutique(c.id) r
-                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint,
+           -- Où récupérer, où livrer, les frais, le déjà-payé (3.59.0).
+           public.fiche_course(c.id, l.boutique_id),
+           min(l.recu_le)
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
@@ -561,13 +626,19 @@ begin
   -- jamais avoir été prise.
   depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
 
+  -- Prendre la course sans avoir touché « Reçu » vaut acceptation.
+  perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set etat = vers
+     set etat = vers,
+         recu_le = coalesce(l.recu_le, now())
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.livreur_id = moi
      and l.etat = depuis;
+  -- Le compte AVANT de rendre le drapeau : « row_count » parle de la
+  -- dernière instruction, et ce serait alors celle-là.
   get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
     raise exception 'Rien à avancer ici : cette course n''en est pas là.';

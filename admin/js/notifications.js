@@ -38,7 +38,7 @@ const Notifs = (() => {
   let tentatives = 0;
   let refMessage = 0;
   let actif = false;
-  let enCours = false;
+  let enCours = null;
   const abonnes = [];
 
   const surChangement = (rappel) => { abonnes.push(rappel); };
@@ -48,9 +48,17 @@ const Notifs = (() => {
 
   /* ---------- Lire ---------- */
 
-  async function recharger() {
-    if (enCours || !Supabase.sessionPresente()) return false;
-    enCours = true;
+  /* Une lecture en cours se partage : l'écran ouvert d'emblée sur
+     « #/notifications » attend celle du démarrage au lieu de repartir
+     les mains vides. */
+  function recharger() {
+    if (enCours) return enCours;
+    if (!Supabase.sessionPresente()) return Promise.resolve(false);
+    enCours = lire();
+    return enCours;
+  }
+
+  async function lire() {
     try {
       const avant = nonLues;
       const lignes = await Supabase.requete("GET",
@@ -83,7 +91,7 @@ const Notifs = (() => {
          jour : on garde ce qu'on a, et l'application marche sans. */
       return false;
     } finally {
-      enCours = false;
+      enCours = null;
     }
   }
 

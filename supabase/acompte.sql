@@ -101,6 +101,57 @@ alter table public.boutiques add column if not exists mode_paiement text not nul
 alter table public.boutiques add column if not exists taux_acompte int not null default 10;
 alter table public.boutiques add column if not exists frais_livraison int not null default 1000;
 
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+
 create or replace function public.ouvertures_valides(o jsonb) returns boolean
 language sql immutable set search_path = public as $$
   select jsonb_typeof(o) = 'object'
@@ -1152,7 +1203,8 @@ returns table (
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
   etat text, articles jsonb, paye_le timestamptz,
-  a_encaisser bigint)
+  a_encaisser bigint,
+  fiche jsonb, recu_le timestamptz)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -1174,7 +1226,10 @@ begin
            -- SA boutique. Zéro quand tout a été payé en ligne.
            coalesce((select r.a_encaisser
                        from public.restes_par_boutique(c.id) r
-                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint,
+           -- Où récupérer, où livrer, les frais, le déjà-payé (3.59.0).
+           public.fiche_course(c.id, l.boutique_id),
+           min(l.recu_le)
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi

@@ -1,0 +1,257 @@
+/* =========================================================
+   Le parcours de livraison, à l'écran (3.59.0)
+   =========================================================
+   La base fait la fiche, l'alerte et la notification « Votre livreur »
+   (supabase/tests/99zzzzzzzzz-parcours-livraison.sql). Ce banc regarde
+   ce que les ÉCRANS en font :
+
+     1. l'application admin du livreur : la fiche complète (récupérer,
+        livrer à, destinataire, frais, déjà payé, à récupérer), et
+        « Reçu » qui appelle « accepter_course » ;
+     2. une course acceptée : plus de « Reçu », « Je l'ai prise » ;
+     3. une base d'avant (sans fiche) : l'écran d'avant, sans « Reçu » ;
+     4. « Mes courses » de l'application client : la même fiche, le même
+        « Reçu » ;
+     5. les notifications s'affichent sur plusieurs lignes (admin et
+        client), et « Votre livreur » a sa famille.
+   ========================================================= */
+let chromium;
+try {
+  chromium = (await import(process.env.PLAYWRIGHT || "playwright-core/index.js")).default.chromium;
+} catch (_) {
+  console.error("Playwright est introuvable.\n" +
+    "  PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-parcours-livraison.mjs");
+  process.exit(2);
+}
+const EXE = process.env.CHROMIUM || undefined;
+const BASE = process.env.BANC_URL || "http://localhost:5180";
+let echecs = 0;
+const ok = (v, q) => { if (!v) echecs++; console.log((v ? "  ok     " : "  ÉCHEC  ") + q); };
+const titre = (t) => console.log("\n== " + t + " ==");
+const nav = await chromium.launch(EXE ? { executablePath: EXE } : {});
+const F = (n) => n.toLocaleString("fr-FR").replace(/ | /g, " ") + " FCFA";
+const plat = (s) => s.replace(/[  ]/g, " ").replace(/\s+/g, " ");
+
+const FICHE = {
+  numero: "BZ-000077",
+  retrait: { boutique: "Alpha", adresse: "Ganhi, rue du marché", tel: "0197111222", indicatif: "229",
+    latitude: null, longitude: null },
+  livraison: { nom: "Afi", adresse: "Fidjrossè, près de l'église", note: "Sonner deux fois",
+    tel: "97666005", indicatif: "229" },
+  devise: "FCFA", frais: 1000, deja_paye: 3000, a_encaisser: 7000,
+};
+const course = (o) => ({ commande_id: "cmd_p", numero: "BZ-000077", boutique_id: "bou_a",
+  nom_boutique: "Alpha", client_nom: "Afi", client_tel: "97666005", client_indicatif: "229",
+  client_adresse: "Fidjrossè, près de l'église", note: "Sonner deux fois", etat: "preparee",
+  articles: [{ nom: "Imprimante", code: "0009", quantite: 1 }], paye_le: "2026-10-19T08:00:00Z",
+  a_encaisser: 7000, fiche: FICHE, recu_le: null, ...o });
+
+const NOTIF = { id: "n1", destinataire: "x", type: "course_acceptee", commande_id: "cmd_p",
+  titre: "Votre livreur : Rachidi", corps: "Commande BZ-000077 — Alpha\nSon numéro : +229 0196777888 — appelez-le si besoin.",
+  lue: false, cree_le: new Date().toISOString() };
+
+/* ================================================================
+   L'application admin
+   ================================================================ */
+const PORTEUR = "cccccccc-1111-1111-1111-111111111111";
+const PROFIL = { id: PORTEUR, email: "porteur@alpha.bj", nom: "Rachidi", role: "livreur", actif: true,
+  peut_modifier_produits: true, boutique_id: "bou_a" };
+
+async function ouvrirAdmin({ courses, hash }) {
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 }, serviceWorkers: "block" });
+  const page = await ctx.newPage();
+  const erreurs = [];
+  page.on("pageerror", (e) => erreurs.push(e.message));
+  await page.addInitScript((a) => {
+    localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "c" }));
+    const b64 = (o) => btoa(unescape(encodeURIComponent(JSON.stringify(o))))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    localStorage.setItem("impact-session", JSON.stringify({
+      access_token: b64({ alg: "HS256" }) + "." + b64({ sub: a.moi }) + ".s",
+      refresh_token: "r", expire_a: Date.now() + 3600000, email: a.email }));
+  }, { moi: PORTEUR, email: PROFIL.email });
+  const serveur = { appels: [] };
+  let liste = courses;
+  await page.route("**/rest/v1/**", (route) => {
+    const req = route.request();
+    const u = new URL(req.url());
+    const c = u.pathname.replace(/^.*\/rest\/v1\//, "");
+    const d = (x) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
+    if (c.startsWith("rpc/")) {
+      serveur.appels.push({ fn: c.slice(4), corps: (() => { try { return req.postDataJSON(); } catch (_) { return null; } })() });
+    }
+    if (c.startsWith("profils")) return d([PROFIL]);
+    /* Le livreur a validé sa position (3.58.0). */
+    if (c.startsWith("positions_livreurs")) return d([{ profil_id: PORTEUR, latitude: 6.37,
+      longitude: 2.42, adresse: "Cadjèhoun" }]);
+    if (c === "rpc/mes_livraisons") return d(liste);
+    if (c === "rpc/accepter_course") {
+      liste = liste.map((l) => ({ ...l, recu_le: "2026-10-19T09:00:00Z" }));
+      return d(1);
+    }
+    if (c.startsWith("notifications")) return d([NOTIF]);
+    if (c.startsWith("rpc/")) return d(null);
+    if (c.startsWith("boutique")) return d([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]);
+    return d([]);
+  });
+  await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.goto(BASE + "/admin/index.html", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1800);
+  if (hash) {
+    await page.evaluate((h) => { location.hash = h; }, hash);
+    await page.waitForTimeout(1500);
+  }
+  return { page, ctx, erreurs, serveur };
+}
+
+titre("1. Le livreur (admin) : la fiche complète, et « Reçu »");
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ courses: [course()] });
+  await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
+  const t = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
+  ok(/Récupérer le colis/i.test(t) && /Alpha/.test(t) && /Ganhi, rue du marché/.test(t),
+    "où récupérer : la boutique et son adresse");
+  ok(/Livrer à/i.test(t) && /Afi/.test(t) && /Fidjrossè, près de l'église/.test(t), "où livrer : le nom et l'adresse");
+  ok(await page.evaluate(() => !!document.querySelector('.lv-course a[href="tel:+22997666005"]')),
+    "le numéro du destinataire, appelable");
+  ok(t.includes("Frais de livraison : " + F(1000)), "les frais de livraison");
+  ok(t.includes("Déjà payé par le client : " + F(3000)), "ce que le client a déjà payé");
+  ok(t.includes("À récupérer : " + F(7000)), "ce qu'il reste à récupérer");
+  ok(!t.includes(F(9000)), "pas le prix des articles");
+  ok(/Sonner deux fois/.test(t), "la note du client");
+  ok(await page.evaluate(() => !!document.querySelector(".lv-recu") && !document.querySelector(".lv-avancer")),
+    "« Reçu » d'abord, pas encore « Je l'ai prise »");
+
+  await page.click(".lv-recu");
+  await page.waitForTimeout(1500);
+  const appel = serveur.appels.find((a) => a.fn === "accepter_course");
+  ok(appel && appel.corps && appel.corps.commande === "cmd_p" && appel.corps.boutique === "bou_a",
+    "« Reçu » appelle accepter_course(cmd_p, bou_a)");
+
+  titre("2. Acceptée : « Je l'ai prise »");
+  ok(await page.evaluate(() => !document.querySelector(".lv-recu") &&
+    (document.querySelector(".lv-avancer") || {}).dataset.vers === "en_livraison"),
+    "plus de « Reçu » ; « Je l'ai prise » apparaît");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrirAdmin({ courses: [course({ etat: "en_livraison", recu_le: "2026-10-19T09:00:00Z" })] });
+  await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
+  ok(await page.evaluate(() => !document.querySelector(".lv-recu") &&
+    (document.querySelector(".lv-avancer") || {}).dataset.vers === "remise"),
+    "en route : « Je l'ai remise »");
+  await ctx.close();
+}
+
+titre("3. Une base d'avant : l'écran d'avant");
+{
+  const ancienne = course({ etat: "preparee" });
+  delete ancienne.fiche; delete ancienne.recu_le;
+  const { page, ctx, erreurs } = await ouvrirAdmin({ courses: [ancienne] });
+  await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
+  const t = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
+  ok(t.includes("À encaisser : " + F(7000)) && /Afi/.test(t), "le montant et le client, comme avant");
+  ok(await page.evaluate(() => !document.querySelector(".lv-recu") && !!document.querySelector(".lv-avancer")),
+    "pas de « Reçu » que la base ne saurait pas traiter");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("5a. Les notifications de l'admin, sur plusieurs lignes");
+{
+  const { page, ctx, erreurs } = await ouvrirAdmin({ courses: [], hash: "#/notifications" });
+  await page.waitForSelector(".notif-texte", { timeout: 6000 }).catch(() => {});
+  const r = await page.evaluate(() => {
+    const el = document.querySelector(".notif-texte");
+    return el ? { ws: getComputedStyle(el).whiteSpace, h: el.getClientRects().length, texte: el.innerText } : null;
+  });
+  ok(r && r.ws === "pre-line" && /\n/.test(r.texte), "le retour à la ligne est rendu (" + (r && r.ws) + ")");
+  ok(await page.evaluate(() => /Courses acceptées/.test(document.getElementById("vue").innerText)),
+    "« Courses acceptées » : la famille a son nom");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+/* ================================================================
+   L'application client
+   ================================================================ */
+const MOI = "55550000-0000-0000-0000-000000000005";
+const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+
+async function ouvrirClient({ hash, courses = [] }) {
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 2200 }, serviceWorkers: "block" });
+  const page = await ctx.newPage();
+  const erreurs = [];
+  page.on("pageerror", (e) => erreurs.push(e.message));
+  await page.addInitScript(({ s }) => {
+    localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "k" }));
+    localStorage.setItem("bizzoo-session", JSON.stringify(s));
+  }, { s: { access_token: b64u({ alg: "HS256" }) + "." + b64u({ sub: MOI, phone: "2290196777888", email: "" }) + ".s",
+    refresh_token: "r", expire_a: Date.now() + 3600000, email: "", tel: "2290196777888" } });
+  const serveur = { appels: [] };
+  let liste = courses;
+  await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.route("**/rest/v1/**", (r) => {
+    const req = r.request();
+    const c = new URL(req.url()).pathname.replace(/^.*\/rest\/v1\//, "");
+    const d = (x) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
+    if (c.startsWith("rpc/")) {
+      serveur.appels.push({ fn: c.slice(4), corps: (() => { try { return req.postDataJSON(); } catch (_) { return null; } })() });
+    }
+    if (c === "rpc/mon_compte_livreur") return d({ livreur: courses.length > 0, double: false });
+    if (c === "rpc/mes_livraisons") return d(liste);
+    if (c === "rpc/accepter_course") {
+      liste = liste.map((l) => ({ ...l, recu_le: "2026-10-19T09:00:00Z" }));
+      return d(1);
+    }
+    if (c.startsWith("notifications")) return d(req.method() === "GET" ? [NOTIF] : []);
+    if (c.startsWith("profils")) return d(courses.length ? [{ id: MOI }] : []);
+    if (c.startsWith("clients")) return d([{ id: MOI, nom: "Afi", tel: "97666005", indicatif: "229",
+      tel_verifie: true, type_compte: "client", revendeur_etat: "aucune", adresse: "Cotonou" }]);
+    return d([]);
+  });
+  await page.goto(BASE + "/client/index.html" + hash);
+  await page.waitForTimeout(3000);
+  return { page, ctx, erreurs, serveur };
+}
+
+titre("4. « Mes courses » dans l'application client");
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirClient({ hash: "#/mes-courses", courses: [course()] });
+  const t = plat(await page.evaluate(() => (document.querySelector(".cp-course") || {}).innerText || ""));
+  ok(/Récupérer le colis/i.test(t) && /Ganhi, rue du marché/.test(t), "où récupérer");
+  ok(/Livrer à/i.test(t) && /Fidjrossè, près de l'église/.test(t) && /97 66 60 05|97666005/.test(t),
+    "où livrer, et le numéro du destinataire");
+  ok(t.includes("À récupérer : " + F(7000)) && t.includes("Déjà payé : " + F(3000)) &&
+     t.includes("Frais de livraison : " + F(1000)), "à récupérer, déjà payé, frais");
+  ok(!t.includes(F(9000)), "pas le prix des articles");
+  await page.click(".cp-course-recu").catch(() => {});
+  await page.waitForTimeout(1500);
+  const appel = serveur.appels.find((a) => a.fn === "accepter_course");
+  ok(appel && appel.corps && appel.corps.commande === "cmd_p" && appel.corps.boutique === "bou_a",
+    "« Reçu » appelle accepter_course(cmd_p, bou_a)");
+  ok(await page.evaluate(() => !document.querySelector(".cp-course-recu")), "acceptée : le bouton s'en va");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("5b. Les notifications du client, sur plusieurs lignes");
+{
+  const { page, ctx, erreurs } = await ouvrirClient({ hash: "#/notifications" });
+  await page.waitForSelector(".notif-texte", { timeout: 6000 }).catch(() => {});
+  const r = await page.evaluate(() => {
+    const el = document.querySelector(".notif-texte");
+    return el ? { ws: getComputedStyle(el).whiteSpace, texte: el.innerText } : null;
+  });
+  ok(r && r.ws === "pre-line" && /\n/.test(r.texte), "le retour à la ligne est rendu (" + (r && r.ws) + ")");
+  ok(await page.evaluate(() => /Votre livreur : Rachidi/.test(document.getElementById("vue").innerText) &&
+    /\+229 0196777888/.test(document.getElementById("vue").innerText)),
+    "« Votre livreur : Rachidi », et son numéro");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+await nav.close();
+console.log(echecs ? "\n" + echecs + " ÉCHEC(S)" : "\nTout tient ✔");
+process.exit(echecs ? 1 : 0);

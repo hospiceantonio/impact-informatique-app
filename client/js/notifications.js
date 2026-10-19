@@ -37,7 +37,7 @@ const Notifs = (() => {
   let tentatives = 0;
   let refMessage = 0;
   let actif = false;
-  let enCours = false;
+  let enCours = null;
   const abonnes = [];
 
   /* ---------- Ce que l'écran écoute ---------- */
@@ -55,9 +55,19 @@ const Notifs = (() => {
    * besoin de toute façon, et deux appels là où un suffit coûtent deux
    * fois plus cher sur une connexion qui se paie au mégaoctet.
    */
-  async function recharger() {
-    if (enCours || typeof Compte === "undefined" || !Compte.connecte()) return false;
-    enCours = true;
+  /* UNE LECTURE EN COURS SE PARTAGE. L'écran ouvert d'emblée sur
+     « #/notifications » — en touchant une alerte — demandait sa liste
+     pendant que le démarrage lisait déjà la sienne : il repartait les
+     mains vides et affichait « Rien de neuf ». Il attend désormais la
+     lecture déjà partie. */
+  function recharger() {
+    if (enCours) return enCours;
+    if (typeof Compte === "undefined" || !Compte.connecte()) return Promise.resolve(false);
+    enCours = lire();
+    return enCours;
+  }
+
+  async function lire() {
     try {
       const avant = nonLues;
       const lignes = await Compte.rest("GET",
@@ -88,7 +98,7 @@ const Notifs = (() => {
       /* Base injoignable, jeton périmé : on garde ce qu'on a. */
       return false;
     } finally {
-      enCours = false;
+      enCours = null;
     }
   }
 

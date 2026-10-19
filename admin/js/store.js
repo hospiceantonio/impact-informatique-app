@@ -884,7 +884,22 @@ const Store = (() => {
       /* La part du reste qui revient à SA boutique : ce qu'il réclame
          au client. Zéro quand tout a été payé en ligne. */
       aEncaisser: Math.max(0, Number(l.a_encaisser) || 0),
+      /* LA FICHE DE LA COURSE — la même que l'alerte : où récupérer,
+         où livrer, les frais, le déjà-payé. Une base d'avant 3.59.0 ne
+         la rend pas : l'écran retombe alors sur l'ancien affichage. */
+      fiche: l.fiche && typeof l.fiche === "object" ? l.fiche : null,
+      /* « Reçu » touché : vide tant que le livreur n'a pas accepté. Une
+         base sans la colonne compte la course comme acceptée, pour ne
+         pas montrer un bouton qu'elle ne sait pas traiter. */
+      recuLe: "recu_le" in l ? l.recu_le || "" : "ancienne",
     }));
+  }
+
+  /** « Reçu » : le livreur accepte la course ; la base prévient le
+      client (nom et numéro du livreur) et la boutique. */
+  async function accepterCourse(commande, boutique) {
+    const combien = await Supabase.rpc("accepter_course", { commande, boutique });
+    return Number(combien) || 0;
   }
 
   /** « Je l'ai prise » / « Je l'ai remise ». Deux gestes, pas plus. */
@@ -3628,7 +3643,7 @@ const Store = (() => {
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
     positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
-    listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
+    listerLivreurs, confierLivraison, mesLivraisons, accepterCourse, avancerLivraison,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

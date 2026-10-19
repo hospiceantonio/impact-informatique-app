@@ -277,7 +277,9 @@ begin
 
   perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set livreur_id = livreur
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.etat in ('preparee', 'en_livraison');

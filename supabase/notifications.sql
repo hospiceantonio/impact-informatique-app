@@ -133,6 +133,67 @@ alter table public.paiement add column if not exists frais_livraison int not nul
 
 -- L'équipe d'une boutique : ceux qui la tiennent. PAS le livreur — il
 -- reçoit ses courses, pas les nouvelles de la boutique.
+-- Les colonnes que les fonctions plus bas lisent (3.59.0).
+alter table public.commande_lignes add column if not exists recu_le timestamptz;
+
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+create or replace function public.montant_lisible(n numeric, devise text default 'FCFA')
+returns text
+language sql immutable set search_path = public as $$
+  select replace(to_char(coalesce(n, 0), 'FM999,999,999,990'), ',', ' ') || ' ' || coalesce(nullif(devise, ''), 'FCFA');
+$$;
+revoke all on function public.montant_lisible(numeric, text) from public, anon, authenticated;
+
+
 create or replace function public.equipe_de(cible text) returns uuid[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(p.id), '{}'::uuid[])
@@ -387,6 +448,8 @@ declare
   client   uuid;
   equipe   uuid[];
   enseigne uuid[];
+  fiche    jsonb;
+  porteur  record;
 begin
   select c.numero, c.client_id into cmd
     from public.commandes c where c.id = new.commande_id;
@@ -398,15 +461,52 @@ begin
   -- ---- Une course confiée, ou reprise ----
   if new.livreur_id is distinct from old.livreur_id then
     if new.livreur_id is not null then
-      -- LE LIVREUR NE VOIT AUCUN MONTANT, ici comme ailleurs.
+      -- (3.59.0) L'ALERTE DIT TOUT CE QU'IL FAUT POUR PARTIR : où prendre
+      -- le colis, où le livrer, le numéro du destinataire, les frais, ce
+      -- qui est déjà payé, et ce qu'il reste à récupérer. Les montants de
+      -- CETTE boutique seulement ; pas le prix des articles.
+      fiche := public.fiche_course(new.commande_id, new.boutique_id);
       perform public.notifier(array[new.livreur_id], 'course_confiee',
-        'Une course vous est confiée',
-        'Commande ' || numero || ' — ouvrez vos livraisons pour l''adresse.',
+        'Nouvelle course — ' || numero,
+        'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+        'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
+          coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
+        'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||
+        'Frais de livraison : ' || public.montant_lisible((fiche ->> 'frais')::numeric, fiche ->> 'devise') || E'\n' ||
+        'Déjà payé : ' || public.montant_lisible((fiche ->> 'deja_paye')::numeric, fiche ->> 'devise') || E'\n' ||
+        case when (fiche ->> 'a_encaisser')::numeric > 0
+             then 'À récupérer : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise')
+             else 'Rien à récupérer : tout est payé.' end || E'\n' ||
+        'Touchez « Reçu » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
     end if;
     perform public.notifier(enseigne, 'course_confiee',
       'Course confiée à un livreur',
       'Commande ' || numero || '.',
+      '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+  end if;
+
+  -- ---- « Reçu » : le livreur a accepté (3.59.0) ----
+  -- LE CLIENT REÇOIT LE NOM ET LE NUMÉRO DE SON LIVREUR, pour le joindre
+  -- si besoin. La boutique apprend que sa course est acceptée.
+  if new.recu_le is not null and old.recu_le is null and new.livreur_id is not null then
+    select coalesce(nullif(p.nom, ''), 'Votre livreur') as nom, coalesce(p.tel, '') as tel
+      into porteur from public.profils p where p.id = new.livreur_id;
+    if client is not null then
+      perform public.notifier(array[client], 'course_acceptee',
+        'Votre livreur : ' || porteur.nom,
+        porteur.nom || ' livre votre commande ' || numero ||
+          coalesce(' (' || nullif((select b.nom from public.boutiques b where b.id = new.boutique_id), '') || ')', '') || '.' ||
+          case when porteur.tel <> ''
+               then E'\nSon numéro : +' || coalesce(nullif((select b.indicatif from public.boutiques b where b.id = new.boutique_id), ''), '229') ||
+                    ' ' || porteur.tel || ' — appelez-le si besoin.'
+               else '' end,
+        '#/commande/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    end if;
+    perform public.notifier(equipe, 'course_acceptee',
+      'Course acceptée par ' || porteur.nom,
+      'Commande ' || numero || ' — le livreur a accepté la course.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
   end if;
 

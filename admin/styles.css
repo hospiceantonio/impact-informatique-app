@@ -1554,6 +1554,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   font-size:12.5px;line-height:1.5;
 }
 .lv-avancer{margin-top:12px}
+/* La fiche (3.59.0) : les montants, puis les deux lieux, puis « Reçu ». */
+.lv-nouvelle{box-shadow:0 0 0 2px var(--orange)}
+.lv-ligne-montant{margin-top:6px;font-size:13px;color:var(--encre-douce)}
+.lv-ligne-montant strong{color:var(--encre)}
+.lv-lieu{
+  margin-top:10px;padding-top:10px;border-top:1px solid var(--trait);
+  font-size:13px;line-height:1.6;
+}
+.lv-lieu-titre{
+  display:flex;align-items:center;gap:6px;margin-bottom:2px;
+  font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--encre-tres-douce);
+}
+.lv-recu{margin-top:12px;width:100%;justify-content:center}
 
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :
@@ -1676,7 +1690,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .notif-corps{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .notif-titre{font-size:13.5px;font-weight:700;line-height:1.3;color:var(--encre)}
 .notif-lue .notif-titre{font-weight:600;color:var(--encre-douce)}
-.notif-texte{font-size:12.5px;line-height:1.35;color:var(--encre-douce)}
+.notif-texte{font-size:12.5px;line-height:1.35;color:var(--encre-douce);white-space:pre-line}
 .notif-quand{font-size:11px;color:var(--encre-tres-douce);margin-top:2px}
 .notif-point{
   flex:none;width:9px;height:9px;border-radius:50%;

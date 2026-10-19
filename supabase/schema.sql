@@ -2833,6 +2833,10 @@ alter table public.commande_lignes add column if not exists confirme_le timestam
 -- Sur la LIGNE, pas sur la commande : une commande peut traverser deux
 -- boutiques, qui livrent chacune la sienne, chacune par son livreur.
 alter table public.commande_lignes add column if not exists livreur_id uuid;
+-- LE LIVREUR A ACCEPTÉ LA COURSE (3.59.0) : il a touché « Reçu ». C'est ce
+-- moment-là qui révèle au client son nom et son numéro. Remis à zéro si
+-- la course change de livreur.
+alter table public.commande_lignes add column if not exists recu_le timestamptz;
 create index if not exists lignes_livreur on public.commande_lignes(livreur_id)
   where livreur_id is not null;
 
@@ -3117,6 +3121,11 @@ begin
   if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
      and new.livreur_id is distinct from old.livreur_id then
     raise exception 'Une livraison se confie depuis le compte de la boutique';
+  end if;
+  -- « Reçu » se pose par « accepter_course », par le livreur lui-même.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.recu_le is distinct from old.recu_le then
+    raise exception 'Une course s''accepte depuis le compte du livreur';
   end if;
 
   if new.commande_id is distinct from old.commande_id
@@ -3512,7 +3521,9 @@ begin
 
   perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set livreur_id = livreur
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.etat in ('preparee', 'en_livraison');
@@ -3537,6 +3548,7 @@ grant execute on function public.assigner_livreur(text, text, uuid) to authentic
 --
 -- « drop » avant « create » : la fonction a gagné une colonne, et
 -- PostgreSQL ne change pas ce qu'une fonction rend sans la retirer.
+-- (3.59.0) Deux colonnes de plus encore : la fiche de la course et « Reçu ».
 drop function if exists public.mes_livraisons();
 create or replace function public.mes_livraisons()
 returns table (
@@ -3545,7 +3557,8 @@ returns table (
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
   etat text, articles jsonb, paye_le timestamptz,
-  a_encaisser bigint)
+  a_encaisser bigint,
+  fiche jsonb, recu_le timestamptz)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -3567,7 +3580,10 @@ begin
            -- SA boutique. Zéro quand tout a été payé en ligne.
            coalesce((select r.a_encaisser
                        from public.restes_par_boutique(c.id) r
-                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint,
+           -- Où récupérer, où livrer, les frais, le déjà-payé (3.59.0).
+           public.fiche_course(c.id, l.boutique_id),
+           min(l.recu_le)
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
@@ -3626,10 +3642,114 @@ begin
      where l.commande_id = cible
        and l.etat <> 'annulee'
        and l.confirme_le is null
+       -- (3.59.0) Une fois que le livreur a ACCEPTÉ la course (« Reçu ») —
+       -- ou l'a prise : avant, on ne sait pas encore qui viendra.
+       and (l.recu_le is not null or l.etat in ('en_livraison', 'remise'))
      order by l.boutique_id;
 end $$;
 revoke all on function public.livreurs_de_ma_commande(text, text) from public;
 grant execute on function public.livreurs_de_ma_commande(text, text) to anon, authenticated;
+
+-- ---------- La fiche d'une course (3.59.0) ----------
+-- CE QU'IL FAUT AU LIVREUR, et rien de plus, pour la part d'UNE boutique :
+--   où récupérer le colis   — la boutique : nom, adresse, téléphone, position ;
+--   où le livrer            — le nom, l'adresse et la note du client ;
+--   le numéro du destinataire ;
+--   les frais de livraison de cette boutique ;
+--   ce que le client a DÉJÀ PAYÉ pour cette part ;
+--   ce qu'il reste à récupérer auprès de lui (« a_encaisser »).
+-- Ni le prix des articles, ni le prix BIZZOO, ni le total des autres
+-- boutiques. Réservée aux fonctions de la base.
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+-- Un montant lisible dans une notification : « 14 350 FCFA ».
+create or replace function public.montant_lisible(n numeric, devise text default 'FCFA')
+returns text
+language sql immutable set search_path = public as $$
+  select replace(to_char(coalesce(n, 0), 'FM999,999,999,990'), ',', ' ') || ' ' || coalesce(nullif(devise, ''), 'FCFA');
+$$;
+revoke all on function public.montant_lisible(numeric, text) from public, anon, authenticated;
+
+-- ---------- « Reçu » : le livreur accepte la course (3.59.0) ----------
+-- Le client est alors prévenu, avec le nom et le numéro de son livreur ;
+-- la boutique aussi. Seulement SES courses, et une seule fois.
+create or replace function public.accepter_course(commande text, boutique text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  combien int;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  perform set_config('bizzoo.livraison', 'oui', true);
+  update public.commande_lignes l
+     set recu_le = now()
+   where l.commande_id = commande
+     and l.boutique_id = boutique
+     and l.livreur_id = moi
+     and l.recu_le is null
+     and l.etat in ('preparee', 'en_livraison');
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
+  if combien = 0 and not exists (
+       select 1 from public.commande_lignes l
+        where l.commande_id = commande and l.boutique_id = boutique
+          and l.livreur_id = moi and l.recu_le is not null) then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  return combien;
+end $$;
+revoke all on function public.accepter_course(text, text) from public, anon;
+grant execute on function public.accepter_course(text, text) to authenticated;
 
 -- ---------- Le livreur avance sa course ----------
 -- DEUX ÉTAPES, ET PAS D'AUTRES : « je l'ai prise » et « je l'ai
@@ -3657,13 +3777,19 @@ begin
   -- jamais avoir été prise.
   depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
 
+  -- Prendre la course sans avoir touché « Reçu » vaut acceptation.
+  perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set etat = vers
+     set etat = vers,
+         recu_le = coalesce(l.recu_le, now())
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.livreur_id = moi
      and l.etat = depuis;
+  -- Le compte AVANT de rendre le drapeau : « row_count » parle de la
+  -- dernière instruction, et ce serait alors celle-là.
   get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
     raise exception 'Rien à avancer ici : cette course n''en est pas là.';
@@ -5309,6 +5435,8 @@ declare
   client   uuid;
   equipe   uuid[];
   enseigne uuid[];
+  fiche    jsonb;
+  porteur  record;
 begin
   select c.numero, c.client_id into cmd
     from public.commandes c where c.id = new.commande_id;
@@ -5320,15 +5448,52 @@ begin
   -- ---- Une course confiée, ou reprise ----
   if new.livreur_id is distinct from old.livreur_id then
     if new.livreur_id is not null then
-      -- LE LIVREUR NE VOIT AUCUN MONTANT, ici comme ailleurs.
+      -- (3.59.0) L'ALERTE DIT TOUT CE QU'IL FAUT POUR PARTIR : où prendre
+      -- le colis, où le livrer, le numéro du destinataire, les frais, ce
+      -- qui est déjà payé, et ce qu'il reste à récupérer. Les montants de
+      -- CETTE boutique seulement ; pas le prix des articles.
+      fiche := public.fiche_course(new.commande_id, new.boutique_id);
       perform public.notifier(array[new.livreur_id], 'course_confiee',
-        'Une course vous est confiée',
-        'Commande ' || numero || ' — ouvrez vos livraisons pour l''adresse.',
+        'Nouvelle course — ' || numero,
+        'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+        'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
+          coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
+        'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||
+        'Frais de livraison : ' || public.montant_lisible((fiche ->> 'frais')::numeric, fiche ->> 'devise') || E'\n' ||
+        'Déjà payé : ' || public.montant_lisible((fiche ->> 'deja_paye')::numeric, fiche ->> 'devise') || E'\n' ||
+        case when (fiche ->> 'a_encaisser')::numeric > 0
+             then 'À récupérer : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise')
+             else 'Rien à récupérer : tout est payé.' end || E'\n' ||
+        'Touchez « Reçu » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
     end if;
     perform public.notifier(enseigne, 'course_confiee',
       'Course confiée à un livreur',
       'Commande ' || numero || '.',
+      '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+  end if;
+
+  -- ---- « Reçu » : le livreur a accepté (3.59.0) ----
+  -- LE CLIENT REÇOIT LE NOM ET LE NUMÉRO DE SON LIVREUR, pour le joindre
+  -- si besoin. La boutique apprend que sa course est acceptée.
+  if new.recu_le is not null and old.recu_le is null and new.livreur_id is not null then
+    select coalesce(nullif(p.nom, ''), 'Votre livreur') as nom, coalesce(p.tel, '') as tel
+      into porteur from public.profils p where p.id = new.livreur_id;
+    if client is not null then
+      perform public.notifier(array[client], 'course_acceptee',
+        'Votre livreur : ' || porteur.nom,
+        porteur.nom || ' livre votre commande ' || numero ||
+          coalesce(' (' || nullif((select b.nom from public.boutiques b where b.id = new.boutique_id), '') || ')', '') || '.' ||
+          case when porteur.tel <> ''
+               then E'\nSon numéro : +' || coalesce(nullif((select b.indicatif from public.boutiques b where b.id = new.boutique_id), ''), '229') ||
+                    ' ' || porteur.tel || ' — appelez-le si besoin.'
+               else '' end,
+        '#/commande/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    end if;
+    perform public.notifier(equipe, 'course_acceptee',
+      'Course acceptée par ' || porteur.nom,
+      'Commande ' || numero || ' — le livreur a accepté la course.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
   end if;
 

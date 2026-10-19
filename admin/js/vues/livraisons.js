@@ -14,9 +14,15 @@
    seule une fonction peut choisir les colonnes, et c'est pour
    cela que le livreur passe par elle plutôt que par la table.
 
-   DEUX GESTES, PAS TROIS. « Je l'ai prise » et « Je l'ai
-   remise ». Préparer reste à la boutique, annuler aussi, et
-   c'est toujours le CLIENT qui confirme avoir reçu.
+   TROIS GESTES. « Reçu » d'abord : le livreur accepte la course,
+   et c'est À CE MOMENT que le client reçoit son nom et son numéro.
+   Puis « Je l'ai prise » et « Je l'ai remise ». Préparer reste à
+   la boutique, annuler aussi, et c'est toujours le CLIENT qui
+   confirme avoir reçu.
+
+   LA FICHE (3.59.0) est celle de l'alerte : où récupérer le colis,
+   où le livrer, le numéro du destinataire, les frais, ce qui est
+   déjà payé, ce qui reste à récupérer. Aucun prix d'article.
    ========================================================= */
 const VueLivraisons = (() => {
 
@@ -31,9 +37,57 @@ const VueLivraisons = (() => {
   const telComplet = (c) => (c.tel ? "+" + c.indicatif + " " + c.tel : "");
   /* La monnaie de la boutique : « mes_livraisons() » rend le montant, pas
      la devise, et toutes les commandes d'une boutique sont dans la sienne. */
-  const montant = (n) => Utils.fmtMontant(n, (Store.lireReglages() || {}).devise || "FCFA");
+  const montant = (n, devise) =>
+    Utils.fmtMontant(n, devise || (Store.lireReglages() || {}).devise || "FCFA");
+
+  const lienCarte = (adresse, lat, lng) =>
+    "https://www.google.com/maps/search/?api=1&query=" +
+    encodeURIComponent(lat != null && lng != null ? lat + "," + lng : adresse);
+
+  /* Un lieu de la fiche : qui, où (ouvre la carte), et le numéro
+     appelable. */
+  function htmlLieu(titre, icone, nom, adresse, tel, indicatif, lat, lng, sansAdresse) {
+    const complet = tel ? "+" + indicatif + " " + tel : "";
+    return (
+      '<div class="lv-lieu">' +
+        '<div class="lv-lieu-titre">' + UI.icone(icone, "ic-sm") + Utils.echapper(titre) + "</div>" +
+        '<div class="lv-nom">' + Utils.echapper(nom || "(sans nom)") + "</div>" +
+        (adresse || (lat != null && lng != null)
+          ? '<a class="lv-ou" href="' + lienCarte(adresse, lat, lng) +
+            '" target="_blank" rel="noopener">' + UI.icone("carte", "ic-sm") +
+            Utils.echapper(adresse || "Voir sur la carte") + "</a>"
+          : '<div class="aide">' + Utils.echapper(sansAdresse) + "</div>") +
+        (complet
+          ? '<a class="lv-tel" href="tel:+' + Utils.echapper(indicatif + tel) + '">' +
+            UI.icone("tel", "ic-sm") + Utils.echapper(complet) + "</a>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  /* Les trois montants de la course. « À récupérer » en tête, c'est ce
+     qu'il réclame avant de remettre le colis. */
+  function htmlMontants(c) {
+    const f = c.fiche;
+    const remise = c.etat === "remise";
+    return (
+      '<div class="lv-montants">' +
+        (f.a_encaisser > 0
+          ? '<div class="lv-encaisser' + (remise ? " lv-encaisse" : "") + '" data-lv="a-recuperer">' +
+              UI.icone("promo", "ic-sm") + (remise ? "Récupéré : " : "À récupérer : ") +
+              "<strong>" + Utils.echapper(montant(f.a_encaisser, f.devise)) + "</strong></div>"
+          : '<div class="lv-encaisser lv-rien" data-lv="a-recuperer">' + UI.icone("check", "ic-sm") +
+              "Rien à récupérer : tout est payé.</div>") +
+        '<div class="lv-ligne-montant" data-lv="deja-paye">Déjà payé par le client : <strong>' +
+          Utils.echapper(montant(f.deja_paye, f.devise)) + "</strong></div>" +
+        '<div class="lv-ligne-montant" data-lv="frais">Frais de livraison : <strong>' +
+          Utils.echapper(f.frais > 0 ? montant(f.frais, f.devise) : "aucun") + "</strong></div>" +
+      "</div>"
+    );
+  }
 
   function htmlCourse(c) {
+    if (c.fiche) return htmlFiche(c);
     const etat = ETATS[c.etat] || ETATS.preparee;
     const tel = telComplet(c.client);
     return (
@@ -96,6 +150,49 @@ const VueLivraisons = (() => {
     );
   }
 
+  /* La course avec sa fiche complète (base 3.59.0). */
+  function htmlFiche(c) {
+    const f = c.fiche;
+    const r = f.retrait || {};
+    const l = f.livraison || {};
+    const aAccepter = !c.recuLe && c.etat === "preparee";
+    const etat = aAccepter
+      ? { mot: "Nouvelle", classe: "badge-nouvelle" }
+      : ETATS[c.etat] || ETATS.preparee;
+    return (
+      '<div class="carte lv-course' + (aAccepter ? " lv-nouvelle" : "") +
+        '" data-commande="' + Utils.echapper(c.commandeId) +
+        '" data-boutique="' + Utils.echapper(c.boutiqueId) + '">' +
+        '<div class="lv-haut">' +
+          "<div><strong>" + Utils.echapper(f.numero || c.numero || c.commandeId) + "</strong></div>" +
+          '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.mot) + "</span>" +
+        "</div>" +
+        htmlMontants(c) +
+        htmlLieu("Récupérer le colis", "magasin", r.boutique || c.nomBoutique, r.adresse,
+          r.tel, r.indicatif || "229", r.latitude, r.longitude,
+          "Adresse non renseignée : appelez la boutique.") +
+        htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
+          null, null, "Aucune adresse donnée : appelez le destinataire.") +
+        (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
+        '<div class="lv-articles">' +
+          c.articles.map((a) =>
+            "<div>" + Utils.echapper(a.nom || "") +
+              (a.code ? ' <span class="code-produit">' + Utils.echapper(a.code) + "</span>" : "") +
+              " <strong>× " + (Number(a.quantite) || 1) + "</strong></div>").join("") +
+        "</div>" +
+        (aAccepter
+          ? '<button type="button" class="btn lv-recu">' + UI.icone("check") + "Reçu</button>" +
+            '<div class="aide" style="margin:6px 0 0">En touchant « Reçu », vous acceptez la ' +
+            "course : le client reçoit votre nom et votre numéro.</div>"
+          : etat.bouton
+            ? '<button type="button" class="btn lv-avancer" data-vers="' + etat.vers + '">' +
+              UI.icone("check") + Utils.echapper(etat.bouton) + "</button>"
+            : '<div class="aide" style="margin:10px 0 0">Remise. Le client confirmera ' +
+              "la réception depuis son application.</div>") +
+      "</div>"
+    );
+  }
+
   async function afficher(vue) {
     UI.entete({ titre: "Mes courses", sous: "Ce que vous avez à porter",
       accueil: false,
@@ -131,7 +228,8 @@ const VueLivraisons = (() => {
     /* À prendre d'abord, en cours ensuite, remises en dernier : c'est
        l'ordre dans lequel on travaille. */
     const rang = { preparee: 0, en_livraison: 1, remise: 2 };
-    courses.sort((a, b) => (rang[a.etat] ?? 3) - (rang[b.etat] ?? 3));
+    courses.sort((a, b) => (rang[a.etat] ?? 3) - (rang[b.etat] ?? 3) ||
+      (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
     vue.innerHTML =
@@ -139,6 +237,21 @@ const VueLivraisons = (() => {
         (aFaire ? aFaire + " course" + (aFaire > 1 ? "s" : "") + " à faire"
                 : "Rien à faire pour l'instant") + "</div>" +
       courses.map(htmlCourse).join("");
+
+    for (const b of UI.$$(".lv-recu", vue)) {
+      b.onclick = async () => {
+        const carte = b.closest(".lv-course");
+        b.disabled = true;
+        try {
+          await Store.accepterCourse(carte.dataset.commande, carte.dataset.boutique);
+          UI.toast("Course acceptée : le client a reçu votre nom et votre numéro.");
+          afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
 
     for (const b of UI.$$(".lv-avancer", vue)) {
       b.onclick = async () => {

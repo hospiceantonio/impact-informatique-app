@@ -846,7 +846,17 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'restes_par_boutique'
-         and p.prosrc like '%parts%'))
+         and p.prosrc like '%parts%')),
+  (137, 'Parcours de livraison : fiche de course, « Reçu », livreur annoncé (recu_le)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commande_lignes' and column_name = 'recu_le')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'accepter_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'notifier_ligne'
+         and p.prosrc like '%course_acceptee%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

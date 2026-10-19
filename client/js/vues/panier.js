@@ -1619,8 +1619,8 @@ const VuePanier = (() => {
      -----------------------------------------------------
      Le livreur à qui la boutique a confié sa part : son nom, et de quoi
      l'appeler ou lui écrire sur WhatsApp. La base ne le dit qu'au client
-     de la commande, une fois la course confiée, et jusqu'à ce qu'il
-     confirme l'avoir reçue. Rien à montrer, ou une base qui ne connaît
+     de la commande, une fois la course ACCEPTÉE par le livreur (« Reçu », 3.59.0),
+     et jusqu'à ce qu'il confirme l'avoir reçue. Rien à montrer, ou une base qui ne connaît
      pas encore la question : la place reste vide, sans un mot. */
   async function remplirLivreurs(vue, commande) {
     let liste;

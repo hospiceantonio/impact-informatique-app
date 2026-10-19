@@ -25,6 +25,7 @@ const VueNotifications = (() => {
     reception_confirmee:   { nom: "Réceptions confirmées", icone: "check" },
     commande_annulee:      { nom: "Annulations",        icone: "alerte" },
     course_confiee:        { nom: "Courses confiées",   icone: "voiture" },
+    course_acceptee:       { nom: "Courses acceptées",  icone: "check" },
     /* Le stock, que chaque vente payée décompte toute seule. */
     stock_epuise:          { nom: "Ruptures de stock",  icone: "boite" },
     stock_insuffisant:     { nom: "Stock insuffisant",  icone: "alerte" },

@@ -267,15 +267,21 @@ select essai.devenir(:PORTEUR::uuid); set role authenticated;
 select essai.egal(
   (select count(*)::int from public.notifications where destinataire <> :PORTEUR::uuid), 0,
   'le livreur non plus');
--- MÊME PRÉCISION QUE PLUS HAUT : on cherche le montant, pas les
--- chiffres. Le numéro de la commande est justement ce qu'il doit lire
--- pour retrouver le colis.
+-- (3.59.0) L'ALERTE DU LIVREUR DIT TOUT CE QU'IL FAUT POUR PARTIR — où
+-- récupérer, où livrer, le numéro, les frais, le déjà-payé, le reste à
+-- récupérer : c'est la demande de l'enseigne. Ce qu'elle ne dit pas, c'est
+-- le détail des articles et de leurs prix.
 select essai.egal(
   (select count(*)::int from public.notifications n
-    where position(:'montant' in replace(n.titre || ' ' || n.corps, ' ', '')) > 0
-       or position(to_char(:montant, 'FM999G999G999')
-                   in (n.titre || ' ' || n.corps)) > 0), 0,
-  'et rien de ce qu''il lit ne porte le montant de la commande');
+    where n.type = 'course_confiee'
+      and n.corps like '%Récupérer :%' and n.corps like '%Livrer à :%'
+      and n.corps like '%Destinataire :%' and n.corps like '%Déjà payé :%'
+      and n.corps like '%Frais de livraison :%') > 0, true,
+  'son alerte : où récupérer, où livrer, le destinataire, les frais, le déjà-payé');
+select essai.egal(
+  (select count(*)::int from public.notifications n
+    where n.corps ~* 'prix|× ' ), 0,
+  'et rien du détail des articles ni de leurs prix');
 reset role;
 
 -- ---------------------------------------------------------
