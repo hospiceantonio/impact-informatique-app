@@ -856,7 +856,16 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'notifier_ligne'
-         and p.prosrc like '%course_acceptee%'))
+         and p.prosrc like '%course_acceptee%')),
+  (138, 'Demande de course envoyée à tous au paiement ; le premier la prend (prendre_course)', exists (
+      select 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid
+       where c.relname = 'commandes' and t.tgname = 'commandes_proposent' and not t.tgisinternal)
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'prendre_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'courses_proposees'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

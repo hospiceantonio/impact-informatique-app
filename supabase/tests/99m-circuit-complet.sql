@@ -213,8 +213,8 @@ select essai.egal(
   (select string_agg(distinct type, ',' order by type)
      from public.notifications where commande_id = :'cmd'),
   'commande_en_livraison,commande_payee,commande_preparee,commande_remise,' ||
-  'course_acceptee,course_confiee,reception_confirmee',
-  'les sept crans parlants ont tous parlé — dont la course acceptée (3.59.0)');
+  'course_acceptee,course_confiee,course_proposee,reception_confirmee',
+  'les huit crans parlants ont tous parlé — dont la demande envoyée aux livreurs et la course acceptée (3.59.0)');
 
 -- Et le client a suivi toute la course sans rien demander.
 select essai.egal(

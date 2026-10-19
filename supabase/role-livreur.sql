@@ -423,12 +423,15 @@ begin
          recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
-     and l.etat in ('preparee', 'en_livraison');
+     -- (3.59.0) En secours de la demande envoyée à tous les livreurs : la
+     -- boutique peut confier dès le paiement, sans attendre le colis.
+     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+     and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
   get diagnostics combien = row_count;
   perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
-    raise exception 'Rien à confier ici : préparez d''abord la commande.';
+    raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
   end if;
   return combien;
 end $$;
@@ -572,7 +575,10 @@ begin
            c.client_adresse, c.note,
            -- L'étape la MOINS avancée de ses lignes : c'est elle qui dit
            -- ce qu'il lui reste à faire.
-           min(l.etat)::text,
+           -- (3.59.0) Par le rang, pas l'alphabet : une course prise dès le
+           -- paiement est d'abord « nouvelle » ou « vue » — en préparation.
+           (array['nouvelle','vue','preparee','en_livraison','remise'])[
+             min(array_position(array['nouvelle','vue','preparee','en_livraison','remise'], l.etat))]::text,
            jsonb_agg(jsonb_build_object(
              'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
              order by l.nom),
@@ -589,7 +595,7 @@ begin
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
        and c.etat = 'payee'
-       and l.etat in ('preparee', 'en_livraison', 'remise')
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison', 'remise')
        -- Une course remise depuis plus de deux jours n'a plus à
        -- encombrer sa liste.
        and (l.etat <> 'remise' or c.paye_le > now() - interval '2 days')

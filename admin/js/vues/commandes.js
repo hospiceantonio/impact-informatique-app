@@ -122,6 +122,8 @@ const VueCommandes = (() => {
      La liste se lit au moment de confier, pas à chaque ouverture de
      l'écran des commandes : une boutique qui n'a pas de livreur n'a pas
      à payer une lecture de plus à chaque fois. */
+  const ETATS_CONFIABLES = ["nouvelle", "vue", "preparee", "en_livraison"];
+
   async function confier(vue, commandeId) {
     const commande = (await Store.listerCommandes({ combien: 100 }))
       .find((c) => c.id === commandeId);
@@ -129,7 +131,7 @@ const VueCommandes = (() => {
     /* La boutique de CETTE commande, vue d'ici : un administrateur ne
        confie que ses propres lignes, et la base le vérifie. */
     const boutique = (commande.lignes.find((l) =>
-      l.etat === "preparee" || l.etat === "en_livraison") || {}).boutiqueId || "";
+      ETATS_CONFIABLES.includes(l.etat)) || {}).boutiqueId || "";
 
     let livreurs = [];
     try {
@@ -152,6 +154,9 @@ const VueCommandes = (() => {
     }
 
     const corps = UI.ouvrirFeuille("Confier « " + (commande.numero || "") + " »",
+      '<p class="aide" style="margin:0 0 10px"><strong>La demande est partie à tous les ' +
+        "livreurs dès le paiement</strong> : le premier qui touche « Commande reçue » la prend. " +
+        "Confiez à la main seulement si personne ne l'a prise.</p>" +
       '<p class="aide" style="margin:0 0 14px">Il verra ce qu\'il doit porter, le nom ' +
         "du client, son numéro et son adresse, et <strong>ce qu'il doit encaisser à la " +
         "livraison</strong>" +
@@ -217,7 +222,9 @@ const VueCommandes = (() => {
        qu'elle n'est pas préparée, il n'y a rien à donner à porter, et la
        base refuse d'ailleurs. La liste des livreurs ne se lit qu'au
        moment où l'on veut confier, pas à chaque ouverture de l'écran. */
-    const confiable = c.lignes.some((l) => l.etat === "preparee" || l.etat === "en_livraison");
+    /* (3.59.0) Dès le paiement : la demande part à tous les livreurs, et
+       « Confier » reste le secours de la boutique si personne ne la prend. */
+    const confiable = payee && c.lignes.some((l) => ETATS_CONFIABLES.includes(l.etat));
     const aConfirmer = attendue && Supabase.estSuper() && c.transactionAnnoncee;
 
     return (

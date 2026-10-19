@@ -460,7 +460,11 @@ begin
 
   -- ---- Une course confiée, ou reprise ----
   if new.livreur_id is distinct from old.livreur_id then
-    if new.livreur_id is not null then
+    -- Le livreur qui a pris la course lui-même (« Commande reçue »)
+    -- connaît déjà sa fiche : l'alerte n'est que pour une course que la
+    -- boutique lui CONFIE.
+    if new.livreur_id is not null
+       and coalesce(current_setting('bizzoo.prise', true), '') <> 'oui' then
       -- (3.59.0) L'ALERTE DIT TOUT CE QU'IL FAUT POUR PARTIR : où prendre
       -- le colis, où le livrer, le numéro du destinataire, les frais, ce
       -- qui est déjà payé, et ce qu'il reste à récupérer. Les montants de
@@ -494,15 +498,26 @@ begin
     select coalesce(nullif(p.nom, ''), 'Votre livreur') as nom, coalesce(p.tel, '') as tel
       into porteur from public.profils p where p.id = new.livreur_id;
     if client is not null then
+      -- Une commande prise d'un coup (« Commande reçue ») : UNE nouvelle
+      -- pour toute la commande — toutes ses boutiques en livraison
+      -- groupée —, pas une par boutique.
       perform public.notifier(array[client], 'course_acceptee',
         'Votre livreur : ' || porteur.nom,
         porteur.nom || ' livre votre commande ' || numero ||
-          coalesce(' (' || nullif((select b.nom from public.boutiques b where b.id = new.boutique_id), '') || ')', '') || '.' ||
+          coalesce(' (' || nullif(
+            case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui'
+                 then (select string_agg(distinct b.nom, ', ') from public.commande_lignes l2
+                         join public.boutiques b on b.id = l2.boutique_id
+                        where l2.commande_id = new.commande_id and l2.etat <> 'annulee')
+                 else (select b.nom from public.boutiques b where b.id = new.boutique_id) end,
+            '') || ')', '') || '.' ||
           case when porteur.tel <> ''
                then E'\nSon numéro : +' || coalesce(nullif((select b.indicatif from public.boutiques b where b.id = new.boutique_id), ''), '229') ||
                     ' ' || porteur.tel || ' — appelez-le si besoin.'
                else '' end,
-        '#/commande/' || new.commande_id, new.commande_id, new.boutique_id, true);
+        '#/commande/' || new.commande_id, new.commande_id,
+        case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui' then null
+             else new.boutique_id end, true);
     end if;
     perform public.notifier(equipe, 'course_acceptee',
       'Course acceptée par ' || porteur.nom,

@@ -4538,50 +4538,65 @@ Bancs : [`supabase/tests/99zzzzzzzz-conditions-boutiques.sql`](supabase/tests/99
 `99t-acompte.sql` et `99z-frais-livraison.sql` adaptés à la règle par
 boutique ; contrôle 136 de l'état des lieux.
 
-## Le parcours de livraison : la fiche du livreur, « Reçu », le livreur annoncé (3.59.0)
+## Le parcours de livraison : la demande à tous, « Commande reçue », le livreur annoncé (3.59.0)
 
-**1. Quand la boutique confie la course** (*Confier* sur une commande
-préparée), le livreur reçoit une alerte — dans ses notifications, avec
-les trois bips — qui dit tout :
+**1. Dès que la commande est payée, la demande de livraison part à
+plusieurs livreurs à la fois** (`proposer_course`) :
 
-- **Récupérer** : la boutique et son adresse ;
+- **Commande d'une seule boutique** : à **tous les livreurs de cette
+  boutique** (validés, c'est-à-dire qui ont enregistré leur position). Une
+  boutique qui n'en a aucun passe la main aux livreurs de BIZZOO.
+- **Commande de plusieurs boutiques — livraison groupée** : aux **seuls
+  livreurs BIZZOO**, sans passer par ceux des boutiques.
+
+L'alerte (dans les notifications, avec les trois bips) dit tout :
+
+- **Récupérer** : la boutique et son adresse — une ligne par boutique en
+  livraison groupée ;
 - **Livrer à** : le nom et l'adresse du destinataire ;
 - **Destinataire** : son numéro ;
-- **Frais de livraison** de la boutique ;
-- **Déjà payé** : ce que le client a réglé à la commande pour cette boutique ;
+- **Frais de livraison** ;
+- **Déjà payé** : ce que le client a réglé à la commande ;
 - **À récupérer** : ce qu'il reste à encaisser à la porte — ou « Rien à
   récupérer : tout est payé ».
 
-Son écran *Mes courses* (application admin, et application client pour un
-livreur) rend la même fiche (`fiche_course`, rendue par `mes_livraisons`) :
-les adresses ouvrent la carte, les numéros s'appellent. **Aucun prix
+La demande s'affiche aussi en tête de *Mes courses* (application admin, et
+application client pour un livreur) : `courses_proposees`. **Aucun prix
 d'article** n'y figure.
 
-**2. « Reçu »** : en le touchant, le livreur accepte la course
-(`accepter_course` ; seul le livreur de la course le peut, deux fois ne
-compte qu'une). **À ce moment**, le client reçoit la notification
-*Votre livreur : Nom*, avec le numéro du livreur, et la boutique est
-prévenue (*Course acceptée par Nom*). Le reçu du client montre alors son
-livreur, avec *Appeler* et *WhatsApp* (`livreurs_de_ma_commande`) —
-**pas avant** : une course confiée mais pas acceptée ne dévoile personne.
+**2. « Commande reçue »** : le **premier** livreur qui touche le bouton
+prend la course (`prendre_course`) — toute la commande, toutes ses boutiques
+en livraison groupée. Le suivant reçoit « Trop tard : un autre livreur a
+déjà pris cette course », et la demande disparaît de la liste des autres.
+**À ce moment**, le client reçoit *Votre livreur : Nom* avec le numéro du
+livreur (une seule nouvelle, même groupée), et chaque boutique apprend qui
+vient chercher son colis. Le reçu du client montre alors son livreur, avec
+*Appeler* et *WhatsApp* — **pas avant**.
 
-**3. Puis** *Je l'ai prise* et *Je l'ai remise*, comme avant (prendre la
-course sans avoir touché « Reçu » vaut acceptation). Une course confiée à un
-autre livreur repart de zéro : à lui d'accepter. Personne n'écrit « Reçu » à
-la main (`commande_lignes.recu_le`, verrouillé).
+**3. Puis** : la boutique prépare le colis (*En préparation* chez le
+livreur) ; une fois prêt, *Je l'ai prise*, puis *Je l'ai remise*. En
+livraison groupée, le livreur a une course par boutique, chacune avec son
+lieu de retrait et ce qu'il y encaisse.
+
+**Le secours** : si personne ne prend la demande, la boutique garde
+*Confier à un livreur* dès le paiement (`assigner_livreur`) ; le livreur
+désigné reçoit la fiche et accepte par *Commande reçue* (`accepter_course`).
+Une course confiée à un autre livreur repart de zéro. Personne n'écrit
+« reçu » à la main (`commande_lignes.recu_le`, verrouillé).
 
 **Qui voit quoi**
 
-| | Le livreur | Le client |
+| | Les livreurs | Le client |
 |---|---|---|
-| Quand la course est confiée | la fiche complète (ci-dessus) | rien de nouveau |
-| Quand il touche « Reçu » | — | le nom et le numéro du livreur |
+| Au paiement | la demande complète (ci-dessus), tous ceux concernés | rien de nouveau |
+| « Commande reçue » | celui qui l'a prise garde la course ; pour les autres, elle disparaît | le nom et le numéro du livreur |
 | Toujours | jamais le prix des articles | jamais l'adresse personnelle du livreur |
 
 Base : [`supabase/livraison-parcours.sql`](supabase/livraison-parcours.sql).
 Bancs : [`supabase/tests/99zzzzzzzzz-parcours-livraison.sql`](supabase/tests/99zzzzzzzzz-parcours-livraison.sql),
+[`supabase/tests/99zzzzzzzzzz-demande-course.sql`](supabase/tests/99zzzzzzzzzz-demande-course.sql),
 [`tools/banc-parcours-livraison.mjs`](tools/banc-parcours-livraison.mjs) ;
-contrôle 137 de l'état des lieux.
+contrôles 137 et 138 de l'état des lieux.
 
 ## Structure
 

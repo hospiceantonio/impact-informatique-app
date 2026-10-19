@@ -198,7 +198,22 @@ const Compte = (() => {
     return Array.isArray(lignes) ? lignes : [];
   }
 
-  /** « Reçu » : le livreur accepte la course. La base envoie alors au
+  /** Les demandes ouvertes que ce livreur peut prendre (3.59.0). */
+  async function coursesProposees() {
+    try {
+      const lignes = await rest("POST", "rpc/courses_proposees", {});
+      return Array.isArray(lignes) ? lignes.filter((l) => l && l.fiche) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** « Commande reçue » sur une demande : le premier la prend. */
+  async function prendreCourse(commande) {
+    return rest("POST", "rpc/prendre_course", { commande });
+  }
+
+  /** « Commande reçue » sur une course confiée : le livreur l'accepte. La base envoie alors au
       client le nom et le numéro du livreur, et prévient la boutique. */
   async function accepterCourse(commande, boutique) {
     return rest("POST", "rpc/accepter_course", { commande, boutique });
@@ -1555,6 +1570,6 @@ const Compte = (() => {
     mesCommandes, commande, statutLivraison, paliersLivraison, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,
-    chargerEquipe, estEquipe, chargerLivreur, estLivreur, estDoubleLivreur, mesCourses, accepterCourse,
+    chargerEquipe, estEquipe, chargerLivreur, estLivreur, estDoubleLivreur, mesCourses, coursesProposees, prendreCourse, accepterCourse,
   };
 })();

@@ -293,7 +293,11 @@ titre("5. Rien n'a disparu");
   ok(await page.evaluate(() => [...document.querySelectorAll(".cmd-quantite")].map((q) => q.textContent).join(","))
     === "1×,2×,1×,1×,1×,2×", "les quantités");
   ok(c20 && c20.confier && /Revendeur/.test(c20.meta), "prête à partir : « Confier à un livreur », et « Revendeur »");
-  ok(c21 && !c21.confier, "pas de « Confier » tant que rien n'est préparé");
+  /* (3.59.0) La demande part à tous les livreurs dès le paiement ;
+     « Confier » est le secours de la boutique, dès le paiement aussi. */
+  ok(c21 && c21.confier, "payée, pas encore préparée : « Confier » déjà là, en secours");
+  const c22 = m.cartes.find((c) => c.numero === "BZ-000022");
+  ok(!c22 || !c22.confier, "pas payée : pas de « Confier »");
   ok(c18 && /sur 64 000 FCFA/.test(c18.part), "une commande partagée : sa part, « sur » le total");
   ok(c17 && /Reçu confirmé par le client/.test(c17.lignes[0].confirme), "la réception confirmée par le client");
   await ctx.close();
@@ -305,7 +309,9 @@ titre("6. À l'ordinateur : côte à côte, et un bouton à sa taille");
   const { page, ctx } = await ouvrir({ largeur: 1280 });
   const m = await lire(page);
   ok(m.cartes.every((c) => c.cotes && c.cotes.cote), "le client à gauche, les articles à droite, sur chaque carte");
-  ok(m.cartes.every((c) => c.hauteur <= 300), "aucune carte au-delà de 300 px (" + m.cartes.map((c) => c.hauteur).join(", ") + ")");
+  /* 330 px : une commande payée porte désormais « Confier » dès le
+     paiement (3.59.0), une rangée de bouton de plus. */
+  ok(m.cartes.every((c) => c.hauteur <= 330), "aucune carte au-delà de 330 px (" + m.cartes.map((c) => c.hauteur).join(", ") + ")");
   const b = (m.cartes.find((c) => c.numero === "BZ-000020") || {}).boutonConfier;
   ok(b && b.largeur <= 400, "« Confier à un livreur » à sa taille, pas en barre de toute la largeur (" +
     (b ? b.largeur + " px" : "absent") + ")");

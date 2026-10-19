@@ -13,7 +13,10 @@
      4. « Mes courses » de l'application client : la même fiche, le même
         « Reçu » ;
      5. les notifications s'affichent sur plusieurs lignes (admin et
-        client), et « Votre livreur » a sa famille.
+        client), et « Votre livreur » a sa famille ;
+     6. LES DEMANDES envoyées à tous dès le paiement : en tête de
+        « Mes courses », groupée avec un lieu par boutique ; « Commande
+        reçue » appelle prendre_course ; « trop tard » se dit.
    ========================================================= */
 let chromium;
 try {
@@ -46,6 +49,14 @@ const course = (o) => ({ commande_id: "cmd_p", numero: "BZ-000077", boutique_id:
   articles: [{ nom: "Imprimante", code: "0009", quantite: 1 }], paye_le: "2026-10-19T08:00:00Z",
   a_encaisser: 7000, fiche: FICHE, recu_le: null, ...o });
 
+const DEMANDE = { commande_id: "cmd_g", numero: "BZ-000088", paye_le: "2026-10-19T08:00:00Z",
+  fiche: { numero: "BZ-000088", groupee: true,
+    retraits: [
+      { boutique_id: "bou_a", boutique: "Alpha", adresse: "Ganhi", tel: "0197111222", indicatif: "229", a_encaisser: 3000 },
+      { boutique_id: "bou_b", boutique: "Bêta", adresse: "Dantokpa", tel: "0197333444", indicatif: "229", a_encaisser: 2000 }],
+    livraison: { nom: "Koffi", adresse: "Akpakpa", note: "", tel: "97000009", indicatif: "229" },
+    devise: "FCFA", frais: 2000, deja_paye: 5000, a_encaisser: 5000 } };
+
 const NOTIF = { id: "n1", destinataire: "x", type: "course_acceptee", commande_id: "cmd_p",
   titre: "Votre livreur : Rachidi", corps: "Commande BZ-000077 — Alpha\nSon numéro : +229 0196777888 — appelez-le si besoin.",
   lue: false, cree_le: new Date().toISOString() };
@@ -57,7 +68,7 @@ const PORTEUR = "cccccccc-1111-1111-1111-111111111111";
 const PROFIL = { id: PORTEUR, email: "porteur@alpha.bj", nom: "Rachidi", role: "livreur", actif: true,
   peut_modifier_produits: true, boutique_id: "bou_a" };
 
-async function ouvrirAdmin({ courses, hash }) {
+async function ouvrirAdmin({ courses, hash, demandes = [], tropTard = false }) {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 }, serviceWorkers: "block" });
   const page = await ctx.newPage();
   const erreurs = [];
@@ -72,6 +83,7 @@ async function ouvrirAdmin({ courses, hash }) {
   }, { moi: PORTEUR, email: PROFIL.email });
   const serveur = { appels: [] };
   let liste = courses;
+  let proposees = demandes;
   await page.route("**/rest/v1/**", (route) => {
     const req = route.request();
     const u = new URL(req.url());
@@ -89,6 +101,16 @@ async function ouvrirAdmin({ courses, hash }) {
       liste = liste.map((l) => ({ ...l, recu_le: "2026-10-19T09:00:00Z" }));
       return d(1);
     }
+    if (c === "rpc/courses_proposees") return d(proposees);
+    if (c === "rpc/prendre_course") {
+      proposees = [];
+      if (tropTard) {
+        return route.fulfill({ status: 400, contentType: "application/json",
+          body: JSON.stringify({ code: "P0001", message: "Trop tard : un autre livreur a déjà pris cette course." }) });
+      }
+      liste = [course({ commande_id: "cmd_g", numero: "BZ-000088", etat: "nouvelle", recu_le: "2026-10-19T09:00:00Z" })];
+      return d(2);
+    }
     if (c.startsWith("notifications")) return d([NOTIF]);
     if (c.startsWith("rpc/")) return d(null);
     if (c.startsWith("boutique")) return d([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]);
@@ -104,7 +126,7 @@ async function ouvrirAdmin({ courses, hash }) {
   return { page, ctx, erreurs, serveur };
 }
 
-titre("1. Le livreur (admin) : la fiche complète, et « Reçu »");
+titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
 {
   const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ courses: [course()] });
   await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
@@ -173,13 +195,51 @@ titre("5a. Les notifications de l'admin, sur plusieurs lignes");
   await ctx.close();
 }
 
+titre("6a. Les demandes de course (admin)");
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ courses: [], demandes: [DEMANDE] });
+  await page.waitForSelector(".lv-demande", { timeout: 6000 }).catch(() => {});
+  const t = plat(await page.evaluate(() => (document.querySelector(".lv-demande") || {}).innerText || ""));
+  ok(/1 demande de course/i.test(plat(await page.evaluate(() => document.getElementById("vue").innerText))),
+    "« 1 demande de course », en tête");
+  ok(/Livraison groupée : 2 boutiques/.test(t), "« Livraison groupée : 2 boutiques »");
+  ok(/Récupérer \(1\/2\)/i.test(t) && /Alpha/.test(t) && /Récupérer \(2\/2\)/i.test(t) && /Bêta/.test(t),
+    "deux lieux où récupérer, numérotés");
+  ok(t.includes("À récupérer : " + F(5000)) && t.includes("Frais de livraison : " + F(2000)) &&
+     t.includes("Déjà payé par le client : " + F(5000)), "les montants de toute la commande");
+  ok(/Koffi/.test(t) && /Akpakpa/.test(t), "où livrer");
+  await page.click(".lv-prendre");
+  await page.waitForTimeout(1500);
+  const appel = serveur.appels.find((a) => a.fn === "prendre_course");
+  ok(appel && appel.corps && appel.corps.commande === "cmd_g", "« Commande reçue » appelle prendre_course(cmd_g)");
+  ok(await page.evaluate(() => !document.querySelector(".lv-demande") && !!document.querySelector(".lv-course")),
+    "la demande devient sa course");
+  const c = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
+  ok(/En préparation/.test(c) && /prépare le colis/.test(c) &&
+     await page.evaluate(() => !document.querySelector(".lv-avancer") && !document.querySelector(".lv-recu")),
+    "acceptée, colis pas prêt : « En préparation », pas encore « Je l'ai prise »");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrirAdmin({ courses: [], demandes: [DEMANDE], tropTard: true });
+  await page.waitForSelector(".lv-prendre", { timeout: 6000 }).catch(() => {});
+  await page.evaluate(() => { window.__t = []; const z = document.querySelector("#toasts") || document.body;
+    new MutationObserver(() => window.__t.push(z.innerText)).observe(z, { childList: true, subtree: true }); });
+  await page.click(".lv-prendre");
+  await page.waitForTimeout(1500);
+  ok(await page.evaluate(() => window.__t.some((x) => /Trop tard/.test(x))), "trop tard : on le lui dit");
+  ok(await page.evaluate(() => !document.querySelector(".lv-demande")), "et la demande disparaît");
+  await ctx.close();
+}
+
 /* ================================================================
    L'application client
    ================================================================ */
 const MOI = "55550000-0000-0000-0000-000000000005";
 const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 
-async function ouvrirClient({ hash, courses = [] }) {
+async function ouvrirClient({ hash, courses = [], demandes = [] }) {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 2200 }, serviceWorkers: "block" });
   const page = await ctx.newPage();
   const erreurs = [];
@@ -191,6 +251,7 @@ async function ouvrirClient({ hash, courses = [] }) {
     refresh_token: "r", expire_a: Date.now() + 3600000, email: "", tel: "2290196777888" } });
   const serveur = { appels: [] };
   let liste = courses;
+  let proposees = demandes;
   await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
   await page.route("**/rest/v1/**", (r) => {
     const req = r.request();
@@ -199,7 +260,9 @@ async function ouvrirClient({ hash, courses = [] }) {
     if (c.startsWith("rpc/")) {
       serveur.appels.push({ fn: c.slice(4), corps: (() => { try { return req.postDataJSON(); } catch (_) { return null; } })() });
     }
-    if (c === "rpc/mon_compte_livreur") return d({ livreur: courses.length > 0, double: false });
+    if (c === "rpc/mon_compte_livreur") return d({ livreur: courses.length + demandes.length > 0, double: false });
+    if (c === "rpc/courses_proposees") return d(proposees);
+    if (c === "rpc/prendre_course") { proposees = []; return d(2); }
     if (c === "rpc/mes_livraisons") return d(liste);
     if (c === "rpc/accepter_course") {
       liste = liste.map((l) => ({ ...l, recu_le: "2026-10-19T09:00:00Z" }));
@@ -232,6 +295,22 @@ titre("4. « Mes courses » dans l'application client");
   ok(appel && appel.corps && appel.corps.commande === "cmd_p" && appel.corps.boutique === "bou_a",
     "« Reçu » appelle accepter_course(cmd_p, bou_a)");
   ok(await page.evaluate(() => !document.querySelector(".cp-course-recu")), "acceptée : le bouton s'en va");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("6b. Les demandes de course (client)");
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirClient({ hash: "#/mes-courses", demandes: [DEMANDE] });
+  const t = plat(await page.evaluate(() => (document.querySelector(".cp-demande") || {}).innerText || ""));
+  ok(/Demandes de course \(1\)/.test(plat(await page.evaluate(() => document.getElementById("vue").innerText))),
+    "« Demandes de course (1) »");
+  ok(/Livraison groupée · 2 boutiques/.test(t) && /Alpha/.test(t) && /Bêta/.test(t), "groupée, deux boutiques");
+  ok(t.includes("À récupérer : " + F(5000)), "ce qu'il y a à récupérer");
+  await page.click(".cp-course-prendre").catch(() => {});
+  await page.waitForTimeout(1500);
+  ok(serveur.appels.some((a) => a.fn === "prendre_course" && a.corps && a.corps.commande === "cmd_g"),
+    "« Commande reçue » appelle prendre_course(cmd_g)");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

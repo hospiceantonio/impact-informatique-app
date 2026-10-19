@@ -14,8 +14,15 @@
    seule une fonction peut choisir les colonnes, et c'est pour
    cela que le livreur passe par elle plutôt que par la table.
 
-   TROIS GESTES. « Reçu » d'abord : le livreur accepte la course,
-   et c'est À CE MOMENT que le client reçoit son nom et son numéro.
+   LES DEMANDES (3.59.0). Dès qu'une commande est payée, elle est
+   proposée à tous ses livreurs possibles — ceux de la boutique, ou
+   ceux de BIZZOO pour une livraison groupée. Elles s'affichent en
+   tête ; le premier qui touche « Commande reçue » la prend, les autres
+   la voient disparaître.
+
+   TROIS GESTES. « Commande reçue » d'abord : le livreur accepte la
+   course, et c'est À CE MOMENT que le client reçoit son nom et son
+   numéro.
    Puis « Je l'ai prise » et « Je l'ai remise ». Préparer reste à
    la boutique, annuler aussi, et c'est toujours le CLIENT qui
    confirme avoir reçu.
@@ -32,7 +39,11 @@ const VueLivraisons = (() => {
     en_livraison: { mot: "En cours", classe: "badge-commande",
                     bouton: "Je l'ai remise", vers: "remise" },
     remise: { mot: "Remise", classe: "badge-ok", bouton: "", vers: "" },
+    /* Prise dès le paiement : la boutique prépare encore le colis. */
+    nouvelle: { mot: "En préparation", classe: "badge-commande", bouton: "", vers: "" },
+    vue: { mot: "En préparation", classe: "badge-commande", bouton: "", vers: "" },
   };
+  const EN_PREPARATION = ["nouvelle", "vue"];
 
   const telComplet = (c) => (c.tel ? "+" + c.indicatif + " " + c.tel : "");
   /* La monnaie de la boutique : « mes_livraisons() » rend le montant, pas
@@ -155,7 +166,7 @@ const VueLivraisons = (() => {
     const f = c.fiche;
     const r = f.retrait || {};
     const l = f.livraison || {};
-    const aAccepter = !c.recuLe && c.etat === "preparee";
+    const aAccepter = !c.recuLe && (c.etat === "preparee" || EN_PREPARATION.includes(c.etat));
     const etat = aAccepter
       ? { mot: "Nouvelle", classe: "badge-nouvelle" }
       : ETATS[c.etat] || ETATS.preparee;
@@ -181,14 +192,49 @@ const VueLivraisons = (() => {
               " <strong>× " + (Number(a.quantite) || 1) + "</strong></div>").join("") +
         "</div>" +
         (aAccepter
-          ? '<button type="button" class="btn lv-recu">' + UI.icone("check") + "Reçu</button>" +
-            '<div class="aide" style="margin:6px 0 0">En touchant « Reçu », vous acceptez la ' +
-            "course : le client reçoit votre nom et votre numéro.</div>"
+          ? '<button type="button" class="btn lv-recu">' + UI.icone("check") + "Commande reçue</button>" +
+            '<div class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
+            "la course : le client reçoit votre nom et votre numéro.</div>"
+          : EN_PREPARATION.includes(c.etat)
+            ? '<div class="aide lv-attente" style="margin:10px 0 0">La boutique prépare le colis : ' +
+              "vous pourrez le prendre dès qu'il sera prêt.</div>"
           : etat.bouton
             ? '<button type="button" class="btn lv-avancer" data-vers="' + etat.vers + '">' +
               UI.icone("check") + Utils.echapper(etat.bouton) + "</button>"
             : '<div class="aide" style="margin:10px 0 0">Remise. Le client confirmera ' +
               "la réception depuis son application.</div>") +
+      "</div>"
+    );
+  }
+
+  /* Une demande ouverte : proposée à plusieurs livreurs, au premier qui
+     la prend. Groupée, un lieu de retrait par boutique. */
+  function htmlDemande(d) {
+    const f = d.fiche;
+    const l = f.livraison || {};
+    const retraits = Array.isArray(f.retraits) ? f.retraits : [];
+    return (
+      '<div class="carte lv-course lv-demande" data-commande="' + Utils.echapper(d.commandeId) + '">' +
+        '<div class="lv-haut">' +
+          "<div><strong>" + Utils.echapper(f.numero || d.numero || d.commandeId) + "</strong>" +
+            (f.groupee
+              ? '<div class="aide">Livraison groupée : ' + retraits.length + " boutiques</div>"
+              : "") +
+          "</div>" +
+          '<span class="badge badge-nouvelle">Demande</span>' +
+        "</div>" +
+        htmlMontants({ fiche: f, etat: "preparee" }) +
+        retraits.map((r, i) =>
+          htmlLieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
+                                       : "Récupérer le colis",
+            "magasin", r.boutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
+            "Adresse non renseignée : appelez la boutique.")).join("") +
+        htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
+          null, null, "Aucune adresse donnée : appelez le destinataire.") +
+        (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
+        '<button type="button" class="btn lv-prendre">' + UI.icone("check") + "Commande reçue</button>" +
+        '<div class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui ' +
+          "touche « Commande reçue » la prend. Le client reçoit alors votre nom et votre numéro.</div>" +
       "</div>"
     );
   }
@@ -208,8 +254,9 @@ const VueLivraisons = (() => {
     if (rafraichir) rafraichir.onclick = () => afficher(vue);
 
     let courses;
+    let demandes = [];
     try {
-      courses = await Store.mesLivraisons();
+      [courses, demandes] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees()]);
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +
@@ -219,7 +266,7 @@ const VueLivraisons = (() => {
       return;
     }
 
-    if (!courses.length) {
+    if (!courses.length && !demandes.length) {
       vue.innerHTML = UI.vide("voiture", "Aucune course pour l'instant",
         "Dès que la boutique vous confie une commande préparée, elle apparaît ici.");
       return;
@@ -227,16 +274,35 @@ const VueLivraisons = (() => {
 
     /* À prendre d'abord, en cours ensuite, remises en dernier : c'est
        l'ordre dans lequel on travaille. */
-    const rang = { preparee: 0, en_livraison: 1, remise: 2 };
+    const rang = { preparee: 0, en_livraison: 1, nouvelle: 2, vue: 2, remise: 3 };
     courses.sort((a, b) => (rang[a.etat] ?? 3) - (rang[b.etat] ?? 3) ||
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
     vue.innerHTML =
+      (demandes.length
+        ? '<div class="titre-section" id="lv-demandes">' +
+            (demandes.length > 1 ? demandes.length + " demandes de course" : "1 demande de course") +
+          "</div>" + demandes.map(htmlDemande).join("")
+        : "") +
       '<div class="titre-section">' +
         (aFaire ? aFaire + " course" + (aFaire > 1 ? "s" : "") + " à faire"
                 : "Rien à faire pour l'instant") + "</div>" +
       courses.map(htmlCourse).join("");
+
+    for (const b of UI.$$(".lv-prendre", vue)) {
+      b.onclick = async () => {
+        const carte = b.closest(".lv-demande");
+        b.disabled = true;
+        try {
+          await Store.prendreCourse(carte.dataset.commande);
+          UI.toast("La course est à vous : le client a reçu votre nom et votre numéro.");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        afficher(vue);
+      };
+    }
 
     for (const b of UI.$$(".lv-recu", vue)) {
       b.onclick = async () => {

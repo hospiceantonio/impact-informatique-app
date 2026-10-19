@@ -895,8 +895,35 @@ const Store = (() => {
     }));
   }
 
-  /** « Reçu » : le livreur accepte la course ; la base prévient le
-      client (nom et numéro du livreur) et la boutique. */
+  /** Les demandes ouvertes que ce livreur peut prendre : envoyées à
+      tous dès le paiement, le premier qui touche « Commande reçue » la
+      prend. Une base d'avant ne connaît pas la question : aucune. */
+  async function coursesProposees() {
+    let lignes;
+    try {
+      lignes = await Supabase.rpcLecture("courses_proposees", {});
+    } catch (_) {
+      return [];
+    }
+    return (lignes || []).filter((l) => l && l.fiche).map((l) => ({
+      commandeId: l.commande_id,
+      numero: l.numero || "",
+      payeLe: l.paye_le || "",
+      fiche: l.fiche,
+    }));
+  }
+
+  /** « Commande reçue » sur une demande : toute la commande est à lui —
+      toutes ses boutiques en livraison groupée. Le second arrive trop
+      tard, et la base le lui dit. */
+  async function prendreCourse(commande) {
+    const combien = await Supabase.rpc("prendre_course", { commande });
+    return Number(combien) || 0;
+  }
+
+  /** « Commande reçue » sur une course que la boutique lui a confiée :
+      la base prévient le client (nom et numéro du livreur) et la
+      boutique. */
   async function accepterCourse(commande, boutique) {
     const combien = await Supabase.rpc("accepter_course", { commande, boutique });
     return Number(combien) || 0;
@@ -3643,7 +3670,7 @@ const Store = (() => {
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
     positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
-    listerLivreurs, confierLivraison, mesLivraisons, accepterCourse, avancerLivraison,
+    listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

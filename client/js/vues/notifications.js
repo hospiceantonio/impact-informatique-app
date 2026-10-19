@@ -30,13 +30,19 @@ const VueNotifications = (() => {
     course_confiee:        { nom: "Courses",     icone: "voiture" },
     /* « Reçu » touché : le nom et le numéro de son livreur. */
     course_acceptee:       { nom: "Votre livreur", icone: "voiture" },
+    /* Un livreur dans l'application client : les demandes de course. */
+    course_proposee:       { nom: "Demandes de course", icone: "voiture" },
   };
   const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
+
+  /* Les courses d'un livreur s'appellent « #/livraisons » dans
+     l'application admin, « #/mes-courses » ici. */
+  const lienIci = (lien) => (lien === "#/livraisons" ? "#/mes-courses" : lien || "#/");
 
   function htmlUne(n) {
     return (
       '<a class="notif' + (n.lue ? " notif-lue" : "") + '" href="' +
-        e(n.lien || "#/") + '" data-notif="' + e(String(n.id)) + '">' +
+        e(lienIci(n.lien)) + '" data-notif="' + e(String(n.id)) + '">' +
         '<span class="notif-rond">' + UI.icone(famille(n.type).icone, "ic-sm") + "</span>" +
         '<span class="notif-corps">' +
           '<span class="notif-titre">' + e(n.titre) + "</span>" +

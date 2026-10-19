@@ -1197,9 +1197,12 @@ const VueCompte = (() => {
 
      LA FICHE (3.59.0), la même que l'alerte : où récupérer le colis, où
      le livrer, le numéro du destinataire, les frais, le déjà-payé, ce
-     qui reste à récupérer. Et « Reçu » : le livreur accepte la course,
-     et c'est à ce moment que le client reçoit son nom et son numéro. */
-  const ETAT_COURSE = { preparee: "À récupérer", en_livraison: "En livraison", remise: "Livrée" };
+     qui reste à récupérer. Et « Commande reçue » : le livreur accepte la
+     course, et c'est à ce moment que le client reçoit son nom et son
+     numéro. Les DEMANDES ouvertes — proposées à plusieurs livreurs dès
+     le paiement — passent en tête : le premier qui touche la prend. */
+  const ETAT_COURSE = { nouvelle: "En préparation", vue: "En préparation",
+    preparee: "À récupérer", en_livraison: "En livraison", remise: "Livrée" };
 
   async function mesCourses(vue) {
     UI.entete({ titre: "Mes courses", retour: true });
@@ -1214,7 +1217,8 @@ const VueCompte = (() => {
     }
     if (!Compte.estLivreur()) { location.hash = "#/mes-commandes"; return; }
     let courses = [];
-    try { courses = await Compte.mesCourses(); }
+    let demandes = [];
+    try { [courses, demandes] = await Promise.all([Compte.mesCourses(), Compte.coursesProposees()]); }
     catch (err) {
       vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' +
         Utils.echapper(err.message) + "</p></div>";
@@ -1239,7 +1243,7 @@ const VueCompte = (() => {
       const l = f.livraison || {};
       const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
       const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
-      const aAccepter = !c.recu_le && c.etat === "preparee";
+      const aAccepter = !c.recu_le && ["nouvelle", "vue", "preparee"].includes(c.etat);
       return (
         '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) +
           '" data-boutique="' + Utils.echapper(c.boutique_id || "") + '">' +
@@ -1260,10 +1264,41 @@ const VueCompte = (() => {
           (articles ? '<p class="aide" style="margin:6px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
           (aAccepter
             ? '<button type="button" class="btn cp-course-recu" style="margin-top:10px">' +
-              UI.icone("check") + "Reçu</button>" +
-              '<p class="aide" style="margin:6px 0 0">En touchant « Reçu », vous acceptez la course : ' +
-              "le client reçoit votre nom et votre numéro.</p>"
-            : "") +
+              UI.icone("check") + "Commande reçue</button>" +
+              '<p class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
+              "la course : le client reçoit votre nom et votre numéro.</p>"
+            : ["nouvelle", "vue"].includes(c.etat)
+              ? '<p class="aide" style="margin:6px 0 0">La boutique prépare le colis : vous pourrez ' +
+                "le prendre dès qu'il sera prêt.</p>"
+              : "") +
+        "</div>"
+      );
+    };
+    const carteDemande = (d) => {
+      const f = d.fiche;
+      const l = f.livraison || {};
+      const retraits = Array.isArray(f.retraits) ? f.retraits : [];
+      const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
+      return (
+        '<div class="carte cp-course cp-demande" data-course="' + Utils.echapper(d.commande_id) + '">' +
+          '<div class="carte-titre">Commande ' + Utils.echapper(f.numero || d.numero || d.commande_id) +
+            ' <small class="cp-course-etat">' +
+            (f.groupee ? "Livraison groupée · " + retraits.length + " boutiques" : "Demande") +
+            "</small></div>" +
+          (Number(f.a_encaisser) > 0
+            ? '<p class="cp-course-recuperer">À récupérer : <strong>' + m(f.a_encaisser) + "</strong></p>"
+            : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
+          '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
+            "</strong> · Frais de livraison : <strong>" +
+            (Number(f.frais) > 0 ? m(f.frais) : "aucun") + "</strong></p>" +
+          retraits.map((r, i) => lieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
+            : "Récupérer le colis", r.boutique, r.adresse, r.tel, r.indicatif, r.latitude, r.longitude)).join("") +
+          lieu("Livrer à", l.nom, l.adresse, l.tel, l.indicatif, null, null) +
+          (l.note ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(l.note) + "</p>" : "") +
+          '<button type="button" class="btn cp-course-prendre" style="margin-top:10px">' +
+            UI.icone("check") + "Commande reçue</button>" +
+          '<p class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui touche ' +
+            "« Commande reçue » la prend.</p>" +
         "</div>"
       );
     };
@@ -1289,6 +1324,10 @@ const VueCompte = (() => {
     const aFaire = courses.filter((c) => c.etat !== "remise");
     const faites = courses.filter((c) => c.etat === "remise");
     vue.innerHTML =
+      (demandes.length
+        ? '<div class="carte-titre" id="cp-demandes" style="margin:4px 4px 8px">Demandes de course (' +
+            demandes.length + ")</div>" + demandes.map(carteDemande).join("")
+        : "") +
       '<div class="carte-titre" style="margin:4px 4px 8px">À livrer (' + aFaire.length + ")</div>" +
       (aFaire.length ? aFaire.map(carte).join("")
         : '<div class="carte"><p class="aide" style="margin:0">Aucune course à livrer.</p></div>') +
@@ -1297,6 +1336,19 @@ const VueCompte = (() => {
         : '<div class="carte"><p class="aide" style="margin:0">Aucune course livrée ces deux derniers jours.</p></div>') +
       carteEspaceVendeur();
     brancherEspaceVendeur(vue);
+    for (const b of UI.$$(".cp-course-prendre", vue)) {
+      b.onclick = async () => {
+        const c = b.closest(".cp-demande");
+        b.disabled = true;
+        try {
+          await Compte.prendreCourse(c.dataset.course);
+          UI.toast("La course est à vous : le client a reçu votre nom et votre numéro.");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        mesCourses(vue);
+      };
+    }
     for (const b of UI.$$(".cp-course-recu", vue)) {
       b.onclick = async () => {
         const c = b.closest(".cp-course");
