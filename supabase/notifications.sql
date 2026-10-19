@@ -482,7 +482,7 @@ begin
         case when (fiche ->> 'a_encaisser')::numeric > 0
              then 'À récupérer : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise')
              else 'Rien à récupérer : tout est payé.' end || E'\n' ||
-        'Touchez « Reçu » pour accepter la course.',
+        'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
     end if;
     perform public.notifier(enseigne, 'course_confiee',
