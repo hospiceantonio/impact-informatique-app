@@ -183,6 +183,30 @@ drop trigger if exists boutiques_horaires on public.boutiques;
 create trigger boutiques_horaires
   before insert on public.boutiques
   for each row execute function public.boutique_horaires_a_la_creation();
+
+-- ---------- Les conditions de paiement de chaque boutique (3.59.0) ----------
+-- CHAQUE BOUTIQUE DIT COMMENT ON LA PAIE, et ce que coûte sa livraison :
+--   mode_paiement « total »   : tout se paie à la commande ;
+--                 « acompte » : taux_acompte % à la commande, le reste à la
+--                               livraison, à son livreur ;
+--   frais_livraison           : en FCFA, ajoutés à sa part — aucun code
+--                               promo ne les touche.
+-- Une commande sur plusieurs boutiques additionne leurs conditions :
+-- creer_commande calcule chaque part, et « parts » les garde. Les valeurs
+-- par défaut sont celles que l'enseigne appliquait à toutes jusqu'ici
+-- (10 %, 1 000 FCFA).
+alter table public.boutiques add column if not exists mode_paiement text not null default 'acompte';
+alter table public.boutiques add column if not exists taux_acompte int not null default 10;
+alter table public.boutiques add column if not exists frais_livraison int not null default 1000;
+alter table public.boutiques drop constraint if exists boutiques_mode_paiement;
+alter table public.boutiques add constraint boutiques_mode_paiement
+  check (mode_paiement in ('total', 'acompte'));
+alter table public.boutiques drop constraint if exists boutiques_taux_acompte;
+alter table public.boutiques add constraint boutiques_taux_acompte
+  check (taux_acompte between 1 and 99);
+alter table public.boutiques drop constraint if exists boutiques_frais_livraison;
+alter table public.boutiques add constraint boutiques_frais_livraison
+  check (frais_livraison between 0 and 100000);
 -- « create table if not exists » ne touche pas une table qui existe déjà :
 -- une colonne ajoutée plus tard doit être répétée ici, sinon elle n'arrive
 -- jamais dans une base en service. La marge de BIZZOO en fait partie —
@@ -2852,6 +2876,13 @@ alter table public.commandes add column if not exists verse int;
 -- ni la remise d'un code, ni la commission d'un particulier ne les
 -- touchent. 0 sur les commandes d'avant.
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+-- CE QUE CHAQUE BOUTIQUE DEMANDE (3.59.0), figé à la commande :
+--   { "bou_x": { "frais": 1000, "taux": 30, "du": 51000, "acompte": 15300 }, … }
+-- « du » : sa part, remise déduite au prorata, plus ses frais ; « taux » :
+-- 100 si elle se paie en entier à la commande. La somme des « acompte »
+-- est l'acompte de la commande. Null : une commande d'avant, réglée
+-- selon l'ancienne règle, celle de l'enseigne.
+alter table public.commandes add column if not exists parts jsonb;
 
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
@@ -2883,6 +2914,7 @@ begin
   -- de dehors, pas plus que l'argent versé.
   new.taux_acompte := null;
   new.acompte := null;
+  new.parts := null;
   new.verse := null;
   -- Les frais de livraison aussi : « creer_commande » les pose, d'après
   -- les réglages de l'enseigne. Le téléphone n'en décide pas.
@@ -3042,6 +3074,7 @@ begin
   -- le livreur va réclamer à la porte du client.
   or new.taux_acompte is distinct from old.taux_acompte
   or new.acompte is distinct from old.acompte
+  or new.parts is distinct from old.parts
   or new.verse is distinct from old.verse
   or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
@@ -3189,7 +3222,14 @@ grant execute on function public.ma_commande(text) to authenticated;
 -- d'abord à qui elles répondent.
 create or replace function public.restes_par_boutique(cible text)
 returns table (boutique_id text, a_encaisser bigint)
-language sql stable security definer set search_path = public as $$
+language plpgsql stable security definer set search_path = public as $$
+declare lp jsonb;
+begin
+  select c.parts into lp from public.commandes c where c.id = cible;
+  -- UNE COMMANDE D'AVANT LES CONDITIONS PAR BOUTIQUE (« parts » vide) :
+  -- l'ancienne règle, celle d'un acompte unique réparti au prorata.
+  if lp is null then
+    return query
   with commande as (
     select c.total::numeric as total,
            greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
@@ -3225,7 +3265,58 @@ language sql stable security definer set search_path = public as $$
   select x.boutique,
          (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
     from repartie x;
-$$;
+    return;
+  end if;
+  -- (3.59.0) CHAQUE BOUTIQUE ENCAISSE SA PART, moins SON acompte : ce
+  -- que valent ses articles servis, remise déduite au prorata, plus ses
+  -- frais tant qu'il y a quelque chose à livrer.
+  --
+  -- CE QUE LE CLIENT A VERSÉ N'EST JAMAIS PERDU POUR LUI. Chaque boutique
+  -- déduit d'abord son propre acompte ; ce qui a été versé en plus — un
+  -- surplus, ou l'acompte d'une part annulée — diminue les autres parts
+  -- au prorata, l'arrondi à la plus grosse.
+  return query
+    with commande as (
+      select greatest(0, coalesce(c.remise, 0))::numeric as remise,
+             greatest(0, coalesce(c.verse, c.acompte, c.total))::numeric as paye
+        from public.commandes c where c.id = cible
+    ), lignes as (
+      select l.boutique_id as bou,
+             sum(l.prix * l.quantite)::numeric as brut,
+             coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+        from public.commande_lignes l
+       where l.commande_id = cible
+       group by l.boutique_id
+    ), tout as (
+      select sum(x.brut) as s from lignes x
+    ), brutes as (
+      select x.bou,
+             greatest(0, round(x.servi - k.remise * x.servi / nullif(t.s, 0))
+                         + case when x.servi > 0 then coalesce((lp -> x.bou ->> 'frais')::numeric, 0) else 0 end) as du
+        from lignes x, tout t, commande k
+    ), propres as (
+      select b.bou, b.du,
+             least(b.du, coalesce((lp -> b.bou ->> 'acompte')::numeric, 0)) as sien
+        from brutes b
+    ), credit as (
+      select greatest(0, k.paye - coalesce(sum(p.sien), 0)) as reste_credit,
+             coalesce(sum(p.du - p.sien), 0) as a_couvrir
+        from propres p, commande k
+       group by k.paye
+    ), allege as (
+      select p.bou, p.du - p.sien as du,
+             case when c.a_couvrir > 0
+                  then floor(least(c.reste_credit, c.a_couvrir) * (p.du - p.sien) / c.a_couvrir)
+                  else 0 end as moins,
+             least(c.reste_credit, c.a_couvrir) as credit,
+             row_number() over (order by p.du - p.sien desc, p.bou) as rang
+        from propres p, credit c
+    )
+    select a.bou,
+           greatest(0, a.du - a.moins
+                       - case when a.rang = 1 then a.credit - sum(a.moins) over () else 0 end)::bigint
+      from allege a;
+end $$;
 revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
 
 -- ---------- Le reste, lu avec la commande ----------
@@ -4043,6 +4134,8 @@ declare
   verdict  jsonb;
   manque   record;
   taux     int;
+  les_parts jsonb;
+  manquant  bigint;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -4102,12 +4195,8 @@ begin
   -- elle ne saurait pas les montrer, et le client paierait un montant
   -- qu'on ne lui a jamais annoncé.
   -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
-  if coalesce(avec_frais, false) then
-    update public.commandes
-       set frais_livraison = greatest(0, coalesce(
-             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
-     where id = nouvelle;
-  end if;
+  -- (3.59.0) Ils se posent désormais APRÈS les lignes, boutique par
+  -- boutique : voir « Les conditions de chaque boutique », plus bas.
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -4213,16 +4302,85 @@ begin
   --
   -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
   -- plus que le total.
-  taux := case when coalesce(avec_acompte, false)
-               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
-               else 100 end;
-  perform set_config('bizzoo.interne', 'oui', true);
-  update public.commandes c
-     set taux_acompte = taux,
-         acompte = case when c.total <= 0 then 0
-                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
-   where c.id = nouvelle;
-  perform set_config('bizzoo.interne', '', true);
+  -- ---------- Les conditions de chaque boutique (3.59.0) ----------
+  -- CHAQUE BOUTIQUE A SES FRAIS ET SON ACOMPTE. Sa part, c'est ce que
+  -- valent ses articles, remise déduite au prorata, plus ses frais ;
+  -- elle se paie en entier à la commande (« total ») ou par son taux
+  -- d'acompte — le reste à la livraison, à son livreur.
+  --
+  -- UNE APPLICATION D'AVANT ne demande ni frais ni acompte : elle fait
+  -- tout payer, et n'a pas de frais à annoncer. On ne change rien pour
+  -- elle.
+  if coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+    perform set_config('bizzoo.interne', 'oui', true);
+    if coalesce(avec_frais, false) then
+      update public.commandes
+         set frais_livraison = coalesce((
+               select sum(greatest(0, b.frais_livraison))
+                 from public.boutiques b
+                where b.id in (select l.boutique_id from public.commande_lignes l
+                                where l.commande_id = nouvelle)), 0)
+       where id = nouvelle;
+      perform public.commande_total(nouvelle);
+      perform set_config('bizzoo.interne', 'oui', true);
+    end if;
+    with brut as (
+      select l.boutique_id as bou, sum(l.prix * l.quantite)::numeric as montant
+        from public.commande_lignes l
+       where l.commande_id = nouvelle
+       group by l.boutique_id
+    ), tout as (
+      select sum(montant) as s from brut
+    ), chacune as (
+      select br.bou,
+             case when coalesce(avec_frais, false) then greatest(0, b.frais_livraison) else 0 end as frais,
+             case when coalesce(avec_acompte, false) and b.mode_paiement = 'acompte'
+                  then b.taux_acompte else 100 end as taux,
+             greatest(0, round(br.montant - coalesce(c.remise, 0) * br.montant / nullif(t.s, 0))) as net
+        from brut br
+        join public.boutiques b on b.id = br.bou
+        cross join tout t
+        cross join (select remise from public.commandes where id = nouvelle) c
+    )
+    select jsonb_object_agg(x.bou, jsonb_build_object(
+             'frais', x.frais, 'taux', x.taux, 'du', x.net + x.frais,
+             'acompte', least(x.net + x.frais, ceil((x.net + x.frais) * x.taux / 100.0)::bigint)))
+      into les_parts
+      from chacune x;
+
+    -- 100 francs au moins en ligne, l'encaissement minimum chez FeexPay :
+    -- le manque va à la plus grosse part.
+    select greatest(0, least(c.total, 100) - coalesce((
+             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0))
+      into manquant
+      from public.commandes c where c.id = nouvelle;
+    if manquant > 0 and les_parts is not null then
+      select jsonb_set(les_parts, array[k, 'acompte'],
+               to_jsonb(least((v ->> 'du')::bigint, (v ->> 'acompte')::bigint + manquant)))
+        into les_parts
+        from jsonb_each(les_parts) e(k, v)
+       order by (v ->> 'du')::bigint desc limit 1;
+    end if;
+
+    update public.commandes c
+       set parts = les_parts,
+           acompte = least(c.total, coalesce((
+                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)),
+           -- Le taux affiché : ce que représente l'acompte du total.
+           taux_acompte = case when c.total <= 0 then 100
+                               else least(100, greatest(1, round(100.0 * coalesce((
+                                 select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)),
+                                 c.total) / c.total)))::int end
+     where c.id = nouvelle;
+    perform set_config('bizzoo.interne', '', true);
+  else
+    perform set_config('bizzoo.interne', 'oui', true);
+    update public.commandes c
+       set taux_acompte = 100,
+           acompte = c.total
+     where c.id = nouvelle;
+    perform set_config('bizzoo.interne', '', true);
+  end if;
 
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
@@ -4237,6 +4395,7 @@ begin
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
+    'parts', c.parts,
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,

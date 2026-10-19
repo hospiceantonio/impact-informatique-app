@@ -710,6 +710,63 @@ const UI = (() => {
     return sortie;
   }
 
+  /* ---------- Conditions de paiement et frais d'une boutique (3.59.0) ----------
+     Tout à la commande, ou un acompte (1 à 99 %) à la commande et le
+     reste à la livraison ; et ses frais de livraison. */
+  function champsConditions(prefixe, b, defauts) {
+    const d = defauts || {};
+    const mode = (b && b.modePaiement) || d.modePaiement || "acompte";
+    const taux = (b && b.tauxAcompte != null ? b.tauxAcompte : d.tauxAcompte) || 10;
+    const frais = b && b.fraisLivraison != null ? b.fraisLivraison : (d.fraisLivraison != null ? d.fraisLivraison : 1000);
+    return (
+      '<div class="champ champ-conditions" id="' + prefixe + '-conditions">' +
+        '<label for="' + prefixe + '-mode">Paiement à la commande <span class="obligatoire">*</span></label>' +
+        '<select id="' + prefixe + '-mode">' +
+          '<option value="total"' + (mode === "total" ? " selected" : "") + ">Tout à la commande</option>" +
+          '<option value="acompte"' + (mode === "acompte" ? " selected" : "") +
+            ">Un acompte à la commande, le reste à la livraison</option>" +
+        "</select>" +
+        '<div class="champ-montant" id="' + prefixe + '-bloc-taux" style="margin-top:8px"' +
+          (mode === "acompte" ? "" : " hidden") + ">" +
+          '<input id="' + prefixe + '-taux" inputmode="numeric" autocomplete="off" value="' + escapeAttr(taux) + '">' +
+          '<span class="devise">%</span>' +
+        "</div>" +
+        '<div class="aide">Le client paie ce pourcentage de la part de la boutique (articles et ' +
+          "livraison) en commandant ; son livreur encaisse le reste à la livraison.</div>" +
+      "</div>" +
+      '<div class="champ">' +
+        '<label for="' + prefixe + '-frais">Frais de livraison <span class="obligatoire">*</span></label>' +
+        '<div class="champ-montant">' +
+          '<input id="' + prefixe + '-frais" inputmode="numeric" autocomplete="off" value="' + escapeAttr(frais) + '">' +
+          '<span class="devise">FCFA</span>' +
+        "</div>" +
+        '<div class="aide">Ajoutés à chaque commande qui contient ses produits. Les codes promo ne ' +
+          "les touchent pas. 0 : livraison offerte.</div>" +
+      "</div>"
+    );
+  }
+  /** Branche le menu : le taux ne paraît que pour l'acompte. */
+  function brancherConditions(racine, prefixe) {
+    const menu = $("#" + prefixe + "-mode", racine);
+    const bloc = $("#" + prefixe + "-bloc-taux", racine);
+    if (menu && bloc) menu.onchange = () => { bloc.hidden = menu.value !== "acompte"; };
+  }
+  function lireConditions(racine, prefixe) {
+    const menu = $("#" + prefixe + "-mode", racine);
+    if (!menu) return {};
+    const modePaiement = menu.value === "total" ? "total" : "acompte";
+    const taux = Math.round(Number(String($("#" + prefixe + "-taux", racine).value).replace(/\s|%/g, "")));
+    if (modePaiement === "acompte" && !(taux >= 1 && taux <= 99)) {
+      throw new Error("L'acompte se donne en pour cent, de 1 à 99 %.");
+    }
+    const brut = String($("#" + prefixe + "-frais", racine).value).replace(/\s|fcfa/gi, "");
+    const frais = Math.round(Number(brut));
+    if (brut === "" || !(frais >= 0 && frais <= 100000)) {
+      throw new Error("Les frais de livraison : un montant de 0 à 100 000 FCFA.");
+    }
+    return { modePaiement, tauxAcompte: modePaiement === "acompte" ? taux : undefined, fraisLivraison: frais };
+  }
+
   function interrupteur({ id, label, actif, aide }) {
     return (
       '<label class="inter" for="' + id + '">' +
@@ -772,7 +829,7 @@ const UI = (() => {
     lienPartage, liensPartage,
     $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
-    champsHoraires, lireHoraires,
+    champsHoraires, lireHoraires, champsConditions, brancherConditions, lireConditions,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,
     champTexte, champMontant, champZone, interrupteur,

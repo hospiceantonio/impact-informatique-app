@@ -244,6 +244,12 @@ const Catalogue = (() => {
           /* Les jours et heures d'ouverture (3.59.0). « null » : pas encore
              renseignés — la boutique reste ouverte, comme avant. */
           ouvertures: b2.ouvertures && typeof b2.ouvertures === "object" ? b2.ouvertures : null,
+          /* Ses conditions de paiement et ses frais (3.59.0). « undefined »
+             sur une base d'avant : l'application applique alors les
+             réglages de l'enseigne, comme avant. */
+          modePaiement: b2.mode_paiement === "total" || b2.mode_paiement === "acompte" ? b2.mode_paiement : undefined,
+          tauxAcompte: b2.taux_acompte == null ? undefined : Number(b2.taux_acompte),
+          fraisLivraison: b2.frais_livraison == null ? undefined : Math.max(0, Number(b2.frais_livraison) || 0),
           siteWeb: b2.site_web || "",
           facebook: b2.facebook || "", instagram: b2.instagram || "",
           tiktok: b2.tiktok || "", youtube: b2.youtube || "", snapchat: b2.snapchat || "",

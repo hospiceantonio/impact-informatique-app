@@ -4491,6 +4491,53 @@ Bancs : [`supabase/tests/99zzzzzz-produits-habilitation.sql`](supabase/tests/99z
 [`tools/banc-horaires-droits.mjs`](tools/banc-horaires-droits.mjs) ;
 contrôles 134 et 135 de l'état des lieux.
 
+## Chaque boutique : sa condition de paiement, ses frais de livraison (3.59.0)
+
+**Chaque boutique dit comment on la paie** :
+
+- **Tout à la commande** : le client paie sa part entière en commandant ;
+- **Un acompte à la commande** (1 à 99 %) : le client en paie ce
+  pourcentage en commandant, et **le livreur de la boutique encaisse le
+  reste à la livraison**.
+
+**Et elle fixe ses frais de livraison** (0 : livraison offerte). Aucun code
+promo ne les touche.
+
+On les règle à la création de la boutique (*Paiement et livraison*, dans sa
+fiche), puis l'administrateur de la boutique les change dans *Réglages*.
+
+**À la commande, la base calcule tout** (`creer_commande`) : la part de
+chaque boutique — ses articles, remise d'un code promo déduite au prorata,
+plus ses frais —, ce qui se paie maintenant (100 % ou son acompte, au franc
+supérieur) et ce qui restera à la livraison. Ces parts sont figées sur la
+commande (`commandes.parts`). Une commande sur deux boutiques additionne
+leurs deux conditions et leurs deux frais.
+
+**À la livraison**, chaque livreur encaisse la part de **sa** boutique, moins
+son acompte (`restes_par_boutique`). Rien de ce que le client a versé n'est
+perdu pour lui : un surplus, ou l'acompte d'une part annulée par sa
+boutique, diminue ce qui reste dû aux autres.
+
+**Dans l'application client**, le panier et l'écran de commande annoncent
+le total, *À payer à la commande* et *À payer à la livraison* — et, sur
+plusieurs boutiques, le détail de chacune (« tout à la commande · livraison
+1 500 », « acompte 30 % »). C'est un aperçu, calculé comme la base ; le
+montant demandé à l'agrégateur est celui que la base renvoie.
+
+**Les boutiques déjà en service** reçoivent ce que l'enseigne appliquait à
+toutes : acompte de 10 %, livraison 1 000 FCFA. Dans *Réglages → Paiement*,
+l'acompte et les frais de l'enseigne ne sont plus que les valeurs proposées
+aux nouvelles boutiques. Les commandes passées avant gardent leur ancienne
+règle.
+
+À coller : [`supabase/conditions-paiement-boutiques.sql`](supabase/conditions-paiement-boutiques.sql)
+(après `horaires-boutiques.sql`).
+
+Bancs : [`supabase/tests/99zzzzzzzz-conditions-boutiques.sql`](supabase/tests/99zzzzzzzz-conditions-boutiques.sql),
+[`tools/banc-conditions-boutiques.mjs`](tools/banc-conditions-boutiques.mjs) ;
+`99t-acompte.sql` et `99z-frais-livraison.sql` adaptés à la règle par
+boutique ; contrôle 136 de l'état des lieux.
+
 ## Structure
 
 ```
@@ -4536,6 +4583,7 @@ impact-informatique-app/
 │   ├── admin-bizzoo-livreurs-revendeurs.sql # L'admin de BIZZOO : livreurs, revendeurs, validation (3.59.0)
 │   ├── produits-habilitation.sql    # Créer un produit demande l'habilitation (3.59.0)
 │   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
+│   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

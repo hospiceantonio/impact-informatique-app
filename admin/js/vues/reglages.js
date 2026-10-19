@@ -409,6 +409,12 @@ const VueReglages = (() => {
             UI.champsHoraires("r", r.ouvertures,
               "En dehors de ces heures, vos produits ne sont pas visibles des clients, et ils " +
               "ne peuvent pas vous commander.")) +
+        /* SES CONDITIONS DE PAIEMENT ET SES FRAIS (3.59.0) : c'est la
+           boutique qui les fixe. Une base d'avant ne les connaît pas. */
+        (!surEnseigne && r.modePaiement !== undefined
+          ? '<div class="titre-section" style="margin-top:14px">Paiement et livraison</div>' +
+            UI.champsConditions("r", r)
+          : "") +
         UI.champTexte({ id: "r-horaires", label: "Précisions sur les horaires (facultatif)", valeur: r.horaires,
           placeholder: "Ex. : fermé les jours fériés" }) +
         /* Le site web se saisit comme on le dit : « bizzoo.bj ». C'est
@@ -626,16 +632,14 @@ const VueReglages = (() => {
                commandes fictives : commander engage déjà de l'argent. La
                base le borne de 1 à 100 et ne laisse que vous l'écrire. */
             '<div class="champ" id="pay-bloc-acompte" hidden>' +
-              '<label for="pay-acompte">Acompte à la commande</label>' +
+              '<label for="pay-acompte">Acompte proposé aux nouvelles boutiques</label>' +
               '<div class="champ-montant">' +
                 '<input id="pay-acompte" inputmode="numeric" autocomplete="off" placeholder="10">' +
                 '<span class="devise">%</span>' +
               "</div>" +
-              '<div class="aide">Le client paie cette part du total en ligne pour que sa ' +
-                "commande parte ; le reste se paie à la livraison, à chaque boutique sa part. " +
-                "L'acompte vaut au moins 100 FCFA, et jamais plus que le total. 100 % : tout se " +
-                "paie en ligne, comme avant. Les applications d'avant la 3.57.0 font payer le " +
-                "total quoi que dise ce réglage.</div>" +
+              '<div class="aide">Depuis la 3.59.0, <strong>chaque boutique règle sa propre ' +
+                "condition de paiement</strong> (fiche de la boutique, ou ses Réglages). Ce taux " +
+                "n'est plus que la valeur proposée à la création d'une boutique.</div>" +
             "</div>" +
 
             /* ---- Les frais de livraison ----
@@ -643,14 +647,14 @@ const VueReglages = (() => {
                ne les touche. Fixes pour l'instant ; ils dépendront plus
                tard de la distance. */
             '<div class="champ" id="pay-bloc-frais" hidden>' +
-              '<label for="pay-frais">Frais de livraison</label>' +
+              '<label for="pay-frais">Frais de livraison proposés aux nouvelles boutiques</label>' +
               '<div class="champ-montant">' +
                 '<input id="pay-frais" inputmode="numeric" autocomplete="off" placeholder="1000">' +
                 '<span class="devise">FCFA</span>' +
               "</div>" +
-              '<div class="aide">Ajoutés une fois à chaque commande, même si plusieurs ' +
-                "boutiques livrent. Les codes promo ne les touchent pas. 0 : pas de frais. " +
-                "Les applications d'avant la 3.58.0 ne les font pas payer.</div>" +
+              '<div class="aide">Depuis la 3.59.0, <strong>chaque boutique fixe ses frais de ' +
+                "livraison</strong>. Ce montant n'est plus que la valeur proposée à la création " +
+                "d'une boutique.</div>" +
             "</div>" +
 
             UI.interrupteur({ id: "pay-actif", label: "Ouvrir le paiement aux clients",
@@ -991,6 +995,7 @@ const VueReglages = (() => {
     };
 
     /* ---------- Boutique ---------- */
+    UI.brancherConditions(vue, "r");
     UI.$("#r-enregistrer").onclick = () => unSeulEnvoi(UI.$("#r-enregistrer"), async () => {
       const nom = UI.$("#r-nom").value.trim();
       if (!nom) {
@@ -1010,6 +1015,7 @@ const VueReglages = (() => {
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
           ...(surEnseigne ? {} : { ouvertures: UI.lireHoraires(vue, "r") }),
+          ...(surEnseigne || r.modePaiement === undefined ? {} : UI.lireConditions(vue, "r")),
           siteWeb: UI.$("#r-site").value.trim(),
           /* Le logo ne part que s'il a bougé : sinon chaque
              enregistrement demanderait une validation pour rien. */

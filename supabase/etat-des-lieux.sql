@@ -836,7 +836,17 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-         and p.prosrc like '%boutique_ouverte%'))
+         and p.prosrc like '%boutique_ouverte%')),
+  (136, 'Chaque boutique : condition de paiement et frais (mode_paiement, parts)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques' and column_name = 'mode_paiement')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes' and column_name = 'parts')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'restes_par_boutique'
+         and p.prosrc like '%parts%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

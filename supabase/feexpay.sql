@@ -54,6 +54,9 @@ alter table public.profils
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Les colonnes que les fonctions plus bas lisent (3.59.0).
+alter table public.commandes add column if not exists parts jsonb;
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -287,6 +290,7 @@ begin
   -- le livreur va réclamer à la porte du client.
   or new.taux_acompte is distinct from old.taux_acompte
   or new.acompte is distinct from old.acompte
+  or new.parts is distinct from old.parts
   or new.verse is distinct from old.verse
   or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then

@@ -436,6 +436,12 @@ const Store = (() => {
       actif: l.actif !== false,
       /* Les jours et heures d'ouverture (3.59.0) ; null : pas encore posés. */
       ouvertures: l.ouvertures && typeof l.ouvertures === "object" ? l.ouvertures : null,
+      /* Ses conditions de paiement et ses frais (3.59.0). */
+      /* « undefined » sur une base d'avant : rien n'est alors renvoyé à
+         la base, qui ne connaît pas ces colonnes. */
+      modePaiement: l.mode_paiement === undefined ? undefined : (l.mode_paiement === "total" ? "total" : "acompte"),
+      tauxAcompte: l.taux_acompte == null ? undefined : Number(l.taux_acompte),
+      fraisLivraison: l.frais_livraison == null ? undefined : Number(l.frais_livraison),
       ordre: l.ordre || 0,
       nomBoutique: l.nom || BOUTIQUE_DEFAUT.nomBoutique,
       slogan: l.slogan || BOUTIQUE_DEFAUT.slogan,
@@ -541,6 +547,9 @@ const Store = (() => {
       actif: b.actif !== false,
       ordre: b.ordre || 0,
       ...(b.ouvertures !== undefined ? { ouvertures: b.ouvertures || null } : {}),
+      ...(b.modePaiement ? { mode_paiement: b.modePaiement === "total" ? "total" : "acompte" } : {}),
+      ...(b.tauxAcompte != null ? { taux_acompte: b.tauxAcompte } : {}),
+      ...(b.fraisLivraison != null ? { frais_livraison: b.fraisLivraison } : {}),
       tel: b.tel || "",
       whatsapp: b.whatsapp || "",
       indicatif: b.indicatif || "229",

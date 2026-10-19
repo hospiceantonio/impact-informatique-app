@@ -305,6 +305,12 @@ const VueBoutiques = (() => {
       UI.champsHoraires("bq", boutique ? boutique.ouvertures : null,
         "En dehors de ces heures, ses produits ne sont pas visibles des clients, " +
         "et on ne peut pas lui commander.") +
+      /* SES CONDITIONS DE PAIEMENT ET SES FRAIS (3.59.0). Une base d'avant
+         ne les connaît pas (« undefined ») : on ne les propose pas. */
+      (!boutique || boutique.modePaiement !== undefined
+        ? '<div class="titre-section" style="margin-top:14px">Paiement et livraison</div>' +
+          UI.champsConditions("bq", boutique)
+        : "") +
       (boutique
         ? UI.interrupteur({ id: "bq-actif", label: "Boutique ouverte", actif: boutique.actif,
             aide: "Fermée, elle disparaît de l'application des clients. Son catalogue reste intact." })
@@ -333,6 +339,7 @@ const VueBoutiques = (() => {
 
     brancherChoix(corps);
     brancherLogo(corps);
+    UI.brancherConditions(corps, "bq");
     remplirSecteurs(corps, boutique);
 
     UI.$("#bq-enregistrer", corps).onclick = async () => {
@@ -342,6 +349,7 @@ const VueBoutiques = (() => {
         const secteurVoulu = UI.$("#bq-categorie", corps).value;
         if (!secteurVoulu) throw new Error("Choisissez le secteur d'activité de la boutique.");
         const ouvertures = UI.lireHoraires(corps, "bq");
+        const conditions = UI.lireConditions(corps, "bq");
 
         /* CHANGER DE SECTEUR DÉCLASSE LE CATALOGUE : les produits sont
            rangés dans des rayons de l'ancien, que le nouveau n'a pas.
@@ -367,6 +375,7 @@ const VueBoutiques = (() => {
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
           ouvertures,
+          ...conditions,
         });
         UI.feuilleSansRappel();
         UI.fermerFeuille();

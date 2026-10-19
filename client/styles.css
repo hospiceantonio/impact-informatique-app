@@ -2209,3 +2209,8 @@ a.pub-carte:active{transform:scale(.98)}
 .bou-fermee-bandeau { margin: 12px 0; }
 .pa-ferme { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   font-weight: 600; color: var(--rouge, #c62828); padding: 10px 4px; text-align: center; }
+
+/* ---------- Le détail par boutique : conditions et frais (3.59.0) ---------- */
+.pa-detail-boutiques { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--trait, #e6e8ef); }
+.pa-recap-boutique { font-size: 12.5px; color: var(--encre-douce, #556); }
+.pa-recap-boutique small { display: block; font-size: 11.5px; }
