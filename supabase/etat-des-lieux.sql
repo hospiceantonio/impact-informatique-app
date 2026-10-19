@@ -821,7 +821,22 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_policies
        where schemaname = 'public' and tablename = 'profils'
-         and policyname = 'profils ajout admin' and with_check like '%est_admin_bizzoo%'))
+         and policyname = 'profils ajout admin' and with_check like '%est_admin_bizzoo%')),
+  (134, 'Créer un produit demande l''habilitation (règle « produits ajout »)', exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'produits'
+         and policyname = 'produits ajout' and with_check like '%peut_modifier_produits%')
+    and not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'peut_modifier_produits'
+         and p.prosrc like '%role = ''administrateur'' or%')),
+  (135, 'Les jours et heures d''ouverture des boutiques (ouvertures, boutique_ouverte)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques' and column_name = 'ouvertures')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.prosrc like '%boutique_ouverte%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

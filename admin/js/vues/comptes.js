@@ -159,7 +159,8 @@ const VueComptes = (() => {
       compte.role === "superadministrateur";
     /* Un modérateur privé du droit de modification se voit d'un coup d'œil
        dans la liste : inutile d'ouvrir sa fiche pour le savoir. */
-    const bride = compte.role === "moderateur" && !compte.peutModifier;
+    const bride = ["moderateur", "administrateur"].includes(compte.role) && !!compte.boutiqueId &&
+      !compte.peutModifier;
     return (
       '<div class="compte-ligne' + (compte.actif ? "" : " compte-inactif") + '">' +
         '<span class="compte-rond ' + (admin ? "compte-rond-admin" : "") + '">' +
@@ -243,13 +244,14 @@ const VueComptes = (() => {
             htmlInterrupteurs(compte) +
           "</div>"
         : "") +
-      /* Le droit de retoucher les produits ne concerne que le modérateur :
-         un administrateur l'a toujours. */
-      '<div id="cp-zone-modif"' + (compte.role === "moderateur" ? "" : " hidden") + ">" +
-        UI.interrupteur({ id: "cp-modifier", label: "Peut modifier les produits",
+      /* L'HABILITATION AUX PRODUITS (3.59.0) : créer, modifier,
+         supprimer. Elle vaut pour le modérateur ET l'administrateur d'une
+         boutique — un administrateur ne l'a plus d'office. */
+      '<div id="cp-zone-modif"' + (["moderateur", "administrateur"].includes(compte.role) ? "" : " hidden") + ">" +
+        UI.interrupteur({ id: "cp-modifier", label: "Peut créer et modifier les produits",
           actif: compte.peutModifier !== false,
-          aide: "Décoché, ce modérateur peut encore ajouter des produits, " +
-            "mais plus retoucher ni supprimer ceux du catalogue." }) +
+          aide: "Décoché, ce compte ne crée plus de produit, et ne retouche ni ne " +
+            "supprime ceux du catalogue." }) +
       "</div>" +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
@@ -292,7 +294,7 @@ const VueComptes = (() => {
       /* Le droit « produits » d'un compte d'enseigne vit dans SES
          interrupteurs : l'afficher deux fois se contredirait. */
       UI.$("#cp-zone-modif", corps).hidden =
-        rang !== "moderateur" || (surEnseigne && rang !== "superadministrateur");
+        !["moderateur", "administrateur"].includes(rang) || (surEnseigne && rang !== "superadministrateur");
       const zoneBoutique = UI.$("#cp-zone-boutique", corps);
       if (zoneBoutique) zoneBoutique.hidden = rang === "superadministrateur";
       if (zoneEnseigne) {
@@ -353,7 +355,7 @@ const VueComptes = (() => {
       const surEnseigne = zoneEns && !zoneEns.hidden;
       const peutModifier = surEnseigne
         ? UI.$("#cp-d-produits", corps).checked
-        : (role === "moderateur" ? UI.$("#cp-modifier", corps).checked : true);
+        : (["moderateur", "administrateur"].includes(role) ? UI.$("#cp-modifier", corps).checked : true);
       const champBoutique = UI.$("#cp-boutique", corps);
       /* Le super administrateur n'appartient à aucune boutique : il circule partout.
          « __enseigne » veut dire la même chose pour un compte de BIZZOO —

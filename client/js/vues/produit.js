@@ -403,7 +403,16 @@ const VueProduit = (() => {
        pas le remettre, et la base refuserait la commande au moment de
        payer. Le bouton WhatsApp, plus haut, reste là pour demander le
        délai. */
-    if (etat !== "rupture") {
+    /* BOUTIQUE FERMÉE (3.59.0) : pas de panier. Le lien a pu être
+       partagé la veille ; on dit quand elle rouvre, plutôt que de laisser
+       partir une commande que personne ne prendrait. */
+    const chez = Catalogue.boutiqueDuProduit(p);
+    const fermee = !!chez && !Catalogue.ouverteMaintenant(chez);
+    if (fermee) {
+      const quand = Catalogue.prochaineOuverture(chez);
+      UI.barreAction('<div class="pa-ferme" id="p-fermee">' + UI.icone("horloge", "ic-sm") +
+        " Boutique fermée" + (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".</div>");
+    } else if (etat !== "rupture") {
       const barre = UI.barreAction(
         '<div class="pa-compteur pa-compteur-da">' +
           '<button type="button" id="p-moins" aria-label="Un de moins">−</button>' +

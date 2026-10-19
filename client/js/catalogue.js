@@ -241,6 +241,9 @@ const Catalogue = (() => {
           ordre: b2.ordre || 0,
           tel: b2.tel || "", whatsapp: b2.whatsapp || "", indicatif: b2.indicatif || "",
           devise: b2.devise || "", adresse: b2.adresse || "", horaires: b2.horaires || "",
+          /* Les jours et heures d'ouverture (3.59.0). « null » : pas encore
+             renseignés — la boutique reste ouverte, comme avant. */
+          ouvertures: b2.ouvertures && typeof b2.ouvertures === "object" ? b2.ouvertures : null,
           siteWeb: b2.site_web || "",
           facebook: b2.facebook || "", instagram: b2.instagram || "",
           tiktok: b2.tiktok || "", youtube: b2.youtube || "", snapchat: b2.snapchat || "",
@@ -454,6 +457,54 @@ const Catalogue = (() => {
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
 
+  /* ---------- Ouverte maintenant ? (3.59.0) ----------
+     UNE BOUTIQUE FERMÉE NE MONTRE PAS SES PRODUITS : une commande passée
+     pendant qu'elle dort tombait dans le vide. On lit ses jours et heures
+     d'ouverture À L'HEURE DU BÉNIN (UTC+1, sans heure d'été) — pas à celle
+     du téléphone, qui peut être réglé ailleurs. La base fait le même
+     calcul, et refuse la commande : l'écran ne fait que l'annoncer. */
+  const JOURS = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
+  const NOMS_JOURS = { lun: "lundi", mar: "mardi", mer: "mercredi", jeu: "jeudi",
+    ven: "vendredi", sam: "samedi", dim: "dimanche" };
+  function heureBenin(moment) {
+    const d = new Date((moment ? moment.getTime() : Date.now()) + 3600000);
+    const deux = (n) => String(n).padStart(2, "0");
+    return { jour: (d.getUTCDay() + 6) % 7, hm: deux(d.getUTCHours()) + ":" + deux(d.getUTCMinutes()) };
+  }
+  function ouverteMaintenant(b, moment) {
+    if (!b || b.actif === false) return false;
+    const o = b.ouvertures;
+    if (!o) return true;
+    const t = heureBenin(moment);
+    const plage = o[JOURS[t.jour]];
+    return !!(plage && plage.de && plage.a && t.hm >= plage.de && t.hm < plage.a);
+  }
+  /** « aujourd'hui à 14:00 », « demain à 08:00 », « lundi à 08:00 » — ou "". */
+  function prochaineOuverture(b, moment) {
+    const o = b && b.ouvertures;
+    if (!o) return "";
+    const t = heureBenin(moment);
+    for (let ecart = 0; ecart < 8; ecart++) {
+      const jour = JOURS[(t.jour + ecart) % 7];
+      const plage = o[jour];
+      if (!plage || !plage.de) continue;
+      if (ecart === 0 && plage.de <= t.hm) continue;
+      const quand = ecart === 0 ? "aujourd'hui" : ecart === 1 ? "demain" : NOMS_JOURS[jour];
+      return quand + " à " + plage.de.replace(":", " h ");
+    }
+    return "";
+  }
+  /** Les horaires, lisibles : « lundi : 08 h 00 – 19 h 00 », jour par jour. */
+  function horairesLisibles(b) {
+    const o = b && b.ouvertures;
+    if (!o) return [];
+    return JOURS.map((j) => {
+      const p = o[j];
+      return { jour: NOMS_JOURS[j], texte: p && p.de
+        ? p.de.replace(":", " h ") + " – " + p.a.replace(":", " h ") : "Fermé" };
+    });
+  }
+
   /** Vrai dès que la base connaît des boutiques : sinon, on garde l'ancien mode. */
   const multiBoutiques = () => boutiques().length > 0;
 
@@ -501,6 +552,8 @@ const Catalogue = (() => {
       devise: b.devise || "FCFA",
       adresse: b.adresse || "",
       horaires: b.horaires || "",
+      ouvertures: b.ouvertures || null,
+      actif: b.actif !== false,
       siteWeb: b.siteWeb || "",
       facebook: b.facebook || "",
       instagram: b.instagram || "",
@@ -592,7 +645,7 @@ const Catalogue = (() => {
        réunit maintenant toutes les boutiques, et une fermée n'a rien à
        y faire. */
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return ((donnees && donnees.produits) || [])
       .filter(dansLaBoutique)
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
@@ -669,7 +722,7 @@ const Catalogue = (() => {
    */
   function produitsDeLEnseigne(idBoutique, tri) {
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return tousProduits()
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
       .filter((p) => !idBoutique || p.boutiqueId === idBoutique)
@@ -789,7 +842,7 @@ const Catalogue = (() => {
    */
   function publicites() {
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return ((donnees && donnees.slides) || [])
       .filter((s) => s.actif !== false && s.portee === "publicite")
       .filter((s) => {
@@ -978,7 +1031,7 @@ const Catalogue = (() => {
     if (!t) return [];
     const mots = t.split(/\s+/).filter(Boolean);
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return tousProduits()
       /* Une boutique fermée ne vend plus : ses produits n'ont pas à
          remonter dans les résultats. */
@@ -1037,7 +1090,7 @@ const Catalogue = (() => {
     enVenteFlash, ventesFlash,
     nouveautes, promotions, meilleureRemise, produitsPopulaires,
     rechercher, similaires,
-    boutiqueDuProduit, deviseDe,
+    boutiqueDuProduit, deviseDe, ouverteMaintenant, prochaineOuverture, horairesLisibles,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };

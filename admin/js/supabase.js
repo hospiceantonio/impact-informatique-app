@@ -336,9 +336,13 @@ const Supabase = (() => {
   /** Retoucher un produit déjà au catalogue : les administrateurs toujours,
       le modérateur si on le lui a accordé. Pour un compte d'enseigne,
       c'est SON interrupteur qui décide, quel que soit son rang. */
+  /* L'HABILITATION VAUT POUR TOUS (3.59.0) : créer, modifier ou
+     supprimer un produit. Un administrateur de boutique ne l'a plus
+     d'office ; seul le superadministrateur passe outre. Le miroir de
+     « peut_modifier_produits() » en base. */
   const peutModifierProduits = () => estSuper() ||
     (estCompteEnseigne() ? droitEnseigne("produits")
-                         : estAdmin() || !!(profil && profil.peutModifier));
+                         : !!(profil && profil.actif && profil.peutModifier));
   /** Les commandes, et les chiffres : mêmes règles qu'en base. */
   const peutVoirCommandes = () => estSuper() ||
     (estCompteEnseigne() ? droitEnseigne("commandes") : !!profil);

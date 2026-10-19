@@ -398,8 +398,19 @@ const VueReglages = (() => {
             "</div>") +
         UI.champTexte({ id: "r-adresse", label: "Adresse", valeur: r.adresse,
           placeholder: "Quartier, rue, ville" }) +
-        UI.champTexte({ id: "r-horaires", label: "Horaires", valeur: r.horaires,
-          placeholder: "Lun–Sam : 8h–19h" }) +
+        /* LES JOURS ET HEURES D'OUVERTURE (3.59.0) : ceux que l'application
+           suit pour montrer, ou cacher, les produits. Une boutique qui ne
+           les a pas encore posés reste ouverte en permanence. */
+        (surEnseigne ? ""
+          : (r.ouvertures ? ""
+              : '<div class="note-attente" id="r-sans-horaires">' + UI.icone("horloge", "ic-sm") +
+                  " Vos jours et heures d'ouverture ne sont pas encore posés : votre boutique " +
+                  "paraît ouverte en permanence. Enregistrez-les ci-dessous.</div>") +
+            UI.champsHoraires("r", r.ouvertures,
+              "En dehors de ces heures, vos produits ne sont pas visibles des clients, et ils " +
+              "ne peuvent pas vous commander.")) +
+        UI.champTexte({ id: "r-horaires", label: "Précisions sur les horaires (facultatif)", valeur: r.horaires,
+          placeholder: "Ex. : fermé les jours fériés" }) +
         /* Le site web se saisit comme on le dit : « bizzoo.bj ». C'est
            l'application qui en fait une adresse ouvrable, comme pour
            Facebook ou Instagram — et l'aperçu montre laquelle, avant
@@ -998,6 +1009,7 @@ const VueReglages = (() => {
           ...(surEnseigne ? {} : { devise: UI.$("#r-devise").value.trim() || "FCFA" }),
           adresse: UI.$("#r-adresse").value.trim(),
           horaires: UI.$("#r-horaires").value.trim(),
+          ...(surEnseigne ? {} : { ouvertures: UI.lireHoraires(vue, "r") }),
           siteWeb: UI.$("#r-site").value.trim(),
           /* Le logo ne part que s'il a bougé : sinon chaque
              enregistrement demanderait une validation pour rien. */

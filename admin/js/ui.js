@@ -653,6 +653,63 @@ const UI = (() => {
     );
   }
 
+  /* ---------- Les jours et heures d'ouverture (3.59.0) ----------
+     Sept lignes : le jour (ouvert ou non), l'heure d'ouverture, l'heure
+     de fermeture. Fermée, une boutique ne montre pas ses produits aux
+     clients, et la base refuse leurs commandes. */
+  const JOURS_HORAIRES = [["lun", "Lundi"], ["mar", "Mardi"], ["mer", "Mercredi"],
+    ["jeu", "Jeudi"], ["ven", "Vendredi"], ["sam", "Samedi"], ["dim", "Dimanche"]];
+  const HORAIRES_DEFAUT = { lun: { de: "08:00", a: "19:00" }, mar: { de: "08:00", a: "19:00" },
+    mer: { de: "08:00", a: "19:00" }, jeu: { de: "08:00", a: "19:00" },
+    ven: { de: "08:00", a: "19:00" }, sam: { de: "08:00", a: "19:00" }, dim: null };
+
+  function champsHoraires(prefixe, ouvertures, aide) {
+    const o = ouvertures || HORAIRES_DEFAUT;
+    return (
+      '<div class="champ champ-horaires" id="' + prefixe + '-ouvertures">' +
+        '<label>Jours et heures d\'ouverture <span class="obligatoire">*</span></label>' +
+        (aide ? '<div class="aide" style="margin:0 0 8px">' + aide + "</div>" : "") +
+        JOURS_HORAIRES.map(([cle, nom]) => {
+          const p = o[cle];
+          return (
+            '<div class="horaire-ligne" data-jour="' + cle + '">' +
+              '<label class="horaire-jour"><input type="checkbox" data-ouvert' + (p ? " checked" : "") + "> " +
+                nom + "</label>" +
+              '<input type="time" data-de value="' + escapeAttr((p && p.de) || "08:00") + '" aria-label="' + nom + ', ouverture">' +
+              '<span class="horaire-tiret">–</span>' +
+              '<input type="time" data-a value="' + escapeAttr((p && p.a) || "19:00") + '" aria-label="' + nom + ', fermeture">' +
+            "</div>"
+          );
+        }).join("") +
+      "</div>"
+    );
+  }
+  function escapeAttr(t) { return String(t).replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+  /** Lit l'éditeur ; refuse en le disant ce que la base refuserait. */
+  function lireHoraires(racine, prefixe) {
+    const zone = $("#" + prefixe + "-ouvertures", racine);
+    if (!zone) return undefined;
+    const sortie = {};
+    let ouverts = 0;
+    for (const [cle, nom] of JOURS_HORAIRES) {
+      const ligne = zone.querySelector('[data-jour="' + cle + '"]');
+      if (!ligne.querySelector("[data-ouvert]").checked) { sortie[cle] = null; continue; }
+      const de = ligne.querySelector("[data-de]").value;
+      const a = ligne.querySelector("[data-a]").value;
+      if (!/^\d\d:\d\d/.test(de) || !/^\d\d:\d\d/.test(a)) {
+        throw new Error(nom + " : indiquez l'heure d'ouverture et de fermeture.");
+      }
+      if (de.slice(0, 5) >= a.slice(0, 5)) {
+        throw new Error(nom + " : la fermeture doit venir après l'ouverture.");
+      }
+      sortie[cle] = { de: de.slice(0, 5), a: a.slice(0, 5) };
+      ouverts++;
+    }
+    if (!ouverts) throw new Error("Indiquez au moins un jour d'ouverture.");
+    return sortie;
+  }
+
   function interrupteur({ id, label, actif, aide }) {
     return (
       '<label class="inter" for="' + id + '">' +
@@ -715,6 +772,7 @@ const UI = (() => {
     lienPartage, liensPartage,
     $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
+    champsHoraires, lireHoraires,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,
     champTexte, champMontant, champZone, interrupteur,

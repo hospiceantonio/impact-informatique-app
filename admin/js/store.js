@@ -434,6 +434,8 @@ const Store = (() => {
       logo: l.logo || "",
       logoUrl: l.logo ? Supabase.urlImage(l.logo) : "",
       actif: l.actif !== false,
+      /* Les jours et heures d'ouverture (3.59.0) ; null : pas encore posés. */
+      ouvertures: l.ouvertures && typeof l.ouvertures === "object" ? l.ouvertures : null,
       ordre: l.ordre || 0,
       nomBoutique: l.nom || BOUTIQUE_DEFAUT.nomBoutique,
       slogan: l.slogan || BOUTIQUE_DEFAUT.slogan,
@@ -538,6 +540,7 @@ const Store = (() => {
       logo: b.logo || "",
       actif: b.actif !== false,
       ordre: b.ordre || 0,
+      ...(b.ouvertures !== undefined ? { ouvertures: b.ouvertures || null } : {}),
       tel: b.tel || "",
       whatsapp: b.whatsapp || "",
       indicatif: b.indicatif || "229",

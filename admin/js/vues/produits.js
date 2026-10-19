@@ -25,7 +25,8 @@ const VueProduits = (() => {
     if (!produits.length) {
       vue.innerHTML = UI.vide("boite", "Aucun produit pour l'instant",
         "Ajoutez votre premier produit : photo, prix, catégorie, et il sera prêt à publier.",
-        '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>");
+        Supabase.peutModifierProduits()
+          ? '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>" : "");
       return;
     }
 
@@ -315,7 +316,8 @@ const VueProduits = (() => {
     if (!produits.length) {
       vue.innerHTML = UI.vide("boite", "Aucun produit pour l'instant",
         "Ajoutez un produit : son stock se suivra ici.",
-        '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>");
+        Supabase.peutModifierProduits()
+          ? '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>" : "");
       return;
     }
 
@@ -621,14 +623,15 @@ const VueProduits = (() => {
 
 
   async function formulaire(vue, id) {
-    /* Retoucher un produit existant demande le droit de modification ;
-       en créer un neuf reste ouvert à toute l'équipe. */
-    if (id && !Supabase.peutModifierProduits()) {
-      UI.entete({ titre: "Modifier le produit", retour: true });
-      vue.innerHTML = UI.vide("cle", "Modification non autorisée",
-        "Votre compte peut ajouter des produits, mais pas retoucher ceux du catalogue. " +
-        "Demandez ce droit à l'administrateur.",
-        '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(id) + '">Revenir à la fiche</a>');
+    /* CRÉER COMME RETOUCHER demande l'habilitation (3.59.0) : sans elle,
+       la base refuse l'un et l'autre — autant le dire avant le formulaire. */
+    if (!Supabase.peutModifierProduits()) {
+      UI.entete({ titre: id ? "Modifier le produit" : "Nouveau produit", retour: true });
+      vue.innerHTML = UI.vide("cle", "Produits non autorisés",
+        "Votre compte n'a pas l'habilitation pour créer ou modifier des produits. " +
+        "Demandez-la au superadministrateur.",
+        id ? '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(id) + '">Revenir à la fiche</a>'
+           : '<a class="btn btn-clair" href="#/produits">Revenir aux produits</a>');
       return;
     }
 

@@ -4437,6 +4437,60 @@ Bancs : [`supabase/tests/99zzzzz-admin-bizzoo.sql`](supabase/tests/99zzzzz-admin
 (25 constats) et [`tools/banc-admin-bizzoo.mjs`](tools/banc-admin-bizzoo.mjs)
 (27 constats) ; contrôle 133 de l'état des lieux.
 
+## Créer un produit demande l'habilitation (3.59.0)
+
+**Avant**, retirer à un compte le droit « produits » l'empêchait de
+*retoucher* un produit, pas d'en *créer* ; un administrateur de boutique
+l'avait d'office ; un administrateur de BIZZOO réduit aux commandes
+intégrait quand même des produits dans les boutiques.
+
+**Désormais une seule habilitation — créer, modifier, supprimer un
+produit —, et elle vaut pour tous** : modérateur, administrateur de
+boutique, compte de BIZZOO (interrupteur *Le catalogue*). **Seul le
+superadministrateur passe outre.** Dans la fiche d'un compte, l'interrupteur
+s'appelle *Peut créer et modifier les produits* et paraît aussi pour un
+administrateur de boutique. Sans l'habilitation, l'application vendeur
+masque le « + » de la barre et *Ajouter un produit*, et le formulaire dit
+qu'il faut la demander au superadministrateur. La base refuse de toute
+façon (`produits ajout`, `prix achat ajout`, `peut_modifier_produits`).
+
+En ligne, tous les administrateurs de boutique ont déjà l'habilitation :
+personne ne perd un droit par surprise. Un modérateur de BIZZOO ne l'a
+pas — il ne pourra plus créer de produit.
+
+À coller : [`supabase/produits-habilitation.sql`](supabase/produits-habilitation.sql).
+
+## Les jours et heures d'ouverture des boutiques (3.59.0)
+
+**Chaque boutique a ses jours et heures d'ouverture** — sept lignes :
+ouvert ou fermé, heure d'ouverture, heure de fermeture. On les pose **à la
+création** de la boutique (obligatoires), puis dans sa fiche ou dans
+*Réglages*. Le texte libre « Horaires » devient *Précisions* (fêtes,
+exceptions).
+
+**Fermée en ce moment** — hors de ses heures, à l'heure du **Bénin** :
+
+- ses produits **disparaissent** des listes, de la recherche et de
+  l'accueil de l'application client ;
+- sa page dit *« Fermée en ce moment. Elle ouvre demain à 08 h 00 »*, sans
+  vitrine ; la fiche d'un produit (lien partagé) n'a pas de panier ;
+- un panier qui en contient ne laisse pas commander, et dit quand elle
+  rouvre ;
+- **la base refuse la commande** (`creer_commande`) — même depuis une
+  application pas à jour ;
+- *À propos* montre les horaires, jour par jour.
+
+**Les boutiques déjà en service n'ont pas encore d'horaires** : elles
+restent ouvertes en permanence, comme avant, et leurs *Réglages* les
+invitent à les poser.
+
+À coller : [`supabase/horaires-boutiques.sql`](supabase/horaires-boutiques.sql).
+
+Bancs : [`supabase/tests/99zzzzzz-produits-habilitation.sql`](supabase/tests/99zzzzzz-produits-habilitation.sql),
+[`supabase/tests/99zzzzzzz-horaires.sql`](supabase/tests/99zzzzzzz-horaires.sql),
+[`tools/banc-horaires-droits.mjs`](tools/banc-horaires-droits.mjs) ;
+contrôles 134 et 135 de l'état des lieux.
+
 ## Structure
 
 ```
@@ -4480,6 +4534,8 @@ impact-informatique-app/
 │   ├── connexion-telephone.sql      # Numéro + mot de passe + code : livreurs créés par leur numéro (3.59.0)
 │   ├── livreurs-sans-compte-client.sql # Un livreur n'est ni acheteur ni revendeur (3.59.0)
 │   ├── admin-bizzoo-livreurs-revendeurs.sql # L'admin de BIZZOO : livreurs, revendeurs, validation (3.59.0)
+│   ├── produits-habilitation.sql    # Créer un produit demande l'habilitation (3.59.0)
+│   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

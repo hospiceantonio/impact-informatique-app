@@ -60,6 +60,47 @@ end $$;
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- La colonne que « creer_commande » lit plus bas (3.59.0).
+alter table public.boutiques add column if not exists ouvertures jsonb;
+
+create or replace function public.ouvertures_valides(o jsonb) returns boolean
+language sql immutable set search_path = public as $$
+  select jsonb_typeof(o) = 'object'
+     and not exists (select 1 from jsonb_object_keys(o) k
+                      where k not in ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'))
+     and not exists (
+       select 1 from jsonb_each(o) j
+        where jsonb_typeof(j.value) not in ('null', 'object')
+           or (jsonb_typeof(j.value) = 'object' and not (
+                length(coalesce(j.value ->> 'de', '')) = 5
+            and (j.value ->> 'de') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]'
+            and length(coalesce(j.value ->> 'a', '')) = 5
+            and ((j.value ->> 'a') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]' or (j.value ->> 'a') = '24:00')
+            and (j.value ->> 'de') < (j.value ->> 'a'))))
+     and exists (select 1 from jsonb_each(o) j where jsonb_typeof(j.value) = 'object');
+$$;
+
+
+create or replace function public.boutique_ouverte(o jsonb, moment timestamptz default now())
+returns boolean
+language sql stable set search_path = public as $$
+  with ici as (select (moment at time zone 'Africa/Porto-Novo') as t)
+  select case
+    when o is null then true
+    else coalesce((
+      select jsonb_typeof(o -> j.jour) = 'object'
+         and to_char(ici.t, 'HH24:MI') >= (o -> j.jour ->> 'de')
+         and to_char(ici.t, 'HH24:MI') <  (o -> j.jour ->> 'a')
+        from ici, lateral (select (array['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'])
+                                    [extract(isodow from ici.t)::int] as jour) j), false)
+  end;
+$$;
+grant execute on function public.ouvertures_valides(jsonb) to anon, authenticated;
+grant execute on function public.boutique_ouverte(jsonb, timestamptz) to anon, authenticated;
+
+
 create or replace function public.prix_revendeur(
   prix_public int,
   prix_bizzoo int,
@@ -699,6 +740,15 @@ begin
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
+    -- UNE BOUTIQUE FERMÉE NE REÇOIT PAS DE COMMANDE (3.59.0) : fermée par
+    -- son interrupteur, ou en dehors de ses heures d'ouverture.
+    if exists (select 1 from public.boutiques b
+                where b.id = p.boutique_id
+                  and (not b.actif or not public.boutique_ouverte(b.ouvertures))) then
+      raise exception 'La boutique « % » est fermée en ce moment : « % » se commandera à sa réouverture.',
+        (select b.nom from public.boutiques b where b.id = p.boutique_id), p.nom
+        using errcode = 'P0001';
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');

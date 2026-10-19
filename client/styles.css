@@ -2201,3 +2201,11 @@ a.pub-carte:active{transform:scale(.98)}
 .re-frais{margin-top:4px;font-size:13px;color:var(--encre-douce)}
 /* Une demande revendeur qui attend sa position */
 .cp-ou-requis{border:1.5px solid var(--orange, #FF8A00)}
+
+/* ---------- Boutique fermée en ce moment (3.59.0) ---------- */
+.bou-fermee { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+  font-weight: 600; color: var(--rouge, #c62828); margin-left: 8px; }
+.bou-fermee .ic { width: 14px; height: 14px; }
+.bou-fermee-bandeau { margin: 12px 0; }
+.pa-ferme { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-weight: 600; color: var(--rouge, #c62828); padding: 10px 4px; text-align: center; }

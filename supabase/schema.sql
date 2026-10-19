@@ -113,6 +113,76 @@ create table if not exists public.boutiques (
 );
 alter table public.boutiques add column if not exists video text not null default '';
 alter table public.boutiques add column if not exists site_web text not null default '';
+
+-- ---------- Les jours et heures d'ouverture (3.59.0) ----------
+-- Une boutique fermée ne montre pas ses produits, et ne reçoit pas de
+-- commande : une commande passée la nuit tombait dans le vide.
+--
+--   {"lun": {"de": "08:00", "a": "19:00"}, …, "dim": null}
+--
+-- Un jour absent ou « null » : fermé ce jour-là. La colonne entière à
+-- null : horaires pas encore renseignés — la boutique reste ouverte, comme
+-- avant, et son administrateur est invité à les poser. Une boutique
+-- CRÉÉE depuis l'application doit les avoir (voir plus bas).
+alter table public.boutiques add column if not exists ouvertures jsonb;
+
+-- Le format, vérifié : sept jours au plus, « HH:MM », l'ouverture avant
+-- la fermeture, et au moins un jour ouvert.
+create or replace function public.ouvertures_valides(o jsonb) returns boolean
+language sql immutable set search_path = public as $$
+  select jsonb_typeof(o) = 'object'
+     and not exists (select 1 from jsonb_object_keys(o) k
+                      where k not in ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'))
+     and not exists (
+       select 1 from jsonb_each(o) j
+        where jsonb_typeof(j.value) not in ('null', 'object')
+           or (jsonb_typeof(j.value) = 'object' and not (
+                length(coalesce(j.value ->> 'de', '')) = 5
+            and (j.value ->> 'de') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]'
+            and length(coalesce(j.value ->> 'a', '')) = 5
+            and ((j.value ->> 'a') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]' or (j.value ->> 'a') = '24:00')
+            and (j.value ->> 'de') < (j.value ->> 'a'))))
+     and exists (select 1 from jsonb_each(o) j where jsonb_typeof(j.value) = 'object');
+$$;
+alter table public.boutiques drop constraint if exists boutiques_ouvertures;
+alter table public.boutiques add constraint boutiques_ouvertures
+  check (ouvertures is null or public.ouvertures_valides(ouvertures));
+
+-- Ouverte à cet instant, À L'HEURE DU BÉNIN — pas à celle du serveur,
+-- qui tourne en UTC. Sans horaires : ouverte (voir plus haut).
+create or replace function public.boutique_ouverte(o jsonb, moment timestamptz default now())
+returns boolean
+language sql stable set search_path = public as $$
+  with ici as (select (moment at time zone 'Africa/Porto-Novo') as t)
+  select case
+    when o is null then true
+    else coalesce((
+      select jsonb_typeof(o -> j.jour) = 'object'
+         and to_char(ici.t, 'HH24:MI') >= (o -> j.jour ->> 'de')
+         and to_char(ici.t, 'HH24:MI') <  (o -> j.jour ->> 'a')
+        from ici, lateral (select (array['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'])
+                                    [extract(isodow from ici.t)::int] as jour) j), false)
+  end;
+$$;
+grant execute on function public.ouvertures_valides(jsonb) to anon, authenticated;
+grant execute on function public.boutique_ouverte(jsonb, timestamptz) to anon, authenticated;
+
+-- UNE BOUTIQUE NAÎT AVEC SES HORAIRES quand on la crée depuis
+-- l'application. Le schéma lui-même, et le tableau de bord de Supabase,
+-- passent : ils ne tournent pas en « authenticated ».
+create or replace function public.boutique_horaires_a_la_creation() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('anon', 'authenticated') and new.ouvertures is null then
+    raise exception 'Indiquez les jours et heures d''ouverture de la boutique.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists boutiques_horaires on public.boutiques;
+create trigger boutiques_horaires
+  before insert on public.boutiques
+  for each row execute function public.boutique_horaires_a_la_creation();
 -- « create table if not exists » ne touche pas une table qui existe déjà :
 -- une colonne ajoutée plus tard doit être répétée ici, sinon elle n'arrive
 -- jamais dans une base en service. La marge de BIZZOO en fait partie —
@@ -825,8 +895,11 @@ language sql stable security definer set search_path = public as $$
   select case
     when public.est_super() then true
     when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    -- L'HABILITATION VAUT POUR TOUS (3.59.0), administrateur de boutique
+    -- compris : retirée, on ne crée, ne modifie ni ne supprime plus de
+    -- produit. Seul le superadministrateur passe outre.
     else public.est_equipe()
-     and coalesce((select role = 'administrateur' or peut_modifier_produits
+     and coalesce((select peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false)
   end;
 $$;
@@ -2365,8 +2438,12 @@ drop policy if exists "produits ajout" on public.produits;
 drop policy if exists "produits modification" on public.produits;
 drop policy if exists "produits suppression" on public.produits;
 create policy "lecture publique" on public.produits for select using (true);
+-- CRÉER UN PRODUIT DEMANDE L'HABILITATION (3.59.0), comme le modifier.
+-- Avant, il suffisait d'être de la boutique — ou d'un compte de BIZZOO,
+-- même réduit aux commandes.
 create policy "produits ajout" on public.produits
-  for insert to authenticated with check (public.peut_agir_sur(boutique_id));
+  for insert to authenticated
+  with check (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id));
 create policy "produits modification" on public.produits
   for update to authenticated
   using (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id))
@@ -2393,7 +2470,7 @@ create policy "prix achat lecture" on public.produits_prive
     (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat ajout" on public.produits_prive
   for insert to authenticated
-  with check (public.peut_agir_sur(
+  with check (public.peut_modifier_produits() and public.peut_agir_sur(
     (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat modification" on public.produits_prive
   for update to authenticated
@@ -4041,6 +4118,15 @@ begin
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
+    -- UNE BOUTIQUE FERMÉE NE REÇOIT PAS DE COMMANDE (3.59.0) : fermée par
+    -- son interrupteur, ou en dehors de ses heures d'ouverture.
+    if exists (select 1 from public.boutiques b
+                where b.id = p.boutique_id
+                  and (not b.actif or not public.boutique_ouverte(b.ouvertures))) then
+      raise exception 'La boutique « % » est fermée en ce moment : « % » se commandera à sa réouverture.',
+        (select b.nom from public.boutiques b where b.id = p.boutique_id), p.nom
+        using errcode = 'P0001';
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');

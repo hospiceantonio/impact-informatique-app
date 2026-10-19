@@ -150,6 +150,21 @@ const VuePanier = (() => {
     /* Une carte par boutique : chacune prépare et livre ce qui est à
        elle, et c'est ainsi que la commande lui parviendra. */
     let html = "";
+    /* UNE BOUTIQUE FERMÉE EN CE MOMENT (3.59.0) : ses articles restent au
+       panier, mais la commande attend sa réouverture — la base la
+       refuserait, et personne ne la prendrait. */
+    const fermees = groupes.filter((g) => g.boutique && !Catalogue.ouverteMaintenant(g.boutique));
+    if (fermees.length) {
+      html +=
+        '<div class="carte pa-avertissement" id="pa-fermees">' + UI.icone("horloge", "ic-sm") +
+          "<div>" + fermees.map((g) => {
+            const quand = Catalogue.prochaineOuverture(g.boutique);
+            return "<strong>" + Utils.echapper(g.boutique.nom) + "</strong> est fermée en ce moment" +
+              (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".";
+          }).join(" ") +
+          " Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</div>" +
+        "</div>";
+    }
     if (ruptures.length || ramenees.length) {
       html +=
         '<div class="carte pa-avertissement" id="pa-stock">' + UI.icone("alerte", "ic-sm") +
@@ -231,7 +246,7 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() || ruptures.length ? " disabled" : "") +
+        (Panier.monnaiesMelangees() || ruptures.length || fermees.length ? " disabled" : "") +
         ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {

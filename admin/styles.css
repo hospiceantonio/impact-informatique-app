@@ -1735,3 +1735,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .livreur-position-ok{color:var(--vert, #1E8E3E)}
 .livreur-position-manque{color:#8A5B00}
 .rv-position-manque{margin:8px 0 0;font-size:12.5px;line-height:1.45;color:#8A5B00}
+
+/* ---------- Jours et heures d'ouverture (3.59.0) ---------- */
+.champ-horaires .horaire-ligne { display: grid; grid-template-columns: minmax(96px, 1fr) auto 12px auto;
+  align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--trait, #e6e8ef); }
+.champ-horaires .horaire-ligne:last-child { border-bottom: 0; }
+.champ-horaires .horaire-jour { display: flex; align-items: center; gap: 6px; font-weight: 600; margin: 0; }
+.champ-horaires input[type="time"] { width: 96px; padding: 6px; }
+.champ-horaires .horaire-ligne:has([data-ouvert]:not(:checked)) input[type="time"] { opacity: .35; }
+.champ-horaires .horaire-tiret { text-align: center; color: var(--encre-douce, #667); }

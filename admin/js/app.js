@@ -269,6 +269,10 @@
        le repoussent : il n'a qu'un écran, et son compte est dans
        l'en-tête. */
     document.getElementById("tabbar").style.display = estLivreur() ? "none" : "";
+    /* Le « + » de la barre crée un produit : sans l'habilitation, il ne
+       mènerait qu'à un refus (3.59.0). */
+    const plus = document.querySelector("#tabbar .tab-cta");
+    if (plus) plus.style.visibility = Supabase.peutModifierProduits() ? "" : "hidden";
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));

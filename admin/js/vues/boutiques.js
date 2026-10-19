@@ -300,6 +300,11 @@ const VueBoutiques = (() => {
 
     const corps = UI.ouvrirFeuille(boutique ? boutique.nomBoutique : "Nouvelle boutique",
       champsIdentite(boutique) +
+      /* LES HORAIRES, DÈS LA CRÉATION (3.59.0) : une boutique naît avec
+         eux. Fermée, ses produits disparaissent de l'application. */
+      UI.champsHoraires("bq", boutique ? boutique.ouvertures : null,
+        "En dehors de ces heures, ses produits ne sont pas visibles des clients, " +
+        "et on ne peut pas lui commander.") +
       (boutique
         ? UI.interrupteur({ id: "bq-actif", label: "Boutique ouverte", actif: boutique.actif,
             aide: "Fermée, elle disparaît de l'application des clients. Son catalogue reste intact." })
@@ -336,6 +341,7 @@ const VueBoutiques = (() => {
       try {
         const secteurVoulu = UI.$("#bq-categorie", corps).value;
         if (!secteurVoulu) throw new Error("Choisissez le secteur d'activité de la boutique.");
+        const ouvertures = UI.lireHoraires(corps, "bq");
 
         /* CHANGER DE SECTEUR DÉCLASSE LE CATALOGUE : les produits sont
            rangés dans des rayons de l'ancien, que le nouveau n'a pas.
@@ -360,6 +366,7 @@ const VueBoutiques = (() => {
           tauxRevendeur: UI.$("#bq-marge-revendeur", corps).value,
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
+          ouvertures,
         });
         UI.feuilleSansRappel();
         UI.fermerFeuille();
