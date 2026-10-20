@@ -54,7 +54,8 @@ const VueAccueil = (() => {
   /** Un produit mis en avant : sa photo, son nom, son prix. */
   function slideProduit(p, index) {
     const src = Catalogue.imagePrincipale(p);
-    const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    const vu = Catalogue.prixVu(p);
+    const remise = Utils.remisePourcent(vu.ancienPrix, vu.prix);
     const devise = Catalogue.boutique().devise;
     return (
       '<a class="slide" href="#/produit/' + Utils.echapper(p.id) + '" aria-label="' + Utils.echapper(p.nom) + '">' +
@@ -65,8 +66,8 @@ const VueAccueil = (() => {
         (remise !== null ? '<span class="badge badge-promo slide-badge">-' + remise + " %</span>" : "") +
         '<span class="slide-infos">' +
           '<span class="slide-nom">' + Utils.echapper(p.nom) + "</span>" +
-          '<span class="slide-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
-            (remise !== null ? ' <s>' + Utils.echapper(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>" : "") +
+          '<span class="slide-prix">' + Utils.echapper(Utils.fmtMontant(vu.prix, devise)) +
+            (remise !== null ? ' <s>' + Utils.echapper(Utils.fmtMontant(vu.ancienPrix, devise)) + "</s>" : "") +
           "</span>" +
           '<span class="slide-cta">Voir le produit ' + UI.icone("chevron", "ic-sm") + "</span>" +
         "</span>" +
@@ -133,7 +134,7 @@ const VueAccueil = (() => {
               (etiquette ? '<span class="pub-titre">' + Utils.echapper(etiquette) + "</span>" : "") +
               (produit
                 ? '<span class="pub-prix">' +
-                    Utils.echapper(Utils.fmtMontant(produit.prix, Catalogue.deviseDe(produit))) +
+                    Utils.echapper(Utils.fmtMontant(Catalogue.prixVu(produit).prix, Catalogue.deviseDe(produit))) +
                   "</span>" +
                   (boutique
                     ? '<span class="pub-boutique">' + UI.icone("magasin", "ic-sm") +

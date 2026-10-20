@@ -677,16 +677,18 @@ const UI = (() => {
     /* La devise du produit, pas celle de l'écran : un résultat de
        recherche peut venir d'une boutique qui compte autrement. */
     const devise = Catalogue.deviseDe(p);
-    const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    /* Prix revendeur, ou prix publics si le revendeur l'a choisi (3.59.0). */
+    const vu = Catalogue.prixVu(p);
+    const remise = Utils.remisePourcent(vu.ancienPrix, vu.prix);
     /* Un revendeur voit ce qu'il gagne : son prix, et celui de la
        vitrine barré à côté. Ce n'est pas une promotion — c'est son
        tarif, et il ne s'arrêtera pas dimanche soir. */
-    const vitrine = p.prixRevendeur && p.prixPublic > p.prix ? p.prixPublic : null;
+    const vitrine = vu.revendeur && p.prixPublic > p.prix ? p.prixPublic : null;
     return (
       '<span class="prix' + (o.grand ? " prix-grand" : "") + '">' +
-        '<span class="prix-actuel">' + e(Utils.fmtMontant(p.prix, devise)) + "</span>" +
+        '<span class="prix-actuel">' + e(Utils.fmtMontant(vu.prix, devise)) + "</span>" +
         (remise !== null
-          ? ' <s class="prix-ancien">' + e(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>"
+          ? ' <s class="prix-ancien">' + e(Utils.fmtMontant(vu.ancienPrix, devise)) + "</s>"
           : "") +
         (vitrine !== null
           ? ' <s class="prix-ancien">' + e(Utils.fmtMontant(vitrine, devise)) + "</s>"
@@ -752,9 +754,10 @@ const UI = (() => {
   }
 
   function badgesProduit(p) {
-    const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    const vu = Catalogue.prixVu(p);
+    const remise = Utils.remisePourcent(vu.ancienPrix, vu.prix);
     let html = "";
-    if (p.prixRevendeur) {
+    if (vu.revendeur) {
       html += '<span class="badge badge-revendeur">' + icone("magasin", "ic-sm") +
         "Prix revendeur</span>";
     }

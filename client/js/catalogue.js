@@ -102,6 +102,9 @@ const Catalogue = (() => {
            On garde le prix public à part, pour pouvoir le montrer. */
         return Object.assign({}, p, {
           prix, ancienPrix: null, prixPublic: p.prix, prixRevendeur: true,
+          /* La promotion du public, gardée pour l'affichage « prix
+             publics » (3.59.0). */
+          ancienPrixPublic: p.ancienPrix,
         });
       }),
     });
@@ -133,6 +136,31 @@ const Catalogue = (() => {
 
   /** Ce compte voit-il des prix qui lui sont propres ? */
   const auxPrixRevendeur = () => !!(prixCompte && prixCompte.size);
+
+  /* ---------- Prix revendeur ou prix publics, à l'écran (3.59.0) ----------
+     Un revendeur peut afficher les PRIX PUBLICS — pour les montrer à son
+     propre client, téléphone en main. Ce n'est qu'un AFFICHAGE, gardé sur
+     ce téléphone : le catalogue et la fiche montrent le prix public, mais
+     la base facture toujours son prix revendeur, et le panier dit ce
+     qu'il paiera vraiment. */
+  const CLE_AFFICHAGE = "bizzoo-prix-affiches";
+  function affichePrixPublics() {
+    try { return localStorage.getItem(CLE_AFFICHAGE) === "public"; } catch (_) { return false; }
+  }
+  function afficherPrixPublics(oui) {
+    try {
+      if (oui) localStorage.setItem(CLE_AFFICHAGE, "public");
+      else localStorage.removeItem(CLE_AFFICHAGE);
+    } catch (_) { /* navigation privée : le choix ne survivra pas */ }
+    if (donnees) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+  }
+  /** Le prix à MONTRER : celui du revendeur, ou le public s'il l'a choisi. */
+  function prixVu(p) {
+    if (p && p.prixRevendeur && affichePrixPublics()) {
+      return { prix: p.prixPublic, ancienPrix: p.ancienPrixPublic || null, revendeur: false };
+    }
+    return { prix: p.prix, ancienPrix: p.ancienPrix, revendeur: !!(p && p.prixRevendeur) };
+  }
 
   /* ---------- Lecture de la base Supabase ---------- */
 
@@ -1083,7 +1111,7 @@ const Catalogue = (() => {
 
   return {
     charger, rafraichir, pret, depuisCache, modeDemo,
-    definirPrixCompte, auxPrixRevendeur,
+    definirPrixCompte, auxPrixRevendeur, affichePrixPublics, afficherPrixPublics, prixVu,
     estConfigure, majConfiguration, configuration,
     boutique, enseigne, versionPubliee,
     boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,

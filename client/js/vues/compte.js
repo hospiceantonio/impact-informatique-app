@@ -1645,8 +1645,24 @@ const VueCompte = (() => {
         '<div class="carte cp-revendeur-ok">' +
           '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") +
             " Compte revendeur</div>" +
-          '<p class="aide" style="margin:0 0 10px">Vous achetez au prix BIZZOO. ' +
-            "Les prix affichés dans l'application sont déjà les vôtres.</p>" +
+          '<p class="aide" style="margin:0 0 10px">Vous achetez au prix BIZZOO.</p>' +
+          /* PRIX REVENDEUR OU PRIX PUBLICS, À L'ÉCRAN (3.59.0) : pour montrer
+             les prix publics à son propre client. La commande reste
+             toujours facturée à son prix revendeur. */
+          '<div class="champ" style="margin:0 0 10px"><label>Prix affichés dans l\'application</label>' +
+            '<div class="btn-rangee cp-rv-affichage">' +
+              '<button type="button" class="btn ' +
+                (Catalogue.affichePrixPublics() ? "btn-clair" : "") + '" id="cp-rv-prix-revendeur" ' +
+                'aria-pressed="' + !Catalogue.affichePrixPublics() + '">Prix revendeur</button>' +
+              '<button type="button" class="btn ' +
+                (Catalogue.affichePrixPublics() ? "" : "btn-clair") + '" id="cp-rv-prix-publics" ' +
+                'aria-pressed="' + Catalogue.affichePrixPublics() + '">Prix publics</button>' +
+            "</div>" +
+            '<p class="aide" style="margin:6px 0 0">' +
+              (Catalogue.affichePrixPublics()
+                ? "Le catalogue montre les <strong>prix publics</strong>. Vos commandes restent à vos prix revendeur."
+                : "Le catalogue montre <strong>vos prix revendeur</strong>.") + "</p>" +
+          "</div>" +
           '<button type="button" class="btn btn-clair" id="cp-rv-annuler">' +
             "Revenir à un compte client</button>" +
         "</div>"
@@ -1692,6 +1708,26 @@ const VueCompte = (() => {
   }
 
   function brancherRevendeur(vue) {
+    /* Prix revendeur ou prix publics, à l'écran (3.59.0). */
+    for (const [id, publics] of [["#cp-rv-prix-revendeur", false], ["#cp-rv-prix-publics", true]]) {
+      const b = UI.$(id, vue);
+      if (!b) continue;
+      b.addEventListener("click", () => {
+        if (Catalogue.affichePrixPublics() === publics) return;
+        Catalogue.afficherPrixPublics(publics);
+        UI.toast(publics ? "Le catalogue montre les prix publics." : "Le catalogue montre vos prix revendeur.");
+        const pub = UI.$("#cp-rv-prix-publics", vue);
+        const rev = UI.$("#cp-rv-prix-revendeur", vue);
+        pub.classList.toggle("btn-clair", !publics); pub.setAttribute("aria-pressed", String(publics));
+        rev.classList.toggle("btn-clair", publics); rev.setAttribute("aria-pressed", String(!publics));
+        const aide = b.closest(".champ").querySelector(".aide");
+        if (aide) {
+          aide.innerHTML = publics
+            ? "Le catalogue montre les <strong>prix publics</strong>. Vos commandes restent à vos prix revendeur."
+            : "Le catalogue montre <strong>vos prix revendeur</strong>.";
+        }
+      });
+    }
     const demander = UI.$("#cp-rv-demander", vue);
     if (demander) {
       const lirePosition = brancherPosition(vue, "cp-rv-pos", Compte.positionRevendeur());
