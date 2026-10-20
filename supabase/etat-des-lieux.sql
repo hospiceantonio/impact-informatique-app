@@ -878,7 +878,20 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'suivre_commande'
-         and p.prosrc like '%encaissements%'))
+         and p.prosrc like '%encaissements%')),
+  (140, 'Le livreur refuse une course ; la boutique voit qui livre (refuser_course, livraison_des_commandes)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'refus_courses')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'refuser_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'livraison_des_commandes')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'courses_proposees'
+         and p.prosrc like '%refus_courses%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

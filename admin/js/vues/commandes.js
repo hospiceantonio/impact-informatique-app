@@ -207,6 +207,65 @@ const VueCommandes = (() => {
     }
   }
 
+  /* -----------------------------------------------------
+     Qui livre (3.59.0)
+     -----------------------------------------------------
+     Sur chaque commande payée : le livreur qui a pris la course — son
+     nom, son numéro à appeler —, ou « confiée, en attente de sa
+     réponse », ou « Commande refusée par le livreur » avec son motif, et
+     alors « Confier à nouveau ». Sans livreur ni refus : la demande est
+     partie à tous les livreurs. */
+  async function remplirLivraisons(vue, ids) {
+    if (!ids.length) return;
+    const lignes = await Store.livraisonDesCommandes(ids);
+    if (!vue.isConnected) return;
+    const parCommande = new Map();
+    for (const l of lignes) {
+      if (!parCommande.has(l.commandeId)) parCommande.set(l.commandeId, []);
+      parCommande.get(l.commandeId).push(l);
+    }
+    for (const zone of UI.$$("[data-livraison-pour]", vue)) {
+      const parts = parCommande.get(zone.dataset.livraisonPour);
+      if (!parts || !parts.length) continue;
+      zone.innerHTML = parts.map((l) => htmlLivraison(l, parts.length > 1)).join("");
+      zone.hidden = false;
+      if (parts.some((l) => !l.livreurNom && l.refusNom)) {
+        const carte = zone.closest(".cmd-carte");
+        const bouton = carte && UI.$("[data-confier]", carte);
+        if (bouton) bouton.lastChild.textContent = "Confier à nouveau";
+      }
+    }
+  }
+
+  function htmlLivraison(l, avecBoutique) {
+    const e = Utils.echapper;
+    const qui = l.livreurNom
+      ? "<strong>" + e(l.livreurNom) + "</strong>" +
+        (l.livreurBizzoo ? ' <span class="cmd-livreur-bizzoo">BIZZOO</span>' : "") +
+        (l.livreurTel
+          ? ' · <a href="' + e(Utils.lienTel(l.livreurTel, "229")) + '">' + e(l.livreurTel) + "</a>"
+          : "")
+      : "";
+    let texte;
+    if (l.livreurNom && l.recuLe) {
+      texte = '<div class="cmd-livraison-etat cmd-livraison-prise">' + UI.icone("voiture", "ic-sm") +
+        "<span>Prise par " + qui + "</span></div>";
+    } else if (l.livreurNom) {
+      texte = '<div class="cmd-livraison-etat">' + UI.icone("horloge", "ic-sm") +
+        "<span>Confiée à " + qui + " — en attente de sa réponse</span></div>";
+    } else if (l.refusNom) {
+      texte = '<div class="cmd-livraison-etat cmd-livraison-refusee">' + UI.icone("alerte", "ic-sm") +
+        "<span><strong>Commande refusée par le livreur</strong><br>" + e(l.refusNom) +
+        (l.refusMotif ? " : « " + e(l.refusMotif) + " »" : "") +
+        (l.refuseLe ? " — " + e(Utils.fmtDateHeure(l.refuseLe)) : "") +
+        "<br>Confiez-la à un autre livreur.</span></div>";
+    } else {
+      texte = '<div class="cmd-livraison-etat">' + UI.icone("horloge", "ic-sm") +
+        "<span>En attente d'un livreur : la demande est partie à tous les livreurs.</span></div>";
+    }
+    return (avecBoutique ? '<div class="aide">' + e(l.boutiqueId) + "</div>" : "") + texte;
+  }
+
   function htmlCommande(c) {
     const payee = c.etat === "payee";
     const attendue = c.etat === "a_payer";
@@ -344,6 +403,10 @@ const VueCommandes = (() => {
           '<div class="cmd-lignes">' + c.lignes.map((l) => htmlLigne(l, c.devise)).join("") + "</div>" +
         "</div>" +
 
+        /* QUI LIVRE (3.59.0) : rempli quand la base répond. */
+        (payee
+          ? '<div class="cmd-livraison" data-livraison-pour="' + Utils.echapper(c.id) + '" hidden></div>'
+          : "") +
         (confiable || aConfirmer
           ? '<div class="cmd-actions">' +
               (confiable
@@ -481,6 +544,8 @@ const VueCommandes = (() => {
     for (const bouton of UI.$$("[data-confier]", vue)) {
       bouton.onclick = () => confier(vue, bouton.dataset.confier);
     }
+
+    remplirLivraisons(vue, commandes.filter((c) => c.etat === "payee").map((c) => c.id));
 
     for (const bouton of UI.$$("[data-confirmer]", vue)) {
       bouton.onclick = async () => {

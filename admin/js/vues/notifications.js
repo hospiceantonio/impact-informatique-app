@@ -31,12 +31,16 @@ const VueNotifications = (() => {
     reste_encaisse:        { nom: "Encaissé à la livraison", icone: "promo" },
     encaissement_conteste: { nom: "Paiements contestés", icone: "alerte" },
     caisse_remise:         { nom: "Argent rendu", icone: "check" },
+    course_refusee:        { nom: "Courses refusées", icone: "alerte" },
     /* Le stock, que chaque vente payée décompte toute seule. */
     stock_epuise:          { nom: "Ruptures de stock",  icone: "boite" },
     stock_insuffisant:     { nom: "Stock insuffisant",  icone: "alerte" },
     stock_a_verifier:      { nom: "Stock à vérifier",   icone: "alerte" },
   };
-  const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
+  /* « …_avant_<n> » : une nouvelle d'une course reprise par un autre
+     livreur (3.59.0) — elle garde sa famille. */
+  const famille = (type) => FAMILLES[String(type || "").replace(/_avant_\d+$/, "")] ||
+    { nom: "Autres", icone: "cloche" };
 
   function htmlUne(n) {
     return (

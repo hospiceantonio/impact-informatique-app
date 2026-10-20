@@ -34,8 +34,12 @@ const VueNotifications = (() => {
     course_proposee:       { nom: "Demandes de course", icone: "voiture" },
     /* Le reste payé au livreur (3.59.0). */
     reste_encaisse:        { nom: "Paiements à la livraison", icone: "check" },
+    course_refusee:        { nom: "Votre livreur", icone: "voiture" },
   };
-  const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
+  /* « …_avant_<n> » : une nouvelle d'une course reprise par un autre
+     livreur (3.59.0) — elle garde sa famille. */
+  const famille = (type) => FAMILLES[String(type || "").replace(/_avant_\d+$/, "")] ||
+    { nom: "Autres", icone: "cloche" };
 
   /* Les courses d'un livreur s'appellent « #/livraisons » dans
      l'application admin, « #/mes-courses » ici. */

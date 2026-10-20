@@ -966,6 +966,31 @@ const Store = (() => {
     }));
   }
 
+  /** Le livreur refuse une course pas encore partie (3.59.0). La
+      boutique est prévenue et peut la confier à nouveau ; la demande se
+      rouvre aux autres livreurs. */
+  async function refuserCourse(commande, motif) {
+    return Supabase.rpc("refuser_course", { commande, motif: motif || "" });
+  }
+
+  /** Ce que la boutique voit de la livraison de ses commandes : qui a
+      pris la course, s'il l'a acceptée, et le dernier refus. Une base
+      d'avant ne connaît pas la question : rien. */
+  async function livraisonDesCommandes(ids) {
+    if (!ids || !ids.length) return [];
+    try {
+      const lignes = await Supabase.rpcLecture("livraison_des_commandes", { cibles: ids });
+      return (lignes || []).map((l) => ({
+        commandeId: l.commande_id, boutiqueId: l.boutique_id || "",
+        livreurNom: l.livreur_nom || "", livreurTel: l.livreur_tel || "",
+        livreurBizzoo: !!l.livreur_bizzoo, recuLe: l.recu_le || "",
+        refusNom: l.refus_nom || "", refusMotif: l.refus_motif || "", refuseLe: l.refuse_le || "",
+      }));
+    } catch (_) {
+      return [];
+    }
+  }
+
   /** « Argent reçu du livreur ». */
   async function marquerRemis(ids) {
     return Number(await Supabase.rpc("marquer_remis", { ids })) || 0;
@@ -3713,7 +3738,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
-    remettreCourse, maCaisse, caisseLivreurs, marquerRemis,
+    remettreCourse, maCaisse, caisseLivreurs, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

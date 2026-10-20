@@ -4635,6 +4635,26 @@ Bancs : [`supabase/tests/99zzzzzzzzzzz-reste-livraison.sql`](supabase/tests/99zz
 [`tools/banc-reste-livraison.mjs`](tools/banc-reste-livraison.mjs) ;
 contrôle 139 de l'état des lieux.
 
+## Qui livre, vu de la boutique ; le livreur peut refuser (3.59.0)
+
+**Sur chaque commande payée, la boutique voit qui livre** (`livraison_des_commandes`) :
+
+- **Prise par Kodjo · 01 96 …** — le livreur a accepté ; son numéro s'appelle d'un appui ;
+- **Confiée à Nadia — en attente de sa réponse** — confiée à la main, pas encore acceptée ;
+- **Commande refusée par le livreur** — avec son nom, son motif et l'heure ; le bouton devient **Confier à nouveau** ;
+- **En attente d'un livreur** — la demande est partie à tous les livreurs, personne ne l'a encore prise.
+
+**Le livreur peut refuser** (*Refuser la course*, `refuser_course`) tant que le colis n'est pas
+parti avec lui (*Je l'ai prise*). La course redevient libre : la boutique est prévenue
+(*Commande refusée par le livreur*), la demande se rouvre aux autres livreurs — pas à celui
+qui a refusé —, et le client, s'il connaissait déjà son livreur, apprend qu'il change. Quand un
+autre livreur la prend, le client reçoit bien **le nouveau** nom et numéro. Chaque refus est
+gardé (`refus_courses`).
+
+Base : [`supabase/refus-course.sql`](supabase/refus-course.sql) (à coller après
+`reste-livraison.sql`). Bancs : [`supabase/tests/99zzzzzzzzzzzz-refus-course.sql`](supabase/tests/99zzzzzzzzzzzz-refus-course.sql),
+[`tools/banc-refus-course.mjs`](tools/banc-refus-course.mjs) ; contrôle 140 de l'état des lieux.
+
 ## Structure
 
 ```

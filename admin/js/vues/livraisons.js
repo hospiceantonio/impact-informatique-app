@@ -222,6 +222,11 @@ const VueLivraisons = (() => {
               UI.icone("check") + Utils.echapper(etat.bouton) + "</button>"
             : '<div class="aide" style="margin:10px 0 0">Remise. Le client confirmera ' +
               "la réception depuis son application.</div>") +
+        /* REFUSER, tant que le colis n'est pas parti avec lui (3.59.0). */
+        (c.etat === "preparee" || EN_PREPARATION.includes(c.etat)
+          ? '<button type="button" class="btn btn-clair btn-danger-clair lv-refuser">' +
+            UI.icone("fermer") + "Refuser la course</button>"
+          : "") +
       "</div>"
     );
   }
@@ -339,6 +344,27 @@ const VueLivraisons = (() => {
           UI.toast(err.message, "err");
         }
         afficher(vue);
+      };
+    }
+
+    for (const b of UI.$$(".lv-refuser", vue)) {
+      b.onclick = async () => {
+        const carte = b.closest(".lv-course");
+        const motif = await UI.demanderTexte({
+          titre: "Refuser la course",
+          texte: "La boutique sera prévenue et pourra la confier à un autre livreur. " +
+            "La demande repart aussi vers les autres livreurs.",
+          libelle: "Pourquoi ? (facultatif)", bouton: "Refuser la course", danger: true });
+        if (motif === null) return;
+        b.disabled = true;
+        try {
+          await Store.refuserCourse(carte.dataset.commande, motif);
+          UI.toast("Course refusée : la boutique est prévenue.");
+          afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
       };
     }
 

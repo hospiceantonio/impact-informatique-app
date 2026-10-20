@@ -1773,3 +1773,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cs-ecart{color:var(--orange-fonce)}
 .cs-conteste{color:var(--rouge);font-weight:600}
 .cs-rendre{margin-top:10px;width:100%;justify-content:center}
+
+/* ---------- Qui livre, vu de la boutique (3.59.0) ---------- */
+.cmd-livraison{margin-top:10px}
+.cmd-livraison-etat{display:flex;gap:6px;align-items:flex-start;padding:8px 10px;border-radius:var(--r-sm);
+  background:var(--fond);font-size:13px;line-height:1.5;color:var(--encre-douce)}
+.cmd-livraison-etat .ic{flex:none;margin-top:2px}
+.cmd-livraison-prise{background:var(--vert-clair);color:var(--vert)}
+.cmd-livraison-prise strong,.cmd-livraison-prise a{color:var(--encre)}
+.cmd-livraison-refusee{background:#FDECEC;color:var(--rouge)}
+.lv-refuser{margin-top:8px;width:100%;justify-content:center}
