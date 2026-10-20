@@ -667,6 +667,30 @@ const VueReglages = (() => {
           "</div>"
         : "") +
 
+      /* ---------- Le code MoMoPay de BIZZOO (3.59.0) ----------
+         PLUS D'ESPÈCES À LA LIVRAISON : le reste se paie par MoMoPay, sur
+         ce compte. Le livreur montre ce code et le montant au client, qui
+         paie depuis son téléphone ; le livreur saisit le numéro de la
+         transaction. Vous retrouvez ensuite chaque paiement dans la
+         Caisse, « MoMoPay à vérifier ». */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte" id="section-momopay">' +
+            '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " MoMoPay — le reste à la livraison</div>" +
+            '<p class="aide" style="margin:0 0 12px"><strong>Plus d\'espèces à la livraison.</strong> ' +
+              "Le livreur montre ce code MoMoPay et le montant au client, qui paie depuis son " +
+              "téléphone ; le livreur saisit ensuite le numéro de la transaction reçu par SMS. " +
+              "Retrouvez chaque paiement dans <strong>Caisse → MoMoPay à vérifier</strong>.</p>" +
+            UI.champTexte({ id: "momo-code", label: "Code marchand MoMoPay de BIZZOO", valeur: "",
+              placeholder: "Exemple : 123456",
+              aide: "Le code que vos clients saisissent pour vous payer. Il est fait pour être montré." }) +
+            UI.champTexte({ id: "momo-nom", label: "Nom affiché du compte (facultatif)", valeur: "",
+              placeholder: "BIZZOO",
+              aide: "Le nom que le client voit à l'écran de paiement, pour être sûr de payer le bon compte." }) +
+            '<button type="button" class="btn" id="momo-enregistrer">' + UI.icone("check") +
+              "Enregistrer le code MoMoPay</button>" +
+          "</div>"
+        : "") +
+
       /* ---------- Un compte pour commander ----------
          Le seul réglage de l'application qui puisse FERMER la caisse.
          Il mérite donc son avertissement : tant qu'aucune porte
@@ -766,6 +790,30 @@ const VueReglages = (() => {
           "Base en ligne : les modifications sont visibles immédiatement par les clients." +
         "</p>" +
       "</div>";
+
+    const boutonMomo = UI.$("#momo-enregistrer");
+    if (boutonMomo) {
+      Store.lirePaiement().then((p) => {
+        if (moi !== generation || !UI.$("#momo-code")) return;
+        if (p.momopayCode === null) {
+          UI.$("#section-momopay").innerHTML = '<div class="carte-titre">MoMoPay</div>' +
+            '<p class="aide" style="margin:0">Exécutez d\'abord le fichier supabase/reste-momopay.sql.</p>';
+          return;
+        }
+        UI.$("#momo-code").value = p.momopayCode;
+        UI.$("#momo-nom").value = p.momopayNom;
+      }).catch(() => {});
+      boutonMomo.onclick = async () => {
+        boutonMomo.disabled = true;
+        try {
+          const code = await Store.majMomopay(UI.$("#momo-code").value, UI.$("#momo-nom").value);
+          UI.toast(code ? "Code MoMoPay enregistré : " + code : "Code MoMoPay retiré.", "ok");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        boutonMomo.disabled = false;
+      };
+    }
 
     const boutonPaiement = UI.$("#pay-enregistrer");
     if (boutonPaiement) {

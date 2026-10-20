@@ -633,8 +633,8 @@ const VuePanier = (() => {
               /* Ce qui se paie maintenant n'est que l'acompte : le dire
                  avant le bouton, pas après le versement. */
               (Paiement.apercu(promo.remise || 0).acompte < aRegler()
-                ? " Vous ne payez maintenant que l'acompte ; le reste se règle à la " +
-                  "livraison, auprès de la boutique."
+                ? " Vous ne payez maintenant que l'acompte ; le reste se paie à la " +
+                  "livraison par MoMoPay — pas d'espèces : votre livreur vous montrera le code."
                 : "")
             : "Le paiement en ligne n'est pas encore ouvert : votre commande part directement " +
               "à chaque boutique, qui vous rappellera pour le règlement et la livraison.") +
@@ -1506,7 +1506,8 @@ const VuePanier = (() => {
             : "Gardez le numéro <strong>" + Utils.echapper(commande.numero) +
               "</strong> : c'est lui qui vous permet de la suivre.") +
             (reste > 0
-              ? " Le reste, <strong>" + fmt(reste) + "</strong>, se paie à la livraison."
+              ? " Le reste, <strong>" + fmt(reste) + "</strong>, se paie à la livraison par MoMoPay " +
+                "(pas d'espèces) : votre livreur vous montrera le code."
               : "") + "</p>" +
           '<a class="btn" href="#/mes-commandes">Voir mes commandes</a>' +
           '<a class="btn btn-clair" href="#/">Retour à l\'accueil</a>' +
@@ -1557,7 +1558,7 @@ const VuePanier = (() => {
               : "La boutique a reçu votre commande dans son compte. Elle vous rappelle au ") +
             Utils.echapper(Compte.telAffichage(commande.client.tel, commande.client.indicatif)) +
             " pour la remise." +
-            (reste > 0 ? " Le reste se paie à la livraison." : "") + "</div></div>"
+            (reste > 0 ? " Le reste se paie à la livraison par MoMoPay, pas en espèces." : "") + "</div></div>"
         /* L'ATTENTE NE CONCERNE QU'UNE COMMANDE À PAYER. Le sablier
            tournait aussi sur une commande au paiement non abouti, ou
            annulée, où plus rien n'arrivera — et répétait « Ne payez pas
@@ -1641,7 +1642,7 @@ const VuePanier = (() => {
     const ids = Object.keys(encaissements);
     if (!ids.length || !vue.isConnected) return;
     const fmt = (n) => Utils.echapper(Utils.fmtMontant(Number(n) || 0, commande.devise));
-    const MODES = { especes: "en espèces", mobile_money: "par Mobile Money" };
+    const MODES = { especes: "en espèces", mobile_money: "par MoMoPay" };
 
     for (const id of ids) {
       const e = encaissements[id] || {};

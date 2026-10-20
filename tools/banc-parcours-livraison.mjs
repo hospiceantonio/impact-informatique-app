@@ -138,7 +138,7 @@ titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
     "le numéro du destinataire, appelable");
   ok(t.includes("Frais de livraison : " + F(1000)), "les frais de livraison");
   ok(t.includes("Déjà payé par le client : " + F(3000)), "ce que le client a déjà payé");
-  ok(t.includes("À récupérer : " + F(7000)), "ce qu'il reste à récupérer");
+  ok(t.includes("À payer par MoMoPay : " + F(7000)), "ce qu'il reste à récupérer");
   ok(!t.includes(F(9000)), "pas le prix des articles");
   ok(/Sonner deux fois/.test(t), "la note du client");
   ok(await page.evaluate(() => !!document.querySelector(".lv-recu") && !document.querySelector(".lv-avancer")),
@@ -173,7 +173,7 @@ titre("3. Une base d'avant : l'écran d'avant");
   const { page, ctx, erreurs } = await ouvrirAdmin({ courses: [ancienne] });
   await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
   const t = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
-  ok(t.includes("À encaisser : " + F(7000)) && /Afi/.test(t), "le montant et le client, comme avant");
+  ok(t.includes("À payer par MoMoPay : " + F(7000)) && /Afi/.test(t), "le montant et le client, comme avant");
   ok(await page.evaluate(() => !document.querySelector(".lv-recu") && !!document.querySelector(".lv-avancer")),
     "pas de « Reçu » que la base ne saurait pas traiter");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
@@ -205,7 +205,7 @@ titre("6a. Les demandes de course (admin)");
   ok(/Livraison groupée : 2 boutiques/.test(t), "« Livraison groupée : 2 boutiques »");
   ok(/Récupérer \(1\/2\)/i.test(t) && /Alpha/.test(t) && /Récupérer \(2\/2\)/i.test(t) && /Bêta/.test(t),
     "deux lieux où récupérer, numérotés");
-  ok(t.includes("À récupérer : " + F(5000)) && t.includes("Frais de livraison : " + F(2000)) &&
+  ok(t.includes("À payer par MoMoPay : " + F(5000)) && t.includes("Frais de livraison : " + F(2000)) &&
      t.includes("Déjà payé par le client : " + F(5000)), "les montants de toute la commande");
   ok(/Koffi/.test(t) && /Akpakpa/.test(t), "où livrer");
   await page.click(".lv-prendre");
@@ -286,8 +286,8 @@ titre("4. « Mes courses » dans l'application client");
   ok(/Récupérer le colis/i.test(t) && /Ganhi, rue du marché/.test(t), "où récupérer");
   ok(/Livrer à/i.test(t) && /Fidjrossè, près de l'église/.test(t) && /97 66 60 05|97666005/.test(t),
     "où livrer, et le numéro du destinataire");
-  ok(t.includes("À récupérer : " + F(7000)) && t.includes("Déjà payé : " + F(3000)) &&
-     t.includes("Frais de livraison : " + F(1000)), "à récupérer, déjà payé, frais");
+  ok(t.includes("À payer par MoMoPay : " + F(7000)) && t.includes("Déjà payé : " + F(3000)) &&
+     t.includes("Frais de livraison : " + F(1000)), "à payer par MoMoPay, déjà payé, frais");
   ok(!t.includes(F(9000)), "pas le prix des articles");
   await page.click(".cp-course-recu").catch(() => {});
   await page.waitForTimeout(1500);
@@ -306,7 +306,7 @@ titre("6b. Les demandes de course (client)");
   ok(/Demandes de course \(1\)/.test(plat(await page.evaluate(() => document.getElementById("vue").innerText))),
     "« Demandes de course (1) »");
   ok(/Livraison groupée · 2 boutiques/.test(t) && /Alpha/.test(t) && /Bêta/.test(t), "groupée, deux boutiques");
-  ok(t.includes("À récupérer : " + F(5000)), "ce qu'il y a à récupérer");
+  ok(t.includes("À payer par MoMoPay : " + F(5000)), "ce qu'il y a à récupérer");
   await page.click(".cp-course-prendre").catch(() => {});
   await page.waitForTimeout(1500);
   ok(serveur.appels.some((a) => a.fn === "prendre_course" && a.corps && a.corps.commande === "cmd_g"),

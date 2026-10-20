@@ -1257,7 +1257,7 @@ const VueCompte = (() => {
             ' <small class="cp-course-etat">' +
             Utils.echapper(aAccepter ? "Nouvelle" : ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
           (Number(f.a_encaisser) > 0
-            ? '<p class="cp-course-recuperer">' + (c.etat === "remise" ? "Récupéré" : "À récupérer") +
+            ? '<p class="cp-course-recuperer">' + (c.etat === "remise" ? "Payé" : "À payer par MoMoPay") +
               " : <strong>" + m(f.a_encaisser) + "</strong></p>"
             : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
           '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
@@ -1292,7 +1292,7 @@ const VueCompte = (() => {
             (f.groupee ? "Livraison groupée · " + retraits.length + " boutiques" : "Demande") +
             "</small></div>" +
           (Number(f.a_encaisser) > 0
-            ? '<p class="cp-course-recuperer">À récupérer : <strong>' + m(f.a_encaisser) + "</strong></p>"
+            ? '<p class="cp-course-recuperer">À payer par MoMoPay : <strong>' + m(f.a_encaisser) + "</strong></p>"
             : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
           '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
             "</strong> · Frais de livraison : <strong>" +
@@ -1320,7 +1320,7 @@ const VueCompte = (() => {
             Utils.echapper(c.client_adresse || "") + "</p>" +
           (articles ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
           (Number(c.a_encaisser) > 0
-            ? '<p style="margin:4px 0 0">À encaisser : <strong>' +
+            ? '<p style="margin:4px 0 0">À payer par MoMoPay : <strong>' +
                 Utils.echapper(Utils.fmtMontant(Number(c.a_encaisser), "FCFA")) +
               "</strong></p>"
             : "") +

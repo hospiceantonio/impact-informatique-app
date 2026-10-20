@@ -298,13 +298,9 @@ declare
   moi      uuid := auth.uid();
   combien  int;
   du       bigint;
-  combien_recu bigint := coalesce(montant, 0);
-  facon    text := coalesce(mode, '');
-  pourquoi text := left(trim(coalesce(motif, '')), 300);
+  trans    text := upper(left(regexp_replace(coalesce(motif, ''), '[^A-Za-z0-9.-]', '', 'g'), 40));
   c        record;
   porteur  text;
-  quand    text := to_char(now() at time zone 'Africa/Porto-Novo', 'DD/MM à HH24"h"MI');
-  comment  text;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Cette course ne vous est pas confiée';
@@ -320,17 +316,24 @@ begin
     from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
   du := coalesce(du, 0);
 
-  if combien_recu < 0 or combien_recu > 100000000 then
-    raise exception 'Ce montant n''est pas possible.';
-  end if;
-  if combien_recu > 0 and facon not in ('especes', 'mobile_money') then
-    raise exception 'Indiquez comment le client a payé : espèces ou Mobile Money.'
-      using errcode = 'P0001';
-  end if;
-  if combien_recu = 0 then facon := 'aucun'; end if;
-  if combien_recu <> du and length(pourquoi) < 3 then
-    raise exception 'Le client devait % : si vous avez encaissé un autre montant, expliquez pourquoi.',
-      public.montant_lisible(du, c.devise) using errcode = 'P0001';
+  if du > 0 then
+    if coalesce(mode, '') <> 'mobile_money' then
+      raise exception 'Plus d''espèces : le client paie % par MoMoPay. Mettez l''application à jour.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if coalesce(montant, 0) <> du then
+      raise exception 'Le client doit payer exactement % par MoMoPay.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if length(trans) < 4 then
+      raise exception 'Saisissez le numéro de la transaction MoMoPay, lu sur le SMS du client.'
+        using errcode = 'P0001';
+    end if;
+    if exists (select 1 from public.encaissements x
+                where x.mode = 'mobile_money' and x.transaction_id = trans) then
+      raise exception 'Cette transaction MoMoPay a déjà servi pour une autre commande : vérifiez le SMS du client.'
+        using errcode = 'P0001';
+    end if;
   end if;
 
   perform set_config('bizzoo.livraison', 'oui', true);
@@ -344,40 +347,39 @@ begin
   get diagnostics combien = row_count;
   perform set_config('bizzoo.livraison', '', true);
 
-  insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif)
-  values (commande, boutique, moi, du, combien_recu, facon, pourquoi)
-  on conflict (commande_id, boutique_id) do nothing;
-
-  if combien_recu > 0 then
-    select coalesce(nullif(p.nom, ''), 'votre livreur') into porteur
-      from public.profils p where p.id = moi;
-    comment := case facon when 'especes' then 'en espèces' else 'par Mobile Money' end;
-    if c.client_id is not null then
-      perform public.notifier(array[c.client_id], 'reste_encaisse',
-        'Reste payé : ' || public.montant_lisible(combien_recu, c.devise),
-        'Commande ' || coalesce(c.numero, '') ||
-          coalesce(' — ' || nullif((select b.nom from public.boutiques b where b.id = boutique), ''), '') || '.' ||
-          E'\nVous avez payé ' || public.montant_lisible(combien_recu, c.devise) || ' à ' || porteur ||
-          ' ' || comment || ', le ' || quand || '.' ||
-          E'\nSi ce n''est pas exact, signalez-le depuis votre commande.',
-        '#/commande/' || commande, commande, boutique, true);
-    end if;
-    perform public.notifier(public.equipe_de(boutique), 'reste_encaisse',
-      porteur || ' a encaissé ' || public.montant_lisible(combien_recu, c.devise),
-      'Commande ' || coalesce(c.numero, '') || ' — ' || comment || '. À vous remettre.' ||
-        case when combien_recu <> du
-             then E'\nÉcart : il était dû ' || public.montant_lisible(du, c.devise) || ' — « ' || pourquoi || ' ».'
-             else '' end,
-      '#/caisse', commande, boutique, true);
-  elsif du > 0 then
-    -- Rien encaissé alors qu'un reste était dû : la boutique doit le savoir.
-    perform public.notifier(public.equipe_de(boutique), 'reste_encaisse',
-      'Remise sans paiement — ' || coalesce(c.numero, ''),
-      'Le livreur n''a rien encaissé (dû : ' || public.montant_lisible(du, c.devise) || ') — « ' || pourquoi || ' ».',
-      '#/caisse', commande, boutique, true);
+  if du = 0 then
+    -- Rien n'était dû : la part est soldée, rien à vérifier.
+    insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, remis_le)
+    values (commande, boutique, moi, 0, 0, 'aucun', now())
+    on conflict (commande_id, boutique_id) do nothing;
+    return jsonb_build_object('lignes', combien, 'du', 0, 'montant', 0, 'mode', 'aucun');
   end if;
 
-  return jsonb_build_object('lignes', combien, 'du', du, 'montant', combien_recu, 'mode', facon);
+  -- Payé par MoMoPay : « remis_le » reste vide tant que BIZZOO n'a pas
+  -- retrouvé la transaction dans son compte.
+  insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id)
+  values (commande, boutique, moi, du, du, 'mobile_money', 'MoMoPay — transaction ' || trans, trans)
+  on conflict (commande_id, boutique_id) do nothing;
+
+  select coalesce(nullif(p.nom, ''), 'votre livreur') into porteur from public.profils p where p.id = moi;
+  if c.client_id is not null then
+    perform public.notifier(array[c.client_id], 'reste_encaisse',
+      'Reste payé : ' || public.montant_lisible(du, c.devise),
+      'Commande ' || coalesce(c.numero, '') ||
+        coalesce(' — ' || nullif((select b.nom from public.boutiques b where b.id = boutique), ''), '') || '.' ||
+        E'\nPayé par MoMoPay (transaction ' || trans || '), remis par ' || porteur || '.' ||
+        E'\nSi ce n''est pas exact, signalez-le depuis votre commande.',
+      '#/commande/' || commande, commande, boutique, true);
+  end if;
+  perform public.notifier(public.equipe_de(boutique) || public.enseigne_des_commandes() || public.les_superadmins(),
+    'reste_encaisse',
+    'MoMoPay à vérifier : ' || public.montant_lisible(du, c.devise),
+    'Commande ' || coalesce(c.numero, '') || ' — transaction ' || trans || ', remise par ' || porteur || '.' ||
+      E'\nÀ retrouver dans le compte MoMoPay de BIZZOO.',
+    '#/caisse', commande, boutique, true);
+
+  return jsonb_build_object('lignes', combien, 'du', du, 'montant', du, 'mode', 'mobile_money',
+    'transaction', trans);
 end $$;
 revoke all on function public.remettre_course(text, text, bigint, text, text) from public, anon;
 grant execute on function public.remettre_course(text, text, bigint, text, text) to authenticated;
@@ -504,10 +506,14 @@ begin
        set remis_le = now(), remis_par = auth.uid()
      where x.id = any(ids) and x.remis_le is null and x.montant > 0
        and public.tient_la_caisse(x.boutique_id)
-    returning x.livreur_id, x.boutique_id, x.montant, x.commande_id
+       -- (3.59.0) Un paiement MoMoPay arrive sur le compte de BIZZOO :
+       -- BIZZOO seul peut dire l'y avoir trouvé.
+       and (x.mode <> 'mobile_money' or public.est_super()
+            or public.droit_enseigne('finances') or public.droit_enseigne('commandes'))
+    returning x.livreur_id, x.boutique_id, x.montant, x.commande_id, x.mode
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-           'livreur', m.livreur_id, 'boutique', m.boutique_id, 'montant', m.montant,
+           'livreur', m.livreur_id, 'boutique', m.boutique_id, 'montant', m.montant, 'mode', m.mode,
            'devise', (select coalesce(nullif(c.devise, ''), 'FCFA') from public.commandes c
                        where c.id = m.commande_id))), '[]'::jsonb)
     into faits from marques m;
@@ -519,6 +525,8 @@ begin
                   sum((f ->> 'montant')::bigint) as total, min(f ->> 'devise') as devise, count(*) as nb
              from jsonb_array_elements(faits) f
             where f ->> 'livreur' is not null
+              -- MoMoPay : le livreur n'avait rien en main, rien à lui dire.
+              and f ->> 'mode' <> 'mobile_money'
             group by 1, 2 loop
     perform public.notifier(array[r.livreur], 'caisse_remise',
       'Argent bien reçu : ' || public.montant_lisible(r.total, r.devise),
@@ -541,14 +549,18 @@ declare moi uuid := auth.uid();
 begin
   if moi is null or not public.est_livreur() then return null; end if;
   return jsonb_build_object(
+    -- (3.59.0) Un paiement MoMoPay n'est jamais passé par ses mains.
     'a_remettre', coalesce((select sum(x.montant) from public.encaissements x
-                             where x.livreur_id = moi and x.remis_le is null), 0),
+                             where x.livreur_id = moi and x.remis_le is null
+                               and x.mode <> 'mobile_money'), 0),
     'courses', (select count(*) from public.encaissements x
-                 where x.livreur_id = moi and x.remis_le is null and x.montant > 0),
+                 where x.livreur_id = moi and x.remis_le is null and x.montant > 0
+                   and x.mode <> 'mobile_money'),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object('boutique', coalesce(b.nom, ''), 'montant', t.total) order by b.nom)
         from (select x.boutique_id, sum(x.montant) as total from public.encaissements x
                where x.livreur_id = moi and x.remis_le is null and x.montant > 0
+                 and x.mode <> 'mobile_money'
                group by x.boutique_id) t
         left join public.boutiques b on b.id = t.boutique_id), '[]'::jsonb));
 end $$;
@@ -603,9 +615,13 @@ begin
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
     'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
-                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le)
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
                    from public.encaissements x
-                  where x.commande_id = commande and x.boutique_id = boutique));
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
 end $$;
 revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
 

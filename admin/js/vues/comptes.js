@@ -171,7 +171,11 @@ const VueComptes = (() => {
              dessous : c'est avec elle qu'on se connecte. */
           '<span class="compte-email">' +
             Utils.echapper(compte.nom || compte.email || "—") +
-            (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
+            (moi ? ' <span class="compte-moi">vous</span>' : "") +
+            /* (3.59.0) Celui qui vous a créé — ou plus haut : on ne touche
+               pas à ses droits. */
+            (Store.estMonCreateur(compte) ? ' <span class="compte-moi compte-createur">vous a créé</span>' : "") +
+            "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
             rattachement(compte) +
             (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
@@ -581,7 +585,9 @@ const VueComptes = (() => {
           "plus retoucher ni supprimer ceux du catalogue. Un compte " +
           "<strong>désactivé</strong> garde son adresse mais ne peut plus rien modifier ; " +
           "un compte <strong>supprimé</strong> disparaît pour de bon. " +
-          "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits.</p>" +
+          "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits. " +
+          "Ni le compte qui <strong>vous a créé</strong> (ni ceux au-dessus de lui) : " +
+          "vous ne pouvez pas modifier ses droits.</p>" +
       "</div>";
 
     UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue), false);
@@ -677,12 +683,21 @@ const VueComptes = (() => {
        portent pour toutes — sans rien modifier, la base ne le lui permet
        pas. */
     const gere = Supabase.estSuper() || Supabase.estAdminBizzoo();
+    /* (3.59.0) L'ADMINISTRATEUR D'UNE BOUTIQUE CRÉE ET GÈRE LES SIENS — les
+       livreurs de SA boutique. Ceux de BIZZOO, il les voit sans y toucher. */
+    const chezMoi = !gere && Supabase.estAdmin() && !Supabase.estCompteEnseigne();
     let comptes, positions;
     try {
+      const deBizzoo = () => Store.listerLivreurs().then((l) => l.map((c) => ({
+        id: c.id, email: c.email, nom: c.nom, tel: c.tel, actif: c.actif, role: "livreur",
+        boutiqueId: c.bizzoo ? "" : Supabase.boutiqueDuCompte(), bizzoo: c.bizzoo })));
       [comptes, positions] = await Promise.all([
-        gere ? Store.listerComptes() : Store.listerLivreurs().then((l) => l.map((c) => ({
-          id: c.id, email: c.email, nom: c.nom, tel: c.tel, actif: c.actif, role: "livreur",
-          boutiqueId: c.bizzoo ? "" : Supabase.boutiqueDuCompte(), bizzoo: c.bizzoo }))),
+        gere ? Store.listerComptes()
+          : chezMoi
+            ? Promise.all([Store.listerComptes(), deBizzoo()]).then(([miens, tous]) =>
+                miens.filter((c) => c.role === "livreur")
+                  .concat(tous.filter((c) => c.bizzoo)))
+            : deBizzoo(),
         Store.positionsLivreurs()]);
     } catch (err) {
       vue.innerHTML = '<div class="carte"><div class="carte-titre">Livreurs indisponibles</div>' +
@@ -707,7 +722,8 @@ const VueComptes = (() => {
                 Number(p.longitude) + '" target="_blank" rel="noopener">voir sur la carte</a></div>'
           : '<div class="livreur-position livreur-position-manque">' + UI.icone("alerte", "ic-sm") +
               " Position pas encore validée : aucune course ne peut lui être confiée.</div>";
-      return '<div class="livreur-bloc">' + (gere ? htmlLigne(c, false) : ligneLecture(c)) + etat + "</div>";
+      return '<div class="livreur-bloc">' + (gere || (chezMoi && !c.bizzoo) ? htmlLigne(c, false) : ligneLecture(c)) +
+        etat + "</div>";
     };
     vue.innerHTML =
       '<div class="carte">' +
@@ -719,13 +735,17 @@ const VueComptes = (() => {
           (positions ? " — " + valides + " sur " + liste.length + " l'ont fait" : "") + ".</p>" +
         (liste.length ? liste.map(ligne).join("")
           : '<p class="aide" style="margin:0">Aucun livreur pour l\'instant.</p>') +
-        (gere
+        (gere || chezMoi
           ? '<button type="button" class="btn" id="lv-nouveau" style="margin-top:14px">' +
-              UI.icone("plus") + "Créer un livreur</button>"
+              UI.icone("plus") + "Créer un livreur</button>" +
+            (chezMoi
+              ? '<p class="aide" style="margin:10px 0 0">Vous créez les livreurs de votre boutique. ' +
+                  "Un livreur de BIZZOO, qui porte pour toutes, se demande à BIZZOO.</p>"
+              : "")
           : '<p class="aide" style="margin:12px 0 0">Un nouveau livreur se demande à BIZZOO : ' +
               "le superadministrateur ou un administrateur de BIZZOO le crée.</p>") +
       "</div>";
-    if (!gere) return;
+    if (!gere && !chezMoi) return;
     UI.$("#lv-nouveau", vue).onclick = () => ouvrirCreation(() => livreurs(vue), true);
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {

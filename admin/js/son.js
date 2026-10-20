@@ -109,5 +109,71 @@ const Son = (() => {
     }
   }
 
-  return { troisBips, actif, activer, CLE };
+  /* =======================================================
+     LA SONNERIE DU LIVREUR (3.59.0)
+     =======================================================
+     Une course l'attend — confiée par la boutique, ou proposée à
+     tous : trois notes qui montent, trois fois, PLUS FORT que les
+     bips, et le téléphone VIBRE. Puis on recommence toutes les
+     quatre secondes, jusqu'à ce qu'il touche « Commande reçue » (ou
+     refuse la course). Rater une course coûte plus cher qu'un son
+     insistant. */
+  const NOTES = [880, 1175, 1568];   // la, ré, sol — qui montent
+  const VIBRATION = [400, 150, 400, 150, 400];
+  const REPRISE = 4000;              // millisecondes entre deux sonneries
+  let minuterieAlerte = null;
+
+  function sonnerieCourse() {
+    if (actif()) {
+      const ctx = contexteAudio();
+      if (ctx) {
+        if (ctx.state === "suspended") ctx.resume().catch(() => { /* vide */ });
+        if (ctx.state !== "suspended") {
+          try {
+            const depart = ctx.currentTime;
+            for (let r = 0; r < 3; r++) {
+              NOTES.forEach((f, i) => {
+                const t = depart + r * 0.55 + i * 0.13;
+                const oscillateur = ctx.createOscillator();
+                const volume = ctx.createGain();
+                /* UN SON CARRÉ, et non une sinusoïde : il porte bien plus
+                   loin dans la rue, sur le haut-parleur d'un téléphone. */
+                oscillateur.type = "square";
+                oscillateur.frequency.setValueAtTime(f, t);
+                volume.gain.setValueAtTime(0.0001, t);
+                volume.gain.exponentialRampToValueAtTime(0.5, t + 0.005);
+                volume.gain.setValueAtTime(0.5, t + 0.1);
+                volume.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+                oscillateur.connect(volume);
+                volume.connect(ctx.destination);
+                oscillateur.start(t);
+                oscillateur.stop(t + 0.13);
+              });
+            }
+          } catch (_) { /* le son manque, la vibration reste */ }
+        }
+      }
+    }
+    /* LA VIBRATION, MÊME SON COUPÉ : c'est elle qu'on sent dans la poche. */
+    try { if (navigator.vibrate) navigator.vibrate(VIBRATION); } catch (_) { /* vide */ }
+  }
+
+  /** Sonne tout de suite, puis toutes les quatre secondes. */
+  function demarrerAlerte() {
+    if (minuterieAlerte) return;
+    sonnerieCourse();
+    minuterieAlerte = setInterval(sonnerieCourse, REPRISE);
+  }
+
+  /** Plus rien n'attend « Commande reçue » : silence. */
+  function arreterAlerte() {
+    if (!minuterieAlerte) return;
+    clearInterval(minuterieAlerte);
+    minuterieAlerte = null;
+    try { if (navigator.vibrate) navigator.vibrate(0); } catch (_) { /* vide */ }
+  }
+
+  const alerteEnCours = () => !!minuterieAlerte;
+
+  return { troisBips, actif, activer, CLE, sonnerieCourse, demarrerAlerte, arreterAlerte, alerteEnCours };
 })();

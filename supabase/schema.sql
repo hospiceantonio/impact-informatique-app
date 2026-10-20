@@ -1069,6 +1069,34 @@ on conflict (id) do nothing;
 
 alter table public.profils enable row level security;
 
+-- ---------- On ne touche pas à son créateur (3.59.0) ----------
+-- Un compte créé par un autre ne modifie pas les droits de celui qui l'a
+-- créé — ni du créateur de celui-ci, et ainsi de suite en remontant : un
+-- superadministrateur nommé par un autre ne peut pas le rétrograder, le
+-- désactiver, changer son mot de passe ni le supprimer. On remonte la
+-- chaîne « cree_par » depuis le compte connecté (vingt crans au plus,
+-- et jamais deux fois le même compte).
+-- En plpgsql : « cree_par » n'est posée que plus bas, et une fonction SQL
+-- serait vérifiée dès sa création.
+create or replace function public.est_mon_createur(cible uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return cible is not null and auth.uid() is not null and cible <> auth.uid() and exists (
+  with recursive chaine(id, cran, vus) as (
+    select p.cree_par, 1, array[p.id]
+      from public.profils p
+     where p.id = auth.uid() and p.cree_par is not null
+    union all
+    select p.cree_par, c.cran + 1, c.vus || p.id
+      from chaine c
+      join public.profils p on p.id = c.id
+     where p.cree_par is not null and c.cran < 20 and not (p.id = any(c.vus))
+  )
+  select 1 from chaine where chaine.id = cible);
+end $$;
+revoke all on function public.est_mon_createur(uuid) from public, anon;
+grant execute on function public.est_mon_createur(uuid) to authenticated;
+
 drop policy if exists "profils lecture" on public.profils;
 drop policy if exists "profils ajout admin" on public.profils;
 drop policy if exists "profils modification admin" on public.profils;
@@ -1089,12 +1117,13 @@ create policy "profils lecture" on public.profils
     or (public.est_admin_bizzoo() and role = 'livreur'));
 
 -- Créer, modifier, supprimer un compte : le superadministrateur sans
--- limite ; l'administrateur seulement des MODÉRATEURS de SA boutique —
--- il ne se nomme pas de pairs et ne touche pas à ses supérieurs.
+-- limite ; l'administrateur seulement des MODÉRATEURS et des LIVREURS
+-- (3.59.0) de SA boutique — il ne se nomme pas de pairs et ne touche pas
+-- à ses supérieurs.
 create policy "profils ajout admin" on public.profils
   for insert to authenticated with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- L'administrateur de BIZZOO crée des livreurs, et rien d'autre.
     or (public.est_admin_bizzoo() and role = 'livreur'));
@@ -1109,23 +1138,26 @@ create policy "profils ajout admin" on public.profils
 create policy "profils modification admin" on public.profils
   for update to authenticated
   using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    -- (3.59.0) Le superadministrateur, sauf sur celui qui l'a créé.
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
     or (public.est_admin_bizzoo() and role = 'livreur'))
   with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    -- (3.59.0) Un modérateur ou un livreur de SA boutique — jamais un
+    -- administrateur.
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
     -- de personne un administrateur ni un modérateur.
     or (public.est_admin_bizzoo() and role = 'livreur'));
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin_bizzoo() and role = 'livreur'));
 
@@ -1140,15 +1172,17 @@ create policy "profils suppression admin" on public.profils
 create extension if not exists pgcrypto with schema extensions;
 
 -- Qui a le droit d'agir sur ce compte-là ? Le superadministrateur sur
--- tous ; l'administrateur seulement sur les modérateurs de sa boutique.
+-- tous ; l'administrateur seulement sur les modérateurs et les livreurs
+-- (3.59.0) de sa boutique.
 create or replace function public.gere_le_compte(cible uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.est_super()
+  -- (3.59.0) Jamais sur celui qui vous a créé, ni plus haut.
+  select not public.est_mon_createur(cible) and (public.est_super()
       or (public.est_admin() and exists (
             select 1 from public.profils p
-             where p.id = cible and p.role = 'moderateur'
+             where p.id = cible and p.role in ('moderateur', 'livreur')
                and p.boutique_id is not null
-               and p.boutique_id = public.boutique_du_compte()));
+               and p.boutique_id = public.boutique_du_compte())));
 $$;
 grant execute on function public.gere_le_compte(uuid) to authenticated;
 
@@ -1893,8 +1927,10 @@ create or replace function public.creer_fiche_revendeur(
 returns text
 language plpgsql security definer set search_path = public as $$
 begin
-  if not (public.est_super() or public.est_admin_bizzoo()) then
-    raise exception 'Seul BIZZOO crée un compte revendeur';
+  -- (3.59.0) L'administrateur d'une boutique aussi : il crée la fiche, la
+  -- demande reste EN ATTENTE, et BIZZOO seul la valide.
+  if not (public.est_super() or public.est_admin_bizzoo() or public.est_admin()) then
+    raise exception 'Seul un administrateur crée un compte revendeur';
   end if;
   if not exists (select 1 from auth.users u
                   where u.id = cible and u.created_at > now() - interval '1 hour') then
@@ -2713,6 +2749,21 @@ begin
     alter table public.paiement
       add constraint paiement_frais_livraison_borne
       check (frais_livraison between 0 and 100000);
+  end if;
+end $$;
+
+-- LE CODE MOMOPAY DE BIZZOO (3.59.0). Le reste d'une commande se paie à
+-- la livraison par MoMoPay, sur le compte marchand de BIZZOO : le livreur
+-- montre ce code et le montant, le client paie depuis son téléphone. Un
+-- code marchand est fait pour être montré : il peut être lu par tous.
+alter table public.paiement add column if not exists momopay_code text not null default '';
+alter table public.paiement add column if not exists momopay_nom text not null default '';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_momopay_borne') then
+    alter table public.paiement
+      add constraint paiement_momopay_borne
+      check (length(momopay_code) <= 30 and length(momopay_nom) <= 60);
   end if;
 end $$;
 
@@ -3754,9 +3805,13 @@ begin
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
     'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
-                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le)
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
                    from public.encaissements x
-                  where x.commande_id = commande and x.boutique_id = boutique));
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
 end $$;
 revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
 
@@ -4070,6 +4125,9 @@ create table if not exists public.encaissements (
   constraint encaissements_mode check (mode in ('especes', 'mobile_money', 'aucun')),
   constraint encaissements_montant check (montant >= 0 and du >= 0)
 );
+-- (3.59.0) Le numéro de la transaction MoMoPay, lu sur le SMS du client :
+-- c'est lui que BIZZOO retrouve dans son compte marchand.
+alter table public.encaissements add column if not exists transaction_id text not null default '';
 create index if not exists encaissements_livreur on public.encaissements(livreur_id) where remis_le is null;
 create index if not exists encaissements_boutique on public.encaissements(boutique_id, encaisse_le desc);
 alter table public.encaissements enable row level security;
@@ -4090,8 +4148,13 @@ $$;
 revoke all on function public.tient_la_caisse(text) from public, anon, authenticated;
 grant execute on function public.tient_la_caisse(text) to authenticated;
 
--- « Je l'ai remise », avec ce qu'il a encaissé. Remettre et encaisser
--- tiennent dans UNE transaction : pas de colis remis sans sa déclaration.
+-- « Je l'ai remise » (3.59.0) : PLUS D'ESPÈCES. Le reste se paie par
+-- MoMoPay, sur le compte marchand de BIZZOO : le livreur montre le code et
+-- le montant, le client paie depuis son téléphone et reçoit un SMS avec le
+-- numéro de la transaction. Le livreur le saisit ici (« motif ») : sans
+-- lui, le colis ne se remet pas. Le montant est celui qui était dû, au
+-- franc près. BIZZOO vérifie ensuite chaque transaction dans son compte
+-- MoMoPay (« Caisse ») ; d'ici là, le paiement est « à vérifier ».
 create or replace function public.remettre_course(
   commande text, boutique text, montant bigint, mode text, motif text default '')
 returns jsonb
@@ -4100,13 +4163,9 @@ declare
   moi      uuid := auth.uid();
   combien  int;
   du       bigint;
-  combien_recu bigint := coalesce(montant, 0);
-  facon    text := coalesce(mode, '');
-  pourquoi text := left(trim(coalesce(motif, '')), 300);
+  trans    text := upper(left(regexp_replace(coalesce(motif, ''), '[^A-Za-z0-9.-]', '', 'g'), 40));
   c        record;
   porteur  text;
-  quand    text := to_char(now() at time zone 'Africa/Porto-Novo', 'DD/MM à HH24"h"MI');
-  comment  text;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Cette course ne vous est pas confiée';
@@ -4122,17 +4181,24 @@ begin
     from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
   du := coalesce(du, 0);
 
-  if combien_recu < 0 or combien_recu > 100000000 then
-    raise exception 'Ce montant n''est pas possible.';
-  end if;
-  if combien_recu > 0 and facon not in ('especes', 'mobile_money') then
-    raise exception 'Indiquez comment le client a payé : espèces ou Mobile Money.'
-      using errcode = 'P0001';
-  end if;
-  if combien_recu = 0 then facon := 'aucun'; end if;
-  if combien_recu <> du and length(pourquoi) < 3 then
-    raise exception 'Le client devait % : si vous avez encaissé un autre montant, expliquez pourquoi.',
-      public.montant_lisible(du, c.devise) using errcode = 'P0001';
+  if du > 0 then
+    if coalesce(mode, '') <> 'mobile_money' then
+      raise exception 'Plus d''espèces : le client paie % par MoMoPay. Mettez l''application à jour.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if coalesce(montant, 0) <> du then
+      raise exception 'Le client doit payer exactement % par MoMoPay.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if length(trans) < 4 then
+      raise exception 'Saisissez le numéro de la transaction MoMoPay, lu sur le SMS du client.'
+        using errcode = 'P0001';
+    end if;
+    if exists (select 1 from public.encaissements x
+                where x.mode = 'mobile_money' and x.transaction_id = trans) then
+      raise exception 'Cette transaction MoMoPay a déjà servi pour une autre commande : vérifiez le SMS du client.'
+        using errcode = 'P0001';
+    end if;
   end if;
 
   perform set_config('bizzoo.livraison', 'oui', true);
@@ -4146,40 +4212,39 @@ begin
   get diagnostics combien = row_count;
   perform set_config('bizzoo.livraison', '', true);
 
-  insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif)
-  values (commande, boutique, moi, du, combien_recu, facon, pourquoi)
-  on conflict (commande_id, boutique_id) do nothing;
-
-  if combien_recu > 0 then
-    select coalesce(nullif(p.nom, ''), 'votre livreur') into porteur
-      from public.profils p where p.id = moi;
-    comment := case facon when 'especes' then 'en espèces' else 'par Mobile Money' end;
-    if c.client_id is not null then
-      perform public.notifier(array[c.client_id], 'reste_encaisse',
-        'Reste payé : ' || public.montant_lisible(combien_recu, c.devise),
-        'Commande ' || coalesce(c.numero, '') ||
-          coalesce(' — ' || nullif((select b.nom from public.boutiques b where b.id = boutique), ''), '') || '.' ||
-          E'\nVous avez payé ' || public.montant_lisible(combien_recu, c.devise) || ' à ' || porteur ||
-          ' ' || comment || ', le ' || quand || '.' ||
-          E'\nSi ce n''est pas exact, signalez-le depuis votre commande.',
-        '#/commande/' || commande, commande, boutique, true);
-    end if;
-    perform public.notifier(public.equipe_de(boutique), 'reste_encaisse',
-      porteur || ' a encaissé ' || public.montant_lisible(combien_recu, c.devise),
-      'Commande ' || coalesce(c.numero, '') || ' — ' || comment || '. À vous remettre.' ||
-        case when combien_recu <> du
-             then E'\nÉcart : il était dû ' || public.montant_lisible(du, c.devise) || ' — « ' || pourquoi || ' ».'
-             else '' end,
-      '#/caisse', commande, boutique, true);
-  elsif du > 0 then
-    -- Rien encaissé alors qu'un reste était dû : la boutique doit le savoir.
-    perform public.notifier(public.equipe_de(boutique), 'reste_encaisse',
-      'Remise sans paiement — ' || coalesce(c.numero, ''),
-      'Le livreur n''a rien encaissé (dû : ' || public.montant_lisible(du, c.devise) || ') — « ' || pourquoi || ' ».',
-      '#/caisse', commande, boutique, true);
+  if du = 0 then
+    -- Rien n'était dû : la part est soldée, rien à vérifier.
+    insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, remis_le)
+    values (commande, boutique, moi, 0, 0, 'aucun', now())
+    on conflict (commande_id, boutique_id) do nothing;
+    return jsonb_build_object('lignes', combien, 'du', 0, 'montant', 0, 'mode', 'aucun');
   end if;
 
-  return jsonb_build_object('lignes', combien, 'du', du, 'montant', combien_recu, 'mode', facon);
+  -- Payé par MoMoPay : « remis_le » reste vide tant que BIZZOO n'a pas
+  -- retrouvé la transaction dans son compte.
+  insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id)
+  values (commande, boutique, moi, du, du, 'mobile_money', 'MoMoPay — transaction ' || trans, trans)
+  on conflict (commande_id, boutique_id) do nothing;
+
+  select coalesce(nullif(p.nom, ''), 'votre livreur') into porteur from public.profils p where p.id = moi;
+  if c.client_id is not null then
+    perform public.notifier(array[c.client_id], 'reste_encaisse',
+      'Reste payé : ' || public.montant_lisible(du, c.devise),
+      'Commande ' || coalesce(c.numero, '') ||
+        coalesce(' — ' || nullif((select b.nom from public.boutiques b where b.id = boutique), ''), '') || '.' ||
+        E'\nPayé par MoMoPay (transaction ' || trans || '), remis par ' || porteur || '.' ||
+        E'\nSi ce n''est pas exact, signalez-le depuis votre commande.',
+      '#/commande/' || commande, commande, boutique, true);
+  end if;
+  perform public.notifier(public.equipe_de(boutique) || public.enseigne_des_commandes() || public.les_superadmins(),
+    'reste_encaisse',
+    'MoMoPay à vérifier : ' || public.montant_lisible(du, c.devise),
+    'Commande ' || coalesce(c.numero, '') || ' — transaction ' || trans || ', remise par ' || porteur || '.' ||
+      E'\nÀ retrouver dans le compte MoMoPay de BIZZOO.',
+    '#/caisse', commande, boutique, true);
+
+  return jsonb_build_object('lignes', combien, 'du', du, 'montant', du, 'mode', 'mobile_money',
+    'transaction', trans);
 end $$;
 revoke all on function public.remettre_course(text, text, bigint, text, text) from public, anon;
 grant execute on function public.remettre_course(text, text, bigint, text, text) to authenticated;
@@ -4306,10 +4371,14 @@ begin
        set remis_le = now(), remis_par = auth.uid()
      where x.id = any(ids) and x.remis_le is null and x.montant > 0
        and public.tient_la_caisse(x.boutique_id)
-    returning x.livreur_id, x.boutique_id, x.montant, x.commande_id
+       -- (3.59.0) Un paiement MoMoPay arrive sur le compte de BIZZOO :
+       -- BIZZOO seul peut dire l'y avoir trouvé.
+       and (x.mode <> 'mobile_money' or public.est_super()
+            or public.droit_enseigne('finances') or public.droit_enseigne('commandes'))
+    returning x.livreur_id, x.boutique_id, x.montant, x.commande_id, x.mode
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-           'livreur', m.livreur_id, 'boutique', m.boutique_id, 'montant', m.montant,
+           'livreur', m.livreur_id, 'boutique', m.boutique_id, 'montant', m.montant, 'mode', m.mode,
            'devise', (select coalesce(nullif(c.devise, ''), 'FCFA') from public.commandes c
                        where c.id = m.commande_id))), '[]'::jsonb)
     into faits from marques m;
@@ -4321,6 +4390,8 @@ begin
                   sum((f ->> 'montant')::bigint) as total, min(f ->> 'devise') as devise, count(*) as nb
              from jsonb_array_elements(faits) f
             where f ->> 'livreur' is not null
+              -- MoMoPay : le livreur n'avait rien en main, rien à lui dire.
+              and f ->> 'mode' <> 'mobile_money'
             group by 1, 2 loop
     perform public.notifier(array[r.livreur], 'caisse_remise',
       'Argent bien reçu : ' || public.montant_lisible(r.total, r.devise),
@@ -4343,14 +4414,18 @@ declare moi uuid := auth.uid();
 begin
   if moi is null or not public.est_livreur() then return null; end if;
   return jsonb_build_object(
+    -- (3.59.0) Un paiement MoMoPay n'est jamais passé par ses mains.
     'a_remettre', coalesce((select sum(x.montant) from public.encaissements x
-                             where x.livreur_id = moi and x.remis_le is null), 0),
+                             where x.livreur_id = moi and x.remis_le is null
+                               and x.mode <> 'mobile_money'), 0),
     'courses', (select count(*) from public.encaissements x
-                 where x.livreur_id = moi and x.remis_le is null and x.montant > 0),
+                 where x.livreur_id = moi and x.remis_le is null and x.montant > 0
+                   and x.mode <> 'mobile_money'),
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object('boutique', coalesce(b.nom, ''), 'montant', t.total) order by b.nom)
         from (select x.boutique_id, sum(x.montant) as total from public.encaissements x
                where x.livreur_id = moi and x.remis_le is null and x.montant > 0
+                 and x.mode <> 'mobile_money'
                group by x.boutique_id) t
         left join public.boutiques b on b.id = t.boutique_id), '[]'::jsonb));
 end $$;
@@ -4514,6 +4589,20 @@ begin
   -- « en livraison ». Sans cela, une course se déclarerait remise sans
   -- jamais avoir été prise.
   depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
+
+  -- (3.59.0) PAS DE REMISE SANS LE RESTE PAYÉ PAR MOMOPAY. Ce chemin
+  -- d'avant (« Je l'ai remise » sans rien déclarer) ne passe plus quand
+  -- le client doit encore quelque chose : c'est remettre_course, avec le
+  -- numéro de la transaction, qui remet le colis.
+  if vers = 'remise'
+     and coalesce((select r.a_encaisser from public.restes_par_boutique(commande) r
+                    where r.boutique_id = boutique), 0) > 0
+     and not exists (select 1 from public.encaissements x
+                      where x.commande_id = commande and x.boutique_id = boutique
+                        and x.mode = 'mobile_money') then
+    raise exception 'Le client doit d''abord payer le reste par MoMoPay : touchez « Remettre le colis » et saisissez le numéro de la transaction.'
+      using errcode = 'P0001';
+  end if;
 
   -- Prendre la course sans avoir touché « Reçu » vaut acceptation.
   perform set_config('bizzoo.livraison', 'oui', true);
@@ -6216,7 +6305,8 @@ begin
         'Frais de livraison : ' || public.montant_lisible((fiche ->> 'frais')::numeric, fiche ->> 'devise') || E'\n' ||
         'Déjà payé : ' || public.montant_lisible((fiche ->> 'deja_paye')::numeric, fiche ->> 'devise') || E'\n' ||
         case when (fiche ->> 'a_encaisser')::numeric > 0
-             then 'À récupérer : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise')
+             then 'Reste à payer par MoMoPay : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise') ||
+                  ' (pas d''espèces)'
              else 'Rien à récupérer : tout est payé.' end || E'\n' ||
         'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
@@ -8728,6 +8818,13 @@ declare
 begin
   if coalesce(current_setting('bizzoo.compte', true), '') = 'oui' then
     return new;
+  end if;
+
+  -- (3.59.0) ON NE TOUCHE PAS À SON CRÉATEUR, par aucun chemin : ni
+  -- l'écran, ni l'Historique, ni une fonction de la base.
+  if tg_op = 'UPDATE' and public.est_mon_createur(old.id) then
+    raise exception 'Ce compte vous a créé : vous ne pouvez pas modifier ses droits.'
+      using errcode = 'P0001';
   end if;
 
   if tg_op = 'INSERT' then

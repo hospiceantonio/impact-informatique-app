@@ -909,7 +909,40 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'accepter_course'
-         and p.prosrc like '%bizzoo.prise%'))
+         and p.prosrc like '%bizzoo.prise%')),
+  (143, 'Le reste se paie par MoMoPay, plus en espèces (paiement.momopay_code)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement' and column_name = 'momopay_code')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'encaissements' and column_name = 'transaction_id')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remettre_course'
+         and p.prosrc like '%MoMoPay%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'avancer_livraison'
+         and p.prosrc like '%MoMoPay%')),
+  (144, 'L''administrateur d''une boutique crée livreurs et revendeurs, pas d''administrateur', exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'profils' and policyname = 'profils ajout admin'
+         and with_check like '%livreur%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_fiche_revendeur'
+         and p.prosrc like '%Seul un administrateur%')),
+  (145, 'On ne modifie pas les droits de son créateur (est_mon_createur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'est_mon_createur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'profil_trace'
+         and p.prosrc like '%est_mon_createur%')
+    and exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'profils' and policyname = 'profils modification admin'
+         and qual like '%est_mon_createur%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

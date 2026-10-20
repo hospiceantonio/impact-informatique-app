@@ -69,6 +69,27 @@ revoke all on public.sessions_sms from public, anon, authenticated;
 
 -- La session du jeton en cours. Un jeton sans session — la clé de
 -- service, un visiteur — n'en a pas, et rien ne le confirme.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.est_mon_createur(cible uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return cible is not null and auth.uid() is not null and cible <> auth.uid() and exists (
+  with recursive chaine(id, cran, vus) as (
+    select p.cree_par, 1, array[p.id]
+      from public.profils p
+     where p.id = auth.uid() and p.cree_par is not null
+    union all
+    select p.cree_par, c.cran + 1, c.vus || p.id
+      from chaine c
+      join public.profils p on p.id = c.id
+     where p.cree_par is not null and c.cran < 20 and not (p.id = any(c.vus))
+  )
+  select 1 from chaine where chaine.id = cible);
+end $$;
+revoke all on function public.est_mon_createur(uuid) from public, anon;
+grant execute on function public.est_mon_createur(uuid) to authenticated;
+
+
 create or replace function public.session_courante() returns uuid
 language sql stable as $$
   select case when s ~* '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z'
@@ -187,15 +208,16 @@ alter policy "profils lecture" on public.profils
 
 alter policy "profils modification admin" on public.profils
   using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    -- (3.59.0) Le superadministrateur, sauf sur celui qui l'a créé.
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
     or (public.est_admin_bizzoo() and role = 'livreur'))
   with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- Un livreur reste un livreur (3.59.0).
     or (public.est_admin_bizzoo() and role = 'livreur'));
@@ -527,6 +549,13 @@ declare
 begin
   if coalesce(current_setting('bizzoo.compte', true), '') = 'oui' then
     return new;
+  end if;
+
+  -- (3.59.0) ON NE TOUCHE PAS À SON CRÉATEUR, par aucun chemin : ni
+  -- l'écran, ni l'Historique, ni une fonction de la base.
+  if tg_op = 'UPDATE' and public.est_mon_createur(old.id) then
+    raise exception 'Ce compte vous a créé : vous ne pouvez pas modifier ses droits.'
+      using errcode = 'P0001';
   end if;
 
   if tg_op = 'INSERT' then

@@ -15,6 +15,13 @@
                    qu'un reste était dû : à vérifier avec le livreur ;
      RENDU         les 60 derniers jours.
 
+   MOMOPAY (3.59.0) : PLUS D'ESPÈCES. Le reste se paie désormais par
+   MoMoPay, sur le compte de BIZZOO ; le livreur saisit le numéro de la
+   transaction. Ces paiements sont « À VÉRIFIER » : BIZZOO les retrouve
+   dans son compte MoMoPay et touche « Vérifié ». La boutique les voit,
+   mais seul BIZZOO peut les vérifier — l'argent est chez lui. Le
+   livreur, lui, n'a rien à rendre.
+
    QUI LA VOIT. L'administrateur d'une boutique : l'argent de SES
    colis, quel que soit le livreur — un livreur de BIZZOO compris, en
    livraison groupée. BIZZOO (le superadministrateur, un compte de
@@ -24,7 +31,10 @@
    ========================================================= */
 const VueCaisse = (() => {
   const e = Utils.echapper;
-  const MODES = { especes: "espèces", mobile_money: "Mobile Money", aucun: "rien encaissé" };
+  const MODES = { especes: "espèces", mobile_money: "MoMoPay", aucun: "rien encaissé" };
+  /* Vérifier un paiement MoMoPay : BIZZOO seul, comme en base. */
+  const verifieMomopay = () => Supabase.estSuper() ||
+    (Supabase.estCompteEnseigne() && Supabase.tientLaCaisse());
   const m = (n, devise) => Utils.fmtMontant(Number(n) || 0, devise || "FCFA");
 
   function htmlLigne(l, avecBoutique) {
@@ -36,6 +46,9 @@ const VueCaisse = (() => {
           (avecBoutique ? " · " + e(l.nomBoutique) : "") +
           "<small>" + e(Utils.fmtDateHeure(l.encaisseLe)) +
             (l.declare && MODES[l.mode] ? " · " + e(MODES[l.mode]) : "") + "</small>" +
+          (l.mode === "mobile_money" && l.motif
+            ? "<small>" + e(l.motif) + "</small>"
+            : "") +
           (ecart
             ? '<small class="cs-ecart">Dû : ' + e(m(l.du, l.devise)) + " — « " + e(l.motif) + " »</small>"
             : "") +
@@ -43,8 +56,10 @@ const VueCaisse = (() => {
             ? '<small class="cs-conteste">Contesté par le client : « ' + e(l.contesteMotif) + " »</small>"
             : "") +
           (l.remisLe
-            ? "<small>Rendu le " + e(Utils.fmtDateHeure(l.remisLe)) +
-                (l.remisPar ? " — reçu par " + e(l.remisPar) : "") + "</small>"
+            ? "<small>" + (l.mode === "mobile_money" ? "Vérifié le " : "Rendu le ") +
+                e(Utils.fmtDateHeure(l.remisLe)) +
+                (l.remisPar ? (l.mode === "mobile_money" ? " par " : " — reçu par ") + e(l.remisPar) : "") +
+                "</small>"
             : "") +
         "</div>" +
         "<strong>" + e(l.declare ? m(l.montant, l.devise) : m(l.du, l.devise)) + "</strong>" +
@@ -82,14 +97,16 @@ const VueCaisse = (() => {
     }
     if (!lignes.length) {
       vue.innerHTML = UI.vide("promo", "Rien dans la caisse",
-        "Quand un livreur remet un colis et encaisse le reste, cela apparaît ici, " +
-        "jusqu'à ce qu'il vous rende l'argent.");
+        "Quand un client paie le reste par MoMoPay à la livraison, le paiement apparaît ici, " +
+        "jusqu'à ce que BIZZOO le retrouve dans son compte MoMoPay.");
       return;
     }
     const boutiques = new Set(lignes.map((l) => l.boutiqueId));
     const avecBoutique = boutiques.size > 1;
 
-    const aRendre = lignes.filter((l) => l.declare && l.montant > 0 && !l.remisLe);
+    const aRendre = lignes.filter((l) => l.declare && l.montant > 0 && !l.remisLe && l.mode !== "mobile_money");
+    const aVerifier = lignes.filter((l) => l.declare && l.montant > 0 && !l.remisLe && l.mode === "mobile_money");
+    const totalAVerifier = aVerifier.reduce((t, l) => t + l.montant, 0);
     const contestes = lignes.filter((l) => l.contesteLe);
     const sansDeclaration = lignes.filter((l) => !l.declare);
     const rendus = lignes.filter((l) => l.declare && l.remisLe);
@@ -97,6 +114,24 @@ const VueCaisse = (() => {
     const devise = (lignes[0] || {}).devise;
 
     vue.innerHTML =
+      /* MOMOPAY À VÉRIFIER, en tête : c'est désormais le seul chemin du
+         reste. */
+      '<div class="titre-section" id="cs-a-verifier">MoMoPay à vérifier : ' + e(m(totalAVerifier, devise)) + "</div>" +
+      (aVerifier.length
+        ? '<div class="carte">' +
+            '<p class="aide" style="margin:0 0 6px">Retrouvez chaque transaction dans le compte ' +
+              "MoMoPay de BIZZOO" + (verifieMomopay() ? ", puis touchez « Vérifié »." : " : BIZZOO les vérifie.") +
+              "</p>" +
+            aVerifier.map((l) =>
+              htmlLigne(l, avecBoutique).replace("<strong>" + e(l.numero || l.commandeId) + "</strong>",
+                "<strong>" + e(l.numero || l.commandeId) + "</strong> · " + e(l.livreurNom)) +
+              (verifieMomopay()
+                ? '<button type="button" class="btn btn-clair cs-verifier" data-ids="' + e(String(l.id)) +
+                    '" data-total="' + e(m(l.montant, l.devise)) + '" data-trans="' + e(l.motif) + '">' +
+                    UI.icone("check") + "Vérifié sur le compte MoMoPay</button>"
+                : "")).join("") +
+          "</div>"
+        : '<div class="carte"><p class="aide" style="margin:0">Aucun paiement MoMoPay à vérifier.</p></div>') +
       '<div class="titre-section" id="cs-a-rendre">À rendre par les livreurs : ' + e(m(totalARendre, devise)) + "</div>" +
       (aRendre.length
         ? parLivreur(aRendre).map((g) => {
@@ -138,13 +173,33 @@ const VueCaisse = (() => {
         : "") +
 
       (rendus.length
-        ? '<details class="carte" id="cs-rendus"><summary class="carte-titre">Déjà rendu (' + rendus.length +
+        ? '<details class="carte" id="cs-rendus"><summary class="carte-titre">Déjà rendu ou vérifié (' + rendus.length +
             ", 60 derniers jours)</summary>" +
             rendus.map((l) => htmlLigne(l, avecBoutique).replace(
               "<strong>" + e(l.numero || l.commandeId) + "</strong>",
               "<strong>" + e(l.numero || l.commandeId) + "</strong> · " + e(l.livreurNom))).join("") +
           "</details>"
         : "");
+
+    for (const b of UI.$$(".cs-verifier", vue)) {
+      b.onclick = async () => {
+        const ok = await UI.confirmer({
+          titre: "Paiement MoMoPay vérifié",
+          texte: "Vous avez retrouvé " + b.dataset.total + " dans le compte MoMoPay de BIZZOO (" +
+            b.dataset.trans + ") ?",
+          bouton: "Oui, il y est" });
+        if (!ok) return;
+        b.disabled = true;
+        try {
+          await Store.marquerRemis([Number(b.dataset.ids)]);
+          UI.toast("Paiement vérifié.");
+          afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
 
     for (const b of UI.$$(".cs-rendre", vue)) {
       b.onclick = async () => {

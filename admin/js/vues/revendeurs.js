@@ -119,6 +119,21 @@ const VueRevendeurs = (() => {
 
   async function afficher(vue) {
     UI.entete({ titre: "Comptes revendeurs", sous: "Qui achète au prix BIZZOO", retour: true });
+    /* (3.59.0) L'ADMINISTRATEUR D'UNE BOUTIQUE CRÉE un revendeur, sans voir
+       les demandes ni les valider : la décision reste à BIZZOO. */
+    if (!(Supabase.estSuper() || Supabase.estAdminBizzoo())) {
+      vue.innerHTML =
+        '<div class="carte carte-publier" id="rv-boutique">' +
+          '<div class="carte-titre">' + UI.icone("personne", "ic-sm") + " Créer un revendeur</div>" +
+          '<p class="aide" style="margin:0">Un revendeur achète au prix BIZZOO sur tout le ' +
+            "catalogue. Vous créez son compte ; <strong>BIZZOO le valide</strong> ensuite, une " +
+            "fois qu'il a activé la position de son téléphone dans « Mon compte ».</p>" +
+          '<button type="button" class="btn" id="rv-nouveau" style="margin-top:12px">' +
+            UI.icone("plus") + "Créer un revendeur</button>" +
+        "</div>";
+      UI.$("#rv-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue));
+      return;
+    }
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
       "Lecture des demandes…</div>";
 

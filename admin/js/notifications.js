@@ -81,7 +81,11 @@ const Notifs = (() => {
          nombre monte » ferait sonner au premier chargement, quand on
          retrouve trente commandes jamais ouvertes — un carillon à
          l'ouverture de l'application. */
-      if (avant >= 0 && nonLues > avant && liste.some((n) => !n.lue && n.sonne)) {
+      /* LE LIVREUR A SA SONNERIE (3.59.0) : elle insiste tant qu'une
+         course attend « Commande reçue ». Les autres gardent les bips. */
+      if (estLivreur()) {
+        verifierCourses();
+      } else if (avant >= 0 && nonLues > avant && liste.some((n) => !n.lue && n.sonne)) {
         Son.troisBips();
       }
       prevenir();
@@ -92,6 +96,31 @@ const Notifs = (() => {
       return false;
     } finally {
       enCours = null;
+    }
+  }
+
+  /* ---------- La sonnerie du livreur (3.59.0) ----------
+     Une course l'attend : confiée et pas encore acceptée, ou proposée à
+     tous et pas encore prise. Tant qu'il y en a une, la sonnerie et la
+     vibration reprennent toutes les quatre secondes ; « Commande reçue »,
+     ou un refus, les arrêtent. */
+  const estLivreur = () => Supabase.role() === "livreur";
+
+  function majAlerte(courses, demandes) {
+    const attend = (demandes || []).length > 0 ||
+      (courses || []).some((c) => c.fiche && !c.recuLe && c.etat !== "remise");
+    if (attend && estLivreur()) Son.demarrerAlerte();
+    else Son.arreterAlerte();
+  }
+
+  async function verifierCourses() {
+    if (!estLivreur()) { Son.arreterAlerte(); return; }
+    try {
+      const [courses, demandes] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees()]);
+      majAlerte(courses, demandes);
+    } catch (_) {
+      /* Base injoignable : on ne coupe pas une sonnerie en cours sur une
+         panne, et on n'en lance pas une sur rien. */
     }
   }
 
@@ -235,6 +264,7 @@ const Notifs = (() => {
 
   function arreter() {
     actif = false;
+    Son.arreterAlerte();
     fermer();
     clearInterval(minuterieFond);
     liste = [];
@@ -250,6 +280,6 @@ const Notifs = (() => {
 
   return {
     demarrer, arreter, recharger, compte, toutes,
-    marquerLue, toutMarquerLu, surChangement,
+    marquerLue, toutMarquerLu, surChangement, majAlerte, verifierCourses,
   };
 })();

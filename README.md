@@ -4685,6 +4685,53 @@ livreur, reste payé à la porte, confirmation de réception, suivi de la
 commande. La commande porte la marque « Revendeur » chez la boutique.
 Essai de bout en bout : `supabase/tests/99zzzzzzzzzzzzzzz-revendeur-client.sql`.
 
+## Le reste se paie par MoMoPay, plus en espèces (3.59.0)
+
+- **BIZZOO enregistre son code MoMoPay** : Réglages → onglet de l'enseigne →
+  « MoMoPay — le reste à la livraison » (code marchand et nom affiché).
+- **À la porte**, « Je l'ai remise » montre au client, en grand, le code
+  MoMoPay de BIZZOO et le montant à payer. Le client paie depuis son
+  téléphone et reçoit un SMS ; le livreur saisit le **numéro de la
+  transaction**. Sans lui, le colis ne se remet pas.
+- **Plus d'espèces** : la base refuse tout autre paiement, un autre montant,
+  une transaction déjà utilisée, et l'ancien « Je l'ai remise » sans
+  paiement.
+- **Le livreur n'a rien en main**, rien à rendre (« Ma caisse » reste vide).
+- **Caisse → « MoMoPay à vérifier »** : BIZZOO retrouve chaque transaction
+  dans son compte MoMoPay et touche « Vérifié ». La boutique la voit mais ne
+  peut pas la vérifier.
+- Sans code enregistré, le livreur voit « Appelez BIZZOO » et ne peut pas
+  remettre un colis dont le reste est dû.
+- À coller : `supabase/reste-momopay.sql` (après `livreur-bizzoo-commande.sql`).
+
+## Qui crée quels comptes (3.59.0)
+
+- **Superadministrateur** : tous les comptes.
+- **Administrateur de BIZZOO** : des livreurs (de BIZZOO ou d'une boutique) et
+  des revendeurs, qu'il valide.
+- **Administrateur d'une boutique** : des modérateurs et des **livreurs de sa
+  boutique** (écran Livreurs), et des **revendeurs** (écran Revendeurs →
+  « Créer un revendeur ») — la demande reste en attente, **BIZZOO seul la
+  valide**. Il ne crée **jamais d'administrateur** ni de superadministrateur,
+  ni de livreur de BIZZOO ou d'une autre boutique. La base le refuse.
+- **On ne touche pas à son créateur** : un compte créé par un autre — par
+  exemple un superadministrateur nommé par un autre — ne peut ni changer le
+  rôle, ni désactiver, ni changer le mot de passe, ni supprimer celui qui
+  l'a créé, ni ceux au-dessus dans la chaîne. L'écran Comptes l'affiche
+  « vous a créé », sans crayon ; la base le refuse par tous les chemins.
+- À coller : `supabase/admin-boutique-comptes.sql` (après `reste-momopay.sql`).
+
+## La sonnerie du livreur (3.59.0)
+
+Quand une course attend « Commande reçue » — confiée par la boutique, ou
+proposée à tous —, l'application du livreur joue **trois notes qui
+montent, trois fois**, plus fort qu'avant, et **fait vibrer le
+téléphone**. Elle recommence **toutes les quatre secondes** jusqu'à ce
+qu'il touche « Commande reçue » (ou refuse la course). Son coupé dans les
+réglages : la vibration reste. Application fermée : c'est la notification
+du téléphone qui sonne. Le son se fabrique dans l'application, aucun
+fichier à charger (`admin/js/son.js`). Banc : `tools/banc-sonnerie-livreur.mjs`.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code

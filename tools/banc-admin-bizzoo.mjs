@@ -206,7 +206,7 @@ titre("4. Un modérateur de BIZZOO : ni livreurs, ni revendeurs");
   await o.ctx.close();
 }
 
-titre("5. L'administrateur d'une boutique voit ses livreurs");
+titre("5. L'administrateur d'une boutique crée ses livreurs (3.59.0)");
 {
   const o = await ouvrir(CHEF, "#/livreurs");
   ok(await ici(o.page) === "#/livreurs", "il entre chez les livreurs");
@@ -214,9 +214,60 @@ titre("5. L'administrateur d'une boutique voit ses livreurs");
   ok(/Rohim/.test(t) && /Sèna/.test(t), "ceux de sa boutique ET ceux de BIZZOO");
   ok(/Position validée/.test(t), "la position du sien");
   ok(/Livreur de BIZZOO : il porte pour toutes les boutiques/.test(t), "celui de BIZZOO est dit tel");
-  ok(!!(await o.page.$('a[href="tel:0196000101"]')), "son numéro, pour l'appeler");
-  ok(!(await o.page.$("#lv-nouveau")) && /se demande à BIZZOO/.test(t), "pas de « Créer un livreur » : il le demande à BIZZOO");
-  ok(!(await o.page.$(".livreur-bloc [data-compte]")), "pas de fiche à modifier");
+  ok(!!(await o.page.$('.livreur-bloc [data-compte="' + LIV_A + '"]')), "le sien a sa fiche, à modifier");
+  ok(!(await o.page.$('.livreur-bloc [data-compte="' + LIV_BZ + '"]')) &&
+     !!(await o.page.$('a[href="tel:0196000202"]')), "celui de BIZZOO : à lire et appeler, pas à modifier");
+  await o.page.click("#lv-nouveau");
+  await pause(500);
+  const f = await o.page.evaluate(() => ({
+    bloque: document.querySelector("#nc-boutique") ? document.querySelector("#nc-boutique").disabled : true,
+    valeur: document.querySelector("#nc-boutique") ? document.querySelector("#nc-boutique").value : "",
+    roles: [...document.querySelectorAll("#nc-role option")].map((x) => x.value) }));
+  ok(f.bloque && f.valeur === "bou_a" && f.roles.join() === "livreur",
+    "« Créer un livreur » : un livreur, pour sa boutique Alpha seulement");
+  await o.page.fill("#nc-tel", "01 96 00 04 04");
+  await o.page.fill("#nc-mdp", "secret-essai");
+  await o.page.fill("#nc-nom", "Kodjo");
+  await o.page.click("#nc-creer");
+  await pause(1200);
+  const fiche = o.note.profils[0] || {};
+  ok(fiche.role === "livreur" && fiche.boutique_id === "bou_a", "sa fiche : livreur de la boutique Alpha");
+  sansErreur(o);
+  await o.ctx.close();
+}
+{
+  const o = await ouvrir(CHEF, "#/comptes");
+  await pause(500);
+  if (await o.page.$("#cp-nouveau")) {
+    await o.page.click("#cp-nouveau");
+    await pause(500);
+  }
+  const roles = await o.page.evaluate(() => [...document.querySelectorAll("#nc-role option")].map((x) => x.value));
+  ok(!roles.includes("administrateur") && !roles.includes("superadministrateur"),
+    "il ne crée pas d'administrateur (" + roles.join(", ") + ")");
+  await o.ctx.close();
+}
+
+titre("6. L'administrateur d'une boutique crée un revendeur ; BIZZOO valide");
+{
+  const o = await ouvrir(CHEF);
+  ok(!!(await o.page.$('#ac-livreurs-revendeurs a[href="#/revendeurs"]')) &&
+     !!(await o.page.$('#ac-livreurs-revendeurs a[href="#/livreurs"]')), "son accueil mène aux livreurs et aux revendeurs");
+  await o.page.evaluate(() => { location.hash = "#/revendeurs"; });
+  await pause(1500);
+  ok(await ici(o.page) === "#/revendeurs" && !!(await o.page.$("#rv-boutique")), "il entre : « Créer un revendeur »");
+  ok(!o.note.rpc.some((r) => r.nom === "revendeurs") && !(await o.page.$("[data-valider]")),
+    "ni la liste des demandes, ni « Valider » : c'est à BIZZOO");
+  await o.page.click("#rv-nouveau");
+  await pause(500);
+  await o.page.fill("#nr-nom", "Boutique Azon");
+  await o.page.fill("#nr-tel", "0161555003");
+  await o.page.fill("#nr-mdp", "secret-essai");
+  await o.page.fill("#nr-adresse", "Ganhi, face à la banque");
+  await o.page.click("#nr-creer");
+  await pause(1500);
+  ok(o.note.rpc.some((r) => r.nom === "creer_fiche_revendeur" && r.corps && r.corps.nom === "Boutique Azon"),
+    "creer_fiche_revendeur : la demande part, en attente");
   sansErreur(o);
   await o.ctx.close();
 }

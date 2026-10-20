@@ -440,9 +440,13 @@ begin
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
     'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
-                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le)
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
                    from public.encaissements x
-                  where x.commande_id = commande and x.boutique_id = boutique));
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
 end $$;
 revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
 
@@ -504,6 +508,20 @@ begin
   -- « en livraison ». Sans cela, une course se déclarerait remise sans
   -- jamais avoir été prise.
   depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
+
+  -- (3.59.0) PAS DE REMISE SANS LE RESTE PAYÉ PAR MOMOPAY. Ce chemin
+  -- d'avant (« Je l'ai remise » sans rien déclarer) ne passe plus quand
+  -- le client doit encore quelque chose : c'est remettre_course, avec le
+  -- numéro de la transaction, qui remet le colis.
+  if vers = 'remise'
+     and coalesce((select r.a_encaisser from public.restes_par_boutique(commande) r
+                    where r.boutique_id = boutique), 0) > 0
+     and not exists (select 1 from public.encaissements x
+                      where x.commande_id = commande and x.boutique_id = boutique
+                        and x.mode = 'mobile_money') then
+    raise exception 'Le client doit d''abord payer le reste par MoMoPay : touchez « Remettre le colis » et saisissez le numéro de la transaction.'
+      using errcode = 'P0001';
+  end if;
 
   -- Prendre la course sans avoir touché « Reçu » vaut acceptation.
   perform set_config('bizzoo.livraison', 'oui', true);
@@ -620,7 +638,8 @@ begin
         'Frais de livraison : ' || public.montant_lisible((fiche ->> 'frais')::numeric, fiche ->> 'devise') || E'\n' ||
         'Déjà payé : ' || public.montant_lisible((fiche ->> 'deja_paye')::numeric, fiche ->> 'devise') || E'\n' ||
         case when (fiche ->> 'a_encaisser')::numeric > 0
-             then 'À récupérer : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise')
+             then 'Reste à payer par MoMoPay : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise') ||
+                  ' (pas d''espèces)'
              else 'Rien à récupérer : tout est payé.' end || E'\n' ||
         'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);

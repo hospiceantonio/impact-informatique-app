@@ -4,14 +4,15 @@
    La base garde l'encaissement (supabase/tests/99zzzzzzzzzzz-reste-
    livraison.sql). Ce banc regarde les écrans :
 
-     1. LE LIVREUR : « Je l'ai remise » ouvre la feuille — montant déjà
-        rempli, espèces ou Mobile Money à choisir, un motif dès que le
-        montant change ; ce qui part vers « remettre_course » ; « Ma
-        caisse » en tête ; la course remise dit ce qu'il a encaissé ;
-     2. LA CAISSE : l'administrateur voit, livreur par livreur, ce qu'on
-        lui doit ; « Argent reçu du livreur » appelle « marquer_remis »
-        avec les bons identifiants ; les contestations et les remises
-        sans déclaration ont leur place ; un modérateur n'y entre pas ;
+     1. LE LIVREUR, PLUS D'ESPÈCES : « Je l'ai remise » montre au client
+        le code MoMoPay de BIZZOO et le montant, en grand ; pas de choix
+        « espèces » ; sans numéro de transaction, rien ne part ; avec,
+        « remettre_course(…, mobile_money, transaction) » ; la course
+        remise dit « payé par MoMoPay, rien à rendre » ; sans code
+        enregistré, on ne remet pas ;
+     2. LA CAISSE : « MoMoPay à vérifier » en tête ; la boutique le voit,
+        mais seul BIZZOO touche « Vérifié » ; l'argent liquide d'avant
+        reste « à rendre » ; un modérateur n'y entre pas ;
      3. LE CLIENT : son reçu dit « Payé à la livraison », « Commande
         soldée », et « Ce n'est pas exact » appelle
         « contester_encaissement ».
@@ -39,6 +40,7 @@ const plat = (s) => s.replace(/[  ]/g, " ").replace(/\s+/g, " ");
 const PORTEUR = "cccccccc-1111-1111-1111-111111111111";
 const CHEF = "22222222-2222-2222-2222-222222222222";
 const MODO = "33333333-2222-2222-2222-222222222222";
+const SUP = "11111111-1111-1111-1111-111111111111";
 const PROFILS = {
   [PORTEUR]: { id: PORTEUR, email: "porteur@alpha.bj", nom: "Kodjo", role: "livreur", actif: true,
     peut_modifier_produits: true, boutique_id: "bou_a" },
@@ -46,11 +48,14 @@ const PROFILS = {
     peut_modifier_produits: true, boutique_id: "bou_a" },
   [MODO]: { id: MODO, email: "modo@alpha.bj", nom: "Modo", role: "moderateur", actif: true,
     peut_modifier_produits: true, boutique_id: "bou_a" },
+  [SUP]: { id: SUP, email: "sup@bizzoo.bj", nom: "Sup", role: "superadministrateur", actif: true,
+    peut_modifier_produits: true, boutique_id: null },
 };
 const fiche = (o = {}) => ({ numero: "BZ-000090",
   retrait: { boutique: "Alpha", adresse: "Ganhi", tel: "0197111222", indicatif: "229" },
   livraison: { nom: "Afi", adresse: "Fidjrossè", note: "", tel: "97666007", indicatif: "229" },
-  devise: "FCFA", frais: 1000, deja_paye: 3000, a_encaisser: 7000, encaisse: null, ...o });
+  devise: "FCFA", frais: 1000, deja_paye: 3000, a_encaisser: 7000, encaisse: null,
+  momopay: { code: "123456", nom: "BIZZOO SARL" }, ...o });
 const course = (o = {}) => ({ commande_id: "cmd_r", numero: "BZ-000090", boutique_id: "bou_a",
   nom_boutique: "Alpha", client_nom: "Afi", client_tel: "97666007", client_indicatif: "229",
   client_adresse: "Fidjrossè", note: "", etat: "en_livraison",
@@ -62,8 +67,8 @@ const CAISSE = [
     mode: "especes", motif: "", encaisse_le: "2026-10-20T10:00:00Z", remis_le: null, remis_par_nom: "",
     conteste_le: null, conteste_motif: "", declare: true, devise: "FCFA" },
   { id: 12, commande_id: "c2", numero: "BZ-000092", boutique_id: "bou_a", nom_boutique: "Alpha",
-    livreur_id: PORTEUR, livreur_nom: "Kodjo", livreur_tel: "0196200001", du: 7000, montant: 6500,
-    mode: "mobile_money", motif: "Remise de 500 accordée", encaisse_le: "2026-10-20T11:00:00Z",
+    livreur_id: PORTEUR, livreur_nom: "Kodjo", livreur_tel: "0196200001", du: 6500, montant: 6500,
+    mode: "mobile_money", motif: "MoMoPay — transaction MP1234567", encaisse_le: "2026-10-20T11:00:00Z",
     remis_le: null, remis_par_nom: "", conteste_le: "2026-10-20T12:00:00Z",
     conteste_motif: "J'ai payé 5 000", declare: true, devise: "FCFA" },
   { id: null, commande_id: "c3", numero: "BZ-000093", boutique_id: "bou_a", nom_boutique: "Alpha",
@@ -95,7 +100,7 @@ async function ouvrirAdmin({ moi, hash, courses = [], caisse = null, lignesCaiss
         .observe(zone, { childList: true, subtree: true });
     });
   }, { moi, email: PROFILS[moi].email });
-  const serveur = { appels: [] };
+  const serveur = { appels: [], ecritures: [] };
   let liste = courses;
   await page.route("**/rest/v1/**", (route) => {
     const req = route.request();
@@ -105,6 +110,12 @@ async function ouvrirAdmin({ moi, hash, courses = [], caisse = null, lignesCaiss
     if (c.startsWith("rpc/")) {
       serveur.appels.push({ fn: c.slice(4), corps: (() => { try { return req.postDataJSON(); } catch (_) { return null; } })() });
     }
+    if (req.method() !== "GET" && !c.startsWith("rpc/")) {
+      serveur.ecritures.push({ table: c.split("?")[0], methode: req.method(),
+        corps: (() => { try { return req.postDataJSON(); } catch (_) { return null; } })() });
+    }
+    if (c.startsWith("paiement")) return d([{ id: 1, actif: true, fournisseur: "feexpay", taux_acompte: 10,
+      frais_livraison: 1000, momopay_code: "", momopay_nom: "" }]);
     if (c.startsWith("profils")) {
       const id = (u.searchParams.get("id") || "").replace(/^eq\./, "");
       return d(id ? [PROFILS[id]].filter(Boolean) : Object.values(PROFILS));
@@ -117,10 +128,11 @@ async function ouvrirAdmin({ moi, hash, courses = [], caisse = null, lignesCaiss
     if (c === "rpc/caisse_livreurs") return d(lignesCaisse);
     if (c === "rpc/remettre_course") {
       liste = liste.map((l) => ({ ...l, etat: "remise", fiche: fiche({
-        encaisse: { montant: 7000, mode: "especes", encaisse_le: "2026-10-20T10:00:00Z", remis_le: null } }) }));
+        encaisse: { montant: 7000, mode: "mobile_money", encaisse_le: "2026-10-20T10:00:00Z", remis_le: null,
+          transaction: "MP1234567" } }) }));
       return d({ lignes: 1 });
     }
-    if (c === "rpc/marquer_remis") return d(2);
+    if (c === "rpc/marquer_remis") return d(1);
     if (c.startsWith("rpc/")) return d(null);
     if (c.startsWith("boutiques")) return d([{ id: "bou_a", nom: "Alpha", categorie_id: "cat_hightech",
       icone: "magasin", couleur: "#0047D9", devise: "FCFA", indicatif: "229", whatsapp: "97000001",
@@ -139,39 +151,51 @@ async function ouvrirAdmin({ moi, hash, courses = [], caisse = null, lignesCaiss
 }
 const toasts = (page) => page.evaluate(() => (window.__toasts || []).join(" | "));
 
-titre("1. Le livreur déclare ce qu'il encaisse");
+titre("1. Le livreur : MoMoPay, plus d'espèces");
 {
   const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ moi: PORTEUR, courses: [course()],
     caisse: { a_remettre: 3000, courses: 1, boutiques: [{ boutique: "Alpha", montant: 3000 }] } });
   await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
-  ok(/Ma caisse : 3 000 FCFA à rendre/.test(plat(await page.evaluate(() =>
-    (document.querySelector("#lv-caisse") || {}).innerText || ""))), "« Ma caisse : 3 000 FCFA à rendre », en tête");
+  const avant = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
+  ok(/À payer par MoMoPay : 7 000 FCFA/.test(avant) && /Pas d'espèces/.test(avant),
+    "la course : « À payer par MoMoPay : 7 000 FCFA — pas d'espèces »");
   await page.click('.lv-avancer[data-vers="remise"]');
   await page.waitForTimeout(500);
-  ok(await page.evaluate(() => (document.querySelector("#lv-montant") || {}).value) === "7000",
-    "la feuille propose ce que le client devait : 7 000");
-  ok(await page.evaluate(() => document.querySelector("#lv-motif-champ").hidden), "pas de motif tant que c'est le dû");
+  const f = await page.evaluate(() => ({
+    code: (document.querySelector("#lv-momo-code") || {}).textContent || "",
+    montant: (document.querySelector("#lv-momo-montant") || {}).textContent || "",
+    especes: !!document.querySelector('[data-mode="especes"]') || /En espèces/.test(document.body.innerText),
+    nom: /BIZZOO SARL/.test((document.querySelector("#lv-momo") || {}).textContent || "") }));
+  ok(f.code === "123456" && plat(f.montant) === "7 000 FCFA" && f.nom,
+    "la feuille montre au client le code MoMoPay 123456, BIZZOO SARL, et 7 000 FCFA");
+  ok(!f.especes, "pas de choix « En espèces »");
   await page.click("#lv-remettre");
   await page.waitForTimeout(400);
-  ok(/espèces ou Mobile Money/.test(await toasts(page)) &&
-     !serveur.appels.some((a) => a.fn === "remettre_course"), "sans façon de payer : on la demande, rien ne part");
-  await page.fill("#lv-montant", "5000");
-  await page.dispatchEvent("#lv-montant", "input");
-  ok(await page.evaluate(() => !document.querySelector("#lv-motif-champ").hidden), "5 000 : le motif apparaît");
-  await page.fill("#lv-montant", "7000");
-  await page.dispatchEvent("#lv-montant", "input");
-  await page.click('[data-mode="especes"]');
+  ok(/numéro de la transaction/.test(await toasts(page)) &&
+     !serveur.appels.some((a) => a.fn === "remettre_course"), "sans numéro de transaction : on le demande, rien ne part");
+  await page.fill("#lv-transaction", "MP 1234567");
   await page.click("#lv-remettre");
   await page.waitForTimeout(1500);
   const appel = serveur.appels.find((a) => a.fn === "remettre_course");
   ok(appel && appel.corps.commande === "cmd_r" && appel.corps.boutique === "bou_a" &&
-     appel.corps.montant === 7000 && appel.corps.mode === "especes",
-    "remettre_course(cmd_r, bou_a, 7000, especes)");
+     appel.corps.montant === 7000 && appel.corps.mode === "mobile_money" && appel.corps.motif === "MP 1234567",
+    "remettre_course(cmd_r, bou_a, 7000, mobile_money, « MP 1234567 »)");
   ok(!serveur.appels.some((a) => a.fn === "avancer_livraison"), "et pas l'ancien « Je l'ai remise » muet");
   const t = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
-  ok(/Encaissé : 7 000 FCFA \(espèces\)/.test(t) && /À rendre à la boutique/.test(t),
-    "la course remise : « Encaissé : 7 000 FCFA (espèces) — À rendre à la boutique »");
+  ok(/Payé : 7 000 FCFA \(MoMoPay\)/.test(t) && /Transaction MP1234567/.test(t) && /rien à rendre/.test(t),
+    "la course remise : « Payé : 7 000 FCFA (MoMoPay) — Transaction MP1234567 — rien à rendre »");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  const { page, ctx, serveur } = await ouvrirAdmin({ moi: PORTEUR,
+    courses: [course({ fiche: fiche({ momopay: { code: "", nom: "" } }) })] });
+  await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
+  await page.click('.lv-avancer[data-vers="remise"]');
+  await page.waitForTimeout(400);
+  ok(await page.evaluate(() => !!document.querySelector("#lv-sans-code") && !document.querySelector("#lv-remettre")),
+    "BIZZOO n'a pas de code MoMoPay : on le dit, et pas de bouton pour remettre");
+  ok(!serveur.appels.some((a) => a.fn === "remettre_course"), "rien ne part");
   await ctx.close();
 }
 {
@@ -180,8 +204,8 @@ titre("1. Le livreur déclare ce qu'il encaisse");
   await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
   await page.click('.lv-avancer[data-vers="remise"]');
   await page.waitForTimeout(400);
-  ok(await page.evaluate(() => !document.querySelector("#lv-montant") &&
-    /Rien à encaisser/.test(document.body.innerText)), "tout payé : « Rien à encaisser », pas de montant");
+  ok(await page.evaluate(() => !document.querySelector("#lv-momo") &&
+    /Rien à payer/.test(document.body.innerText)), "tout payé : « Rien à payer », pas de code");
   await page.click("#lv-remettre");
   await page.waitForTimeout(1200);
   const appel = serveur.appels.find((a) => a.fn === "remettre_course");
@@ -189,26 +213,40 @@ titre("1. Le livreur déclare ce qu'il encaisse");
   await ctx.close();
 }
 
-titre("2. La caisse des livreurs");
+titre("2. La caisse : MoMoPay à vérifier par BIZZOO");
 {
   const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ moi: CHEF, hash: "#/caisse" });
-  await page.waitForSelector(".cs-livreur", { timeout: 6000 }).catch(() => {});
+  await page.waitForSelector("#cs-a-verifier", { timeout: 6000 }).catch(() => {});
   const t = plat(await page.evaluate(() => document.getElementById("vue").innerText));
-  ok(/À rendre par les livreurs : 13 500 FCFA/i.test(t), "« À rendre par les livreurs : 13 500 FCFA »");
-  const carte = plat(await page.evaluate(() => (document.querySelector(".cs-livreur") || {}).innerText || ""));
-  ok(/Kodjo/.test(carte) && /13 500 FCFA/.test(carte) && /BZ-000091/.test(carte) && /BZ-000092/.test(carte),
-    "Kodjo : 13 500, ses deux courses");
-  ok(/Dû : 7 000 FCFA — « Remise de 500 accordée »/.test(carte), "l'écart et son motif");
-  ok(/Contesté par le client : « J'ai payé 5 000 »/.test(carte), "la contestation du client");
-  ok(/Contestés par le client \(1\)/i.test(t), "la section « Contestés »");
+  ok(/MoMoPay à vérifier : 6 500 FCFA/i.test(t) && /MoMoPay — transaction MP1234567/.test(t),
+    "« MoMoPay à vérifier : 6 500 FCFA », avec la transaction");
+  ok(!(await page.$(".cs-verifier")) && /BIZZOO les vérifie/.test(t),
+    "la boutique le voit, mais ne peut pas le marquer vérifié");
+  ok(/À rendre par les livreurs : 7 000 FCFA/i.test(t), "l'argent liquide d'avant : « À rendre : 7 000 FCFA »");
+  ok(/Contesté par le client : « J'ai payé 5 000 »/.test(t) && /Contestés par le client \(1\)/i.test(t),
+    "la contestation du client");
   ok(/Remis sans déclaration \(1\)/i.test(t) && /BZ-000093/.test(t), "la remise sans déclaration, à vérifier");
-  ok(await page.evaluate(() => !!document.querySelector("#cs-rendus")) && /Déjà rendu \(1/i.test(t), "ce qui est déjà rendu, replié");
+  ok(await page.evaluate(() => !!document.querySelector("#cs-rendus")) && /Déjà rendu ou vérifié \(1/i.test(t),
+    "ce qui est déjà rendu, replié");
   await page.click(".cs-rendre");
   await page.waitForTimeout(400);
   await page.click('[data-role="ok"]');
   await page.waitForTimeout(1200);
   const appel = serveur.appels.find((a) => a.fn === "marquer_remis");
-  ok(appel && JSON.stringify(appel.corps.ids) === "[11,12]", "« Argent reçu du livreur » : marquer_remis([11, 12])");
+  ok(appel && JSON.stringify(appel.corps.ids) === "[11]", "« Argent reçu du livreur » : marquer_remis([11])");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ moi: SUP, hash: "#/caisse" });
+  await page.waitForSelector(".cs-verifier", { timeout: 6000 }).catch(() => {});
+  ok(!!(await page.$(".cs-verifier")), "BIZZOO a le bouton « Vérifié sur le compte MoMoPay »");
+  await page.click(".cs-verifier");
+  await page.waitForTimeout(400);
+  await page.click('[data-role="ok"]');
+  await page.waitForTimeout(1200);
+  const appel = serveur.appels.find((a) => a.fn === "marquer_remis");
+  ok(appel && JSON.stringify(appel.corps.ids) === "[12]", "« Vérifié » : marquer_remis([12])");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -224,6 +262,33 @@ titre("2. La caisse des livreurs");
   await page.waitForTimeout(800);
   ok(/Réservé à l'administrateur/.test(await page.evaluate(() => document.getElementById("vue").innerText)) &&
      !serveur.appels.some((a) => a.fn === "caisse_livreurs"), "un modérateur : « Réservé à l'administrateur »");
+  await ctx.close();
+}
+
+titre("4. Les Réglages : le code MoMoPay de BIZZOO");
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ moi: SUP, hash: "#/reglages" });
+  /* Les réglages de l'enseigne sont sous leur onglet. */
+  if (await page.$('[data-cible="enseigne"]')) {
+    await page.click('[data-cible="enseigne"]');
+    await page.waitForTimeout(800);
+  }
+  await page.waitForSelector("#momo-code", { timeout: 6000 }).catch(() => {});
+  ok(!!(await page.$("#momo-code")), "le superadministrateur a la carte « MoMoPay — le reste à la livraison »");
+  await page.fill("#momo-code", " 123 456 ");
+  await page.fill("#momo-nom", "BIZZOO SARL");
+  await page.click("#momo-enregistrer");
+  await page.waitForTimeout(1200);
+  const w = serveur.ecritures.find((x) => x.table === "paiement" && x.methode === "PATCH");
+  ok(w && w.corps.momopay_code === "123456" && w.corps.momopay_nom === "BIZZOO SARL",
+    "enregistré : momopay_code 123456, BIZZOO SARL");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrirAdmin({ moi: CHEF, hash: "#/reglages" });
+  await page.waitForTimeout(800);
+  ok(!(await page.$("#momo-code")), "un administrateur de boutique ne la voit pas");
   await ctx.close();
 }
 
@@ -281,13 +346,13 @@ titre("3. Le client voit son reste payé, et peut le contester");
 {
   const suivi = { numero: "BZ-000090", etat: "payee", total: 10000, devise: "FCFA", reste: 7000,
     restes: { bou_a: 7000 }, paye_livraison: 7000,
-    encaissements: { bou_a: { montant: 7000, mode: "especes", encaisse_le: "2026-10-20T13:30:00Z",
+    encaissements: { bou_a: { montant: 7000, mode: "mobile_money", encaisse_le: "2026-10-20T13:30:00Z",
       livreur: "Kodjo", conteste: false } } };
   const { page, ctx, erreurs, serveur } = await ouvrirClient({ suivi });
   await page.waitForSelector(".re-encaisse:not([hidden])", { timeout: 6000 }).catch(() => {});
   const z = plat(await page.evaluate(() => (document.querySelector(".re-encaisse") || {}).innerText || ""));
-  ok(/Payé à la livraison/i.test(z) && /7 000 FCFA/.test(z) && /à Kodjo/.test(z) && /en espèces/.test(z),
-    "« Payé à la livraison : 7 000 FCFA — à Kodjo, en espèces »");
+  ok(/Payé à la livraison/i.test(z) && /7 000 FCFA/.test(z) && /à Kodjo/.test(z) && /par MoMoPay/.test(z),
+    "« Payé à la livraison : 7 000 FCFA — à Kodjo, par MoMoPay »");
   const tete = plat(await page.evaluate(() => (document.querySelector(".re-entete") || {}).innerText || ""));
   ok(/Commande soldée/.test(tete) && /Soldée/.test(tete), "« Commande soldée », et le badge « Soldée »");
   await page.click(".re-contester");

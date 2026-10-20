@@ -64,7 +64,7 @@ select essai.verifie(:'alerte' like '%Livrer à : Afi — Fidjrossè, près de l
 select essai.verifie(:'alerte' like '%Destinataire : +229 97666005%', 'le numéro du destinataire');
 select essai.verifie(:'alerte' like '%Frais de livraison : 1 000 FCFA%', 'les frais de livraison');
 select essai.verifie(:'alerte' like '%Déjà payé : 3 000 FCFA%', 'ce que le client a déjà payé');
-select essai.verifie(:'alerte' like '%À récupérer : 7 000 FCFA%', 'ce qu''il reste à récupérer');
+select essai.verifie(:'alerte' like '%Reste à payer par MoMoPay : 7 000 FCFA (pas d''espèces)%', 'ce qu''il reste à payer, par MoMoPay');
 select essai.verifie(:'alerte' not like '%9 000%', 'pas le prix des articles');
 
 select essai.devenir(:LIV1::uuid); set role authenticated;

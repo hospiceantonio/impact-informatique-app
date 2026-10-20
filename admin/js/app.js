@@ -42,7 +42,10 @@
     /* Valider un revendeur, c'est lui ouvrir le prix BIZZOO dans TOUTES
        les boutiques : la décision appartient à l'enseigne seule. */
     /* « adminBizzoo » : l'administrateur de BIZZOO y entre aussi (3.59.0). */
-    { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), super: true, adminBizzoo: true },
+    /* (3.59.0) L'administrateur d'une boutique y entre aussi, pour CRÉER un
+       revendeur ; la validation reste à BIZZOO, l'écran ne la lui montre pas. */
+    { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
     /* Les fiches clients : l'enseigne seule. Une boutique voit déjà le
        nom et le numéro sur SES commandes ; lui ouvrir le fichier entier,
        ce serait lui remettre celui de toutes les autres. La base rend

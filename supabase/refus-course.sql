@@ -264,9 +264,13 @@ begin
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
     'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
-                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le)
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
                    from public.encaissements x
-                  where x.commande_id = commande and x.boutique_id = boutique));
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
 end $$;
 revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
 
@@ -583,7 +587,8 @@ begin
         'Frais de livraison : ' || public.montant_lisible((fiche ->> 'frais')::numeric, fiche ->> 'devise') || E'\n' ||
         'Déjà payé : ' || public.montant_lisible((fiche ->> 'deja_paye')::numeric, fiche ->> 'devise') || E'\n' ||
         case when (fiche ->> 'a_encaisser')::numeric > 0
-             then 'À récupérer : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise')
+             then 'Reste à payer par MoMoPay : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise') ||
+                  ' (pas d''espèces)'
              else 'Rien à récupérer : tout est payé.' end || E'\n' ||
         'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);

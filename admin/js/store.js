@@ -1004,8 +1004,25 @@ const Store = (() => {
   }
 
   /** Ce compte est-il sous ma responsabilité ? */
+  /* CEUX QUI VOUS ONT CRÉÉ (3.59.0) : votre créateur, le sien, et ainsi
+     de suite. On ne modifie pas leurs droits — la base le refuse, l'écran
+     ne propose donc pas de crayon. Recalculé à chaque lecture des comptes. */
+  let mesCreateurs = new Set();
+  function calculerCreateurs(comptes) {
+    const parId = new Map(comptes.map((c) => [c.id, c]));
+    const vus = new Set();
+    let ici = parId.get(Supabase.identifiant());
+    while (ici && ici.creePar && !vus.has(ici.creePar) && vus.size < 20) {
+      vus.add(ici.creePar);
+      ici = parId.get(ici.creePar);
+    }
+    mesCreateurs = vus;
+  }
+  const estMonCreateur = (c) => !!c && mesCreateurs.has(c.id);
+
   function gereLeCompte(c) {
     if (!c) return false;
+    if (estMonCreateur(c)) return false;
     if (Supabase.estSuper()) return true;
     /* LES DEUX RANGS QU'UN ADMINISTRATEUR NOMME, ET DONC LES DEUX
        QU'IL DOIT POUVOIR REPRENDRE. Le livreur manquait ici alors que
@@ -1102,7 +1119,9 @@ const Store = (() => {
   async function listerComptes() {
     const lignes = await Supabase.requete("GET",
       "profils?select=*&order=role.asc,email.asc", undefined, { avecSession: true });
-    return (lignes || []).map(compteDepuisLigne);
+    const comptes = (lignes || []).map(compteDepuisLigne);
+    calculerCreateurs(comptes);
+    return comptes;
   }
 
   /**
@@ -1199,8 +1218,9 @@ const Store = (() => {
     if (t.replace(/\D/g, "").length < 8) throw new Error("Indiquez son numéro de téléphone.");
     if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
     if (String(adresse || "").trim().length < 3) throw new Error("Indiquez l'adresse de son commerce.");
-    if (!(Supabase.estSuper() || Supabase.estAdminBizzoo())) {
-      throw new Error("Seul BIZZOO crée un compte revendeur.");
+    /* (3.59.0) Tout administrateur crée un revendeur ; BIZZOO seul le valide. */
+    if (!(Supabase.estSuper() || Supabase.estAdminBizzoo() || Supabase.estAdmin())) {
+      throw new Error("Seul un administrateur crée un compte revendeur.");
     }
     const cree = await Supabase.creerCompteTelephone(t, motDePasse, { compte: "client", nom: n });
     await Supabase.rpc("creer_fiche_revendeur", {
@@ -2324,7 +2344,25 @@ const Store = (() => {
       tauxAcompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
       /* Les frais de livraison par commande. Même règle. */
       fraisLivraison: l.frais_livraison == null ? null : Number(l.frais_livraison),
+      /* Le code MoMoPay de BIZZOO (3.59.0) : le reste se paie à la porte
+         sur ce compte. Une base d'avant ne le connaît pas : null. */
+      momopayCode: l.momopay_code == null ? null : String(l.momopay_code),
+      momopayNom: l.momopay_nom == null ? "" : String(l.momopay_nom),
     };
+  }
+
+  /** Le code MoMoPay de BIZZOO, que le livreur montre au client. */
+  async function majMomopay(code, nom) {
+    const propre = String(code || "").replace(/\s+/g, "").slice(0, 30);
+    if (propre && !/^[0-9A-Za-z*#-]{3,30}$/.test(propre)) {
+      throw new Error("Le code MoMoPay ne porte que des chiffres ou des lettres.");
+    }
+    await Supabase.requete("PATCH", "paiement?id=eq.1", {
+      momopay_code: propre, momopay_nom: String(nom || "").trim().slice(0, 60),
+      maj_le: new Date().toISOString() });
+    journaliser("boutique", "modification",
+      propre ? "Code MoMoPay enregistré : " + propre : "Code MoMoPay retiré", "momopay", undefined, null);
+    return propre;
   }
 
   async function majPaiement(maj) {
@@ -3715,7 +3753,7 @@ const Store = (() => {
   return {
     MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, ALERTE_VIDEO_MO,
     MAX_PHOTOS_BOUTIQUE,
-    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte,
+    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte, estMonCreateur,
     prixPublic, prixRevendeur, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     lireEnseigne, majEnseigne, videoBoutique, sauverVideoBoutique,
@@ -3749,7 +3787,7 @@ const Store = (() => {
     statutCommande,
     statistiquesVentes,
     statistiquesBoutique,
-    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, lireRegles, majRegles,
+    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, majMomopay, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,
     annulerAction,

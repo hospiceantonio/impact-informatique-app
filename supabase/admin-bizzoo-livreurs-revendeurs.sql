@@ -13,6 +13,27 @@
 -- =========================================================
 
 -- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.est_mon_createur(cible uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return cible is not null and auth.uid() is not null and cible <> auth.uid() and exists (
+  with recursive chaine(id, cran, vus) as (
+    select p.cree_par, 1, array[p.id]
+      from public.profils p
+     where p.id = auth.uid() and p.cree_par is not null
+    union all
+    select p.cree_par, c.cran + 1, c.vus || p.id
+      from chaine c
+      join public.profils p on p.id = c.id
+     where p.cree_par is not null and c.cran < 20 and not (p.id = any(c.vus))
+  )
+  select 1 from chaine where chaine.id = cible);
+end $$;
+revoke all on function public.est_mon_createur(uuid) from public, anon;
+grant execute on function public.est_mon_createur(uuid) to authenticated;
+
+
 create or replace function public.droit_enseigne(lequel text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_compte_enseigne() and coalesce((
@@ -160,8 +181,10 @@ create or replace function public.creer_fiche_revendeur(
 returns text
 language plpgsql security definer set search_path = public as $$
 begin
-  if not (public.est_super() or public.est_admin_bizzoo()) then
-    raise exception 'Seul BIZZOO crée un compte revendeur';
+  -- (3.59.0) L'administrateur d'une boutique aussi : il crée la fiche, la
+  -- demande reste EN ATTENTE, et BIZZOO seul la valide.
+  if not (public.est_super() or public.est_admin_bizzoo() or public.est_admin()) then
+    raise exception 'Seul un administrateur crée un compte revendeur';
   end if;
   if not exists (select 1 from auth.users u
                   where u.id = cible and u.created_at > now() - interval '1 hour') then
@@ -201,7 +224,7 @@ drop policy if exists "profils ajout admin" on public.profils;
 create policy "profils ajout admin" on public.profils
   for insert to authenticated with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- L'administrateur de BIZZOO crée des livreurs, et rien d'autre.
     or (public.est_admin_bizzoo() and role = 'livreur'));
@@ -209,15 +232,16 @@ drop policy if exists "profils modification admin" on public.profils;
 create policy "profils modification admin" on public.profils
   for update to authenticated
   using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    -- (3.59.0) Le superadministrateur, sauf sur celui qui l'a créé.
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
     or (public.est_admin_bizzoo() and role = 'livreur'))
   with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
     -- de personne un administrateur ni un modérateur.
@@ -225,8 +249,8 @@ create policy "profils modification admin" on public.profils
 drop policy if exists "profils suppression admin" on public.profils;
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin_bizzoo() and role = 'livreur'));
 drop policy if exists "positions livreurs lecture" on public.positions_livreurs;

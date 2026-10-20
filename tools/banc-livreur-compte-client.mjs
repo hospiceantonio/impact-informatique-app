@@ -111,7 +111,7 @@ titre("1. Le compte du livreur : pas un acheteur");
   ok(/À livrer \(1\)/.test(c) && /BZ-101/.test(c) && /En livraison/.test(c), "à livrer : la commande BZ-101, en livraison");
   ok(/Livrées \(1\)/.test(c) && /BZ-099/.test(c), "livrées : BZ-099");
   ok(/Afi/.test(c) && /Fidjrossè/.test(c) && /2 × Câble/.test(c), "le client, l'adresse, les articles");
-  ok(/À encaisser : 3\s?500 FCFA/.test(c), "ce qu'il y a à encaisser");
+  ok(/À payer par MoMoPay : 3\s?500 FCFA/.test(c), "ce qu'il y a à encaisser");
   ok(!/Espace vendeur/.test(c) && !(await ilYa(o.page, "#cp-vendeur-ouvrir")),
     "ni sous « Mes courses »");
   sansErreur(o);

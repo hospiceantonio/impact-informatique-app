@@ -113,6 +113,20 @@ const VueAccueil = (() => {
           "</div>" +
         "</div>";
     }
+    /* ---- L'administrateur d'une boutique : ses livreurs, et les
+       revendeurs qu'il peut créer (3.59.0) ---- */
+    if (Supabase.estAdmin() && !Supabase.estSuper() && !Supabase.estCompteEnseigne()) {
+      html +=
+        '<div class="carte" id="ac-livreurs-revendeurs">' +
+          '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Livreurs et revendeurs</div>" +
+          '<p class="aide" style="margin:0 0 10px">Créez les livreurs de votre boutique et des ' +
+            "comptes revendeurs ; BIZZOO valide les revendeurs.</p>" +
+          '<div class="btn-rangee">' +
+            '<a class="btn btn-clair" href="#/livreurs">' + UI.icone("voiture") + "Les livreurs</a>" +
+            '<a class="btn btn-clair" href="#/revendeurs">' + UI.icone("personne") + "Créer un revendeur</a>" +
+          "</div>" +
+        "</div>";
+    }
     if (revendeurs.length) {
       const combien = revendeurs.length + " demande" + (revendeurs.length > 1 ? "s" : "");
       html +=

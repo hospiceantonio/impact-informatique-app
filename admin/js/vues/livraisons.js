@@ -31,12 +31,12 @@
    où le livrer, le numéro du destinataire, les frais, ce qui est
    déjà payé, ce qui reste à récupérer. Aucun prix d'article.
 
-   CE QU'IL ENCAISSE (3.59.0). « Je l'ai remise » ouvre une feuille :
-   le montant reçu du client — déjà rempli avec ce qu'il devait —, et
-   comment il a payé, espèces ou Mobile Money. Un autre montant demande
-   un mot d'explication. La base le garde ; le client le voit sur son
-   reçu ; la boutique le retrouve dans sa caisse. En tête de l'écran,
-   « Ma caisse » : ce qu'il a encaissé et doit encore rendre.
+   PLUS D'ESPÈCES (3.59.0). « Je l'ai remise » ouvre une feuille qui
+   MONTRE AU CLIENT le code MoMoPay de BIZZOO et le montant, en grand. Le
+   client paie depuis son téléphone et reçoit un SMS avec le numéro de la
+   transaction ; le livreur le saisit, et seulement alors le colis se
+   remet. L'argent arrive sur le compte de BIZZOO : le livreur n'a rien
+   en main, rien à rendre. BIZZOO vérifie chaque transaction (Caisse).
    ========================================================= */
 const VueLivraisons = (() => {
 
@@ -85,7 +85,7 @@ const VueLivraisons = (() => {
 
   /* Les trois montants de la course. « À récupérer » en tête, c'est ce
      qu'il réclame avant de remettre le colis. */
-  const MODES = { especes: "espèces", mobile_money: "Mobile Money" };
+  const MODES = { especes: "espèces", mobile_money: "MoMoPay" };
 
   function htmlMontants(c) {
     const f = c.fiche;
@@ -96,16 +96,22 @@ const VueLivraisons = (() => {
         (e
           ? '<div class="lv-encaisser lv-encaisse" data-lv="encaisse">' + UI.icone("check", "ic-sm") +
               (Number(e.montant) > 0
-                ? "Encaissé : <strong>" + Utils.echapper(montant(e.montant, f.devise)) + "</strong>" +
+                ? "Payé : <strong>" + Utils.echapper(montant(e.montant, f.devise)) + "</strong>" +
                   (MODES[e.mode] ? " (" + MODES[e.mode] + ")" : "") +
-                  '<span class="lv-rendu">' + (e.remis_le
-                    ? "Rendu à la boutique le " + Utils.echapper(Utils.fmtDateHeure(e.remis_le))
-                    : "À rendre à la boutique") + "</span>"
-                : "Rien encaissé") + "</div>"
+                  (e.mode === "mobile_money"
+                    ? '<span class="lv-rendu">' + (e.transaction
+                        ? "Transaction " + Utils.echapper(e.transaction) + " — "
+                        : "") + "rien à rendre, l'argent est chez BIZZOO</span>"
+                    : '<span class="lv-rendu">' + (e.remis_le
+                        ? "Rendu à la boutique le " + Utils.echapper(Utils.fmtDateHeure(e.remis_le))
+                        : "À rendre à la boutique") + "</span>")
+                : "Rien à payer") + "</div>"
           : f.a_encaisser > 0
           ? '<div class="lv-encaisser' + (remise ? " lv-encaisse" : "") + '" data-lv="a-recuperer">' +
-              UI.icone("promo", "ic-sm") + (remise ? "Récupéré : " : "À récupérer : ") +
-              "<strong>" + Utils.echapper(montant(f.a_encaisser, f.devise)) + "</strong></div>"
+              UI.icone("promo", "ic-sm") + (remise ? "Payé : " : "À payer par MoMoPay : ") +
+              "<strong>" + Utils.echapper(montant(f.a_encaisser, f.devise)) + "</strong>" +
+              (remise ? "" : '<span class="lv-rendu">Pas d\'espèces : le client paie par MoMoPay.</span>') +
+              "</div>"
           : '<div class="lv-encaisser lv-rien" data-lv="a-recuperer">' + UI.icone("check", "ic-sm") +
               "Rien à récupérer : tout est payé.</div>") +
         '<div class="lv-ligne-montant" data-lv="deja-paye">Déjà payé par le client : <strong>' +
@@ -141,7 +147,7 @@ const VueLivraisons = (() => {
             : "")
           : c.aEncaisser > 0
             ? '<div class="lv-encaisser">' + UI.icone("promo", "ic-sm") +
-                "À encaisser : <strong>" + Utils.echapper(montant(c.aEncaisser)) +
+                "À payer par MoMoPay : <strong>" + Utils.echapper(montant(c.aEncaisser)) +
                 "</strong></div>"
             : '<div class="lv-encaisser lv-rien">' + UI.icone("check", "ic-sm") +
                 "Rien à encaisser : tout est payé.</div>") +
@@ -283,6 +289,9 @@ const VueLivraisons = (() => {
     try {
       [courses, demandes, caisse] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees(),
         Store.maCaisse()]);
+      /* La sonnerie suit ce que l'écran montre (3.59.0) : « Commande
+         reçue » touchée, l'écran se relit, et elle s'arrête. */
+      Notifs.majAlerte(courses, demandes);
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +
@@ -408,54 +417,56 @@ const VueLivraisons = (() => {
 
   /* La feuille de la remise : le montant reçu, la façon de payer, et un
      motif quand ce n'est pas ce qui était dû. */
+  /* LA FEUILLE DE REMISE (3.59.0) : ce qu'on MONTRE AU CLIENT. Le code
+     MoMoPay de BIZZOO et le montant, en très grand, pour qu'il les tape
+     sur son téléphone. Puis le numéro de la transaction, lu sur le SMS
+     qu'il reçoit : sans lui, la base ne laisse pas remettre le colis. */
   function ouvrirRemise(vue, c) {
     const f = c.fiche;
     const du = Math.max(0, Number(f.a_encaisser) || 0);
-    let mode = "";
+    const momo = f.momopay && typeof f.momopay === "object" ? f.momopay : {};
+    const code = String(momo.code || "").trim();
     const corps = UI.ouvrirFeuille("Remettre « " + (f.numero || c.numero || "") + " »",
       (du > 0
-        ? '<p class="aide" style="margin:0 0 12px">Le client devait vous payer <strong>' +
-            Utils.echapper(montant(du, f.devise)) + "</strong>. Indiquez ce que vous avez " +
-            "réellement reçu : il le verra sur son reçu, et la boutique dans sa caisse.</p>" +
-          '<div class="champ"><label for="lv-montant">Montant encaissé</label>' +
-            '<input id="lv-montant" inputmode="numeric" value="' + du + '"></div>' +
-          '<div class="champ"><label>Le client a payé</label>' +
-            '<div class="btn-rangee lv-modes">' +
-              '<button type="button" class="btn btn-clair" data-mode="especes">En espèces</button>' +
-              '<button type="button" class="btn btn-clair" data-mode="mobile_money">Par Mobile Money</button>' +
-            "</div></div>" +
-          '<div class="champ" id="lv-motif-champ" hidden><label for="lv-motif">Pourquoi un autre montant ?</label>' +
-            '<textarea id="lv-motif" rows="2" maxlength="300" ' +
-              'placeholder="Exemple : le client paiera le reste demain à la boutique"></textarea></div>'
-        : '<p class="aide" style="margin:0 0 12px">Rien à encaisser : tout est payé.</p>') +
-      '<button type="button" class="btn" id="lv-remettre">' + UI.icone("check") + "Colis remis</button>");
+        ? (code
+          ? '<div class="lv-momo" id="lv-momo">' +
+              '<div class="lv-momo-titre">Paiement MoMoPay — montrez cet écran au client</div>' +
+              '<div class="lv-momo-etiquette">Code marchand</div>' +
+              '<div class="lv-momo-code" id="lv-momo-code">' + Utils.echapper(code) + "</div>" +
+              (momo.nom ? '<div class="lv-momo-nom">' + Utils.echapper(momo.nom) + "</div>" : "") +
+              '<div class="lv-momo-etiquette">Montant à payer</div>' +
+              '<div class="lv-momo-montant" id="lv-momo-montant">' + Utils.echapper(montant(du, f.devise)) + "</div>" +
+            "</div>" +
+            '<p class="aide" style="margin:12px 0">Le client paie ce montant à ce code MoMoPay depuis ' +
+              "son téléphone, et valide avec son code secret. <strong>Pas d'espèces.</strong> Il reçoit " +
+              "un SMS de confirmation : recopiez ici le numéro de la transaction.</p>" +
+            '<div class="champ"><label for="lv-transaction">Numéro de la transaction (SMS du client)</label>' +
+              '<input id="lv-transaction" autocomplete="off" autocapitalize="characters" maxlength="40" ' +
+                'placeholder="Exemple : 1234567890"></div>' +
+            '<button type="button" class="btn" id="lv-remettre">' + UI.icone("check") +
+              "Paiement reçu — remettre le colis</button>"
+          : '<div class="note-attente" id="lv-sans-code">' + UI.icone("alerte", "ic-sm") +
+              " Le client doit payer <strong>" + Utils.echapper(montant(du, f.devise)) + "</strong> par " +
+              "MoMoPay, mais BIZZOO n'a pas encore enregistré son code MoMoPay. Appelez BIZZOO avant " +
+              "de remettre le colis. Pas d'espèces.</div>")
+        : '<p class="aide" style="margin:0 0 12px">Rien à payer : tout est réglé.</p>' +
+          '<button type="button" class="btn" id="lv-remettre">' + UI.icone("check") + "Colis remis</button>"));
 
-    const champ = UI.$("#lv-montant", corps);
-    const motif = UI.$("#lv-motif-champ", corps);
-    if (champ) {
-      champ.oninput = () => {
-        motif.hidden = (Math.round(Number(champ.value.replace(/\D/g, "")) || 0)) === du;
-      };
-    }
-    for (const m of UI.$$("[data-mode]", corps)) {
-      m.onclick = () => {
-        mode = m.dataset.mode;
-        for (const x of UI.$$("[data-mode]", corps)) x.classList.toggle("lv-mode-choisi", x === m);
-      };
-    }
     const bouton = UI.$("#lv-remettre", corps);
+    if (!bouton) return;
     bouton.onclick = async () => {
-      const recu = champ ? Math.round(Number(champ.value.replace(/\D/g, "")) || 0) : 0;
-      if (recu > 0 && !mode) {
-        UI.toast("Indiquez comment le client a payé : espèces ou Mobile Money.", "err");
+      const champ = UI.$("#lv-transaction", corps);
+      const transaction = champ ? champ.value.trim() : "";
+      if (du > 0 && transaction.replace(/[^A-Za-z0-9]/g, "").length < 4) {
+        UI.toast("Saisissez le numéro de la transaction, lu sur le SMS du client.", "err");
+        if (champ) champ.focus();
         return;
       }
       bouton.disabled = true;
       try {
-        await Store.remettreCourse(c.commandeId, c.boutiqueId, recu, recu > 0 ? mode : "aucun",
-          UI.$("#lv-motif", corps) ? UI.$("#lv-motif", corps).value : "");
+        await Store.remettreCourse(c.commandeId, c.boutiqueId, du, du > 0 ? "mobile_money" : "aucun", transaction);
         UI.fermerFeuille();
-        UI.toast(recu > 0 ? "Course remise : " + montant(recu, f.devise) + " encaissés." : "Course remise.");
+        UI.toast(du > 0 ? "Colis remis : " + montant(du, f.devise) + " payés par MoMoPay." : "Colis remis.");
         afficher(vue);
       } catch (err) {
         UI.toast(err.message, "err");

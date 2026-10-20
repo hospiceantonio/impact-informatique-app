@@ -90,7 +90,7 @@ select essai.devenir(:LIV::uuid); set role authenticated;
 select public.avancer_livraison(:'cmd', 'bou_informatique', 'en_livraison') as av \gset
 select (fiche ->> 'a_encaisser')::int as reste from public.mes_livraisons() where commande_id = :'cmd' \gset
 select essai.verifie(:'reste'::int > 0, 'il reste un montant à encaisser à la porte');
-select public.remettre_course(:'cmd', 'bou_informatique', :'reste'::int, 'mobile_money') as rem \gset
+select public.remettre_course(:'cmd', 'bou_informatique', :'reste'::int, 'mobile_money', 'MPREV0001') as rem \gset
 reset role; select essai.personne();
 select essai.devenir(:REV::uuid); set role authenticated;
 select public.confirmer_reception(:'cmd', 'bou_informatique') as recu \gset
