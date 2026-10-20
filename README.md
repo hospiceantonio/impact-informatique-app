@@ -4678,6 +4678,13 @@ Bancs : [`supabase/tests/99zzzzzzzzzzzzz-appareil-confiance.sql`](supabase/tests
 [`tools/banc-connexion-equipe.mjs`](tools/banc-connexion-equipe.mjs),
 `banc-connexion-sms.mjs` et `banc-connexion-telephone.mjs` adaptés ; contrôle 141.
 
+## Un livreur n'a pas de lien vers l'application admin (3.59.0)
+
+Dans l'application client, la carte **Espace vendeur** (et son bouton *Ouvrir l'espace
+vendeur*) n'apparaît plus pour un livreur — ni sur *Mon compte*, ni sous *Mes courses*. Les
+administrateurs et modérateurs qui ouvrent l'application client la gardent. Banc :
+[`tools/banc-livreur-compte-client.mjs`](tools/banc-livreur-compte-client.mjs).
+
 ## Structure
 
 ```

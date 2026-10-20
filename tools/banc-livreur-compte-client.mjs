@@ -74,7 +74,7 @@ async function ouvrir({ sorte, hash = "#/compte", connecte = true, inscription =
     const d = (x) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
     if (c === "rpc/mon_compte_livreur") return d({ livreur: sorte === "livreur", double: sorte === "double" });
     if (c === "rpc/mes_livraisons") return d(sorte === "livreur" ? COURSES : []);
-    if (c.startsWith("profils")) return d(sorte === "livreur" ? [{ id: MOI }] : []);
+    if (c.startsWith("profils")) return d(sorte === "livreur" || sorte === "equipe" ? [{ id: MOI }] : []);
     if (c.startsWith("clients")) {
       return d(sorte === "livreur" ? [] : [{ id: MOI, nom: "Kossi", tel: "0196000111", indicatif: "229",
         tel_verifie: true, type_compte: "client", revendeur_etat: "aucune", adresse: "Cotonou" }]);
@@ -99,7 +99,9 @@ titre("1. Le compte du livreur : pas un acheteur");
   ok(!(await ilYa(o.page, "#cp-reprendre")) && !/Retrouver mes commandes/.test(t), "pas de « Retrouver mes commandes d'avant »");
   ok(!(await ilYa(o.page, "#cp-verifier")), "pas de « Vérifier par SMS » d'acheteur");
   ok(await ilYa(o.page, 'a[href="#/mes-courses"]') && /Mes courses/.test(t), "« Mes courses » à la place");
-  ok(/Espace vendeur/.test(t), "l'espace vendeur reste proposé");
+  /* (3.59.0) Plus de lien vers l'application admin pour un livreur. */
+  ok(!/Espace vendeur/.test(t) && !(await ilYa(o.page, "#cp-vendeur-ouvrir")),
+    "pas de lien vers l'application admin");
   sansErreur(o);
 
   titre("2. Mes courses");
@@ -110,6 +112,8 @@ titre("1. Le compte du livreur : pas un acheteur");
   ok(/Livrées \(1\)/.test(c) && /BZ-099/.test(c), "livrées : BZ-099");
   ok(/Afi/.test(c) && /Fidjrossè/.test(c) && /2 × Câble/.test(c), "le client, l'adresse, les articles");
   ok(/À encaisser : 3\s?500 FCFA/.test(c), "ce qu'il y a à encaisser");
+  ok(!/Espace vendeur/.test(c) && !(await ilYa(o.page, "#cp-vendeur-ouvrir")),
+    "ni sous « Mes courses »");
   sansErreur(o);
   await o.ctx.close();
 }
@@ -149,6 +153,15 @@ titre("4. Un client ordinaire : rien ne change");
 {
   const o = await ouvrir({ sorte: "client", hash: "#/mes-courses" });
   ok(await o.page.evaluate(() => location.hash) === "#/mes-commandes", "« Mes courses » renvoie un client à ses commandes");
+  await o.ctx.close();
+}
+
+titre("4 bis. Un administrateur ou un modérateur garde son lien vers l'espace vendeur");
+{
+  const o = await ouvrir({ sorte: "equipe" });
+  ok(await ilYa(o.page, "#cp-vendeur-ouvrir") && /Espace vendeur/.test(await texte(o.page)),
+    "« Espace vendeur » et son bouton restent pour l'équipe qui n'est pas livreur");
+  sansErreur(o);
   await o.ctx.close();
 }
 

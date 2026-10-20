@@ -1198,7 +1198,8 @@ const VueCompte = (() => {
 
      Un livreur n'a pas de commandes : il a des courses. La liste vient de
      la base (« mes_livraisons ») : celles à livrer, et celles livrées ces
-     deux derniers jours. Pour les faire avancer, c'est l'espace vendeur.
+     deux derniers jours. (3.59.0) Pas de lien vers l'application admin
+     pour un livreur.
 
      LA FICHE (3.59.0), la même que l'alerte : où récupérer le colis, où
      le livrer, le numéro du destinataire, les frais, le déjà-payé, ce
@@ -1493,6 +1494,10 @@ const VueCompte = (() => {
 
   function carteEspaceVendeur() {
     if (typeof Compte === "undefined" || !Compte.estEquipe()) return "";
+    /* UN LIVREUR N'A PAS DE LIEN VERS L'APPLICATION ADMIN (3.59.0) : il
+       n'y a ni produits, ni commandes, ni réglages à gérer. Son compte
+       client mène à « Mes courses », et c'est tout. */
+    if (Compte.estLivreur()) return "";
     const pont = pontAndroid();
     /* Sur le téléphone, on sait si l'application est installée. Sur le
        web, il n'y a pas de pont : on ouvre la version en ligne à côté. */
