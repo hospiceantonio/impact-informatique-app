@@ -167,7 +167,6 @@ begin
   if not public.session_confirmee() then
     raise exception 'Saisissez d''abord le code reçu par SMS.' using errcode = 'P0001';
   end if;
-  delete from public.appareils_confiance a where a.utilisateur = moi and a.expire_le < now();
   insert into public.appareils_confiance (utilisateur, empreinte, appareil, expire_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), left(coalesce(appareil, ''), 120), fin)
   on conflict (utilisateur, empreinte) do update
@@ -208,7 +207,9 @@ language plpgsql security definer set search_path = public as $$
 declare combien int;
 begin
   if auth.uid() is null then raise exception 'Connectez-vous'; end if;
-  delete from public.appareils_confiance a where a.utilisateur = auth.uid();
+  update public.appareils_confiance a
+     set expire_le = now() - interval '1 second'
+   where a.utilisateur = auth.uid() and a.expire_le > now();
   get diagnostics combien = row_count;
   return combien;
 end $$;
