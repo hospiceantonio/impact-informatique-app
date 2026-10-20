@@ -82,6 +82,13 @@ const VueConnexion = (() => {
       if (Supabase.estNumero(identifiant)) {
         try {
           const r = await Supabase.connexionTelephone(identifiant, mdp);
+          /* Numéro déjà confirmé : entré, sans code (3.59.0). */
+          if (r.entre) {
+            Store.journaliser("compte", "connexion", "Connexion à l'application admin", Supabase.utilisateur());
+            UI.toast("Bienvenue !", "ok");
+            apresConnexion();
+            return;
+          }
           codeTelephone(vue, r, apresConnexion);
         } catch (err) {
           erreur.textContent = err.message || "Connexion impossible.";
@@ -188,9 +195,13 @@ const VueConnexion = (() => {
         UI.marque(72) +
         '<h2 style="font-size:19px;font-weight:800;margin-top:6px">Confirmez votre connexion</h2>' +
         (etat && etat.numero
-          ? '<p class="aide" style="margin:0 0 6px;text-align:center">BIZZOO demande un code ' +
-              "reçu par SMS à chaque connexion. Il part au numéro de votre compte, qui finit " +
+          ? '<p class="aide" style="margin:0 0 6px;text-align:center">Compte superadministrateur : ' +
+              "BIZZOO demande un code reçu par SMS. Il part au numéro de votre compte, qui finit " +
               "par <strong>" + Utils.echapper(etat.fin_numero || "") + "</strong>.</p>" +
+            /* L'APPAREIL DE CONFIANCE (3.59.0) : coché, le code n'est plus
+               demandé sur cet appareil pendant un mois. */
+            '<label class="cx-confiance"><input type="checkbox" id="cx-confiance"> ' +
+              "Faire confiance à cet appareil pendant 1 mois</label>" +
             '<div id="cx-code"></div>'
           : '<p class="aide" style="margin:0 0 6px;text-align:center">Votre compte n\'a pas de ' +
               "numéro enregistré : le code ne peut partir nulle part. Demandez à un " +
@@ -205,10 +216,20 @@ const VueConnexion = (() => {
     };
     if (etat && etat.numero) {
       blocCode(UI.$("#cx-code"), {
-        apres: () => {
+        apres: async () => {
           Store.journaliser("compte", "connexion", "Connexion confirmée par SMS",
             Supabase.utilisateur());
-          UI.toast("Connexion confirmée", "ok");
+          const confiance = UI.$("#cx-confiance");
+          if (confiance && confiance.checked) {
+            try {
+              await Supabase.confierAppareil();
+              UI.toast("Connexion confirmée — plus de code sur cet appareil pendant 1 mois", "ok");
+            } catch (err) {
+              UI.toast("Connexion confirmée, mais l'appareil n'a pas pu être gardé : " + err.message, "err");
+            }
+          } else {
+            UI.toast("Connexion confirmée", "ok");
+          }
           suite();
         },
       });

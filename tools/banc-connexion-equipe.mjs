@@ -91,6 +91,7 @@ async function ouvrir(o) {
     localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "cle-de-banc" }));
     localStorage.setItem("impact-session", JSON.stringify({
       access_token: a.jeton, refresh_token: "r", expire_a: Date.now() + 3600000, email: a.email }));
+    if (a.appareil) localStorage.setItem("bizzoo-appareil-confiance", a.appareil);
     window.__toasts = [];
     document.addEventListener("DOMContentLoaded", () => {
       const zone = document.querySelector("#toasts");
@@ -101,9 +102,10 @@ async function ouvrir(o) {
         }
       }).observe(zone, { childList: true });
     });
-  }, { jeton, email: moi.email });
+  }, { jeton, email: moi.email, appareil: o.appareil || "" });
 
-  const note = { edge: [], codes: [], regler: [], journal: [], lectures: [], signup: [] };
+  const note = { edge: [], codes: [], regler: [], journal: [], lectures: [], signup: [],
+                 confier: [], reconnaitre: [] };
   let etat = o.etat === undefined ? null : { ...o.etat };
   const edge = [...(o.edge || [])];
   const codes = [...(o.codes || [])];
@@ -146,6 +148,16 @@ async function ouvrir(o) {
       note.regler.push(corps);
       if (etat) etat = { ...etat, sms_exige: !!corps.exige };
       return d(!!corps.exige);
+    }
+    /* L'appareil de confiance (3.59.0). */
+    if (c === "rpc/reconnaitre_appareil") {
+      note.reconnaitre.push(JSON.parse(req.postData() || "{}"));
+      if (o.reconnu && etat) etat = { ...etat, session_confirmee: true };
+      return d(!!o.reconnu);
+    }
+    if (c === "rpc/confier_appareil") {
+      note.confier.push(JSON.parse(req.postData() || "{}"));
+      return d(new Date(Date.now() + 30 * 86400000).toISOString());
     }
     if (c === "rpc/clients_liste") return d(o.clients || []);
     if (c === "rpc/client_commandes") return d([]);
@@ -235,6 +247,55 @@ titre("1. Le code avant tout");
   await ctx.close();
 }
 
+titre("1 bis. « Faire confiance à cet appareil pendant 1 mois »");
+{
+  const { page, ctx, erreurs, note } = await ouvrir({ moi: EQUIPE[0], etat: EXIGE,
+    codes: [{ ok: true }] });
+  ok(await page.isVisible("#cx-confiance") && !(await page.isChecked("#cx-confiance")) &&
+     /Faire confiance à cet appareil pendant 1 mois/.test(await texteVue(page)),
+    "la case est là, décochée");
+  ok(note.reconnaitre.length === 0, "sans jeton gardé, on ne demande même pas à la base");
+  await page.check("#cx-confiance");
+  await page.click("#code-demander");
+  await page.waitForTimeout(700);
+  await page.fill("#code-chiffres", "222222");
+  await page.click("#code-valider");
+  await page.waitForTimeout(2600);
+  const conf = note.confier[0] || {};
+  const garde = await page.evaluate(() => localStorage.getItem("bizzoo-appareil-confiance") || "");
+  ok(/^[0-9a-f]{64}$/.test(conf.jeton || "") && conf.jeton === garde,
+    "code rendu, case cochée : confier_appareil part avec le jeton gardé sur l'appareil");
+  ok(/plus de code sur cet appareil pendant 1 mois/.test(await toasts(page)) && await barre(page),
+    "on le lui dit, et l'application s'ouvre");
+  sansErreur(erreurs);
+  await ctx.close();
+}
+{
+  const { page, ctx, note } = await ouvrir({ moi: EQUIPE[0], etat: EXIGE, codes: [{ ok: true }] });
+  await page.click("#code-demander");
+  await page.waitForTimeout(700);
+  await page.fill("#code-chiffres", "222222");
+  await page.click("#code-valider");
+  await page.waitForTimeout(2600);
+  ok(note.confier.length === 0, "case décochée : l'appareil n'est pas gardé");
+  await ctx.close();
+}
+{
+  const jetonGarde = "ab".repeat(32);
+  const { page, ctx, erreurs, note } = await ouvrir({ moi: EQUIPE[0], etat: EXIGE,
+    appareil: jetonGarde, reconnu: true });
+  ok((note.reconnaitre[0] || {}).jeton === jetonGarde, "l'appareil se présente avec son jeton");
+  ok(!(await page.$("#code-demander")) && await barre(page) && note.edge.length === 0,
+    "appareil de confiance : l'application s'ouvre, sans SMS");
+  sansErreur(erreurs);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrir({ moi: EQUIPE[0], etat: EXIGE, appareil: "cd".repeat(32), reconnu: false });
+  ok(!!(await page.$("#code-demander")), "confiance expirée ou oubliée : le code est redemandé");
+  await ctx.close();
+}
+
 titre("2. Les refus se lisent");
 {
   const { page, ctx, erreurs } = await ouvrir({ moi: EQUIPE[1], etat: EXIGE,
@@ -270,7 +331,7 @@ for (const [cas, etat] of [["code non exigé", { ...EXIGE, sms_exige: false }], 
   await ctx.close();
 }
 
-titre("4. Les Réglages : l'interrupteur de toute l'équipe");
+titre("4. Les Réglages : l'interrupteur des superadministrateurs");
 {
   const etatSuper = { equipe: true, sms_exige: false, session_confirmee: false, numero: true,
     fin_numero: "96", tel_verifie: false };
@@ -279,10 +340,14 @@ titre("4. Les Réglages : l'interrupteur de toute l'équipe");
   const carte = () => page.evaluate(() => (document.querySelector("#section-sms-equipe") || {}).innerText || "");
   let t = await carte();
   ok(/Pas exigé pour l'instant/.test(t), "la carte dit que rien n'est exigé");
-  ok(/2 comptes actifs sur 3 ont un numéro ; 1 l'a déjà confirmé/.test(t),
-    "elle compte l'équipe active : 2 sur 3 ont un numéro, 1 l'a confirmé");
-  ok(/Sans numéro, ce compte ne pourrait plus entrer : Awa/.test(t) && !/Koffi/.test(t),
-    "elle nomme qui n'a pas de numéro — pas le compte désactivé");
+  /* (3.59.0) Le code ne vaut plus que pour les superadministrateurs : la
+     carte ne compte qu'eux. Awa, modératrice sans numéro, entre quand même. */
+  ok(/1 superadministrateur sur 1 a un numéro ; 0 l'a déjà confirmé/.test(t),
+    "elle compte les superadministrateurs : 1 sur 1 a un numéro, 0 l'a confirmé");
+  ok(!/Sans numéro/.test(t) && !/Awa/.test(t),
+    "la modératrice sans numéro n'est pas citée : elle n'a pas de code à rendre");
+  ok(/Les autres comptes/.test(t) && /mot de passe seul/.test(t),
+    "la carte dit que les autres comptes entrent avec leur mot de passe seul");
   ok(await page.isDisabled("#sms-equipe-exige"), "l'interrupteur reste fermé tant que le superadmin n'a pas son code");
   ok(/finit par 96/.test(t) && !!(await page.$("#sms-equipe-bloc #code-demander")),
     "il est invité à recevoir d'abord son propre code");
@@ -301,7 +366,7 @@ titre("4. Les Réglages : l'interrupteur de toute l'équipe");
   await page.check("#sms-equipe-exige", { force: true });
   await page.click("#sms-equipe-enregistrer");
   await page.waitForTimeout(500);
-  ok(/Exiger un code SMS de toute l'équipe/.test(await page.evaluate(() => document.body.innerText)),
+  ok(/Exiger un code SMS des superadministrateurs/.test(await page.evaluate(() => document.body.innerText)),
     "allumer demande confirmation");
   await page.click("[data-role=annuler]");
   await page.waitForTimeout(500);
@@ -314,7 +379,7 @@ titre("4. Les Réglages : l'interrupteur de toute l'équipe");
   await page.click("[data-role=ok]");
   await page.waitForTimeout(1500);
   ok((note.regler[0] || {}).exige === true, "confirmé : la base reçoit « exige: true »");
-  ok(/exigé de toute l'équipe/.test(await toasts(page)) && /Exigé à chaque connexion/.test(await carte()),
+  ok(/exigé des superadministrateurs/.test(await toasts(page)) && /Exigé des superadministrateurs/.test(await carte()),
     "et la carte le dit");
   sansErreur(erreurs);
   await ctx.close();

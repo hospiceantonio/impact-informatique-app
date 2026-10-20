@@ -61,7 +61,7 @@ update auth.users set phone_confirmed_at = now() where id = :LIVREUR::uuid;
 select essai.egal((select count(*)::int from public.clients where id = :LIVREUR::uuid),
   0, 'la confirmation de son numéro ne fait pas de lui un client');
 
-select essai.titre('3. Le code de l''équipe exigé : un seul code pour le livreur');
+select essai.titre('3. Le code exigé : il ne vaut plus que pour le superadministrateur');
 insert into auth.users (id, email, phone) values
   (:MODO::uuid, 'modo.code@essai.bj', '2290196000444') on conflict do nothing;
 update public.profils set role = 'moderateur', actif = true, boutique_id = 'bou_informatique',
@@ -73,19 +73,16 @@ select essai.egal(public.role_courant(), 'livreur',
   'entré par numéro + code : le livreur a ses droits');
 reset role; select essai.personne();
 
+-- (3.59.0) LE CODE NE VAUT PLUS QUE POUR LE SUPERADMINISTRATEUR : le
+-- livreur et le modérateur entrent avec leur mot de passe seul.
 select essai.jeton(:LIVREUR::uuid, 'password', '2290196000111'); set role authenticated;
-select essai.egal(coalesce(public.role_courant(), 'aucun'), 'aucun',
-  'mot de passe seul : aucun droit tant que le code n''est pas rendu');
+select essai.egal(public.role_courant(), 'livreur',
+  'mot de passe seul : le livreur a ses droits');
 reset role; select essai.personne();
 
-select essai.jeton(:LIVREUR::uuid, 'otp', ''); set role authenticated;
-select essai.egal(coalesce(public.role_courant(), 'aucun'), 'aucun',
-  'un jeton « otp » sans numéro confirmé ne compte pas');
-reset role; select essai.personne();
-
-select essai.jeton(:MODO::uuid, 'otp', '2290196000444'); set role authenticated;
-select essai.egal(coalesce(public.role_courant(), 'aucun'), 'aucun',
-  'un modérateur garde son code d''équipe à rendre');
+select essai.jeton(:MODO::uuid, 'password', '2290196000444'); set role authenticated;
+select essai.egal(public.role_courant(), 'moderateur',
+  'un modérateur aussi, sans code d''équipe');
 reset role; select essai.personne();
 
 update public.securite_equipe set sms_exige = false;

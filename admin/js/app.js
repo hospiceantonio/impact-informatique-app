@@ -350,7 +350,10 @@
       }
       /* Réseau coupé : « Store.init() » dira ce qu'il en est. */
     }
-    if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee) {
+    /* (3.59.0) Seul le superadministrateur rend un code — et pas sur un
+       appareil auquel il a fait confiance ce mois-ci. */
+    if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee &&
+        !(await Supabase.reconnaitreAppareil())) {
       VueConnexion.codeSms(vue, etat, ouvrirApplication);
       return;
     }

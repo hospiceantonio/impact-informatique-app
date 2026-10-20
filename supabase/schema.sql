@@ -783,9 +783,18 @@ $$;
 
 -- L'équipe est-elle en service ? Oui quand rien n'est exigé ; sinon,
 -- seulement avec une session confirmée.
+--
+-- (3.59.0) LE CODE NE VAUT PLUS QUE POUR LE SUPERADMINISTRATEUR. Les
+-- administrateurs, modérateurs et livreurs entrent avec leur mot de passe
+-- seul : un SMS à chaque connexion pesait sur tout le monde pour protéger
+-- surtout le compte qui peut tout. On lit la table, pas « role_courant »,
+-- qui s'appuie lui-même sur cette fonction.
 create or replace function public.equipe_en_service() returns boolean
 language sql stable security definer set search_path = public as $$
-  select not public.sms_equipe_exige() or public.session_confirmee();
+  select not public.sms_equipe_exige()
+      or public.session_confirmee()
+      or not exists (select 1 from public.profils p
+                      where p.id = auth.uid() and p.role = 'superadministrateur');
 $$;
 revoke all on function public.session_courante() from public, anon;
 revoke all on function public.sms_equipe_exige() from public, anon;
@@ -8496,7 +8505,9 @@ begin
   numero := regexp_replace(coalesce(p.tel, ''), '\D', '', 'g');
   return jsonb_build_object(
     'equipe', true,
-    'sms_exige', public.sms_equipe_exige(),
+    -- (3.59.0) Exigé de ce compte-ci : seul le superadministrateur
+    -- rend un code.
+    'sms_exige', public.sms_equipe_exige() and p.role = 'superadministrateur',
     'session_confirmee', public.session_confirmee(),
     'numero', length(numero) >= 8,
     'fin_numero', case when length(numero) >= 8 then right(numero, 2) else '' end,
@@ -8525,7 +8536,7 @@ begin
     raise exception 'Réservé au superadministrateur';
   end if;
   if voulu and not public.session_confirmee() then
-    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger de toute l''équipe.';
+    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger des superadministrateurs.';
   end if;
   select coalesce(nullif(trim(p.nom), ''), p.email, '') into qui
     from public.profils p where p.id = auth.uid();
@@ -8540,13 +8551,105 @@ begin
   insert into public.journal (famille, action, libelle, cible)
   values ('compte', 'modification',
           case when voulu
-               then 'Connexion de l''équipe : code SMS exigé à chaque connexion'
-               else 'Connexion de l''équipe : code SMS plus exigé' end,
+               then 'Connexion du superadministrateur : code SMS exigé (sauf appareil de confiance)'
+               else 'Connexion du superadministrateur : code SMS plus exigé' end,
           '');
   return voulu;
 end $$;
 revoke all on function public.regler_sms_equipe(boolean) from public, anon;
 grant execute on function public.regler_sms_equipe(boolean) to authenticated;
+
+-- ---------- Les appareils de confiance (3.59.0) ----------
+--
+-- Le superadministrateur qui coche « Faire confiance à cet appareil »
+-- n'y rend plus son code pendant 30 jours. L'appareil garde un jeton
+-- tiré au hasard ; la base n'en garde que l'EMPREINTE — une copie de la
+-- base ne permet pas de se faire passer pour l'appareil. Le mot de passe
+-- reste demandé à chaque connexion : la confiance ne remplace que le SMS.
+create table if not exists public.appareils_confiance (
+  id          bigserial primary key,
+  utilisateur uuid not null references auth.users(id) on delete cascade,
+  empreinte   text not null,
+  appareil    text not null default '',
+  cree_le     timestamptz not null default now(),
+  expire_le   timestamptz not null,
+  constraint appareils_confiance_un unique (utilisateur, empreinte)
+);
+alter table public.appareils_confiance enable row level security;
+revoke all on public.appareils_confiance from public, anon, authenticated;
+revoke all on sequence public.appareils_confiance_id_seq from public, anon, authenticated;
+
+-- Après le code : cet appareil devient de confiance pour 30 jours.
+create or replace function public.confier_appareil(jeton text, appareil text default '')
+returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  fin timestamptz := now() + interval '30 days';
+begin
+  if moi is null then raise exception 'Connectez-vous'; end if;
+  if length(coalesce(jeton, '')) < 32 then raise exception 'Jeton d''appareil invalide'; end if;
+  if not public.session_confirmee() then
+    raise exception 'Saisissez d''abord le code reçu par SMS.' using errcode = 'P0001';
+  end if;
+  delete from public.appareils_confiance a where a.utilisateur = moi and a.expire_le < now();
+  insert into public.appareils_confiance (utilisateur, empreinte, appareil, expire_le)
+  values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), left(coalesce(appareil, ''), 120), fin)
+  on conflict (utilisateur, empreinte) do update
+    set expire_le = excluded.expire_le, cree_le = now(), appareil = excluded.appareil;
+  return fin;
+end $$;
+revoke all on function public.confier_appareil(text, text) from public, anon;
+grant execute on function public.confier_appareil(text, text) to authenticated;
+
+-- À la connexion : un appareil de confiance encore valable confirme la
+-- session sans SMS. Faux sinon — l'écran demande alors le code.
+create or replace function public.reconnaitre_appareil(jeton text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  session uuid := public.session_courante();
+begin
+  if moi is null or session is null or length(coalesce(jeton, '')) < 32 then return false; end if;
+  if not exists (select 1 from public.appareils_confiance a
+                  where a.utilisateur = moi
+                    and a.empreinte = encode(sha256(convert_to(jeton, 'UTF8')), 'hex')
+                    and a.expire_le > now()) then
+    return false;
+  end if;
+  insert into public.sessions_sms (session_id, utilisateur)
+  values (session, moi) on conflict (session_id) do nothing;
+  return true;
+end $$;
+revoke all on function public.reconnaitre_appareil(text) from public, anon;
+grant execute on function public.reconnaitre_appareil(text) to authenticated;
+
+-- « Oublier mes appareils de confiance » : le code sera redemandé
+-- partout, à la prochaine connexion.
+create or replace function public.oublier_appareils()
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int;
+begin
+  if auth.uid() is null then raise exception 'Connectez-vous'; end if;
+  delete from public.appareils_confiance a where a.utilisateur = auth.uid();
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.oublier_appareils() from public, anon;
+grant execute on function public.oublier_appareils() to authenticated;
+
+-- Combien d'appareils de confiance encore valables : l'écran du compte
+-- le dit, et propose de les oublier.
+create or replace function public.mes_appareils_confiance()
+returns int
+language sql stable security definer set search_path = public as $$
+  select count(*)::int from public.appareils_confiance a
+   where a.utilisateur = auth.uid() and a.expire_le > now();
+$$;
+revoke all on function public.mes_appareils_confiance() from public, anon;
+grant execute on function public.mes_appareils_confiance() to authenticated;
 
 -- ---------- Qui a créé le compte ----------
 -- Un nom lisible, figé au moment de la création : « Awa (superadministrateur) ».

@@ -805,9 +805,10 @@ const Compte = (() => {
   /* ---------- Le numéro, le mot de passe, puis le code ----------
 
      LA PORTE D'AUJOURD'HUI. On crée son compte avec son numéro et un
-     mot de passe — pas d'e-mail exigé —, et l'on entre avec les deux,
-     plus un code reçu par SMS. Le mot de passe dit QUI l'on est, le code
-     prouve qu'on tient le téléphone : il faut les deux.
+     mot de passe — pas d'e-mail exigé. Le code reçu par SMS CONFIRME LE
+     NUMÉRO, UNE FOIS, à l'inscription ; ensuite on entre avec le numéro
+     et le mot de passe seuls (3.59.0) : un SMS à chaque connexion coûtait
+     cher, et lassait. Le code reste la porte de « Mot de passe oublié ».
 
      Le mot de passe se vérifie d'abord, auprès de GoTrue. La session
      qu'il ouvre N'EST PAS GARDÉE : elle attend le code, puis elle est
@@ -890,7 +891,13 @@ const Compte = (() => {
     let confirme = true;
     try {
       const d = await appelAuth("token?grant_type=password", { phone: numero, password: motDePasse });
-      jetonDuMotDePasse = (d && d.access_token) || "";
+      /* NUMÉRO DÉJÀ CONFIRMÉ : on entre, sans code (3.59.0). La session du
+         mot de passe est celle qu'on garde. */
+      if (depuisReponse(d, "")) {
+        await assurerFiche("");
+        await chargerPrix();
+        return { numero, entre: true, utilisateur: d.user || null };
+      }
     } catch (err) {
       if (err.code === "phone_not_confirmed") confirme = false;
       else if (/incorrect/.test(err.message || "")) {

@@ -109,7 +109,10 @@ $$;
 -- seulement avec une session confirmée.
 create or replace function public.equipe_en_service() returns boolean
 language sql stable security definer set search_path = public as $$
-  select not public.sms_equipe_exige() or public.session_confirmee();
+  select not public.sms_equipe_exige()
+      or public.session_confirmee()
+      or not exists (select 1 from public.profils p
+                      where p.id = auth.uid() and p.role = 'superadministrateur');
 $$;
 revoke all on function public.session_courante() from public, anon;
 revoke all on function public.sms_equipe_exige() from public, anon;
@@ -434,7 +437,9 @@ begin
   numero := regexp_replace(coalesce(p.tel, ''), '\D', '', 'g');
   return jsonb_build_object(
     'equipe', true,
-    'sms_exige', public.sms_equipe_exige(),
+    -- (3.59.0) Exigé de ce compte-ci : seul le superadministrateur
+    -- rend un code.
+    'sms_exige', public.sms_equipe_exige() and p.role = 'superadministrateur',
     'session_confirmee', public.session_confirmee(),
     'numero', length(numero) >= 8,
     'fin_numero', case when length(numero) >= 8 then right(numero, 2) else '' end,
@@ -463,7 +468,7 @@ begin
     raise exception 'Réservé au superadministrateur';
   end if;
   if voulu and not public.session_confirmee() then
-    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger de toute l''équipe.';
+    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger des superadministrateurs.';
   end if;
   select coalesce(nullif(trim(p.nom), ''), p.email, '') into qui
     from public.profils p where p.id = auth.uid();
@@ -478,8 +483,8 @@ begin
   insert into public.journal (famille, action, libelle, cible)
   values ('compte', 'modification',
           case when voulu
-               then 'Connexion de l''équipe : code SMS exigé à chaque connexion'
-               else 'Connexion de l''équipe : code SMS plus exigé' end,
+               then 'Connexion du superadministrateur : code SMS exigé (sauf appareil de confiance)'
+               else 'Connexion du superadministrateur : code SMS plus exigé' end,
           '');
   return voulu;
 end $$;

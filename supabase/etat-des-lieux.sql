@@ -891,7 +891,17 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'courses_proposees'
-         and p.prosrc like '%refus_courses%'))
+         and p.prosrc like '%refus_courses%')),
+  (141, 'Code SMS : le superadministrateur seul, et l''appareil de confiance (appareils_confiance)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'appareils_confiance')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'reconnaitre_appareil')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'equipe_en_service'
+         and p.prosrc like '%superadministrateur%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

@@ -144,8 +144,9 @@ const Supabase = (() => {
   }
 
   /* ---------- Le numéro, la porte des livreurs ----------
-     Numéro et mot de passe, puis un code reçu par SMS — le même chemin
-     que les clients. Le mot de passe se vérifie d'abord ; la session
+     Numéro et mot de passe. (3.59.0) Le code reçu par SMS ne sert plus
+     qu'une fois, à confirmer le numéro d'un compte qui vient d'être créé ;
+     ensuite le mot de passe suffit, comme pour les clients. Avant : Le mot de passe se vérifie d'abord ; la session
      qu'il ouvre n'est pas gardée : elle attend le code, puis elle est
      fermée. C'est la session du code qui entre, et la base la reconnaît
      (« session_confirmee » : un livreur entré par code n'a pas à en
@@ -180,6 +181,16 @@ const Supabase = (() => {
     try {
       const d = await appelAuth("token?grant_type=password", { phone: numero, password: motDePasse });
       jetonMdp = d.access_token || "";
+      /* Numéro déjà confirmé : on entre, sans code (3.59.0). */
+      if (jetonMdp) {
+        garderSession({
+          access_token: d.access_token,
+          refresh_token: d.refresh_token,
+          expire_a: (d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000),
+          email: (d.user && d.user.email) || telAffichage(numero),
+        });
+        return { numero, affichage: telAffichage(numero), entre: true };
+      }
     } catch (err) {
       if (err.code === "phone_not_confirmed") confirme = false;
       else if (/incorrect/.test(err.message || "")) throw new Error("Numéro ou mot de passe incorrect.");
@@ -700,6 +711,39 @@ const Supabase = (() => {
   /** L'interrupteur : au superadministrateur seul, et la base le vérifie. */
   const reglerSmsEquipe = (exige) => rpcLecture("regler_sms_equipe", { exige: !!exige });
 
+  /* ---------- L'appareil de confiance (3.59.0) ----------
+     Le superadministrateur qui coche « Faire confiance à cet appareil »
+     n'y rend plus son code pendant un mois. L'appareil garde un jeton
+     tiré au hasard ; la base n'en garde que l'empreinte. Le mot de passe
+     reste demandé : la confiance ne remplace que le SMS. */
+  const CLE_APPAREIL = "bizzoo-appareil-confiance";
+  function lireJetonAppareil() {
+    try { return localStorage.getItem(CLE_APPAREIL) || ""; } catch (_) { return ""; }
+  }
+  function jetonAppareil() {
+    let j = lireJetonAppareil();
+    if (j.length >= 32) return j;
+    const octets = new Uint8Array(32);
+    crypto.getRandomValues(octets);
+    j = Array.from(octets, (o) => o.toString(16).padStart(2, "0")).join("");
+    try { localStorage.setItem(CLE_APPAREIL, j); } catch (_) { /* navigation privée */ }
+    return j;
+  }
+  /** Cet appareil est-il de confiance ? Vrai : la session est confirmée,
+      sans SMS. Une base d'avant, ou pas de jeton : faux. */
+  async function reconnaitreAppareil() {
+    const j = lireJetonAppareil();
+    if (j.length < 32) return false;
+    try { return (await rpcLecture("reconnaitre_appareil", { jeton: j })) === true; } catch (_) { return false; }
+  }
+  /** Après le code : cet appareil devient de confiance pour un mois. */
+  const confierAppareil = () => rpcLecture("confier_appareil", {
+    jeton: jetonAppareil(), appareil: String(navigator.userAgent || "").slice(0, 120) });
+  const oublierAppareils = () => rpcLecture("oublier_appareils", {});
+  async function mesAppareilsConfiance() {
+    try { return Number(await rpcLecture("mes_appareils_confiance", {})) || 0; } catch (_) { return 0; }
+  }
+
   /* ---------- Test ---------- */
 
   async function testerConnexion() {
@@ -717,6 +761,7 @@ const Supabase = (() => {
     creerCompte, creerCompteTelephone, changerMotDePasse,
     connexionTelephone, renvoyerCodeTelephone, confirmerCodeTelephone, estNumero, telAffichage, rpc, rpcLecture, fonctionEdge,
     etatConnexion, demanderCodeConnexion, confirmerCodeConnexion, reglerSmsEquipe,
+    reconnaitreAppareil, confierAppareil, oublierAppareils, mesAppareilsConfiance,
     requete, urlImage, televerserImage, televerserVideo, supprimerImages, testerConnexion,
   };
 })();

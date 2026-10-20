@@ -328,22 +328,24 @@ const VueReglages = (() => {
              toute l'équipe — à commencer par celui qui l'allume. */
           '<div class="carte" id="section-sms-equipe">' +
             '<div class="carte-titre">' + UI.icone("bouclier", "ic-sm") +
-              " Connexion de l'équipe par SMS</div>" +
-            '<p class="aide" style="margin:-4px 0 12px">Allumé, chaque compte de l\'équipe ' +
-              "— administrateurs, modérateurs, livreurs — reçoit un code par SMS à chaque " +
-              "connexion, en plus de son mot de passe. Tant qu'il ne l'a pas saisi, la base " +
-              "ne lui reconnaît <strong>aucun droit</strong>.</p>" +
+              " Code SMS du superadministrateur</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">Allumé, chaque <strong>superadministrateur</strong> ' +
+              "reçoit un code par SMS en se connectant, en plus de son mot de passe — sauf sur un " +
+              "appareil auquel il a fait confiance (un mois). Tant qu'il ne l'a pas saisi, la base " +
+              "ne lui reconnaît <strong>aucun droit</strong>. Les autres comptes — administrateurs, " +
+              "modérateurs, livreurs, clients — entrent avec leur mot de passe seul.</p>" +
             '<div id="sms-equipe-etat" class="aide" style="margin:0 0 12px">' +
               '<span class="chargement-rond"></span> Lecture de l\'équipe…</div>' +
             '<div id="sms-equipe-essai"></div>' +
             UI.interrupteur({ id: "sms-equipe-exige",
-              label: "Exiger un code SMS à chaque connexion de l'équipe", actif: false,
+              label: "Exiger un code SMS des superadministrateurs", actif: false,
               aide: "Ne s\'allume qu\'après avoir reçu et saisi votre propre code." }) +
             '<button type="button" class="btn" id="sms-equipe-enregistrer">' + UI.icone("check") +
               "Enregistrer</button>" +
             '<p class="aide" style="margin:12px 0 0">En cas d\'urgence — plus de crédit SMS, ' +
               "et plus personne n'entre —, dans l'éditeur SQL de Supabase : " +
               "<code>update public.securite_equipe set sms_exige = false;</code></p>" +
+            '<div id="sms-appareils" style="margin-top:12px"></div>' +
           "</div>"
         : "") +
 
@@ -1343,20 +1345,21 @@ const VueReglages = (() => {
           return;
         }
 
-        const actifs = comptes.filter((c) => c.actif);
+        /* (3.59.0) Le code ne vaut plus que pour les superadministrateurs. */
+        const actifs = comptes.filter((c) => c.actif && c.role === "superadministrateur");
         const avecNumero = actifs.filter((c) => chiffres(c).length >= 8);
         const confirmes = avecNumero.filter((c) => c.telVerifie);
         const sansNumero = actifs.filter((c) => chiffres(c).length < 8);
         zoneEtat.innerHTML =
-          "<strong>" + (etat.sms_exige ? "Exigé à chaque connexion." : "Pas exigé pour l'instant.") +
+          "<strong>" + (etat.sms_exige ? "Exigé des superadministrateurs." : "Pas exigé pour l'instant.") +
           "</strong><br>" +
-          avecNumero.length + " compte" + (avecNumero.length > 1 ? "s" : "") + " actif" +
-          (avecNumero.length > 1 ? "s" : "") + " sur " + actifs.length + " " +
+          avecNumero.length + " superadministrateur" + (avecNumero.length > 1 ? "s" : "") +
+          " sur " + actifs.length + " " +
           (avecNumero.length > 1 ? "ont" : "a") + " un numéro ; " + confirmes.length + " " +
           (confirmes.length > 1 ? "l'ont" : "l'a") + " déjà confirmé par un code." +
           (sansNumero.length
             ? '<span class="sms-equipe-manque">Sans numéro, ' +
-              (sansNumero.length > 1 ? "ces comptes ne pourraient" : "ce compte ne pourrait") +
+              (sansNumero.length > 1 ? "ces superadministrateurs ne pourraient" : "ce superadministrateur ne pourrait") +
               " plus entrer : " + sansNumero.map((c) => Utils.echapper(nomDuCompte(c))).join(", ") +
               '. <a href="#/comptes">Ajoutez-le dans Comptes</a>.</span>'
             : "");
@@ -1392,14 +1395,42 @@ const VueReglages = (() => {
       };
       dessinerSmsEquipe();
 
+      /* SES APPAREILS DE CONFIANCE : combien, et « tous les oublier ». */
+      const dessinerAppareils = async () => {
+        const zone = UI.$("#sms-appareils", vue);
+        if (!zone) return;
+        const n = await Supabase.mesAppareilsConfiance();
+        if (!zone.isConnected) return;
+        zone.innerHTML = n
+          ? '<p class="aide" style="margin:0 0 8px">' + n + " appareil" + (n > 1 ? "s" : "") +
+              " de confiance : le code n'y est pas demandé jusqu'à un mois après la confiance donnée.</p>" +
+            '<button type="button" class="btn btn-clair" id="sms-appareils-oublier">' +
+              UI.icone("fermer") + "Oublier mes appareils de confiance</button>"
+          : "";
+        const oublier = UI.$("#sms-appareils-oublier", zone);
+        if (oublier) {
+          oublier.onclick = async () => {
+            oublier.disabled = true;
+            try {
+              await Supabase.oublierAppareils();
+              UI.toast("Appareils oubliés : le code sera redemandé à la prochaine connexion.", "ok");
+            } catch (err) {
+              UI.toast(err.message, "err");
+            }
+            dessinerAppareils();
+          };
+        }
+      };
+      dessinerAppareils();
+
       UI.$("#sms-equipe-enregistrer", vue).onclick = async () => {
         const bouton = UI.$("#sms-equipe-enregistrer", vue);
         const exige = UI.$("#sms-equipe-exige", vue).checked;
         if (exige && !await UI.confirmer({
-          titre: "Exiger un code SMS de toute l'équipe ?",
-          texte: "Dès maintenant, chaque compte de l'équipe devra saisir un code reçu par " +
-                 "SMS en ouvrant l'application, puis à chaque connexion. Un compte sans " +
-                 "numéro ne pourra plus entrer.",
+          titre: "Exiger un code SMS des superadministrateurs ?",
+          texte: "Dès maintenant, chaque superadministrateur devra saisir un code reçu par " +
+                 "SMS en se connectant — sauf sur un appareil de confiance. Un " +
+                 "superadministrateur sans numéro ne pourra plus entrer.",
           bouton: "Exiger le code", danger: true,
         })) {
           UI.$("#sms-equipe-exige", vue).checked = false;
@@ -1408,7 +1439,7 @@ const VueReglages = (() => {
         bouton.disabled = true;
         try {
           await Supabase.reglerSmsEquipe(exige);
-          UI.toast(exige ? "Le code SMS est exigé de toute l'équipe"
+          UI.toast(exige ? "Le code SMS est exigé des superadministrateurs"
                          : "Le code SMS n'est plus exigé", "ok");
         } catch (err) {
           UI.toast(err.message, "err");

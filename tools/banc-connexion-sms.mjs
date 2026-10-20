@@ -278,28 +278,15 @@ titre("1. « Se connecter » : le numéro et le mot de passe");
   const t = note.token[1] || {};
   ok(t.phone === "+2290197121596" && t.password === "secret-essai" && !t.email,
     "le mot de passe se vérifie avec le numéro, au format de GoTrue (" + t.phone + ")");
-  const envoi = note.otp[0] || {};
-  ok(envoi.phone === "+2290197121596" && envoi.create_user === false,
-    "puis le code part — sans jamais créer de compte");
-  ok(!(await garde(page)) && !(await connecte(page)),
-    "le mot de passe seul n'ouvre rien : rien n'est gardé avant le code");
-  ok(await visible(page, "#cp-code") && /\+229 01 97 12 15 96/.test(await page.innerText("#vue")),
-    "l'écran du code rappelle le numéro, par groupes de deux");
-
-  titre("2. Le sixième chiffre valide, une fois — et la session du mot de passe se ferme");
-  await taperCode(page, "123456");
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(1500);
-  ok(note.verify.length === 1, "une seule vérification, malgré « Entrée » (" + note.verify.length + ")");
-  const v = note.verify[0] || {};
-  ok(v.type === "sms" && v.phone === "+2290197121596" && v.token === "123456",
-    "le code vérifié est celui tapé, pour ce numéro");
+  /* (3.59.0) PLUS DE CODE À CHAQUE CONNEXION : le numéro est confirmé
+     depuis l'inscription, le mot de passe suffit. */
+  titre("2. Numéro déjà confirmé : il entre, sans code");
+  await page.waitForTimeout(800);
+  ok(note.otp.length === 0 && note.verify.length === 0, "aucun code ne part, aucun n'est demandé");
+  ok(!(await page.$("#cp-code")), "pas d'écran de code");
   const s = await garde(page);
-  ok(!!s && s.tel === "2290197121596", "la session du code est gardée, avec son numéro");
-  const sortie = note.logout[0] || {};
-  const charge = (sortie.auth || "").split(".")[1] || "";
-  ok(sortie.portee === "local" && /d4000000/.test(Buffer.from(charge, "base64").toString()),
-    "la session du mot de passe est fermée — elle seule (« scope=local »)");
+  ok(!!s && s.tel === "2290197121596", "la session du mot de passe est gardée, avec son numéro");
+  ok(note.logout.length === 0, "et elle n'est pas fermée");
   ok(await hash(page) === "#/compte" && /Bonjour/.test(await toasts(page)),
     "le client entre : « Bonjour ! », et Mon compte");
   ok(!/Code incorrect/.test(await toasts(page)), "aucun « code incorrect » après coup");

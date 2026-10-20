@@ -204,7 +204,7 @@ titre("1. « Créer un livreur » : son numéro, un mot de passe, l'e-mail facul
   await o.ctx.close();
 }
 
-titre("2. Le livreur entre : numéro, mot de passe, puis le code");
+titre("2. Le livreur entre : numéro et mot de passe, sans code");
 {
   const o = await ouvrir();
   ok(await o.page.$("#cx-email") && /numéro/.test(await texte(o.page)),
@@ -222,26 +222,13 @@ titre("2. Le livreur entre : numéro, mot de passe, puis le code");
   await o.page.fill("#cx-mdp", "secret-essai");
   await o.page.click("#cx-connecter");
   await pause(900);
-  ok((o.note.otp[0] || {}).phone === "+2290196000111" && o.note.otp[0].create_user === false,
-    "le mot de passe juste : le code part, sans créer de compte");
-  ok(!!(await o.page.$("#cx-code-tel")) && /\+229 01 96 00 01 11/.test(await texte(o.page)),
-    "l'écran du code rappelle le numéro");
-  ok(await o.page.evaluate(() => !localStorage.getItem("impact-session")),
-    "rien n'est gardé avant le code");
-
-  await o.page.click("#cx-code-chiffres");
-  await o.page.keyboard.type("123456", { delay: 20 });
-  await pause(2500);
-  const v = o.note.verify[0] || {};
-  ok(v.type === "sms" && v.phone === "+2290196000111" && v.token === "123456", "le code se vérifie");
-  ok(o.note.verify.length === 1, "une seule vérification");
+  /* (3.59.0) Numéro déjà confirmé : le mot de passe suffit, plus de
+     code à chaque connexion. */
+  ok(!o.note.otp.length && !o.note.verify.length, "le mot de passe juste : aucun code ne part");
+  ok(!(await o.page.$("#cx-code-tel")), "pas d'écran de code");
   const s = await o.page.evaluate(() => JSON.parse(localStorage.getItem("impact-session") || "null"));
-  ok(!!s && charge(s.access_token).session_id === "code", "la session gardée est celle du code");
-  const sortie = o.note.logout[0] || {};
-  ok(sortie.portee === "local" && charge((sortie.auth || "").replace("Bearer ", "")).session_id === "mdp",
-    "la session du mot de passe est fermée — elle seule");
-  const put = o.note.put[0] || { corps: {} };
-  ok(put.corps.email === "kossi@essai.bj", "l'e-mail de sa fiche devient sa porte de secours");
+  ok(!!s && charge(s.access_token).session_id === "mdp", "la session du mot de passe est gardée");
+  ok(!o.note.logout.length, "et elle n'est pas fermée");
   ok(!(await o.page.$("#cx-code-tel")) && !(await o.page.$("#cx-connecter")),
     "il entre dans l'application");
   sansErreur(o);

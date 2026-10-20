@@ -1783,3 +1783,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cmd-livraison-prise strong,.cmd-livraison-prise a{color:var(--encre)}
 .cmd-livraison-refusee{background:#FDECEC;color:var(--rouge)}
 .lv-refuser{margin-top:8px;width:100%;justify-content:center}
+
+/* ---------- L'appareil de confiance (3.59.0) ---------- */
+.cx-confiance{display:flex;align-items:center;gap:8px;margin:6px 0 12px;font-size:14px;color:var(--encre);justify-content:center}
+.cx-confiance input{width:18px;height:18px}

@@ -222,6 +222,11 @@ const VueCompte = (() => {
       bouton.disabled = true;
       try {
         const r = await Compte.connecterTelephone(tel, mdp);
+        /* Numéro déjà confirmé : on est entré, sans code (3.59.0). */
+        if (r.entre) {
+          await apresEntree(vue, {}, { nouveau: false, utilisateur: r.utilisateur });
+          return;
+        }
         ecranCode(vue, {
           tel,
           titre: "Se connecter",

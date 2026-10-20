@@ -4655,6 +4655,29 @@ Base : [`supabase/refus-course.sql`](supabase/refus-course.sql) (à coller aprè
 `reste-livraison.sql`). Bancs : [`supabase/tests/99zzzzzzzzzzzz-refus-course.sql`](supabase/tests/99zzzzzzzzzzzz-refus-course.sql),
 [`tools/banc-refus-course.mjs`](tools/banc-refus-course.mjs) ; contrôle 140 de l'état des lieux.
 
+## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
+
+**Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code
+reçu par SMS ne sert plus qu'à **confirmer le numéro une fois**, à l'inscription (ou à la
+première connexion d'un livreur que l'administrateur vient de créer), et pour **« Mot de passe
+oublié »**.
+
+**L'équipe** (administrateurs, modérateurs, livreurs) entre avec son mot de passe seul. Le
+code n'est plus demandé qu'aux **superadministrateurs**, quand l'interrupteur est allumé
+(*Réglages → Code SMS du superadministrateur* ; `equipe_en_service`).
+
+**L'appareil de confiance** : sur l'écran du code, la case *Faire confiance à cet appareil
+pendant 1 mois*. Cochée, le code n'est plus demandé sur cet appareil pendant 30 jours — le mot
+de passe, si. L'appareil garde un jeton tiré au hasard ; la base n'en garde que l'empreinte
+(`confier_appareil`, `reconnaitre_appareil`). Dans les Réglages, *Oublier mes appareils de
+confiance* fait redemander le code partout (`oublier_appareils`).
+
+Base : [`supabase/connexion-superadmin.sql`](supabase/connexion-superadmin.sql).
+Bancs : [`supabase/tests/99zzzzzzzzzzzzz-appareil-confiance.sql`](supabase/tests/99zzzzzzzzzzzzz-appareil-confiance.sql),
+`99u-connexion-sms.sql` et `99zzz-connexion-telephone.sql` adaptés ;
+[`tools/banc-connexion-equipe.mjs`](tools/banc-connexion-equipe.mjs),
+`banc-connexion-sms.mjs` et `banc-connexion-telephone.mjs` adaptés ; contrôle 141.
+
 ## Structure
 
 ```
