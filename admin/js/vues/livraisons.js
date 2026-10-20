@@ -269,7 +269,28 @@ const VueLivraisons = (() => {
     );
   }
 
+  /* Une demande prise par un autre livreur : l'écran se relit (3.59.0). */
+  let vueOuverte = null;
+  window.addEventListener("bizzoo:courses", () => {
+    if (vueOuverte && vueOuverte.isConnected && location.hash === "#/livraisons") afficher(vueOuverte);
+  });
+
+  /* LES DEMANDES PARTIES CHEZ UN AUTRE, la dernière heure : « Déjà pris
+     par … ». Elles viennent des nouvelles reçues, rien à relire. */
+  function htmlDejaPrises() {
+    const recentes = Notifs.toutes().filter((n) => n.type === "course_prise" &&
+      n.creeLe > Date.now() - 3600000);
+    if (!recentes.length) return "";
+    return '<div class="carte lv-deja-prises" id="lv-deja-prises">' +
+      recentes.map((n) =>
+        '<div class="lv-deja-prise">' + UI.icone("voiture", "ic-sm") +
+          "<span><strong>" + Utils.echapper(n.titre) + "</strong><br>" +
+          Utils.echapper(n.corps) + "</span></div>").join("") +
+      "</div>";
+  }
+
   async function afficher(vue) {
+    vueOuverte = vue;
     UI.entete({ titre: "Mes courses", sous: "Ce que vous avez à porter",
       accueil: false,
       actions: '<button type="button" class="btn-ic" id="lv-rafraichir" ' +
@@ -314,8 +335,8 @@ const VueLivraisons = (() => {
       : "";
 
     if (!courses.length && !demandes.length) {
-      if (aRendre) {
-        vue.innerHTML = aRendre + UI.vide("voiture", "Aucune course pour l'instant",
+      if (aRendre || htmlDejaPrises()) {
+        vue.innerHTML = aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
           "Dès qu'une commande vous est proposée ou confiée, elle apparaît ici.");
         return;
       }
@@ -331,7 +352,7 @@ const VueLivraisons = (() => {
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
-    vue.innerHTML = aRendre +
+    vue.innerHTML = aRendre + htmlDejaPrises() +
       (demandes.length
         ? '<div class="titre-section" id="lv-demandes">' +
             (demandes.length > 1 ? demandes.length + " demandes de course" : "1 demande de course") +

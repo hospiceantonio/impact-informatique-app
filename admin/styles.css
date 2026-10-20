@@ -1800,3 +1800,9 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .lv-momo-code{font-size:40px;font-weight:700;letter-spacing:.08em;color:var(--encre);line-height:1.2;word-break:break-all}
 .lv-momo-nom{font-size:14px;color:var(--encre-douce)}
 .lv-momo-montant{font-size:30px;font-weight:700;color:var(--encre)}
+
+/* ---------- « Déjà pris par … » (3.59.0) ---------- */
+.lv-deja-prises{background:var(--fond)}
+.lv-deja-prise{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--encre-douce);padding:4px 0}
+.lv-deja-prise strong{color:var(--encre)}
+.lv-deja-prise .ic{flex:none;margin-top:3px}

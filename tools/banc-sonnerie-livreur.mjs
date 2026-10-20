@@ -11,7 +11,9 @@
      4. une demande proposée à tous sonne aussi, et s'arrête quand il la
         prend ;
      5. son coupé dans les réglages : la vibration reste ;
-     6. rien n'attend : rien ne sonne.
+     6. rien n'attend : rien ne sonne ;
+     7. un autre livreur prend la demande : la sonnerie s'arrête, « Déjà
+        pris par Zinsou » s'affiche, et la carte disparaît.
    ========================================================= */
 let chromium;
 try {
@@ -67,7 +69,7 @@ async function ouvrir({ courses = [], demandes = [], sonCoupe = false } = {}) {
     }
     window.AudioContext = FauxContexte;
   }, { t: jeton(LIV), sonCoupe });
-  const etat = { courses, demandes };
+  const etat = { courses, demandes, notifs: [] };
   await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
   await page.route("**/rest/v1/**", (route) => {
     const u = new URL(route.request().url());
@@ -86,6 +88,7 @@ async function ouvrir({ courses = [], demandes = [], sonCoupe = false } = {}) {
       return d(1);
     }
     if (c.startsWith("rpc/")) return d(null);
+    if (c.startsWith("notifications")) return d(etat.notifs);
     if (c.startsWith("profils")) return d([{ id: LIV, email: "liv@alpha.bj", nom: "Kodjo", role: "livreur",
       actif: true, peut_modifier_produits: true, boutique_id: "bou_a", tel: "0196000101" }]);
     if (c.startsWith("positions_livreurs")) return d([{ profil_id: LIV, latitude: 6.37, longitude: 2.42, adresse: "Cotonou" }]);
@@ -95,7 +98,7 @@ async function ouvrir({ courses = [], demandes = [], sonCoupe = false } = {}) {
   });
   await page.goto(BASE + "/admin/index.html#/livraisons", { waitUntil: "domcontentloaded" });
   await pause(3000);
-  return { ctx, page, erreurs };
+  return { ctx, page, erreurs, etat };
 }
 const compte = (page) => page.evaluate(() => ({ notes: window.__notes, vibrations: window.__vibrations.slice() }));
 
@@ -147,6 +150,31 @@ titre("6. Rien n'attend");
   await pause(500);
   const a = await compte(o.page);
   ok(a.notes === 0 && !a.vibrations.some((v) => Array.isArray(v)), "course déjà acceptée : rien ne sonne");
+  await o.ctx.close();
+}
+
+titre("7. Un autre livreur la prend : « Déjà pris par … »");
+{
+  const o = await ouvrir({ demandes: [{ commande_id: "cmd_g", numero: "BZ-000072", paye_le: "2026-10-20T08:00:00Z",
+    fiche: { ...fiche, groupee: true, retraits: [fiche.retrait, { ...fiche.retrait, boutique: "Bêta" }] } }] });
+  ok((await compte(o.page)).notes >= 9 && !!(await o.page.$(".lv-demande")), "la livraison groupée sonne, sa carte est là");
+  /* Zinsou la prend : la base envoie la nouvelle, le temps réel fait relire. */
+  o.etat.demandes = [];
+  o.etat.notifs = [{ id: 901, type: "course_prise", titre: "Déjà pris par Zinsou",
+    corps: "Commande BZ-000072 — Zinsou a pris la course. Elle n'est plus disponible.", lien: "#/livraisons",
+    commande_id: "cmd_g", boutique_id: null, sonne: false, lue_le: null, cree_le: new Date().toISOString() }];
+  await o.page.evaluate(() => Notifs.recharger());
+  await pause(2000);
+  const c = await compte(o.page);
+  ok(c.vibrations.some((v) => v === 0), "la sonnerie et la vibration s'arrêtent");
+  const toasts = await o.page.evaluate(() => document.querySelector("#toasts")?.innerText || "");
+  ok(/Déjà pris par Zinsou/.test(toasts), "« Déjà pris par Zinsou » s'affiche");
+  ok(!(await o.page.$(".lv-demande")) &&
+     /Déjà pris par Zinsou/.test(await o.page.evaluate(() => document.getElementById("vue").innerText)),
+    "la carte disparaît ; « Déjà pris par Zinsou » reste dans Mes courses");
+  await pause(4500);
+  ok((await compte(o.page)).notes === c.notes, "et plus rien ne sonne");
+  ok(!o.erreurs.length, "aucune erreur JavaScript" + (o.erreurs.length ? " : " + o.erreurs[0] : ""));
   await o.ctx.close();
 }
 

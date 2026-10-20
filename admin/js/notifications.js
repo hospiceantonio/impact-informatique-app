@@ -106,18 +106,41 @@ const Notifs = (() => {
      ou un refus, les arrêtent. */
   const estLivreur = () => Supabase.role() === "livreur";
 
+  /* « DÉJÀ PRIS PAR … » (3.59.0). Une demande proposée à plusieurs
+     livreurs — une livraison groupée, à tous ceux de BIZZOO — disparaît
+     dès que l'un la prend : la base envoie aux autres « Déjà pris par
+     <nom> », en temps réel. On le dit à l'écran, et la sonnerie s'arrête. */
+  let demandesVues = new Set();
+  const priseDe = (commandeId) =>
+    liste.find((n) => n.type === "course_prise" && n.commandeId === commandeId);
+
   function majAlerte(courses, demandes) {
+    const ici = new Set((demandes || []).map((d) => d.commandeId));
+    const parties = [...demandesVues].filter((id) => !ici.has(id));
+    demandesVues = ici;
+    for (const id of parties) {
+      const n = priseDe(id);
+      if (n) {
+        UI.toast(n.titre + " : la course n'est plus disponible.");
+        marquerLue(n.id);
+      }
+    }
     const attend = (demandes || []).length > 0 ||
       (courses || []).some((c) => c.fiche && !c.recuLe && c.etat !== "remise");
     if (attend && estLivreur()) Son.demarrerAlerte();
     else Son.arreterAlerte();
+    return parties;
   }
 
   async function verifierCourses() {
     if (!estLivreur()) { Son.arreterAlerte(); return; }
     try {
       const [courses, demandes] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees()]);
-      majAlerte(courses, demandes);
+      /* Une demande vient de partir chez un autre : l'écran des courses,
+         s'il est ouvert, se relit — la carte disparaît sous ses yeux. */
+      if (majAlerte(courses, demandes).length) {
+        window.dispatchEvent(new CustomEvent("bizzoo:courses"));
+      }
     } catch (_) {
       /* Base injoignable : on ne coupe pas une sonnerie en cours sur une
          panne, et on n'en lance pas une sur rien. */

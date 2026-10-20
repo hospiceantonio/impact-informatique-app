@@ -4044,6 +4044,8 @@ language plpgsql security definer set search_path = public as $$
 declare
   moi     uuid := auth.uid();
   combien int;
+  preneur text;
+  numero  text;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur prend une course';
@@ -4059,11 +4061,13 @@ begin
               where rc.commande_id = commande and rc.livreur_id = moi) then
     raise exception 'Vous avez refusé cette course.' using errcode = 'P0001';
   end if;
-  if exists (select 1 from public.commande_lignes l
-              where l.commande_id = commande and l.etat <> 'annulee'
-                and l.livreur_id is not null) then
-    raise exception 'Trop tard : un autre livreur a déjà pris cette course.'
-      using errcode = 'P0001';
+  -- (3.59.0) On dit QUI l'a prise.
+  select coalesce(nullif(p.nom, ''), 'un autre livreur') into preneur
+    from public.commande_lignes l join public.profils p on p.id = l.livreur_id
+   where l.commande_id = commande and l.etat <> 'annulee' and l.livreur_id is not null
+   limit 1;
+  if preneur is not null then
+    raise exception 'Déjà pris par %.', preneur using errcode = 'P0001';
   end if;
 
   perform set_config('bizzoo.livraison', 'oui', true);
@@ -4080,6 +4084,23 @@ begin
     raise exception 'Trop tard : un autre livreur a déjà pris cette course.'
       using errcode = 'P0001';
   end if;
+
+  -- (3.59.0) LES AUTRES SONT PRÉVENUS TOUT DE SUITE : « Déjà pris par … ».
+  -- La nouvelle arrive en temps réel sur leur téléphone, et leur
+  -- sonnerie s'arrête. Leur demande d'avant passe « lue ».
+  select coalesce(nullif(p.nom, ''), 'un autre livreur') into preneur
+    from public.profils p where p.id = moi;
+  select c.numero into numero from public.commandes c where c.id = commande;
+  update public.notifications n
+     set lue_le = now()
+   where n.commande_id = commande and n.type = 'course_proposee'
+     and n.destinataire <> moi and n.lue_le is null;
+  perform public.notifier(
+    array(select x from unnest(public.candidats_course(commande)) as x where x <> moi),
+    'course_prise',
+    'Déjà pris par ' || preneur,
+    'Commande ' || coalesce(numero, '') || ' — ' || preneur || ' a pris la course. Elle n''est plus disponible.',
+    '#/livraisons', commande, null, false);
   return combien;
 end $$;
 revoke all on function public.prendre_course(text) from public, anon;

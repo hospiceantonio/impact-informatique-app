@@ -942,7 +942,11 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_policies
        where schemaname = 'public' and tablename = 'profils' and policyname = 'profils modification admin'
-         and qual like '%est_mon_createur%'))
+         and qual like '%est_mon_createur%')),
+  (146, '« Déjà pris par … » : les autres livreurs prévenus (prendre_course)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'prendre_course'
+         and p.prosrc like '%course_prise%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

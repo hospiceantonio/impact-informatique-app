@@ -27,6 +27,7 @@ const VueNotifications = (() => {
     course_confiee:        { nom: "Courses confiées",   icone: "voiture" },
     course_acceptee:       { nom: "Courses acceptées",  icone: "check" },
     course_proposee:       { nom: "Demandes de course", icone: "voiture" },
+    course_prise:          { nom: "Courses déjà prises", icone: "voiture" },
     /* La caisse des livreurs (3.59.0). */
     reste_encaisse:        { nom: "Encaissé à la livraison", icone: "promo" },
     encaissement_conteste: { nom: "Paiements contestés", icone: "alerte" },

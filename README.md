@@ -4732,6 +4732,13 @@ réglages : la vibration reste. Application fermée : c'est la notification
 du téléphone qui sonne. Le son se fabrique dans l'application, aucun
 fichier à charger (`admin/js/son.js`). Banc : `tools/banc-sonnerie-livreur.mjs`.
 
+**Livraison groupée** : la commande payée sonne chez **tous les livreurs de
+BIZZOO** à la fois. Dès que l'un touche « Commande reçue », les autres
+reçoivent **« Déjà pris par <son nom> »** en temps réel : leur sonnerie
+s'arrête, la carte disparaît, et la mention reste une heure dans « Mes
+courses ». Celui qui arrive trop tard lit le même nom. À coller :
+`supabase/course-deja-prise.sql`.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code
