@@ -21,11 +21,6 @@
 -- Un livreur de BIZZOO, lui, porte pour toute l'enseigne — c'est
 -- exactement ce qu'on a voulu en ne le rattachant à aucune boutique.
 --
--- (3.59.0) LE LIVREUR DE BIZZOO PORTE TOUTE LA COMMANDE : confié par une
--- boutique, il reçoit aussi les produits des autres boutiques de la
--- commande — ceux qu'aucun autre livreur ne porte déjà. Le livreur d'une
--- boutique, lui, ne reçoit que les produits de SA boutique.
--- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
 -- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
 create or replace function public.est_equipe() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -97,7 +92,10 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 
-
+-- (3.59.0) LE LIVREUR DE BIZZOO PORTE TOUTE LA COMMANDE : confié par une
+-- boutique, il reçoit aussi les produits des autres boutiques de la
+-- commande — ceux qu'aucun autre livreur ne porte déjà. Le livreur d'une
+-- boutique, lui, ne reçoit que les produits de SA boutique.
 create or replace function public.assigner_livreur(
   commande text, boutique text, livreur uuid)
 returns int
