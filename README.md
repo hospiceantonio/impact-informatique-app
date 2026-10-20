@@ -4676,6 +4676,15 @@ photos, vidéo, stock) et une nouvelle référence est proposée : on saisit
 le produit suivant tout de suite. Un bandeau dit « … est ajouté » avec le
 lien « Voir sa fiche ». Une modification, elle, ramène toujours à la fiche.
 
+## Un revendeur achète comme un client (3.59.0)
+
+Un revendeur validé commande dans l'application à ses prix revendeur,
+paie l'acompte en ligne et se fait livrer comme n'importe quel client :
+frais de livraison, demande de course aux livreurs, nom et numéro du
+livreur, reste payé à la porte, confirmation de réception, suivi de la
+commande. La commande porte la marque « Revendeur » chez la boutique.
+Essai de bout en bout : `supabase/tests/99zzzzzzzzzzzzzzz-revendeur-client.sql`.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code
