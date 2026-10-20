@@ -1787,3 +1787,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- L'appareil de confiance (3.59.0) ---------- */
 .cx-confiance{display:flex;align-items:center;gap:8px;margin:6px 0 12px;font-size:14px;color:var(--encre);justify-content:center}
 .cx-confiance input{width:18px;height:18px}
+
+/* ---------- Produit ajouté, formulaire vidé (3.59.0) ---------- */
+.p-ajoute{display:flex;gap:8px;align-items:flex-start;background:var(--vert-clair);color:var(--vert);font-size:14px;line-height:1.5}
+.p-ajoute strong,.p-ajoute a{color:var(--encre)}
+.p-ajoute .ic{flex:none;margin-top:3px}

@@ -4669,6 +4669,13 @@ Base : [`supabase/refus-course.sql`](supabase/refus-course.sql) (à coller aprè
 - À coller : `supabase/livreur-bizzoo-commande.sql` (après `refus-course.sql`).
   Essai : `supabase/tests/99zzzzzzzzzzzzzz-livreur-bizzoo-commande.sql`.
 
+## Ajouter plusieurs produits d'affilée (3.59.0)
+
+Après « Ajouter le produit », le formulaire se vide (nom, prix, rayon,
+photos, vidéo, stock) et une nouvelle référence est proposée : on saisit
+le produit suivant tout de suite. Un bandeau dit « … est ajouté » avec le
+lien « Voir sa fiche ». Une modification, elle, ramène toujours à la fiche.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code

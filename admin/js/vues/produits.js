@@ -622,7 +622,7 @@ const VueProduits = (() => {
   }
 
 
-  async function formulaire(vue, id) {
+  async function formulaire(vue, id, ajoute) {
     /* CRÉER COMME RETOUCHER demande l'habilitation (3.59.0) : sans elle,
        la base refuse l'un et l'autre — autant le dire avant le formulaire. */
     if (!Supabase.peutModifierProduits()) {
@@ -698,6 +698,15 @@ const VueProduits = (() => {
       Supabase.peutChangerDeBoutique();
 
     vue.innerHTML =
+      /* (3.59.0) LE PRODUIT D'AVANT EST ENREGISTRÉ, le formulaire est vide
+         pour le suivant : on le dit, avec de quoi voir sa fiche. */
+      (ajoute
+        ? '<div class="carte p-ajoute" id="p-ajoute">' + UI.icone("check", "ic-sm") +
+            " <span><strong>« " + Utils.echapper(ajoute.nom || "Produit") + " » est ajouté.</strong> " +
+            "Le formulaire est vide : saisissez le produit suivant. " +
+            '<a href="#/produit/' + Utils.echapper(ajoute.id) + '">Voir sa fiche</a></span>' +
+          "</div>"
+        : "") +
       (existant
         ? UI.liensPartage([{ nom: "Ce produit", lien: UI.lienPartage("produit", existant.id) }])
         : "") +
@@ -889,7 +898,7 @@ const VueProduits = (() => {
         try {
           const ouverte = Store.choisirBoutique(champBoutique.value);
           UI.toast("Produit pour « " + ouverte.nomBoutique + " »", "ok");
-          formulaire(vue, id);
+          formulaire(vue, id, ajoute);
         } catch (err) {
           UI.toast(err.message, "err");
         }
@@ -993,8 +1002,17 @@ const VueProduits = (() => {
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),
           video: videoTravail,
         }, photosTravail);
-        UI.toast(existant ? "Produit modifié" : "Produit ajouté", "ok");
-        location.hash = "#/produit/" + produit.id;
+        /* Une modification : retour à la fiche. Un ajout : le formulaire
+           se vide pour le produit suivant (3.59.0) — saisir dix articles
+           d'affilée ne passe plus par dix allers-retours. */
+        if (existant) {
+          UI.toast("Produit modifié", "ok");
+          location.hash = "#/produit/" + produit.id;
+          return;
+        }
+        UI.toast("Produit ajouté — formulaire prêt pour le suivant", "ok");
+        await formulaire(vue, null, { id: produit.id, nom: produit.nom || UI.$("#p-nom").value });
+        window.scrollTo(0, 0);
       } catch (err) {
         btnEnregistrer.disabled = false;
         /* Une vente est passée pendant la retouche : on garde ce qui a
