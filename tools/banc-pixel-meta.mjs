@@ -688,9 +688,10 @@ for (const [quoi, revendeur] of [["par son numéro, un client", false], ["par so
 titre("6 bis. Entrer par son numéro : seule la naissance du compte compte");
 {
   const maintenant = Date.now();
+  /* (3.59.0) « Se connecter » par numéro et mot de passe n'ouvre plus
+     que des comptes qui existent, sans code : ce n'est JAMAIS une
+     inscription. L'inscription passe par « Créer mon compte » (plus haut). */
   const essais = [
-    ["un numéro inconnu crée le compte", { id: "u-neuf", phone: "2290196000001",
-      created_at: new Date(maintenant - 20000).toISOString(), last_sign_in_at: new Date(maintenant).toISOString() }, 1],
     ["un client qui revient n'est pas un inscrit", { id: "u-ancien", phone: "2290196000001",
       created_at: "2026-08-01T10:00:00Z", last_sign_in_at: new Date(maintenant).toISOString() }, 0],
   ];
@@ -710,10 +711,13 @@ titre("6 bis. Entrer par son numéro : seule la naissance du compte compte");
       await pause(900);
       /* Le sixième chiffre valide tout seul ; « Valider » ne sert qu'à
          qui l'aurait raté. */
-      await o.page.fill("#cp-code", "123456");
-      await pause(400);
-      const bouton = await o.page.$("#cp-valider:not([disabled])");
-      if (bouton) await bouton.click().catch(() => {});
+      /* Un numéro pas encore confirmé passe encore par le code. */
+      if (await o.page.$("#cp-code")) {
+        await o.page.fill("#cp-code", "123456");
+        await pause(400);
+        const bouton = await o.page.$("#cp-valider:not([disabled])");
+        if (bouton) await bouton.click().catch(() => {});
+      }
       await pause(1500);
     }
     const n = traces(o.journal, "CompleteRegistration").length;
