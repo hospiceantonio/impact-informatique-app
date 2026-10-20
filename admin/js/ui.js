@@ -564,6 +564,9 @@ const UI = (() => {
   function badgesProduit(p) {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
+    /* MASQUÉ (3.59.0) : en tête, c'est ce qui compte le plus — le client
+       ne le voit pas. */
+    if (p.masque) html += '<span class="badge badge-masque">' + icone("fermer", "ic-sm") + "Masqué</span>";
     if (p.enAvant) html += '<span class="badge badge-avant">' + icone("etoile", "ic-sm") + "En avant</span>";
     if (Store.enVenteFlash(p)) html += '<span class="badge badge-flash">' + icone("energie", "ic-sm") + "Vente flash</span>";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";

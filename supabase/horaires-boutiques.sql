@@ -414,6 +414,10 @@ begin
     if not found then
       raise exception 'Un des produits de votre panier n''existe plus.';
     end if;
+    -- (3.59.0) Un produit masqué ne se commande plus.
+    if coalesce(p.masque, false) then
+      raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;

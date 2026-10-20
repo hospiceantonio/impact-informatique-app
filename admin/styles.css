@@ -1806,3 +1806,6 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .lv-deja-prise{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--encre-douce);padding:4px 0}
 .lv-deja-prise strong{color:var(--encre)}
 .lv-deja-prise .ic{flex:none;margin-top:3px}
+
+/* ---------- Produit masqué (3.59.0) ---------- */
+.badge-masque{background:#3b3b3b;color:#fff}

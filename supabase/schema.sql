@@ -619,6 +619,14 @@ end $$;
 
 create index if not exists produits_boutique   on public.produits(boutique_id);
 create index if not exists categories_boutique on public.categories(boutique_id);
+
+-- ---------- Masquer un produit (3.59.0) ----------
+-- Un produit MASQUÉ disparaît du catalogue des clients sans être
+-- supprimé : sa fiche, ses photos, son code et ses ventes restent, et il
+-- revient d'un geste. On garde qui l'a masqué, et quand.
+alter table public.produits add column if not exists masque boolean not null default false;
+alter table public.produits add column if not exists masque_par text not null default '';
+alter table public.produits add column if not exists masque_le timestamptz;
 create index if not exists slides_boutique     on public.slides(boutique_id);
 
 -- ---------- Comptes de l'application admin et leurs rôles ----------
@@ -2520,6 +2528,36 @@ create policy "produits modification" on public.produits
 create policy "produits suppression" on public.produits
   for delete to authenticated
   using (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id));
+
+-- MASQUER OU RÉAFFICHER UN PRODUIT (3.59.0) : l'administrateur ou le
+-- modérateur de SA boutique — même sans l'habilitation à retoucher les
+-- produits : masquer n'efface rien et se défait —, BIZZOO sur toutes.
+-- Un livreur, non.
+create or replace function public.masquer_produit(cible text, cacher boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  sa_boutique text;
+  qui         text;
+begin
+  select p.boutique_id into sa_boutique from public.produits p where p.id = cible;
+  if not found then
+    raise exception 'Ce produit n''existe plus.';
+  end if;
+  if not public.peut_agir_sur(sa_boutique) then
+    raise exception 'Ce produit n''est pas de votre boutique.';
+  end if;
+  select coalesce(nullif(p.nom, ''), nullif(p.email, ''), 'l''équipe') into qui
+    from public.profils p where p.id = auth.uid();
+  update public.produits
+     set masque = coalesce(cacher, true),
+         masque_par = case when coalesce(cacher, true) then coalesce(qui, '') else '' end,
+         masque_le = case when coalesce(cacher, true) then now() else null end
+   where id = cible;
+  return coalesce(cacher, true);
+end $$;
+revoke all on function public.masquer_produit(text, boolean) from public, anon;
+grant execute on function public.masquer_produit(text, boolean) to authenticated;
 
 -- Les prix d'achat : jamais de lecture publique. La clé publiable de
 -- l'application client n'a aucun droit dessus, pas même de lecture ;
@@ -5177,6 +5215,10 @@ begin
     select * into p from public.produits where id = article ->> 'produit_id';
     if not found then
       raise exception 'Un des produits de votre panier n''existe plus.';
+    end if;
+    -- (3.59.0) Un produit masqué ne se commande plus.
+    if coalesce(p.masque, false) then
+      raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
     end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then

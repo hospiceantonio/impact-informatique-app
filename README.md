@@ -4739,6 +4739,17 @@ s'arrête, la carte disparaît, et la mention reste une heure dans « Mes
 courses ». Celui qui arrive trop tard lit le même nom. À coller :
 `supabase/course-deja-prise.sql`.
 
+## Masquer un produit (3.59.0)
+
+Sur la fiche d'un produit (application admin), **« Masquer le produit »** le
+retire du catalogue des clients sans le supprimer : ni catalogue, ni
+recherche, ni fiche, ni lien partagé, et il ne se commande plus. Sa fiche,
+ses photos, son code et ses ventes restent ; **« Réafficher le produit »** le
+remet en vente. Il porte « Masqué » dans la liste des produits, avec qui l'a
+masqué et quand. L'administrateur ou le modérateur de la boutique le peut,
+même sans le droit de modifier les produits ; BIZZOO sur toutes. À coller :
+`supabase/produit-masque.sql`.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code

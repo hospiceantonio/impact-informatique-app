@@ -350,6 +350,10 @@ const Store = (() => {
       flashFin: l.flash_fin ? Date.parse(l.flash_fin) || null : null,
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
+      /* Masqué aux clients (3.59.0), par qui, depuis quand. */
+      masque: l.masque === true,
+      masquePar: l.masque_par || "",
+      masqueLe: l.masque_le || "",
       images,
       video: l.video || "",
       videoUrl: l.video ? Supabase.urlImage(l.video) : "",
@@ -2934,6 +2938,14 @@ const Store = (() => {
     return (lignes || []).map(produitDepuisLigne);
   }
 
+  /** Masquer un produit aux clients, ou le réafficher (3.59.0). La base
+      décide qui peut : l'administrateur ou le modérateur de la boutique. */
+  async function masquerProduit(id, cacher) {
+    await Supabase.rpc("masquer_produit", { cible: id, cacher: !!cacher });
+    journaliser("produit", "modification", (cacher ? "Produit masqué" : "Produit réaffiché"), id);
+    return !!cacher;
+  }
+
   async function lireProduit(id) {
     const lignes = await lignesProduits("id=eq." + encodeURIComponent(id));
     return lignes && lignes.length ? produitDepuisLigne(lignes[0]) : null;
@@ -3764,7 +3776,7 @@ const Store = (() => {
     estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     sousCategoriesDuSecteur, produitsClasses, changerSecteur,
-    listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
+    listerProduits, lireProduit, masquerProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,

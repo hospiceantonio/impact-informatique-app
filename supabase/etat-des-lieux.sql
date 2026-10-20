@@ -946,7 +946,17 @@ with controles(rang, element, ok) as (values
   (146, '« Déjà pris par … » : les autres livreurs prévenus (prendre_course)', exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'prendre_course'
-         and p.prosrc like '%course_prise%'))
+         and p.prosrc like '%course_prise%')),
+  (147, 'Masquer un produit (produits.masque, masquer_produit)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'produits' and column_name = 'masque')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'masquer_produit')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.prosrc like '%p.masque%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

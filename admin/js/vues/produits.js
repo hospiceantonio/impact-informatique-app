@@ -1164,6 +1164,28 @@ const VueProduits = (() => {
         "</div></div>";
     }
 
+    /* MASQUER LE PRODUIT (3.59.0) : l'administrateur ou le modérateur de
+       la boutique, même sans le droit de modifier. Il disparaît du
+       catalogue des clients sans être supprimé, et revient d'un geste. */
+    const peutMasquer = Supabase.role() !== "livreur";
+    if (peutMasquer) {
+      html += '<div class="carte" id="p-carte-masque">' +
+        '<div class="carte-titre">' + UI.icone(p.masque ? "alerte" : "personne", "ic-sm") +
+          (p.masque ? " Masqué aux clients" : " Visible par les clients") + "</div>" +
+        '<p class="aide" style="margin:0 0 12px">' +
+          (p.masque
+            ? "Vos clients ne le voient plus et ne peuvent plus le commander" +
+              (p.masquePar ? " — masqué par " + Utils.echapper(p.masquePar) : "") +
+              (p.masqueLe ? " le " + Utils.echapper(Utils.fmtDateHeure(p.masqueLe)) : "") +
+              ". Sa fiche, ses photos et ses ventes sont gardées."
+            : "Masquez-le pour le retirer du catalogue des clients sans le supprimer : " +
+              "il reviendra d'un geste.") + "</p>" +
+        '<button type="button" class="btn' + (p.masque ? "" : " btn-clair") + '" id="p-masquer">' +
+          UI.icone(p.masque ? "check" : "fermer") +
+          (p.masque ? "Réafficher le produit" : "Masquer le produit") + "</button>" +
+      "</div>";
+    }
+
     /* Le slider de l'application client se compose côté administrateur. */
     const admin = Supabase.estAdmin();
     html += peutModifier
@@ -1197,6 +1219,29 @@ const VueProduits = (() => {
     const serie = photos.map((photo) => ({ src: photo.apercu }));
     for (const img of UI.$$("[data-photo]", vue)) {
       img.addEventListener("click", () => UI.ouvrirVisionneuse(serie, Number(img.dataset.photo)));
+    }
+
+    const btnMasquer = UI.$("#p-masquer");
+    if (btnMasquer) {
+      btnMasquer.onclick = async () => {
+        if (!p.masque) {
+          const ok = await UI.confirmer({
+            titre: "Masquer « " + p.nom + " » ?",
+            texte: "Vos clients ne le verront plus et ne pourront plus le commander. " +
+              "Rien n'est supprimé : vous pourrez le réafficher.",
+            bouton: "Masquer" });
+          if (!ok) return;
+        }
+        btnMasquer.disabled = true;
+        try {
+          await Store.masquerProduit(p.id, !p.masque);
+          UI.toast(p.masque ? "Produit réaffiché : vos clients le voient." : "Produit masqué aux clients.", "ok");
+          detail(vue, p.id);
+        } catch (err) {
+          btnMasquer.disabled = false;
+          UI.toast(err.message, "err");
+        }
+      };
     }
 
     if (!peutModifier) return;

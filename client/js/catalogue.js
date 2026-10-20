@@ -314,7 +314,9 @@ const Catalogue = (() => {
             .map((s) => ({ id: s.id, nom: s.nom, ordre: s.ordre || 0 }))
             .sort((a, x) => a.ordre - x.ordre),
         })),
-        produits: (produits || []).map((p) => ({
+        /* UN PRODUIT MASQUÉ par sa boutique (3.59.0) n'existe pas pour le
+           client : ni catalogue, ni recherche, ni fiche, ni lien partagé. */
+        produits: (produits || []).filter((p) => p.masque !== true).map((p) => ({
           id: p.id,
           boutiqueId: p.boutique_id || "",
           nom: p.nom,
