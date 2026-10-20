@@ -1538,6 +1538,8 @@ const VuePanier = (() => {
                 fmt(payee && commande.verse != null ? commande.verse : acompte) + "</strong></div>" +
               '<div class="re-acompte-ligne re-acompte-reste"><span>Reste à payer à la livraison</span>' +
                 "<strong>" + fmt(reste) + "</strong></div>" +
+              /* Ce que le client a payé au livreur, quand la base le sait. */
+              '<div class="re-solde" hidden></div>' +
             "</div>"
           : "") +
         (commande.remarque
@@ -1585,6 +1587,11 @@ const VuePanier = (() => {
                 fmt(g.aEncaisser) + "</strong></div>"
             : "") +
           blocSuivi(commande, g) +
+          /* Le reste payé à cette boutique, rempli quand la base répond. */
+          (payee && reste > 0
+            ? '<div class="re-encaisse" data-encaisse-pour="' + Utils.echapper(g.boutique.id || "") +
+                '" hidden></div>'
+            : "") +
           /* La place du livreur, remplie quand la base répond. */
           (payee
             ? '<div class="re-livreur" data-livreur-pour="' + Utils.echapper(g.boutique.id || "") +
@@ -1612,6 +1619,93 @@ const VuePanier = (() => {
           "</div>" +
         "</div>");
     if (payee) remplirLivreurs(vue, commande);
+    if (payee && reste > 0) remplirEncaissements(vue, commande);
+  }
+
+  /* -----------------------------------------------------
+     Le reste payé à la livraison (3.59.0)
+     -----------------------------------------------------
+     Le livreur déclare ce qu'il a encaissé en remettant le colis. Le
+     client le retrouve ici : combien, à qui, comment, quand — et
+     « Commande soldée » quand tout est payé. S'il n'a pas payé ce que
+     dit le livreur, « Ce n'est pas exact » prévient la boutique et
+     BIZZOO. Une base d'avant ne dit rien : rien ne s'affiche. */
+  async function remplirEncaissements(vue, commande) {
+    let suivi;
+    try {
+      suivi = await Paiement.suivre(commande.id, (commande.client && commande.client.tel) || "");
+    } catch (_) {
+      return;
+    }
+    const encaissements = (suivi && suivi.encaissements) || {};
+    const ids = Object.keys(encaissements);
+    if (!ids.length || !vue.isConnected) return;
+    const fmt = (n) => Utils.echapper(Utils.fmtMontant(Number(n) || 0, commande.devise));
+    const MODES = { especes: "en espèces", mobile_money: "par Mobile Money" };
+
+    for (const id of ids) {
+      const e = encaissements[id] || {};
+      const zone = UI.$$("[data-encaisse-pour]", vue).find((z) => z.dataset.encaissePour === id);
+      if (!zone || !(Number(e.montant) > 0)) continue;
+      zone.innerHTML =
+        '<div class="re-encaisse-tete">' + UI.icone("check", "ic-sm") +
+          "<div><small>Payé à la livraison</small><strong>" + fmt(e.montant) + "</strong>" +
+          "<span>" + Utils.echapper([e.livreur ? "à " + e.livreur : "", MODES[e.mode] || "",
+            e.encaisse_le ? "le " + Utils.fmtDateHeure(e.encaisse_le) : ""].filter(Boolean).join(", ")) +
+          "</span></div></div>" +
+        (e.conteste
+          ? '<p class="aide re-encaisse-signale">Vous avez signalé un problème : la boutique et BIZZOO ' +
+            "sont prévenus.</p>"
+          : '<button type="button" class="btn-lien re-contester">Ce n\'est pas exact</button>' +
+            '<div class="re-contester-zone" hidden>' +
+              '<label class="aide" for="re-motif-' + Utils.echapper(id) + '">Qu\'est-ce qui ne va pas ?</label>' +
+              '<textarea id="re-motif-' + Utils.echapper(id) + '" rows="2" maxlength="300" ' +
+                'placeholder="Exemple : j\'ai payé 5 000 seulement"></textarea>' +
+              '<button type="button" class="btn btn-clair re-contester-envoyer">Signaler</button>' +
+            "</div>");
+      zone.hidden = false;
+      const ouvrir = UI.$(".re-contester", zone);
+      if (ouvrir) {
+        ouvrir.onclick = () => {
+          UI.$(".re-contester-zone", zone).hidden = false;
+          ouvrir.hidden = true;
+        };
+        const envoyer = UI.$(".re-contester-envoyer", zone);
+        envoyer.onclick = async () => {
+          envoyer.disabled = true;
+          try {
+            await Paiement.contester(commande.id, id, UI.$("textarea", zone).value,
+              (commande.client && commande.client.tel) || "");
+            UI.toast("C'est signalé : la boutique et BIZZOO sont prévenus.");
+            remplirEncaissements(vue, commande);
+          } catch (err) {
+            UI.toast(err.message, "err");
+            envoyer.disabled = false;
+          }
+        };
+      }
+    }
+
+    /* L'en-tête : ce qui a été payé à la porte, et « soldée » quand il ne
+       reste plus rien. */
+    const paye = Number(suivi.paye_livraison) || 0;
+    const reste = Math.max(0, Number(suivi.reste) || 0);
+    const solde = UI.$(".re-solde", vue);
+    if (solde && paye > 0) {
+      solde.innerHTML = '<div class="re-acompte-ligne re-paye"><span>Payé à la livraison</span><strong>' +
+        fmt(paye) + "</strong></div>" +
+        (paye >= reste
+          ? '<div class="re-soldee">' + UI.icone("check", "ic-sm") + "Commande soldée</div>"
+          : '<div class="re-acompte-ligne"><span>Encore dû</span><strong>' + fmt(reste - paye) +
+            "</strong></div>");
+      solde.hidden = false;
+      const ligneReste = UI.$(".re-acompte-reste", vue);
+      if (ligneReste) ligneReste.classList.add("re-barre");
+      if (paye >= reste) {
+        const badge = UI.$(".re-entete .badge", vue);
+        if (badge) { badge.textContent = "Soldée"; badge.className = "badge badge-ok"; }
+      }
+    }
   }
 
   /* -----------------------------------------------------

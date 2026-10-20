@@ -2222,3 +2222,17 @@ a.pub-carte:active{transform:scale(.98)}
 .cp-course-lieu{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding-top:8px;border-top:1px solid var(--trait,#E5E7EB);font-size:13px}
 .cp-course-lieu small{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce)}
 .cp-course-lieu a{color:var(--bleu,#1D4ED8);font-weight:600}
+
+/* ---------- Le reste payé à la livraison (3.59.0) ---------- */
+.re-encaisse{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--vert-clair,#E4F5EC)}
+.re-encaisse-tete{display:flex;gap:8px;align-items:flex-start;color:var(--vert)}
+.re-encaisse-tete div{display:flex;flex-direction:column;gap:1px}
+.re-encaisse-tete small{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.re-encaisse-tete strong{font-size:16px;color:var(--encre)}
+.re-encaisse-tete span{font-size:12.5px;color:var(--encre-douce)}
+.re-encaisse .re-contester{margin-top:6px}
+.re-contester-zone{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.re-contester-zone textarea{width:100%;box-sizing:border-box;border:1px solid var(--trait);border-radius:8px;padding:8px;font:inherit}
+.re-encaisse-signale{margin:6px 0 0}
+.re-barre span,.re-barre strong{text-decoration:line-through;opacity:.6}
+.re-soldee{display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;color:var(--vert)}

@@ -865,7 +865,20 @@ with controles(rang, element, ok) as (values
        where n.nspname = 'public' and p.proname = 'prendre_course')
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'courses_proposees'))
+       where n.nspname = 'public' and p.proname = 'courses_proposees')),
+  (139, 'Le reste payé à la livraison : déclaré, visible du client, et la caisse des livreurs', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'encaissements')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remettre_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'caisse_livreurs')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'suivre_commande'
+         and p.prosrc like '%encaissements%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

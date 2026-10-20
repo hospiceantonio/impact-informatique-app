@@ -408,7 +408,12 @@ begin
     'devise', coalesce(c.devise, 'FCFA'),
     'frais', coalesce(frais, 0),
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
-    'a_encaisser', coalesce(reste, 0));
+    'a_encaisser', coalesce(reste, 0),
+    -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
+    'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le)
+                   from public.encaissements x
+                  where x.commande_id = commande and x.boutique_id = boutique));
 end $$;
 revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
 
@@ -585,10 +590,12 @@ begin
         'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
     end if;
+    if coalesce(current_setting('bizzoo.refus', true), '') <> 'oui' then
     perform public.notifier(enseigne, 'course_confiee',
       'Course confiée à un livreur',
       'Commande ' || numero || '.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    end if;
   end if;
 
   -- ---- « Reçu » : le livreur a accepté (3.59.0) ----
@@ -835,6 +842,9 @@ begin
                           and l.etat in ('en_livraison', 'remise'))
        and c.paye_le > now() - interval '7 days'
        and moi = any(public.candidats_course(c.id))
+       -- (3.59.0) Il l'a refusée : elle ne lui revient pas.
+       and not exists (select 1 from public.refus_courses rc
+                        where rc.commande_id = c.id and rc.livreur_id = moi)
      order by c.paye_le;
 end $$;
 revoke all on function public.courses_proposees() from public, anon;
@@ -856,6 +866,10 @@ begin
   end if;
   if not (moi = any(public.candidats_course(commande))) then
     raise exception 'Cette course n''est pas proposée à votre compte';
+  end if;
+  if exists (select 1 from public.refus_courses rc
+              where rc.commande_id = commande and rc.livreur_id = moi) then
+    raise exception 'Vous avez refusé cette course.' using errcode = 'P0001';
   end if;
   if exists (select 1 from public.commande_lignes l
               where l.commande_id = commande and l.etat <> 'annulee'

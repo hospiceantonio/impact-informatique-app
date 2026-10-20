@@ -27,6 +27,10 @@ const VueNotifications = (() => {
     course_confiee:        { nom: "Courses confiées",   icone: "voiture" },
     course_acceptee:       { nom: "Courses acceptées",  icone: "check" },
     course_proposee:       { nom: "Demandes de course", icone: "voiture" },
+    /* La caisse des livreurs (3.59.0). */
+    reste_encaisse:        { nom: "Encaissé à la livraison", icone: "promo" },
+    encaissement_conteste: { nom: "Paiements contestés", icone: "alerte" },
+    caisse_remise:         { nom: "Argent rendu", icone: "check" },
     /* Le stock, que chaque vente payée décompte toute seule. */
     stock_epuise:          { nom: "Ruptures de stock",  icone: "boite" },
     stock_insuffisant:     { nom: "Stock insuffisant",  icone: "alerte" },

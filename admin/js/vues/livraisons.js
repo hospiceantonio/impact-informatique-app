@@ -30,6 +30,13 @@
    LA FICHE (3.59.0) est celle de l'alerte : où récupérer le colis,
    où le livrer, le numéro du destinataire, les frais, ce qui est
    déjà payé, ce qui reste à récupérer. Aucun prix d'article.
+
+   CE QU'IL ENCAISSE (3.59.0). « Je l'ai remise » ouvre une feuille :
+   le montant reçu du client — déjà rempli avec ce qu'il devait —, et
+   comment il a payé, espèces ou Mobile Money. Un autre montant demande
+   un mot d'explication. La base le garde ; le client le voit sur son
+   reçu ; la boutique le retrouve dans sa caisse. En tête de l'écran,
+   « Ma caisse » : ce qu'il a encaissé et doit encore rendre.
    ========================================================= */
 const VueLivraisons = (() => {
 
@@ -78,12 +85,24 @@ const VueLivraisons = (() => {
 
   /* Les trois montants de la course. « À récupérer » en tête, c'est ce
      qu'il réclame avant de remettre le colis. */
+  const MODES = { especes: "espèces", mobile_money: "Mobile Money" };
+
   function htmlMontants(c) {
     const f = c.fiche;
     const remise = c.etat === "remise";
+    const e = remise && f.encaisse && typeof f.encaisse === "object" ? f.encaisse : null;
     return (
       '<div class="lv-montants">' +
-        (f.a_encaisser > 0
+        (e
+          ? '<div class="lv-encaisser lv-encaisse" data-lv="encaisse">' + UI.icone("check", "ic-sm") +
+              (Number(e.montant) > 0
+                ? "Encaissé : <strong>" + Utils.echapper(montant(e.montant, f.devise)) + "</strong>" +
+                  (MODES[e.mode] ? " (" + MODES[e.mode] + ")" : "") +
+                  '<span class="lv-rendu">' + (e.remis_le
+                    ? "Rendu à la boutique le " + Utils.echapper(Utils.fmtDateHeure(e.remis_le))
+                    : "À rendre à la boutique") + "</span>"
+                : "Rien encaissé") + "</div>"
+          : f.a_encaisser > 0
           ? '<div class="lv-encaisser' + (remise ? " lv-encaisse" : "") + '" data-lv="a-recuperer">' +
               UI.icone("promo", "ic-sm") + (remise ? "Récupéré : " : "À récupérer : ") +
               "<strong>" + Utils.echapper(montant(f.a_encaisser, f.devise)) + "</strong></div>"
@@ -255,8 +274,10 @@ const VueLivraisons = (() => {
 
     let courses;
     let demandes = [];
+    let caisse = null;
     try {
-      [courses, demandes] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees()]);
+      [courses, demandes, caisse] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees(),
+        Store.maCaisse()]);
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +
@@ -266,7 +287,24 @@ const VueLivraisons = (() => {
       return;
     }
 
+    /* MA CAISSE : ce qu'il a encaissé et doit encore rendre, à qui. */
+    const aRendre = caisse && Number(caisse.a_remettre) > 0
+      ? '<div class="carte lv-caisse" id="lv-caisse">' +
+          '<div class="lv-caisse-titre">' + UI.icone("promo", "ic-sm") + "Ma caisse : <strong>" +
+            Utils.echapper(montant(caisse.a_remettre)) + "</strong> à rendre</div>" +
+          (Array.isArray(caisse.boutiques) && caisse.boutiques.length
+            ? '<div class="aide">' + caisse.boutiques.map((b) =>
+                Utils.echapper((b.boutique || "Boutique") + " : " + montant(b.montant))).join(" · ") + "</div>"
+            : "") +
+        "</div>"
+      : "";
+
     if (!courses.length && !demandes.length) {
+      if (aRendre) {
+        vue.innerHTML = aRendre + UI.vide("voiture", "Aucune course pour l'instant",
+          "Dès qu'une commande vous est proposée ou confiée, elle apparaît ici.");
+        return;
+      }
       vue.innerHTML = UI.vide("voiture", "Aucune course pour l'instant",
         "Dès que la boutique vous confie une commande préparée, elle apparaît ici.");
       return;
@@ -279,7 +317,7 @@ const VueLivraisons = (() => {
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
-    vue.innerHTML =
+    vue.innerHTML = aRendre +
       (demandes.length
         ? '<div class="titre-section" id="lv-demandes">' +
             (demandes.length > 1 ? demandes.length + " demandes de course" : "1 demande de course") +
@@ -322,6 +360,12 @@ const VueLivraisons = (() => {
     for (const b of UI.$$(".lv-avancer", vue)) {
       b.onclick = async () => {
         const carte = b.closest(".lv-course");
+        /* « Je l'ai remise » : d'abord ce qu'il a encaissé. */
+        if (b.dataset.vers === "remise") {
+          const c = courses.find((x) => x.commandeId === carte.dataset.commande &&
+            x.boutiqueId === carte.dataset.boutique);
+          if (c && c.fiche) { ouvrirRemise(vue, c); return; }
+        }
         b.disabled = true;
         try {
           await Store.avancerLivraison(carte.dataset.commande,
@@ -334,6 +378,64 @@ const VueLivraisons = (() => {
         }
       };
     }
+  }
+
+  /* La feuille de la remise : le montant reçu, la façon de payer, et un
+     motif quand ce n'est pas ce qui était dû. */
+  function ouvrirRemise(vue, c) {
+    const f = c.fiche;
+    const du = Math.max(0, Number(f.a_encaisser) || 0);
+    let mode = "";
+    const corps = UI.ouvrirFeuille("Remettre « " + (f.numero || c.numero || "") + " »",
+      (du > 0
+        ? '<p class="aide" style="margin:0 0 12px">Le client devait vous payer <strong>' +
+            Utils.echapper(montant(du, f.devise)) + "</strong>. Indiquez ce que vous avez " +
+            "réellement reçu : il le verra sur son reçu, et la boutique dans sa caisse.</p>" +
+          '<div class="champ"><label for="lv-montant">Montant encaissé</label>' +
+            '<input id="lv-montant" inputmode="numeric" value="' + du + '"></div>' +
+          '<div class="champ"><label>Le client a payé</label>' +
+            '<div class="btn-rangee lv-modes">' +
+              '<button type="button" class="btn btn-clair" data-mode="especes">En espèces</button>' +
+              '<button type="button" class="btn btn-clair" data-mode="mobile_money">Par Mobile Money</button>' +
+            "</div></div>" +
+          '<div class="champ" id="lv-motif-champ" hidden><label for="lv-motif">Pourquoi un autre montant ?</label>' +
+            '<textarea id="lv-motif" rows="2" maxlength="300" ' +
+              'placeholder="Exemple : le client paiera le reste demain à la boutique"></textarea></div>'
+        : '<p class="aide" style="margin:0 0 12px">Rien à encaisser : tout est payé.</p>') +
+      '<button type="button" class="btn" id="lv-remettre">' + UI.icone("check") + "Colis remis</button>");
+
+    const champ = UI.$("#lv-montant", corps);
+    const motif = UI.$("#lv-motif-champ", corps);
+    if (champ) {
+      champ.oninput = () => {
+        motif.hidden = (Math.round(Number(champ.value.replace(/\D/g, "")) || 0)) === du;
+      };
+    }
+    for (const m of UI.$$("[data-mode]", corps)) {
+      m.onclick = () => {
+        mode = m.dataset.mode;
+        for (const x of UI.$$("[data-mode]", corps)) x.classList.toggle("lv-mode-choisi", x === m);
+      };
+    }
+    const bouton = UI.$("#lv-remettre", corps);
+    bouton.onclick = async () => {
+      const recu = champ ? Math.round(Number(champ.value.replace(/\D/g, "")) || 0) : 0;
+      if (recu > 0 && !mode) {
+        UI.toast("Indiquez comment le client a payé : espèces ou Mobile Money.", "err");
+        return;
+      }
+      bouton.disabled = true;
+      try {
+        await Store.remettreCourse(c.commandeId, c.boutiqueId, recu, recu > 0 ? mode : "aucun",
+          UI.$("#lv-motif", corps) ? UI.$("#lv-motif", corps).value : "");
+        UI.fermerFeuille();
+        UI.toast(recu > 0 ? "Course remise : " + montant(recu, f.devise) + " encaissés." : "Course remise.");
+        afficher(vue);
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
+      }
+    };
   }
 
   return { afficher };

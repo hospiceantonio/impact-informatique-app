@@ -52,6 +52,9 @@
        BIZZOO qui transite, pas celui d'une boutique — laquelle voit ses
        ventes encaissées dans « Ce que vend votre boutique ». */
     { motif: /^\/versements$/, vue: (v) => VueVersements.afficher(v), super: true },
+    /* La caisse des livreurs (3.59.0) : la base ne rend que ce que le
+       compte tient ; l'écran le dit à qui n'en tient aucune. */
+    { motif: /^\/caisse$/, vue: (v) => VueCaisse.afficher(v) },
     /* Les codes promo : l'enseigne seule. Une remise sort de SA marge —
        on ne laisse pas quelqu'un d'autre l'engager. */
     { motif: /^\/codes$/, vue: (v) => VueCodes.afficher(v), super: true },

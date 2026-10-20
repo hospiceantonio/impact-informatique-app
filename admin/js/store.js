@@ -929,6 +929,48 @@ const Store = (() => {
     return Number(combien) || 0;
   }
 
+  /** « Je l'ai remise », avec ce qu'il a encaissé (3.59.0) : le montant,
+      espèces ou Mobile Money, et un motif quand ce n'est pas ce qui était
+      dû. Remettre et déclarer se font d'un seul geste, dans la base. */
+  async function remettreCourse(commande, boutique, montant, mode, motif) {
+    return Supabase.rpc("remettre_course", {
+      commande, boutique, montant: Math.max(0, Math.round(Number(montant) || 0)),
+      mode: mode || "aucun", motif: motif || "" });
+  }
+
+  /** Ce que le livreur a encaissé et pas encore rendu. Une base d'avant :
+      rien à montrer. */
+  async function maCaisse() {
+    try {
+      return (await Supabase.rpcLecture("ma_caisse", {})) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** La caisse des livreurs : ce qui a été encaissé à la livraison sur
+      les boutiques que l'on tient — rendu ou pas —, et les remises faites
+      sans déclaration. */
+  async function caisseLivreurs() {
+    const lignes = await Supabase.rpcLecture("caisse_livreurs", {});
+    return (lignes || []).map((l) => ({
+      id: l.id == null ? null : Number(l.id),
+      commandeId: l.commande_id, numero: l.numero || "",
+      boutiqueId: l.boutique_id || "", nomBoutique: l.nom_boutique || "",
+      livreurId: l.livreur_id || "", livreurNom: l.livreur_nom || "", livreurTel: l.livreur_tel || "",
+      du: Number(l.du) || 0, montant: l.montant == null ? null : Number(l.montant),
+      mode: l.mode || "", motif: l.motif || "",
+      encaisseLe: l.encaisse_le || "", remisLe: l.remis_le || "", remisPar: l.remis_par_nom || "",
+      contesteLe: l.conteste_le || "", contesteMotif: l.conteste_motif || "",
+      declare: l.declare !== false, devise: l.devise || "FCFA",
+    }));
+  }
+
+  /** « Argent reçu du livreur ». */
+  async function marquerRemis(ids) {
+    return Number(await Supabase.rpc("marquer_remis", { ids })) || 0;
+  }
+
   /** « Je l'ai prise » / « Je l'ai remise ». Deux gestes, pas plus. */
   async function avancerLivraison(commande, boutique, vers) {
     const combien = await Supabase.rpc("avancer_livraison",
@@ -3671,6 +3713,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
+    remettreCourse, maCaisse, caisseLivreurs, marquerRemis,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

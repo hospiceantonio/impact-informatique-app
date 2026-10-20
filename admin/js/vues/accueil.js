@@ -246,6 +246,19 @@ const VueAccueil = (() => {
             "depuis le début.</p>" +
         "</a>";
 
+    /* ---- La caisse des livreurs (3.59.0) ----
+       L'argent que les livreurs encaissent à la livraison, jusqu'à ce
+       qu'ils le rendent. */
+    if (Supabase.tientLaCaisse()) {
+      html +=
+        '<a class="carte" href="#/caisse" id="ac-caisse">' +
+          '<div class="carte-titre">' + UI.icone("promo", "ic-sm") +
+            " Caisse des livreurs</div>" +
+          '<p class="aide" style="margin:0">Le reste payé à la livraison : ce que chaque ' +
+            "livreur a encaissé, et ce qu'il doit encore vous rendre.</p>" +
+        "</a>";
+    }
+
     /* ---- Retrouver un client, et suivre l'argent ----
        Deux écrans de l'enseigne seule : une boutique voit déjà ses
        propres acheteurs sur ses commandes, et ses ventes encaissées

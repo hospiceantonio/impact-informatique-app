@@ -446,6 +446,9 @@ const Paiement = (() => {
 
   /** L'état d'une commande, tel que la base le connaît. */
   const suivre = (id, tel) => rpc("suivre_commande", { cible: id, tel });
+  /** Le client conteste ce que le livreur a déclaré avoir encaissé (3.59.0). */
+  const contester = (id, boutique, motif, tel) =>
+    rpc("contester_encaissement", { commande: id, boutique, motif, tel: tel || "" });
 
   /**
    * Attend que la base confirme le paiement. On patiente au lieu
@@ -525,7 +528,7 @@ const Paiement = (() => {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe, fraisLivraison, apercu,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
-    signalerTransaction, suivre, attendreConfirmation, livreurs,
+    signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,
   };
 })();

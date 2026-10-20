@@ -4598,6 +4598,43 @@ Bancs : [`supabase/tests/99zzzzzzzzz-parcours-livraison.sql`](supabase/tests/99z
 [`tools/banc-parcours-livraison.mjs`](tools/banc-parcours-livraison.mjs) ;
 contrôles 137 et 138 de l'état des lieux.
 
+## Le reste payé à la livraison : déclaré, visible, rendu (3.59.0)
+
+Le client paie l'acompte en ligne, et **le reste au livreur**. Avant, ce
+reste passait de main en main sans laisser de trace. Désormais :
+
+**1. Le livreur déclare ce qu'il encaisse.** *Je l'ai remise* ouvre une
+feuille : le montant reçu — déjà rempli avec ce que le client devait — et
+la façon de payer, **espèces** ou **Mobile Money**. Un autre montant
+demande un mot d'explication (« remise de 500 accordée par la boutique »).
+Remettre et déclarer se font d'un seul geste (`remettre_course`). En tête
+de *Mes courses*, **Ma caisse** dit ce qu'il a encaissé et doit encore
+rendre, boutique par boutique (`ma_caisse`).
+
+**2. Le client le voit.** Il reçoit *Reste payé : 7 000 FCFA* (à qui,
+comment, quand). Son reçu affiche **Payé à la livraison**, puis
+**Commande soldée** (`suivre_commande`). S'il n'a pas payé ce qui est
+déclaré, *Ce n'est pas exact* prévient la boutique et BIZZOO
+(`contester_encaissement`).
+
+**3. La caisse des livreurs** (*Accueil → Caisse des livreurs*,
+`#/caisse`) : livreur par livreur, ce qu'il a encaissé et pas encore
+rendu, les écarts avec leur motif, les contestations, et les colis remis
+**sans déclaration** depuis une ancienne application. *Argent reçu du
+livreur* le marque (`marquer_remis`) ; le livreur en est prévenu.
+
+**Qui voit la caisse** (`tient_la_caisse`) : l'administrateur d'une
+boutique, pour l'argent de **ses** colis — y compris encaissé par un
+livreur BIZZOO en livraison groupée ; BIZZOO (superadministrateur, compte
+de l'enseigne avec le droit *commandes* ou *finances*) : tout. Pas un
+modérateur.
+
+Base : [`supabase/reste-livraison.sql`](supabase/reste-livraison.sql)
+(table `encaissements`, à coller après `livraison-parcours.sql`).
+Bancs : [`supabase/tests/99zzzzzzzzzzz-reste-livraison.sql`](supabase/tests/99zzzzzzzzzzz-reste-livraison.sql),
+[`tools/banc-reste-livraison.mjs`](tools/banc-reste-livraison.mjs) ;
+contrôle 139 de l'état des lieux.
+
 ## Structure
 
 ```

@@ -344,6 +344,13 @@ const Supabase = (() => {
     (estCompteEnseigne() ? droitEnseigne("produits")
                          : !!(profil && profil.actif && profil.peutModifier));
   /** Les commandes, et les chiffres : mêmes règles qu'en base. */
+  /* LA CAISSE DES LIVREURS (3.59.0) : l'argent encaissé à la livraison.
+     Le superadministrateur, un compte de BIZZOO qui suit les commandes ou
+     les finances, l'administrateur d'une boutique — pas un modérateur.
+     La base en décide de même (« tient_la_caisse »). */
+  const tientLaCaisse = () => estSuper() ||
+    (estCompteEnseigne() ? droitEnseigne("commandes") || droitEnseigne("finances")
+                         : role() === "administrateur");
   const peutVoirCommandes = () => estSuper() ||
     (estCompteEnseigne() ? droitEnseigne("commandes") : !!profil);
   const peutVoirFinances = () => estSuper() ||
@@ -705,6 +712,7 @@ const Supabase = (() => {
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
     estCompteEnseigne, estAdminBizzoo, droitEnseigne, peutVoirCommandes, peutVoirFinances,
+    tientLaCaisse,
     peutChangerDeBoutique, compteActif, rolesActifs,
     creerCompte, creerCompteTelephone, changerMotDePasse,
     connexionTelephone, renvoyerCodeTelephone, confirmerCodeTelephone, estNumero, telAffichage, rpc, rpcLecture, fonctionEdge,

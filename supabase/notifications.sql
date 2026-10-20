@@ -182,7 +182,12 @@ begin
     'devise', coalesce(c.devise, 'FCFA'),
     'frais', coalesce(frais, 0),
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
-    'a_encaisser', coalesce(reste, 0));
+    'a_encaisser', coalesce(reste, 0),
+    -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
+    'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le)
+                   from public.encaissements x
+                  where x.commande_id = commande and x.boutique_id = boutique));
 end $$;
 revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
 
@@ -485,10 +490,12 @@ begin
         'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
     end if;
+    if coalesce(current_setting('bizzoo.refus', true), '') <> 'oui' then
     perform public.notifier(enseigne, 'course_confiee',
       'Course confiée à un livreur',
       'Commande ' || numero || '.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    end if;
   end if;
 
   -- ---- « Reçu » : le livreur a accepté (3.59.0) ----

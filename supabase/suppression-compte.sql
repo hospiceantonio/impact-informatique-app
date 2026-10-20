@@ -241,7 +241,18 @@ begin
                 from public.restes_par_boutique(c.id) r),
     'restes', (select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
                  from public.restes_par_boutique(c.id) r
-                where r.boutique_id is not null));
+                where r.boutique_id is not null),
+    -- (3.59.0) Ce que le client a payé au livreur, boutique par boutique,
+    -- d'après la déclaration du livreur — et s'il l'a contesté.
+    'encaissements', (select coalesce(jsonb_object_agg(x.boutique_id, jsonb_build_object(
+                         'montant', x.montant, 'mode', x.mode, 'encaisse_le', x.encaisse_le,
+                         'livreur', coalesce(nullif(p.nom, ''), ''),
+                         'conteste', x.conteste_le is not null)), '{}'::jsonb)
+                        from public.encaissements x
+                        left join public.profils p on p.id = x.livreur_id
+                       where x.commande_id = c.id),
+    'paye_livraison', (select coalesce(sum(x.montant), 0) from public.encaissements x
+                        where x.commande_id = c.id));
 end $$;
 
 create or replace function public.commande_pour_paiement(cible text, tel text)

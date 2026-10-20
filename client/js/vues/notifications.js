@@ -32,6 +32,8 @@ const VueNotifications = (() => {
     course_acceptee:       { nom: "Votre livreur", icone: "voiture" },
     /* Un livreur dans l'application client : les demandes de course. */
     course_proposee:       { nom: "Demandes de course", icone: "voiture" },
+    /* Le reste payé au livreur (3.59.0). */
+    reste_encaisse:        { nom: "Paiements à la livraison", icone: "check" },
   };
   const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
 

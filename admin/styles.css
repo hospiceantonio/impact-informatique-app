@@ -1758,3 +1758,18 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .champ-horaires input[type="time"] { width: 96px; padding: 6px; }
 .champ-horaires .horaire-ligne:has([data-ouvert]:not(:checked)) input[type="time"] { opacity: .35; }
 .champ-horaires .horaire-tiret { text-align: center; color: var(--encre-douce, #667); }
+
+/* ---------- Ce que le livreur encaisse, et la caisse (3.59.0) ---------- */
+.lv-caisse{background:var(--orange-clair);border:1px solid var(--orange);margin-bottom:12px}
+.lv-caisse-titre{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--orange-fonce)}
+.lv-caisse-titre strong{font-size:17px}
+.lv-rendu{display:block;width:100%;font-size:12px;font-weight:500;color:var(--encre-douce)}
+.lv-mode-choisi{background:var(--bleu-700);color:#fff;border-color:var(--bleu-700)}
+.cs-livreur{margin-bottom:12px}
+.cs-tete{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.cs-total{font-size:18px;font-weight:800;color:var(--encre);white-space:nowrap}
+.cs-ligne{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--trait);font-size:13px}
+.cs-ligne small{display:block;color:var(--encre-douce)}
+.cs-ecart{color:var(--orange-fonce)}
+.cs-conteste{color:var(--rouge);font-weight:600}
+.cs-rendre{margin-top:10px;width:100%;justify-content:center}
