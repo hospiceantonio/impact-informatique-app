@@ -901,7 +901,15 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'equipe_en_service'
-         and p.prosrc like '%superadministrateur%'))
+         and p.prosrc like '%superadministrateur%')),
+  (142, 'Le livreur de BIZZOO porte toute la commande (assigner_livreur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'assigner_livreur'
+         and p.prosrc like '%Un livreur BIZZOO passe%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'accepter_course'
+         and p.prosrc like '%bizzoo.prise%'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

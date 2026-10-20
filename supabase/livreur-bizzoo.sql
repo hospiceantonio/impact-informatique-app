@@ -45,6 +45,38 @@
 alter table public.profils add column if not exists nom text not null default '';
 alter table public.profils add column if not exists tel text not null default '';
 
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.equipe_de(cible text) returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(p.id), '{}'::uuid[])
+    from public.profils p
+   where p.actif and cible is not null and p.boutique_id = cible
+     and p.role in ('administrateur', 'moderateur');
+$$;
+
+
+create or replace function public.notifier(
+  qui uuid[], quoi text, le_titre text, le_corps text,
+  le_lien text, la_commande text, la_boutique text, qui_sonne boolean)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int := 0;
+begin
+  if qui is null or array_length(qui, 1) is null then return 0; end if;
+  insert into public.notifications
+    (destinataire, type, titre, corps, lien, commande_id, boutique_id, sonne)
+  select u, quoi, coalesce(le_titre, ''), coalesce(le_corps, ''),
+         coalesce(le_lien, ''), la_commande, la_boutique, coalesce(qui_sonne, false)
+    from unnest(qui) as u
+   where u is not null
+  on conflict do nothing;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.notifier(uuid[], text, text, text, text, text, text, boolean)
+  from public, anon, authenticated;
+
+
 create or replace function public.est_equipe() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce(public.role_courant() in
@@ -133,8 +165,12 @@ create or replace function public.assigner_livreur(
 returns int
 language plpgsql security definer set search_path = public as $$
 declare
-  combien int;
-  rang    text;
+  combien  int;
+  autres   int := 0;
+  rang     text;
+  bizzoo   boolean := false;
+  numero   text;
+  b        record;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -143,7 +179,7 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role into rang from public.profils p
+    select p.role, (p.boutique_id is null) into rang, bizzoo from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -173,12 +209,37 @@ begin
      and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
      and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
   get diagnostics combien = row_count;
+
+  -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
+  -- prendre une part déjà confiée au livreur d'une autre boutique.
+  if bizzoo and combien > 0 then
+    update public.commande_lignes l
+       set livreur_id = livreur, recu_le = null
+     where l.commande_id = commande
+       and l.boutique_id <> boutique
+       and l.livreur_id is null
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+    get diagnostics autres = row_count;
+  end if;
   perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
     raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
   end if;
-  return combien;
+
+  -- Les autres boutiques le savent : un livreur BIZZOO passera chez elles.
+  if autres > 0 then
+    select c.numero into numero from public.commandes c where c.id = commande;
+    for b in select distinct l.boutique_id as id from public.commande_lignes l
+              where l.commande_id = commande and l.boutique_id <> boutique and l.livreur_id = livreur
+    loop
+      perform public.notifier(public.equipe_de(b.id), 'course_confiee',
+        'Un livreur BIZZOO passe récupérer vos produits',
+        'Commande ' || coalesce(numero, '') || ' — il livre toute la commande. Préparez le colis.',
+        '#/commandes/' || commande, commande, b.id, true);
+    end loop;
+  end if;
+  return combien + autres;
 end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
 grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;

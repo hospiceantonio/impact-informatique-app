@@ -303,6 +303,12 @@ titre("5. « Confier » dit qui n'est pas de la maison");
   ok(!!enseigne && enseigne.marque, "celui de BIZZOO est marqué « BIZZOO »");
   ok(!!enseigne && enseigne.tel === "0197000099",
     "et son numéro part avec (" + (enseigne || {}).tel + ")");
+  /* (3.59.0) Qui porte quoi : dit avant d'appuyer. */
+  const aide = await page.evaluate(() => document.querySelector(".feuille, [role=dialog]")
+    ? (document.querySelector(".feuille, [role=dialog]").innerText || "") : document.body.innerText);
+  ok(/BIZZOO livre toute la commande/.test(aide.replace(/\s+/g, " ")) &&
+     /ne livre que vos produits/.test(aide),
+    "la feuille dit : BIZZOO livre toute la commande, le sien ses produits seulement");
   await ctx.close();
 }
 

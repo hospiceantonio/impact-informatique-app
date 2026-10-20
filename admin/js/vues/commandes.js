@@ -164,6 +164,13 @@ const VueCommandes = (() => {
           ? " : " + Utils.echapper(Utils.fmtMontant(commande.aEncaisser, commande.devise))
           : " : rien, tout est payé") +
         ". Aucun autre montant — ni le prix des articles, ni ce que vous touchez.</p>" +
+      /* (3.59.0) Qui porte quoi : le livreur de BIZZOO, toute la commande ;
+         celui de la boutique, ses produits seulement. */
+      (livreurs.some((l) => l.bizzoo)
+        ? '<p class="aide" style="margin:0 0 14px">Un livreur <strong>BIZZOO</strong> livre ' +
+          "<strong>toute la commande</strong>, les produits des autres boutiques aussi. " +
+          "Le livreur de votre boutique ne livre que vos produits.</p>"
+        : "") +
       livreurs.map((l) =>
         '<button type="button" class="btn btn-clair cmd-livreur" style="margin-bottom:8px" ' +
           'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
@@ -194,9 +201,10 @@ const VueCommandes = (() => {
              qu'il faut aller lever ailleurs. Et on annonce qu'il est
              prévenu : c'est la base qui s'en charge, mais celui qui
              confie n'a aucun moyen de le savoir autrement. */
-          const qui = (livreurs.find((l) => l.id === b.dataset.livreur) || {}).affichage;
+          const choisi = livreurs.find((l) => l.id === b.dataset.livreur) || {};
           UI.toast(b.dataset.livreur
-            ? "Course confiée à " + (qui || "ce livreur") + " — il est prévenu."
+            ? "Course confiée à " + (choisi.affichage || "ce livreur") +
+              (choisi.bizzoo ? " — il livre toute la commande, il est prévenu." : " — il est prévenu.")
             : "Course reprise.");
           await afficher(vue);
         } catch (err) {

@@ -4655,6 +4655,20 @@ Base : [`supabase/refus-course.sql`](supabase/refus-course.sql) (à coller aprè
 `reste-livraison.sql`). Bancs : [`supabase/tests/99zzzzzzzzzzzz-refus-course.sql`](supabase/tests/99zzzzzzzzzzzz-refus-course.sql),
 [`tools/banc-refus-course.mjs`](tools/banc-refus-course.mjs) ; contrôle 140 de l'état des lieux.
 
+## Le livreur de BIZZOO livre toute la commande (3.59.0)
+
+- **Livreur BIZZOO** (rattaché à aucune boutique) : quand une boutique lui
+  confie une course, il reçoit **tous les produits de la commande**, ceux
+  des autres boutiques aussi. Les autres boutiques sont prévenues
+  (« Un livreur BIZZOO passe récupérer vos produits »). Une part déjà
+  confiée au livreur d'une autre boutique lui reste.
+- Il accepte d'un seul « Commande reçue » toute la commande ; le client
+  reçoit une seule nouvelle avec son nom et son numéro.
+- **Livreur d'une boutique** : il ne reçoit que les produits de sa boutique.
+- La feuille « Confier » l'explique avant d'appuyer.
+- À coller : `supabase/livreur-bizzoo-commande.sql` (après `refus-course.sql`).
+  Essai : `supabase/tests/99zzzzzzzzzzzzzz-livreur-bizzoo-commande.sql`.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code
@@ -4684,6 +4698,15 @@ Dans l'application client, la carte **Espace vendeur** (et son bouton *Ouvrir l'
 vendeur*) n'apparaît plus pour un livreur — ni sur *Mon compte*, ni sous *Mes courses*. Les
 administrateurs et modérateurs qui ouvrent l'application client la gardent. Banc :
 [`tools/banc-livreur-compte-client.mjs`](tools/banc-livreur-compte-client.mjs).
+
+## Le revendeur choisit les prix qu'il affiche (3.59.0)
+
+Dans *Mon compte → Compte revendeur*, deux boutons : **Prix revendeur** (par défaut) et **Prix
+publics**. En « prix publics », le catalogue, la fiche produit et l'accueil montrent les prix
+publics, sans rien de revendeur — pour les montrer à son propre client. Ce n'est qu'un
+**affichage**, gardé sur le téléphone : la base facture toujours le prix revendeur, et le
+**panier** montre toujours ce qu'il paiera (« Total à vos prix revendeur »). Le partage d'un
+produit donne toujours le prix public. Banc : [`tools/banc-prix-revendeur.mjs`](tools/banc-prix-revendeur.mjs).
 
 ## Structure
 

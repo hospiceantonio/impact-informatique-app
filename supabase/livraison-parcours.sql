@@ -271,8 +271,12 @@ create or replace function public.assigner_livreur(
 returns int
 language plpgsql security definer set search_path = public as $$
 declare
-  combien int;
-  rang    text;
+  combien  int;
+  autres   int := 0;
+  rang     text;
+  bizzoo   boolean := false;
+  numero   text;
+  b        record;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -281,7 +285,7 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role into rang from public.profils p
+    select p.role, (p.boutique_id is null) into rang, bizzoo from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -311,12 +315,37 @@ begin
      and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
      and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
   get diagnostics combien = row_count;
+
+  -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
+  -- prendre une part déjà confiée au livreur d'une autre boutique.
+  if bizzoo and combien > 0 then
+    update public.commande_lignes l
+       set livreur_id = livreur, recu_le = null
+     where l.commande_id = commande
+       and l.boutique_id <> boutique
+       and l.livreur_id is null
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+    get diagnostics autres = row_count;
+  end if;
   perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
     raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
   end if;
-  return combien;
+
+  -- Les autres boutiques le savent : un livreur BIZZOO passera chez elles.
+  if autres > 0 then
+    select c.numero into numero from public.commandes c where c.id = commande;
+    for b in select distinct l.boutique_id as id from public.commande_lignes l
+              where l.commande_id = commande and l.boutique_id <> boutique and l.livreur_id = livreur
+    loop
+      perform public.notifier(public.equipe_de(b.id), 'course_confiee',
+        'Un livreur BIZZOO passe récupérer vos produits',
+        'Commande ' || coalesce(numero, '') || ' — il livre toute la commande. Préparez le colis.',
+        '#/commandes/' || commande, commande, b.id, true);
+    end loop;
+  end if;
+  return combien + autres;
 end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
 grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;
@@ -423,15 +452,20 @@ language plpgsql security definer set search_path = public as $$
 declare
   moi     uuid := auth.uid();
   combien int;
+  bizzoo  boolean;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Cette course ne vous est pas confiée';
   end if;
+  select (p.boutique_id is null) into bizzoo from public.profils p where p.id = moi;
   perform set_config('bizzoo.livraison', 'oui', true);
+  if coalesce(bizzoo, false) then
+    perform set_config('bizzoo.prise', 'oui', true);
+  end if;
   update public.commande_lignes l
      set recu_le = now()
    where l.commande_id = commande
-     and l.boutique_id = boutique
+     and (l.boutique_id = boutique or coalesce(bizzoo, false))
      and l.livreur_id = moi
      and l.recu_le is null
      -- (3.59.0) Dès le paiement : la course s'accepte avant que le colis
@@ -439,6 +473,7 @@ begin
      and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
   get diagnostics combien = row_count;
   perform set_config('bizzoo.livraison', '', true);
+  perform set_config('bizzoo.prise', '', true);
   if combien = 0 and not exists (
        select 1 from public.commande_lignes l
         where l.commande_id = commande and l.boutique_id = boutique
