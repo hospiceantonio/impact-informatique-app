@@ -372,24 +372,58 @@ const Supabase = (() => {
   /** Membre actif de l'équipe : sans fiche active, aucune écriture n'est permise. */
   const compteActif = () => !rolesEnBase || !!(profil && profil.actif);
 
-  /** Renvoie une session valide (rafraîchie si besoin), sinon null. */
-  async function assurerSession() {
-    if (!session) return null;
-    if (session.expire_a - Date.now() > 60000) return session;
+  /* ---------- Un seul rafraîchissement à la fois (3.63.0) ----------
+     Les écrans qui s'ouvrent ensemble au démarrage demandaient chacun le
+     leur, avec le même jeton : GoTrue remplace ce jeton à chaque usage,
+     et les suivants se le voyaient refuser. Tout le monde attend donc le
+     même appel. Et avant de conclure que la session est perdue, on
+     relit celle que le navigateur garde : un autre onglet a pu la
+     renouveler entre-temps. Même leçon que l'application cliente, où une
+     session tombée en silence laissait partir des commandes sans compte. */
+  let rafraichissement = null;
+
+  function sessionGardee() {
+    try { return JSON.parse(localStorage.getItem(CLE_SESSION) || "null"); } catch (_) { return null; }
+  }
+
+  async function rafraichir() {
+    const rangee = sessionGardee();
+    if (rangee && rangee.refresh_token && session &&
+        rangee.refresh_token !== session.refresh_token) {
+      session = rangee;
+      if (session.expire_a - Date.now() > 60000) return session;
+    }
+    const courante = session;
     try {
-      const d = await appelAuth("token?grant_type=refresh_token", { refresh_token: session.refresh_token });
+      const d = await appelAuth("token?grant_type=refresh_token", { refresh_token: courante.refresh_token });
       garderSession({
         access_token: d.access_token,
-        refresh_token: d.refresh_token || session.refresh_token,
+        refresh_token: d.refresh_token || courante.refresh_token,
         expire_a: (d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000),
-        email: session.email,
+        email: courante.email,
       });
       return session;
     } catch (err) {
       if (/connexion internet/.test(err.message || "")) return session; // hors ligne : on tentera
+      const relue = sessionGardee();
+      if (relue && relue.refresh_token && relue.refresh_token !== courante.refresh_token &&
+          relue.expire_a - Date.now() > 60000) {
+        session = relue;
+        return session;
+      }
       garderSession(null);
       return null;
     }
+  }
+
+  /** Renvoie une session valide (rafraîchie si besoin), sinon null. */
+  async function assurerSession() {
+    if (!session) return null;
+    if (session.expire_a - Date.now() > 60000) return session;
+    if (!rafraichissement) {
+      rafraichissement = rafraichir().finally(() => { rafraichissement = null; });
+    }
+    return rafraichissement;
   }
 
   const sessionPresente = () => !!session;

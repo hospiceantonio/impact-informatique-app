@@ -72,7 +72,7 @@ const VueCommandes = (() => {
      sept lignes, et le montant se coupait en « 24 000 » / « FCFA ».
      Le nom tient maintenant sur UNE ligne ; tronqué, il se déplie d'un
      appui — c'est un bouton, et un lecteur d'écran le lit en entier. */
-  function htmlLigne(l, devise) {
+  function htmlLigne(l, devise, sansCompte) {
     const etat = Store.ETATS_LIGNE[l.etat] || Store.ETATS_LIGNE.nouvelle;
     const suite = Store.SUITE_LIGNE[l.etat];
     return (
@@ -105,6 +105,12 @@ const VueCommandes = (() => {
         (l.confirmeLe
           ? '<div class="cmd-confirme">' + UI.icone("check", "ic-sm") +
             "Reçu confirmé par le client " + Utils.echapper(quandCourt(l.confirmeLe)) + "</div>"
+          /* (3.63.0) SANS COMPTE, CETTE PAROLE NE VIENDRA PAS : la base ne
+             l'accepte que d'un compte. « En attente » pour toujours
+             faisait chercher une panne ; on dit ce qu'il en est. */
+          : l.etat === "remise" && sansCompte
+            ? '<div class="cmd-attente-client">Commande passée sans compte client : ' +
+              "pas de confirmation possible</div>"
           : l.etat === "remise"
             ? '<div class="cmd-attente-client">En attente de sa confirmation</div>'
             : "") +
@@ -419,7 +425,8 @@ const VueCommandes = (() => {
               ? '<div class="cmd-note">« ' + Utils.echapper(c.note) + " »</div>"
               : "") +
           "</div>" +
-          '<div class="cmd-lignes">' + c.lignes.map((l) => htmlLigne(l, c.devise)).join("") + "</div>" +
+          '<div class="cmd-lignes">' +
+            c.lignes.map((l) => htmlLigne(l, c.devise, !c.clientId)).join("") + "</div>" +
         "</div>" +
 
         /* QUI LIVRE (3.59.0) : rempli quand la base répond. */

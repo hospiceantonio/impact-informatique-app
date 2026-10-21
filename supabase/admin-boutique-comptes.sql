@@ -17,6 +17,10 @@
 -- À coller APRÈS reste-momopay.sql.
 -- =========================================================
 
+-- (3.63.0) Les règles de « profils » lisent ces colonnes.
+alter table public.profils add column if not exists cree_par uuid;
+alter table public.profils add column if not exists a_valider boolean not null default false;
+
 -- Les colonnes que les fonctions plus bas lisent.
 alter table public.profils add column if not exists tel text not null default '';
 alter table public.profils add column if not exists tel_verifie boolean not null default false;
@@ -94,8 +98,10 @@ alter policy "profils ajout admin" on public.profils
     public.est_super()
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
-    -- L'administrateur de BIZZOO crée des livreurs, et rien d'autre.
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    -- L'administrateur de BIZZOO crée des livreurs — et (3.63.0) des
+    -- modérateurs INACTIFS, que le superadministrateur validera.
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
 
 alter policy "profils modification admin" on public.profils
   to authenticated
@@ -106,7 +112,10 @@ alter policy "profils modification admin" on public.profils
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
-    or (public.est_admin_bizzoo() and role = 'livreur'))
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Le modérateur qu'il a créé, tant qu'il attend sa validation.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and a_valider
+        and cree_par = auth.uid()))
   with check (
     public.est_super()
     -- (3.59.0) Un modérateur ou un livreur de SA boutique — jamais un
@@ -114,15 +123,35 @@ alter policy "profils modification admin" on public.profils
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
-    -- de personne un administrateur ni un modérateur.
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    -- de personne un administrateur.
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Un modérateur, mais INACTIF : c'est le superadministrateur
+    -- qui l'active.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
 
 alter policy "profils suppression admin" on public.profils
   to authenticated using (
     (public.est_super() and not public.est_mon_createur(id))
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    or (public.est_admin_bizzoo() and role = 'moderateur' and a_valider
+        and cree_par = auth.uid()));
+
+-- (3.63.0) « gere_le_compte » appelle désormais « mon_moderateur ».
+alter table public.profils add column if not exists cree_par uuid;
+alter table public.profils add column if not exists a_valider boolean not null default false;
+create or replace function public.mon_moderateur(cible uuid, en_attente boolean)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.est_admin_bizzoo() and exists (
+    select 1 from public.profils p
+     where p.id = cible and p.role = 'moderateur' and p.cree_par = auth.uid()
+       and (not en_attente or p.a_valider));
+end $$;
+revoke all on function public.mon_moderateur(uuid, boolean) from public, anon;
+grant execute on function public.mon_moderateur(uuid, boolean) to authenticated;
 
 -- Qui a le droit d'agir sur ce compte-là ? Le superadministrateur sur
 -- tous ; l'administrateur seulement sur les modérateurs et les livreurs
@@ -135,7 +164,12 @@ language sql stable security definer set search_path = public as $$
             select 1 from public.profils p
              where p.id = cible and p.role in ('moderateur', 'livreur')
                and p.boutique_id is not null
-               and p.boutique_id = public.boutique_du_compte())));
+               and p.boutique_id = public.boutique_du_compte()))
+      or (public.est_admin_bizzoo() and exists (
+            select 1 from public.profils p
+             where p.id = cible and p.role = 'livreur'))
+      -- (3.63.0) Le modérateur qu'il a créé, tant qu'il attend sa validation.
+      or public.mon_moderateur(cible, true));
 $$;
 grant execute on function public.gere_le_compte(uuid) to authenticated;
 

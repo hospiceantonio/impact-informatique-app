@@ -179,7 +179,8 @@ const VueComptes = (() => {
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
             rattachement(compte) +
             (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
-            (compte.actif ? "" : " · désactivé") +
+            (compte.aValider ? " · à valider par le superadministrateur"
+              : compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
           '<span class="compte-trace">' + Utils.echapper(traceCreation(compte)) +
             " · " + etatNumero(compte) + "</span>" +
@@ -228,8 +229,17 @@ const VueComptes = (() => {
         type: "tel", placeholder: "01 97 00 00 00",
         aide: "C'est là que part son code de connexion par SMS. Le changer annule " +
           "sa vérification : le prochain code partira au nouveau numéro." }) +
-      UI.interrupteur({ id: "cp-actif", label: "Compte actif", actif: compte.actif,
-        aide: "Désactivé, il ne peut plus rien modifier, même en se connectant." }) +
+      /* (3.63.0) UN COMPTE À VALIDER : seul le superadministrateur
+         l'active, et l'activer le valide. Son créateur le voit attendre. */
+      (compte.aValider && !Supabase.estSuper()
+        ? '<p class="aide" style="margin:4px 0 14px">' + UI.icone("horloge", "ic-sm") +
+            " En attente de validation : le superadministrateur l'activera.</p>"
+        : UI.interrupteur({ id: "cp-actif", label: compte.aValider ? "Valider et activer ce compte" : "Compte actif",
+            actif: compte.actif,
+            aide: compte.aValider
+              ? "Créé par " + (compte.creeParNom || "un administrateur de BIZZOO") +
+                ". Activez-le pour le valider."
+              : "Désactivé, il ne peut plus rien modifier, même en se connectant." })) +
       /* La boutique concerne administrateur et modérateur ; seul le
          super administrateur les gère toutes. */
       (Store.listerBoutiques().length
@@ -349,7 +359,8 @@ const VueComptes = (() => {
       const bouton = UI.$("#cp-enregistrer", corps);
       bouton.disabled = true;
       const role = selecteur.value;
-      const actif = UI.$("#cp-actif", corps).checked;
+      const caseActif = UI.$("#cp-actif", corps);
+      const actif = caseActif ? caseActif.checked : compte.actif;
       /* Un administrateur garde toujours le droit de modifier : si le rôle
          passe à « administrateur », on remet le droit à vrai.
          SAUF POUR UN COMPTE D'ENSEIGNE : là c'est son interrupteur qui
@@ -515,7 +526,9 @@ const VueComptes = (() => {
           champBoutique ? champBoutique.value : "",
           UI.$("#nc-nom", corps).value, UI.$("#nc-tel", corps).value);
         UI.fermerFeuille();
-        if (compte.confirmationRequise) {
+        if (compte.aValider) {
+          UI.toast(nomRole(compte.role) + " créé : il attend la validation du superadministrateur.", "ok");
+        } else if (compte.confirmationRequise) {
           UI.toast("Compte créé — il doit d'abord confirmer son adresse par email.", "ok");
         } else {
           UI.toast(nomRole(compte.role) + " ajouté : " + (compte.email || compte.tel || compte.nom), "ok");
@@ -553,7 +566,23 @@ const VueComptes = (() => {
        leur bouton de création et leur gestion. */
     const nbLivreurs = comptes.filter((c) => c.role === "livreur").length;
     comptes = comptes.filter((c) => c.role !== "livreur");
+    /* (3.63.0) LES COMPTES À VALIDER, en tête : créés par un
+       administrateur de BIZZOO, ils attendent le superadministrateur. */
+    const aValider = comptes.filter((c) => c.aValider);
+    const adminBizzoo = Supabase.estAdminBizzoo() && !Supabase.estSuper();
     vue.innerHTML =
+      (Supabase.estSuper() && aValider.length
+        ? '<div class="carte">' +
+            '<div class="carte-titre">' + UI.icone("horloge", "ic-sm") + " À valider (" +
+              aValider.length + ")</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">Créés par un administrateur de BIZZOO. ' +
+              "Ils ne peuvent rien faire tant que vous ne les avez pas validés.</p>" +
+            aValider.map((c) =>
+              '<div class="compte-a-valider">' + htmlLigne(c, false) +
+                '<button type="button" class="btn btn-mini" data-valider="' + Utils.echapper(c.id) + '">' +
+                  "Valider</button></div>").join("") +
+          "</div>"
+        : "") +
       (Store.rolesAttribuables().includes("livreur")
         ? '<a class="carte carte-livreurs" href="#/livreurs">' +
             '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Les livreurs (" +
@@ -564,7 +593,14 @@ const VueComptes = (() => {
         : "") +
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("equipe", "ic-sm") + " L'équipe (" + comptes.length + ")</div>" +
-        '<p class="aide" style="margin:-4px 0 12px">Le <strong>super administrateur</strong> tient ' +
+        (adminBizzoo
+          ? '<p class="aide" style="margin:-4px 0 12px">Vous créez des <strong>modérateurs</strong>, ' +
+              "pour une boutique ou pour BIZZOO. Chacun attend que le <strong>superadministrateur" +
+              "</strong> le valide : d'ici là, vous pouvez le retoucher ou le retirer. Voici ceux " +
+              "que vous avez créés.</p>"
+          : "") +
+        '<p class="aide" style="margin:-4px 0 12px"' + (adminBizzoo ? " hidden" : "") +
+          '>Le <strong>super administrateur</strong> tient ' +
           "toute l'enseigne : les boutiques, les réglages BIZZOO et les comptes. " +
           "L'<strong>administrateur</strong> a tous les droits sur SA boutique — produits, rayons, " +
           "slider, réglages et ses modérateurs. Le <strong>modérateur</strong> s'occupe des produits " +
@@ -591,6 +627,19 @@ const VueComptes = (() => {
       "</div>";
 
     UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue), false);
+    for (const bouton of UI.$$("[data-valider]", vue)) {
+      bouton.onclick = async () => {
+        bouton.disabled = true;
+        try {
+          await Store.majCompte(bouton.dataset.valider, { actif: true });
+          UI.toast("Compte validé", "ok");
+          afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          bouton.disabled = false;
+        }
+      };
+    }
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {
         const compte = comptes.find((c) => c.id === bouton.dataset.compte);

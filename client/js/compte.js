@@ -115,7 +115,11 @@ const Compte = (() => {
     session = s;
     /* Une vraie session remplace toujours celle qui attendait : sinon le
        code du numéro partirait, plus tard, au nom d'un autre compte. */
-    if (s) attente = null;
+    if (s) {
+      attente = null;
+      /* Se reconnecter tourne la page : la perte n'est plus à signaler. */
+      noterPerte(false);
+    }
     try {
       if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
       else localStorage.removeItem(CLE_SESSION);
@@ -373,31 +377,110 @@ const Compte = (() => {
     return session;
   }
 
-  /** Une session valable, rafraîchie si besoin — ou null. */
-  async function assurerSession() {
-    if (!session) return null;
-    if (session.expire_a - Date.now() > 60000) return session;
+  /* ---------- La session qui tombait en silence (3.63.0) ----------
+
+     LE SYMPTÔME. Le 21 octobre 2026, six commandes de test sont nées
+     sans compte rattaché alors que leurs auteurs se croyaient
+     connectés : plus d'étapes, plus de livreur, plus de « J'ai bien
+     reçu » — et, côté boutique, « en attente de sa confirmation » pour
+     toujours.
+
+     LA CAUSE. Au rafraîchissement, GoTrue répondait « jeton
+     introuvable » : la session avait été fermée AILLEURS — « Se
+     déconnecter » sur un autre appareil fermait toutes les sessions du
+     compte, voir « deconnecter » — et ce téléphone l'apprenait au
+     premier rafraîchissement. L'ancien code effaçait alors la session
+     sans un mot ; l'écran de commande, prérempli des coordonnées du
+     téléphone, laissait partir la commande en visiteur.
+
+     TROIS RÈGLES DÉSORMAIS :
+       1. UN SEUL RAFRAÎCHISSEMENT À LA FOIS : les écrans qui s'ouvrent
+          ensemble au démarrage ne tournent pas sept fois la même clé
+          (le journal en montrait sept, à la même seconde) ;
+       2. AVANT DE CONCLURE, ON RELIT CE QUE LE TÉLÉPHONE GARDE : un
+          autre onglet de la même application a pu renouveler la session
+          entre-temps — GoTrue remplace le jeton à chaque usage, et le
+          second à s'en servir se le voit refuser ;
+       3. PERDUE POUR DE BON, LA SESSION L'EST À VOIX HAUTE : un drapeau,
+          gardé sur le téléphone, que l'écran de commande consulte avant
+          de dessiner son formulaire ; et un événement que l'application
+          transforme en message. */
+  const CLE_PERDUE = "bizzoo-session-perdue";
+  let rafraichissement = null;   // la promesse du rafraîchissement en cours
+  let perdue = false;
+  try { perdue = !!localStorage.getItem(CLE_PERDUE); } catch (_) { /* vide */ }
+
+  function sessionGardee() {
+    try { return JSON.parse(localStorage.getItem(CLE_SESSION) || "null"); } catch (_) { return null; }
+  }
+
+  function noterPerte(oui) {
+    perdue = oui;
+    try {
+      if (oui) localStorage.setItem(CLE_PERDUE, String(Date.now()));
+      else localStorage.removeItem(CLE_PERDUE);
+    } catch (_) { /* navigation privée : le drapeau vivra le temps de l'onglet */ }
+  }
+
+  /** La session est tombée sans qu'on l'ait demandé, et personne ne s'est reconnecté depuis. */
+  const sessionPerdue = () => perdue && !session;
+
+  /** « Commander sans compte » : le client a lu le message et passe outre. */
+  const oublierPerte = () => noterPerte(false);
+
+  async function rafraichir() {
+    /* Règle 2, avant l'appel : la session rangée fait foi si elle n'est
+       plus celle qu'on a en main. */
+    const rangee = sessionGardee();
+    if (rangee && rangee.refresh_token && session &&
+        rangee.refresh_token !== session.refresh_token) {
+      session = rangee;
+      if (session.expire_a - Date.now() > 60000) return session;
+    }
+    const courante = session;
     try {
       const d = await appelAuth("token?grant_type=refresh_token",
-        { refresh_token: session.refresh_token });
+        { refresh_token: courante.refresh_token });
       garder({
         access_token: d.access_token,
-        refresh_token: d.refresh_token || session.refresh_token,
+        refresh_token: d.refresh_token || courante.refresh_token,
         expire_a: d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 3600) * 1000,
-        email: session.email,
+        email: courante.email,
         /* Le numéro survit au rafraîchissement : sans lui, un compte créé
            par SMS retombait, au bout d'une heure, sur l'identifiant vide
            que « depuisReponse » s'applique justement à éviter. */
-        tel: session.tel || "",
+        tel: courante.tel || "",
       });
       return session;
     } catch (err) {
       /* Hors ligne, on garde la session : elle vaut peut-être encore, et la
          perdre obligerait le client à se reconnecter pour rien. */
       if (/connexion internet/.test(err.message || "")) return session;
+      /* Règle 2, après l'appel : refusée, mais renouvelée ailleurs pendant
+         qu'on demandait ? On adopte ce qui est rangé. */
+      const relue = sessionGardee();
+      if (relue && relue.refresh_token && relue.refresh_token !== courante.refresh_token &&
+          relue.expire_a - Date.now() > 60000) {
+        session = relue;
+        return session;
+      }
+      /* Règle 3 : perdue, et dite. */
+      noterPerte(true);
       garder(null);
+      document.dispatchEvent(new CustomEvent("compte:perdue"));
       return null;
     }
+  }
+
+  /** Une session valable, rafraîchie si besoin — ou null. */
+  async function assurerSession() {
+    if (!session) return null;
+    if (session.expire_a - Date.now() > 60000) return session;
+    /* Règle 1 : tout le monde attend le même rafraîchissement. */
+    if (!rafraichissement) {
+      rafraichissement = rafraichir().finally(() => { rafraichissement = null; });
+    }
+    return rafraichissement;
   }
 
   /** Le jeton à joindre à un appel, ou "" si personne n'est connecté. */
@@ -613,7 +696,13 @@ const Compte = (() => {
     /* La session qui attendait s'oublie AVANT : sinon c'est elle que la
        déconnexion viserait, et non celle du téléphone. */
     attente = null;
-    try { await appelAuth("logout", {}, true); } catch (_) { /* déjà expirée */ }
+    /* CE TÉLÉPHONE SEULEMENT (3.63.0). Sans « scope=local », GoTrue ferme
+       TOUTES les sessions du compte : se déconnecter sur un appareil
+       déconnectait aussi les autres — qui ne l'apprenaient qu'au
+       rafraîchissement suivant, en silence, et laissaient partir la
+       commande en cours sans compte. Voir « La session qui tombait en
+       silence », plus haut. */
+    try { await appelAuth("logout?scope=local", {}, true); } catch (_) { /* déjà expirée */ }
     garder(null);
     /* Le catalogue redevient celui de tout le monde, séance tenante :
        les prix revendeur ne restent pas à l'écran une fois sorti. */
@@ -1565,6 +1654,7 @@ const Compte = (() => {
     lireRetourEmail, changerMotDePasse,
     abandonnerAttente, numeroEnAttente, numeroConfirme, numeroAConfirmer,
     enregistrer, enregistrerNom, assurerSession, jeton, surChangement,
+    sessionPerdue, oublierPerte,
     etatRevendeur, estRevendeur, estRevendeurEnAttente, motifRevendeur,
     demanderRevendeur, annulerRevendeur, enregistrerPosition, chargerPrix,
     telInternational, telNational, telAffichage,

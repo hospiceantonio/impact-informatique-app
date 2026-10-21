@@ -825,9 +825,9 @@ const Store = (() => {
        exigent une boutique non nulle, et il n'en a pas — la base
        refuserait. Lui proposer le bouton, c'était promettre un geste
        qui échoue. */
-    /* SAUF L'ADMINISTRATEUR DE BIZZOO, pour un seul rang : le livreur
-       (3.59.0). La base le lui permet, et rien d'autre. */
-    if (Supabase.estAdminBizzoo()) return ["livreur"];
+    /* SAUF L'ADMINISTRATEUR DE BIZZOO : le livreur (3.59.0), et le
+       modérateur (3.63.0) — que le superadministrateur validera. */
+    if (Supabase.estAdminBizzoo()) return ["moderateur", "livreur"];
     if (Supabase.estCompteEnseigne()) return [];
     /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
     return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
@@ -1070,6 +1070,14 @@ const Store = (() => {
     if (!c) return false;
     if (estMonCreateur(c)) return false;
     if (Supabase.estSuper()) return true;
+    /* (3.63.0) L'ADMINISTRATEUR DE BIZZOO : tous les livreurs, et les
+       modérateurs qu'il a créés tant qu'ils attendent leur validation.
+       Avant, aucun crayon ne s'affichait sur ses livreurs — la règle
+       ci-dessous exige une boutique, et il n'en a pas. */
+    if (Supabase.estAdminBizzoo()) {
+      return c.role === "livreur" ||
+        (c.role === "moderateur" && c.aValider && c.creePar === Supabase.identifiant());
+    }
     /* LES DEUX RANGS QU'UN ADMINISTRATEUR NOMME, ET DONC LES DEUX
        QU'IL DOIT POUVOIR REPRENDRE. Le livreur manquait ici alors que
        « rolesAttribuables() » le lui offrait déjà : il créait un
@@ -1105,6 +1113,9 @@ const Store = (() => {
       creePar: l.cree_par || "",
       creeParNom: l.cree_par_nom || "",
       telVerifie: l.tel_verifie === true,
+      /* (3.63.0) Créé par l'administrateur de BIZZOO : il attend que le
+         superadministrateur l'active. */
+      aValider: l.a_valider === true,
     };
   }
 
@@ -1208,7 +1219,8 @@ const Store = (() => {
          c'était faire d'un menu laissé vide un compte qui regarde
          toutes les boutiques — le contraire de ce qu'on voulait. */
       if (choix === ENSEIGNE) {
-        if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() && role === "livreur")) {
+        if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() &&
+            (role === "livreur" || role === "moderateur"))) {
           throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
         }
         attachee = null;
@@ -1223,7 +1235,8 @@ const Store = (() => {
     if (!rolesAttribuables().includes(role)) {
       throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
     }
-    if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() && role === "livreur") &&
+    if (!Supabase.estSuper() &&
+        !(Supabase.estAdminBizzoo() && (role === "livreur" || role === "moderateur")) &&
         (attachee || "") !== Supabase.boutiqueDuCompte()) {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
@@ -1239,17 +1252,22 @@ const Store = (() => {
        part en service avec son adresse e-mail pour seul nom, et c'est
        cette adresse que la boutique lit dans « Confier à un livreur »
        le jour où elle cherche qui appeler. */
+    /* (3.63.0) Le modérateur de l'administrateur de BIZZOO naît inactif :
+       le superadministrateur le validera. La base y veille aussi. */
+    const aValider = !Supabase.estSuper() && Supabase.estAdminBizzoo() && role === "moderateur";
     const fiche = {
-      id: cree.id, email: adresse, role, actif: true, boutique_id: attachee,
+      id: cree.id, email: adresse, role, actif: !aValider, boutique_id: attachee,
       nom: String(nom || "").trim(), tel: String(tel || "").trim(),
     };
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
     const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")"
       : role === "livreur" ? " (BIZZOO — toutes les boutiques)" : "";
     const qui = adresse || String(tel || "").trim();
-    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + qui + ou, qui,
+    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + qui + ou +
+      (aValider ? " — à valider par le superadministrateur" : ""), qui,
       undefined, attachee || null);
-    return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
+    return { ...compteDepuisLigne({ ...fiche, a_valider: aValider }),
+      confirmationRequise: cree.confirmationRequise };
   }
 
   /**
@@ -2234,6 +2252,11 @@ const Store = (() => {
         indicatif: l.client_indicatif || "229",
         adresse: l.client_adresse || "",
       },
+      /* (3.63.0) LE COMPTE DU CLIENT, s'il y en a un. Une commande passée
+         sans compte n'aura jamais de « reçu confirmé » : la base n'accepte
+         cette parole que d'un compte, et l'écran doit le dire plutôt que
+         d'attendre une confirmation qui ne viendra pas. */
+      clientId: l.client_id || "",
       note: l.note || "",
       /* Le total de la commande entière ; « montant » ne compte que ce
          qui revient à la boutique qui regarde. */

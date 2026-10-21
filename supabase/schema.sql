@@ -663,6 +663,11 @@ alter table public.profils
 -- quand le client n'est pas chez lui.
 alter table public.profils add column if not exists nom text not null default '';
 alter table public.profils add column if not exists tel text not null default '';
+-- (3.63.0) Qui l'a créé, et s'il attend sa validation : les règles de
+-- « profils », plus bas, les lisent. Posées ici, avant elles — la suite
+-- du fichier les répète là où elles sont expliquées.
+alter table public.profils add column if not exists cree_par uuid;
+alter table public.profils add column if not exists a_valider boolean not null default false;
 
 -- ---------- Les interrupteurs des comptes d'enseigne ----------
 -- Ils ne servent QU'aux comptes d'enseigne — administrateur ou
@@ -1105,6 +1110,26 @@ end $$;
 revoke all on function public.est_mon_createur(uuid) from public, anon;
 grant execute on function public.est_mon_createur(uuid) to authenticated;
 
+-- ---------- Le modérateur créé par l'administrateur de BIZZOO (3.63.0) ----------
+-- Demande du CEO : l'administrateur de BIZZOO crée un compte modérateur,
+-- et c'est le superadministrateur qui le valide. Le compte naît donc
+-- inactif et « à valider » (voir « profil_validation ») ; son créateur le
+-- voit, le retouche et peut le retirer tant qu'il attend — l'activer,
+-- jamais.
+--
+-- Utilisée par « gere_le_compte » (mot de passe, retrait).
+create or replace function public.mon_moderateur(cible uuid, en_attente boolean)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.est_admin_bizzoo() and exists (
+    select 1 from public.profils p
+     where p.id = cible and p.role = 'moderateur' and p.cree_par = auth.uid()
+       and (not en_attente or p.a_valider));
+end $$;
+revoke all on function public.mon_moderateur(uuid, boolean) from public, anon;
+grant execute on function public.mon_moderateur(uuid, boolean) to authenticated;
+
 drop policy if exists "profils lecture" on public.profils;
 drop policy if exists "profils ajout admin" on public.profils;
 drop policy if exists "profils modification admin" on public.profils;
@@ -1122,7 +1147,11 @@ create policy "profils lecture" on public.profils
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
     -- L'administrateur de BIZZOO voit tous les livreurs (3.59.0).
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Et les modérateurs qu'il a créés. Les colonnes de la LIGNE,
+    -- pas une relecture de la table : à la création, la ligne neuve doit se
+    -- lire alors que la table garde encore l'ancienne.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and cree_par = auth.uid()));
 
 -- Créer, modifier, supprimer un compte : le superadministrateur sans
 -- limite ; l'administrateur seulement des MODÉRATEURS et des LIVREURS
@@ -1133,8 +1162,10 @@ create policy "profils ajout admin" on public.profils
     public.est_super()
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
-    -- L'administrateur de BIZZOO crée des livreurs, et rien d'autre.
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    -- L'administrateur de BIZZOO crée des livreurs — et (3.63.0) des
+    -- modérateurs INACTIFS, que le superadministrateur validera.
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
 -- « Créer un compte » passe par deux temps : l'inscription pose une
 -- fiche en attente, SANS boutique, puis l'administrateur lui donne son
 -- rang. Le premier membre de « using » exigeait une fiche déjà de sa
@@ -1152,7 +1183,10 @@ create policy "profils modification admin" on public.profils
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
-    or (public.est_admin_bizzoo() and role = 'livreur'))
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Le modérateur qu'il a créé, tant qu'il attend sa validation.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and a_valider
+        and cree_par = auth.uid()))
   with check (
     public.est_super()
     -- (3.59.0) Un modérateur ou un livreur de SA boutique — jamais un
@@ -1160,14 +1194,19 @@ create policy "profils modification admin" on public.profils
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
-    -- de personne un administrateur ni un modérateur.
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    -- de personne un administrateur.
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Un modérateur, mais INACTIF : c'est le superadministrateur
+    -- qui l'active.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (
     (public.est_super() and not public.est_mon_createur(id))
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    or (public.est_admin_bizzoo() and role = 'moderateur' and a_valider
+        and cree_par = auth.uid()));
 
 -- ---------- Gestion des comptes par l'administrateur ----------
 -- Supprimer un compte ou changer son mot de passe demande des droits que
@@ -1182,6 +1221,14 @@ create extension if not exists pgcrypto with schema extensions;
 -- Qui a le droit d'agir sur ce compte-là ? Le superadministrateur sur
 -- tous ; l'administrateur seulement sur les modérateurs et les livreurs
 -- (3.59.0) de sa boutique.
+--
+-- (3.63.0) ET L'ADMINISTRATEUR DE BIZZOO SUR TOUS LES LIVREURS. Les
+-- règles de « profils » le lui permettaient déjà — créer, modifier,
+-- retirer un livreur, de n'importe quelle boutique ou de BIZZOO — mais
+-- cette fonction l'avait oublié : « Redonner un mot de passe » et
+-- « Supprimer » lui répondaient « Ce compte n'est pas sous votre
+-- responsabilité ». Un livreur, et rien d'autre : ni modérateur, ni
+-- administrateur.
 create or replace function public.gere_le_compte(cible uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   -- (3.59.0) Jamais sur celui qui vous a créé, ni plus haut.
@@ -1190,7 +1237,12 @@ language sql stable security definer set search_path = public as $$
             select 1 from public.profils p
              where p.id = cible and p.role in ('moderateur', 'livreur')
                and p.boutique_id is not null
-               and p.boutique_id = public.boutique_du_compte())));
+               and p.boutique_id = public.boutique_du_compte()))
+      or (public.est_admin_bizzoo() and exists (
+            select 1 from public.profils p
+             where p.id = cible and p.role = 'livreur'))
+      -- (3.63.0) Le modérateur qu'il a créé, tant qu'il attend sa validation.
+      or public.mon_moderateur(cible, true));
 $$;
 grant execute on function public.gere_le_compte(uuid) to authenticated;
 
@@ -5162,9 +5214,41 @@ begin
 
   -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
   -- avec les droits d'une boutique sur une commande qui lui appartient.
+  --
+  -- (3.63.0) UN COMPTE SANS FICHE N'EST PAS UN COMPTE D'ÉQUIPE. Avant,
+  -- tout compte connecté sans ligne « clients » était ramené à
+  -- « personne » : la commande naissait sans compte, et son auteur ne la
+  -- retrouvait nulle part — ni étapes, ni livreur, ni « J'ai bien
+  -- reçu ». La fiche manque pourtant pour de bonnes raisons (un compte
+  -- créé hors de l'application, une écriture retardée) : on la pose ici,
+  -- avec ce que le client vient de donner, et la commande reste la
+  -- sienne. Seul un VRAI compte d'équipe est écarté — une fiche d'équipe
+  -- EN ATTENTE ne vaut aucun droit, et « compte_unique » l'efface en
+  -- posant la fiche client, comme le fait l'application.
   if moi is not null and not exists (select 1 from public.clients c where c.id = moi) then
-    moi    := null;
-    equipe := true;
+    -- (« eq », pas « p » : « p » est déjà la variable de la boucle des
+    -- produits, et PostgreSQL ne saurait pas lequel des deux on désigne.)
+    if exists (select 1 from public.profils eq
+                where eq.id = moi and (eq.actif or eq.role <> 'moderateur')) then
+      moi    := null;
+      equipe := true;
+    else
+      begin
+        insert into public.clients (id, nom, tel, indicatif, adresse)
+        values (moi,
+                left(coalesce(trim(client ->> 'nom'), ''), 120),
+                left(regexp_replace(coalesce(client ->> 'tel', ''), '\D', '', 'g'), 20),
+                left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
+                left(coalesce(trim(client ->> 'adresse'), ''), 300))
+        on conflict (id) do nothing;
+      exception when others then
+        -- Un verrou a refusé la fiche (un compte d'équipe apparu entre-temps,
+        -- par exemple) : la commande part sans compte, comme avant — mais
+        -- elle part.
+        moi    := null;
+        equipe := true;
+      end;
+    end if;
   end if;
 
   -- ---------- Le compte, quand l'enseigne l'exige ----------
@@ -5486,7 +5570,23 @@ begin
                         left join public.profils p on p.id = x.livreur_id
                        where x.commande_id = c.id),
     'paye_livraison', (select coalesce(sum(x.montant), 0) from public.encaissements x
-                        where x.commande_id = c.id));
+                        where x.commande_id = c.id),
+    -- (3.63.0) OÙ EN EST CHAQUE BOUTIQUE, pour qui suit sa commande par
+    -- son numéro : l'étape la MOINS avancée de ses lignes (une ligne
+    -- annulée ne retient rien), et si le client a tout confirmé. Sans
+    -- compte, c'était le seul morceau du suivi qui manquait — les lignes
+    -- ne se lisent qu'avec un compte. La même règle que l'application
+    -- applique aux commandes d'un compte.
+    'etats', (select coalesce(jsonb_object_agg(e.boutique_id,
+                       jsonb_build_object('etat', e.etat, 'confirme', e.confirme)), '{}'::jsonb)
+                from (select l.boutique_id,
+                             (array_agg(l.etat order by array_position(
+                                array['nouvelle', 'vue', 'preparee', 'en_livraison', 'remise',
+                                      'annulee'], l.etat)))[1] as etat,
+                             bool_and(l.confirme_le is not null) as confirme
+                        from public.commande_lignes l
+                       where l.commande_id = c.id
+                       group by l.boutique_id) e));
 end $$;
 revoke all on function public.suivre_commande(text, text) from public;
 grant execute on function public.suivre_commande(text, text) to anon, authenticated;
@@ -8821,6 +8921,9 @@ alter table public.profils add column if not exists tel_verifie_le timestamptz;
 -- figé au moment de la création, pour la même raison.
 alter table public.profils add column if not exists cree_par uuid;
 alter table public.profils add column if not exists cree_par_nom text not null default '';
+-- (3.63.0) Un compte créé par l'administrateur de BIZZOO attend que le
+-- superadministrateur le valide : voir « profil_validation ».
+alter table public.profils add column if not exists a_valider boolean not null default false;
 
 -- ---------- Les codes envoyés ----------
 -- Hachés, jamais en clair : une copie de la base ne doit pas permettre
@@ -9269,6 +9372,80 @@ end $$;
 create or replace trigger profils_trace
   before insert or update on public.profils
   for each row execute function public.profil_trace();
+
+-- ---------- Le compte à valider (3.63.0) ----------
+-- Demande du CEO : l'administrateur de BIZZOO crée un compte modérateur,
+-- le superadministrateur le valide.
+--   — Créé ou retouché par l'administrateur de BIZZOO, un modérateur
+--     reste INACTIF et « à valider », quoi que dise la requête.
+--   — Seul le superadministrateur l'active ; l'activer le valide.
+--   — Personne d'autre n'y touche : ni l'administrateur de la boutique
+--     concernée, qui pourrait sinon l'activer par la porte d'à côté, ni
+--     une requête qui écrirait « a_valider » elle-même.
+-- Les superadministrateurs sont prévenus à la création ; le créateur, à
+-- la validation.
+-- Après « profils_trace » (ordre des noms) : « cree_par » est déjà posé.
+create or replace function public.profil_validation() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  nouveau boolean;
+begin
+  if coalesce(current_setting('bizzoo.compte', true), '') = 'oui' then
+    return new;
+  end if;
+
+  if public.est_admin_bizzoo() and new.role = 'moderateur' then
+    new.actif := false;
+    new.a_valider := true;
+    -- L'écran pose le rang par « insert … on conflict » : PostgreSQL exige
+    -- alors que la ligne PROPOSÉE soit lisible par son auteur, et elle ne
+    -- l'est que par son créateur. Sur une fiche qui n'en a pas encore, il
+    -- l'est ; « profil_trace » en fera autant sur la mise à jour.
+    if tg_op = 'INSERT' and new.cree_par is null then
+      new.cree_par := auth.uid();
+    end if;
+    -- Une insertion qui vise une fiche existante finira en mise à jour
+    -- (« on conflict ») : on ne prévient qu'une fois, sur la mise à jour.
+    nouveau := case when tg_op = 'INSERT'
+                    then not exists (select 1 from public.profils p where p.id = new.id)
+                    else not old.a_valider end;
+    if nouveau then
+      perform public.notifier(public.les_superadmins(), 'compte_a_valider',
+        'Un compte modérateur à valider',
+        coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Un nouveau compte') ||
+          ', créé par ' || coalesce(public.nom_du_createur(auth.uid()), 'un administrateur de BIZZOO') ||
+          '. Activez-le dans Comptes pour le valider.',
+        '#/comptes', null, null, false);
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    new.a_valider := false;
+    return new;
+  end if;
+
+  if public.est_super() then
+    -- Activer, c'est valider.
+    new.a_valider := old.a_valider and not new.actif;
+    if old.a_valider and not new.a_valider and old.cree_par is not null then
+      perform public.notifier(array[old.cree_par], 'compte_valide',
+        'Compte validé',
+        coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Le compte') ||
+          ' a été validé : il peut travailler.',
+        '#/comptes', null, null, false);
+    end if;
+  else
+    new.a_valider := old.a_valider;
+    if old.a_valider then new.actif := false; end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists profils_validation on public.profils;
+create trigger profils_validation
+  before insert or update on public.profils
+  for each row execute function public.profil_validation();
 
 -- ---------- Rattraper la trace des comptes d'avant ----------
 -- Les comptes créés avant ce fichier n'ont pas de créateur en fiche,

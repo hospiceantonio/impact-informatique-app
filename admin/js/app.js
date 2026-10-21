@@ -94,7 +94,10 @@
     { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v), horsEnseigne: true },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true,
       horsEnseigne: true },
-    { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true },
+    /* (3.63.0) L'administrateur de BIZZOO y crée des modérateurs, que le
+       superadministrateur valide. */
+    { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
     /* Les livreurs, à part de l'équipe : leur bouton, leur liste. */
     { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true,
       adminBizzoo: true },

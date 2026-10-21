@@ -5000,6 +5000,170 @@ regarde avant de livrer, et ce qu'on envoie au propriétaire pour montrer
 avec un titre coupé, dix-sept boutons sur deux lignes, trois pages qui
 débordaient. Après : aucun titre coupé, aucune page qui déborde, un seul
 bouton sur deux lignes (« Prévenir IMPACT INFORMATIQUE », centré, lisible).
+
+## La session qui tombait en silence, et la commande orpheline (3.63.0)
+
+Le 21 octobre 2026, les commandes de test BZ-000055 à BZ-000064 sont
+nées **sans compte rattaché**, alors que leurs auteurs se croyaient
+connectés. Tout ce que le propriétaire a vu en découle : plus d'étapes
+« Commande reçue … Remise » chez le client, plus de livreur annoncé,
+plus de bouton « J'ai bien reçu » — et, côté boutique, « En attente de
+sa confirmation » pour toujours. La base ne montre les lignes d'une
+commande, et n'accepte la parole « j'ai reçu », que du compte qui l'a
+passée : une commande sans compte n'a rien de tout cela.
+
+### Ce qui s'est passé
+
+Le journal d'authentification le raconte. À chaque fois, quelques
+minutes avant la commande orpheline : une **déconnexion** du même
+compte depuis un autre appareil — ou depuis le site plutôt que
+l'application —, puis un rafraîchissement refusé, « Refresh Token Not
+Found », jusqu'à **sept fois à la même seconde**.
+
+Deux défauts se combinaient :
+
+1. **« Se déconnecter » fermait toutes les sessions du compte.** Sans
+   `scope=local`, GoTrue révoque tout : se déconnecter sur un téléphone
+   déconnectait aussi l'autre, qui ne l'apprenait qu'au rafraîchissement
+   suivant.
+2. **La session perdue l'était en silence.** `assurerSession()` effaçait
+   la session et rendait « personne ». L'écran de commande, prérempli
+   des coordonnées gardées sur le téléphone, laissait alors partir la
+   commande **en visiteur** — sans que rien ne change sous les yeux du
+   client. Et les écrans qui s'ouvrent ensemble au démarrage demandaient
+   chacun leur rafraîchissement, avec la même clé.
+
+(BZ-000055 à 58 ont une autre cause, voulue : elles ont été passées avec
+un compte de l'équipe — un modérateur —, que `creer_commande` écarte par
+construction. Elles ne pourront pas être rattachées.)
+
+### Ce qui change
+
+**Côté client, la session** (`client/js/compte.js`) :
+
+- un seul rafraîchissement à la fois : tous les écrans attendent le même
+  appel ;
+- avant de conclure que la session est perdue, relire celle que le
+  téléphone garde — un autre onglet de la même application a pu la
+  renouveler entre-temps ;
+- perdue pour de bon, elle l'est **à voix haute** : « Votre session a
+  expiré : reconnectez-vous… », un drapeau `bizzoo-session-perdue` gardé
+  sur le téléphone, un événement `compte:perdue` ;
+- « Se déconnecter » ne ferme que ce téléphone (`logout?scope=local`).
+
+**L'écran de commande** (`client/js/vues/panier.js`) : le drapeau posé,
+l'écran ne dessine plus son formulaire — il dit « Votre session a
+expiré » et propose **Se reconnecter** ou **Commander sans compte**, en
+disant ce que l'on perd (et pas de second choix quand l'enseigne exige
+un compte). Au moment de payer, si la session est tombée entre-temps, la
+commande ne part pas : l'écran se redessine sur ce même choix.
+
+**Sans compte, le numéro suit aussi.** `suivre_commande` rend désormais
+`etats` : par boutique, l'étape la moins avancée de ses lignes et si le
+client a tout confirmé — la règle qu'appliquait déjà l'application aux
+commandes d'un compte. Le reçu d'une commande passée sans compte montre
+donc les étapes ; pas le bouton « J'ai bien reçu », que la base
+n'accepte que d'un compte, mais la phrase qui dit comment : entrer avec
+ce numéro, et la retrouver dans « Mes commandes ».
+
+**« Mes commandes » rattache de lui-même.** Connecté, le numéro vérifié,
+des copies locales que la base n'attribue à personne : l'écran appelle
+`rattacher_mes_commandes` — ce que « Retrouver mes commandes d'avant »
+fait à la main —, une fois par ouverture, et le dit : « 1 commande
+rattachée à votre compte ».
+
+**En base** (`supabase/commande-compte-client.sql`) : `creer_commande` ne
+ramène plus à « personne » un compte connecté **sans fiche client** — sa
+fiche se pose, avec ce qu'il vient de donner, et la commande reste la
+sienne. Seul un vrai compte d'équipe est écarté ; une fiche d'équipe en
+attente ne vaut aucun droit, et s'efface comme le fait l'application.
+
+**Côté admin** : la commande porte `clientId`, et une ligne remise d'une
+commande sans compte dit « Commande passée sans compte client : pas de
+confirmation possible » au lieu d'attendre. Le rafraîchissement de la
+session y suit les mêmes deux règles (un seul appel, relecture).
+
+### Les commandes déjà passées
+
+BZ-000059 à 64 ont été passées avec le numéro de deux comptes dont le
+numéro est vérifié : avec l'application mise à jour, ouvrir « Mes
+commandes » sur le téléphone qui les a passées suffit à les rattacher
+(ou « Mon compte → Retrouver mes commandes d'avant »). Le bouton
+« J'ai bien reçu » y paraît alors, et la boutique voit la confirmation.
+
+### Les bancs
+
+```bash
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/banc-session-perdue.mjs
+bash tools/eprouver-base.sh     # supabase/tests/99zzz…-commande-sans-fiche.sql
+```
+
+Le banc au navigateur, 54 constats en sept chapitres : un seul
+rafraîchissement ; refusée mais renouvelée ailleurs ; perdue, dite,
+notée, et l'écran de commande qui la rappelle — même après fermeture —
+sans qu'aucune commande ne parte d'elle-même ; connectée à l'ouverture
+et plus au moment de payer ; `scope=local` ; le suivi par numéro sans
+le bouton ; le rattachement automatique, une fois par ouverture. Le
+quatrième chapitre a d'abord **échoué** : la session tombée en
+arrière-plan pendant la saisie passait entre les mailles — d'où le
+drapeau consulté au moment de payer, et pas seulement l'état de
+connexion à l'ouverture de l'écran.
+
+L'essai de base, 17 constats : la fiche posée, la fiche en attente
+remplacée, le compte d'équipe écarté, et les étapes rendues par le
+numéro — « nouvelle », « remise », puis confirmée.
+
+### L'administrateur de BIZZOO et ses livreurs
+
+Depuis la 3.59.0, l'administrateur de BIZZOO crée et modifie tous les
+livreurs : les règles de `profils` le lui permettent. Mais « Redonner un
+mot de passe » et « Supprimer » passent par `gere_le_compte`, qui ne
+connaissait que le superadministrateur et l'administrateur d'une
+boutique : ces deux gestes lui répondaient « Ce compte n'est pas sous
+votre responsabilité ». La fonction l'accepte désormais — pour un
+livreur, et rien d'autre (`supabase/admin-bizzoo-livreurs.sql`, appliqué
+en ligne le 21 octobre 2026). L'essai
+`99zzz…-admin-bizzoo-livreurs.sql` le garde, avec ce qui doit rester
+fermé : ni modérateur, ni administrateur, ni lui-même ; et
+l'administrateur d'une boutique toujours enfermé dans la sienne.
+
+Il manquait aussi **le crayon** : à l'écran, `Store.gereLeCompte` exigeait
+une boutique, et l'administrateur de BIZZOO n'en a pas — ses livreurs
+s'affichaient sans aucun moyen de les ouvrir. Il l'a désormais sur tous.
+
+### Le modérateur créé par l'administrateur, validé par le superadministrateur
+
+Demande du CEO (message vocal du 21 octobre 2026) : *« un administrateur
+peut créer un compte modérateur, et c'est le superadministrateur qui va
+juste valider »* — pour pouvoir ensuite ramener les superadministrateurs
+au rang d'administrateur.
+
+- **L'administrateur de BIZZOO** entre dans « Comptes » et crée un
+  modérateur, pour une boutique ou pour BIZZOO. Le compte naît
+  **inactif** et « à valider par le superadministrateur ». Tant qu'il
+  attend, son créateur le voit, le retouche, lui redonne un mot de
+  passe ou le retire ; l'activer, jamais.
+- **Le superadministrateur** est prévenu (notification « Un compte
+  modérateur à valider ») et trouve en tête de « Comptes » une carte
+  « À valider » avec un bouton **Valider**. Activer le compte le valide ;
+  son créateur en est prévenu à son tour.
+- **Personne d'autre ne l'active** : ni l'administrateur de la boutique
+  concernée, ni une requête qui écrirait la colonne elle-même. C'est la
+  base qui y veille (`profil_validation`, colonne `profils.a_valider`),
+  pas l'écran.
+- Validé, le compte n'appartient plus à son créateur : il se gère comme
+  les autres. L'administrateur de BIZZOO ne crée toujours ni
+  administrateur ni superadministrateur.
+
+Le tout est dans `supabase/admin-bizzoo-livreurs.sql`. Un piège en
+chemin : l'écran pose le rang par `insert … on conflict`, et PostgreSQL
+exige alors que la ligne **proposée** soit lisible par son auteur —
+avant même la mise à jour. Elle ne l'était que par son créateur, qui
+n'était pas encore posé : `profil_validation` le pose dès l'insertion.
+
+Gardés par l'essai `99zzz…-moderateur-a-valider.sql` (19 constats) et
+les chapitres 7 et 8 de `tools/banc-admin-bizzoo.mjs`.
+
 ## Structure
 
 ```

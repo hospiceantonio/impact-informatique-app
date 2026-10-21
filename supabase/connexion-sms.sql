@@ -32,6 +32,10 @@
 -- Sans danger : relançable, et aucune donnée n'est supprimée.
 -- =========================================================
 
+-- (3.63.0) Les règles de « profils » lisent ces colonnes.
+alter table public.profils add column if not exists cree_par uuid;
+alter table public.profils add column if not exists a_valider boolean not null default false;
+
 -- ---------- La session de l'équipe, confirmée par SMS ----------
 -- Quand l'enseigne l'exige, un compte de l'équipe reçoit un code par SMS
 -- à CHAQUE connexion, et n'a aucun droit tant qu'il ne l'a pas rendu.
@@ -196,7 +200,7 @@ grant execute on function public.est_admin_bizzoo() to authenticated;
 -- en attente, née dans le quart d'heure ; ce qu'elle peut devenir ne
 -- change pas : un modérateur de SA boutique.
 alter policy "profils lecture" on public.profils
-  using (
+  to authenticated using (
     id = auth.uid()
     or public.est_super()
     or (public.est_admin() and boutique_id is not null
@@ -204,9 +208,14 @@ alter policy "profils lecture" on public.profils
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
     -- L'administrateur de BIZZOO voit tous les livreurs (3.59.0).
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Et les modérateurs qu'il a créés. Les colonnes de la LIGNE,
+    -- pas une relecture de la table : à la création, la ligne neuve doit se
+    -- lire alors que la table garde encore l'ancienne.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and cree_par = auth.uid()));
 
 alter policy "profils modification admin" on public.profils
+  to authenticated
   using (
     -- (3.59.0) Le superadministrateur, sauf sur celui qui l'a créé.
     (public.est_super() and not public.est_mon_createur(id))
@@ -214,13 +223,22 @@ alter policy "profils modification admin" on public.profils
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
         and boutique_id is null and cree_le > now() - interval '15 minutes')
-    or (public.est_admin_bizzoo() and role = 'livreur'))
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Le modérateur qu'il a créé, tant qu'il attend sa validation.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and a_valider
+        and cree_par = auth.uid()))
   with check (
     public.est_super()
+    -- (3.59.0) Un modérateur ou un livreur de SA boutique — jamais un
+    -- administrateur.
     or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
-    -- Un livreur reste un livreur (3.59.0).
-    or (public.est_admin_bizzoo() and role = 'livreur'));
+    -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
+    -- de personne un administrateur.
+    or (public.est_admin_bizzoo() and role = 'livreur')
+    -- (3.63.0) Un modérateur, mais INACTIF : c'est le superadministrateur
+    -- qui l'active.
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
 
 -- =========================================================
 -- La connexion de l'équipe confirmée par SMS, et qui a créé
