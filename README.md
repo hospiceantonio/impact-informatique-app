@@ -4826,7 +4826,7 @@ publics, sans rien de revendeur — pour les montrer à son propre client. Ce n'
 **panier** montre toujours ce qu'il paiera (« Total à vos prix revendeur »). Le partage d'un
 produit donne toujours le prix public. Banc : [`tools/banc-prix-revendeur.mjs`](tools/banc-prix-revendeur.mjs).
 
-## BIZZOO Personnel : la gestion interne des employés (3.59.0)
+## BIZZOO Personnel : la gestion interne des employés (3.61.0)
 
 Une troisième application, `personnel/`, pour les employés de BIZZOO eux-mêmes — pas pour les boutiques ni les clients. Même base Supabase, même charte, même façon d'écrire (pas de compilation, un module par fichier). En ligne, elle vit à `www.bizzoomarket.com/personnel/` ; sur téléphone, elle s'installe depuis le navigateur (« Ajouter à l'écran d'accueil »).
 
@@ -4923,7 +4923,7 @@ impact-informatique-app/
 │   ├── produits-habilitation.sql    # Créer un produit demande l'habilitation (3.59.0)
 │   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
 │   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
-│   ├── personnel.sql                # BIZZOO Personnel : employés, missions, rapports, dépenses, paie (3.59.0)
+│   ├── personnel.sql                # BIZZOO Personnel : employés, missions, rapports, dépenses, paie (3.61.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
@@ -4935,7 +4935,7 @@ impact-informatique-app/
 │   ├── functions/code-connexion/    # Le code de l'équipe : tiré ici, haché avec la session, jamais rendu
 │   ├── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
 │   └── functions/rh-messagerie/     # Les mails @bizzoomarket.com du personnel : IMAP, SMTP, mot de passe chiffré
-├── personnel/                # BIZZOO Personnel : l'application interne des employés (3.59.0)
+├── personnel/                # BIZZOO Personnel : l'application interne des employés (3.61.0)
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)
