@@ -75,6 +75,12 @@
   /* LE TEXTE ET LE FOND DE LA DA. */
   --encre:#1F2937;
   --encre-douce:#4B5563;
+  /* LE GRIS DES TEXTES D'AIDE (3.61.0). Le gris très doux de la DA
+     (#9AA3AF) tombe à 2,8:1 sur blanc : un paragraphe entier dans
+     cette teinte ne se lit plus au soleil. Celui-ci donne 4,8:1, le
+     seuil des règles d'accessibilité ; le très doux reste pour les
+     petites mentions d'une ligne (dates, codes). */
+  --encre-moyenne:#6B7280;
   --encre-tres-douce:#9AA3AF;
   --trait:#E3E8EF;
   --fond:#F5F7FA;
@@ -96,7 +102,13 @@
 
 *,*::before,*::after{box-sizing:border-box}
 
-html{-webkit-text-size-adjust:100%}
+/* CE QUI DÉBORDE NE POUSSE PLUS L'ÉCRAN (3.61.0). Sur un téléphone, un
+   seul élément plus large que l'écran élargit la page entière : le
+   navigateur la laisse défiler de côté, et les barres fixes du haut et
+   du bas, calées sur cette page élargie, sortent de l'écran — c'est
+   ainsi que « Réglages » finissait coupé en bas à droite. Avec « clip »,
+   ce qui dépasse est rogné à sa place, et le reste ne bouge pas. */
+html{-webkit-text-size-adjust:100%;overflow-x:clip}
 
 body{
   margin:0;
@@ -130,10 +142,22 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 12px;
   border-bottom:1px solid var(--trait);
 }
-.topbar-ligne{display:flex;align-items:center;gap:12px;min-height:40px}
-.topbar h1{font-size:18px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topbar .sous{font-size:12.5px;color:var(--encre-douce);margin-top:2px}
-.topbar-actions{display:flex;gap:6px;align-items:center}
+.topbar-ligne{display:flex;align-items:center;gap:10px;min-height:40px}
+/* LE TITRE SE PLIE SUR DEUX LIGNES PLUTÔT QUE DE SE COUPER (3.61.0).
+   Avec les grands caractères d'un téléphone, « Comptes revendeurs »
+   finissait en « Comptes rev… » : deux lignes gardent le mot entier.
+   Au-delà, « … » — un nom de produit peut faire quatre-vingts
+   caractères. Le sous-titre suit la même règle. */
+.topbar h1{
+  font-size:17px;font-weight:700;letter-spacing:-.2px;line-height:1.2;
+  flex:1;min-width:0;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.topbar .sous{
+  font-size:12.5px;color:var(--encre-douce);margin-top:2px;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.topbar-actions{display:flex;gap:4px;align-items:center;flex:none}
 .topbar-logo{flex:1;min-width:0;container-type:inline-size}
 /* LE LOGO SE RÈGLE SUR LA PLACE QUE LUI LAISSENT LES BOUTONS. Le
    superadministrateur en a cinq ; depuis que le logo porte la tuile du
@@ -189,13 +213,22 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:16px 16px calc(var(--barre-h) + var(--safe-b) + 28px);
   max-width:720px;margin:0 auto;
   outline:none;
+  /* Un mot trop long pour sa ligne — une adresse web, une référence —
+     se coupe plutôt que de sortir de sa carte. « break-word » ne
+     touche pas aux largeurs minimales : les colonnes et les boutons
+     gardent leur taille, seul le mot qui ne tient nulle part se plie. */
+  overflow-wrap:break-word;
 }
 .vue > * + *{margin-top:14px}
 
 /* ---------- Barre d'onglets ---------- */
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
-  display:grid;grid-template-columns:repeat(5,1fr);
+  /* Le rond orange du milieu n'a pas besoin d'un cinquième de l'écran :
+     sa colonne est à sa taille, et les quatre mots autour gagnent de
+     quoi s'écrire en entier — « Catégories » s'écourtait en grands
+     caractères. */
+  display:grid;grid-template-columns:1fr 1fr 58px 1fr 1fr;
   align-items:center;
   height:calc(var(--barre-h) + var(--safe-b));
   padding-bottom:var(--safe-b);
@@ -205,8 +238,13 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 }
 .tabbar a{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  height:100%;font-size:10.5px;font-weight:600;color:var(--encre-tres-douce);
+  height:100%;font-size:10px;font-weight:600;color:var(--encre-tres-douce);
+  letter-spacing:-.01em;min-width:0;padding:0 1px;
 }
+/* Cinq onglets sur 360 px font 72 px chacun : en grands caractères,
+   « Catégories » s'écourte en « Catégor… » plutôt que de passer sous
+   son voisin ou de sortir de la barre. */
+.tabbar a span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tabbar a.actif{color:var(--bleu-700)}
 .tabbar a.actif .ic{stroke-width:2}
 /* Ces deux-là n'existent que dans le menu latéral, sur ordinateur :
@@ -237,23 +275,43 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    l'accueil l'a montré. Toute carte-lien est donc un bloc ; « :where »
    laisse aux variantes en flex, plus bas, le dernier mot. */
 :where(a).carte{display:block}
-.carte-titre{display:flex;align-items:center;gap:7px;font-size:15px;font-weight:700;margin-bottom:12px}
-.carte-titre .ic-sm{color:var(--bleu-700)}
+/* L'icône reste sur la PREMIÈRE ligne du titre quand il se plie :
+   centrée sur deux lignes, elle flottait entre les deux. */
+.carte-titre{display:flex;align-items:flex-start;gap:7px;font-size:15px;font-weight:700;line-height:1.25;margin-bottom:12px}
+.carte-titre .ic-sm{color:var(--bleu-700);margin-top:1px}
 .carte-liste{padding:6px 8px}
 
 .btn{
   /* BOUTON PRINCIPAL DE LA DA : bleu plein, texte blanc (7,23:1),
      coins arrondis. Le dégradé d'avant venait d'une autre charte ;
-     la DA montre un aplat. */
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+     la DA montre un aplat.
+
+     EN LIGNE, PAS EN FLEX (3.61.0). Un bouton en « flex » faisait de
+     son texte une boîte à part : dès qu'il se pliait sur deux lignes,
+     cette boîte prenait toute la largeur, le texte se centrait dedans
+     et l'icône restait seule collée au bord gauche. Avec les grands
+     caractères d'un téléphone, c'était un bouton sur deux. Ici l'icône
+     coule dans le texte comme une lettre : « [icône] Demandes des »,
+     puis « boutiques » dessous, les deux lignes centrées. La hauteur
+     vient du texte lui-même — une ligne ou deux — et plus d'une
+     hauteur minimale qui laissait un vide sous une ligne seule. */
+  display:inline-block;text-align:center;
+  align-items:center;justify-content:center;gap:8px;
   /* En pilule, comme les trois boutons de la DA corrigée. */
-  min-height:48px;padding:10px 20px;border:0;border-radius:999px;
+  padding:12px 18px;border:0;border-radius:999px;
   background:var(--bleu);
-  color:#fff;font-weight:600;font-size:15px;
+  color:#fff;font-weight:600;font-size:14.5px;line-height:1.3;
   box-shadow:0 10px 22px -12px rgba(37,80,183,.6);
   width:100%;
 }
+.btn > .ic{display:inline-block;vertical-align:-.28em;width:18px;height:18px;margin:0 7px 0 -2px}
+/* Une icône après le texte (« Voir tout › ») : l'écart change de côté. */
+.btn > .ic.ic-apres{margin:0 -2px 0 7px}
 .btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.55;box-shadow:none}
+/* Deux boutons côte à côte — « Exporter », « Restaurer » — quand
+   chacun tient en un mot. */
+.btn-duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .btn-clair{
   /* BOUTON SECONDAIRE DE LA DA : fond blanc, trait bleu, texte bleu. */
   background:var(--blanc);color:var(--bleu);box-shadow:none;
@@ -275,7 +333,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .btn-danger-clair{background:var(--rouge-clair);color:var(--rouge-fonce);border-color:#F6C6C7}
 .btn-rangee{display:flex;flex-direction:column;gap:10px}
 
-.aide{font-size:12.5px;color:var(--encre-tres-douce);line-height:1.5}
+.aide{font-size:12.5px;color:var(--encre-moyenne);line-height:1.5}
 .aide-inline{font-size:12px;font-weight:500;color:var(--encre-tres-douce)}
 
 /* ---------- Accueil : chiffres clés ---------- */
@@ -312,11 +370,22 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .avant-actions{display:flex;gap:5px;align-items:center}
 
 /* ---------- Lignes produit ---------- */
+/* LE NOM A SA LIGNE, LE PRIX LA SUIVANTE (3.61.0). En une rangée, le
+   prix, le stock et les pastilles à droite ne laissaient au nom qu'une
+   centaine de pixels : « Ordin… ». Une grille : la vignette à gauche,
+   le nom (deux lignes au plus) et sa sous-ligne, puis le prix, le
+   stock et les pastilles sur une rangée qui se plie. À l'ordinateur,
+   où la place ne manque pas, la rangée d'avant revient. */
 .ligne{
-  display:flex;align-items:center;gap:11px;width:100%;
+  display:grid;grid-template-columns:auto minmax(0,1fr);
+  grid-template-areas:"vignette corps" "vignette fin";
+  column-gap:11px;row-gap:5px;align-items:start;width:100%;
   padding:10px 8px;border:0;background:none;text-align:left;
-  border-radius:var(--r-sm);
+  border-radius:var(--r-sm);font:inherit;color:inherit;
 }
+.ligne > .pastille{grid-area:vignette}
+.ligne > .ligne-corps{grid-area:corps}
+.ligne > .ligne-fin{grid-area:fin}
 .ligne:active{background:var(--bleu-50)}
 .ligne + .ligne{border-top:1px solid var(--trait)}
 .pastille{
@@ -327,13 +396,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .pastille img{width:100%;height:100%;object-fit:cover}
 .pastille-vide{color:#A9BDD6}
 .ligne-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.ligne-titre{font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ligne-titre{
+  font-size:14px;font-weight:700;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
 .ligne-sous{font-size:11.5px;color:var(--encre-tres-douce);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ligne-fin{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
-.ligne-montant{font-size:13px;font-weight:800;color:var(--orange-fonce)}
-.ligne-stock{font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
+.ligne-fin{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
+.ligne-montant{font-size:13px;font-weight:800;color:var(--orange-fonce);white-space:nowrap}
+.ligne-stock{font-size:11.5px;font-weight:700;color:var(--encre-tres-douce);white-space:nowrap}
+@media (min-width:1024px){
+  .ligne{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"vignette corps fin";align-items:center}
+  .ligne-fin{flex-direction:column;align-items:flex-end;gap:4px}
+}
 .ligne-stock-vide{color:var(--rouge-fonce)}
-.ligne-badges{display:flex;gap:4px}
+.ligne-badges{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}
 
 /* Saisie rapide du stock : − [ 12 ] + */
 .stock-saisie{display:flex;align-items:center;justify-content:center;gap:14px}
@@ -510,7 +586,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .badge{
   display:inline-flex;align-items:center;gap:4px;
   padding:4px 9px;border-radius:999px;
-  font-size:11px;font-weight:800;
+  font-size:11px;font-weight:800;line-height:1.2;
+  /* Une pastille ne se plie pas : « Colis / préparé » sur deux lignes
+     ne se lit plus comme un état. */
+  white-space:nowrap;max-width:100%;overflow:hidden;
 }
 .badge .ic-sm{width:13px;height:13px}
 .badge-promo{background:var(--orange);color:var(--orange-texte)}
@@ -611,7 +690,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Champs de formulaire ---------- */
 .champ{margin-bottom:14px}
 .champ:last-child{margin-bottom:0}
-.champ label{display:block;font-size:12.5px;font-weight:700;color:var(--encre-douce);margin-bottom:6px}
+.champ label{display:block;font-size:13px;font-weight:700;color:var(--encre-douce);margin-bottom:6px}
 .obligatoire{color:var(--rouge)}
 /* Une valeur qu'on montre sans la laisser modifier : elle vient
    d'ailleurs, et un champ de saisie grisé laisserait croire l'inverse. */
@@ -627,7 +706,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:12px 14px;font-size:15px;outline:none;
 }
 .champ textarea{resize:vertical;line-height:1.5;min-height:0}
-.champ input:focus,.champ select:focus,.champ textarea:focus{border-color:var(--bleu)}
+/* Le champ où l'on écrit se voit de loin : le trait bleu, et un halo. */
+.champ input:focus,.champ select:focus,.champ textarea:focus{border-color:var(--bleu);box-shadow:0 0 0 3px var(--bleu-50)}
 .champ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2354637A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
 .champ .aide{margin-top:6px}
 .champ-montant{position:relative;display:flex;align-items:center}
@@ -665,7 +745,21 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Catégories ---------- */
 .cat-bloc{padding:13px 16px}
-.cat-bloc-entete{display:flex;align-items:center;gap:10px}
+/* LE NOM A SA LIGNE, LE COMPTE LA SUIVANTE (3.61.0). En une seule
+   rangée, la pastille, le compte et les trois boutons laissaient
+   soixante pixels au nom : « Mode & Vêtements » devenait « Mo… ». Une
+   grille à trois colonnes : la pastille, les mots (nom sur deux lignes
+   au plus, compte dessous), les boutons. Sans boutons ni pastille, la
+   colonne vide ne prend rien. */
+.cat-bloc-entete{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"pastille nom nom" "pastille compte actions";
+  column-gap:10px;row-gap:4px;align-items:center;
+}
+.cat-bloc-entete > .cat-pastille{grid-area:pastille}
+.cat-bloc-entete > .cat-bloc-nom{grid-area:nom}
+.cat-bloc-entete > .cat-bloc-compte{grid-area:compte}
+.cat-bloc-entete > .avant-actions{grid-area:actions}
 /* LES ICÔNES DES CATÉGORIES (3.56) : les douze de l'image choisie par
    l'enseigne, telles quelles, sur fond transparent — comme chez le
    client. */
@@ -690,8 +784,12 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    dans le coin. */
 .cat-photo-boite{overflow:visible;background:none}
 .cat-photo-boite img{border-radius:26%;box-shadow:0 0 0 1px var(--trait)}
-.cat-bloc-nom{flex:1;min-width:0;font-size:14.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cat-bloc-compte{flex:none;font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
+.cat-bloc-nom{
+  min-width:0;font-size:14.5px;font-weight:800;line-height:1.25;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cat-bloc-nom .badge{vertical-align:1px}
+.cat-bloc-compte{font-size:11.5px;font-weight:700;color:var(--encre-tres-douce)}
 .cat-bloc-sous{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .sous-ligne{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .sous-ligne input{
@@ -725,7 +823,23 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .ligne-multi .btn-ic-clair{flex:none}
 
 /* ---------- Boutiques (les secteurs de l'enseigne) ---------- */
-.bou-ligne{display:flex;align-items:center;gap:11px;padding:11px 0}
+/* LE NOM A TOUTE LA LIGNE (3.61.0). À côté de la pastille et des trois
+   boutons, il lui restait cent pixels : « IMPACT INFORMATIQUE »
+   devenait « IMPACT INF… ». Une grille : le nom en haut sur toute la
+   largeur, le secteur et les boutons dessous. « display:contents »
+   dissout le bloc qui enveloppe le nom et le secteur, pour que la
+   grille les place chacun à sa case. */
+.bou-ligne{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"pastille nom nom" "pastille details actions";
+  column-gap:11px;row-gap:3px;align-items:center;padding:11px 0;
+}
+.bou-ligne > .bou-pastille{grid-area:pastille}
+.bou-ligne > .bou-corps{display:contents}
+.bou-ligne .bou-nom{grid-area:nom;white-space:normal;line-height:1.25;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.bou-ligne .bou-details{grid-area:details}
+.bou-ligne > .bou-actions{grid-area:actions}
 .bou-ligne + .bou-ligne{border-top:1px solid var(--trait)}
 .bou-fermee{opacity:.55}
 .bou-pastille{
@@ -792,17 +906,30 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .choix-picto.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--bleu)}
 
 /* ---------- Enseigne ou boutique : la bascule des réglages ---------- */
-.cible-choix{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+/* « minmax(0,1fr) », PAS « 1fr » (3.61.0) : une colonne de grille
+   refuse par défaut d'être plus étroite que son contenu, et « IMPACT
+   INFORMATIQUE » sur une ligne la poussait hors de la carte — la tuile
+   finissait coupée au bord de l'écran, et la page entière défilait de
+   côté. Le nom se plie maintenant sur deux lignes. */
+.cible-choix{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+/* Sur un téléphone, l'une sous l'autre : côte à côte, la moitié d'une
+   carte ne tient pas « INFORMATIQUE » en grands caractères. */
+@media (max-width:479px){
+  .cible-choix{grid-template-columns:minmax(0,1fr)}
+}
 .cible-onglet{
-  display:flex;align-items:center;gap:8px;
-  padding:12px 11px;border-radius:var(--r-md);
+  display:flex;align-items:center;gap:8px;min-width:0;
+  padding:11px 11px;border-radius:var(--r-md);
   border:1.5px solid var(--trait);background:var(--blanc);
   text-align:left;color:var(--encre-douce);
 }
 .cible-onglet .ic-sm{flex:none;color:var(--encre-tres-douce)}
 .cible-onglet span{display:flex;flex-direction:column;gap:2px;min-width:0;
-  font-size:13px;font-weight:800;color:var(--encre);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  font-size:13px;font-weight:800;color:var(--encre);line-height:1.25}
+.cible-onglet strong{
+  font-weight:800;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
 .cible-onglet small{font-size:11px;font-weight:600;color:var(--encre-tres-douce)}
 .cible-onglet.actif{border-color:var(--bleu);background:var(--bleu-50)}
 .cible-onglet.actif .ic-sm{color:var(--bleu)}
@@ -1107,12 +1234,19 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cmd-soldee{border-left-color:var(--trait);opacity:.72}
 
 .cmd-entete{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-.cmd-gauche{min-width:0}
+.cmd-gauche{min-width:0;flex:1}
 .cmd-titre{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px}
-.cmd-numero{font-size:14px;font-weight:800;letter-spacing:.04em;margin-right:2px}
+/* Le numéro ne se casse jamais en « BZ- » / « 000062 ». */
+.cmd-numero{font-size:14px;font-weight:800;letter-spacing:.04em;margin-right:2px;white-space:nowrap}
 .cmd-titre .badge{padding:3px 8px;font-size:10.5px}
 .cmd-somme{flex:none;text-align:right}
 .cmd-montant{font-size:15.5px;font-weight:800;line-height:1.3;color:var(--orange-fonce);white-space:nowrap}
+/* « sur 319 500 FCFA », « dont 1 000 FCFA de livraison » : SOUS
+   L'EN-TÊTE, sur toute la largeur (3.61.0). À droite du montant, ces
+   deux lignes prenaient la moitié de la carte, et le numéro, l'état et
+   l'heure se pliaient dans l'autre moitié : « BZ- » / « 000062 »,
+   « Colis » / « préparé », « il y a 23 » / « min ». */
+.cmd-parts{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:3px}
 .cmd-part{font-size:11px;color:var(--encre-tres-douce);white-space:nowrap}
 /* L'acompte payé, et ce que la boutique encaissera à la livraison : sous
    le montant, sur toute la largeur. Le reste à encaisser en orange,
@@ -1125,9 +1259,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cmd-a-encaisser{display:inline-flex;align-items:center;gap:5px;color:var(--orange-fonce)}
 .cmd-a-encaisser strong{font-size:14px;font-weight:800}
 .cmd-meta{
-  display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;margin-top:3px;
+  display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;margin-top:4px;
   font-size:12px;color:var(--encre-tres-douce);
 }
+.cmd-meta > span{white-space:nowrap}
+.cmd-meta .cmd-paye{white-space:normal}
 .cmd-paye{display:inline-flex;align-items:center;gap:4px;color:var(--vert);font-weight:600}
 .cmd-paye .ic-sm{width:14px;height:14px}
 .cmd-revendeur{display:inline-flex;align-items:center;gap:4px;color:var(--vert);font-weight:600}
@@ -1213,7 +1349,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* « width:auto » : le bouton de base fait toute la largeur, et une rangée
    de deux se serait empilée. Au téléphone, « flex:1 » le fait remplir
    quand même sa rangée. */
-.cmd-actions .btn{width:auto;flex:1 1 auto;min-height:40px;padding:8px 14px;font-size:13.5px;box-shadow:none}
+.cmd-actions .btn{width:auto;flex:1 1 auto;padding:9px 14px;font-size:13.5px;box-shadow:none}
 .cmd-actions .btn .ic{width:18px;height:18px}
 /* À l'ordinateur, un bouton à sa taille, à droite — pas une barre de
    950 px sous la carte. */
@@ -1699,11 +1835,14 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* La pastille de la cloche, sur le modèle de celles des onglets. */
 .btn-cloche{position:relative}
 .cloche-pastille{
-  position:absolute;top:2px;right:2px;
+  position:absolute;top:1px;right:1px;
   min-width:17px;height:17px;padding:0 4px;border-radius:99px;
   background:var(--rouge);color:#fff;
   font-size:10px;font-weight:800;line-height:17px;text-align:center;
   box-shadow:0 0 0 2px var(--blanc);
+  /* Les grands caractères du téléphone grossissent le chiffre, pas la
+     pastille : la ligne reste à sa hauteur. */
+  white-space:nowrap;
 }
 /* La commande qu'une notification vient d'ouvrir : on la souligne le
    temps de la retrouver des yeux, puis on la laisse tranquille. */
@@ -1711,8 +1850,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   outline:2px solid var(--bleu);outline-offset:3px;
   transition:outline-color .4s ease;
 }
-/* Le livreur dans la feuille « Confier » : son nom, son numéro dessous. */
-.cmd-livreur{justify-content:flex-start;text-align:left}
+/* Le livreur dans la feuille « Confier » : son nom, son numéro dessous.
+   Celui-ci reste en flex : il porte deux lignes de mots à côté de
+   l'icône, pas un libellé. */
+.cmd-livreur{display:flex;align-items:center;gap:10px;justify-content:flex-start;text-align:left}
+.cmd-livreur > .ic{margin:0;flex:none}
 .cmd-livreur-mots{display:flex;flex-direction:column;gap:1px;min-width:0}
 .cmd-livreur-nom{font-weight:700;line-height:1.25}
 .cmd-livreur-tel{font-size:11.5px;font-weight:600;opacity:.75;line-height:1.2}
@@ -1809,6 +1951,33 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Produit masqué (3.59.0) ---------- */
 .badge-masque{background:#3b3b3b;color:#fff}
+
+/* ---------- Une liste de portes (3.61.0) ----------
+   Une rangée par écran où aller : la tuile, le nom, un mot dessous, le
+   chevron. C'est la liste « À propos de BIZZOO » du client — les mêmes
+   classes, le même dessin — pour que les deux applications se
+   ressemblent. Cinq boutons empilés se lisaient comme cinq alarmes ;
+   une liste se parcourt. */
+.liste-portes{margin:-4px 0}
+.ligne-info{
+  display:flex;align-items:center;gap:12px;width:100%;min-height:56px;
+  padding:10px 2px;border:0;background:none;text-align:left;
+  color:inherit;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;
+}
+.ligne-info + .ligne-info{border-top:1px solid var(--trait)}
+.ligne-info:active{background:var(--bleu-50)}
+.ligne-info > span:nth-child(2){flex:1;min-width:0;line-height:1.35}
+.ligne-info strong{display:block;font-size:14px;font-weight:700;color:var(--encre)}
+.ligne-info small{display:block;font-size:11.5px;color:var(--encre-moyenne)}
+.ligne-info > .ic-sm{color:var(--encre-tres-douce);flex:none}
+.ligne-info br{display:none}
+.rond-wa,.rond-bleu{
+  display:flex;align-items:center;justify-content:center;flex:none;
+  width:40px;height:40px;border-radius:13px;color:#fff;
+}
+.rond-wa{background:linear-gradient(135deg,#2BC665,var(--wa))}
+.rond-bleu{background:linear-gradient(135deg,var(--bleu-400),var(--bleu-800))}
+.rond-bleu .ic,.rond-wa .ic{width:20px;height:20px}
 
 /* ---------- Solde de la boutique (3.59.0) ---------- */
 .sd-solde .sd-etiquette{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce)}

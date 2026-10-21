@@ -167,7 +167,7 @@ const VueCodes = (() => {
         "livrée. La commission sort de VOTRE marge, et la base la plafonne à ce que vous " +
         "gagnez sur la commande.</p>" +
       '<button type="button" class="btn" id="cd-parrain-nouveau" style="margin-bottom:12px">' +
-        UI.icone("plus") + "Nouveau code de particulier</button>" +
+        UI.icone("plus") + "Code de particulier</button>" +
       (attente.length
         ? '<div class="carte cd-retraits"><div class="carte-titre">Retraits à verser (' +
             attente.length + ")</div>" +

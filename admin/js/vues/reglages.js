@@ -273,28 +273,34 @@ const VueReglages = (() => {
               "coordonnées — celles que voient les clients à l'accueil — et chaque boutique " +
               "a les siennes.</p>" +
             '<div class="cible-choix">' +
+              /* Le nom dans son « strong » : il se plie sur deux lignes
+                 (« IMPACT INFORMATIQUE ») au lieu de pousser la tuile
+                 hors de l'écran. */
               '<button type="button" class="cible-onglet' + (surEnseigne ? " actif" : "") +
                 '" data-cible="enseigne">' + UI.icone("magasin", "ic-sm") +
-                "<span>BIZZOO<small>L'enseigne</small></span></button>" +
+                "<span><strong>BIZZOO</strong><small>L'enseigne</small></span></button>" +
               '<button type="button" class="cible-onglet' + (surEnseigne ? "" : " actif") +
                 '" data-cible="boutique">' + UI.icone("boite", "ic-sm") +
-                "<span>" + Utils.echapper((courante || {}).nomBoutique || "Boutique") +
-                "<small>La boutique ouverte</small></span></button>" +
+                "<span><strong>" + Utils.echapper((courante || {}).nomBoutique || "Boutique") +
+                "</strong><small>La boutique ouverte</small></span></button>" +
             "</div>" +
-            '<a class="btn btn-clair" href="#/boutiques" style="margin-top:12px">' + UI.icone("magasin") +
-              "Gérer les boutiques</a>" +
-            /* Les portes permanentes. L'accueil ne parle de ces deux
-               écrans que lorsqu'une demande attend : sans ces boutons,
+            /* Les portes permanentes, en liste (3.61.0) : cinq boutons
+               empilés se lisaient comme cinq alarmes. L'accueil ne parle
+               des demandes que lorsqu'une attend : sans ces portes,
                retirer un statut accordé par erreur serait impossible, et
                les décisions passées irrelisables. */
-            '<a class="btn btn-clair" href="#/revendeurs" style="margin-top:10px">' +
-              UI.icone("personne") + "Comptes revendeurs</a>" +
-            '<a class="btn btn-clair" href="#/validations" style="margin-top:10px">' +
-              UI.icone("check") + "Demandes des boutiques</a>" +
-            '<a class="btn btn-clair" href="#/avis" style="margin-top:10px">' +
-              UI.icone("etoile") + "Avis des clients</a>" +
-            '<a class="btn btn-clair" href="#/sav" style="margin-top:10px">' +
-              UI.icone("alerte") + "Réclamations</a>" +
+            '<div class="liste-portes" style="margin-top:14px">' +
+              UI.porte({ href: "#/boutiques", icone: "magasin", titre: "Gérer les boutiques",
+                sous: "Secteurs, ordre, logos, ouverture" }) +
+              UI.porte({ href: "#/revendeurs", icone: "personne", titre: "Comptes revendeurs",
+                sous: "Demandes à trancher, comptes validés" }) +
+              UI.porte({ href: "#/validations", icone: "check", titre: "Demandes des boutiques",
+                sous: "Changements à approuver, décisions passées" }) +
+              UI.porte({ href: "#/avis", icone: "etoile", titre: "Avis des clients",
+                sous: "Répondre, signaler, masquer" }) +
+              UI.porte({ href: "#/sav", icone: "alerte", titre: "Réclamations",
+                sous: "Le service après-vente, boutique par boutique" }) +
+            "</div>" +
           "</div>" +
 
           /* ---------- La passerelle SMS ----------
@@ -313,7 +319,7 @@ const VueReglages = (() => {
               '<input id="sms-numero" type="tel" inputmode="tel" placeholder="01 97 12 15 96"' +
                 ' value="' + Utils.echapper((courante || {}).tel || "") + '"></div>' +
             '<button type="button" class="btn btn-clair" id="sms-essayer">' +
-              UI.icone("tel") + "Envoyer un SMS d'essai</button>" +
+              UI.icone("tel") + "Envoyer un essai</button>" +
             '<div id="sms-resultat"></div>' +
             '<p class="aide" style="margin:12px 0 0">La clé vit dans les secrets ' +
               "Supabase, jamais en base : elle n'est donc pas modifiable d'ici, et " +
@@ -466,7 +472,7 @@ const VueReglages = (() => {
           '<button type="button" class="btn btn-clair" id="r-tel-ajouter">' +
             UI.icone("plus") + "Ajouter un numéro</button>" +
           '<button type="button" class="btn" id="r-tels-enregistrer">' +
-            UI.icone("check") + "Enregistrer les numéros</button>" +
+            UI.icone("check") + "Enregistrer</button>" +
         "</div>" +
       "</div>" +
 
@@ -482,7 +488,7 @@ const VueReglages = (() => {
           '<button type="button" class="btn btn-clair" id="r-adresse-ajouter">' +
             UI.icone("plus") + "Ajouter une adresse</button>" +
           '<button type="button" class="btn" id="r-adresses-enregistrer">' +
-            UI.icone("check") + "Enregistrer les adresses</button>" +
+            UI.icone("check") + "Enregistrer</button>" +
         "</div>" +
       "</div>" +
 
@@ -512,7 +518,7 @@ const VueReglages = (() => {
         '<p class="aide" style="margin:0 0 12px">Les clients pourront lancer l\'itinéraire vers la boutique ' +
           "depuis leur téléphone. Le plus simple : appuyez sur le bouton ci-dessous <strong>en étant sur place</strong>.</p>" +
         '<button type="button" class="btn btn-clair" id="loc-position">' +
-          UI.icone("carte") + "Utiliser ma position actuelle</button>" +
+          UI.icone("carte") + "Ma position actuelle</button>" +
         '<div class="champ-duo" style="margin-top:14px">' +
           UI.champTexte({ id: "loc-lat", label: "Latitude",
             valeur: r.latitude === null ? "" : r.latitude, placeholder: "6.3654" }) +
@@ -774,9 +780,12 @@ const VueReglages = (() => {
           "(produits, photos, réglages) ne coûte rien : à garder sur WhatsApp, e-mail ou carte mémoire.<br>" +
           "<strong>Le fichier contient vos prix grossistes</strong> : ne le transmettez qu'à quelqu'un " +
           "de la boutique.</p>" +
-        '<div class="btn-rangee">' +
-          '<button type="button" class="btn btn-clair" id="s-exporter">' + UI.icone("telecharger") + "Exporter une sauvegarde</button>" +
-          '<label class="btn btn-clair" for="s-importer-fichier">' + UI.icone("televerser") + "Restaurer une sauvegarde" +
+        /* Côte à côte, un mot chacun : la carte s'appelle déjà
+           « Sauvegarde », et « Exporter une sauvegarde » se pliait sur
+           deux lignes en grands caractères. */
+        '<div class="btn-duo">' +
+          '<button type="button" class="btn btn-clair" id="s-exporter">' + UI.icone("telecharger") + "Exporter</button>" +
+          '<label class="btn btn-clair" for="s-importer-fichier">' + UI.icone("televerser") + "Restaurer" +
             '<input type="file" id="s-importer-fichier" accept="application/json,.json" hidden></label>' +
         "</div>" +
         '<div id="s-progression" class="aide" style="margin-top:10px"></div>' +
@@ -1430,7 +1439,7 @@ const VueReglages = (() => {
               "c'est la preuve que les codes arrivent.</p>" +
             '<div id="sms-equipe-bloc"></div>';
           VueConnexion.blocCode(UI.$("#sms-equipe-bloc", vue), {
-            libelle: "Recevoir un code sur mon numéro",
+            libelle: "Recevoir un code",
             apres: () => {
               UI.toast("Code reçu et saisi : la passerelle livre", "ok");
               dessinerSmsEquipe();

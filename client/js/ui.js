@@ -1117,7 +1117,24 @@ const UI = (() => {
     );
   }
 
+  /* ---------- Une porte dans une liste (3.61.0) ----------
+     La rangée « tuile, nom, un mot dessous, chevron » de « À propos de
+     BIZZOO », reprise pour « Mon compte » et « Vos données et vos
+     droits » : une liste se parcourt, là où quatre boutons empilés se
+     lisaient comme quatre alarmes. Un lien si « href » est donné, un
+     bouton sinon ; « attrs » porte un id ou un data-*. */
+  function porte({ href, icone: nom, titre, sous, attrs, rond }) {
+    const dedans =
+      '<span class="' + (rond || "rond-bleu") + '">' + icone(nom) + "</span>" +
+      "<span><strong>" + e(titre) + "</strong>" + (sous ? "<small>" + e(sous) + "</small>" : "") + "</span>" +
+      icone("chevron", "ic-sm");
+    return href
+      ? '<a class="ligne-info" href="' + e(href) + '"' + (attrs || "") + ">" + dedans + "</a>"
+      : '<button type="button" class="ligne-info"' + (attrs || "") + ">" + dedans + "</button>";
+  }
+
   return {
+    porte,
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier, majCloche,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,

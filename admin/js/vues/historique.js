@@ -151,7 +151,7 @@ const VueHistorique = (() => {
       "</div>" +
       '<div id="histo-liste"><div class="chargement"><span class="chargement-rond"></span>Lecture du journal…</div></div>' +
       '<button type="button" class="btn btn-clair" id="histo-plus" hidden>' +
-        UI.icone("bas") + "Voir les actions plus anciennes</button>";
+        UI.icone("bas") + "Voir la suite</button>";
 
     entrees = [];
     toutCharge = false;

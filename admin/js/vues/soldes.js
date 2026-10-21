@@ -94,7 +94,7 @@ const VueSoldes = (() => {
           "livraison n'en font pas partie.</p>" +
         (peut
           ? '<button type="button" class="btn" id="sd-demander" style="margin-top:12px"' +
-              (solde.disponible > 0 && r ? "" : " disabled") + ">" + UI.icone("promo") +
+              (solde.disponible > 0 && r ? "" : " disabled") + ">" +
               "Demander un reversement</button>" +
             (!r ? '<p class="aide" style="margin:8px 0 0">Réglez d\'abord le numéro qui recevra les fonds.</p>' : "")
           : "") +

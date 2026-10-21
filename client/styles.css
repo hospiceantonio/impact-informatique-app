@@ -75,6 +75,12 @@
   /* LE TEXTE ET LE FOND DE LA DA. */
   --encre:#1F2937;
   --encre-douce:#4B5563;
+  /* LE GRIS DES TEXTES D'AIDE (3.61.0). Le gris très doux de la DA
+     (#9AA3AF) tombe à 2,8:1 sur blanc : un paragraphe entier dans
+     cette teinte ne se lit plus au soleil. Celui-ci donne 4,8:1, le
+     seuil des règles d'accessibilité ; le très doux reste pour les
+     petites mentions d'une ligne (dates, codes). */
+  --encre-moyenne:#6B7280;
   --encre-tres-douce:#9AA3AF;
   --trait:#E3E8EF;
   --fond:#F5F7FA;
@@ -97,7 +103,14 @@
 
 *,*::before,*::after{box-sizing:border-box}
 
-html{-webkit-text-size-adjust:100%}
+/* CE QUI DÉBORDE NE POUSSE PLUS L'ÉCRAN (3.61.0). Sur un téléphone, un
+   seul élément plus large que l'écran — une adresse web sans espace,
+   une tuile trop pleine — élargit la page entière : le navigateur la
+   laisse défiler de côté, et la barre du bas, calée sur cette page
+   élargie, sort de l'écran (« Recherche » coupé en « Recl »). Avec
+   « clip », ce qui dépasse est rogné à sa place, et le reste ne bouge
+   pas. */
+html{-webkit-text-size-adjust:100%;overflow-x:clip}
 
 body{
   margin:0;
@@ -136,9 +149,20 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    boutiques » ou « Mon panier » sur la DA : plus sombre que le bleu
    des titres de section, pour que l'écran et ses rubriques ne se
    confondent pas. */
-.topbar h1{font-size:20px;font-weight:700;letter-spacing:-.3px;color:var(--bleu-900);
-  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topbar .sous{font-size:12.5px;color:var(--encre-douce);margin-top:2px}
+/* LE TITRE SE PLIE SUR DEUX LIGNES PLUTÔT QUE DE SE COUPER (3.61.0).
+   Entre le retour et trois ou quatre boutons, il lui reste cent trente
+   pixels : avec les grands caractères d'un téléphone, « Mon compte »
+   finissait en « Mon co… » et « À propos de BIZZOO » en « À propos d… ».
+   Deux lignes gardent les mots entiers ; au-delà, « … ». */
+.topbar h1{
+  font-size:18px;font-weight:700;letter-spacing:-.3px;line-height:1.2;color:var(--bleu-900);
+  flex:1;min-width:0;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.topbar .sous{
+  font-size:12.5px;color:var(--encre-douce);margin-top:2px;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
 
 /* ---------- L'en-tête d'une boutique, sur deux lignes ----------
    La première ne porte que le retour et les boutons ; l'enseigne a
@@ -164,7 +188,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   margin-top:1px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.topbar-actions{display:flex;gap:6px;align-items:center}
+.topbar-actions{display:flex;gap:2px;align-items:center;flex:none}
 .topbar-logo{flex:1;min-width:0}
 .topbar-slogan{
   margin-top:10px;
@@ -252,6 +276,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:16px 16px calc(var(--barre-h) + var(--safe-b) + 28px);
   max-width:720px;margin:0 auto;
   outline:none;
+  /* Un mot trop long pour sa ligne — une adresse web, une référence —
+     se coupe plutôt que de sortir de sa carte. « break-word » ne
+     touche pas aux largeurs minimales : les colonnes et les boutons
+     gardent leur taille, seul le mot qui ne tient nulle part se plie. */
+  overflow-wrap:break-word;
 }
 .vue > * + *{margin-top:14px}
 
@@ -296,8 +325,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* Cinq onglets sur un téléphone de 320 px : 64 px chacun, et
    « Catégories » s'écourtait en « Catégori… ». Un point de moins et
    les marges à 1 px : il tient en entier. */
-@media (max-width:340px){
-  body.en-boutique .tabbar a{font-size:10px;padding-left:1px;padding-right:1px}
+/* En grands caractères aussi (3.61.0) : à cinq, « Catégories » et
+   « Recherche » s'écourtaient sur un téléphone de 360 px. */
+@media (max-width:480px){
+  body.en-boutique .tabbar a{font-size:10px;padding-left:1px;padding-right:1px;letter-spacing:-.01em}
 }
 
 /* ---------- Contact, en bouton flottant ----------
@@ -378,24 +409,44 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
 :where(a).carte{display:block}
 /* Les icônes sont des « svg », donc des blocs : sans cette ligne, une
    icône en tête de titre se posait SEULE au-dessus du texte. */
+/* L'icône reste sur la PREMIÈRE ligne du titre quand il se plie :
+   centrée sur deux lignes, elle flottait entre les deux. */
 .carte-titre{
-  display:flex;align-items:center;gap:6px;
-  font-size:15px;font-weight:700;margin-bottom:12px;
+  display:flex;align-items:flex-start;gap:6px;
+  font-size:15px;font-weight:700;line-height:1.25;margin-bottom:12px;
 }
+.carte-titre .ic-sm{margin-top:1px}
 
 .btn{
   /* BOUTON PRINCIPAL DE LA DA : bleu plein, texte blanc (7,23:1).
      EN PILULE, comme les trois boutons de la DA corrigée : les coins
      de 13 px d'avant en faisaient des rectangles adoucis, que la
-     maquette ne montre nulle part. */
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  min-height:50px;padding:10px 22px;border:0;border-radius:999px;
+     maquette ne montre nulle part.
+
+     EN LIGNE, PAS EN FLEX (3.61.0). Un bouton en « flex » faisait de
+     son texte une boîte à part : dès qu'il se pliait sur deux lignes,
+     cette boîte prenait toute la largeur, le texte se centrait dedans
+     et l'icône restait seule collée au bord gauche. Avec les grands
+     caractères d'un téléphone, c'était un bouton sur deux. Ici l'icône
+     coule dans le texte comme une lettre : « [icône] Changer le mot »,
+     puis « de passe » dessous, les deux lignes centrées. La hauteur
+     vient du texte — une ligne ou deux — et plus d'une hauteur
+     minimale qui laissait un vide sous une ligne seule. */
+  display:inline-block;text-align:center;
+  align-items:center;justify-content:center;gap:8px;
+  padding:13px 20px;border:0;border-radius:999px;
   background:var(--bleu);
-  color:#fff;font-weight:600;font-size:15px;
+  color:#fff;font-weight:600;font-size:15px;line-height:1.3;
   box-shadow:0 10px 22px -12px rgba(37,80,183,.6);
   width:100%;
 }
+.btn > .ic{display:inline-block;vertical-align:-.28em;width:18px;height:18px;margin:0 7px 0 -2px}
+/* Une icône après le texte (« Voir tout › ») : l'écart change de côté. */
+.btn > .ic.ic-apres{margin:0 -2px 0 7px}
 .btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.55;box-shadow:none}
+/* Deux boutons côte à côte, quand chacun tient en un mot. */
+.btn-duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .btn-clair{
   /* BOUTON SECONDAIRE DE LA DA : fond blanc, trait bleu, texte bleu. */
   background:var(--blanc);color:var(--bleu);box-shadow:none;
@@ -415,6 +466,9 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
   background:var(--orange);color:var(--orange-texte);font-weight:700;font-size:15.5px;
   box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
 }
+/* Le secondaire qui retire quelque chose — supprimer son compte — :
+   rouge pâle, pour qu'on ne le confonde pas avec « Mes adresses ». */
+.btn-danger-clair{background:var(--rouge-clair);color:var(--rouge-fonce);box-shadow:none;border:1.5px solid #F6C6C7}
 /* LIEN TEXTE DE LA DA : souligné, bleu, sans fond ni cadre. */
 .lien-texte{
   color:var(--bleu);font-weight:600;text-decoration:underline;
@@ -442,7 +496,7 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
    paiement — prend le bleu des rubriques. Les autres restent sombres. */
 .carte-titre-bleu{color:var(--bleu)}
 
-.aide{font-size:12.5px;color:var(--encre-tres-douce);line-height:1.5}
+.aide{font-size:12.5px;color:var(--encre-moyenne);line-height:1.5}
 /* « a{color:inherit} » rend les liens invisibles dans un texte d'aide :
    « Se connecter » y ressemblait à du gris ordinaire, et personne ne
    pensait à appuyer dessus. Un lien doit se voir. */
@@ -678,7 +732,10 @@ video.slide-img{background:#000}
 .badge{
   display:inline-flex;align-items:center;gap:4px;
   padding:4px 9px;border-radius:999px;
-  font-size:11px;font-weight:700;
+  font-size:11px;font-weight:700;line-height:1.2;
+  /* Une pastille ne se plie pas : « Sur / commande » sur deux lignes
+     ne se lit plus comme un état. */
+  white-space:nowrap;max-width:100%;overflow:hidden;
 }
 .badge-avant{background:var(--ambre-clair);color:var(--orange-fonce)}
 /* LA REMISE : pilule orange, texte blanc — celle de la DA. Même choix
@@ -755,7 +812,14 @@ video.slide-img{background:#000}
 /* Photo posée par-dessus le cadre : c'est le cadre qui commande la
    taille, jamais l'inverse (sans quoi une photo haute l'étirerait). */
 .p-carte-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.p-carte-badges{position:absolute;top:8px;left:8px;z-index:2;display:flex;gap:5px;flex-wrap:wrap}
+/* Les pastilles s'arrêtent AVANT le cœur (3.61.0) : « Sur commande »
+   passait dessous, et l'on ne lisait ni l'un ni l'autre. Elles ont la
+   largeur de la photo moins la place du cœur ; une seconde pastille
+   passe à la ligne. */
+.p-carte-badges{position:absolute;top:8px;left:8px;right:48px;z-index:2;display:flex;gap:5px;flex-wrap:wrap}
+/* Sur une carte, la pastille se plie plutôt que de se faire couper :
+   en grands caractères, « Sur commande » tient sur deux lignes. */
+.p-carte-badges .badge{font-size:10.5px;padding:3px 8px;white-space:normal;text-align:left;line-height:1.15}
 .img-absente{display:flex;align-items:center;justify-content:center;opacity:.5}
 .p-carte-corps{display:flex;flex-direction:column;gap:4px;padding:10px 12px 12px}
 .p-carte-nom{
@@ -967,15 +1031,30 @@ a.pub-carte:active{transform:scale(.98)}
   font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
   padding:7px 12px;border-radius:999px;
 }
+/* LA LISTE DE PORTES : une rangée par endroit où aller — la tuile, le
+   nom, un mot dessous, le chevron. Depuis la 3.61.0 elle sert aussi à
+   « Mon compte » (Mes commandes, Mes adresses…) et aux Réglages de
+   l'admin : cinq boutons empilés se lisaient comme cinq alarmes, une
+   liste se parcourt. Les mêmes classes dans les deux applications. */
+.liste-portes{margin:-4px 0}
 .ligne-info{
-  display:flex;align-items:center;gap:12px;
-  padding:11px 2px;color:inherit;width:100%;
-  border:0;background:none;text-align:left;font-size:14px;
+  display:flex;align-items:center;gap:12px;min-height:56px;
+  padding:10px 2px;color:inherit;width:100%;
+  border:0;background:none;text-align:left;font:inherit;font-size:14px;cursor:pointer;
 }
 .ligne-info + .ligne-info{border-top:1px solid var(--trait)}
+.ligne-info:active{background:var(--bleu-50)}
 .ligne-info > span:nth-child(2){flex:1;min-width:0;line-height:1.35}
-.ligne-info small{color:var(--encre-tres-douce)}
-.ligne-info > .ic-sm{color:var(--encre-tres-douce)}
+.ligne-info strong{display:block;font-size:14px;font-weight:700;color:var(--encre)}
+/* Un peu plus petit que la ligne du dessus : en grands caractères,
+   « contact@bizzoomarket.com » tient alors sur sa ligne au lieu de
+   laisser un « m » seul dessous. */
+.ligne-info small{display:block;font-size:11.5px;color:var(--encre-moyenne)}
+.ligne-info > .ic-sm{color:var(--encre-tres-douce);flex:none}
+/* Les anciennes rangées écrivent « <strong>…</strong><br><small> » :
+   le nom et la mention étant déjà des blocs, ce « br » ajouterait une
+   ligne vide entre les deux. */
+.ligne-info br{display:none}
 .rond-wa,.rond-bleu{
   display:flex;align-items:center;justify-content:center;flex:none;
   width:42px;height:42px;border-radius:14px;color:#fff;
@@ -987,12 +1066,12 @@ a.pub-carte:active{transform:scale(.98)}
 .carte-contact > .ic-sm{margin-left:auto;color:var(--encre-tres-douce)}
 .champ-config{margin-bottom:10px}
 .champ-config input{
-  width:100%;min-height:46px;
+  width:100%;min-height:48px;
   border:1.5px solid var(--trait);border-radius:12px;
   background:var(--blanc);
   padding:11px 13px;font-size:14px;outline:none;
 }
-.champ-config input:focus{border-color:var(--bleu)}
+.champ-config input:focus{border-color:var(--bleu);box-shadow:0 0 0 3px var(--bleu-50)}
 .bloc-aide{margin-top:12px;border-top:1px solid var(--trait);padding-top:10px}
 .bloc-aide summary{font-size:13px;font-weight:700;color:var(--bleu-800);cursor:pointer}
 .bloc-aide p{font-size:13px;line-height:1.55;color:var(--encre-douce);margin:9px 0 0}
@@ -1143,6 +1222,9 @@ a.pub-carte:active{transform:scale(.98)}
   border-radius:999px;background:var(--orange);color:var(--orange-texte);
   font-size:11px;font-weight:800;line-height:18px;text-align:center;
   box-shadow:0 0 0 2px var(--bleu);
+  /* Les grands caractères du téléphone grossissent le chiffre, pas la
+     pastille : la ligne reste à sa hauteur. */
+  white-space:nowrap;
 }
 
 /* La fiche produit : compteur + bouton, sur une seule ligne. */
@@ -1365,6 +1447,10 @@ a.pub-carte:active{transform:scale(.98)}
   display:flex;justify-content:space-between;gap:12px;
   padding:8px 0;font-size:13.5px;
 }
+/* Le prix ne se casse jamais en « 105 » / « FCFA » : c'est le nom qui
+   se plie. */
+.re-ligne > span:first-child{min-width:0}
+.re-ligne > strong,.re-ligne > span:last-child{flex:none;white-space:nowrap}
 .re-ligne small{color:var(--encre-tres-douce)}
 .re-code{
   padding:1px 6px;border-radius:5px;
@@ -1427,17 +1513,21 @@ a.pub-carte:active{transform:scale(.98)}
 .champ:last-child{margin-bottom:0}
 .champ label{
   display:block;margin-bottom:6px;
-  font-size:12.5px;font-weight:700;color:var(--encre-douce);
+  font-size:13px;font-weight:700;color:var(--encre-douce);
 }
 .champ label small{font-weight:500;color:var(--encre-tres-douce)}
-.champ input,.champ textarea{
-  width:100%;padding:12px 14px;
-  border:1px solid var(--trait);border-radius:var(--r-sm);
+/* LE MÊME CHAMP QUE DANS L'ADMIN (3.61.0) : trait d'un pixel et demi,
+   coins de 12 px, 48 px de haut, et un halo bleu quand on y écrit. Les
+   deux applications ne doivent pas avoir deux dessins de champ. */
+.champ input,.champ select,.champ textarea{
+  width:100%;min-height:48px;padding:12px 14px;
+  border:1.5px solid var(--trait);border-radius:12px;
   background:var(--blanc);color:var(--encre);
-  font-family:inherit;font-size:15px;
+  font-family:inherit;font-size:15px;outline:none;
 }
-.champ input:focus,.champ textarea:focus{outline:0;border-color:var(--bleu)}
-.champ textarea{resize:vertical;min-height:52px}
+.champ input:focus,.champ select:focus,.champ textarea:focus{border-color:var(--bleu);box-shadow:0 0 0 3px var(--bleu-50)}
+.champ textarea{resize:vertical;min-height:52px;line-height:1.5}
+.champ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2354637A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
 .champ-tel{display:flex;gap:8px}
 .champ-tel input:first-child{width:72px;flex:none;text-align:center}
 
@@ -1576,7 +1666,8 @@ a.pub-carte:active{transform:scale(.98)}
   border-radius:var(--r-sm) 0 0 var(--r-sm);
   font-weight:800;color:var(--bleu-700);
 }
-.cp-tel-ligne input{border-radius:0 var(--r-sm) var(--r-sm) 0;flex:1;min-width:0}
+.cp-tel-ligne input{border-radius:0 12px 12px 0;flex:1;min-width:0}
+.cp-indicatif{border:1.5px solid var(--trait);border-right:0;border-radius:12px 0 0 12px}
 
 /* Six chiffres qu'on recopie d'un SMS : gros, espacés, au centre. */
 .cp-code{
@@ -1689,9 +1780,14 @@ a.pub-carte:active{transform:scale(.98)}
    La boutique d'abord, BIZZOO en recours : les états se lisent d'un
    coup d'œil, et le recours porte sa couleur à lui. */
 .sav-resume{
-  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 12px;
   padding:12px 0;border-top:1px solid var(--trait);color:inherit;
 }
+/* « La boutique doit répondre » passe SOUS le titre quand la ligne est
+   trop courte pour les deux : avant, il élargissait la carte, ou
+   écrasait « Autre problème » en « Autre problè- / me ». */
+.sav-resume > *{min-width:0}
+.sav-resume > *:first-child{flex:1 1 160px}
 .sav-resume:first-of-type{border-top:0}
 .carte.sav-resume{border-top:0;padding:16px}
 .sav-quand{font-size:11.5px;color:var(--encre-tres-douce);margin-top:3px}

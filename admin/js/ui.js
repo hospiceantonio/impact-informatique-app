@@ -828,8 +828,23 @@ const UI = (() => {
     toast("Lien copié", "ok");
   });
 
+  /* ---------- Une porte dans une liste (3.61.0) ----------
+     La rangée « tuile, nom, un mot dessous, chevron » : celle de « À
+     propos de BIZZOO » chez le client, reprise ici pour les Réglages et
+     « Vos données et vos droits ». Un lien si « href » est donné, un
+     bouton sinon ; « attrs » porte un id ou un data-*. */
+  function porte({ href, icone: nom, titre, sous, attrs, rond }) {
+    const dedans =
+      '<span class="' + (rond || "rond-bleu") + '">' + icone(nom) + "</span>" +
+      "<span><strong>" + e(titre) + "</strong>" + (sous ? "<small>" + e(sous) + "</small>" : "") + "</span>" +
+      icone("chevron", "ic-sm");
+    return href
+      ? '<a class="ligne-info" href="' + e(href) + '"' + (attrs || "") + ">" + dedans + "</a>"
+      : '<button type="button" class="ligne-info"' + (attrs || "") + ">" + dedans + "</button>";
+  }
+
   return {
-    lienPartage, liensPartage,
+    lienPartage, liensPartage, porte,
     $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
     champsHoraires, lireHoraires, champsConditions, brancherConditions, lireConditions,

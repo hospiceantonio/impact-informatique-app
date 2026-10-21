@@ -632,7 +632,7 @@ const VueComptes = (() => {
           placeholder: "6 caractères minimum" }) +
         UI.champTexte({ id: "mc-mdp2", label: "Répéter le mot de passe", type: "password" }) +
         '<button type="button" class="btn" id="mc-changer" style="margin-top:4px">' +
-          UI.icone("check") + "Enregistrer le mot de passe</button>" +
+          UI.icone("check") + "Enregistrer</button>" +
         '<div id="mc-resultat"></div>' +
       "</div>" +
 
@@ -786,7 +786,7 @@ const VueComptes = (() => {
           placeholder: "Quartier, repère… ex. Akpakpa, face au marché",
           aide: "C'est ce qui permet de vous situer." }) +
         '<button type="button" class="btn" id="vp-activer">' + UI.icone("carte") +
-          "Activer ma position et valider</button>" +
+          "Activer ma position</button>" +
         '<div id="vp-etat"></div>' +
       "</div>" +
       '<div class="carte"><a class="btn btn-clair" href="#/compte">' + UI.icone("personne") +
