@@ -35,6 +35,7 @@ Write-Host ""
 Write-Host "   Accueil          http://localhost:$Port/"
 Write-Host "   La boutique      http://localhost:$Port/client/"
 Write-Host "   Espace admin     http://localhost:$Port/admin/"
+Write-Host "   Personnel        http://localhost:$Port/personnel/"
 Write-Host ""
 Write-Host "Astuce : reduisez la fenetre du navigateur sous 1024 px de large" -ForegroundColor DarkGray
 Write-Host "         pour voir exactement ce que voit un telephone." -ForegroundColor DarkGray

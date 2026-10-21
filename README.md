@@ -4826,6 +4826,57 @@ publics, sans rien de revendeur — pour les montrer à son propre client. Ce n'
 **panier** montre toujours ce qu'il paiera (« Total à vos prix revendeur »). Le partage d'un
 produit donne toujours le prix public. Banc : [`tools/banc-prix-revendeur.mjs`](tools/banc-prix-revendeur.mjs).
 
+## BIZZOO Personnel : la gestion interne des employés (3.61.0)
+
+Une troisième application, `personnel/`, pour les employés de BIZZOO eux-mêmes — pas pour les boutiques ni les clients. Même base Supabase, même charte, même façon d'écrire (pas de compilation, un module par fichier). En ligne, elle vit à `www.bizzoomarket.com/personnel/` ; sur téléphone, elle s'installe depuis le navigateur (« Ajouter à l'écran d'accueil »).
+
+**Rien de la place de marché n'est touché.** Tout ce que pose `supabase/personnel.sql` commence par `rh_` : ses « profils » (Marketing, Logistique…) ne se confondent jamais avec la table `profils` des comptes de boutique.
+
+### Les rangs
+
+| Rang | Qui | Ce qu'il fait |
+|---|---|---|
+| CEO | un seul (`rh_employes.ceo`) | valide les employés, les rapports d'activité, les dépenses, les barèmes et la paie ; donne les droits |
+| Administration | `administration` | droits sur tous les profils : crée les employés (validés par le CEO), les profils, les missions ; prépare la paie |
+| Responsable | `rh_profils.responsable_id` | accepte les missions de son profil, rend leurs rapports, publie les rapports d'activité, demande les dépenses |
+| Habilité | `peut_decaisser` | décaisse les dépenses approuvées, paie les fiches validées |
+| Employé | tout employé en poste | ses mails, la discussion de son profil, ses fiches de paie, ses coordonnées |
+
+Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une fiche en attente, refusée ou sortie n'a aucun droit.
+
+**Le premier CEO** s'installe une seule fois, par un superadministrateur de BIZZOO qui ouvre l'application alors qu'aucun CEO n'existe encore. Deux choix : « Je suis le CEO » (`rh_devenir_ceo`), ou « Désigner le CEO » (`rh_designer_ceo`) : nom et adresse professionnelle du CEO, premier mot de passe si cette adresse n'a pas encore de compte, et, en option, l'inscription du superadministrateur lui-même dans l'administration pour tout préparer en attendant. Dès qu'un CEO existe, la porte est fermée.
+
+### Les circuits
+
+- **Employé** : créé par l'administration → « en attente » → validé ou refusé (avec motif) par le CEO. Ensuite, « Créer l'accès » : un compte de connexion à son adresse `@bizzoomarket.com` (inscription avec `compte: personnel`, puis `rh_rattacher_compte`, qui ne rattache que le compte de SA propre adresse). Un compte BIZZOO existant à cette adresse est simplement rattaché. Le salaire d'un employé en poste et les droits ne changent que par le CEO ; l'employé ne touche qu'à son téléphone, son adresse et son e-mail personnel.
+- **Mission** : créée par l'administration pour un profil, avec une échéance → acceptée (ou refusée, motif) par le responsable → rapport rendu → clôturée, ou renvoyée « à reprendre ». En retard : le tableau de bord le dit.
+- **Rapport d'activité** : brouillon du responsable → publié → validé ou rejeté (commentaire) par le CEO. Validé, tous les membres du profil le lisent.
+- **Dépense** : demandée par le responsable → approuvée ou refusée par le CEO → décaissée par l'habilité (mode, référence). Le CEO lui-même ne décaisse pas sans l'habilitation.
+- **Discussions** : celle de chaque profil (membres, responsable, administration) et les messages privés. Un message privé reste privé : l'administration ne le lit pas.
+
+### La paie
+
+- Le dernier jour du mois à 18 h (heure du Bénin), `pg_cron` calcule les fiches de tous les employés en poste ; s'il manque, l'application rattrape à l'ouverture (`rh_paie_a_jour`), et l'administration peut « Calculer / Recalculer » à tout moment.
+- Une fiche : salaire de base au prorata des jours (embauche ou sortie en cours de mois), primes et indemnités (imposables ou non), cotisations validées, impôt par tranches validé, retenues, puis les avances — une mensualité par paie, jamais au-delà de ce qui reste : la fiche ne descend pas sous zéro.
+- **Aucun taux n'est fourni**, par décision du propriétaire : CNSS, impôt et autres cotisations se saisissent dans Paie → Barèmes, et ne comptent qu'une fois validés par le CEO. Toute modification les renvoie à sa validation.
+- Le CEO valide le mois : les fiches sont figées (rien ne les recalcule plus), l'employé voit la sienne, l'habilité la paie. Une fiche validée mais pas encore payée peut être rouverte par le CEO.
+- Chaque fiche garde une copie de ce qu'était l'employé (poste, profil, matricule) : un changement de poste ne réécrit pas le passé.
+
+### Les mails
+
+La fonction Edge `rh-messagerie` parle IMAP (`mail.bizzoomarket.com:993`) et SMTP (`:465`) au serveur de LWS. L'employé saisit une fois le mot de passe de sa boîte : il est vérifié auprès du serveur, puis **chiffré (AES-GCM)** dans `rh_boites_mail`, une table sans aucune règle de lecture — ni l'application ni le CEO ne la lisent ; seule la fonction, avec la clé de service, y accède. L'adresse ouverte est toujours celle de la fiche de l'employé connecté, jamais une adresse reçue dans la requête. Un message envoyé est rangé dans « Envoyés » (LWS ne le fait pas lui-même).
+
+Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la page), images distantes bloquées tant qu'on ne clique pas « Afficher les images ».
+
+### Mise en service
+
+1. **La base** : exécuter `supabase/personnel.sql` dans l'éditeur SQL de Supabase (il se suffit, et se rejoue sans rien casser). Il active `pg_cron` et programme `rh-paie-fin-de-mois`.
+2. **Le secret** (conseillé) : Supabase → Edge Functions → Secrets → `RH_MESSAGERIE_CLE`, une longue phrase aléatoire. Sans lui, la clé dérive de la clé de service ; le changer oblige chacun à ressaisir le mot de passe de sa boîte, rien d'autre.
+3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
+4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
+
+Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (99 constats : chaque porte, et une paie au franc près calculée à la main).
+
 ## Structure
 
 ```
@@ -4872,6 +4923,7 @@ impact-informatique-app/
 │   ├── produits-habilitation.sql    # Créer un produit demande l'habilitation (3.59.0)
 │   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
 │   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
+│   ├── personnel.sql                # BIZZOO Personnel : employés, missions, rapports, dépenses, paie (3.61.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
@@ -4881,7 +4933,9 @@ impact-informatique-app/
 │   ├── functions/_partage/sms.ts    # Le transport SMS : un 200 n'est pas un succès
 │   ├── functions/hook-sms-auth/     # Livrer le code de connexion — la signature est le seul contrôle
 │   ├── functions/code-connexion/    # Le code de l'équipe : tiré ici, haché avec la session, jamais rendu
-│   └── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
+│   ├── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
+│   └── functions/rh-messagerie/     # Les mails @bizzoomarket.com du personnel : IMAP, SMTP, mot de passe chiffré
+├── personnel/                # BIZZOO Personnel : l'application interne des employés (3.61.0)
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase
 │   ├── demo-catalogue.json   # Catalogue de démonstration (si config vide)

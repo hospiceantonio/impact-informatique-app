@@ -1,9 +1,10 @@
 # BIZZOO
 
-BIZZOO, ce sont deux applications sur une même base Supabase :
+BIZZOO, ce sont trois applications sur une même base Supabase :
 
 - **BIZZOO** (`client/`) : la place de marché des clients, en site web (PWA) et en APK Android ;
 - **BIZZOO Admin** (`admin/`) : l'application des boutiques, des livreurs et de l'enseigne, en PWA et en APK.
+- **BIZZOO Personnel** (`personnel/`) : la gestion interne des employés de BIZZOO (mails, discussions, missions, rapports, dépenses, paie), en PWA. Ses tables et fonctions commencent toutes par `rh_` ; README, section « BIZZOO Personnel ».
 
 Le propriétaire de BIZZOO est au Bénin et parle français. Il n'est pas développeur. Lui répondre en français simple, lui dire précisément quoi faire (quel bouton, quel fichier), et expliquer chaque terme technique.
 
@@ -69,6 +70,7 @@ Il faut Git pour Windows (git-scm.com). Pour les bancs et les icônes, il faut a
 - Aucune donnée personnelle de client n'est exposée.
 - Rien n'est inventé : ni avis, ni chiffres, ni clients.
 - Aucun identifiant de modèle d'IA dans le code, les commentaires ou les commits (hors lignes d'attribution).
+- BIZZOO Personnel : ne jamais donner de règle de lecture à `rh_boites_mail` (mots de passe des boîtes mail, chiffrés) ; ne jamais semer de taux de paie (CNSS, impôt) : le comptable les saisit, le CEO les valide.
 
 ## Travailler avec le propriétaire
 

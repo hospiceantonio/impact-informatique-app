@@ -89,6 +89,7 @@ verifier() {
 
 verifier client
 verifier admin
+verifier personnel
 
 echo
 if [ "$ECHECS" -gt 0 ]; then
