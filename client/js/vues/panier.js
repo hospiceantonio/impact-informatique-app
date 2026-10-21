@@ -431,6 +431,48 @@ const VuePanier = (() => {
     Compte.masquerSiSmsFerme(vue);
   }
 
+  /* ---------- La session est tombée (3.63.0) ----------
+     Voir « La session qui tombait en silence » (compte.js). Le client se
+     croyait connecté ; le formulaire, prérempli des coordonnées du
+     téléphone, laissait partir sa commande en visiteur — sans étapes,
+     sans livreur, sans « J'ai bien reçu ». On le dit AVANT le formulaire,
+     et c'est lui qui choisit : se reconnecter, ou commander sans compte
+     en le sachant. Quand l'enseigne exige un compte, il n'y a pas de
+     second choix. */
+  function sessionExpiree(vue) {
+    UI.entete({ titre: "Votre commande", retour: true });
+    const devise = Panier.devise();
+    const exige = Compte.compteExige();
+
+    vue.innerHTML =
+      '<div class="carte">' +
+        '<div class="carte-titre">' + UI.icone("alerte") + "Votre session a expiré</div>" +
+        '<p class="aide" style="margin:0 0 4px">Vous étiez connecté à votre compte BIZZOO, ' +
+          "mais la connexion est tombée. Reconnectez-vous : votre commande sera rattachée à " +
+          "votre compte, et vous pourrez la suivre jusqu'à la livraison et confirmer " +
+          "l'avoir reçue.</p>" +
+        '<p class="aide" style="margin:10px 0 0">Votre panier vous attend : ' +
+          "<strong>" + Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) +
+          "</strong>. Rien n'en sera perdu.</p>" +
+      "</div>" +
+
+      '<div class="carte">' +
+        '<a class="btn" href="#/connexion" data-vers-compte>' +
+          UI.icone("compte") + "Se reconnecter</a>" +
+        (exige ? "" :
+          '<button type="button" class="btn btn-clair" id="co-sans-compte" ' +
+            'style="margin-top:10px">Commander sans compte</button>' +
+          '<p class="aide" style="margin:12px 0 0">Sans compte, vous ne pourrez ni suivre ' +
+            "les étapes de la livraison ni confirmer la réception depuis l'application.</p>") +
+      "</div>";
+
+    for (const lien of UI.$$("[data-vers-compte]", vue)) {
+      lien.addEventListener("click", () => VueCompte.revenirVers("#/commande"));
+    }
+    const sans = UI.$("#co-sans-compte", vue);
+    if (sans) sans.addEventListener("click", () => { Compte.oublierPerte(); commander(vue); });
+  }
+
   /* =====================================================
      Écran 2 — les coordonnées, puis le paiement
      ===================================================== */
@@ -511,6 +553,13 @@ const VuePanier = (() => {
         });
         return;
       }
+    }
+
+    /* LA SESSION EST TOMBÉE SANS QU'ON L'AIT DEMANDÉ (3.63.0) : on le dit
+       ici, avant le formulaire — voir « sessionExpiree ». */
+    if (typeof Compte !== "undefined" && Compte.sessionPerdue()) {
+      sessionExpiree(vue);
+      return;
     }
 
     /* L'enseigne exige un compte, et ce client n'en a pas : on s'arrête
@@ -964,6 +1013,8 @@ const VuePanier = (() => {
   async function lancerPaiement(bouton, lire, verifier, lirePaiement) {
     const client = lire();
     if (!verifier(client)) return;
+    /* Connecté en ouvrant l'écran ? On s'en souvient : voir plus bas. */
+    const avecCompte = typeof Compte !== "undefined" && Compte.connecte();
 
     /* Avec FeexPay, on vérifie AVANT de créer la commande : rien ne sert
        d'enregistrer un panier qu'on ne saura pas où faire payer. */
@@ -990,6 +1041,20 @@ const VuePanier = (() => {
     const libelle = bouton.innerHTML;
     bouton.disabled = true;
     bouton.innerHTML = '<span class="chargement-rond"></span>Préparation…';
+
+    /* (3.63.0) CONNECTÉ EN OUVRANT L'ÉCRAN, PLUS MAINTENANT : la session
+       est tombée entre-temps — au moment de payer, ou en arrière-plan
+       pendant que le client remplissait (le drapeau le dit). La commande
+       ne part pas en visiteur à son insu : l'écran se redessine et le
+       dit (« sessionExpiree »). */
+    if (typeof Compte !== "undefined" &&
+        ((avecCompte && !(await Compte.jeton())) || Compte.sessionPerdue())) {
+      bouton.disabled = false;
+      bouton.innerHTML = libelle;
+      UI.toast("Votre session a expiré : reconnectez-vous avant de commander.", "err");
+      commander(document.getElementById("vue"));
+      return;
+    }
 
     let commande;
     try {
@@ -1147,6 +1212,9 @@ const VuePanier = (() => {
           window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id } }));
         }
       }).catch(() => { /* hors connexion : la copie suffit */ });
+    } else if (Panier.commande(id) && commande.etat === "payee") {
+      /* (3.63.0) Sans compte : les étapes arrivent par le numéro. */
+      rafraichirSuiviInvite(vue, commande, id);
     }
 
     /* Le SAV, sous le reçu : c'est ici que le client est quand il
@@ -1344,7 +1412,23 @@ const VuePanier = (() => {
    * rien : la commande garde ce qu'elle avait.
    */
   function suiteDuVersement(commande, suivi) {
-    if (!suivi || suivi.reste == null) return {};
+    if (!suivi) return {};
+    const plus = {};
+    /* (3.63.0) OÙ EN EST CHAQUE BOUTIQUE, pour une commande suivie par son
+       numéro : l'étape et la confirmation, comme pour un compte. Sans
+       compte, c'était le seul morceau du suivi qui manquait — les lignes
+       de la commande ne se lisent qu'avec un compte. */
+    const etats = suivi.etats || null;
+    if (etats) {
+      for (const b of commande.boutiques || []) {
+        if (b && b.id in etats) {
+          b.etat = (etats[b.id] && etats[b.id].etat) || "";
+          b.confirme = !!(etats[b.id] && etats[b.id].confirme);
+        }
+      }
+      plus.boutiques = commande.boutiques;
+    }
+    if (suivi.reste == null) return plus;
     commande.acompte = suivi.acompte;
     commande.verse = suivi.verse;
     commande.reste = suivi.reste;
@@ -1352,8 +1436,31 @@ const VuePanier = (() => {
     for (const b of commande.boutiques || []) {
       if (b && b.id in restes) b.a_encaisser = restes[b.id];
     }
-    return { acompte: commande.acompte, verse: commande.verse, reste: commande.reste,
+    return { ...plus, acompte: commande.acompte, verse: commande.verse, reste: commande.reste,
              boutiques: commande.boutiques };
+  }
+
+  /**
+   * (3.63.0) Sans compte, le numéro suit aussi : les étapes de chaque
+   * boutique arrivent par « suivre_commande », et le reçu se redessine
+   * si elles ont bougé — comme la relecture d'un compte, plus haut.
+   */
+  async function rafraichirSuiviInvite(vue, commande, id) {
+    let suivi;
+    try {
+      suivi = await Paiement.suivre(id, (commande.client && commande.client.tel) || "");
+    } catch (_) {
+      return;
+    }
+    if (!suivi || !suivi.etats) return;
+    const photo = () => JSON.stringify((commande.boutiques || [])
+      .map((b) => [b.etat || "", !!b.confirme]));
+    const avant = photo();
+    const plus = suiteDuVersement(commande, suivi);
+    Panier.majEtat(id, suivi.etat || commande.etat, { remarque: suivi.remarque || "", ...plus });
+    if (photo() !== avant && vue.isConnected && location.hash === "#/commande/" + id) {
+      window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id } }));
+    }
   }
 
   /** Une nouvelle demande, pour la même commande — après un refus seulement. */
@@ -1418,6 +1525,7 @@ const VuePanier = (() => {
     }
     const rang = ETAPES.findIndex((e) => e.cle === g.etat);
     const remise = g.etat === "remise";
+    const connecte = typeof Compte !== "undefined" && Compte.connecte();
 
     return '<div class="re-suivi">' +
       ETAPES.map((e, i) =>
@@ -1428,6 +1536,14 @@ const VuePanier = (() => {
       (remise && g.confirme
         ? '<div class="re-recu">' + UI.icone("check", "ic-sm") +
           "<span>Vous avez confirmé avoir reçu cette commande.</span></div>"
+        /* (3.63.0) SANS COMPTE, PAS DE SIGNATURE : « J'ai bien reçu » est
+           la parole du client, et la base ne l'accepte que d'un compte.
+           On dit comment la donner plutôt que de montrer un bouton qui
+           répondrait « connectez-vous ». */
+        : remise && !connecte
+          ? '<p class="aide" style="margin:8px 0 0">La boutique a déclaré vous avoir remis ' +
+              "cette commande. Elle a été passée sans compte : entrez avec ce numéro, " +
+              "retrouvez-la dans « Mes commandes » et confirmez-y la réception.</p>"
         : remise
           ? '<button type="button" class="btn btn-clair re-confirmer" ' +
               'data-boutique="' + Utils.echapper(g.boutique.id || "") + '">' +
@@ -1834,6 +1950,9 @@ const VuePanier = (() => {
      pour toutes celles qui attendent encore, et c'est bien ce que le
      client veut dire — « j'ai tout reçu ». */
   function boutonRecu(c) {
+    /* (3.63.0) Sans compte, la base n'accepte pas la confirmation : le
+       reçu explique comment la donner (voir « blocSuivi »). */
+    if (!(typeof Compte !== "undefined" && Compte.connecte())) return "";
     const aConfirmer = (c.boutiques || [])
       .filter((g) => g && g.etat === "remise" && !g.confirme);
     if (!aConfirmer.length) return "";
@@ -1937,6 +2056,8 @@ const VuePanier = (() => {
    * garde ce qu'on a : un écran vide ferait croire à un historique
    * perdu.
    */
+  let rattachementTente = false;   // (3.63.0) une fois par ouverture
+
   async function mesCommandes(vue) {
     UI.entete({ titre: "Mes commandes", retour: true });
 
@@ -1962,7 +2083,30 @@ const VuePanier = (() => {
        commande payée il y a une heure peut être marquée « en attente »
        dans une copie locale qui n'a pas été rouverte depuis. */
     const vues = new Set(base.map((c) => c.id));
-    const liste = base.concat(local.filter((c) => !vues.has(c.id)))
+    const orphelines = local.filter((c) => !vues.has(c.id));
+
+    /* (3.63.0) DES COMMANDES PASSÉES D'ICI SANS COMPTE, ET UN NUMÉRO DÉJÀ
+       VÉRIFIÉ : on les rattache sans rien demander — c'est exactement ce
+       que « Retrouver mes commandes d'avant » fait à la main, et le
+       client n'a aucune raison de le savoir. Une fois par ouverture, et
+       seulement s'il y a quelque chose à rattacher : la base ne répond
+       qu'aux commandes passées avec ce numéro-là. */
+    if (connecte && !injoignable && orphelines.length && !rattachementTente) {
+      rattachementTente = true;
+      let moi = Compte.moi();
+      if (!moi) { try { moi = await Compte.charger(); } catch (_) { moi = null; } }
+      if (moi && moi.tel_verifie) {
+        let combien = 0;
+        try { combien = await Compte.rattacherMesCommandes(); } catch (_) { combien = 0; }
+        if (combien > 0) {
+          UI.toast(combien + " commande" + (combien > 1 ? "s" : "") + " rattachée" +
+            (combien > 1 ? "s" : "") + " à votre compte.");
+          return mesCommandes(vue);
+        }
+      }
+    }
+
+    const liste = base.concat(orphelines)
       .sort((a, b) => (b.gardeeLe || 0) - (a.gardeeLe || 0));
 
     if (!liste.length) {
@@ -1982,7 +2126,7 @@ const VuePanier = (() => {
           "reviendront dès que la connexion revient.</div>"
         : "") +
       liste.map(resumeHtml).join("") +
-      invitation(connecte, local.filter((c) => !vues.has(c.id)));
+      invitation(connecte, orphelines);
 
     brancherRecus(vue, liste);
     Compte.masquerSiSmsFerme(vue);

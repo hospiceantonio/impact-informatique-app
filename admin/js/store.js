@@ -2234,6 +2234,11 @@ const Store = (() => {
         indicatif: l.client_indicatif || "229",
         adresse: l.client_adresse || "",
       },
+      /* (3.63.0) LE COMPTE DU CLIENT, s'il y en a un. Une commande passée
+         sans compte n'aura jamais de « reçu confirmé » : la base n'accepte
+         cette parole que d'un compte, et l'écran doit le dire plutôt que
+         d'attendre une confirmation qui ne viendra pas. */
+      clientId: l.client_id || "",
       note: l.note || "",
       /* Le total de la commande entière ; « montant » ne compte que ce
          qui revient à la boutique qui regarde. */

@@ -489,6 +489,16 @@ const App = { evenementInstallation: null };
     document.getElementById("vue").innerHTML =
       '<div class="chargement"><span class="chargement-rond"></span>Chargement du catalogue…</div>';
 
+    /* (3.63.0) LA SESSION TOMBÉE SANS QU'ON L'AIT DEMANDÉ SE DIT. Elle
+       disparaissait en silence, et la commande suivante partait sans
+       compte — voir « La session qui tombait en silence » (compte.js).
+       Branché AVANT la première attente : le premier rafraîchissement
+       part avec le catalogue, et sa réponse n'attend personne. */
+    if (typeof Compte !== "undefined") {
+      document.addEventListener("compte:perdue", () =>
+        UI.toast("Votre session a expiré : reconnectez-vous pour retrouver vos commandes.", "err"));
+    }
+
     const ok = await Catalogue.charger();
     if (!ok) {
       ecranErreur();

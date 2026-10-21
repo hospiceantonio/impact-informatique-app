@@ -480,9 +480,41 @@ begin
 
   -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
   -- avec les droits d'une boutique sur une commande qui lui appartient.
+  --
+  -- (3.63.0) UN COMPTE SANS FICHE N'EST PAS UN COMPTE D'ÉQUIPE. Avant,
+  -- tout compte connecté sans ligne « clients » était ramené à
+  -- « personne » : la commande naissait sans compte, et son auteur ne la
+  -- retrouvait nulle part — ni étapes, ni livreur, ni « J'ai bien
+  -- reçu ». La fiche manque pourtant pour de bonnes raisons (un compte
+  -- créé hors de l'application, une écriture retardée) : on la pose ici,
+  -- avec ce que le client vient de donner, et la commande reste la
+  -- sienne. Seul un VRAI compte d'équipe est écarté — une fiche d'équipe
+  -- EN ATTENTE ne vaut aucun droit, et « compte_unique » l'efface en
+  -- posant la fiche client, comme le fait l'application.
   if moi is not null and not exists (select 1 from public.clients c where c.id = moi) then
-    moi    := null;
-    equipe := true;
+    -- (« eq », pas « p » : « p » est déjà la variable de la boucle des
+    -- produits, et PostgreSQL ne saurait pas lequel des deux on désigne.)
+    if exists (select 1 from public.profils eq
+                where eq.id = moi and (eq.actif or eq.role <> 'moderateur')) then
+      moi    := null;
+      equipe := true;
+    else
+      begin
+        insert into public.clients (id, nom, tel, indicatif, adresse)
+        values (moi,
+                left(coalesce(trim(client ->> 'nom'), ''), 120),
+                left(regexp_replace(coalesce(client ->> 'tel', ''), '\D', '', 'g'), 20),
+                left(coalesce(nullif(trim(client ->> 'indicatif'), ''), '229'), 6),
+                left(coalesce(trim(client ->> 'adresse'), ''), 300))
+        on conflict (id) do nothing;
+      exception when others then
+        -- Un verrou a refusé la fiche (un compte d'équipe apparu entre-temps,
+        -- par exemple) : la commande part sans compte, comme avant — mais
+        -- elle part.
+        moi    := null;
+        equipe := true;
+      end;
+    end if;
   end if;
 
   -- ---------- Le compte, quand l'enseigne l'exige ----------

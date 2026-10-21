@@ -252,7 +252,23 @@ begin
                         left join public.profils p on p.id = x.livreur_id
                        where x.commande_id = c.id),
     'paye_livraison', (select coalesce(sum(x.montant), 0) from public.encaissements x
-                        where x.commande_id = c.id));
+                        where x.commande_id = c.id),
+    -- (3.63.0) OÙ EN EST CHAQUE BOUTIQUE, pour qui suit sa commande par
+    -- son numéro : l'étape la MOINS avancée de ses lignes (une ligne
+    -- annulée ne retient rien), et si le client a tout confirmé. Sans
+    -- compte, c'était le seul morceau du suivi qui manquait — les lignes
+    -- ne se lisent qu'avec un compte. La même règle que l'application
+    -- applique aux commandes d'un compte.
+    'etats', (select coalesce(jsonb_object_agg(e.boutique_id,
+                       jsonb_build_object('etat', e.etat, 'confirme', e.confirme)), '{}'::jsonb)
+                from (select l.boutique_id,
+                             (array_agg(l.etat order by array_position(
+                                array['nouvelle', 'vue', 'preparee', 'en_livraison', 'remise',
+                                      'annulee'], l.etat)))[1] as etat,
+                             bool_and(l.confirme_le is not null) as confirme
+                        from public.commande_lignes l
+                       where l.commande_id = c.id
+                       group by l.boutique_id) e));
 end $$;
 
 create or replace function public.commande_pour_paiement(cible text, tel text)
