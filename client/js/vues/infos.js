@@ -169,11 +169,17 @@ const VueInfos = (() => {
         : "https://maps.google.com/?q=" + encodeURIComponent(texte));
 
     if (b.adresse) {
+      /* UNE ADRESSE QUI EST DÉJÀ UN LIEN (« https://maps.app.goo.gl/… »)
+         s'ouvre telle quelle, et s'écrit « Voir sur le plan » : collée
+         en toutes lettres, elle débordait de la carte et faisait défiler
+         tout l'écran de côté (3.61.0). */
+      const adresseLien = /^https?:\/\/\S+$/i.test(b.adresse.trim());
       contacts.push(
         '<a class="ligne-info" target="_blank" rel="noopener" href="' +
-          Utils.echapper(lienCarte(b.adresse, b.latitude, b.longitude)) + '">' +
+          Utils.echapper(adresseLien ? b.adresse.trim() : lienCarte(b.adresse, b.latitude, b.longitude)) + '">' +
           '<span class="rond-bleu">' + UI.icone("carte") + "</span>" +
-          "<span><strong>Adresse</strong><br><small>" + Utils.echapper(b.adresse) + "</small></span>" +
+          "<span><strong>Adresse</strong><br><small>" +
+            (adresseLien ? "Voir sur le plan" : Utils.echapper(b.adresse)) + "</small></span>" +
           UI.icone("chevron", "ic-sm") +
         "</a>");
     }

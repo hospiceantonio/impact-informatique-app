@@ -1,12 +1,21 @@
 /* Interface commune, copiée dans les deux applications par generer-mentions.py. */
 const DroitsCompte = (() => {
+  /* En liste de portes (3.61.0) : trois liens en gros texte nu se
+     lisaient comme des titres, pas comme des endroits où aller. La
+     même rangée que « À propos de BIZZOO » et « Mon compte ». */
   const carte = (connecte) => '<div class="carte">' +
     '<div class="carte-titre">Vos données et vos droits</div>' +
-    '<p><a href="legal/confidentialite.html">Politique de confidentialité</a></p>' +
-    '<p><a href="legal/mentions-legales.html">Mentions légales</a> · ' +
-    '<a href="legal/conditions.html">Conditions d’utilisation</a></p>' +
-    '<p><a href="mailto:contact@bizzoomarket.com">Contacter BIZZOO</a></p>' +
-    (connecte ? '<button type="button" class="btn btn-clair" data-supprimer-mon-compte>Supprimer mon compte</button>' : '') +
+    '<div class="liste-portes">' +
+    UI.porte({ href: 'legal/confidentialite.html', icone: 'livre', titre: 'Politique de confidentialité',
+      sous: 'Ce que BIZZOO garde de vous, et pourquoi' }) +
+    UI.porte({ href: 'legal/mentions-legales.html', icone: 'livre', titre: 'Mentions légales',
+      sous: 'Qui édite BIZZOO' }) +
+    UI.porte({ href: 'legal/conditions.html', icone: 'check', titre: 'Conditions d’utilisation',
+      sous: 'Les règles entre vous et BIZZOO' }) +
+    UI.porte({ href: 'mailto:contact@bizzoomarket.com', icone: 'tel', titre: 'Contacter BIZZOO',
+      sous: 'contact@bizzoomarket.com' }) +
+    '</div>' +
+    (connecte ? '<button type="button" class="btn btn-danger-clair" style="margin-top:14px" data-supprimer-mon-compte>Supprimer mon compte</button>' : '') +
     '</div>';
 
   async function supprimer(bouton) {

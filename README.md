@@ -4877,6 +4877,129 @@ Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (99 constats : chaque porte, et une paie au franc près calculée à la main).
 
+## L'ergonomie revue : ce qui débordait, et pourquoi (3.61.0)
+
+Le propriétaire a envoyé une dizaine de captures de son téléphone : des
+boutons dont le texte passait sur deux lignes avec l'icône seule collée
+à gauche (« Demandes des boutiques », « Exporter une sauvegarde »,
+« Changer mon mot de passe »), des titres coupés (« Mon co… »,
+« Inform… », « Comptes rev… »), la tuile « IMPACT INFORMATIQUE » des
+Réglages coupée au bord de l'écran, la barre du bas dont « Réglages »
+sortait de l'écran, une adresse web qui traversait sa carte, la pastille
+« Sur commande » passée sous le cœur d'une carte produit, le numéro
+d'une commande plié en « BZ- » / « 000062 ».
+
+### D'où venaient les défauts
+
+**Son téléphone est réglé sur de grands caractères.** Android multiplie
+alors toutes les tailles de police de l'application (ici ≈ 1,3 : le
+« textZoom » du WebView suit le réglage du système) sans toucher aux
+largeurs ni aux marges. Tout ce qui tenait *juste* sur un écran de
+360 px débordait. Ce n'est pas une anomalie à corriger côté téléphone :
+un client qui a choisi de grands caractères doit avoir une application
+qui les accepte.
+
+Deux mécanismes se répétaient derrière la plupart des captures :
+
+1. **Un seul élément plus large que l'écran élargit la page entière.**
+   Le navigateur la laisse défiler de côté, et les barres fixes du haut
+   et du bas, calées sur cette page élargie, sortent de l'écran. C'est
+   la tuile des Réglages (une colonne de grille `1fr` refuse d'être plus
+   étroite que « IMPACT INFORMATIQUE » écrit sur une ligne) qui coupait
+   « Réglages » tout en bas, et l'adresse web qui coupait « Recherche »
+   chez le client.
+2. **Un bouton en « flex » fait de son texte une boîte à part.** Dès
+   qu'il se plie sur deux lignes, cette boîte prend toute la largeur,
+   le texte se centre dedans, et l'icône reste seule au bord gauche.
+   CSS n'a pas de boîte « à la taille de son texte une fois plié » :
+   la seule mise en page qui donne « [icône] Demandes des » puis
+   « boutiques » dessous, centrées, est celle d'un texte ordinaire —
+   l'icône coulant dans la ligne comme une lettre.
+
+### Ce qui change
+
+- **Deux garde-fous**, dans les deux applications : `html{overflow-x:clip}`
+  (ce qui dépasse est rogné à sa place, la page ne s'élargit plus) et
+  `.vue{overflow-wrap:break-word}` (un mot qui ne tient nulle part se
+  plie, sans toucher aux largeurs minimales des colonnes).
+- **Les boutons sont en ligne, plus en flex.** L'icône fait partie du
+  texte ; deux lignes se centrent ; la hauteur vient du texte (plus de
+  hauteur minimale qui laissait un vide sous une ligne seule). Un bouton
+  qui porte autre chose que des mots (le livreur et son numéro dans
+  « Confier ») reste en flex, à part. Une icône placée *après* le texte
+  porte `ic-apres`. Les libellés trop longs pour une ligne en grands
+  caractères ont été raccourcis : « Recevoir un code », « Envoyer un
+  essai », « Enregistrer », « Ma position actuelle », « Exporter » /
+  « Restaurer » côte à côte, « Stock et disponibilité », « Code de
+  particulier », « Activer ma position », « Voir la suite », « Espace
+  vendeur », « Changer le mot de passe ».
+- **Les titres d'écran se plient sur deux lignes** avant de finir en
+  « … » ; le sous-titre aussi.
+- **Une liste de portes partagée** — `UI.porte()` dans les deux
+  applications, les classes `.liste-portes` / `.ligne-info` de « À propos
+  de BIZZOO » — remplace les pilules empilées : dans les Réglages du
+  superadministrateur (Gérer les boutiques, Comptes revendeurs,
+  Demandes, Avis, Réclamations), dans « Mon compte » du client (Mes
+  commandes, Mes réclamations, Mes favoris, Mes adresses) et dans « Vos
+  données et vos droits », dont les trois liens en gros texte nu se
+  lisaient comme des titres. « Supprimer mon compte » est en rouge pâle
+  (`btn-danger-clair`), pour ne pas se confondre avec « Mes adresses ».
+- **Les commandes (admin)** : seul le montant reste à droite du numéro ;
+  l'heure et le paiement, puis « sur … » et « dont … de livraison »,
+  passent sous l'en-tête sur toute la largeur. Le numéro et les
+  pastilles d'état ne se plient plus (`white-space:nowrap` sur toute
+  pastille, des deux côtés).
+- **La liste des produits (admin)** : le nom sur deux lignes, le prix, le
+  stock et les pastilles sur une rangée dessous ; à l'ordinateur, la
+  rangée d'avant (nom à gauche, chiffres à droite) revient.
+- **Catégories et Boutiques (admin)** : une grille où le nom a toute la
+  ligne, le compte ou le secteur et les trois boutons dessous. « Mode &
+  Vêtements » finissait en « Mo… ».
+- **Les Réglages** : les deux tuiles « BIZZOO » / « la boutique ouverte »
+  l'une sous l'autre au téléphone (`minmax(0,1fr)`, et le nom sur deux
+  lignes).
+- **Les cartes produit (client)** : les pastilles s'arrêtent avant le
+  cœur et se plient au lieu d'être coupées.
+- **« À propos »** : une adresse qui est déjà un lien (« maps.app.goo.gl… »)
+  s'ouvre telle quelle et s'écrit « Voir sur le plan ».
+- **Le reçu** : un prix ne se casse plus en « 105 » / « FCFA » ; la
+  pastille d'une réclamation passe sous son titre au lieu d'écraser
+  « Autre problème ».
+- **Les champs** sont les mêmes dans les deux applications (trait d'un
+  pixel et demi, coins de 12 px, 48 px, halo bleu au focus) ; le gris
+  des textes d'aide passe de 2,8:1 à 4,8:1 (`--encre-moyenne`) ; l'icône
+  d'un titre de carte reste sur sa première ligne quand il se plie.
+- **La barre du bas (admin)** : la colonne du rond orange est à sa
+  taille, les quatre mots autour gagnent de quoi s'écrire ; « Mon
+  compte » devient « Compte ». Chez le client, les cinq onglets d'une
+  boutique passent à 10 px sur un téléphone.
+
+### L'outil : la galerie des écrans
+
+```bash
+GALERIE=galerie ZOOM=1.3 LARGEUR=360 \
+PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/galerie-ecrans.mjs
+```
+
+[`tools/galerie-ecrans.mjs`](tools/galerie-ecrans.mjs) ouvre les deux
+applications sur une base doublée (rien ne sort de la machine), passe sur
+une soixantaine d'écrans — client connecté ou non, superadministrateur,
+administrateur de boutique, livreur — et garde une capture de chacun.
+`ZOOM=1.3` rejoue les grands caractères du téléphone : chaque élément
+reçoit sa taille calculée × 1,3, une fois, avant la capture. Sur chaque
+écran il mesure ce qu'une capture ne dit pas : la page déborde-t-elle en
+largeur et à cause de quoi, quels boutons ont leur texte sur deux lignes,
+quels titres d'en-tête sont coupés, quelles icônes sont après le texte
+sans `ic-apres`. Les rangées qui défilent de côté (produits, puces) ne
+comptent pas. Le rapport sort en JSON (`rapport.json`) et en résumé.
+
+Ce n'est pas un banc — il ne compte pas d'échecs, les noms de produits
+coupés d'un « … » dans une liste sont voulus — mais c'est ce qu'on
+regarde avant de livrer, et ce qu'on envoie au propriétaire pour montrer
+« avant » et « après ». Avant la refonte, à ZOOM=1.3 : dix-neuf écrans
+avec un titre coupé, dix-sept boutons sur deux lignes, trois pages qui
+débordaient. Après : aucun titre coupé, aucune page qui déborde, un seul
+bouton sur deux lignes (« Prévenir IMPACT INFORMATIQUE », centré, lisible).
 ## Structure
 
 ```

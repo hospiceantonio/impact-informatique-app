@@ -380,7 +380,7 @@ const VueAccueil = (() => {
       UI.grilleProduits(tous.slice(0, NB_NOS_PRODUITS), { boutique: true }) +
       '<a class="btn btn-clair accueil-voir-tout" id="accueil-voir-tout" href="' + LIEN_GALERIE + '">' +
         "Voir tout — " + tous.length + " produit" + (tous.length > 1 ? "s" : "") +
-        " " + UI.icone("chevron", "ic-sm") + "</a>";
+        " " + UI.icone("chevron", "ic-sm ic-apres") + "</a>";
   }
 
   /* ---------- Vue ---------- */

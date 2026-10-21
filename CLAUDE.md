@@ -133,6 +133,8 @@ Les 18 bancs :
 - marquer-vue, notifications-admin, notifications, suivi ;
 - mise-en-ligne.
 
+`tools/galerie-ecrans.mjs` n'est pas un banc : il capture tous les écrans des deux applications (`GALERIE=<dossier>`), avec `ZOOM=1.3` pour rejouer les grands caractères d'un téléphone, et dit ce qui déborde, quels boutons passent sur deux lignes et quels titres sont coupés. À lancer avant de livrer un changement d'écran, et pour montrer « avant / après » au propriétaire.
+
 `tools/make-icons.js` refait toutes les icônes depuis `tools/bizzoo-icone.png`. Il utilise les mêmes `PLAYWRIGHT` et `CHROMIUM`.
 
 ## Le code

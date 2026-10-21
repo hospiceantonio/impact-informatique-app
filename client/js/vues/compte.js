@@ -1046,29 +1046,32 @@ const VueCompte = (() => {
          si la base dit que ce compte a un code. */
       '<div class="carte cp-gains" id="cp-gains" hidden></div>' +
       (livreur ? "" : carteRevendeur() + carteOuRevendeur()) +
-      '<div class="carte">' +
+      /* EN LISTE, PAS EN BOUTONS (3.61.0) : quatre pilules empilées se
+         lisaient comme quatre alarmes, et « Mes commandes » ne se
+         distinguait plus d'« Enregistrer ». La même liste de portes que
+         « À propos de BIZZOO », juste dessous. */
+      '<div class="carte"><div class="liste-portes">' +
         (livreur
-          ? '<a class="btn btn-clair" href="#/mes-courses" id="cp-mes-courses">' + UI.icone("boite") +
-              "Mes courses</a>"
-          : '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
-              "Mes commandes</a>") +
+          ? UI.porte({ href: "#/mes-courses", icone: "boite", titre: "Mes courses",
+              sous: "Les livraisons qui vous sont confiées", attrs: ' id="cp-mes-courses"' })
+          : UI.porte({ href: "#/mes-commandes", icone: "boite", titre: "Mes commandes",
+              sous: "Où en est chaque colis, et confirmer sa réception" })) +
         (moi.tel_verifie && !livreur
-          ? '<button type="button" class="btn btn-clair" id="cp-reprendre" ' +
-            'style="margin-top:10px">' + UI.icone("actualiser") +
-            "Retrouver mes commandes d'avant</button>"
+          ? UI.porte({ icone: "actualiser", titre: "Retrouver mes commandes d'avant",
+              sous: "Celles passées avec ce numéro, sans compte", attrs: ' id="cp-reprendre"' })
           : "") +
         /* Le SAV a sa propre porte : une réclamation ouverte il y a une
            semaine ne se retrouve pas en fouillant ses commandes. */
-        '<a class="btn btn-clair" href="#/reclamations" style="margin-top:10px">' +
-          UI.icone("alerte") + "Mes réclamations</a>" +
+        UI.porte({ href: "#/reclamations", icone: "alerte", titre: "Mes réclamations",
+          sous: "Un souci sur une commande" }) +
         /* Les favoris et les adresses : deux listes qui n'appartiennent
            qu'au client, et que la base ferme à tout le monde d'autre,
            l'enseigne comprise. */
-        '<a class="btn btn-clair" href="#/favoris" style="margin-top:10px">' +
-          UI.icone("coeur") + "Mes favoris</a>" +
-        '<a class="btn btn-clair" href="#/adresses" style="margin-top:10px">' +
-          UI.icone("lieu") + "Mes adresses</a>" +
-      "</div>" +
+        UI.porte({ href: "#/favoris", icone: "coeur", titre: "Mes favoris",
+          sous: "Produits aimés, boutiques suivies" }) +
+        UI.porte({ href: "#/adresses", icone: "lieu", titre: "Mes adresses",
+          sous: "Où vous faire livrer" }) +
+      "</div></div>" +
       carteBizzoo() +
       '<div class="carte">' +
         '<button type="button" class="btn btn-clair" id="cp-sortir">' + UI.icone("retour") +
@@ -1153,7 +1156,7 @@ const VueCompte = (() => {
         '<button type="button" class="btn btn-clair" id="cp-email-ajouter">' + UI.icone("check") +
           (email ? "Changer mon e-mail" : "Ajouter mon e-mail") + "</button>" +
         '<button type="button" class="btn btn-clair" id="cp-mdp-changer" style="margin-top:10px">' +
-          UI.icone("compte") + "Changer mon mot de passe</button>" +
+          "Changer le mot de passe</button>" +
       "</div>"
     );
   }
@@ -1518,7 +1521,7 @@ const VueCompte = (() => {
         "</p>" +
         (installee
           ? '<button type="button" class="btn" id="cp-vendeur-ouvrir">' +
-              UI.icone("partager") + "Ouvrir l\'espace vendeur</button>"
+              UI.icone("partager") + "Espace vendeur</button>"
           : "") +
       "</div>"
     );

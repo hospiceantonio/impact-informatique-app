@@ -860,7 +860,7 @@ const VueProduits = (() => {
 
       '<div class="btn-rangee">' +
         '<button type="button" class="btn" id="p-enregistrer">' + UI.icone("check") +
-          (existant ? "Enregistrer les modifications" : "Ajouter le produit") + "</button>" +
+          (existant ? "Enregistrer" : "Ajouter le produit") + "</button>" +
         (existant
           ? '<button type="button" class="btn btn-clair btn-danger-clair" id="p-supprimer">' +
               UI.icone("poubelle") + "Supprimer le produit</button>"
@@ -1198,7 +1198,7 @@ const VueProduits = (() => {
                 (p.enAvant ? "Retirer du slider" : "Mettre en avant (slider)") + "</button>"
               : "") +
             '<button type="button" class="btn btn-clair" id="p-modifier-stock">' +
-              UI.icone("boite") + "Modifier la disponibilité</button>" +
+              UI.icone("boite") + "Stock et disponibilité</button>" +
             '<button type="button" class="btn btn-clair" id="p-vente-flash">' +
               UI.icone("energie") +
               (Store.enVenteFlash(p)

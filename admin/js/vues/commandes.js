@@ -317,40 +317,51 @@ const VueCommandes = (() => {
                 ? '<span class="badge ' + statut.classe + '">' + Utils.echapper(statut.mot) + "</span>"
                 : "") +
             "</div>" +
-            /* LE PAIEMENT TIENT SUR LA LIGNE DE L'HEURE. Un bandeau vert
-               sur chaque carte redisait ce que le titre de la pile dit
-               déjà : ces commandes-là sont payées. Seul ce qui demande de
-               l'attention garde un bandeau : l'attente, l'échec, une
-               remarque. */
-            '<div class="cmd-meta"><span class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</span> " +
-              (payee
-                ? '<span class="cmd-paye">' + UI.icone("check", "ic-sm") +
-                  (c.confirmePar
-                    ? "payée, confirmée à la main par " + Utils.echapper(c.confirmePar)
-                    : "payée par " + Utils.echapper(c.agregateur)) + "</span>"
-                : "") +
-              /* Une commande partie au prix revendeur le dit : c'est ce
-                 qui explique un montant plus bas que d'habitude pour la
-                 même marchandise. La boutique, elle, touche autant — c'est
-                 BIZZOO qui laisse sa marge. */
-              (c.revendeur
-                ? '<span class="cmd-revendeur">' + UI.icone("personne", "ic-sm") + "Revendeur</span>"
-                : "") +
-            "</div>" +
           "</div>" +
           '<div class="cmd-somme">' +
             '<div class="cmd-montant">' + Utils.echapper(Utils.fmtMontant(c.montant, c.devise)) + "</div>" +
-            (c.montant !== c.total
-              ? '<div class="cmd-part">sur ' + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</div>"
-              : "") +
-            /* Les frais de livraison sont dans le total, pas dans les
-               articles de la boutique. */
-            (c.fraisLivraison > 0
-              ? '<div class="cmd-part">dont ' +
-                  Utils.echapper(Utils.fmtMontant(c.fraisLivraison, c.devise)) + " de livraison</div>"
-              : "") +
           "</div>" +
         "</div>" +
+        /* LE PAIEMENT TIENT SUR LA LIGNE DE L'HEURE. Un bandeau vert sur
+           chaque carte redisait ce que le titre de la pile dit déjà : ces
+           commandes-là sont payées. Seul ce qui demande de l'attention
+           garde un bandeau : l'attente, l'échec, une remarque.
+
+           SOUS L'EN-TÊTE, sur toute la largeur (3.61.0) : à côté du
+           montant, cette ligne n'avait que la moitié de la carte, et
+           « payée par FeexPay » s'y pliait sur trois lignes. */
+        '<div class="cmd-meta"><span class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</span> " +
+          (payee
+            ? '<span class="cmd-paye">' + UI.icone("check", "ic-sm") +
+              (c.confirmePar
+                ? "payée, confirmée à la main par " + Utils.echapper(c.confirmePar)
+                : "payée par " + Utils.echapper(c.agregateur)) + "</span>"
+            : "") +
+          /* Une commande partie au prix revendeur le dit : c'est ce qui
+             explique un montant plus bas que d'habitude pour la même
+             marchandise. La boutique, elle, touche autant — c'est BIZZOO
+             qui laisse sa marge. */
+          (c.revendeur
+            ? '<span class="cmd-revendeur">' + UI.icone("personne", "ic-sm") + "Revendeur</span>"
+            : "") +
+        "</div>" +
+        /* « sur 319 500 FCFA », « dont 1 000 FCFA de livraison » : SOUS
+           l'en-tête, sur toute la largeur (3.61.0). À droite du montant,
+           ces deux mentions prenaient la moitié de la carte, et le numéro
+           se pliait en « BZ- » / « 000062 » dans l'autre moitié. Les
+           frais de livraison sont dans le total, pas dans les articles
+           de la boutique. */
+        (c.montant !== c.total || c.fraisLivraison > 0
+          ? '<div class="cmd-parts">' +
+              (c.montant !== c.total
+                ? '<span class="cmd-part">sur ' + Utils.echapper(Utils.fmtMontant(c.total, c.devise)) + "</span>"
+                : "") +
+              (c.fraisLivraison > 0
+                ? '<span class="cmd-part">dont ' +
+                    Utils.echapper(Utils.fmtMontant(c.fraisLivraison, c.devise)) + " de livraison</span>"
+                : "") +
+            "</div>"
+          : "") +
         /* L'ACOMPTE ET CE QUI RESTE À ENCAISSER. La boutique doit le savoir
            avant de confier la course : c'est ce que son livreur réclamera
            à la porte. La base rend à chacun SA part — la boutique la
