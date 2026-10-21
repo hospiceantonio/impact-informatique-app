@@ -46,6 +46,7 @@ echo
 echo "   Accueil          http://localhost:$PORT/"
 echo "   La boutique      http://localhost:$PORT/client/"
 echo "   Espace admin     http://localhost:$PORT/admin/"
+echo "   Personnel        http://localhost:$PORT/personnel/"
 echo
 gris "Astuce : réduisez la fenêtre du navigateur sous 1024 px de large"
 gris "         pour voir exactement ce que voit un téléphone."

@@ -1,0 +1,284 @@
+/* =========================================================
+   Employés — le registre du personnel (administration).
+
+   L'administration crée la fiche ; elle reste « en attente »
+   jusqu'à ce que le CEO la valide. Ensuite seulement, on crée
+   l'accès à l'application, avec l'adresse professionnelle.
+   Les droits (administration, décaissement) et le salaire d'un
+   employé en poste ne changent que par le CEO : la base refuse
+   le reste, l'écran ne fait que ne pas le proposer.
+   ========================================================= */
+const VueEmployes = (() => {
+  const { h } = UI;
+
+  const ETATS = {
+    en_attente: ["À valider", "orange"],
+    actif: ["En poste", "vert"],
+    refuse: ["Refusé", "rouge"],
+    sorti: ["Sorti", ""],
+  };
+  const MODES = { especes: "Espèces", virement: "Virement bancaire", mobile_money: "Mobile Money", cheque: "Chèque" };
+  const NIVEAUX = ["Sans diplôme", "CEP", "BEPC", "CAP", "BAC", "BTS / DUT (Bac+2)", "Licence (Bac+3)", "Master (Bac+5)", "Doctorat"];
+  const DOMAINE = "@bizzoomarket.com";
+  const etiquette = (s) => UI.etiquette(...(ETATS[s] || [s, ""]));
+
+  let profils = [];
+
+  async function afficher(zone, morceaux, params) {
+    UI.vider(zone, UI.chargement());
+    profils = await Supabase.lire("rh_profils?select=id,nom,responsable_id&order=nom");
+    if (morceaux[0] === "nouveau") return formulaire(zone);
+    if (morceaux[0]) return fiche(zone, morceaux[0]);
+    return liste(zone, params.filtre || "actif", params.q || "");
+  }
+
+  const nomProfil = (id) => (profils.find((p) => p.id === id) || {}).nom || "—";
+
+  async function liste(zone, filtre, recherche) {
+    let chemin = "rh_employes?select=id,matricule,nom,prenoms,poste,statut,etat,profil_id,administration,ceo,peut_decaisser,compte_id,date_embauche&order=nom,prenoms";
+    if (filtre !== "tous") chemin += "&etat=eq." + filtre;
+    const employes = await Supabase.lire(chemin);
+    if (!zone.isConnected) return;
+    const champ = h("input", { type: "search", placeholder: "Rechercher un nom, un poste, un matricule", value: recherche });
+    const corps = h("div", {});
+    const dessiner = () => {
+      const q = champ.value.trim().toLowerCase();
+      const visibles = employes.filter((e) => !q ||
+        [e.nom, e.prenoms, e.poste, e.matricule, nomProfil(e.profil_id)].join(" ").toLowerCase().includes(q));
+      UI.vider(corps, visibles.length ? h("div", { class: "liste" }, visibles.map((e) =>
+        h("a", { class: "element", href: "#/employes/" + e.id },
+          h("div", { class: "avatar" }, UI.initiales(e.nom, e.prenoms)),
+          h("div", { class: "etire" },
+            h("div", { class: "ligne" }, h("span", { class: "gras etire coupe" }, UI.nomComplet(e)),
+              e.ceo ? UI.etiquette("CEO", "bleu") : e.administration ? UI.etiquette("Administration", "bleu") : null,
+              filtre === "tous" ? etiquette(e.etat) : null),
+            h("div", { class: "petit doux coupe" }, [e.matricule, e.poste, nomProfil(e.profil_id),
+              e.statut === "stagiaire" ? "Stagiaire" : null].filter(Boolean).join(" · "))),
+          UI.icone("chevron", "ic-sm"))))
+        : UI.vide("Aucun employé ici."));
+    };
+    champ.addEventListener("input", dessiner);
+    UI.vider(zone,
+      h("div", { class: "titre-section" }, h("h2", {}, "Employés"),
+        h("a", { class: "btn btn-petit", href: "#/employes/nouveau" }, UI.icone("plus", "ic-sm"), "Nouvel employé")),
+      h("div", { class: "filtres" }, [["actif", "En poste"], ["en_attente", "À valider"], ["refuse", "Refusés"], ["sorti", "Sortis"], ["tous", "Tous"]]
+        .map(([v, l]) => h("button", { class: v === filtre ? "actif" : "", onclick: () => { location.hash = "#/employes?filtre=" + v; } }, l))),
+      h("label", { class: "champ" }, champ),
+      h("p", { class: "doux petit" }, employes.length + " employé(s)"),
+      corps);
+    dessiner();
+  }
+
+  /* ---------- Créer, modifier ---------- */
+
+  async function formulaire(zone, e) {
+    App.titre(e ? "Modifier " + UI.nomComplet(e) : "Nouvel employé");
+    const ceo = App.estCeo();
+    const salaireFige = e && e.etat === "actif" && !ceo;
+    const champs = {};
+    const champ = (nom, libelle, entree, aide, large) => {
+      champs[nom] = entree;
+      return h("label", { class: "champ" + (large ? " large" : "") }, h("span", {}, libelle), entree, aide ? h("small", {}, aide) : null);
+    };
+    const val = (n, defaut) => (e && e[n] !== null && e[n] !== undefined ? e[n] : (defaut ?? ""));
+    const choix = (nom, options, valeur) => h("select", { name: nom }, options.map(([v, l]) =>
+      h("option", { value: v, selected: String(v) === String(valeur) }, l)));
+
+    const niveaux = h("datalist", { id: "niveaux-etude" }, NIVEAUX.map((n) => h("option", { value: n })));
+    const form = h("form", { class: "carte pile" },
+      niveaux,
+      h("h2", {}, "Identité"),
+      h("div", { class: "formulaire" },
+        champ("nom", "Nom *", h("input", { required: true, value: val("nom") })),
+        champ("prenoms", "Prénoms", h("input", { value: val("prenoms") })),
+        champ("sexe", "Sexe *", choix("sexe", [["M", "Homme"], ["F", "Femme"]], val("sexe", "M"))),
+        champ("date_naissance", "Date de naissance", h("input", { type: "date", value: val("date_naissance") }), "L'âge se calcule tout seul."),
+        champ("niveau_etude", "Niveau d'étude", h("input", { list: "niveaux-etude", value: val("niveau_etude") }))),
+      h("h2", {}, "Contact"),
+      h("div", { class: "formulaire" },
+        champ("telephone", "Téléphone", h("input", { type: "tel", value: val("telephone") })),
+        champ("email_pro", "E-mail professionnel", h("input", { type: "email", value: val("email_pro"), placeholder: "prenom.nom" + DOMAINE }),
+          "Son adresse " + DOMAINE + " : elle sert de connexion et de boîte mail."),
+        champ("email_perso", "E-mail personnel", h("input", { type: "email", value: val("email_perso") })),
+        champ("adresse", "Adresse", h("input", { value: val("adresse") }))),
+      h("h2", {}, "Poste"),
+      h("div", { class: "formulaire" },
+        champ("date_embauche", "Date d'embauche *", h("input", { type: "date", required: true, value: val("date_embauche", UI.aujourdhui()) })),
+        champ("statut", "Statut *", choix("statut", [["employe", "Employé"], ["stagiaire", "Stagiaire"]], val("statut", "employe"))),
+        champ("poste", "Poste", h("input", { value: val("poste"), placeholder: "Ex. : Chargé de communication" })),
+        champ("profil_id", "Profil", choix("profil_id", [["", "— Aucun —"], ...profils.map((p) => [p.id, p.nom])], val("profil_id")))),
+      h("h2", {}, "Rémunération"),
+      h("div", { class: "formulaire" },
+        champ("salaire_base", "Salaire de base mensuel (FCFA) *", h("input", { type: "number", min: 0, step: 1, required: true,
+          value: val("salaire_base", 0), disabled: salaireFige }), salaireFige ? "Le salaire d'un employé en poste ne change que par le CEO." : null),
+        champ("mode_paiement", "Mode de paiement", choix("mode_paiement", Object.entries(MODES), val("mode_paiement", "especes"))),
+        champ("compte_paiement", "N° de compte ou de Mobile Money", h("input", { value: val("compte_paiement") })),
+        champ("numero_cnss", "N° CNSS", h("input", { value: val("numero_cnss") }))),
+      h("h2", {}, "Autres informations"),
+      champ("infos", "Informations complémentaires", h("textarea", {}), null, true),
+      ceo ? h("div", { class: "pile" },
+        h("h2", {}, "Droits (CEO)"),
+        h("label", { class: "case" }, champs.administration = h("input", { type: "checkbox", checked: !!val("administration", false) }),
+          "Membre de l'administration (droits sur tous les profils)"),
+        h("label", { class: "case" }, champs.peut_decaisser = h("input", { type: "checkbox", checked: !!val("peut_decaisser", false) }),
+          "Habilité à décaisser (dépenses approuvées, salaires validés)")) : null,
+      !e && !ceo ? h("div", { class: "info" }, "Cette fiche partira chez le CEO pour validation.") : null,
+      h("div", { class: "actions" },
+        h("button", { class: "btn", type: "submit" }, e ? "Enregistrer" : "Créer la fiche"),
+        h("a", { class: "btn btn-second", href: e ? "#/employes/" + e.id : "#/employes" }, "Annuler")));
+    champs.infos.value = val("infos");
+
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const v = {};
+      for (const [nom, entree] of Object.entries(champs)) {
+        if (entree.disabled) continue;
+        v[nom] = entree.type === "checkbox" ? entree.checked : entree.value.trim();
+      }
+      if ("salaire_base" in v) {
+        v.salaire_base = Math.round(Number(v.salaire_base || 0));
+        if (!(v.salaire_base >= 0)) return UI.echec("Le salaire doit être un nombre de francs.");
+      }
+      for (const n of ["date_naissance", "profil_id", "email_pro"]) if (v[n] === "") v[n] = null;
+      if (v.email_pro) {
+        v.email_pro = v.email_pro.toLowerCase();
+        if (!v.email_pro.endsWith(DOMAINE) &&
+            !await UI.confirmer("L'adresse « " + v.email_pro + " » n'est pas une adresse " + DOMAINE +
+              ". La messagerie de l'application ne marchera pas avec elle. Continuer quand même ?")) return;
+      }
+      const bouton = ev.submitter;
+      const ligne = await UI.agir(bouton, () => e
+        ? Supabase.modifier("rh_employes", "id=eq." + e.id, v)
+        : Supabase.ajouter("rh_employes", v),
+        e ? "Fiche enregistrée." : (ceo ? "Employé créé." : "Fiche créée : elle attend la validation du CEO."));
+      App.rafraichir();
+      VueDiscussions.oublier();
+      location.hash = "#/employes/" + (ligne ? ligne.id : e.id);
+    });
+    UI.vider(zone, form);
+  }
+
+  /* ---------- La fiche ---------- */
+
+  async function fiche(zone, id) {
+    const [e] = await Supabase.lire("rh_employes?select=*&id=eq." + encodeURIComponent(id));
+    if (!zone.isConnected) return;
+    if (!e) return UI.vider(zone, UI.vide("Employé introuvable."));
+    App.titre(UI.nomComplet(e));
+    const ceo = App.estCeo();
+    const recharger = () => App.rafraichir().then(() => fiche(zone, id));
+    const age = UI.age(e.date_naissance);
+    const ligne = (libelle, valeur) => h("div", {}, h("div", { class: "doux tres-petit" }, libelle), h("div", { class: "gras" }, valeur || "—"));
+    const responsableDe = profils.filter((p) => p.responsable_id === e.id).map((p) => p.nom);
+
+    const actions = [];
+    if (ceo && e.etat === "en_attente") {
+      actions.push(h("button", { class: "btn btn-vert", onclick: async (ev) => {
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_decider_employe", { employe: e.id, accepter: true, motif: "" }), "Employé validé.");
+        recharger();
+      } }, UI.icone("check", "ic-sm"), "Valider l'embauche"));
+      actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
+        const motif = await UI.motif("Refuser cette fiche", "Pourquoi ?");
+        if (motif === null) return;
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_decider_employe", { employe: e.id, accepter: false, motif }), "Fiche refusée.");
+        recharger();
+      } }, "Refuser"));
+    }
+    if (!e.ceo || ceo) {
+      if (e.etat !== "sorti") actions.push(h("button", { class: "btn btn-second", onclick: () => formulaire(zone, e) }, UI.icone("crayon", "ic-sm"), "Modifier"));
+    }
+    if (e.etat === "actif" && !e.compte_id && (!e.ceo || ceo)) {
+      actions.push(h("button", { class: "btn btn-orange", onclick: (ev) => creerAcces(ev.currentTarget, e, recharger) }, UI.icone("cle", "ic-sm"), "Créer l'accès"));
+    }
+    if (ceo && e.etat === "actif" && !e.ceo) {
+      actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
+        const v = await UI.formulaire({ titre: "Sortie de " + UI.nomComplet(e), danger: true, valider: "Enregistrer la sortie",
+          texte: "L'employé perd l'accès à l'application. Sa dernière paie est calculée jusqu'à la date de sortie.",
+          champs: [{ nom: "le", libelle: "Date de sortie", type: "date", valeur: UI.aujourdhui(), requis: true },
+                   { nom: "motif", libelle: "Motif (démission, fin de contrat…)", type: "textarea" }] });
+        if (!v) return;
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_sortie_employe", { employe: e.id, le: v.le, motif: v.motif }), "Sortie enregistrée.");
+        recharger();
+      } }, UI.icone("sortie", "ic-sm"), "Sortie"));
+    }
+    if (ceo && ["en_attente", "refuse"].includes(e.etat)) {
+      actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
+        if (!await UI.confirmer("Supprimer définitivement cette fiche ?", { danger: true, valider: "Supprimer" })) return;
+        await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_employes", "id=eq." + e.id), "Fiche supprimée.");
+        location.hash = "#/employes";
+      } }, UI.icone("poubelle", "ic-sm")));
+    }
+
+    UI.vider(zone,
+      h("div", { class: "carte pile" },
+        h("div", { class: "ligne" },
+          h("div", { class: "avatar", style: { width: "54px", height: "54px", fontSize: "18px" } }, UI.initiales(e.nom, e.prenoms)),
+          h("div", { class: "etire" },
+            h("h2", { style: { marginBottom: 0 } }, UI.nomComplet(e)),
+            h("div", { class: "doux petit" }, [e.matricule, e.poste, e.statut === "stagiaire" ? "Stagiaire" : "Employé"].filter(Boolean).join(" · "))),
+          etiquette(e.etat)),
+        h("div", { class: "actions" },
+          e.ceo ? UI.etiquette("CEO", "bleu") : null,
+          e.administration && !e.ceo ? UI.etiquette("Administration", "bleu") : null,
+          e.peut_decaisser ? UI.etiquette("Habilité à décaisser", "orange") : null,
+          responsableDe.length ? UI.etiquette("Responsable : " + responsableDe.join(", "), "vert") : null,
+          e.compte_id ? UI.etiquette("Accès créé", "vert") : (e.etat === "actif" ? UI.etiquette("Pas encore d'accès", "orange") : null)),
+        e.etat === "refuse" && e.motif_refus ? h("div", { class: "erreur" }, "Refusée par le CEO : " + e.motif_refus) : null,
+        e.etat === "sorti" ? h("div", { class: "avertissement" }, "Sorti le " + UI.date(e.date_sortie) + (e.motif_refus ? " — " + e.motif_refus : "")) : null,
+        actions.length ? h("div", { class: "actions" }, actions) : null),
+      h("div", { class: "carte" }, h("h2", {}, "Informations"),
+        h("div", { class: "formulaire" },
+          ligne("Sexe", e.sexe === "F" ? "Femme" : "Homme"),
+          ligne("Date de naissance", e.date_naissance ? UI.date(e.date_naissance) + (age !== null ? " (" + age + " ans)" : "") : null),
+          ligne("Niveau d'étude", e.niveau_etude),
+          ligne("Téléphone", e.telephone),
+          ligne("E-mail professionnel", e.email_pro),
+          ligne("E-mail personnel", e.email_perso),
+          ligne("Adresse", e.adresse),
+          ligne("Profil", nomProfil(e.profil_id)),
+          ligne("Date d'embauche", UI.date(e.date_embauche)),
+          ligne("Salaire de base", UI.fcfa(e.salaire_base)),
+          ligne("Paiement", MODES[e.mode_paiement] + (e.compte_paiement ? " · " + e.compte_paiement : "")),
+          ligne("N° CNSS", e.numero_cnss)),
+        e.infos ? h("div", { class: "pre", style: { marginTop: "12px" } }, e.infos) : null),
+      h("div", { class: "actions" },
+        h("a", { class: "btn btn-second", href: "#/paie/employe/" + e.id }, UI.icone("paie", "ic-sm"), "Paie de cet employé")));
+  }
+
+  /**
+   * L'accès : un compte de connexion à l'adresse professionnelle, puis
+   * le rattachement à la fiche. L'administrateur choisit le premier mot
+   * de passe et le transmet lui-même à l'employé, qui le change ensuite
+   * dans « Mon compte ».
+   */
+  async function creerAcces(bouton, e, suite) {
+    if (!e.email_pro) return UI.echec("Renseignez d'abord l'e-mail professionnel (Modifier).");
+    const v = await UI.formulaire({
+      titre: "Créer l'accès de " + UI.nomComplet(e),
+      texte: "Identifiant : " + e.email_pro + ". Choisissez un premier mot de passe et donnez-le à l'employé de vive voix ; il le changera dans « Mon compte ». " +
+             "Si cette adresse a déjà un compte BIZZOO, il est simplement rattaché et garde son mot de passe.",
+      valider: "Créer l'accès",
+      champs: [{ nom: "mdp", libelle: "Premier mot de passe (8 caractères au moins)", type: "password", requis: true, autocomplete: "new-password" },
+               { nom: "mdp2", libelle: "Le même, encore une fois", type: "password", requis: true, autocomplete: "new-password" }],
+      verifier: (x) => (x.mdp.length < 8 ? "8 caractères au moins." : x.mdp !== x.mdp2 ? "Les deux mots de passe diffèrent." : null),
+    });
+    if (!v) return;
+    await UI.agir(bouton, async () => {
+      try {
+        await Supabase.rpc("rh_rattacher_compte", { employe: e.id });
+        UI.succes("Le compte existant de " + e.email_pro + " est rattaché.");
+        return;
+      } catch (err) {
+        if (err.code !== "AUCUN_COMPTE") throw err;
+      }
+      const compte = await Supabase.creerCompte(e.email_pro, v.mdp);
+      await Supabase.rpc("rh_rattacher_compte", { employe: e.id });
+      UI.succes(compte.confirmationRequise
+        ? "Accès créé. L'employé doit d'abord cliquer le lien reçu dans sa boîte " + e.email_pro + "."
+        : "Accès créé : l'employé peut se connecter.");
+    });
+    suite();
+  }
+
+  return { titre: "Employés", afficher };
+})();

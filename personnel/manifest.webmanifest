@@ -1,0 +1,21 @@
+{
+  "name": "BIZZOO Personnel",
+  "short_name": "BIZZOO Perso",
+  "description": "L'espace interne des employés de BIZZOO : mails, messages, missions, rapports, dépenses et paie.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F5F7FA",
+  "theme_color": "#091A51",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Mails", "url": "./index.html#/mails", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Discussions", "url": "./index.html#/discussions", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
