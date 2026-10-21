@@ -4877,7 +4877,7 @@ Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (99 constats : chaque porte, et une paie au franc près calculée à la main).
 
-## L'ergonomie revue : ce qui débordait, et pourquoi (3.61.0)
+## L'ergonomie revue : ce qui débordait, et pourquoi (3.62.0)
 
 Le propriétaire a envoyé une dizaine de captures de son téléphone : des
 boutons dont le texte passait sur deux lignes avec l'icône seule collée

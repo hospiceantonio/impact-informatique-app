@@ -96,7 +96,17 @@ Il faut Git pour Windows (git-scm.com). Pour les bancs et les icônes, il faut a
 5. Le README :
    - une section pour le chantier (modèle : « La barre du bas à deux visages (3.54.0) ») ;
    - la mise à jour des sections qu'il touche.
-6. La version :
+6. La version. **Un numéro ne sert qu'une fois, et c'est le code qui le détient.**
+   Le 21 octobre 2026, deux chantiers menés en parallèle ont tous deux annoncé
+   « 3.61.0 » : l'un dans son README sans toucher `build.gradle`, l'autre en
+   bumpant le code — et le propriétaire a reçu deux livraisons sous le même
+   numéro, comme la veille avec « 3.59.0 » (une version d'essai, puis la
+   vraie). Règle : avant d'écrire un numéro où que ce soit (README, commit,
+   message au propriétaire, nom d'un fichier livré), lire `versionName` dans
+   `android/app/build.gradle` sur `origin/developpement`, prendre le numéro
+   **suivant**, l'écrire dans le code dans le même commit ; un numéro déjà
+   livré ou déjà annoncé au propriétaire ne se réutilise jamais, même pour
+   un essai — un APK d'essai porte lui aussi son propre numéro.
    - `android/app/build.gradle` : `versionCode` + 1, et `versionName` ;
    - `client/sw.js` : `VERSION = "impact-client-vNN"`, + 1 si le client change ;
    - `admin/sw.js` : `"impact-admin-vNN"`, + 1 si l'admin change.

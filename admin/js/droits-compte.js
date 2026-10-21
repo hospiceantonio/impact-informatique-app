@@ -1,6 +1,6 @@
 /* Interface commune, copiée dans les deux applications par generer-mentions.py. */
 const DroitsCompte = (() => {
-  /* En liste de portes (3.61.0) : trois liens en gros texte nu se
+  /* En liste de portes (3.62.0) : trois liens en gros texte nu se
      lisaient comme des titres, pas comme des endroits où aller. La
      même rangée que « À propos de BIZZOO » et « Mon compte ». */
   const carte = (connecte) => '<div class="carte">' +

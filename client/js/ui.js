@@ -1117,7 +1117,7 @@ const UI = (() => {
     );
   }
 
-  /* ---------- Une porte dans une liste (3.61.0) ----------
+  /* ---------- Une porte dans une liste (3.62.0) ----------
      La rangée « tuile, nom, un mot dessous, chevron » de « À propos de
      BIZZOO », reprise pour « Mon compte » et « Vos données et vos
      droits » : une liste se parcourt, là où quatre boutons empilés se

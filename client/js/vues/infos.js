@@ -172,7 +172,7 @@ const VueInfos = (() => {
       /* UNE ADRESSE QUI EST DÉJÀ UN LIEN (« https://maps.app.goo.gl/… »)
          s'ouvre telle quelle, et s'écrit « Voir sur le plan » : collée
          en toutes lettres, elle débordait de la carte et faisait défiler
-         tout l'écran de côté (3.61.0). */
+         tout l'écran de côté (3.62.0). */
       const adresseLien = /^https?:\/\/\S+$/i.test(b.adresse.trim());
       contacts.push(
         '<a class="ligne-info" target="_blank" rel="noopener" href="' +

@@ -1046,7 +1046,7 @@ const VueCompte = (() => {
          si la base dit que ce compte a un code. */
       '<div class="carte cp-gains" id="cp-gains" hidden></div>' +
       (livreur ? "" : carteRevendeur() + carteOuRevendeur()) +
-      /* EN LISTE, PAS EN BOUTONS (3.61.0) : quatre pilules empilées se
+      /* EN LISTE, PAS EN BOUTONS (3.62.0) : quatre pilules empilées se
          lisaient comme quatre alarmes, et « Mes commandes » ne se
          distinguait plus d'« Enregistrer ». La même liste de portes que
          « À propos de BIZZOO », juste dessous. */

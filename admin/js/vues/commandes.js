@@ -327,7 +327,7 @@ const VueCommandes = (() => {
            commandes-là sont payées. Seul ce qui demande de l'attention
            garde un bandeau : l'attente, l'échec, une remarque.
 
-           SOUS L'EN-TÊTE, sur toute la largeur (3.61.0) : à côté du
+           SOUS L'EN-TÊTE, sur toute la largeur (3.62.0) : à côté du
            montant, cette ligne n'avait que la moitié de la carte, et
            « payée par FeexPay » s'y pliait sur trois lignes. */
         '<div class="cmd-meta"><span class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</span> " +
@@ -346,7 +346,7 @@ const VueCommandes = (() => {
             : "") +
         "</div>" +
         /* « sur 319 500 FCFA », « dont 1 000 FCFA de livraison » : SOUS
-           l'en-tête, sur toute la largeur (3.61.0). À droite du montant,
+           l'en-tête, sur toute la largeur (3.62.0). À droite du montant,
            ces deux mentions prenaient la moitié de la carte, et le numéro
            se pliait en « BZ- » / « 000062 » dans l'autre moitié. Les
            frais de livraison sont dans le total, pas dans les articles
