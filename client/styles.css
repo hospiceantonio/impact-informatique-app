@@ -1135,7 +1135,9 @@ a.pub-carte:active{transform:scale(.98)}
 /* ---------- Panier, commande, reçu ---------- */
 /* Le bouton du panier vit dans la barre du haut : la pastille déborde
    volontairement du rond, c'est ce qui la rend visible du coin de l'œil. */
-.btn-panier{position:relative;text-decoration:none}
+/* La cloche porte la même pastille : sans « relative », celle-ci se
+   posait sur le coin de l'en-tête, loin de la cloche (3.60.1). */
+.btn-panier,.btn-cloche{position:relative;text-decoration:none}
 .panier-pastille{
   position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;
   border-radius:999px;background:var(--orange);color:var(--orange-texte);

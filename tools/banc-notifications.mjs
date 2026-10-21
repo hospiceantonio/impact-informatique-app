@@ -153,12 +153,24 @@ titre("La cloche porte le nombre de non lues");
         .map((x) => [...x.classList].find((k) => /^btn-(cloche|compte|panier)$/.test(k)) || "")
         .join(",") : "",
       panierDernier: !!(c && c.parentElement.lastElementChild &&
-        c.parentElement.lastElementChild.classList.contains("btn-panier")) };
+        c.parentElement.lastElementChild.classList.contains("btn-panier")),
+      /* LA PASTILLE EST SUR LA CLOCHE (3.60.1) : sans « relative » sur
+         le bouton, elle partait dans le coin de l'en-tête. Son centre
+         doit tomber dans le quart haut-droit de la cloche, à 10 px près. */
+      surLaCloche: (() => {
+        const p = c && c.querySelector(".panier-pastille");
+        if (!p) return false;
+        const b = c.getBoundingClientRect(), q = p.getBoundingClientRect();
+        const x = q.left + q.width / 2, y = q.top + q.height / 2;
+        return x >= b.left + b.width / 2 && x <= b.right + 10 &&
+               y >= b.top - 10 && y <= b.top + b.height / 2;
+      })() };
   });
   ok(m.existe, "la cloche est dans la barre du haut");
   ok(m.pastille === "2", "et porte le nombre de non lues (" + m.pastille + ")");
   ok(/2 non lues/.test(m.etiquette),
     "le nombre est aussi dans l'étiquette (" + m.etiquette + ")");
+  ok(m.surLaCloche, "la pastille est posée sur le coin de la cloche, pas ailleurs");
   ok(m.ordre === "btn-cloche,btn-compte,btn-panier" && m.panierDernier,
     "elle se pose avant le compte et le panier, qui reste le dernier geste (" + m.ordre + ")");
   await ctx.close();
