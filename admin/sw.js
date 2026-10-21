@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v94";
+const VERSION = "impact-admin-v114";
 
 const FICHIERS = [
   "./",
@@ -41,6 +41,8 @@ const FICHIERS = [
   "./js/vues/revendeurs.js",
   "./js/vues/clients.js",
   "./js/vues/versements.js",
+  "./js/vues/caisse.js",
+  "./js/vues/soldes.js",
   "./js/vues/codes.js",
   "./js/vues/livraisons.js",
   "./js/vues/avis.js",
@@ -99,7 +101,12 @@ const FICHIERS = [
 
 self.addEventListener("install", (ev) => {
   ev.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(FICHIERS)).then(() => self.skipWaiting())
+    /* « reload » : les fichiers du SERVEUR, jamais ceux que le navigateur
+       aurait gardés de son côté — sinon une nouvelle version pouvait
+       ranger d'anciens fichiers. */
+    caches.open(VERSION)
+      .then((cache) => cache.addAll(FICHIERS.map((f) => new Request(f, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -111,27 +118,47 @@ self.addEventListener("activate", (ev) => {
   );
 });
 
-/* Cache d'abord (coquille locale), réseau en secours, mise à
-   jour silencieuse. Les appels à la base (autre origine) ne
-   passent jamais par le cache. */
+/* Le réseau d'abord, la coquille gardée en secours. Les appels à
+   la base (autre origine) ne passent jamais par le cache. */
 self.addEventListener("fetch", (ev) => {
   const requete = ev.request;
   if (requete.method !== "GET") return;
   const url = new URL(requete.url);
   if (url.origin !== location.origin) return;
 
-  ev.respondWith(
-    caches.match(requete, { ignoreSearch: true }).then((enCache) => {
-      const depuisReseau = fetch(requete)
-        .then((reponse) => {
-          if (reponse && reponse.ok) {
-            const copie = reponse.clone();
-            caches.open(VERSION).then((cache) => cache.put(requete, copie));
-          }
-          return reponse;
-        })
-        .catch(() => enCache);
-      return enCache || depuisReseau;
-    })
-  );
+  /* LE RÉSEAU D'ABORD, la mémoire en secours (3.59.0). Avant, la
+     coquille venait du cache d'abord : un téléphone qui avait déjà ouvert
+     BIZZOO recevait l'ANCIENNE version à chaque lien ouvert, et la
+     nouvelle seulement à la visite suivante — c'est ce qu'on voyait en
+     cliquant un lien de partage après une mise à jour du site.
+     Désormais : en ligne, la version du serveur ; hors connexion, ou
+     réseau trop lent (plus de 4 s), celle gardée. */
+  ev.respondWith(depuisReseauDAbord(requete));
 });
+
+function depuisReseauDAbord(requete) {
+  const reseau = fetch(requete, { cache: "no-cache" }).then((reponse) => {
+    if (reponse && reponse.ok) {
+      const copie = reponse.clone();
+      caches.open(VERSION).then((cache) => cache.put(requete, copie));
+    }
+    return reponse;
+  });
+  const garde = () => caches.match(requete, { ignoreSearch: true });
+  return new Promise((resoudre) => {
+    let fini = false;
+    const rendre = (r) => { if (!fini && r) { fini = true; resoudre(r); } };
+    /* Réseau trop lent : la version gardée, sans attendre. Le réseau
+       continue, et rangera la nouvelle pour la prochaine fois. */
+    const delai = setTimeout(() => garde().then(rendre), 4000);
+    reseau
+      .then((r) => { clearTimeout(delai); rendre(r); })
+      .catch(() => {
+        clearTimeout(delai);
+        garde().then((r) => {
+          if (r) rendre(r);
+          else if (!fini) { fini = true; resoudre(Response.error()); }
+        });
+      });
+  });
+}

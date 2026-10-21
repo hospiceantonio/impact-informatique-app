@@ -50,6 +50,8 @@ const App = { evenementInstallation: null };
     { motif: /^\/commande$/, vue: (v) => VuePanier.commander(v), sansOnglets: true },
     { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => VuePanier.recu(v, m[1]), sansOnglets: true },
     { motif: /^\/mes-commandes$/, vue: (v) => VuePanier.mesCommandes(v), onglet: "/compte" },
+    /* Un livreur n'a pas de commandes : il a des courses (3.59.0). */
+    { motif: /^\/mes-courses$/, vue: (v) => VueCompte.mesCourses(v), onglet: "/compte" },
     /* Le SAV : on y arrive depuis le reçu d'une commande payée, c'est
        là que le client est quand il constate le problème. */
     { motif: /^\/reclamations$/, vue: (v) => VueSAV.mesReclamations(v), onglet: "/compte" },
@@ -428,13 +430,38 @@ const App = { evenementInstallation: null };
     App.evenementInstallation = ev;
   });
 
+  /* ---------- Le suivi des commandes en direct (3.59.0) ----------
+     Sa commande vient de bouger : le reçu, « Mes commandes » ou « Mes
+     courses » se relisent tout seuls, à la même hauteur — jamais sous
+     les doigts d'une saisie en cours. */
+  const ECRANS_SUIVIS = [/^#\/commande\//, /^#\/mes-commandes$/, /^#\/mes-courses$/];
+  let suiviMinuterie = null;
+  function rafraichirSuivi() {
+    if (!ECRANS_SUIVIS.some((r) => r.test(location.hash || ""))) return;
+    const actif = document.activeElement;
+    if (actif && /^(INPUT|TEXTAREA|SELECT)$/.test(actif.tagName)) {
+      suiviMinuterie = setTimeout(rafraichirSuivi, 2000);
+      return;
+    }
+    const hauteur = window.scrollY || 0;
+    naviguer({ conserverPosition: true }).then(() => { if (hauteur) window.scrollTo(0, hauteur); });
+  }
+  window.addEventListener("bizzoo:commande", () => {
+    clearTimeout(suiviMinuterie);
+    suiviMinuterie = setTimeout(rafraichirSuivi, 600);
+  });
+
   /* Quand une version plus récente du catalogue arrive du réseau :
      on redessine l'écran sans faire perdre sa place au client. */
-  document.addEventListener("catalogue:maj", async () => {
+  document.addEventListener("catalogue:maj", async (ev) => {
     const hauteur = window.scrollY || document.documentElement.scrollTop || 0;
     await naviguer({ conserverPosition: true });
     if (hauteur) window.scrollTo(0, hauteur);
-    UI.toast("Catalogue mis à jour", "ok");
+    /* (3.59.0) On n'annonce que ce qui est nouveau : un produit apparu. Le
+       reste — un stock, un prix, une boutique — se met à jour en silence. */
+    const nouveaux = (ev.detail && ev.detail.nouveaux) || [];
+    if (nouveaux.length === 1) UI.toast("Nouveau : " + nouveaux[0], "ok");
+    else if (nouveaux.length > 1) UI.toast(nouveaux.length + " nouveaux produits", "ok");
   });
 
   /* ---------- Démarrage ---------- */

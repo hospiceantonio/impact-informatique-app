@@ -270,6 +270,7 @@ titre("4. Un refus en anglais se traduit");
     otp: { status: 400, corps: { code: 400, error_code: "phone_provider_disabled", msg: "Unsupported phone provider" } } });
   await aller(page, "#/connexion-tel");
   await page.fill("#cp-tel", "0197121596");
+  await page.fill("#cp-mdp-tel", "secret-essai");
   await page.click("#cp-envoyer");
   await page.waitForTimeout(900);
   const t = await toast(page);

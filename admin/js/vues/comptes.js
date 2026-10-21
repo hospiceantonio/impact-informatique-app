@@ -34,7 +34,7 @@ const VueComptes = (() => {
        deux, c'était offrir deux façons de ne pas choisir de boutique —
        l'une volontaire, l'autre par distraction — qui auraient donné le
        même compte d'enseigne. Une seule porte, nommée. */
-    const enseigne = avecEnseigne && Supabase.estSuper()
+    const enseigne = avecEnseigne && (Supabase.estSuper() || Supabase.estAdminBizzoo())
       ? '<option value="__enseigne"' + (selection ? "" : " selected") +
         ">BIZZOO — toutes les boutiques</option>"
       : "";
@@ -159,7 +159,8 @@ const VueComptes = (() => {
       compte.role === "superadministrateur";
     /* Un modérateur privé du droit de modification se voit d'un coup d'œil
        dans la liste : inutile d'ouvrir sa fiche pour le savoir. */
-    const bride = compte.role === "moderateur" && !compte.peutModifier;
+    const bride = ["moderateur", "administrateur"].includes(compte.role) && !!compte.boutiqueId &&
+      !compte.peutModifier;
     return (
       '<div class="compte-ligne' + (compte.actif ? "" : " compte-inactif") + '">' +
         '<span class="compte-rond ' + (admin ? "compte-rond-admin" : "") + '">' +
@@ -170,7 +171,11 @@ const VueComptes = (() => {
              dessous : c'est avec elle qu'on se connecte. */
           '<span class="compte-email">' +
             Utils.echapper(compte.nom || compte.email || "—") +
-            (moi ? ' <span class="compte-moi">vous</span>' : "") + "</span>" +
+            (moi ? ' <span class="compte-moi">vous</span>' : "") +
+            /* (3.59.0) Celui qui vous a créé — ou plus haut : on ne touche
+               pas à ses droits. */
+            (Store.estMonCreateur(compte) ? ' <span class="compte-moi compte-createur">vous a créé</span>' : "") +
+            "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
             rattachement(compte) +
             (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
@@ -243,13 +248,14 @@ const VueComptes = (() => {
             htmlInterrupteurs(compte) +
           "</div>"
         : "") +
-      /* Le droit de retoucher les produits ne concerne que le modérateur :
-         un administrateur l'a toujours. */
-      '<div id="cp-zone-modif"' + (compte.role === "moderateur" ? "" : " hidden") + ">" +
-        UI.interrupteur({ id: "cp-modifier", label: "Peut modifier les produits",
+      /* L'HABILITATION AUX PRODUITS (3.59.0) : créer, modifier,
+         supprimer. Elle vaut pour le modérateur ET l'administrateur d'une
+         boutique — un administrateur ne l'a plus d'office. */
+      '<div id="cp-zone-modif"' + (["moderateur", "administrateur"].includes(compte.role) ? "" : " hidden") + ">" +
+        UI.interrupteur({ id: "cp-modifier", label: "Peut créer et modifier les produits",
           actif: compte.peutModifier !== false,
-          aide: "Décoché, ce modérateur peut encore ajouter des produits, " +
-            "mais plus retoucher ni supprimer ceux du catalogue." }) +
+          aide: "Décoché, ce compte ne crée plus de produit, et ne retouche ni ne " +
+            "supprime ceux du catalogue." }) +
       "</div>" +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
@@ -292,7 +298,7 @@ const VueComptes = (() => {
       /* Le droit « produits » d'un compte d'enseigne vit dans SES
          interrupteurs : l'afficher deux fois se contredirait. */
       UI.$("#cp-zone-modif", corps).hidden =
-        rang !== "moderateur" || (surEnseigne && rang !== "superadministrateur");
+        !["moderateur", "administrateur"].includes(rang) || (surEnseigne && rang !== "superadministrateur");
       const zoneBoutique = UI.$("#cp-zone-boutique", corps);
       if (zoneBoutique) zoneBoutique.hidden = rang === "superadministrateur";
       if (zoneEnseigne) {
@@ -353,7 +359,7 @@ const VueComptes = (() => {
       const surEnseigne = zoneEns && !zoneEns.hidden;
       const peutModifier = surEnseigne
         ? UI.$("#cp-d-produits", corps).checked
-        : (role === "moderateur" ? UI.$("#cp-modifier", corps).checked : true);
+        : (["moderateur", "administrateur"].includes(role) ? UI.$("#cp-modifier", corps).checked : true);
       const champBoutique = UI.$("#cp-boutique", corps);
       /* Le super administrateur n'appartient à aucune boutique : il circule partout.
          « __enseigne » veut dire la même chose pour un compte de BIZZOO —
@@ -422,10 +428,19 @@ const VueComptes = (() => {
       return;
     }
 
+    /* UN LIVREUR ENTRE PAR SON NUMÉRO : numéro, mot de passe, puis un
+       code reçu par SMS. Son e-mail est facultatif — s'il en a un, il
+       devient sa porte de secours, sans code. L'équipe garde l'e-mail. */
     const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : "Nouveau compte",
-      UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
-        type: "email", placeholder: "prenom@exemple.com",
-        aide: "C'est avec elle que la personne se connectera." }) +
+      (livreur
+        ? UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
+            placeholder: "01 97 00 00 00",
+            aide: "C'est avec lui qu'il se connectera : son numéro, son mot de passe, puis " +
+              "un code reçu par SMS. C'est aussi le numéro qu'on appelle quand le client " +
+              "n'est pas chez lui." })
+        : UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
+            type: "email", placeholder: "prenom@exemple.com",
+            aide: "C'est avec elle que la personne se connectera." })) +
       UI.champTexte({ id: "nc-mdp", label: "Mot de passe", obligatoire: true,
         type: "password", placeholder: "6 caractères minimum",
         aide: "À lui communiquer ; elle pourra le changer elle-même ensuite." }) +
@@ -436,10 +451,15 @@ const VueComptes = (() => {
          appeler. */
       UI.champTexte({ id: "nc-nom", label: "Nom", placeholder: "Rohim",
         aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
-      UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
-        placeholder: "01 97 00 00 00",
-        aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
-          "qu'on appelle quand le client n'est pas chez lui." }) +
+      (livreur
+        ? UI.champTexte({ id: "nc-email", label: "Adresse e-mail (facultatif)",
+            type: "email", placeholder: "prenom@exemple.com",
+            aide: "Sa porte de secours : sans son téléphone, il entrera avec cet e-mail " +
+              "et son mot de passe, sans code." })
+        : UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
+            placeholder: "01 97 00 00 00",
+            aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
+              "qu'on appelle quand le client n'est pas chez lui." })) +
       '<div class="champ"' + (livreur ? " hidden" : "") + ">" +
         '<label for="nc-role">Rôle</label>' +
         '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +
@@ -452,9 +472,9 @@ const VueComptes = (() => {
       (Store.listerBoutiques().length
         ? '<div class="champ" id="nc-zone-boutique">' +
             '<label for="nc-boutique">Boutique confiée <span class="obligatoire">*</span></label>' +
-            '<select id="nc-boutique"' + (Supabase.estSuper() ? "" : " disabled") + ">" +
+            '<select id="nc-boutique"' + (Supabase.estSuper() || Supabase.estAdminBizzoo() ? "" : " disabled") + ">" +
               optionsBoutiques((Store.boutiqueCourante() || {}).id, true) + "</select>" +
-            '<div class="aide" id="nc-boutique-aide">' + (Supabase.estSuper()
+            '<div class="aide" id="nc-boutique-aide">' + (Supabase.estSuper() || Supabase.estAdminBizzoo()
               ? aideBoutique(rangs[0])
               : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
@@ -478,7 +498,7 @@ const VueComptes = (() => {
       /* Un administrateur les gère toutes : pas de boutique à choisir. */
       if (zoneBoutique) zoneBoutique.hidden = selecteur.value === "superadministrateur";
       const aide = UI.$("#nc-boutique-aide", corps);
-      if (aide && Supabase.estSuper()) aide.innerHTML = aideBoutique(selecteur.value);
+      if (aide && (Supabase.estSuper() || Supabase.estAdminBizzoo())) aide.innerHTML = aideBoutique(selecteur.value);
     };
 
     UI.$("#nc-creer", corps).onclick = async () => {
@@ -498,7 +518,7 @@ const VueComptes = (() => {
         if (compte.confirmationRequise) {
           UI.toast("Compte créé — il doit d'abord confirmer son adresse par email.", "ok");
         } else {
-          UI.toast(nomRole(compte.role) + " ajouté : " + compte.email, "ok");
+          UI.toast(nomRole(compte.role) + " ajouté : " + (compte.email || compte.tel || compte.nom), "ok");
         }
         apres();
       } catch (err) {
@@ -565,7 +585,9 @@ const VueComptes = (() => {
           "plus retoucher ni supprimer ceux du catalogue. Un compte " +
           "<strong>désactivé</strong> garde son adresse mais ne peut plus rien modifier ; " +
           "un compte <strong>supprimé</strong> disparaît pour de bon. " +
-          "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits.</p>" +
+          "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits. " +
+          "Ni le compte qui <strong>vous a créé</strong> (ni ceux au-dessus de lui) : " +
+          "vous ne pouvez pas modifier ses droits.</p>" +
       "</div>";
 
     UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue), false);
@@ -654,9 +676,29 @@ const VueComptes = (() => {
   async function livreurs(vue) {
     UI.entete({ titre: "Livreurs", retour: true, sous: "Qui porte, et d'où" });
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des livreurs…</div>';
+    /* DEUX REGARDS (3.59.0). Le superadministrateur et l'administrateur
+       de BIZZOO GÈRENT : tous les livreurs, leur fiche, « Créer un
+       livreur ». L'administrateur d'une boutique REGARDE ceux qui lui
+       sont assignés : les livreurs de sa boutique, et ceux de BIZZOO qui
+       portent pour toutes — sans rien modifier, la base ne le lui permet
+       pas. */
+    const gere = Supabase.estSuper() || Supabase.estAdminBizzoo();
+    /* (3.59.0) L'ADMINISTRATEUR D'UNE BOUTIQUE CRÉE ET GÈRE LES SIENS — les
+       livreurs de SA boutique. Ceux de BIZZOO, il les voit sans y toucher. */
+    const chezMoi = !gere && Supabase.estAdmin() && !Supabase.estCompteEnseigne();
     let comptes, positions;
     try {
-      [comptes, positions] = await Promise.all([Store.listerComptes(), Store.positionsLivreurs()]);
+      const deBizzoo = () => Store.listerLivreurs().then((l) => l.map((c) => ({
+        id: c.id, email: c.email, nom: c.nom, tel: c.tel, actif: c.actif, role: "livreur",
+        boutiqueId: c.bizzoo ? "" : Supabase.boutiqueDuCompte(), bizzoo: c.bizzoo })));
+      [comptes, positions] = await Promise.all([
+        gere ? Store.listerComptes()
+          : chezMoi
+            ? Promise.all([Store.listerComptes(), deBizzoo()]).then(([miens, tous]) =>
+                miens.filter((c) => c.role === "livreur")
+                  .concat(tous.filter((c) => c.bizzoo)))
+            : deBizzoo(),
+        Store.positionsLivreurs()]);
     } catch (err) {
       vue.innerHTML = '<div class="carte"><div class="carte-titre">Livreurs indisponibles</div>' +
         '<p class="aide" style="margin:0">' + Utils.echapper(err.message) + "</p></div>";
@@ -666,7 +708,12 @@ const VueComptes = (() => {
     const valides = positions ? liste.filter((c) => positions[c.id]).length : 0;
     const ligne = (c) => {
       const p = positions && positions[c.id];
+      /* La position d'un livreur de BIZZOO n'est pas montrée à une
+         boutique : il porte pour toutes, sa boutique c'est l'enseigne. */
       const etat = !positions ? ""
+        : !gere && c.bizzoo
+          ? '<div class="livreur-position">' + UI.icone("voiture", "ic-sm") +
+              " Livreur de BIZZOO : il porte pour toutes les boutiques.</div>"
         : p
           ? '<div class="livreur-position livreur-position-ok">' + UI.icone("check", "ic-sm") +
               " Position validée le " + Utils.echapper(Utils.fmtDateHeure(p.enregistre_le)) +
@@ -675,7 +722,8 @@ const VueComptes = (() => {
                 Number(p.longitude) + '" target="_blank" rel="noopener">voir sur la carte</a></div>'
           : '<div class="livreur-position livreur-position-manque">' + UI.icone("alerte", "ic-sm") +
               " Position pas encore validée : aucune course ne peut lui être confiée.</div>";
-      return '<div class="livreur-bloc">' + htmlLigne(c, false) + etat + "</div>";
+      return '<div class="livreur-bloc">' + (gere || (chezMoi && !c.bizzoo) ? htmlLigne(c, false) : ligneLecture(c)) +
+        etat + "</div>";
     };
     vue.innerHTML =
       '<div class="carte">' +
@@ -687,9 +735,17 @@ const VueComptes = (() => {
           (positions ? " — " + valides + " sur " + liste.length + " l'ont fait" : "") + ".</p>" +
         (liste.length ? liste.map(ligne).join("")
           : '<p class="aide" style="margin:0">Aucun livreur pour l\'instant.</p>') +
-        '<button type="button" class="btn" id="lv-nouveau" style="margin-top:14px">' +
-          UI.icone("plus") + "Créer un livreur</button>" +
+        (gere || chezMoi
+          ? '<button type="button" class="btn" id="lv-nouveau" style="margin-top:14px">' +
+              UI.icone("plus") + "Créer un livreur</button>" +
+            (chezMoi
+              ? '<p class="aide" style="margin:10px 0 0">Vous créez les livreurs de votre boutique. ' +
+                  "Un livreur de BIZZOO, qui porte pour toutes, se demande à BIZZOO.</p>"
+              : "")
+          : '<p class="aide" style="margin:12px 0 0">Un nouveau livreur se demande à BIZZOO : ' +
+              "le superadministrateur ou un administrateur de BIZZOO le crée.</p>") +
       "</div>";
+    if (!gere && !chezMoi) return;
     UI.$("#lv-nouveau", vue).onclick = () => ouvrirCreation(() => livreurs(vue), true);
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {
@@ -697,6 +753,20 @@ const VueComptes = (() => {
         if (compte) ouvrirFiche(compte, () => livreurs(vue));
       };
     }
+  }
+
+  /** Une ligne à lire seulement : le nom, le numéro pour l'appeler. */
+  function ligneLecture(c) {
+    const tel = String(c.tel || "").trim();
+    return (
+      '<div class="compte-ligne">' +
+        "<div><strong>" + Utils.echapper(c.nom || c.email || "Livreur") + "</strong>" +
+          (c.actif === false ? ' <small class="compte-inactif">(désactivé)</small>' : "") +
+          (tel ? '<div class="aide" style="margin:2px 0 0"><a href="tel:' +
+            Utils.echapper(tel.replace(/[^\d+]/g, "")) + '">' + Utils.echapper(tel) + "</a></div>" : "") +
+        "</div>" +
+      "</div>"
+    );
   }
 
   /* ---------- Le livreur valide son compte ----------

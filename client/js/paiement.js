@@ -175,6 +175,47 @@ const Paiement = (() => {
   }
 
   /**
+   * CE QUE COÛTERA LE PANIER, boutique par boutique (3.59.0). Chaque
+   * boutique a ses frais de livraison et sa condition de paiement : tout
+   * à la commande, ou un acompte (en %) à la commande et le reste à la
+   * livraison. C'EST UN APERÇU, calculé comme « creer_commande » le fait :
+   * la part d'une boutique, c'est ses articles, remise déduite au prorata,
+   * plus ses frais ; son acompte, cette part par son taux, au franc
+   * supérieur. Le montant qui part chez l'agrégateur est celui que la
+   * base renvoie, jamais celui-ci.
+   *
+   * Une base d'avant ne connaît pas ces réglages : on retombe sur ceux de
+   * l'enseigne — un acompte unique, des frais une fois par commande.
+   */
+  function apercu(remise) {
+    const groupes = typeof Panier !== "undefined" ? Panier.parBoutique() : [];
+    const sousTotal = groupes.reduce((s, g) => s + g.montant, 0);
+    const r = Math.min(Math.max(0, Math.round(Number(remise) || 0)), sousTotal);
+    const parBoutique = groupes.some((g) => g.boutique && g.boutique.fraisLivraison !== undefined);
+    const parts = groupes.map((g) => {
+      const b = g.boutique || {};
+      const net = Math.max(0, Math.round(g.montant - (sousTotal ? r * g.montant / sousTotal : 0)));
+      const frais = parBoutique ? (b.fraisLivraison || 0) : 0;
+      const taux = b.modePaiement === "total" ? 100
+        : b.modePaiement === "acompte" ? (b.tauxAcompte || 100)
+        : tauxAcompte();
+      const du = net + frais;
+      return { boutique: b, frais, taux, du, acompte: Math.min(du, Math.ceil(du * taux / 100)) };
+    });
+    const fraisUniques = parBoutique ? 0 : (groupes.length ? fraisLivraison() : 0);
+    const frais = parts.reduce((s, p) => s + p.frais, 0) + fraisUniques;
+    const total = Math.max(0, sousTotal - r) + frais;
+    let acompte = parBoutique
+      ? parts.reduce((s, p) => s + p.acompte, 0)
+      : (total > 0 ? Math.ceil(total * tauxAcompte() / 100) : 0);
+    if (total > 0) acompte = Math.min(total, Math.max(acompte, 100));
+    const taux = [...new Set(parts.map((p) => p.taux))];
+    return { sousTotal, remise: r, frais, total, acompte, reste: total - acompte, parts,
+      /* Un seul taux pour tout le panier : on peut l'écrire. */
+      tauxUnique: parBoutique ? (taux.length === 1 ? taux[0] : null) : tauxAcompte() };
+  }
+
+  /**
    * Le paiement en ligne est-il ouvert ?
    *
    * KkiaPay a besoin de sa clé publique dans l'application. FeexPay,
@@ -405,6 +446,9 @@ const Paiement = (() => {
 
   /** L'état d'une commande, tel que la base le connaît. */
   const suivre = (id, tel) => rpc("suivre_commande", { cible: id, tel });
+  /** Le client conteste ce que le livreur a déclaré avoir encaissé (3.59.0). */
+  const contester = (id, boutique, motif, tel) =>
+    rpc("contester_encaissement", { commande: id, boutique, motif, tel: tel || "" });
 
   /**
    * Attend que la base confirme le paiement. On patiente au lieu
@@ -482,9 +526,9 @@ const Paiement = (() => {
 
   return {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
-    tauxAcompte, acompteDe, fraisLivraison,
+    tauxAcompte, acompteDe, fraisLivraison, apercu,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
-    signalerTransaction, suivre, attendreConfirmation, livreurs,
+    signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,
   };
 })();

@@ -543,8 +543,8 @@ titre("10. Le livreur voit ce qu'il encaisse, et rien d'autre");
     encaisser: (c.querySelector(".lv-encaisser") || {}).textContent || "",
     texte: c.textContent })));
   const de = (n) => cartes.find((c) => c.numero === n) || { encaisser: "", texte: "" };
-  ok(de("BZ-000042").encaisser.replace(/\s+/g, " ").trim() === "À encaisser : " + F(270000),
-    "à prendre : « À encaisser : 270 000 FCFA »");
+  ok(de("BZ-000042").encaisser.replace(/\s+/g, " ").trim() === "À payer par MoMoPay : " + F(270000),
+    "à prendre : « À payer par MoMoPay : 270 000 FCFA »");
   ok(/Rien à encaisser : tout est payé/.test(de("BZ-000044").encaisser),
     "tout payé en ligne : « Rien à encaisser »");
   ok(de("BZ-000040").encaisser.replace(/\s+/g, " ").trim() === "Encaissé à la livraison : " + F(5000),

@@ -787,7 +787,193 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'valider_revendeur'
-         and p.prosrc like '%revendeur_latitude%'))
+         and p.prosrc like '%revendeur_latitude%')),
+  (131, 'Les livreurs entrent par leur numéro (fiche « compte: equipe », code Supabase reconnu)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'profil_nouveau_compte'
+         and p.prosrc like '%''equipe''%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'au_numero_confirme'
+         and p.prosrc like '%''equipe''%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'session_confirmee'
+         and p.prosrc like '%amr%')),
+  (132, 'Un livreur n''est ni acheteur ni revendeur (numero_de_livreur, mon_compte_livreur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'mon_compte_livreur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'client_verrous'
+         and p.prosrc like '%numero_de_livreur%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'profil_nouveau_compte'
+         and p.prosrc like '%numero_de_livreur%')),
+  (133, 'L''administrateur de BIZZOO gère livreurs et revendeurs (est_admin_bizzoo, creer_fiche_revendeur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_fiche_revendeur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'valider_revendeur'
+         and p.prosrc like '%est_admin_bizzoo%')
+    and exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'profils'
+         and policyname = 'profils ajout admin' and with_check like '%est_admin_bizzoo%')),
+  (134, 'Créer un produit demande l''habilitation (règle « produits ajout »)', exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'produits'
+         and policyname = 'produits ajout' and with_check like '%peut_modifier_produits%')
+    and not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'peut_modifier_produits'
+         and p.prosrc like '%role = ''administrateur'' or%')),
+  (135, 'Les jours et heures d''ouverture des boutiques (ouvertures, boutique_ouverte)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques' and column_name = 'ouvertures')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.prosrc like '%boutique_ouverte%')),
+  (136, 'Chaque boutique : condition de paiement et frais (mode_paiement, parts)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'boutiques' and column_name = 'mode_paiement')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes' and column_name = 'parts')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'restes_par_boutique'
+         and p.prosrc like '%parts%')),
+  (137, 'Parcours de livraison : fiche de course, « Reçu », livreur annoncé (recu_le)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commande_lignes' and column_name = 'recu_le')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'accepter_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'notifier_ligne'
+         and p.prosrc like '%course_acceptee%')),
+  (138, 'Demande de course envoyée à tous au paiement ; le premier la prend (prendre_course)', exists (
+      select 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid
+       where c.relname = 'commandes' and t.tgname = 'commandes_proposent' and not t.tgisinternal)
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'prendre_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'courses_proposees')),
+  (139, 'Le reste payé à la livraison : déclaré, visible du client, et la caisse des livreurs', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'encaissements')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remettre_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'caisse_livreurs')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'suivre_commande'
+         and p.prosrc like '%encaissements%')),
+  (140, 'Le livreur refuse une course ; la boutique voit qui livre (refuser_course, livraison_des_commandes)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'refus_courses')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'refuser_course')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'livraison_des_commandes')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'courses_proposees'
+         and p.prosrc like '%refus_courses%')),
+  (141, 'Code SMS : le superadministrateur seul, et l''appareil de confiance (appareils_confiance)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'appareils_confiance')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'reconnaitre_appareil')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'equipe_en_service'
+         and p.prosrc like '%superadministrateur%')),
+  (142, 'Le livreur de BIZZOO porte toute la commande (assigner_livreur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'assigner_livreur'
+         and p.prosrc like '%Un livreur BIZZOO passe%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'accepter_course'
+         and p.prosrc like '%bizzoo.prise%')),
+  (143, 'Le reste se paie par MoMoPay, plus en espèces (paiement.momopay_code)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement' and column_name = 'momopay_code')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'encaissements' and column_name = 'transaction_id')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remettre_course'
+         and p.prosrc like '%MoMoPay%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'avancer_livraison'
+         and p.prosrc like '%MoMoPay%')),
+  (144, 'L''administrateur d''une boutique crée livreurs et revendeurs, pas d''administrateur', exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'profils' and policyname = 'profils ajout admin'
+         and with_check like '%livreur%')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_fiche_revendeur'
+         and p.prosrc like '%Seul un administrateur%')),
+  (145, 'On ne modifie pas les droits de son créateur (est_mon_createur)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'est_mon_createur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'profil_trace'
+         and p.prosrc like '%est_mon_createur%')
+    and exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'profils' and policyname = 'profils modification admin'
+         and qual like '%est_mon_createur%')),
+  (146, '« Déjà pris par … » : les autres livreurs prévenus (prendre_course)', exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'prendre_course'
+         and p.prosrc like '%course_prise%')),
+  (147, 'Masquer un produit (produits.masque, masquer_produit)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'produits' and column_name = 'masque')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'masquer_produit')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.prosrc like '%p.masque%')),
+  (148, 'Le suivi des commandes en direct (commandes_signaux, temps réel)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'commandes_signaux')
+    and exists (
+      select 1 from pg_trigger where tgname = 'lignes_signalent')
+    and exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and tablename = 'commandes_signaux')),
+  (149, 'Le solde des boutiques et leurs reversements (solde_boutique, reversements)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'reversements')
+    and exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'boutiques_reception')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'decider_reversement'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

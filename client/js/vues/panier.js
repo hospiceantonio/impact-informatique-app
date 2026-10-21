@@ -150,6 +150,21 @@ const VuePanier = (() => {
     /* Une carte par boutique : chacune prépare et livre ce qui est à
        elle, et c'est ainsi que la commande lui parviendra. */
     let html = "";
+    /* UNE BOUTIQUE FERMÉE EN CE MOMENT (3.59.0) : ses articles restent au
+       panier, mais la commande attend sa réouverture — la base la
+       refuserait, et personne ne la prendrait. */
+    const fermees = groupes.filter((g) => g.boutique && !Catalogue.ouverteMaintenant(g.boutique));
+    if (fermees.length) {
+      html +=
+        '<div class="carte pa-avertissement" id="pa-fermees">' + UI.icone("horloge", "ic-sm") +
+          "<div>" + fermees.map((g) => {
+            const quand = Catalogue.prochaineOuverture(g.boutique);
+            return "<strong>" + Utils.echapper(g.boutique.nom) + "</strong> est fermée en ce moment" +
+              (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".";
+          }).join(" ") +
+          " Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</div>" +
+        "</div>";
+    }
     if (ruptures.length || ramenees.length) {
       html +=
         '<div class="carte pa-avertissement" id="pa-stock">' + UI.icone("alerte", "ic-sm") +
@@ -192,8 +207,11 @@ const VuePanier = (() => {
     /* LES FRAIS DE LIVRAISON, fixés par BIZZOO, une fois par commande :
        ils s'ajoutent au total. Une base d'avant n'en a pas — la
        livraison se convient alors avec la boutique, comme avant. */
-    const frais = Paiement.fraisLivraison();
-    const totalPanier = Panier.total() + frais;
+    /* (3.59.0) LES FRAIS ET L'ACOMPTE DE CHAQUE BOUTIQUE : l'aperçu les
+       additionne, comme la base le fera. */
+    const ap = Paiement.apercu(0);
+    const frais = ap.frais;
+    const totalPanier = ap.total;
     html +=
       '<div class="carte pa-recap">' +
         '<div class="pa-recap-ligne"><span>Sous-total</span><span>' +
@@ -207,7 +225,7 @@ const VuePanier = (() => {
         /* L'ACOMPTE, DÈS LE PANIER : le client doit savoir ce qu'il paiera
            en commandant avant de taper ses coordonnées. C'est un aperçu ;
            la base fixera l'acompte en créant la commande. */
-        recapAcompte(totalPanier, devise) +
+        recapAcompte(ap, devise) +
         /* Dire au revendeur que ce total est déjà le sien : sans cela,
            il attend une remise à la caisse qui ne viendra pas — elle est
            déjà dans le chiffre qu'il lit. */
@@ -231,7 +249,7 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() || ruptures.length ? " disabled" : "") +
+        (Panier.monnaiesMelangees() || ruptures.length || fermees.length ? " disabled" : "") +
         ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {
@@ -282,17 +300,36 @@ const VuePanier = (() => {
 
   /** « À payer à la commande » et « à la livraison », sous le total du
    *  panier — quand le paiement est en ligne et qu'un acompte s'applique. */
-  function recapAcompte(total, devise) {
+  function recapAcompte(ap, devise) {
     if (!Paiement.connu() || !Paiement.disponible()) return "";
-    const acompte = Paiement.acompteDe(total);
-    if (acompte >= total) return "";
+    if (ap.acompte >= ap.total) return "";
     return (
       '<div class="pa-recap-ligne pa-recap-acompte"><span>À payer à la commande ' +
-        "<small>acompte de " + Paiement.tauxAcompte() + " %</small></span><span>" +
-        Utils.echapper(Utils.fmtMontant(acompte, devise)) + "</span></div>" +
+        "<small>" + Utils.echapper(motAcompte(ap)) + "</small></span><span>" +
+        Utils.echapper(Utils.fmtMontant(ap.acompte, devise)) + "</span></div>" +
       '<div class="pa-recap-ligne"><span>À payer à la livraison</span><span>' +
-        Utils.echapper(Utils.fmtMontant(total - acompte, devise)) + "</span></div>"
+        Utils.echapper(Utils.fmtMontant(ap.reste, devise)) + "</span></div>" +
+      detailBoutiques(ap, devise)
     );
+  }
+
+  /** « acompte de 30 % », ou « selon chaque boutique » quand elles diffèrent. */
+  const motAcompte = (ap) => (ap.tauxUnique ? "acompte de " + ap.tauxUnique + " %" : "selon chaque boutique");
+
+  /**
+   * Le détail, boutique par boutique (3.59.0), dès qu'il y en a plusieurs :
+   * chacune a ses frais et sa condition, et le client doit voir d'où vient
+   * le montant qu'il paie.
+   */
+  function detailBoutiques(ap, devise) {
+    if (!ap.parts || ap.parts.length < 2) return "";
+    const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, devise));
+    return '<div class="pa-detail-boutiques" id="pa-detail-boutiques">' + ap.parts.map((p) =>
+      '<div class="pa-recap-ligne pa-recap-boutique"><span>' + Utils.echapper((p.boutique && p.boutique.nom) || "Boutique") +
+        "<small>" + (p.taux >= 100 ? "tout à la commande" : "acompte " + p.taux + " %") +
+        (p.frais > 0 ? " · livraison " + fmt(p.frais) : "") + "</small></span><span>" +
+        fmt(p.acompte) + (p.du > p.acompte ? " + " + fmt(p.du - p.acompte) + " à la livraison" : "") +
+      "</span></div>").join("") + "</div>";
   }
 
   /* UNE LIGNE DE LA DA : la photo, le nom, le prix, le compteur gris,
@@ -595,9 +632,9 @@ const VuePanier = (() => {
               " Votre commande n'est transmise aux boutiques qu'une fois le paiement confirmé." +
               /* Ce qui se paie maintenant n'est que l'acompte : le dire
                  avant le bouton, pas après le versement. */
-              (Paiement.acompteDe(aRegler()) < aRegler()
-                ? " Vous ne payez maintenant que l'acompte ; le reste se règle à la " +
-                  "livraison, auprès de la boutique."
+              (Paiement.apercu(promo.remise || 0).acompte < aRegler()
+                ? " Vous ne payez maintenant que l'acompte ; le reste se paie à la " +
+                  "livraison par MoMoPay — pas d'espèces : votre livreur vous montrera le code."
                 : "")
             : "Le paiement en ligne n'est pas encore ouvert : votre commande part directement " +
               "à chaque boutique, qui vous rappellera pour le règlement et la livraison.") +
@@ -701,8 +738,7 @@ const VuePanier = (() => {
   /** Ce que le client paiera, remise déduite. Aperçu : la base tranche. */
   /* Les frais de livraison s'ajoutent APRÈS la remise : un code promo
      ne les touche pas. */
-  const aRegler = () => Math.max(0, Panier.total() - (promo.remise || 0)) +
-    Paiement.fraisLivraison();
+  const aRegler = () => Paiement.apercu(promo.remise || 0).total;
 
   /**
    * Le récapitulatif du formulaire : le code et ce qu'il retire, puis le
@@ -712,9 +748,10 @@ const VuePanier = (() => {
    */
   function htmlTotal(devise, enLigne) {
     const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, devise));
-    const total = aRegler();
-    const acompte = enLigne ? Paiement.acompteDe(total) : total;
-    const frais = Paiement.fraisLivraison();
+    const ap = Paiement.apercu(promo.remise || 0);
+    const total = ap.total;
+    const acompte = enLigne ? ap.acompte : total;
+    const frais = ap.frais;
     return (promo.remise > 0 || frais > 0
         ? '<div class="pa-total-ligne"><span>Sous-total</span><span>' +
             fmt(Panier.total()) + "</span></div>"
@@ -731,18 +768,19 @@ const VuePanier = (() => {
         ? '<div class="pa-total-ligne"><span>Total de la commande</span><span>' +
             fmt(total) + "</span></div>" +
           '<div class="pa-total-ligne co-acompte"><span>À payer maintenant ' +
-            "<small>acompte de " + Paiement.tauxAcompte() + " %</small></span><strong>" +
+            "<small>" + Utils.echapper(motAcompte(ap)) + "</small></span><strong>" +
             fmt(acompte) + "</strong></div>" +
           '<div class="pa-total-ligne co-reste"><span>Reste à payer à la livraison</span><span>' +
-            fmt(total - acompte) + "</span></div>"
+            fmt(total - acompte) + "</span></div>" + detailBoutiques(ap, devise)
         : '<div class="pa-total-ligne"><span>Total à régler</span><strong>' +
             fmt(total) + "</strong></div>");
   }
 
   /** Le bouton dit ce qu'il demande : l'acompte, ou le total. */
   function libellePayer(devise) {
-    const total = aRegler();
-    const acompte = Paiement.acompteDe(total);
+    const ap = Paiement.apercu(promo.remise || 0);
+    const total = ap.total;
+    const acompte = ap.acompte;
     return acompte < total
       ? "Payer l'acompte · " + Utils.echapper(Utils.fmtMontant(acompte, devise))
       : "Payer " + Utils.echapper(Utils.fmtMontant(total, devise));
@@ -1097,6 +1135,19 @@ const VuePanier = (() => {
     if (commande.etat === "payee") UI.entete({ titre: "", retour: true });
     dessinerRecu(vue, commande);
     brancherSuivi(vue, commande);
+
+    /* (3.59.0) LA COPIE DU TÉLÉPHONE N'EST QU'UN PREMIER COUP D'ŒIL : on
+       relit la commande en base, et si elle a bougé — une étape, un
+       livreur, un paiement —, le reçu se redessine. C'est aussi ce que
+       fait le suivi en direct quand la base prévient. */
+    if (Panier.commande(id) && typeof Compte !== "undefined" && Compte.connecte()) {
+      Compte.commande(id).then((fraiche) => {
+        if (fraiche && Panier.remplacer(fraiche) && vue.isConnected &&
+            location.hash === "#/commande/" + id) {
+          window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id } }));
+        }
+      }).catch(() => { /* hors connexion : la copie suffit */ });
+    }
 
     /* Le SAV, sous le reçu : c'est ici que le client est quand il
        constate un problème, et c'est cette commande-là qui prouve son
@@ -1468,7 +1519,8 @@ const VuePanier = (() => {
             : "Gardez le numéro <strong>" + Utils.echapper(commande.numero) +
               "</strong> : c'est lui qui vous permet de la suivre.") +
             (reste > 0
-              ? " Le reste, <strong>" + fmt(reste) + "</strong>, se paie à la livraison."
+              ? " Le reste, <strong>" + fmt(reste) + "</strong>, se paie à la livraison par MoMoPay " +
+                "(pas d'espèces) : votre livreur vous montrera le code."
               : "") + "</p>" +
           '<a class="btn" href="#/mes-commandes">Voir mes commandes</a>' +
           '<a class="btn btn-clair" href="#/">Retour à l\'accueil</a>' +
@@ -1500,6 +1552,8 @@ const VuePanier = (() => {
                 fmt(payee && commande.verse != null ? commande.verse : acompte) + "</strong></div>" +
               '<div class="re-acompte-ligne re-acompte-reste"><span>Reste à payer à la livraison</span>' +
                 "<strong>" + fmt(reste) + "</strong></div>" +
+              /* Ce que le client a payé au livreur, quand la base le sait. */
+              '<div class="re-solde" hidden></div>' +
             "</div>"
           : "") +
         (commande.remarque
@@ -1517,7 +1571,7 @@ const VuePanier = (() => {
               : "La boutique a reçu votre commande dans son compte. Elle vous rappelle au ") +
             Utils.echapper(Compte.telAffichage(commande.client.tel, commande.client.indicatif)) +
             " pour la remise." +
-            (reste > 0 ? " Le reste se paie à la livraison." : "") + "</div></div>"
+            (reste > 0 ? " Le reste se paie à la livraison par MoMoPay, pas en espèces." : "") + "</div></div>"
         /* L'ATTENTE NE CONCERNE QU'UNE COMMANDE À PAYER. Le sablier
            tournait aussi sur une commande au paiement non abouti, ou
            annulée, où plus rien n'arrivera — et répétait « Ne payez pas
@@ -1547,6 +1601,11 @@ const VuePanier = (() => {
                 fmt(g.aEncaisser) + "</strong></div>"
             : "") +
           blocSuivi(commande, g) +
+          /* Le reste payé à cette boutique, rempli quand la base répond. */
+          (payee && reste > 0
+            ? '<div class="re-encaisse" data-encaisse-pour="' + Utils.echapper(g.boutique.id || "") +
+                '" hidden></div>'
+            : "") +
           /* La place du livreur, remplie quand la base répond. */
           (payee
             ? '<div class="re-livreur" data-livreur-pour="' + Utils.echapper(g.boutique.id || "") +
@@ -1574,6 +1633,93 @@ const VuePanier = (() => {
           "</div>" +
         "</div>");
     if (payee) remplirLivreurs(vue, commande);
+    if (payee && reste > 0) remplirEncaissements(vue, commande);
+  }
+
+  /* -----------------------------------------------------
+     Le reste payé à la livraison (3.59.0)
+     -----------------------------------------------------
+     Le livreur déclare ce qu'il a encaissé en remettant le colis. Le
+     client le retrouve ici : combien, à qui, comment, quand — et
+     « Commande soldée » quand tout est payé. S'il n'a pas payé ce que
+     dit le livreur, « Ce n'est pas exact » prévient la boutique et
+     BIZZOO. Une base d'avant ne dit rien : rien ne s'affiche. */
+  async function remplirEncaissements(vue, commande) {
+    let suivi;
+    try {
+      suivi = await Paiement.suivre(commande.id, (commande.client && commande.client.tel) || "");
+    } catch (_) {
+      return;
+    }
+    const encaissements = (suivi && suivi.encaissements) || {};
+    const ids = Object.keys(encaissements);
+    if (!ids.length || !vue.isConnected) return;
+    const fmt = (n) => Utils.echapper(Utils.fmtMontant(Number(n) || 0, commande.devise));
+    const MODES = { especes: "en espèces", mobile_money: "par MoMoPay" };
+
+    for (const id of ids) {
+      const e = encaissements[id] || {};
+      const zone = UI.$$("[data-encaisse-pour]", vue).find((z) => z.dataset.encaissePour === id);
+      if (!zone || !(Number(e.montant) > 0)) continue;
+      zone.innerHTML =
+        '<div class="re-encaisse-tete">' + UI.icone("check", "ic-sm") +
+          "<div><small>Payé à la livraison</small><strong>" + fmt(e.montant) + "</strong>" +
+          "<span>" + Utils.echapper([e.livreur ? "à " + e.livreur : "", MODES[e.mode] || "",
+            e.encaisse_le ? "le " + Utils.fmtDateHeure(e.encaisse_le) : ""].filter(Boolean).join(", ")) +
+          "</span></div></div>" +
+        (e.conteste
+          ? '<p class="aide re-encaisse-signale">Vous avez signalé un problème : la boutique et BIZZOO ' +
+            "sont prévenus.</p>"
+          : '<button type="button" class="btn-lien re-contester">Ce n\'est pas exact</button>' +
+            '<div class="re-contester-zone" hidden>' +
+              '<label class="aide" for="re-motif-' + Utils.echapper(id) + '">Qu\'est-ce qui ne va pas ?</label>' +
+              '<textarea id="re-motif-' + Utils.echapper(id) + '" rows="2" maxlength="300" ' +
+                'placeholder="Exemple : j\'ai payé 5 000 seulement"></textarea>' +
+              '<button type="button" class="btn btn-clair re-contester-envoyer">Signaler</button>' +
+            "</div>");
+      zone.hidden = false;
+      const ouvrir = UI.$(".re-contester", zone);
+      if (ouvrir) {
+        ouvrir.onclick = () => {
+          UI.$(".re-contester-zone", zone).hidden = false;
+          ouvrir.hidden = true;
+        };
+        const envoyer = UI.$(".re-contester-envoyer", zone);
+        envoyer.onclick = async () => {
+          envoyer.disabled = true;
+          try {
+            await Paiement.contester(commande.id, id, UI.$("textarea", zone).value,
+              (commande.client && commande.client.tel) || "");
+            UI.toast("C'est signalé : la boutique et BIZZOO sont prévenus.");
+            remplirEncaissements(vue, commande);
+          } catch (err) {
+            UI.toast(err.message, "err");
+            envoyer.disabled = false;
+          }
+        };
+      }
+    }
+
+    /* L'en-tête : ce qui a été payé à la porte, et « soldée » quand il ne
+       reste plus rien. */
+    const paye = Number(suivi.paye_livraison) || 0;
+    const reste = Math.max(0, Number(suivi.reste) || 0);
+    const solde = UI.$(".re-solde", vue);
+    if (solde && paye > 0) {
+      solde.innerHTML = '<div class="re-acompte-ligne re-paye"><span>Payé à la livraison</span><strong>' +
+        fmt(paye) + "</strong></div>" +
+        (paye >= reste
+          ? '<div class="re-soldee">' + UI.icone("check", "ic-sm") + "Commande soldée</div>"
+          : '<div class="re-acompte-ligne"><span>Encore dû</span><strong>' + fmt(reste - paye) +
+            "</strong></div>");
+      solde.hidden = false;
+      const ligneReste = UI.$(".re-acompte-reste", vue);
+      if (ligneReste) ligneReste.classList.add("re-barre");
+      if (paye >= reste) {
+        const badge = UI.$(".re-entete .badge", vue);
+        if (badge) { badge.textContent = "Soldée"; badge.className = "badge badge-ok"; }
+      }
+    }
   }
 
   /* -----------------------------------------------------
@@ -1581,8 +1727,8 @@ const VuePanier = (() => {
      -----------------------------------------------------
      Le livreur à qui la boutique a confié sa part : son nom, et de quoi
      l'appeler ou lui écrire sur WhatsApp. La base ne le dit qu'au client
-     de la commande, une fois la course confiée, et jusqu'à ce qu'il
-     confirme l'avoir reçue. Rien à montrer, ou une base qui ne connaît
+     de la commande, une fois la course ACCEPTÉE par le livreur (« Reçu », 3.59.0),
+     et jusqu'à ce qu'il confirme l'avoir reçue. Rien à montrer, ou une base qui ne connaît
      pas encore la question : la place reste vide, sans un mot. */
   async function remplirLivreurs(vue, commande) {
     let liste;

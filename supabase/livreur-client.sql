@@ -58,6 +58,9 @@ begin
      where l.commande_id = cible
        and l.etat <> 'annulee'
        and l.confirme_le is null
+       -- (3.59.0) Une fois que le livreur a ACCEPTÉ la course (« Reçu ») —
+       -- ou l'a prise : avant, on ne sait pas encore qui viendra.
+       and (l.recu_le is not null or l.etat in ('en_livraison', 'remise'))
      order by l.boutique_id;
 end $$;
 revoke all on function public.livreurs_de_ma_commande(text, text) from public;

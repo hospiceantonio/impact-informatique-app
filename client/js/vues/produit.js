@@ -166,7 +166,8 @@ const VueProduit = (() => {
     }
 
     const boutique = Catalogue.boutique();
-    const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    const vu = Catalogue.prixVu(p);
+    const remise = Utils.remisePourcent(vu.ancienPrix, vu.prix);
     const similaires = Catalogue.similaires(p, 4);
     Pixel.produitVu(p, Catalogue.deviseDe(p));
 
@@ -179,7 +180,10 @@ const VueProduit = (() => {
     const partage = document.getElementById("p-partager");
     if (partage) {
       partage.onclick = () => UI.partager({
-        titre: p.nom, texte: p.nom + " — " + Utils.fmtMontant(p.prix, Catalogue.deviseDe(p)) + " sur BIZZOO",
+        /* (3.59.0) Le PRIX PUBLIC, toujours : celui qui ouvre le lien le
+           verra, et un revendeur ne partage pas son propre tarif. */
+        titre: p.nom, texte: p.nom + " — " +
+          Utils.fmtMontant(p.prixRevendeur ? p.prixPublic : p.prix, Catalogue.deviseDe(p)) + " sur BIZZOO",
         lien: Utils.lienPartage("produit", p.id),
       });
     }
@@ -193,7 +197,7 @@ const VueProduit = (() => {
          client désignent de la même façon, quoi qu'il arrive au reste. */
       (p.code ? "\n• Code : " + p.code : "") +
       (p.reference ? "\n• Référence : " + p.reference : "") +
-      "\n• Prix affiché : " + Utils.fmtMontant(p.prix, boutique.devise) +
+      "\n• Prix affiché : " + Utils.fmtMontant(vu.prix, boutique.devise) +
       (description ? "\n• Description :\n" + description : "");
     const etat = Catalogue.statut(p);
     const messageWa = etat === "disponible"
@@ -226,7 +230,7 @@ const VueProduit = (() => {
         /* Un prix barré ressemble à une promotion, et une promotion
            s'arrête. Ici il faut dire ce que c'est : le prix de ce
            compte-ci, qui ne s'arrêtera pas dimanche soir. */
-        (p.prixRevendeur
+        (vu.revendeur
           ? '<div class="fiche-revendeur">' + UI.icone("magasin", "ic-sm") +
             "Votre prix revendeur</div>"
           : "") +
@@ -403,7 +407,16 @@ const VueProduit = (() => {
        pas le remettre, et la base refuserait la commande au moment de
        payer. Le bouton WhatsApp, plus haut, reste là pour demander le
        délai. */
-    if (etat !== "rupture") {
+    /* BOUTIQUE FERMÉE (3.59.0) : pas de panier. Le lien a pu être
+       partagé la veille ; on dit quand elle rouvre, plutôt que de laisser
+       partir une commande que personne ne prendrait. */
+    const chez = Catalogue.boutiqueDuProduit(p);
+    const fermee = !!chez && !Catalogue.ouverteMaintenant(chez);
+    if (fermee) {
+      const quand = Catalogue.prochaineOuverture(chez);
+      UI.barreAction('<div class="pa-ferme" id="p-fermee">' + UI.icone("horloge", "ic-sm") +
+        " Boutique fermée" + (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".</div>");
+    } else if (etat !== "rupture") {
       const barre = UI.barreAction(
         '<div class="pa-compteur pa-compteur-da">' +
           '<button type="button" id="p-moins" aria-label="Un de moins">−</button>' +

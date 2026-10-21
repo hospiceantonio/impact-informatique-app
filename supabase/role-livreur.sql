@@ -68,6 +68,101 @@ alter table public.profils
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Les colonnes que les fonctions plus bas lisent (3.59.0).
+alter table public.commande_lignes add column if not exists recu_le timestamptz;
+
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.equipe_de(cible text) returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(p.id), '{}'::uuid[])
+    from public.profils p
+   where p.actif and cible is not null and p.boutique_id = cible
+     and p.role in ('administrateur', 'moderateur');
+$$;
+
+
+create or replace function public.notifier(
+  qui uuid[], quoi text, le_titre text, le_corps text,
+  le_lien text, la_commande text, la_boutique text, qui_sonne boolean)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int := 0;
+begin
+  if qui is null or array_length(qui, 1) is null then return 0; end if;
+  insert into public.notifications
+    (destinataire, type, titre, corps, lien, commande_id, boutique_id, sonne)
+  select u, quoi, coalesce(le_titre, ''), coalesce(le_corps, ''),
+         coalesce(le_lien, ''), la_commande, la_boutique, coalesce(qui_sonne, false)
+    from unnest(qui) as u
+   where u is not null
+  on conflict do nothing;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.notifier(uuid[], text, text, text, text, text, text, boolean)
+  from public, anon, authenticated;
+
+
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0),
+    -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
+    'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
+                   from public.encaissements x
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -158,8 +253,11 @@ language sql stable security definer set search_path = public as $$
   select case
     when public.est_super() then true
     when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    -- L'HABILITATION VAUT POUR TOUS (3.59.0), administrateur de boutique
+    -- compris : retirée, on ne crée, ne modifie ni ne supprime plus de
+    -- produit. Seul le superadministrateur passe outre.
     else public.est_equipe()
-     and coalesce((select role = 'administrateur' or peut_modifier_produits
+     and coalesce((select peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false)
   end;
 $$;
@@ -234,6 +332,11 @@ begin
   if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
      and new.livreur_id is distinct from old.livreur_id then
     raise exception 'Une livraison se confie depuis le compte de la boutique';
+  end if;
+  -- « Reçu » se pose par « accepter_course », par le livreur lui-même.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.recu_le is distinct from old.recu_le then
+    raise exception 'Une course s''accepte depuis le compte du livreur';
   end if;
 
   if new.commande_id is distinct from old.commande_id
@@ -326,8 +429,12 @@ create or replace function public.assigner_livreur(
 returns int
 language plpgsql security definer set search_path = public as $$
 declare
-  combien int;
-  rang    text;
+  combien  int;
+  autres   int := 0;
+  rang     text;
+  bizzoo   boolean := false;
+  numero   text;
+  b        record;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -336,7 +443,7 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role into rang from public.profils p
+    select p.role, (p.boutique_id is null) into rang, bizzoo from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -356,17 +463,47 @@ begin
 
   perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set livreur_id = livreur
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
-     and l.etat in ('preparee', 'en_livraison');
+     -- (3.59.0) En secours de la demande envoyée à tous les livreurs : la
+     -- boutique peut confier dès le paiement, sans attendre le colis.
+     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+     and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
   get diagnostics combien = row_count;
+
+  -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
+  -- prendre une part déjà confiée au livreur d'une autre boutique.
+  if bizzoo and combien > 0 then
+    update public.commande_lignes l
+       set livreur_id = livreur, recu_le = null
+     where l.commande_id = commande
+       and l.boutique_id <> boutique
+       and l.livreur_id is null
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+    get diagnostics autres = row_count;
+  end if;
   perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
-    raise exception 'Rien à confier ici : préparez d''abord la commande.';
+    raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
   end if;
-  return combien;
+
+  -- Les autres boutiques le savent : un livreur BIZZOO passera chez elles.
+  if autres > 0 then
+    select c.numero into numero from public.commandes c where c.id = commande;
+    for b in select distinct l.boutique_id as id from public.commande_lignes l
+              where l.commande_id = commande and l.boutique_id <> boutique and l.livreur_id = livreur
+    loop
+      perform public.notifier(public.equipe_de(b.id), 'course_confiee',
+        'Un livreur BIZZOO passe récupérer vos produits',
+        'Commande ' || coalesce(numero, '') || ' — il livre toute la commande. Préparez le colis.',
+        '#/commandes/' || commande, commande, b.id, true);
+    end loop;
+  end if;
+  return combien + autres;
 end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
 grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;
@@ -379,7 +516,14 @@ alter table public.commandes add column if not exists acompte int;
 alter table public.commandes add column if not exists verse int;
 create or replace function public.restes_par_boutique(cible text)
 returns table (boutique_id text, a_encaisser bigint)
-language sql stable security definer set search_path = public as $$
+language plpgsql stable security definer set search_path = public as $$
+declare lp jsonb;
+begin
+  select c.parts into lp from public.commandes c where c.id = cible;
+  -- UNE COMMANDE D'AVANT LES CONDITIONS PAR BOUTIQUE (« parts » vide) :
+  -- l'ancienne règle, celle d'un acompte unique réparti au prorata.
+  if lp is null then
+    return query
   with commande as (
     select c.total::numeric as total,
            greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
@@ -415,7 +559,58 @@ language sql stable security definer set search_path = public as $$
   select x.boutique,
          (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
     from repartie x;
-$$;
+    return;
+  end if;
+  -- (3.59.0) CHAQUE BOUTIQUE ENCAISSE SA PART, moins SON acompte : ce
+  -- que valent ses articles servis, remise déduite au prorata, plus ses
+  -- frais tant qu'il y a quelque chose à livrer.
+  --
+  -- CE QUE LE CLIENT A VERSÉ N'EST JAMAIS PERDU POUR LUI. Chaque boutique
+  -- déduit d'abord son propre acompte ; ce qui a été versé en plus — un
+  -- surplus, ou l'acompte d'une part annulée — diminue les autres parts
+  -- au prorata, l'arrondi à la plus grosse.
+  return query
+    with commande as (
+      select greatest(0, coalesce(c.remise, 0))::numeric as remise,
+             greatest(0, coalesce(c.verse, c.acompte, c.total))::numeric as paye
+        from public.commandes c where c.id = cible
+    ), lignes as (
+      select l.boutique_id as bou,
+             sum(l.prix * l.quantite)::numeric as brut,
+             coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+        from public.commande_lignes l
+       where l.commande_id = cible
+       group by l.boutique_id
+    ), tout as (
+      select sum(x.brut) as s from lignes x
+    ), brutes as (
+      select x.bou,
+             greatest(0, round(x.servi - k.remise * x.servi / nullif(t.s, 0))
+                         + case when x.servi > 0 then coalesce((lp -> x.bou ->> 'frais')::numeric, 0) else 0 end) as du
+        from lignes x, tout t, commande k
+    ), propres as (
+      select b.bou, b.du,
+             least(b.du, coalesce((lp -> b.bou ->> 'acompte')::numeric, 0)) as sien
+        from brutes b
+    ), credit as (
+      select greatest(0, k.paye - coalesce(sum(p.sien), 0)) as reste_credit,
+             coalesce(sum(p.du - p.sien), 0) as a_couvrir
+        from propres p, commande k
+       group by k.paye
+    ), allege as (
+      select p.bou, p.du - p.sien as du,
+             case when c.a_couvrir > 0
+                  then floor(least(c.reste_credit, c.a_couvrir) * (p.du - p.sien) / c.a_couvrir)
+                  else 0 end as moins,
+             least(c.reste_credit, c.a_couvrir) as credit,
+             row_number() over (order by p.du - p.sien desc, p.bou) as rang
+        from propres p, credit c
+    )
+    select a.bou,
+           greatest(0, a.du - a.moins
+                       - case when a.rang = 1 then a.credit - sum(a.moins) over () else 0 end)::bigint
+      from allege a;
+end $$;
 revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
 
 -- ---------- Ce que le livreur a à porter ----------
@@ -436,7 +631,8 @@ returns table (
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
   etat text, articles jsonb, paye_le timestamptz,
-  a_encaisser bigint)
+  a_encaisser bigint,
+  fiche jsonb, recu_le timestamptz)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -449,7 +645,10 @@ begin
            c.client_adresse, c.note,
            -- L'étape la MOINS avancée de ses lignes : c'est elle qui dit
            -- ce qu'il lui reste à faire.
-           min(l.etat)::text,
+           -- (3.59.0) Par le rang, pas l'alphabet : une course prise dès le
+           -- paiement est d'abord « nouvelle » ou « vue » — en préparation.
+           (array['nouvelle','vue','preparee','en_livraison','remise'])[
+             min(array_position(array['nouvelle','vue','preparee','en_livraison','remise'], l.etat))]::text,
            jsonb_agg(jsonb_build_object(
              'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
              order by l.nom),
@@ -458,12 +657,15 @@ begin
            -- SA boutique. Zéro quand tout a été payé en ligne.
            coalesce((select r.a_encaisser
                        from public.restes_par_boutique(c.id) r
-                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint,
+           -- Où récupérer, où livrer, les frais, le déjà-payé (3.59.0).
+           public.fiche_course(c.id, l.boutique_id),
+           min(l.recu_le)
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
        and c.etat = 'payee'
-       and l.etat in ('preparee', 'en_livraison', 'remise')
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison', 'remise')
        -- Une course remise depuis plus de deux jours n'a plus à
        -- encombrer sa liste.
        and (l.etat <> 'remise' or c.paye_le > now() - interval '2 days')
@@ -500,13 +702,33 @@ begin
   -- jamais avoir été prise.
   depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
 
+  -- (3.59.0) PAS DE REMISE SANS LE RESTE PAYÉ PAR MOMOPAY. Ce chemin
+  -- d'avant (« Je l'ai remise » sans rien déclarer) ne passe plus quand
+  -- le client doit encore quelque chose : c'est remettre_course, avec le
+  -- numéro de la transaction, qui remet le colis.
+  if vers = 'remise'
+     and coalesce((select r.a_encaisser from public.restes_par_boutique(commande) r
+                    where r.boutique_id = boutique), 0) > 0
+     and not exists (select 1 from public.encaissements x
+                      where x.commande_id = commande and x.boutique_id = boutique
+                        and x.mode = 'mobile_money') then
+    raise exception 'Le client doit d''abord payer le reste par MoMoPay : touchez « Remettre le colis » et saisissez le numéro de la transaction.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Prendre la course sans avoir touché « Reçu » vaut acceptation.
+  perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set etat = vers
+     set etat = vers,
+         recu_le = coalesce(l.recu_le, now())
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.livreur_id = moi
      and l.etat = depuis;
+  -- Le compte AVANT de rendre le drapeau : « row_count » parle de la
+  -- dernière instruction, et ce serait alors celle-là.
   get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
     raise exception 'Rien à avancer ici : cette course n''en est pas là.';

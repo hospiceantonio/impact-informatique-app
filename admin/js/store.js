@@ -350,6 +350,10 @@ const Store = (() => {
       flashFin: l.flash_fin ? Date.parse(l.flash_fin) || null : null,
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
+      /* Masqué aux clients (3.59.0), par qui, depuis quand. */
+      masque: l.masque === true,
+      masquePar: l.masque_par || "",
+      masqueLe: l.masque_le || "",
       images,
       video: l.video || "",
       videoUrl: l.video ? Supabase.urlImage(l.video) : "",
@@ -434,6 +438,14 @@ const Store = (() => {
       logo: l.logo || "",
       logoUrl: l.logo ? Supabase.urlImage(l.logo) : "",
       actif: l.actif !== false,
+      /* Les jours et heures d'ouverture (3.59.0) ; null : pas encore posés. */
+      ouvertures: l.ouvertures && typeof l.ouvertures === "object" ? l.ouvertures : null,
+      /* Ses conditions de paiement et ses frais (3.59.0). */
+      /* « undefined » sur une base d'avant : rien n'est alors renvoyé à
+         la base, qui ne connaît pas ces colonnes. */
+      modePaiement: l.mode_paiement === undefined ? undefined : (l.mode_paiement === "total" ? "total" : "acompte"),
+      tauxAcompte: l.taux_acompte == null ? undefined : Number(l.taux_acompte),
+      fraisLivraison: l.frais_livraison == null ? undefined : Number(l.frais_livraison),
       ordre: l.ordre || 0,
       nomBoutique: l.nom || BOUTIQUE_DEFAUT.nomBoutique,
       slogan: l.slogan || BOUTIQUE_DEFAUT.slogan,
@@ -538,6 +550,10 @@ const Store = (() => {
       logo: b.logo || "",
       actif: b.actif !== false,
       ordre: b.ordre || 0,
+      ...(b.ouvertures !== undefined ? { ouvertures: b.ouvertures || null } : {}),
+      ...(b.modePaiement ? { mode_paiement: b.modePaiement === "total" ? "total" : "acompte" } : {}),
+      ...(b.tauxAcompte != null ? { taux_acompte: b.tauxAcompte } : {}),
+      ...(b.fraisLivraison != null ? { frais_livraison: b.fraisLivraison } : {}),
       tel: b.tel || "",
       whatsapp: b.whatsapp || "",
       indicatif: b.indicatif || "229",
@@ -809,6 +825,9 @@ const Store = (() => {
        exigent une boutique non nulle, et il n'en a pas — la base
        refuserait. Lui proposer le bouton, c'était promettre un geste
        qui échoue. */
+    /* SAUF L'ADMINISTRATEUR DE BIZZOO, pour un seul rang : le livreur
+       (3.59.0). La base le lui permet, et rien d'autre. */
+    if (Supabase.estAdminBizzoo()) return ["livreur"];
     if (Supabase.estCompteEnseigne()) return [];
     /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
     return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
@@ -869,7 +888,158 @@ const Store = (() => {
       /* La part du reste qui revient à SA boutique : ce qu'il réclame
          au client. Zéro quand tout a été payé en ligne. */
       aEncaisser: Math.max(0, Number(l.a_encaisser) || 0),
+      /* LA FICHE DE LA COURSE — la même que l'alerte : où récupérer,
+         où livrer, les frais, le déjà-payé. Une base d'avant 3.59.0 ne
+         la rend pas : l'écran retombe alors sur l'ancien affichage. */
+      fiche: l.fiche && typeof l.fiche === "object" ? l.fiche : null,
+      /* « Reçu » touché : vide tant que le livreur n'a pas accepté. Une
+         base sans la colonne compte la course comme acceptée, pour ne
+         pas montrer un bouton qu'elle ne sait pas traiter. */
+      recuLe: "recu_le" in l ? l.recu_le || "" : "ancienne",
     }));
+  }
+
+  /** Les demandes ouvertes que ce livreur peut prendre : envoyées à
+      tous dès le paiement, le premier qui touche « Commande reçue » la
+      prend. Une base d'avant ne connaît pas la question : aucune. */
+  async function coursesProposees() {
+    let lignes;
+    try {
+      lignes = await Supabase.rpcLecture("courses_proposees", {});
+    } catch (_) {
+      return [];
+    }
+    return (lignes || []).filter((l) => l && l.fiche).map((l) => ({
+      commandeId: l.commande_id,
+      numero: l.numero || "",
+      payeLe: l.paye_le || "",
+      fiche: l.fiche,
+    }));
+  }
+
+  /** « Commande reçue » sur une demande : toute la commande est à lui —
+      toutes ses boutiques en livraison groupée. Le second arrive trop
+      tard, et la base le lui dit. */
+  async function prendreCourse(commande) {
+    const combien = await Supabase.rpc("prendre_course", { commande });
+    return Number(combien) || 0;
+  }
+
+  /** « Commande reçue » sur une course que la boutique lui a confiée :
+      la base prévient le client (nom et numéro du livreur) et la
+      boutique. */
+  async function accepterCourse(commande, boutique) {
+    const combien = await Supabase.rpc("accepter_course", { commande, boutique });
+    return Number(combien) || 0;
+  }
+
+  /** « Je l'ai remise », avec ce qu'il a encaissé (3.59.0) : le montant,
+      espèces ou Mobile Money, et un motif quand ce n'est pas ce qui était
+      dû. Remettre et déclarer se font d'un seul geste, dans la base. */
+  async function remettreCourse(commande, boutique, montant, mode, motif) {
+    return Supabase.rpc("remettre_course", {
+      commande, boutique, montant: Math.max(0, Math.round(Number(montant) || 0)),
+      mode: mode || "aucun", motif: motif || "" });
+  }
+
+  /** Ce que le livreur a encaissé et pas encore rendu. Une base d'avant :
+      rien à montrer. */
+  async function maCaisse() {
+    try {
+      return (await Supabase.rpcLecture("ma_caisse", {})) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** La caisse des livreurs : ce qui a été encaissé à la livraison sur
+      les boutiques que l'on tient — rendu ou pas —, et les remises faites
+      sans déclaration. */
+  /* ---------- Le solde de la boutique, et ses reversements (3.59.0) ---------- */
+  async function soldeBoutique(boutique) {
+    const s = await Supabase.rpc("solde_boutique", { cible: boutique });
+    const r = s && s.reception;
+    return {
+      gagne: Number(s.gagne) || 0, aVenir: Number(s.a_venir) || 0,
+      dejaEncaisse: Number(s.deja_encaisse) || 0, reverse: Number(s.reverse) || 0,
+      enAttente: Number(s.en_attente) || 0, disponible: Number(s.disponible) || 0,
+      devise: s.devise || "FCFA",
+      reception: r ? { tel: r.tel || "", reseau: r.reseau || "", titulaire: r.titulaire || "",
+                       majLe: r.maj_le || "", majPar: r.maj_par || "" } : null,
+    };
+  }
+  async function reglerReception(boutique, tel, reseau, titulaire) {
+    const r = await Supabase.rpc("regler_reception", { cible: boutique, tel: tel || "", reseau: reseau || "",
+      titulaire: titulaire || "" });
+    journaliser("boutique", "modification", "Numéro de réception réglé : " + (r && r.reseau) + " " + (r && r.tel),
+      boutique, undefined, boutique);
+    return r;
+  }
+  async function demanderReversement(boutique, montant) {
+    const id = await Supabase.rpc("demander_reversement", { cible: boutique, montant: Math.round(Number(montant) || 0) });
+    journaliser("boutique", "ajout", "Reversement demandé : " + montant, boutique, undefined, boutique);
+    return id;
+  }
+  async function reversements(boutique) {
+    const lignes = await Supabase.rpcLecture("reversements_liste", { cible: boutique || null });
+    return (lignes || []).map((l) => ({
+      id: l.id, boutiqueId: l.boutique_id, nomBoutique: l.nom_boutique || "", montant: Number(l.montant) || 0,
+      tel: l.tel || "", reseau: l.reseau || "", titulaire: l.titulaire || "", etat: l.etat,
+      demandePar: l.demande_par || "", demandeLe: l.demande_le || "", decidePar: l.decide_par || "",
+      decideLe: l.decide_le || "", reference: l.reference || "", motif: l.motif || "", devise: l.devise || "FCFA",
+    }));
+  }
+  async function deciderReversement(id, accord, reference, motif) {
+    const r = await Supabase.rpc("decider_reversement", { cible: id, accord: !!accord,
+      reference: reference || "", motif: motif || "" });
+    journaliser("boutique", "modification", (accord ? "Reversement envoyé, réf. " + reference : "Reversement refusé"),
+      String(id));
+    return r;
+  }
+
+  async function caisseLivreurs() {
+    const lignes = await Supabase.rpcLecture("caisse_livreurs", {});
+    return (lignes || []).map((l) => ({
+      id: l.id == null ? null : Number(l.id),
+      commandeId: l.commande_id, numero: l.numero || "",
+      boutiqueId: l.boutique_id || "", nomBoutique: l.nom_boutique || "",
+      livreurId: l.livreur_id || "", livreurNom: l.livreur_nom || "", livreurTel: l.livreur_tel || "",
+      du: Number(l.du) || 0, montant: l.montant == null ? null : Number(l.montant),
+      mode: l.mode || "", motif: l.motif || "",
+      encaisseLe: l.encaisse_le || "", remisLe: l.remis_le || "", remisPar: l.remis_par_nom || "",
+      contesteLe: l.conteste_le || "", contesteMotif: l.conteste_motif || "",
+      declare: l.declare !== false, devise: l.devise || "FCFA",
+    }));
+  }
+
+  /** Le livreur refuse une course pas encore partie (3.59.0). La
+      boutique est prévenue et peut la confier à nouveau ; la demande se
+      rouvre aux autres livreurs. */
+  async function refuserCourse(commande, motif) {
+    return Supabase.rpc("refuser_course", { commande, motif: motif || "" });
+  }
+
+  /** Ce que la boutique voit de la livraison de ses commandes : qui a
+      pris la course, s'il l'a acceptée, et le dernier refus. Une base
+      d'avant ne connaît pas la question : rien. */
+  async function livraisonDesCommandes(ids) {
+    if (!ids || !ids.length) return [];
+    try {
+      const lignes = await Supabase.rpcLecture("livraison_des_commandes", { cibles: ids });
+      return (lignes || []).map((l) => ({
+        commandeId: l.commande_id, boutiqueId: l.boutique_id || "",
+        livreurNom: l.livreur_nom || "", livreurTel: l.livreur_tel || "",
+        livreurBizzoo: !!l.livreur_bizzoo, recuLe: l.recu_le || "",
+        refusNom: l.refus_nom || "", refusMotif: l.refus_motif || "", refuseLe: l.refuse_le || "",
+      }));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** « Argent reçu du livreur ». */
+  async function marquerRemis(ids) {
+    return Number(await Supabase.rpc("marquer_remis", { ids })) || 0;
   }
 
   /** « Je l'ai prise » / « Je l'ai remise ». Deux gestes, pas plus. */
@@ -880,8 +1050,25 @@ const Store = (() => {
   }
 
   /** Ce compte est-il sous ma responsabilité ? */
+  /* CEUX QUI VOUS ONT CRÉÉ (3.59.0) : votre créateur, le sien, et ainsi
+     de suite. On ne modifie pas leurs droits — la base le refuse, l'écran
+     ne propose donc pas de crayon. Recalculé à chaque lecture des comptes. */
+  let mesCreateurs = new Set();
+  function calculerCreateurs(comptes) {
+    const parId = new Map(comptes.map((c) => [c.id, c]));
+    const vus = new Set();
+    let ici = parId.get(Supabase.identifiant());
+    while (ici && ici.creePar && !vus.has(ici.creePar) && vus.size < 20) {
+      vus.add(ici.creePar);
+      ici = parId.get(ici.creePar);
+    }
+    mesCreateurs = vus;
+  }
+  const estMonCreateur = (c) => !!c && mesCreateurs.has(c.id);
+
   function gereLeCompte(c) {
     if (!c) return false;
+    if (estMonCreateur(c)) return false;
     if (Supabase.estSuper()) return true;
     /* LES DEUX RANGS QU'UN ADMINISTRATEUR NOMME, ET DONC LES DEUX
        QU'IL DOIT POUVOIR REPRENDRE. Le livreur manquait ici alors que
@@ -978,7 +1165,9 @@ const Store = (() => {
   async function listerComptes() {
     const lignes = await Supabase.requete("GET",
       "profils?select=*&order=role.asc,email.asc", undefined, { avecSession: true });
-    return (lignes || []).map(compteDepuisLigne);
+    const comptes = (lignes || []).map(compteDepuisLigne);
+    calculerCreateurs(comptes);
+    return comptes;
   }
 
   /**
@@ -988,7 +1177,13 @@ const Store = (() => {
    */
   async function creerCompte(email, motDePasse, role, boutiqueRattachee, nom, tel) {
     const adresse = String(email || "").trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) throw new Error("Indiquez une adresse email valide.");
+    /* UN LIVREUR ENTRE PAR SON NUMÉRO : son e-mail est facultatif. Le
+       reste de l'équipe garde l'e-mail comme identifiant. */
+    const parNumero = role === "livreur";
+    if (parNumero ? adresse && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)
+                  : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) {
+      throw new Error("Indiquez une adresse email valide.");
+    }
     /* LE NUMÉRO N'EST PLUS FACULTATIF : c'est là que part le code de
        connexion par SMS. Un compte créé sans numéro ne pourrait plus
        entrer le jour où l'enseigne exige le code. */
@@ -1013,7 +1208,7 @@ const Store = (() => {
          c'était faire d'un menu laissé vide un compte qui regarde
          toutes les boutiques — le contraire de ce qu'on voulait. */
       if (choix === ENSEIGNE) {
-        if (!Supabase.estSuper()) {
+        if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() && role === "livreur")) {
           throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
         }
         attachee = null;
@@ -1028,11 +1223,17 @@ const Store = (() => {
     if (!rolesAttribuables().includes(role)) {
       throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
     }
-    if (!Supabase.estSuper() && (attachee || "") !== Supabase.boutiqueDuCompte()) {
+    if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() && role === "livreur") &&
+        (attachee || "") !== Supabase.boutiqueDuCompte()) {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
 
-    const cree = await Supabase.creerCompte(adresse, motDePasse);
+    /* « compte: equipe » : un compte né d'un numéro passerait, sinon,
+       pour un acheteur — la base ne lui poserait pas de fiche. */
+    const cree = parNumero
+      ? await Supabase.creerCompteTelephone(tel, motDePasse,
+          { compte: "equipe", nom: String(nom || "").trim() })
+      : await Supabase.creerCompte(adresse, motDePasse);
     /* LE NOM ET LE NUMÉRO SONT POSÉS ICI, à la création, et pas
        laissés pour plus tard. « Plus tard » n'arrive pas : le compte
        part en service avec son adresse e-mail pour seul nom, et c'est
@@ -1045,9 +1246,35 @@ const Store = (() => {
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
     const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")"
       : role === "livreur" ? " (BIZZOO — toutes les boutiques)" : "";
-    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + adresse + ou, adresse,
+    const qui = adresse || String(tel || "").trim();
+    journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + qui + ou, qui,
       undefined, attachee || null);
     return { ...compteDepuisLigne(fiche), confirmationRequise: cree.confirmationRequise };
+  }
+
+  /**
+   * BIZZOO crée un revendeur (3.59.0) : le compte naît par son numéro,
+   * comme un client qui s'inscrit, puis la base pose sa fiche — une
+   * demande en attente, avec son commerce et son adresse.
+   */
+  async function creerRevendeur({ nom, tel, motDePasse, commerce, adresse }) {
+    const n = String(nom || "").trim();
+    const t = String(tel || "").trim();
+    if (!n) throw new Error("Indiquez le nom du revendeur.");
+    if (t.replace(/\D/g, "").length < 8) throw new Error("Indiquez son numéro de téléphone.");
+    if (String(motDePasse || "").length < 6) throw new Error("Le mot de passe doit faire 6 caractères au moins.");
+    if (String(adresse || "").trim().length < 3) throw new Error("Indiquez l'adresse de son commerce.");
+    /* (3.59.0) Tout administrateur crée un revendeur ; BIZZOO seul le valide. */
+    if (!(Supabase.estSuper() || Supabase.estAdminBizzoo() || Supabase.estAdmin())) {
+      throw new Error("Seul un administrateur crée un compte revendeur.");
+    }
+    const cree = await Supabase.creerCompteTelephone(t, motDePasse, { compte: "client", nom: n });
+    await Supabase.rpc("creer_fiche_revendeur", {
+      cible: cree.id, nom: n, tel: t, message: String(commerce || "").trim(),
+      adresse: String(adresse || "").trim(),
+    });
+    journaliser("compte", "ajout", "Revendeur créé : " + n + " (" + t + ")", n);
+    return cree;
   }
 
   async function majCompte(id, maj) {
@@ -2163,7 +2390,25 @@ const Store = (() => {
       tauxAcompte: l.taux_acompte == null ? null : Number(l.taux_acompte),
       /* Les frais de livraison par commande. Même règle. */
       fraisLivraison: l.frais_livraison == null ? null : Number(l.frais_livraison),
+      /* Le code MoMoPay de BIZZOO (3.59.0) : le reste se paie à la porte
+         sur ce compte. Une base d'avant ne le connaît pas : null. */
+      momopayCode: l.momopay_code == null ? null : String(l.momopay_code),
+      momopayNom: l.momopay_nom == null ? "" : String(l.momopay_nom),
     };
+  }
+
+  /** Le code MoMoPay de BIZZOO, que le livreur montre au client. */
+  async function majMomopay(code, nom) {
+    const propre = String(code || "").replace(/\s+/g, "").slice(0, 30);
+    if (propre && !/^[0-9A-Za-z*#-]{3,30}$/.test(propre)) {
+      throw new Error("Le code MoMoPay ne porte que des chiffres ou des lettres.");
+    }
+    await Supabase.requete("PATCH", "paiement?id=eq.1", {
+      momopay_code: propre, momopay_nom: String(nom || "").trim().slice(0, 60),
+      maj_le: new Date().toISOString() });
+    journaliser("boutique", "modification",
+      propre ? "Code MoMoPay enregistré : " + propre : "Code MoMoPay retiré", "momopay", undefined, null);
+    return propre;
   }
 
   async function majPaiement(maj) {
@@ -2733,6 +2978,14 @@ const Store = (() => {
     const lignes = await lignesProduits("order=modifie_le.desc",
       options && options.toutesBoutiques);
     return (lignes || []).map(produitDepuisLigne);
+  }
+
+  /** Masquer un produit aux clients, ou le réafficher (3.59.0). La base
+      décide qui peut : l'administrateur ou le modérateur de la boutique. */
+  async function masquerProduit(id, cacher) {
+    await Supabase.rpc("masquer_produit", { cible: id, cacher: !!cacher });
+    journaliser("produit", "modification", (cacher ? "Produit masqué" : "Produit réaffiché"), id);
+    return !!cacher;
   }
 
   async function lireProduit(id) {
@@ -3554,18 +3807,18 @@ const Store = (() => {
   return {
     MAX_SLIDES, MAX_EN_AVANT, MAX_PHOTOS, MAX_VIDEO_MO, ALERTE_VIDEO_MO,
     MAX_PHOTOS_BOUTIQUE,
-    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte,
+    MAX_TELEPHONES, MAX_ADRESSES, TAUX_MAX, ROLES, rolesAttribuables, gereLeCompte, estMonCreateur,
     prixPublic, prixRevendeur, tauxDepuisPrix, tauxApplique, lireTaux,
     init, lireReglages, majReglages, photosBoutique, sauverPhotosBoutique,
     lireEnseigne, majEnseigne, videoBoutique, sauverVideoBoutique,
     listerBoutiques, lireBoutique, boutiqueCourante, choisirBoutique,
     sauverBoutique, basculerBoutique, deplacerBoutique, supprimerBoutique,
     journaliser, lireJournal,
-    listerComptes, creerCompte, majCompte, supprimerCompte, changerMotDePasseCompte,
+    listerComptes, creerCompte, creerRevendeur, majCompte, supprimerCompte, changerMotDePasseCompte,
     estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     sousCategoriesDuSecteur, produitsClasses, changerSecteur,
-    listerProduits, lireProduit, produitsDeCategorie, chercherProduits, prochaineReference,
+    listerProduits, lireProduit, masquerProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
     listerDemandes, approuverDemande, refuserDemande, retirerDemande,
@@ -3576,7 +3829,8 @@ const Store = (() => {
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
     positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
-    listerLivreurs, confierLivraison, mesLivraisons, avancerLivraison,
+    listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
+    remettreCourse, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,
@@ -3587,7 +3841,7 @@ const Store = (() => {
     statutCommande,
     statistiquesVentes,
     statistiquesBoutique,
-    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, lireRegles, majRegles,
+    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, majMomopay, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,
     annulerAction,

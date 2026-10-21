@@ -41,7 +41,11 @@
     { motif: /^\/validations$/, vue: (v) => VueValidations.afficher(v), super: true },
     /* Valider un revendeur, c'est lui ouvrir le prix BIZZOO dans TOUTES
        les boutiques : la décision appartient à l'enseigne seule. */
-    { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), super: true },
+    /* « adminBizzoo » : l'administrateur de BIZZOO y entre aussi (3.59.0). */
+    /* (3.59.0) L'administrateur d'une boutique y entre aussi, pour CRÉER un
+       revendeur ; la validation reste à BIZZOO, l'écran ne la lui montre pas. */
+    { motif: /^\/revendeurs$/, vue: (v) => VueRevendeurs.afficher(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
     /* Les fiches clients : l'enseigne seule. Une boutique voit déjà le
        nom et le numéro sur SES commandes ; lui ouvrir le fichier entier,
        ce serait lui remettre celui de toutes les autres. La base rend
@@ -51,6 +55,13 @@
        BIZZOO qui transite, pas celui d'une boutique — laquelle voit ses
        ventes encaissées dans « Ce que vend votre boutique ». */
     { motif: /^\/versements$/, vue: (v) => VueVersements.afficher(v), super: true },
+    /* La caisse des livreurs (3.59.0) : la base ne rend que ce que le
+       compte tient ; l'écran le dit à qui n'en tient aucune. */
+    { motif: /^\/caisse$/, vue: (v) => VueCaisse.afficher(v) },
+    /* Le solde de la boutique, et les reversements (3.59.0) : la base ne
+       rend que ce que le compte tient. */
+    { motif: /^\/solde$/, vue: (v) => VueSoldes.afficher(v) },
+    { motif: /^\/reversements$/, vue: (v) => VueSoldes.reversements(v), super: true },
     /* Les codes promo : l'enseigne seule. Une remise sort de SA marge —
        on ne laisse pas quelqu'un d'autre l'engager. */
     { motif: /^\/codes$/, vue: (v) => VueCodes.afficher(v), super: true },
@@ -85,7 +96,8 @@
       horsEnseigne: true },
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true },
     /* Les livreurs, à part de l'équipe : leur bouton, leur liste. */
-    { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true },
+    { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages", admin: true },
   ];
@@ -160,6 +172,34 @@
     return file;
   }
 
+  /* ---------- Le suivi des commandes en direct (3.59.0) ----------
+     Une commande qu'on voit vient de bouger — étape, livreur, paiement :
+     l'écran qui la montre se relit tout seul, à la même hauteur. Jamais
+     sous les doigts : une feuille ouverte, une boîte de dialogue ou une
+     saisie en cours, et l'on attend qu'elles se ferment. */
+  const ECRANS_SUIVIS = [/^#\/commandes/, /^#\/livraisons$/, /^#\/caisse$/, /^#\/?$/];
+  let suiviMinuterie = null;
+  function ecranOccupe() {
+    const feuille = document.getElementById("feuille");
+    const actif = document.activeElement;
+    /* « Visible » se juge à l'écran : une fenêtre peut rester dans la
+       page, cachée par son parent. */
+    const fenetreOuverte = [...document.querySelectorAll("[role=dialog], .dialogue")]
+      .some((el) => el.getClientRects().length > 0);
+    return (feuille && !feuille.hidden) || fenetreOuverte ||
+      (actif && /^(INPUT|TEXTAREA|SELECT)$/.test(actif.tagName));
+  }
+  function rafraichirSuivi() {
+    if (!ECRANS_SUIVIS.some((r) => r.test(location.hash || "#/"))) return;
+    if (ecranOccupe()) { suiviMinuterie = setTimeout(rafraichirSuivi, 2000); return; }
+    const hauteur = window.scrollY || 0;
+    naviguer().then(() => { if (hauteur) window.scrollTo(0, hauteur); });
+  }
+  window.addEventListener("bizzoo:commande", () => {
+    clearTimeout(suiviMinuterie);
+    suiviMinuterie = setTimeout(rafraichirSuivi, 600);
+  });
+
   async function dessinerEcran() {
     const { chemin, params } = lireHash();
     const vue = document.getElementById("vue");
@@ -231,13 +271,16 @@
       location.hash = "#/";
       return;
     }
-    if (route.super && !Supabase.estSuper() &&
+    /* L'administrateur de BIZZOO passe là où la route le nomme : les
+       livreurs et les revendeurs (3.59.0). */
+    const parAdminBizzoo = route.adminBizzoo && Supabase.estAdminBizzoo();
+    if (route.super && !Supabase.estSuper() && !parAdminBizzoo &&
         !(route.enseigne && Supabase.estCompteEnseigne())) {
       UI.toast("Cet écran est réservé au super administrateur.", "err");
       location.hash = "#/";
       return;
     }
-    if (route.horsEnseigne && Supabase.estCompteEnseigne()) {
+    if (route.horsEnseigne && Supabase.estCompteEnseigne() && !parAdminBizzoo) {
       UI.toast("Cet écran ne concerne pas les comptes de BIZZOO.", "err");
       location.hash = "#/";
       return;
@@ -245,7 +288,7 @@
     /* Pour un compte d'enseigne, « administrateur » se lit sur son
        interrupteur, pas sur son rang : le dire, sinon « réservé à
        l'administrateur » répondrait à un administrateur de BIZZOO. */
-    if (route.admin && !Supabase.estAdmin()) {
+    if (route.admin && !Supabase.estAdmin() && !parAdminBizzoo) {
       UI.toast(Supabase.estCompteEnseigne()
         ? "Il faut l'interrupteur « Les boutiques » pour ouvrir cet écran."
         : "Cet écran est réservé à l'administrateur.", "err");
@@ -264,6 +307,10 @@
        le repoussent : il n'a qu'un écran, et son compte est dans
        l'en-tête. */
     document.getElementById("tabbar").style.display = estLivreur() ? "none" : "";
+    /* Le « + » de la barre crée un produit : sans l'habilitation, il ne
+       mènerait qu'à un refus (3.59.0). */
+    const plus = document.querySelector("#tabbar .tab-cta");
+    if (plus) plus.style.visibility = Supabase.peutModifierProduits() ? "" : "hidden";
 
     for (const lien of document.querySelectorAll("#tabbar [data-tab]")) {
       lien.classList.toggle("actif", lien.dataset.tab === (route.onglet || ""));
@@ -338,7 +385,10 @@
       }
       /* Réseau coupé : « Store.init() » dira ce qu'il en est. */
     }
-    if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee) {
+    /* (3.59.0) Seul le superadministrateur rend un code — et pas sur un
+       appareil auquel il a fait confiance ce mois-ci. */
+    if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee &&
+        !(await Supabase.reconnaitreAppareil())) {
       VueConnexion.codeSms(vue, etat, ouvrirApplication);
       return;
     }

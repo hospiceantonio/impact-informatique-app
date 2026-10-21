@@ -120,7 +120,7 @@ const Compte = (() => {
       if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
       else localStorage.removeItem(CLE_SESSION);
     } catch (_) { /* navigation privée : la session vivra le temps de l'onglet */ }
-    if (!s) { fiche = null; equipe = null; }
+    if (!s) { fiche = null; equipe = null; livreur = null; }
     prevenir();
   }
 
@@ -151,7 +151,10 @@ const Compte = (() => {
 
   /** Ce compte est-il dans l'équipe ? Une lecture, et on la retient. */
   async function chargerEquipe() {
-    if (!session) { equipe = false; return false; }
+    /* Sans session, on répond sans RETENIR : sinon ce « non » survivait à
+       la connexion qui suit, et un compte de l'équipe passait pour un
+       client jusqu'à la fermeture de l'application. */
+    if (!session) return false;
     if (equipe !== null) return equipe;
     try {
       const lignes = await rest("GET", "profils?select=id&limit=1");
@@ -162,6 +165,58 @@ const Compte = (() => {
       equipe = false;
     }
     return equipe;
+  }
+
+  /* ---------- Un livreur n'est ni acheteur ni revendeur (3.59.0) ----------
+
+     Deux cas, et la base les reconnaît (« mon_compte_livreur ») :
+       — le compte du livreur lui-même, ouvert dans l'application client ;
+       — un « double » : un compte client ouvert avec le numéro d'un
+         livreur, avant que la base ne le refuse. On lui dit d'entrer avec
+         son compte livreur.
+     Ni l'un ni l'autre ne voit « Devenir revendeur », « Mes commandes »
+     ou « Retrouver mes commandes d'avant ». Une base d'avant ne connaît
+     pas la fonction : on ne change rien. */
+  let livreur = null;   // null = pas encore demandé
+  async function chargerLivreur() {
+    if (!session) return { livreur: false, double: false };
+    if (livreur) return livreur;
+    try {
+      const r = await rest("POST", "rpc/mon_compte_livreur", {});
+      livreur = { livreur: !!(r && r.livreur), double: !!(r && r.double) };
+    } catch (_) {
+      return { livreur: false, double: false };
+    }
+    return livreur;
+  }
+  const estLivreur = () => !!(livreur && (livreur.livreur || livreur.double));
+  const estDoubleLivreur = () => !!(livreur && livreur.double);
+
+  /** Les courses du livreur connecté : à livrer, et livrées ces deux derniers jours. */
+  async function mesCourses() {
+    const lignes = await rest("POST", "rpc/mes_livraisons", {});
+    return Array.isArray(lignes) ? lignes : [];
+  }
+
+  /** Les demandes ouvertes que ce livreur peut prendre (3.59.0). */
+  async function coursesProposees() {
+    try {
+      const lignes = await rest("POST", "rpc/courses_proposees", {});
+      return Array.isArray(lignes) ? lignes.filter((l) => l && l.fiche) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** « Commande reçue » sur une demande : le premier la prend. */
+  async function prendreCourse(commande) {
+    return rest("POST", "rpc/prendre_course", { commande });
+  }
+
+  /** « Commande reçue » sur une course confiée : le livreur l'accepte. La base envoie alors au
+      client le nom et le numéro du livreur, et prévient la boutique. */
+  async function accepterCourse(commande, boutique) {
+    return rest("POST", "rpc/accepter_course", { commande, boutique });
   }
 
   /* ---------- Où se trouve le commerce ----------
@@ -236,6 +291,15 @@ const Compte = (() => {
          Le client, lui, veut savoir quoi corriger. */
       const code = d.error_code || d.error || "";
       const texte = d.msg || d.error_description || d.message || "";
+      /* AVANT « identifiants invalides » : GoTrue range ce refus sous le
+         même « invalid_grant ». Il ne le prononce qu'une fois le mot de
+         passe vérifié — le compte existe, le mot de passe est juste, il
+         ne manque que le code qui confirmera le numéro. */
+      if (code === "phone_not_confirmed" || /phone not confirmed/i.test(texte)) {
+        const e = new Error("Votre numéro n'est pas encore confirmé.");
+        e.code = "phone_not_confirmed";
+        throw e;
+      }
       if (code === "invalid_credentials" || code === "invalid_grant"
           || /invalid login credentials/i.test(texte)) {
         throw new Error("E-mail ou mot de passe incorrect.");
@@ -278,6 +342,15 @@ const Compte = (() => {
       }
       if (code === "phone_exists" || /phone.*already/i.test(texte)) {
         throw new Error("Ce numéro est déjà utilisé par un autre compte.");
+      }
+      /* Le numéro d'un livreur n'ouvre pas de compte client : la base le
+         refuse, et GoTrue n'en rend qu'une « erreur de base ». */
+      if (/database error saving new user|NUMERO_LIVREUR/i.test(texte)) {
+        throw new Error("Ce numéro est celui d'un livreur BIZZOO : il n'ouvre pas de compte " +
+          "client. Entrez avec votre compte livreur — son numéro et son mot de passe.");
+      }
+      if (code === "otp_disabled" || /signups not allowed/i.test(texte)) {
+        throw new Error("Aucun compte BIZZOO avec ce numéro. Créez le vôtre.");
       }
       throw new Error(texte || "La connexion a échoué (" + reponse.status + ").");
     }
@@ -719,6 +792,7 @@ const Compte = (() => {
       type: "sms", phone: numero, token: String(code || "").trim(),
     });
     if (!depuisReponse(d, "")) throw new Error("Code incorrect ou expiré.");
+    oublierJetonDuMotDePasse();
     await assurerFiche("");
     await chargerPrix();
     const u = d.user || {};
@@ -726,6 +800,149 @@ const Compte = (() => {
     /* « utilisateur » sert à la publicité : c'est l'écran, qui sait si une
        demande de revendeur accompagne l'inscription, qui la déclare. */
     return { nouveau: ecart >= 0 && ecart < 15 * 60000, utilisateur: d.user || null };
+  }
+
+  /* ---------- Le numéro, le mot de passe, puis le code ----------
+
+     LA PORTE D'AUJOURD'HUI. On crée son compte avec son numéro et un
+     mot de passe — pas d'e-mail exigé. Le code reçu par SMS CONFIRME LE
+     NUMÉRO, UNE FOIS, à l'inscription ; ensuite on entre avec le numéro
+     et le mot de passe seuls (3.59.0) : un SMS à chaque connexion coûtait
+     cher, et lassait. Le code reste la porte de « Mot de passe oublié ».
+
+     Le mot de passe se vérifie d'abord, auprès de GoTrue. La session
+     qu'il ouvre N'EST PAS GARDÉE : elle attend le code, puis elle est
+     fermée. C'est la session du code qui entre.
+
+     CE QUE CELA NE FAIT PAS, et il faut le savoir : c'est l'application
+     qui enchaîne les deux. La base ne sait pas distinguer une session
+     « mot de passe + code » d'une session « code seul » — et le code seul
+     reste, volontairement, la porte de « Mot de passe oublié ». */
+
+  let jetonDuMotDePasse = "";
+
+  /** Ferme, sur le serveur, la session ouverte par le seul mot de passe. */
+  function oublierJetonDuMotDePasse() {
+    const j = jetonDuMotDePasse;
+    jetonDuMotDePasse = "";
+    const c = Catalogue.configuration();
+    if (!j || !c) return;
+    /* « scope=local » : SANS LUI, GoTrue ferme TOUTES les sessions du
+       compte — y compris celle que le code vient d'ouvrir. */
+    fetch(c.url + "/auth/v1/logout?scope=local", {
+      method: "POST",
+      headers: { "apikey": c.cle, "Authorization": "Bearer " + j, "Content-Type": "application/json" },
+      body: "{}",
+    }).catch(() => { /* elle expirera d'elle-même dans l'heure */ });
+  }
+
+  /**
+   * Créer son compte : numéro et mot de passe. GoTrue envoie le code de
+   * confirmation par SMS ; « confirmerCodeConnexion » l'accepte.
+   * Rend le numéro au format international.
+   */
+  async function inscrireTelephone(tel, motDePasse, nom) {
+    const numero = telInternational(tel);
+    if (telNational(tel).length < 8) throw new Error("Numéro incomplet.");
+    if (String(motDePasse || "").length < 6) {
+      throw new Error("Mot de passe trop court : six caractères au minimum.");
+    }
+    let d;
+    try {
+      d = await appelAuth("signup", {
+        phone: numero,
+        password: motDePasse,
+        data: { compte: "client", nom: String(nom || "").trim() },
+      });
+    } catch (err) {
+      if (/déjà/.test(err.message || "")) {
+        throw new Error("Ce numéro a déjà un compte BIZZOO. Connectez-vous avec lui " +
+          "— pas encore de mot de passe ? « Mot de passe oublié » vous en donne un.");
+      }
+      throw err;
+    }
+    const u = (d && (d.user || d)) || {};
+    if (Array.isArray(u.identities) && u.identities.length === 0) {
+      throw new Error("Ce numéro a déjà un compte BIZZOO. Connectez-vous avec lui.");
+    }
+    /* Supabase réglé pour confirmer d'office : une session revient tout
+       de suite. On ne la garde pas — le code reste exigé. */
+    if (d && d.access_token) {
+      jetonDuMotDePasse = d.access_token;
+      await appelAuth("otp", { phone: numero, create_user: false });
+    }
+    return numero;
+  }
+
+  /** Renvoyer le code d'une inscription qui n'a pas encore été confirmée. */
+  async function renvoyerCodeInscription(tel) {
+    await appelAuth("resend", { type: "sms", phone: telInternational(tel) });
+  }
+
+  /**
+   * Entrer : numéro et mot de passe vérifiés, puis le code part. Rend
+   * une fonction « renvoyer » adaptée au cas — le code d'un numéro pas
+   * encore confirmé ne se redemande pas par la même porte.
+   */
+  async function connecterTelephone(tel, motDePasse) {
+    const numero = telInternational(tel);
+    if (telNational(tel).length < 8) throw new Error("Numéro incomplet.");
+    if (!motDePasse) throw new Error("Votre mot de passe.");
+    let confirme = true;
+    try {
+      const d = await appelAuth("token?grant_type=password", { phone: numero, password: motDePasse });
+      /* NUMÉRO DÉJÀ CONFIRMÉ : on entre, sans code (3.59.0). La session du
+         mot de passe est celle qu'on garde. */
+      if (depuisReponse(d, "")) {
+        await assurerFiche("");
+        await chargerPrix();
+        return { numero, entre: true, utilisateur: d.user || null };
+      }
+    } catch (err) {
+      if (err.code === "phone_not_confirmed") confirme = false;
+      else if (/incorrect/.test(err.message || "")) {
+        throw new Error("Numéro ou mot de passe incorrect. Pas encore de mot de passe ? " +
+          "Touchez « Mot de passe oublié ».");
+      } else throw err;
+    }
+    const envoyer = confirme
+      ? () => appelAuth("otp", { phone: numero, create_user: false })
+      : () => renvoyerCodeInscription(numero);
+    await envoyer();
+    return { numero, renvoyer: envoyer };
+  }
+
+  /** Mot de passe oublié, ou jamais choisi : un code, sans mot de passe. */
+  async function demanderCodeOubli(tel) {
+    const numero = telInternational(tel);
+    if (telNational(tel).length < 8) throw new Error("Numéro incomplet.");
+    await appelAuth("otp", { phone: numero, create_user: false });
+    return numero;
+  }
+
+  /**
+   * Ajouter, ou changer, l'e-mail du compte : la seconde porte, pour le
+   * jour où le téléphone n'est pas là. Rend { applique } : vrai quand
+   * l'adresse est déjà celle du compte, faux quand Supabase attend
+   * qu'on clique le lien envoyé.
+   */
+  async function ajouterEmail(adresse) {
+    const email = String(adresse || "").trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Cette adresse e-mail n'est pas valide.");
+    const s = await assurerSession();
+    if (!s) throw new Error("Reconnectez-vous d'abord.");
+    let d;
+    try {
+      d = await appelAuth("user", { email }, true, "PUT");
+    } catch (err) {
+      if (/déjà/.test(err.message || "") || /email.*(exists|registered)/i.test(err.message || "")) {
+        throw new Error("Cette adresse est déjà celle d'un autre compte.");
+      }
+      throw err;
+    }
+    const applique = !!(d && String(d.email || "").toLowerCase() === email);
+    if (applique) garder({ ...session, email });
+    return { applique };
   }
 
   /** Porte 2 — demander un code pour vérifier son numéro, déjà connecté. */
@@ -1352,12 +1569,14 @@ const Compte = (() => {
     demanderRevendeur, annulerRevendeur, enregistrerPosition, chargerPrix,
     telInternational, telNational, telAffichage,
     demanderCodeConnexion, confirmerCodeConnexion,
+    inscrireTelephone, renvoyerCodeInscription, connecterTelephone, demanderCodeOubli,
+    ajouterEmail,
     demanderCodeNumero, confirmerCodeNumero, rattacherMesCommandes,
     smsDisponible, masquerSiSmsFerme,
     confirmerReception,
     mesCommandes, commande, statutLivraison, paliersLivraison, rpc, rest,
     chargerRegles, compteExige, reglesConnues,
     positionActuelle, positionDuLien, positionRevendeur,
-    chargerEquipe, estEquipe,
+    chargerEquipe, estEquipe, chargerLivreur, estLivreur, estDoubleLivreur, mesCourses, coursesProposees, prendreCourse, accepterCourse,
   };
 })();

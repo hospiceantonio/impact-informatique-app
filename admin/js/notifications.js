@@ -38,7 +38,7 @@ const Notifs = (() => {
   let tentatives = 0;
   let refMessage = 0;
   let actif = false;
-  let enCours = false;
+  let enCours = null;
   const abonnes = [];
 
   const surChangement = (rappel) => { abonnes.push(rappel); };
@@ -48,9 +48,17 @@ const Notifs = (() => {
 
   /* ---------- Lire ---------- */
 
-  async function recharger() {
-    if (enCours || !Supabase.sessionPresente()) return false;
-    enCours = true;
+  /* Une lecture en cours se partage : l'écran ouvert d'emblée sur
+     « #/notifications » attend celle du démarrage au lieu de repartir
+     les mains vides. */
+  function recharger() {
+    if (enCours) return enCours;
+    if (!Supabase.sessionPresente()) return Promise.resolve(false);
+    enCours = lire();
+    return enCours;
+  }
+
+  async function lire() {
     try {
       const avant = nonLues;
       const lignes = await Supabase.requete("GET",
@@ -73,7 +81,11 @@ const Notifs = (() => {
          nombre monte » ferait sonner au premier chargement, quand on
          retrouve trente commandes jamais ouvertes — un carillon à
          l'ouverture de l'application. */
-      if (avant >= 0 && nonLues > avant && liste.some((n) => !n.lue && n.sonne)) {
+      /* LE LIVREUR A SA SONNERIE (3.59.0) : elle insiste tant qu'une
+         course attend « Commande reçue ». Les autres gardent les bips. */
+      if (estLivreur()) {
+        verifierCourses();
+      } else if (avant >= 0 && nonLues > avant && liste.some((n) => !n.lue && n.sonne)) {
         Son.troisBips();
       }
       prevenir();
@@ -83,7 +95,55 @@ const Notifs = (() => {
          jour : on garde ce qu'on a, et l'application marche sans. */
       return false;
     } finally {
-      enCours = false;
+      enCours = null;
+    }
+  }
+
+  /* ---------- La sonnerie du livreur (3.59.0) ----------
+     Une course l'attend : confiée et pas encore acceptée, ou proposée à
+     tous et pas encore prise. Tant qu'il y en a une, la sonnerie et la
+     vibration reprennent toutes les quatre secondes ; « Commande reçue »,
+     ou un refus, les arrêtent. */
+  const estLivreur = () => Supabase.role() === "livreur";
+
+  /* « DÉJÀ PRIS PAR … » (3.59.0). Une demande proposée à plusieurs
+     livreurs — une livraison groupée, à tous ceux de BIZZOO — disparaît
+     dès que l'un la prend : la base envoie aux autres « Déjà pris par
+     <nom> », en temps réel. On le dit à l'écran, et la sonnerie s'arrête. */
+  let demandesVues = new Set();
+  const priseDe = (commandeId) =>
+    liste.find((n) => n.type === "course_prise" && n.commandeId === commandeId);
+
+  function majAlerte(courses, demandes) {
+    const ici = new Set((demandes || []).map((d) => d.commandeId));
+    const parties = [...demandesVues].filter((id) => !ici.has(id));
+    demandesVues = ici;
+    for (const id of parties) {
+      const n = priseDe(id);
+      if (n) {
+        UI.toast(n.titre + " : la course n'est plus disponible.");
+        marquerLue(n.id);
+      }
+    }
+    const attend = (demandes || []).length > 0 ||
+      (courses || []).some((c) => c.fiche && !c.recuLe && c.etat !== "remise");
+    if (attend && estLivreur()) Son.demarrerAlerte();
+    else Son.arreterAlerte();
+    return parties;
+  }
+
+  async function verifierCourses() {
+    if (!estLivreur()) { Son.arreterAlerte(); return; }
+    try {
+      const [courses, demandes] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees()]);
+      /* Une demande vient de partir chez un autre : l'écran des courses,
+         s'il est ouvert, se relit — la carte disparaît sous ses yeux. */
+      if (majAlerte(courses, demandes).length) {
+        window.dispatchEvent(new CustomEvent("bizzoo:courses"));
+      }
+    } catch (_) {
+      /* Base injoignable : on ne coupe pas une sonnerie en cours sur une
+         panne, et on n'en lance pas une sur rien. */
     }
   }
 
@@ -161,7 +221,10 @@ const Notifs = (() => {
                  serveur enverrait les lignes des autres et compterait
                  sur nous pour les jeter. */
               postgres_changes: [{ event: "INSERT", schema: "public",
-                table: "notifications", filter: "destinataire=eq." + moi }],
+                table: "notifications", filter: "destinataire=eq." + moi },
+                /* (3.59.0) Le signal des commandes qu'on voit : la base ne
+                   l'envoie qu'à ceux qui y ont droit. */
+                { event: "*", schema: "public", table: "commandes_signaux" }],
             },
             access_token: s.access_token,
           },
@@ -178,7 +241,15 @@ const Notifs = (() => {
       socket.onmessage = (message) => {
         let donnees;
         try { donnees = JSON.parse(message.data); } catch (_) { return; }
-        if (donnees && donnees.event === "postgres_changes") recharger();
+        if (!donnees || donnees.event !== "postgres_changes") return;
+        const table = donnees.payload && donnees.payload.data && donnees.payload.data.table;
+        if (table === "commandes_signaux") {
+          /* UNE COMMANDE A BOUGÉ (3.59.0) : l'écran qui la montre se relit. */
+          const r = donnees.payload.data.record || {};
+          window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id: r.commande_id || "" } }));
+          return;
+        }
+        recharger();
       };
 
       socket.onclose = () => {
@@ -227,6 +298,7 @@ const Notifs = (() => {
 
   function arreter() {
     actif = false;
+    Son.arreterAlerte();
     fermer();
     clearInterval(minuterieFond);
     liste = [];
@@ -242,6 +314,6 @@ const Notifs = (() => {
 
   return {
     demarrer, arreter, recharger, compte, toutes,
-    marquerLue, toutMarquerLu, surChangement,
+    marquerLue, toutMarquerLu, surChangement, majAlerte, verifierCourses,
   };
 })();

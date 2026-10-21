@@ -123,11 +123,10 @@ insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
 select essai.devenir(:CHEF::uuid);
 set role authenticated;
 
--- On ne confie pas ce qui n'est pas prêt.
-select essai.refuse(
-  format($$select public.assigner_livreur(%L, 'bou_informatique', %L::uuid)$$,
-    :'vente', :PORTEUR),
-  'on confie une commande pas encore préparée');
+-- (3.59.0) Une commande PAYÉE se confie dès le paiement, même pas encore
+-- préparée : c'est le secours de la demande envoyée à tous les livreurs.
+-- Ce qui n'est pas payé reste refusé — éprouvé dans
+-- 99zzzzzzzzzz-demande-course.sql.
 
 update public.commande_lignes set etat = 'vue' where id = :'ligne';
 update public.commande_lignes set etat = 'preparee' where id = :'ligne';

@@ -74,11 +74,12 @@ const VueCompte = (() => {
     };
   }
 
-  /* LE NUMÉRO D'ABORD (3.58.0). Le SMS ouvert, on entre avec son numéro
-     et un code : pas de mot de passe à retenir, et pas d'adresse e-mail à
+  /* LE NUMÉRO D'ABORD (3.59.0). Le SMS ouvert, on entre avec son numéro,
+     son mot de passe ET un code reçu par SMS. Pas d'adresse e-mail à
      avoir — au Bénin, beaucoup de clients ont un numéro et pas de
-     courriel. L'e-mail ne sert plus qu'aux comptes ouverts avant, derrière
-     un lien, et une seule fois : le temps de confirmer leur numéro.
+     courriel. L'e-mail, facultatif, s'ajoute dans « Mon compte » : c'est
+     la seconde porte, e-mail et mot de passe, pour le jour où le
+     téléphone n'est pas là.
 
      Le SMS fermé, rien ne change : l'e-mail et le mot de passe reviennent
      devant. LES DEUX VERSIONS SONT DESSINÉES, l'une marquée « data-sms »,
@@ -90,8 +91,8 @@ const VueCompte = (() => {
     vue.innerHTML =
       '<div class="carte" data-sms>' + porteNumero() + "</div>" +
       '<div class="carte" data-sms>' +
-        '<p class="aide" style="margin:0">Vous aviez ouvert votre compte avec une ' +
-          'adresse e-mail ? <a href="#/connexion-email" id="cp-ancien">Entrer avec ' +
+        '<p class="aide" style="margin:0">Pas accès à votre téléphone, ou compte ouvert ' +
+          'avec une adresse e-mail ? <a href="#/connexion-email" id="cp-ancien">Entrer avec ' +
           "mon e-mail</a></p>" +
       "</div>" +
       '<div class="carte" data-sans-sms hidden>' + formulaireEmail() + "</div>" +
@@ -109,22 +110,27 @@ const VueCompte = (() => {
     Compte.masquerSiSmsFerme(vue);
   }
 
-  /* ---------- La porte des comptes d'avant ----------
-     Un compte ouvert avec une adresse e-mail, avant le SMS. Il entre une
-     dernière fois avec elle, confirme son numéro, et c'est fini : la
-     fois suivante, son numéro suffit. */
+  /* ---------- La seconde porte : l'e-mail ----------
+     Le téléphone n'est pas là — perdu, déchargé, hors réseau : l'e-mail
+     et le mot de passe du compte suffisent, SANS CODE. C'est le choix de
+     BIZZOO : une porte de secours qu'un code envoyé au téléphone absent
+     fermerait aussitôt. Encore faut-il avoir ajouté son e-mail dans
+     « Mon compte ».
+
+     Un compte d'avant, ouvert avec un e-mail et sans numéro, passe aussi
+     par ici — et confirme alors son numéro, une fois. */
   function connexionEmail(vue) {
     UI.entete({ titre: "Avec mon e-mail", retour: true });
 
     vue.innerHTML =
       '<div class="carte" data-sms>' +
-        '<p class="aide" style="margin:0">Pour les comptes ouverts avec une adresse ' +
-          "e-mail. Entrez une dernière fois avec elle : nous vous demanderons ensuite " +
-          "de confirmer votre numéro par SMS. Après, votre numéro suffira.</p>" +
+        '<p class="aide" style="margin:0">Votre téléphone n\'est pas avec vous ? Entrez ' +
+          "avec l'e-mail ajouté dans « Mon compte » et votre mot de passe — sans code. " +
+          "Un compte ouvert avec un e-mail, sans numéro, confirmera son numéro une fois.</p>" +
       "</div>" +
       '<div class="carte">' + formulaireEmail() + "</div>" +
       '<div class="carte" data-sms>' +
-        '<p class="aide" style="margin:0">Pas de compte e-mail ? ' +
+        '<p class="aide" style="margin:0">Votre téléphone est là ? ' +
           '<a href="#/connexion">Entrer avec mon numéro</a></p>' +
       "</div>";
     brancherEmail(vue);
@@ -187,15 +193,21 @@ const VueCompte = (() => {
     );
   }
 
-  /** Entrer avec son numéro : un champ, un bouton. */
+  /** Entrer avec son numéro : le numéro, le mot de passe, puis le code. */
   function porteNumero() {
     return (
       '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") + " Avec mon numéro</div>" +
-      '<p class="aide" style="margin:0 0 10px">Nous vous envoyons un code par SMS. ' +
-        "Pas de mot de passe à retenir.</p>" +
+      '<p class="aide" style="margin:0 0 10px">Votre numéro et votre mot de passe, puis le ' +
+        "code que nous vous envoyons par SMS.</p>" +
       champNumero("") +
-      '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("telephone") +
-        "Recevoir mon code</button>"
+      '<div class="champ"><label for="cp-mdp-tel">Mot de passe</label>' +
+        '<input id="cp-mdp-tel" type="password" autocomplete="current-password" ' +
+          'placeholder="Votre mot de passe"></div>' +
+      '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("check") +
+        "Se connecter</button>" +
+      '<p class="aide" style="margin:10px 0 0">' +
+        '<a href="#/mot-de-passe" id="cp-oubli">Mot de passe oublié, ou pas encore de ' +
+          "mot de passe ?</a></p>"
     );
   }
 
@@ -204,16 +216,23 @@ const VueCompte = (() => {
     if (!bouton) return;
     const envoyer = async () => {
       const tel = UI.$("#cp-tel", vue).value;
+      const mdp = UI.$("#cp-mdp-tel", vue).value;
       if (Compte.telNational(tel).length < 8) return UI.toast("Tapez votre numéro.", "alerte");
+      if (!mdp) return UI.toast("Tapez votre mot de passe.", "alerte");
       bouton.disabled = true;
       try {
-        await Compte.demanderCodeConnexion(tel, "");
+        const r = await Compte.connecterTelephone(tel, mdp);
+        /* Numéro déjà confirmé : on est entré, sans code (3.59.0). */
+        if (r.entre) {
+          await apresEntree(vue, {}, { nouveau: false, utilisateur: r.utilisateur });
+          return;
+        }
         ecranCode(vue, {
           tel,
           titre: "Se connecter",
-          renvoyer: () => Compte.demanderCodeConnexion(tel, ""),
+          renvoyer: r.renvoyer,
           valider: (code) => Compte.confirmerCodeConnexion(tel, code),
-          apres: (r) => apresEntree(vue, {}, r),
+          apres: (res) => apresEntree(vue, {}, res),
         });
       } catch (err) {
         UI.toast(err.message, "alerte");
@@ -221,7 +240,9 @@ const VueCompte = (() => {
       }
     };
     bouton.addEventListener("click", envoyer);
-    UI.$("#cp-tel", vue).addEventListener("keydown", (e) => { if (e.key === "Enter") envoyer(); });
+    for (const id of ["#cp-tel", "#cp-mdp-tel"]) {
+      UI.$(id, vue).addEventListener("keydown", (e) => { if (e.key === "Enter") envoyer(); });
+    }
   }
 
   /**
@@ -321,8 +342,8 @@ const VueCompte = (() => {
         '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") +
           " Une étape, une seule fois</div>" +
         '<p class="aide" style="margin:0 0 10px">BIZZOO ouvre désormais les comptes avec un ' +
-          "numéro et un code reçu par SMS. Confirmez celui de votre compte : la prochaine " +
-          "fois, il vous suffira pour entrer, sans mot de passe.</p>" +
+          "numéro, un mot de passe et un code reçu par SMS. Confirmez celui de votre compte : " +
+          "la prochaine fois, vous entrerez avec lui.</p>" +
         champNumero(o.tel || "") +
         '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("telephone") +
           "Recevoir mon code</button>" +
@@ -493,18 +514,24 @@ const VueCompte = (() => {
             "vous répond. En attendant, vous commandez au prix habituel.</p>" +
         "</div>" +
       "</div>" +
-      /* LE NOM, PUIS LE NUMÉRO ET SON CODE : c'est tout ce que coûte un
-         compte quand le SMS est ouvert. Sans lui, l'e-mail et le mot de
-         passe d'avant reviennent — le nom reste au-dessus des deux. */
+      /* LE NOM, LE NUMÉRO, UN MOT DE PASSE — puis le code : c'est tout
+         ce que coûte un compte quand le SMS est ouvert. L'e-mail viendra
+         plus tard, s'il vient. Sans SMS, l'e-mail et le mot de passe
+         d'avant reviennent — le nom reste au-dessus des deux. */
       '<div class="carte">' +
         '<div class="champ"><label for="cp-nom">Votre nom</label>' +
           '<input id="cp-nom" type="text" autocomplete="name" placeholder="Nom et prénom"></div>' +
         "<div data-sms>" +
           champNumero("") +
-          '<button type="button" class="btn" id="cp-creer-tel">' + UI.icone("telephone") +
-            "Recevoir mon code</button>" +
-          '<p class="aide" style="margin:10px 0 0">Le code reçu par SMS ouvre votre ' +
-            "compte. Pas de mot de passe à retenir.</p>" +
+          '<div class="champ"><label for="cp-mdp-nouveau">Choisissez un mot de passe</label>' +
+            '<input id="cp-mdp-nouveau" type="password" autocomplete="new-password" ' +
+              'placeholder="Six caractères au minimum"></div>' +
+          '<div class="champ"><label for="cp-mdp-encore">Le même, une seconde fois</label>' +
+            '<input id="cp-mdp-encore" type="password" autocomplete="new-password"></div>' +
+          '<button type="button" class="btn" id="cp-creer-tel">' + UI.icone("compte") +
+            "Créer mon compte</button>" +
+          '<p class="aide" style="margin:10px 0 0">Un code part par SMS pour confirmer ' +
+            "votre numéro. Votre e-mail, facultatif, s'ajoute plus tard dans « Mon compte ».</p>" +
         "</div>" +
         "<div data-sans-sms hidden>" +
           '<div class="champ"><label for="cp-email">Votre e-mail</label>' +
@@ -550,9 +577,16 @@ const VueCompte = (() => {
       creerTel.addEventListener("click", async () => {
         const nom = UI.$("#cp-nom", vue).value.trim();
         const tel = UI.$("#cp-tel", vue).value;
+        const mdp = UI.$("#cp-mdp-nouveau", vue).value;
         const message = UI.$("#cp-message", vue).value.trim();
         if (!nom) return UI.toast("Votre nom, s'il vous plaît.", "alerte");
         if (Compte.telNational(tel).length < 8) return UI.toast("Tapez votre numéro.", "alerte");
+        if (mdp.length < 6) return UI.toast("Mot de passe : six caractères au minimum.", "alerte");
+        /* Tapé à l'aveugle, sur un téléphone : une seconde saisie évite de
+           fermer la porte avec une clé qu'on n'a jamais vue. */
+        if (UI.$("#cp-mdp-encore", vue).value !== mdp) {
+          return UI.toast("Les deux mots de passe ne sont pas identiques.", "alerte");
+        }
         if (type === "revendeur" && !message) {
           return UI.toast("Dites-nous quel commerce vous tenez.", "alerte");
         }
@@ -562,11 +596,11 @@ const VueCompte = (() => {
         const revendeur = type === "revendeur" ? { message, position: lirePosition() } : null;
         creerTel.disabled = true;
         try {
-          await Compte.demanderCodeConnexion(tel, nom);
+          await Compte.inscrireTelephone(tel, mdp, nom);
           ecranCode(vue, {
             tel,
             titre: "Créer mon compte",
-            renvoyer: () => Compte.demanderCodeConnexion(tel, nom),
+            renvoyer: () => Compte.renvoyerCodeInscription(tel),
             valider: (code) => Compte.confirmerCodeConnexion(tel, code),
             apres: (r) => apresEntree(vue, { nom, revendeur, inscription: true }, r),
           });
@@ -763,15 +797,56 @@ const VueCompte = (() => {
             "<div><strong>Ce lien n'est plus valable.</strong> Il a expiré, ou il a " +
             "déjà servi. Demandez-en un nouveau ci-dessous.</div></div>"
         : "") +
+      /* PAR LE NUMÉRO, d'abord : un code reçu par SMS, et l'on choisit
+         son mot de passe. C'est aussi la porte des comptes ouverts par
+         SMS avant les mots de passe — ils n'en ont jamais eu. */
+      (perime ? "" :
+      '<div class="carte" data-sms id="cp-oubli-tel">' +
+        '<div class="carte-titre">' + UI.icone("telephone", "ic-sm") + " Avec mon numéro</div>" +
+        '<p class="aide" style="margin:0 0 10px">Un code par SMS, puis vous choisissez ' +
+          "votre mot de passe.</p>" +
+        champNumero("") +
+        '<button type="button" class="btn" id="cp-oubli-envoyer">' + UI.icone("telephone") +
+          "Recevoir mon code</button>" +
+      "</div>") +
       '<div class="carte">' +
-        '<p class="aide" style="margin:0 0 10px">Nous vous enverrons un lien pour ' +
-          "choisir un nouveau mot de passe.</p>" +
+        '<p class="aide" style="margin:0 0 10px">Avec votre e-mail : nous vous enverrons un ' +
+          "lien pour choisir un nouveau mot de passe.</p>" +
         '<div class="champ"><label for="cp-email">Votre e-mail</label>' +
           '<input id="cp-email" type="email" inputmode="email" autocomplete="email" ' +
             'placeholder="vous@exemple.com"></div>' +
         '<button type="button" class="btn" id="cp-envoyer">' + UI.icone("check") +
           "Envoyer le lien</button>" +
       "</div>";
+    Compte.masquerSiSmsFerme(vue);
+
+    const parTel = UI.$("#cp-oubli-envoyer", vue);
+    if (parTel) {
+      parTel.addEventListener("click", async () => {
+        const tel = UI.$("#cp-tel", vue).value;
+        if (Compte.telNational(tel).length < 8) return UI.toast("Tapez votre numéro.", "alerte");
+        parTel.disabled = true;
+        try {
+          await Compte.demanderCodeOubli(tel);
+          ecranCode(vue, {
+            tel,
+            titre: "Mot de passe oublié",
+            renvoyer: () => Compte.demanderCodeOubli(tel),
+            valider: (code) => Compte.confirmerCodeConnexion(tel, code),
+            /* Entré par le code seul : on ne repart pas sans mot de
+               passe — c'est lui qui, avec le code, ouvrira la suite. */
+            apres: (r) => choisirMotDePasse(vue, {
+              texte: "Choisissez le mot de passe de votre compte. Vous entrerez désormais " +
+                "avec votre numéro, ce mot de passe, et un code reçu par SMS.",
+              suite: () => apresEntree(vue, {}, r),
+            }),
+          });
+        } catch (err) {
+          UI.toast(err.message, "alerte");
+          parTel.disabled = false;
+        }
+      });
+    }
 
     UI.$("#cp-envoyer").addEventListener("click", async () => {
       const email = UI.$("#cp-email").value.trim();
@@ -806,34 +881,12 @@ const VueCompte = (() => {
       location.hash = "#/mot-de-passe?lien=perime";
       return;
     }
-    const qui = Compte.courriel();
-    vue.innerHTML =
-      '<div class="carte">' +
-        '<p class="aide" style="margin:0 0 10px">Choisissez le mot de passe de votre compte' +
-          (qui ? " <strong>" + Utils.echapper(qui) + "</strong>" : "") + ".</p>" +
-        '<div class="champ"><label for="cp-nouveau">Nouveau mot de passe</label>' +
-          '<input id="cp-nouveau" type="password" autocomplete="new-password" ' +
-            'placeholder="Six caractères au minimum"></div>' +
-        '<div class="champ"><label for="cp-encore">Le même, une seconde fois</label>' +
-          '<input id="cp-encore" type="password" autocomplete="new-password"></div>' +
-        '<button type="button" class="btn" id="cp-changer">' + UI.icone("check") +
-          "Enregistrer le mot de passe</button>" +
-      "</div>" +
-      '<p class="aide" style="text-align:center"><a href="#/">Plus tard</a></p>';
-
-    UI.$("#cp-changer").addEventListener("click", async () => {
-      const nouveau = UI.$("#cp-nouveau").value;
-      if (nouveau.length < 6) return UI.toast("Six caractères au minimum.", "alerte");
-      /* Tapé à l'aveugle, sur un téléphone : une seconde saisie évite de
-         fermer la porte avec une clé qu'on n'a jamais vue. */
-      if (UI.$("#cp-encore").value !== nouveau) {
-        return UI.toast("Les deux saisies ne sont pas identiques.", "alerte");
-      }
-      const bouton = UI.$("#cp-changer");
-      bouton.disabled = true;
-      try {
-        await Compte.changerMotDePasse(nouveau);
-        UI.toast("Mot de passe enregistré. Vous êtes connecté.", "ok");
+    const qui = Compte.identite();
+    choisirMotDePasse(vue, {
+      texte: "Choisissez le mot de passe de votre compte" +
+        (qui ? " " + qui : "") + ".",
+      tard: () => { location.hash = "#/"; },
+      suite: async () => {
         /* Le lien ouvre une session comme le ferait le mot de passe : un
            compte sans numéro confirmé le confirme ici, comme à la porte
            e-mail. */
@@ -848,10 +901,54 @@ const VueCompte = (() => {
           return;
         }
         location.hash = "#/compte";
+      },
+    });
+  }
+
+  /**
+   * Le formulaire du mot de passe — après le lien e-mail, après le code
+   * de « Mot de passe oublié », et depuis « Mon compte ». La session est
+   * déjà ouverte : on ne fait que poser la clé.
+   */
+  function choisirMotDePasse(vue, o) {
+    UI.entete({ titre: o.titre || "Nouveau mot de passe" });
+    vue.innerHTML =
+      '<div class="carte" id="cp-choisir-mdp">' +
+        '<p class="aide" style="margin:0 0 10px">' + Utils.echapper(o.texte || "") + "</p>" +
+        '<div class="champ"><label for="cp-nouveau">Nouveau mot de passe</label>' +
+          '<input id="cp-nouveau" type="password" autocomplete="new-password" ' +
+            'placeholder="Six caractères au minimum"></div>' +
+        '<div class="champ"><label for="cp-encore">Le même, une seconde fois</label>' +
+          '<input id="cp-encore" type="password" autocomplete="new-password"></div>' +
+        '<button type="button" class="btn" id="cp-changer">' + UI.icone("check") +
+          "Enregistrer le mot de passe</button>" +
+      "</div>" +
+      '<p class="aide" style="text-align:center"><a href="#/" id="cp-mdp-tard">Plus tard</a></p>';
+
+    const suite = () => (o.suite ? o.suite() : (location.hash = "#/compte"));
+    UI.$("#cp-mdp-tard").addEventListener("click", (e) => {
+      e.preventDefault();
+      if (o.tard) o.tard(); else suite();
+    });
+    UI.$("#cp-changer").addEventListener("click", async () => {
+      const nouveau = UI.$("#cp-nouveau").value;
+      if (nouveau.length < 6) return UI.toast("Six caractères au minimum.", "alerte");
+      /* Tapé à l'aveugle, sur un téléphone : une seconde saisie évite de
+         fermer la porte avec une clé qu'on n'a jamais vue. */
+      if (UI.$("#cp-encore").value !== nouveau) {
+        return UI.toast("Les deux saisies ne sont pas identiques.", "alerte");
+      }
+      const bouton = UI.$("#cp-changer");
+      bouton.disabled = true;
+      try {
+        await Compte.changerMotDePasse(nouveau);
       } catch (err) {
         UI.toast(err.message, "err");
         bouton.disabled = false;
+        return;
       }
+      UI.toast("Mot de passe enregistré.", "ok");
+      try { await suite(); } catch (err) { UI.toast(err.message, "alerte"); }
     });
   }
 
@@ -880,14 +977,33 @@ const VueCompte = (() => {
        parenthèse, la question ne serait jamais posée, et la carte
        n'apparaîtrait pas pour ceux-là mêmes à qui elle s'adresse. */
     try { await Compte.chargerEquipe(); } catch (_) { /* on ne propose rien */ }
+    /* UN LIVREUR N'EST PAS UN ACHETEUR (3.59.0) : ni « Devenir revendeur »,
+       ni « Mes commandes », ni « Retrouver mes commandes d'avant ». Ses
+       courses prennent la place de ses commandes. */
+    try { await Compte.chargerLivreur(); } catch (_) { /* base d'avant : rien ne change */ }
+    const livreur = Compte.estLivreur();
+    const double = Compte.estDoubleLivreur();
     moi = moi || { nom: "", tel: "", adresse: "", tel_verifie: false };
     /* Un compte e-mail d'avant le SMS, resté connecté sur ce téléphone :
        son numéro est à confirmer, une fois. La carte passe devant tout le
        reste, et remplace l'invitation plus discrète sous le champ. */
     let aConfirmer = false;
-    try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on ne demande rien */ }
+    if (!livreur) {
+      try { aConfirmer = await Compte.numeroAConfirmer(); } catch (_) { /* on ne demande rien */ }
+    }
 
     vue.innerHTML =
+      (double
+        ? '<div class="carte cp-numero-requis" id="cp-double-livreur">' +
+            '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") +
+              " Ce numéro est celui d'un livreur</div>" +
+            '<p class="aide" style="margin:0 0 10px">Ce compte client a été ouvert avec le numéro ' +
+              "d'un livreur BIZZOO. Un livreur n'achète pas et ne revend pas sur BIZZOO : entrez " +
+              "avec votre <strong>compte livreur</strong> pour retrouver vos courses.</p>" +
+            '<button type="button" class="btn" id="cp-double-sortir">' + UI.icone("retour") +
+              "Me déconnecter</button>" +
+          "</div>"
+        : "") +
       carteEspaceVendeur() +
       (aConfirmer
         ? '<div class="carte cp-numero-requis" id="cp-numero-requis">' +
@@ -895,7 +1011,7 @@ const VueCompte = (() => {
               " Confirmez votre numéro</div>" +
             '<p class="aide" style="margin:0 0 10px">BIZZOO ouvre désormais les comptes ' +
               "avec un numéro et un code reçu par SMS. Confirmez celui de ce compte, une " +
-              "fois : ensuite, il vous suffira pour entrer, sans mot de passe. C'est " +
+              "fois : ensuite, vous entrerez avec lui, votre mot de passe et un code. C'est " +
               "aussi ce qui vous permet de commander.</p>" +
             '<button type="button" class="btn" id="cp-confirmer">' + UI.icone("telephone") +
               "Confirmer mon numéro</button>" +
@@ -912,7 +1028,7 @@ const VueCompte = (() => {
           (moi.tel_verifie
             ? '<p class="aide cp-verifie" style="margin:6px 0 0">' + UI.icone("check", "ic-sm") +
               " Numéro vérifié. Il sert à retrouver vos commandes.</p>"
-            : aConfirmer ? ""
+            : aConfirmer || livreur ? ""
             : '<div data-sms><p class="aide" style="margin:6px 0 0">Un numéro vérifié vous rend les ' +
               "commandes passées avec lui, avant même d'avoir un compte.</p>" +
               '<button type="button" class="btn btn-clair" id="cp-verifier" ' +
@@ -925,15 +1041,18 @@ const VueCompte = (() => {
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") +
           "Enregistrer</button>" +
       "</div>" +
+      carteConnexion() +
       /* Les gains d'un code de particulier : la place seulement, remplie
          si la base dit que ce compte a un code. */
       '<div class="carte cp-gains" id="cp-gains" hidden></div>' +
-      carteRevendeur() +
-      carteOuRevendeur() +
+      (livreur ? "" : carteRevendeur() + carteOuRevendeur()) +
       '<div class="carte">' +
-        '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
-          "Mes commandes</a>" +
-        (moi.tel_verifie
+        (livreur
+          ? '<a class="btn btn-clair" href="#/mes-courses" id="cp-mes-courses">' + UI.icone("boite") +
+              "Mes courses</a>"
+          : '<a class="btn btn-clair" href="#/mes-commandes">' + UI.icone("boite") +
+              "Mes commandes</a>") +
+        (moi.tel_verifie && !livreur
           ? '<button type="button" class="btn btn-clair" id="cp-reprendre" ' +
             'style="margin-top:10px">' + UI.icone("actualiser") +
             "Retrouver mes commandes d'avant</button>"
@@ -961,8 +1080,17 @@ const VueCompte = (() => {
     brancherEspaceVendeur(vue);
     brancherOuRevendeur(vue);
     brancherVerification(vue, moi);
+    brancherConnexion(vue);
     Compte.masquerSiSmsFerme(vue);
     remplirGains(vue, moi);
+
+    const sortirDouble = UI.$("#cp-double-sortir", vue);
+    if (sortirDouble) {
+      sortirDouble.addEventListener("click", async () => {
+        await Compte.deconnecter();
+        location.hash = "#/connexion";
+      });
+    }
 
     const confirmer = UI.$("#cp-confirmer", vue);
     if (confirmer) {
@@ -998,6 +1126,249 @@ const VueCompte = (() => {
       UI.toast("À bientôt.");
       location.hash = "#/";
     });
+  }
+
+  /* ---------- Comment j'entre : e-mail de secours, mot de passe ----------
+
+     L'e-mail n'est jamais exigé. Ajouté ici, il devient la seconde
+     porte : e-mail et mot de passe, sans code, pour le jour où le
+     téléphone n'est pas là. Sans lui, perdre son téléphone, c'est
+     attendre de retrouver sa carte SIM. */
+  function carteConnexion() {
+    const email = Compte.courriel();
+    return (
+      '<div class="carte" id="cp-connexion">' +
+        '<div class="carte-titre">' + UI.icone("compte", "ic-sm") + " Mes accès</div>" +
+        (email
+          ? '<p class="aide" style="margin:0 0 10px">E-mail de secours : <strong>' +
+              Utils.echapper(email) + "</strong>. Sans votre téléphone, entrez avec lui " +
+              "et votre mot de passe.</p>"
+          : '<p class="aide" style="margin:0 0 10px">Ajoutez votre e-mail (facultatif) : ' +
+              "si votre téléphone n'est pas là, vous entrerez avec lui et votre mot de " +
+              "passe, sans code.</p>") +
+        '<div class="champ"><label for="cp-email-secours">' +
+          (email ? "Changer d'e-mail" : "Votre e-mail") + "</label>" +
+          '<input id="cp-email-secours" type="email" inputmode="email" autocomplete="email" ' +
+            'placeholder="vous@exemple.com"></div>' +
+        '<button type="button" class="btn btn-clair" id="cp-email-ajouter">' + UI.icone("check") +
+          (email ? "Changer mon e-mail" : "Ajouter mon e-mail") + "</button>" +
+        '<button type="button" class="btn btn-clair" id="cp-mdp-changer" style="margin-top:10px">' +
+          UI.icone("compte") + "Changer mon mot de passe</button>" +
+      "</div>"
+    );
+  }
+
+  function brancherConnexion(vue) {
+    const ajouter = UI.$("#cp-email-ajouter", vue);
+    if (ajouter) {
+      ajouter.addEventListener("click", async () => {
+        const champ = UI.$("#cp-email-secours", vue);
+        const adresse = champ.value.trim();
+        if (!adresse) return UI.toast("Tapez votre adresse e-mail.", "alerte");
+        ajouter.disabled = true;
+        try {
+          const r = await Compte.ajouterEmail(adresse);
+          if (r.applique) {
+            UI.toast("E-mail enregistré.", "ok");
+            monCompte(vue);
+            return;
+          }
+          /* Supabase demande de cliquer le lien : l'adresse n'est celle du
+             compte qu'après. On le dit, sinon le client croirait sa porte
+             de secours ouverte. */
+          UI.toast("Ouvrez le message envoyé à " + adresse + " pour confirmer.", "ok");
+          champ.value = "";
+        } catch (err) {
+          UI.toast(err.message, "alerte");
+        }
+        ajouter.disabled = false;
+      });
+    }
+    const changer = UI.$("#cp-mdp-changer", vue);
+    if (changer) {
+      changer.addEventListener("click", () => choisirMotDePasse(vue, {
+        titre: "Mon mot de passe",
+        texte: "Choisissez votre nouveau mot de passe.",
+        suite: () => monCompte(vue),
+      }));
+    }
+  }
+
+  /* ---------- Mes courses (un livreur) ----------
+
+     Un livreur n'a pas de commandes : il a des courses. La liste vient de
+     la base (« mes_livraisons ») : celles à livrer, et celles livrées ces
+     deux derniers jours. (3.59.0) Pas de lien vers l'application admin
+     pour un livreur.
+
+     LA FICHE (3.59.0), la même que l'alerte : où récupérer le colis, où
+     le livrer, le numéro du destinataire, les frais, le déjà-payé, ce
+     qui reste à récupérer. Et « Commande reçue » : le livreur accepte la
+     course, et c'est à ce moment que le client reçoit son nom et son
+     numéro. Les DEMANDES ouvertes — proposées à plusieurs livreurs dès
+     le paiement — passent en tête : le premier qui touche la prend. */
+  const ETAT_COURSE = { nouvelle: "En préparation", vue: "En préparation",
+    preparee: "À récupérer", en_livraison: "En livraison", remise: "Livrée" };
+
+  async function mesCourses(vue) {
+    UI.entete({ titre: "Mes courses", retour: true });
+    if (!Compte.connecte()) { location.hash = "#/connexion"; return; }
+    vue.innerHTML = '<div class="carte"><span class="chargement-rond"></span></div>';
+    try { await Compte.chargerLivreur(); } catch (_) { /* on lira quand même */ }
+    if (Compte.estDoubleLivreur()) {
+      vue.innerHTML =
+        '<div class="carte" id="cp-courses-double"><p class="aide" style="margin:0">Vos courses sont ' +
+          "dans votre <strong>compte livreur</strong>. Déconnectez-vous, puis entrez avec lui.</p></div>";
+      return;
+    }
+    if (!Compte.estLivreur()) { location.hash = "#/mes-commandes"; return; }
+    let courses = [];
+    let demandes = [];
+    try { [courses, demandes] = await Promise.all([Compte.mesCourses(), Compte.coursesProposees()]); }
+    catch (err) {
+      vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' +
+        Utils.echapper(err.message) + "</p></div>";
+      return;
+    }
+    const lienCarte = (adresse, lat, lng) =>
+      "https://www.google.com/maps/search/?api=1&query=" +
+      encodeURIComponent(lat != null && lng != null ? lat + "," + lng : adresse);
+    const lieu = (titre, nom, adresse, tel, indicatif, lat, lng) =>
+      '<div class="cp-course-lieu"><small>' + Utils.echapper(titre) + "</small>" +
+        "<strong>" + Utils.echapper(nom || "") + "</strong>" +
+        (adresse || (lat != null && lng != null)
+          ? '<a href="' + Utils.echapper(lienCarte(adresse, lat, lng)) + '" target="_blank" rel="noopener">' +
+            Utils.echapper(adresse || "Voir sur la carte") + "</a>"
+          : "") +
+        (tel ? '<a href="' + Utils.echapper(Utils.lienTel(tel, indicatif || "229")) + '">' +
+          Utils.echapper(Compte.telAffichage(tel, indicatif || "229")) + "</a>" : "") +
+      "</div>";
+    const carteFiche = (c) => {
+      const f = c.fiche;
+      const r = f.retrait || {};
+      const l = f.livraison || {};
+      const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
+      const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
+      const aAccepter = !c.recu_le && ["nouvelle", "vue", "preparee"].includes(c.etat);
+      return (
+        '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) +
+          '" data-boutique="' + Utils.echapper(c.boutique_id || "") + '">' +
+          '<div class="carte-titre">Commande ' + Utils.echapper(f.numero || c.numero || c.commande_id) +
+            ' <small class="cp-course-etat">' +
+            Utils.echapper(aAccepter ? "Nouvelle" : ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
+          (Number(f.a_encaisser) > 0
+            ? '<p class="cp-course-recuperer">' + (c.etat === "remise" ? "Payé" : "À payer par MoMoPay") +
+              " : <strong>" + m(f.a_encaisser) + "</strong></p>"
+            : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
+          '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
+            "</strong> · Frais de livraison : <strong>" +
+            (Number(f.frais) > 0 ? m(f.frais) : "aucun") + "</strong></p>" +
+          lieu("Récupérer le colis", r.boutique || c.nom_boutique, r.adresse, r.tel, r.indicatif,
+            r.latitude, r.longitude) +
+          lieu("Livrer à", l.nom, l.adresse, l.tel, l.indicatif, null, null) +
+          (l.note ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(l.note) + "</p>" : "") +
+          (articles ? '<p class="aide" style="margin:6px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
+          (aAccepter
+            ? '<button type="button" class="btn cp-course-recu" style="margin-top:10px">' +
+              UI.icone("check") + "Commande reçue</button>" +
+              '<p class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
+              "la course : le client reçoit votre nom et votre numéro.</p>"
+            : ["nouvelle", "vue"].includes(c.etat)
+              ? '<p class="aide" style="margin:6px 0 0">La boutique prépare le colis : vous pourrez ' +
+                "le prendre dès qu'il sera prêt.</p>"
+              : "") +
+        "</div>"
+      );
+    };
+    const carteDemande = (d) => {
+      const f = d.fiche;
+      const l = f.livraison || {};
+      const retraits = Array.isArray(f.retraits) ? f.retraits : [];
+      const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
+      return (
+        '<div class="carte cp-course cp-demande" data-course="' + Utils.echapper(d.commande_id) + '">' +
+          '<div class="carte-titre">Commande ' + Utils.echapper(f.numero || d.numero || d.commande_id) +
+            ' <small class="cp-course-etat">' +
+            (f.groupee ? "Livraison groupée · " + retraits.length + " boutiques" : "Demande") +
+            "</small></div>" +
+          (Number(f.a_encaisser) > 0
+            ? '<p class="cp-course-recuperer">À payer par MoMoPay : <strong>' + m(f.a_encaisser) + "</strong></p>"
+            : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
+          '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
+            "</strong> · Frais de livraison : <strong>" +
+            (Number(f.frais) > 0 ? m(f.frais) : "aucun") + "</strong></p>" +
+          retraits.map((r, i) => lieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
+            : "Récupérer le colis", r.boutique, r.adresse, r.tel, r.indicatif, r.latitude, r.longitude)).join("") +
+          lieu("Livrer à", l.nom, l.adresse, l.tel, l.indicatif, null, null) +
+          (l.note ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(l.note) + "</p>" : "") +
+          '<button type="button" class="btn cp-course-prendre" style="margin-top:10px">' +
+            UI.icone("check") + "Commande reçue</button>" +
+          '<p class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui touche ' +
+            "« Commande reçue » la prend.</p>" +
+        "</div>"
+      );
+    };
+    const carte = (c) => {
+      if (c.fiche && typeof c.fiche === "object") return carteFiche(c);
+      const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
+      return (
+        '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) + '">' +
+          '<div class="carte-titre">Commande ' + Utils.echapper(c.numero || c.commande_id) +
+            ' <small class="cp-course-etat">' + Utils.echapper(ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
+          '<p class="aide" style="margin:0">' + Utils.echapper(c.nom_boutique || "") + "</p>" +
+          '<p style="margin:6px 0 0"><strong>' + Utils.echapper(c.client_nom || "") + "</strong> — " +
+            Utils.echapper(c.client_adresse || "") + "</p>" +
+          (articles ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
+          (Number(c.a_encaisser) > 0
+            ? '<p style="margin:4px 0 0">À payer par MoMoPay : <strong>' +
+                Utils.echapper(Utils.fmtMontant(Number(c.a_encaisser), "FCFA")) +
+              "</strong></p>"
+            : "") +
+        "</div>"
+      );
+    };
+    const aFaire = courses.filter((c) => c.etat !== "remise");
+    const faites = courses.filter((c) => c.etat === "remise");
+    vue.innerHTML =
+      (demandes.length
+        ? '<div class="carte-titre" id="cp-demandes" style="margin:4px 4px 8px">Demandes de course (' +
+            demandes.length + ")</div>" + demandes.map(carteDemande).join("")
+        : "") +
+      '<div class="carte-titre" style="margin:4px 4px 8px">À livrer (' + aFaire.length + ")</div>" +
+      (aFaire.length ? aFaire.map(carte).join("")
+        : '<div class="carte"><p class="aide" style="margin:0">Aucune course à livrer.</p></div>') +
+      '<div class="carte-titre" style="margin:16px 4px 8px">Livrées (' + faites.length + ")</div>" +
+      (faites.length ? faites.map(carte).join("")
+        : '<div class="carte"><p class="aide" style="margin:0">Aucune course livrée ces deux derniers jours.</p></div>') +
+      carteEspaceVendeur();
+    brancherEspaceVendeur(vue);
+    for (const b of UI.$$(".cp-course-prendre", vue)) {
+      b.onclick = async () => {
+        const c = b.closest(".cp-demande");
+        b.disabled = true;
+        try {
+          await Compte.prendreCourse(c.dataset.course);
+          UI.toast("La course est à vous : le client a reçu votre nom et votre numéro.");
+        } catch (err) {
+          UI.toast(err.message, "err");
+        }
+        mesCourses(vue);
+      };
+    }
+    for (const b of UI.$$(".cp-course-recu", vue)) {
+      b.onclick = async () => {
+        const c = b.closest(".cp-course");
+        b.disabled = true;
+        try {
+          await Compte.accepterCourse(c.dataset.course, c.dataset.boutique);
+          UI.toast("Course acceptée : le client a reçu votre nom et votre numéro.");
+          mesCourses(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
   }
 
   /* ---------- Mes gains : le code d'un particulier ----------
@@ -1123,6 +1494,10 @@ const VueCompte = (() => {
 
   function carteEspaceVendeur() {
     if (typeof Compte === "undefined" || !Compte.estEquipe()) return "";
+    /* UN LIVREUR N'A PAS DE LIEN VERS L'APPLICATION ADMIN (3.59.0) : il
+       n'y a ni produits, ni commandes, ni réglages à gérer. Son compte
+       client mène à « Mes courses », et c'est tout. */
+    if (Compte.estLivreur()) return "";
     const pont = pontAndroid();
     /* Sur le téléphone, on sait si l'application est installée. Sur le
        web, il n'y a pas de pont : on ouvre la version en ligne à côté. */
@@ -1270,8 +1645,24 @@ const VueCompte = (() => {
         '<div class="carte cp-revendeur-ok">' +
           '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") +
             " Compte revendeur</div>" +
-          '<p class="aide" style="margin:0 0 10px">Vous achetez au prix BIZZOO. ' +
-            "Les prix affichés dans l'application sont déjà les vôtres.</p>" +
+          '<p class="aide" style="margin:0 0 10px">Vous achetez au prix BIZZOO.</p>' +
+          /* PRIX REVENDEUR OU PRIX PUBLICS, À L'ÉCRAN (3.59.0) : pour montrer
+             les prix publics à son propre client. La commande reste
+             toujours facturée à son prix revendeur. */
+          '<div class="champ" style="margin:0 0 10px"><label>Prix affichés dans l\'application</label>' +
+            '<div class="btn-rangee cp-rv-affichage">' +
+              '<button type="button" class="btn ' +
+                (Catalogue.affichePrixPublics() ? "btn-clair" : "") + '" id="cp-rv-prix-revendeur" ' +
+                'aria-pressed="' + !Catalogue.affichePrixPublics() + '">Prix revendeur</button>' +
+              '<button type="button" class="btn ' +
+                (Catalogue.affichePrixPublics() ? "" : "btn-clair") + '" id="cp-rv-prix-publics" ' +
+                'aria-pressed="' + Catalogue.affichePrixPublics() + '">Prix publics</button>' +
+            "</div>" +
+            '<p class="aide" style="margin:6px 0 0">' +
+              (Catalogue.affichePrixPublics()
+                ? "Le catalogue montre les <strong>prix publics</strong>. Vos commandes restent à vos prix revendeur."
+                : "Le catalogue montre <strong>vos prix revendeur</strong>.") + "</p>" +
+          "</div>" +
           '<button type="button" class="btn btn-clair" id="cp-rv-annuler">' +
             "Revenir à un compte client</button>" +
         "</div>"
@@ -1317,6 +1708,26 @@ const VueCompte = (() => {
   }
 
   function brancherRevendeur(vue) {
+    /* Prix revendeur ou prix publics, à l'écran (3.59.0). */
+    for (const [id, publics] of [["#cp-rv-prix-revendeur", false], ["#cp-rv-prix-publics", true]]) {
+      const b = UI.$(id, vue);
+      if (!b) continue;
+      b.addEventListener("click", () => {
+        if (Catalogue.affichePrixPublics() === publics) return;
+        Catalogue.afficherPrixPublics(publics);
+        UI.toast(publics ? "Le catalogue montre les prix publics." : "Le catalogue montre vos prix revendeur.");
+        const pub = UI.$("#cp-rv-prix-publics", vue);
+        const rev = UI.$("#cp-rv-prix-revendeur", vue);
+        pub.classList.toggle("btn-clair", !publics); pub.setAttribute("aria-pressed", String(publics));
+        rev.classList.toggle("btn-clair", publics); rev.setAttribute("aria-pressed", String(!publics));
+        const aide = b.closest(".champ").querySelector(".aide");
+        if (aide) {
+          aide.innerHTML = publics
+            ? "Le catalogue montre les <strong>prix publics</strong>. Vos commandes restent à vos prix revendeur."
+            : "Le catalogue montre <strong>vos prix revendeur</strong>.";
+        }
+      });
+    }
     const demander = UI.$("#cp-rv-demander", vue);
     if (demander) {
       const lirePosition = brancherPosition(vue, "cp-rv-pos", Compte.positionRevendeur());
@@ -1423,6 +1834,6 @@ const VueCompte = (() => {
 
   return {
     connexion, connexionTel, connexionEmail, inscription, motDePasse, nouveauMotDePasse,
-    monCompte, revenirVers, confirmerNumero,
+    monCompte, revenirVers, confirmerNumero, mesCourses,
   };
 })();

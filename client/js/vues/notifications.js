@@ -28,13 +28,27 @@ const VueNotifications = (() => {
     reception_confirmee:   { nom: "Réceptions",  icone: "check" },
     commande_annulee:      { nom: "Annulations", icone: "alerte" },
     course_confiee:        { nom: "Courses",     icone: "voiture" },
+    /* « Reçu » touché : le nom et le numéro de son livreur. */
+    course_acceptee:       { nom: "Votre livreur", icone: "voiture" },
+    /* Un livreur dans l'application client : les demandes de course. */
+    course_proposee:       { nom: "Demandes de course", icone: "voiture" },
+    /* Le reste payé au livreur (3.59.0). */
+    reste_encaisse:        { nom: "Paiements à la livraison", icone: "check" },
+    course_refusee:        { nom: "Votre livreur", icone: "voiture" },
   };
-  const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
+  /* « …_avant_<n> » : une nouvelle d'une course reprise par un autre
+     livreur (3.59.0) — elle garde sa famille. */
+  const famille = (type) => FAMILLES[String(type || "").replace(/_avant_\d+$/, "")] ||
+    { nom: "Autres", icone: "cloche" };
+
+  /* Les courses d'un livreur s'appellent « #/livraisons » dans
+     l'application admin, « #/mes-courses » ici. */
+  const lienIci = (lien) => (lien === "#/livraisons" ? "#/mes-courses" : lien || "#/");
 
   function htmlUne(n) {
     return (
       '<a class="notif' + (n.lue ? " notif-lue" : "") + '" href="' +
-        e(n.lien || "#/") + '" data-notif="' + e(String(n.id)) + '">' +
+        e(lienIci(n.lien)) + '" data-notif="' + e(String(n.id)) + '">' +
         '<span class="notif-rond">' + UI.icone(famille(n.type).icone, "ic-sm") + "</span>" +
         '<span class="notif-corps">' +
           '<span class="notif-titre">' + e(n.titre) + "</span>" +

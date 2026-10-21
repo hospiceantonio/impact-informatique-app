@@ -113,6 +113,100 @@ create table if not exists public.boutiques (
 );
 alter table public.boutiques add column if not exists video text not null default '';
 alter table public.boutiques add column if not exists site_web text not null default '';
+
+-- ---------- Les jours et heures d'ouverture (3.59.0) ----------
+-- Une boutique fermée ne montre pas ses produits, et ne reçoit pas de
+-- commande : une commande passée la nuit tombait dans le vide.
+--
+--   {"lun": {"de": "08:00", "a": "19:00"}, …, "dim": null}
+--
+-- Un jour absent ou « null » : fermé ce jour-là. La colonne entière à
+-- null : horaires pas encore renseignés — la boutique reste ouverte, comme
+-- avant, et son administrateur est invité à les poser. Une boutique
+-- CRÉÉE depuis l'application doit les avoir (voir plus bas).
+alter table public.boutiques add column if not exists ouvertures jsonb;
+
+-- Le format, vérifié : sept jours au plus, « HH:MM », l'ouverture avant
+-- la fermeture, et au moins un jour ouvert.
+create or replace function public.ouvertures_valides(o jsonb) returns boolean
+language sql immutable set search_path = public as $$
+  select jsonb_typeof(o) = 'object'
+     and not exists (select 1 from jsonb_object_keys(o) k
+                      where k not in ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'))
+     and not exists (
+       select 1 from jsonb_each(o) j
+        where jsonb_typeof(j.value) not in ('null', 'object')
+           or (jsonb_typeof(j.value) = 'object' and not (
+                length(coalesce(j.value ->> 'de', '')) = 5
+            and (j.value ->> 'de') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]'
+            and length(coalesce(j.value ->> 'a', '')) = 5
+            and ((j.value ->> 'a') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]' or (j.value ->> 'a') = '24:00')
+            and (j.value ->> 'de') < (j.value ->> 'a'))))
+     and exists (select 1 from jsonb_each(o) j where jsonb_typeof(j.value) = 'object');
+$$;
+alter table public.boutiques drop constraint if exists boutiques_ouvertures;
+alter table public.boutiques add constraint boutiques_ouvertures
+  check (ouvertures is null or public.ouvertures_valides(ouvertures));
+
+-- Ouverte à cet instant, À L'HEURE DU BÉNIN — pas à celle du serveur,
+-- qui tourne en UTC. Sans horaires : ouverte (voir plus haut).
+create or replace function public.boutique_ouverte(o jsonb, moment timestamptz default now())
+returns boolean
+language sql stable set search_path = public as $$
+  with ici as (select (moment at time zone 'Africa/Porto-Novo') as t)
+  select case
+    when o is null then true
+    else coalesce((
+      select jsonb_typeof(o -> j.jour) = 'object'
+         and to_char(ici.t, 'HH24:MI') >= (o -> j.jour ->> 'de')
+         and to_char(ici.t, 'HH24:MI') <  (o -> j.jour ->> 'a')
+        from ici, lateral (select (array['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'])
+                                    [extract(isodow from ici.t)::int] as jour) j), false)
+  end;
+$$;
+grant execute on function public.ouvertures_valides(jsonb) to anon, authenticated;
+grant execute on function public.boutique_ouverte(jsonb, timestamptz) to anon, authenticated;
+
+-- UNE BOUTIQUE NAÎT AVEC SES HORAIRES quand on la crée depuis
+-- l'application. Le schéma lui-même, et le tableau de bord de Supabase,
+-- passent : ils ne tournent pas en « authenticated ».
+create or replace function public.boutique_horaires_a_la_creation() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('anon', 'authenticated') and new.ouvertures is null then
+    raise exception 'Indiquez les jours et heures d''ouverture de la boutique.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists boutiques_horaires on public.boutiques;
+create trigger boutiques_horaires
+  before insert on public.boutiques
+  for each row execute function public.boutique_horaires_a_la_creation();
+
+-- ---------- Les conditions de paiement de chaque boutique (3.59.0) ----------
+-- CHAQUE BOUTIQUE DIT COMMENT ON LA PAIE, et ce que coûte sa livraison :
+--   mode_paiement « total »   : tout se paie à la commande ;
+--                 « acompte » : taux_acompte % à la commande, le reste à la
+--                               livraison, à son livreur ;
+--   frais_livraison           : en FCFA, ajoutés à sa part — aucun code
+--                               promo ne les touche.
+-- Une commande sur plusieurs boutiques additionne leurs conditions :
+-- creer_commande calcule chaque part, et « parts » les garde. Les valeurs
+-- par défaut sont celles que l'enseigne appliquait à toutes jusqu'ici
+-- (10 %, 1 000 FCFA).
+alter table public.boutiques add column if not exists mode_paiement text not null default 'acompte';
+alter table public.boutiques add column if not exists taux_acompte int not null default 10;
+alter table public.boutiques add column if not exists frais_livraison int not null default 1000;
+alter table public.boutiques drop constraint if exists boutiques_mode_paiement;
+alter table public.boutiques add constraint boutiques_mode_paiement
+  check (mode_paiement in ('total', 'acompte'));
+alter table public.boutiques drop constraint if exists boutiques_taux_acompte;
+alter table public.boutiques add constraint boutiques_taux_acompte
+  check (taux_acompte between 1 and 99);
+alter table public.boutiques drop constraint if exists boutiques_frais_livraison;
+alter table public.boutiques add constraint boutiques_frais_livraison
+  check (frais_livraison between 0 and 100000);
 -- « create table if not exists » ne touche pas une table qui existe déjà :
 -- une colonne ajoutée plus tard doit être répétée ici, sinon elle n'arrive
 -- jamais dans une base en service. La marge de BIZZOO en fait partie —
@@ -525,6 +619,14 @@ end $$;
 
 create index if not exists produits_boutique   on public.produits(boutique_id);
 create index if not exists categories_boutique on public.categories(boutique_id);
+
+-- ---------- Masquer un produit (3.59.0) ----------
+-- Un produit MASQUÉ disparaît du catalogue des clients sans être
+-- supprimé : sa fiche, ses photos, son code et ses ventes restent, et il
+-- revient d'un geste. On garde qui l'a masqué, et quand.
+alter table public.produits add column if not exists masque boolean not null default false;
+alter table public.produits add column if not exists masque_par text not null default '';
+alter table public.produits add column if not exists masque_le timestamptz;
 create index if not exists slides_boutique     on public.slides(boutique_id);
 
 -- ---------- Comptes de l'application admin et leurs rôles ----------
@@ -672,14 +774,35 @@ language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.sessions_sms s
      where s.session_id = public.session_courante()
-       and s.utilisateur = auth.uid());
+       and s.utilisateur = auth.uid())
+  /* UN LIVREUR ENTRÉ PAR SON NUMÉRO a déjà rendu un code : celui de
+     Supabase (numéro, mot de passe, puis code — 3.59.0). Le jeton le
+     dit, signé par GoTrue : méthode « otp », numéro confirmé. Lui
+     redemander le code de l'équipe, ce serait deux SMS pour une seule
+     porte. Les autres rangs gardent leur code d'équipe, inchangé. */
+  or (coalesce(auth.jwt() ->> 'phone', '') <> ''
+      and exists (select 1 from jsonb_array_elements(
+                    case when jsonb_typeof(auth.jwt() -> 'amr') = 'array'
+                         then auth.jwt() -> 'amr' else '[]'::jsonb end) a
+                   where a ->> 'method' = 'otp')
+      and exists (select 1 from public.profils p
+                   where p.id = auth.uid() and p.role = 'livreur'));
 $$;
 
 -- L'équipe est-elle en service ? Oui quand rien n'est exigé ; sinon,
 -- seulement avec une session confirmée.
+--
+-- (3.59.0) LE CODE NE VAUT PLUS QUE POUR LE SUPERADMINISTRATEUR. Les
+-- administrateurs, modérateurs et livreurs entrent avec leur mot de passe
+-- seul : un SMS à chaque connexion pesait sur tout le monde pour protéger
+-- surtout le compte qui peut tout. On lit la table, pas « role_courant »,
+-- qui s'appuie lui-même sur cette fonction.
 create or replace function public.equipe_en_service() returns boolean
 language sql stable security definer set search_path = public as $$
-  select not public.sms_equipe_exige() or public.session_confirmee();
+  select not public.sms_equipe_exige()
+      or public.session_confirmee()
+      or not exists (select 1 from public.profils p
+                      where p.id = auth.uid() and p.role = 'superadministrateur');
 $$;
 revoke all on function public.session_courante() from public, anon;
 revoke all on function public.sms_equipe_exige() from public, anon;
@@ -765,6 +888,18 @@ language sql stable security definer set search_path = public as $$
      and public.role_courant() is not null;
 $$;
 
+-- L'ADMINISTRATEUR DE BIZZOO : un administrateur rattaché à aucune
+-- boutique (3.59.0). Il crée et gère les livreurs, crée les comptes
+-- revendeurs et valide leurs demandes — comme le superadministrateur,
+-- mais sans toucher au reste de l'équipe. Un modérateur de BIZZOO, non.
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
 -- Un interrupteur de l'enseigne, lu sur la fiche du compte. Il ne vaut
 -- VRAI que pour un compte d'enseigne : sur un compte de boutique la
 -- colonne existe aussi, et sans cette condition elle lui ouvrirait des
@@ -801,8 +936,11 @@ language sql stable security definer set search_path = public as $$
   select case
     when public.est_super() then true
     when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    -- L'HABILITATION VAUT POUR TOUS (3.59.0), administrateur de boutique
+    -- compris : retirée, on ne crée, ne modifie ni ne supprime plus de
+    -- produit. Seul le superadministrateur passe outre.
     else public.est_equipe()
-     and coalesce((select role = 'administrateur' or peut_modifier_produits
+     and coalesce((select peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false)
   end;
 $$;
@@ -892,6 +1030,17 @@ grant execute on function public.peut_voir_finances()  to authenticated;
 create or replace function public.profil_nouveau_compte() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  /* LE NUMÉRO D'UN LIVREUR N'OUVRE PAS DE COMPTE CLIENT (3.59.0). Avant,
+     un livreur qui entrait par son numéro dans l'application client y
+     recevait un second compte, d'acheteur — d'où « Devenir revendeur »
+     et « Mes commandes » sous ses yeux. Il entre avec SON compte. */
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') <> 'equipe'
+     and coalesce(new.phone, '') <> ''
+     and (coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' or coalesce(new.email, '') = '')
+     and public.numero_de_livreur(new.phone) then
+    raise exception 'NUMERO_LIVREUR : ce numéro est celui d''un livreur BIZZOO'
+      using errcode = 'P0001';
+  end if;
   /* UN CLIENT N'EST PAS UN COMPTE D'ÉQUIPE EN ATTENTE. L'application
      cliente s'inscrit en posant « compte: client » ; sans ce test, chaque
      acheteur apparaîtrait dans la liste des comptes de l'enseigne, et il
@@ -900,10 +1049,13 @@ begin
   if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'client' then
     return new;
   end if;
-  /* Et l'équipe n'entre pas par SMS : elle a des adresses e-mail. Un
-     compte qui n'a qu'un numéro est un acheteur, même si les
-     métadonnées manquent — elles viennent du téléphone, après tout. */
-  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> '' then
+  /* Un compte qui n'a qu'un numéro est un acheteur, même si les
+     métadonnées manquent — elles viennent du téléphone, après tout.
+     SAUF « compte: equipe » : c'est un livreur que l'administrateur crée
+     par son numéro (3.59.0). Il reçoit, comme les autres, sa fiche en
+     attente — que l'administrateur active dans la foulée. */
+  if coalesce(new.email, '') = '' and coalesce(new.phone, '') <> ''
+     and coalesce(new.raw_user_meta_data ->> 'compte', '') <> 'equipe' then
     return new;
   end if;
   insert into public.profils (id, email, role, actif)
@@ -925,6 +1077,34 @@ on conflict (id) do nothing;
 
 alter table public.profils enable row level security;
 
+-- ---------- On ne touche pas à son créateur (3.59.0) ----------
+-- Un compte créé par un autre ne modifie pas les droits de celui qui l'a
+-- créé — ni du créateur de celui-ci, et ainsi de suite en remontant : un
+-- superadministrateur nommé par un autre ne peut pas le rétrograder, le
+-- désactiver, changer son mot de passe ni le supprimer. On remonte la
+-- chaîne « cree_par » depuis le compte connecté (vingt crans au plus,
+-- et jamais deux fois le même compte).
+-- En plpgsql : « cree_par » n'est posée que plus bas, et une fonction SQL
+-- serait vérifiée dès sa création.
+create or replace function public.est_mon_createur(cible uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return cible is not null and auth.uid() is not null and cible <> auth.uid() and exists (
+  with recursive chaine(id, cran, vus) as (
+    select p.cree_par, 1, array[p.id]
+      from public.profils p
+     where p.id = auth.uid() and p.cree_par is not null
+    union all
+    select p.cree_par, c.cran + 1, c.vus || p.id
+      from chaine c
+      join public.profils p on p.id = c.id
+     where p.cree_par is not null and c.cran < 20 and not (p.id = any(c.vus))
+  )
+  select 1 from chaine where chaine.id = cible);
+end $$;
+revoke all on function public.est_mon_createur(uuid) from public, anon;
+grant execute on function public.est_mon_createur(uuid) to authenticated;
+
 drop policy if exists "profils lecture" on public.profils;
 drop policy if exists "profils ajout admin" on public.profils;
 drop policy if exists "profils modification admin" on public.profils;
@@ -940,16 +1120,21 @@ create policy "profils lecture" on public.profils
     or (public.est_admin() and boutique_id is not null
         and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
-        and boutique_id is null and cree_le > now() - interval '15 minutes'));
+        and boutique_id is null and cree_le > now() - interval '15 minutes')
+    -- L'administrateur de BIZZOO voit tous les livreurs (3.59.0).
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 
 -- Créer, modifier, supprimer un compte : le superadministrateur sans
--- limite ; l'administrateur seulement des MODÉRATEURS de SA boutique —
--- il ne se nomme pas de pairs et ne touche pas à ses supérieurs.
+-- limite ; l'administrateur seulement des MODÉRATEURS et des LIVREURS
+-- (3.59.0) de SA boutique — il ne se nomme pas de pairs et ne touche pas
+-- à ses supérieurs.
 create policy "profils ajout admin" on public.profils
   for insert to authenticated with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+    or (public.est_admin() and role in ('moderateur', 'livreur')
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    -- L'administrateur de BIZZOO crée des livreurs, et rien d'autre.
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 -- « Créer un compte » passe par deux temps : l'inscription pose une
 -- fiche en attente, SANS boutique, puis l'administrateur lui donne son
 -- rang. Le premier membre de « using » exigeait une fiche déjà de sa
@@ -961,20 +1146,28 @@ create policy "profils ajout admin" on public.profils
 create policy "profils modification admin" on public.profils
   for update to authenticated
   using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
+    -- (3.59.0) Le superadministrateur, sauf sur celui qui l'a créé.
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
         and boutique_id is not null and boutique_id = public.boutique_du_compte())
     or (public.est_admin() and role = 'moderateur' and not actif
-        and boutique_id is null and cree_le > now() - interval '15 minutes'))
+        and boutique_id is null and cree_le > now() - interval '15 minutes')
+    or (public.est_admin_bizzoo() and role = 'livreur'))
   with check (
     public.est_super()
-    or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+    -- (3.59.0) Un modérateur ou un livreur de SA boutique — jamais un
+    -- administrateur.
+    or (public.est_admin() and role in ('moderateur', 'livreur')
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    -- Un livreur reste un livreur : l'administrateur de BIZZOO ne fait
+    -- de personne un administrateur ni un modérateur.
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (
-    public.est_super()
-    or (public.est_admin() and role = 'moderateur'
-        and boutique_id is not null and boutique_id = public.boutique_du_compte()));
+    (public.est_super() and not public.est_mon_createur(id))
+    or (public.est_admin() and role in ('moderateur', 'livreur')
+        and boutique_id is not null and boutique_id = public.boutique_du_compte())
+    or (public.est_admin_bizzoo() and role = 'livreur'));
 
 -- ---------- Gestion des comptes par l'administrateur ----------
 -- Supprimer un compte ou changer son mot de passe demande des droits que
@@ -987,15 +1180,17 @@ create policy "profils suppression admin" on public.profils
 create extension if not exists pgcrypto with schema extensions;
 
 -- Qui a le droit d'agir sur ce compte-là ? Le superadministrateur sur
--- tous ; l'administrateur seulement sur les modérateurs de sa boutique.
+-- tous ; l'administrateur seulement sur les modérateurs et les livreurs
+-- (3.59.0) de sa boutique.
 create or replace function public.gere_le_compte(cible uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.est_super()
+  -- (3.59.0) Jamais sur celui qui vous a créé, ni plus haut.
+  select not public.est_mon_createur(cible) and (public.est_super()
       or (public.est_admin() and exists (
             select 1 from public.profils p
-             where p.id = cible and p.role = 'moderateur'
+             where p.id = cible and p.role in ('moderateur', 'livreur')
                and p.boutique_id is not null
-               and p.boutique_id = public.boutique_du_compte()));
+               and p.boutique_id = public.boutique_du_compte())));
 $$;
 grant execute on function public.gere_le_compte(uuid) to authenticated;
 
@@ -1134,6 +1329,51 @@ alter table public.clients enable row level security;
 -- compte, avec une autre adresse. C'est un petit inconfort contre une
 -- grande clarté : sans cette règle, chaque droit écrit pour l'équipe
 -- devrait être relu en se demandant « et si c'était aussi un client ? ».
+-- ---------- Ce numéro est-il celui d'un livreur ? ----------
+-- Un livreur n'est ni un acheteur ni un revendeur (3.59.0). Son numéro
+-- est sur sa fiche d'équipe ; on compare les HUIT DERNIERS CHIFFRES :
+-- « 97 12 15 96 », « 01 97 12 15 96 » et « +229 01 97 12 15 96 » sont le
+-- même téléphone — le Bénin est passé de 8 à 10 chiffres en ajoutant
+-- « 01 » devant. Réservée aux fonctions du serveur : elle ne dit à
+-- personne quels numéros sont ceux des livreurs.
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+-- Le compte connecté, vu de l'application client : un livreur (son
+-- propre compte), ou un compte client ouvert avec le numéro d'un
+-- livreur (« double ») — avant la 3.59.0, entrer par son numéro dans
+-- l'application client créait ce second compte. Ni l'un ni l'autre ne
+-- voit les rubriques d'acheteur.
+create or replace function public.mon_compte_livreur() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  livreur boolean;
+  numero text;
+begin
+  if moi is null then return jsonb_build_object('livreur', false, 'double', false); end if;
+  select exists (select 1 from public.profils p where p.id = moi and p.actif and p.role = 'livreur')
+    into livreur;
+  numero := coalesce(nullif(auth.jwt() ->> 'phone', ''),
+                     (select c.tel from public.clients c where c.id = moi), '');
+  return jsonb_build_object(
+    'livreur', livreur,
+    'double', not livreur
+              and not exists (select 1 from public.profils p where p.id = moi and p.actif)
+              and public.numero_de_livreur(numero));
+end $$;
+revoke all on function public.mon_compte_livreur() from public, anon;
+grant execute on function public.mon_compte_livreur() to authenticated;
+
 create or replace function public.compte_unique() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -1221,6 +1461,11 @@ begin
     end if;
     if new.type_compte is distinct from old.type_compte then
       if new.type_compte = 'revendeur' then
+        -- UN LIVREUR NE DEVIENT PAS REVENDEUR (3.59.0), même par un compte
+        -- client ouvert avec son numéro.
+        if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+          raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+        end if;
         -- Déjà validé : on ne redemande pas ce qu'on a.
         if old.revendeur_etat <> 'validee' then
           new.revendeur_etat       := 'en_attente';
@@ -1289,6 +1534,9 @@ begin
     new.revendeur_etat       := 'aucune';
     new.revendeur_demande_le := null;
   else
+    if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+      raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+    end if;
     new.revendeur_etat       := 'en_attente';
     new.revendeur_demande_le := now();
   end if;
@@ -1490,7 +1738,7 @@ language sql stable security definer set search_path = public as $$
          c.revendeur_adresse, c.revendeur_latitude, c.revendeur_longitude
     from public.clients c
     left join auth.users u on u.id = c.id
-   where public.est_super()
+   where (public.est_super() or public.est_admin_bizzoo())
      and c.revendeur_etat <> 'aucune'
      and (coalesce(filtre, '') = '' or c.revendeur_etat = filtre)
    order by c.revendeur_demande_le desc nulls last;
@@ -1623,7 +1871,8 @@ declare
   qui  text;
   etat text;
 begin
-  if not public.est_super() then
+  -- Le superadministrateur, ou un administrateur de BIZZOO (3.59.0).
+  if not (public.est_super() or public.est_admin_bizzoo()) then
     raise exception 'Seul BIZZOO valide un compte revendeur';
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
@@ -1638,6 +1887,14 @@ begin
           and c.revendeur_latitude is not null and c.revendeur_longitude is not null
           and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
     raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Une demande déposée avant la 3.59.0 avec le numéro d'un livreur ne
+  -- se valide pas : un livreur n'est pas revendeur.
+  if accord and exists (select 1 from public.clients c
+                         where c.id = cible and public.numero_de_livreur(c.tel)) then
+    raise exception 'Ce numéro est celui d''un livreur BIZZOO : un livreur ne devient pas revendeur.'
       using errcode = 'P0001';
   end if;
 
@@ -1663,6 +1920,45 @@ end $$;
 revoke all on function public.valider_revendeur(uuid, boolean, text)
   from public, anon, authenticated;
 grant execute on function public.valider_revendeur(uuid, boolean, text) to authenticated;
+
+-- ---------- BIZZOO crée un compte revendeur (3.59.0) ----------
+-- L'application admin inscrit le compte (numéro + mot de passe, comme le
+-- client le ferait), puis pose ici sa fiche : une DEMANDE en attente,
+-- avec le commerce et l'adresse. Le revendeur entre ensuite avec son
+-- numéro, son mot de passe et le code reçu par SMS, active la position de
+-- son téléphone dans « Mon compte » — et BIZZOO valide.
+--
+-- Seulement sur un compte tout neuf (moins d'une heure), qui n'est ni de
+-- l'équipe ni déjà client : on ne réécrit pas la fiche de quelqu'un.
+create or replace function public.creer_fiche_revendeur(
+  cible uuid, nom text, tel text, message text default '', adresse text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  -- (3.59.0) L'administrateur d'une boutique aussi : il crée la fiche, la
+  -- demande reste EN ATTENTE, et BIZZOO seul la valide.
+  if not (public.est_super() or public.est_admin_bizzoo() or public.est_admin()) then
+    raise exception 'Seul un administrateur crée un compte revendeur';
+  end if;
+  if not exists (select 1 from auth.users u
+                  where u.id = cible and u.created_at > now() - interval '1 hour') then
+    raise exception 'Ce compte n''est pas un compte qu''on vient de créer';
+  end if;
+  if exists (select 1 from public.profils p where p.id = cible)
+     or exists (select 1 from public.clients c where c.id = cible) then
+    raise exception 'Ce compte a déjà sa fiche';
+  end if;
+  if length(regexp_replace(coalesce(tel, ''), '\D', '', 'g')) < 8 then
+    raise exception 'Le numéro du revendeur est incomplet';
+  end if;
+  insert into public.clients (id, nom, tel, type_compte, revendeur_message, revendeur_adresse)
+  values (cible, left(trim(coalesce(nom, '')), 120), tel, 'revendeur',
+          left(trim(coalesce(message, '')), 300), left(trim(coalesce(adresse, '')), 200));
+  return 'en_attente';
+end $$;
+revoke all on function public.creer_fiche_revendeur(uuid, text, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.creer_fiche_revendeur(uuid, text, text, text, text) to authenticated;
 
 create table if not exists public.journal (
   id          bigint generated always as identity primary key,
@@ -2219,8 +2515,12 @@ drop policy if exists "produits ajout" on public.produits;
 drop policy if exists "produits modification" on public.produits;
 drop policy if exists "produits suppression" on public.produits;
 create policy "lecture publique" on public.produits for select using (true);
+-- CRÉER UN PRODUIT DEMANDE L'HABILITATION (3.59.0), comme le modifier.
+-- Avant, il suffisait d'être de la boutique — ou d'un compte de BIZZOO,
+-- même réduit aux commandes.
 create policy "produits ajout" on public.produits
-  for insert to authenticated with check (public.peut_agir_sur(boutique_id));
+  for insert to authenticated
+  with check (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id));
 create policy "produits modification" on public.produits
   for update to authenticated
   using (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id))
@@ -2228,6 +2528,36 @@ create policy "produits modification" on public.produits
 create policy "produits suppression" on public.produits
   for delete to authenticated
   using (public.peut_modifier_produits() and public.peut_agir_sur(boutique_id));
+
+-- MASQUER OU RÉAFFICHER UN PRODUIT (3.59.0) : l'administrateur ou le
+-- modérateur de SA boutique — même sans l'habilitation à retoucher les
+-- produits : masquer n'efface rien et se défait —, BIZZOO sur toutes.
+-- Un livreur, non.
+create or replace function public.masquer_produit(cible text, cacher boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  sa_boutique text;
+  qui         text;
+begin
+  select p.boutique_id into sa_boutique from public.produits p where p.id = cible;
+  if not found then
+    raise exception 'Ce produit n''existe plus.';
+  end if;
+  if not public.peut_agir_sur(sa_boutique) then
+    raise exception 'Ce produit n''est pas de votre boutique.';
+  end if;
+  select coalesce(nullif(p.nom, ''), nullif(p.email, ''), 'l''équipe') into qui
+    from public.profils p where p.id = auth.uid();
+  update public.produits
+     set masque = coalesce(cacher, true),
+         masque_par = case when coalesce(cacher, true) then coalesce(qui, '') else '' end,
+         masque_le = case when coalesce(cacher, true) then now() else null end
+   where id = cible;
+  return coalesce(cacher, true);
+end $$;
+revoke all on function public.masquer_produit(text, boolean) from public, anon;
+grant execute on function public.masquer_produit(text, boolean) to authenticated;
 
 -- Les prix d'achat : jamais de lecture publique. La clé publiable de
 -- l'application client n'a aucun droit dessus, pas même de lecture ;
@@ -2247,7 +2577,7 @@ create policy "prix achat lecture" on public.produits_prive
     (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat ajout" on public.produits_prive
   for insert to authenticated
-  with check (public.peut_agir_sur(
+  with check (public.peut_modifier_produits() and public.peut_agir_sur(
     (select p.boutique_id from public.produits p where p.id = produit_id)));
 create policy "prix achat modification" on public.produits_prive
   for update to authenticated
@@ -2460,6 +2790,21 @@ begin
   end if;
 end $$;
 
+-- LE CODE MOMOPAY DE BIZZOO (3.59.0). Le reste d'une commande se paie à
+-- la livraison par MoMoPay, sur le compte marchand de BIZZOO : le livreur
+-- montre ce code et le montant, le client paie depuis son téléphone. Un
+-- code marchand est fait pour être montré : il peut être lu par tous.
+alter table public.paiement add column if not exists momopay_code text not null default '';
+alter table public.paiement add column if not exists momopay_nom text not null default '';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'paiement_momopay_borne') then
+    alter table public.paiement
+      add constraint paiement_momopay_borne
+      check (length(momopay_code) <= 30 and length(momopay_nom) <= 60);
+  end if;
+end $$;
+
 alter table public.paiement enable row level security;
 drop policy if exists "paiement lecture"  on public.paiement;
 drop policy if exists "paiement ecriture" on public.paiement;
@@ -2586,6 +2931,10 @@ alter table public.commande_lignes add column if not exists confirme_le timestam
 -- Sur la LIGNE, pas sur la commande : une commande peut traverser deux
 -- boutiques, qui livrent chacune la sienne, chacune par son livreur.
 alter table public.commande_lignes add column if not exists livreur_id uuid;
+-- LE LIVREUR A ACCEPTÉ LA COURSE (3.59.0) : il a touché « Reçu ». C'est ce
+-- moment-là qui révèle au client son nom et son numéro. Remis à zéro si
+-- la course change de livreur.
+alter table public.commande_lignes add column if not exists recu_le timestamptz;
 create index if not exists lignes_livreur on public.commande_lignes(livreur_id)
   where livreur_id is not null;
 
@@ -2629,6 +2978,13 @@ alter table public.commandes add column if not exists verse int;
 -- ni la remise d'un code, ni la commission d'un particulier ne les
 -- touchent. 0 sur les commandes d'avant.
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
+-- CE QUE CHAQUE BOUTIQUE DEMANDE (3.59.0), figé à la commande :
+--   { "bou_x": { "frais": 1000, "taux": 30, "du": 51000, "acompte": 15300 }, … }
+-- « du » : sa part, remise déduite au prorata, plus ses frais ; « taux » :
+-- 100 si elle se paie en entier à la commande. La somme des « acompte »
+-- est l'acompte de la commande. Null : une commande d'avant, réglée
+-- selon l'ancienne règle, celle de l'enseigne.
+alter table public.commandes add column if not exists parts jsonb;
 
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
@@ -2660,6 +3016,7 @@ begin
   -- de dehors, pas plus que l'argent versé.
   new.taux_acompte := null;
   new.acompte := null;
+  new.parts := null;
   new.verse := null;
   -- Les frais de livraison aussi : « creer_commande » les pose, d'après
   -- les réglages de l'enseigne. Le téléphone n'en décide pas.
@@ -2819,6 +3176,7 @@ begin
   -- le livreur va réclamer à la porte du client.
   or new.taux_acompte is distinct from old.taux_acompte
   or new.acompte is distinct from old.acompte
+  or new.parts is distinct from old.parts
   or new.verse is distinct from old.verse
   or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
@@ -2861,6 +3219,11 @@ begin
   if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
      and new.livreur_id is distinct from old.livreur_id then
     raise exception 'Une livraison se confie depuis le compte de la boutique';
+  end if;
+  -- « Reçu » se pose par « accepter_course », par le livreur lui-même.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.recu_le is distinct from old.recu_le then
+    raise exception 'Une course s''accepte depuis le compte du livreur';
   end if;
 
   if new.commande_id is distinct from old.commande_id
@@ -2966,7 +3329,14 @@ grant execute on function public.ma_commande(text) to authenticated;
 -- d'abord à qui elles répondent.
 create or replace function public.restes_par_boutique(cible text)
 returns table (boutique_id text, a_encaisser bigint)
-language sql stable security definer set search_path = public as $$
+language plpgsql stable security definer set search_path = public as $$
+declare lp jsonb;
+begin
+  select c.parts into lp from public.commandes c where c.id = cible;
+  -- UNE COMMANDE D'AVANT LES CONDITIONS PAR BOUTIQUE (« parts » vide) :
+  -- l'ancienne règle, celle d'un acompte unique réparti au prorata.
+  if lp is null then
+    return query
   with commande as (
     select c.total::numeric as total,
            greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
@@ -3002,7 +3372,58 @@ language sql stable security definer set search_path = public as $$
   select x.boutique,
          (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
     from repartie x;
-$$;
+    return;
+  end if;
+  -- (3.59.0) CHAQUE BOUTIQUE ENCAISSE SA PART, moins SON acompte : ce
+  -- que valent ses articles servis, remise déduite au prorata, plus ses
+  -- frais tant qu'il y a quelque chose à livrer.
+  --
+  -- CE QUE LE CLIENT A VERSÉ N'EST JAMAIS PERDU POUR LUI. Chaque boutique
+  -- déduit d'abord son propre acompte ; ce qui a été versé en plus — un
+  -- surplus, ou l'acompte d'une part annulée — diminue les autres parts
+  -- au prorata, l'arrondi à la plus grosse.
+  return query
+    with commande as (
+      select greatest(0, coalesce(c.remise, 0))::numeric as remise,
+             greatest(0, coalesce(c.verse, c.acompte, c.total))::numeric as paye
+        from public.commandes c where c.id = cible
+    ), lignes as (
+      select l.boutique_id as bou,
+             sum(l.prix * l.quantite)::numeric as brut,
+             coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+        from public.commande_lignes l
+       where l.commande_id = cible
+       group by l.boutique_id
+    ), tout as (
+      select sum(x.brut) as s from lignes x
+    ), brutes as (
+      select x.bou,
+             greatest(0, round(x.servi - k.remise * x.servi / nullif(t.s, 0))
+                         + case when x.servi > 0 then coalesce((lp -> x.bou ->> 'frais')::numeric, 0) else 0 end) as du
+        from lignes x, tout t, commande k
+    ), propres as (
+      select b.bou, b.du,
+             least(b.du, coalesce((lp -> b.bou ->> 'acompte')::numeric, 0)) as sien
+        from brutes b
+    ), credit as (
+      select greatest(0, k.paye - coalesce(sum(p.sien), 0)) as reste_credit,
+             coalesce(sum(p.du - p.sien), 0) as a_couvrir
+        from propres p, commande k
+       group by k.paye
+    ), allege as (
+      select p.bou, p.du - p.sien as du,
+             case when c.a_couvrir > 0
+                  then floor(least(c.reste_credit, c.a_couvrir) * (p.du - p.sien) / c.a_couvrir)
+                  else 0 end as moins,
+             least(c.reste_credit, c.a_couvrir) as credit,
+             row_number() over (order by p.du - p.sien desc, p.bou) as rang
+        from propres p, credit c
+    )
+    select a.bou,
+           greatest(0, a.du - a.moins
+                       - case when a.rang = 1 then a.credit - sum(a.moins) over () else 0 end)::bigint
+      from allege a;
+end $$;
 revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
 
 -- ---------- Le reste, lu avec la commande ----------
@@ -3161,15 +3582,21 @@ grant execute on function public.livreurs_boutique() to authenticated;
 -- Un livreur de BIZZOO, lui, porte pour toute l'enseigne — c'est
 -- exactement ce qu'on a voulu en ne le rattachant à aucune boutique.
 --
--- On ne confie que ce qui est PRÊT : une commande pas encore préparée
--- n'a rien à donner à porter.
+-- (3.59.0) LE LIVREUR DE BIZZOO PORTE TOUTE LA COMMANDE : confié par une
+-- boutique, il reçoit aussi les produits des autres boutiques de la
+-- commande — ceux qu'aucun autre livreur ne porte déjà. Le livreur d'une
+-- boutique, lui, ne reçoit que les produits de SA boutique.
 create or replace function public.assigner_livreur(
   commande text, boutique text, livreur uuid)
 returns int
 language plpgsql security definer set search_path = public as $$
 declare
-  combien int;
-  rang    text;
+  combien  int;
+  autres   int := 0;
+  rang     text;
+  bizzoo   boolean := false;
+  numero   text;
+  b        record;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -3178,7 +3605,7 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role into rang from public.profils p
+    select p.role, (p.boutique_id is null) into rang, bizzoo from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -3198,17 +3625,47 @@ begin
 
   perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set livreur_id = livreur
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
-     and l.etat in ('preparee', 'en_livraison');
+     -- (3.59.0) En secours de la demande envoyée à tous les livreurs : la
+     -- boutique peut confier dès le paiement, sans attendre le colis.
+     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+     and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
   get diagnostics combien = row_count;
+
+  -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
+  -- prendre une part déjà confiée au livreur d'une autre boutique.
+  if bizzoo and combien > 0 then
+    update public.commande_lignes l
+       set livreur_id = livreur, recu_le = null
+     where l.commande_id = commande
+       and l.boutique_id <> boutique
+       and l.livreur_id is null
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+    get diagnostics autres = row_count;
+  end if;
   perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
-    raise exception 'Rien à confier ici : préparez d''abord la commande.';
+    raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
   end if;
-  return combien;
+
+  -- Les autres boutiques le savent : un livreur BIZZOO passera chez elles.
+  if autres > 0 then
+    select c.numero into numero from public.commandes c where c.id = commande;
+    for b in select distinct l.boutique_id as id from public.commande_lignes l
+              where l.commande_id = commande and l.boutique_id <> boutique and l.livreur_id = livreur
+    loop
+      perform public.notifier(public.equipe_de(b.id), 'course_confiee',
+        'Un livreur BIZZOO passe récupérer vos produits',
+        'Commande ' || coalesce(numero, '') || ' — il livre toute la commande. Préparez le colis.',
+        '#/commandes/' || commande, commande, b.id, true);
+    end loop;
+  end if;
+  return combien + autres;
 end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
 grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;
@@ -3223,6 +3680,7 @@ grant execute on function public.assigner_livreur(text, text, uuid) to authentic
 --
 -- « drop » avant « create » : la fonction a gagné une colonne, et
 -- PostgreSQL ne change pas ce qu'une fonction rend sans la retirer.
+-- (3.59.0) Deux colonnes de plus encore : la fiche de la course et « Reçu ».
 drop function if exists public.mes_livraisons();
 create or replace function public.mes_livraisons()
 returns table (
@@ -3231,7 +3689,8 @@ returns table (
   client_nom text, client_tel text, client_indicatif text,
   client_adresse text, note text,
   etat text, articles jsonb, paye_le timestamptz,
-  a_encaisser bigint)
+  a_encaisser bigint,
+  fiche jsonb, recu_le timestamptz)
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
@@ -3244,7 +3703,10 @@ begin
            c.client_adresse, c.note,
            -- L'étape la MOINS avancée de ses lignes : c'est elle qui dit
            -- ce qu'il lui reste à faire.
-           min(l.etat)::text,
+           -- (3.59.0) Par le rang, pas l'alphabet : une course prise dès le
+           -- paiement est d'abord « nouvelle » ou « vue » — en préparation.
+           (array['nouvelle','vue','preparee','en_livraison','remise'])[
+             min(array_position(array['nouvelle','vue','preparee','en_livraison','remise'], l.etat))]::text,
            jsonb_agg(jsonb_build_object(
              'nom', l.nom, 'code', l.code, 'quantite', l.quantite)
              order by l.nom),
@@ -3253,12 +3715,15 @@ begin
            -- SA boutique. Zéro quand tout a été payé en ligne.
            coalesce((select r.a_encaisser
                        from public.restes_par_boutique(c.id) r
-                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint
+                      where r.boutique_id is not distinct from l.boutique_id), 0)::bigint,
+           -- Où récupérer, où livrer, les frais, le déjà-payé (3.59.0).
+           public.fiche_course(c.id, l.boutique_id),
+           min(l.recu_le)
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where l.livreur_id = moi
        and c.etat = 'payee'
-       and l.etat in ('preparee', 'en_livraison', 'remise')
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison', 'remise')
        -- Une course remise depuis plus de deux jours n'a plus à
        -- encombrer sa liste.
        and (l.etat <> 'remise' or c.paye_le > now() - interval '2 days')
@@ -3312,10 +3777,851 @@ begin
      where l.commande_id = cible
        and l.etat <> 'annulee'
        and l.confirme_le is null
+       -- (3.59.0) Une fois que le livreur a ACCEPTÉ la course (« Reçu ») —
+       -- ou l'a prise : avant, on ne sait pas encore qui viendra.
+       and (l.recu_le is not null or l.etat in ('en_livraison', 'remise'))
      order by l.boutique_id;
 end $$;
 revoke all on function public.livreurs_de_ma_commande(text, text) from public;
 grant execute on function public.livreurs_de_ma_commande(text, text) to anon, authenticated;
+
+-- ---------- La fiche d'une course (3.59.0) ----------
+-- CE QU'IL FAUT AU LIVREUR, et rien de plus, pour la part d'UNE boutique :
+--   où récupérer le colis   — la boutique : nom, adresse, téléphone, position ;
+--   où le livrer            — le nom, l'adresse et la note du client ;
+--   le numéro du destinataire ;
+--   les frais de livraison de cette boutique ;
+--   ce que le client a DÉJÀ PAYÉ pour cette part ;
+--   ce qu'il reste à récupérer auprès de lui (« a_encaisser »).
+-- Ni le prix des articles, ni le prix BIZZOO, ni le total des autres
+-- boutiques. Réservée aux fonctions de la base.
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0),
+    -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
+    'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
+                   from public.encaissements x
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+-- Un montant lisible dans une notification : « 14 350 FCFA ».
+create or replace function public.montant_lisible(n numeric, devise text default 'FCFA')
+returns text
+language sql immutable set search_path = public as $$
+  select replace(to_char(coalesce(n, 0), 'FM999,999,999,990'), ',', ' ') || ' ' || coalesce(nullif(devise, ''), 'FCFA');
+$$;
+revoke all on function public.montant_lisible(numeric, text) from public, anon, authenticated;
+
+-- ---------- « Reçu » : le livreur accepte la course (3.59.0) ----------
+-- Le client est alors prévenu, avec le nom et le numéro de son livreur ;
+-- la boutique aussi. Seulement SES courses, et une seule fois.
+-- Le livreur de BIZZOO accepte d'un coup TOUTE la commande qu'il porte :
+-- une seule nouvelle au client.
+create or replace function public.accepter_course(commande text, boutique text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  combien int;
+  bizzoo  boolean;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  select (p.boutique_id is null) into bizzoo from public.profils p where p.id = moi;
+  perform set_config('bizzoo.livraison', 'oui', true);
+  if coalesce(bizzoo, false) then
+    perform set_config('bizzoo.prise', 'oui', true);
+  end if;
+  update public.commande_lignes l
+     set recu_le = now()
+   where l.commande_id = commande
+     and (l.boutique_id = boutique or coalesce(bizzoo, false))
+     and l.livreur_id = moi
+     and l.recu_le is null
+     -- (3.59.0) Dès le paiement : la course s'accepte avant que le colis
+     -- soit prêt.
+     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
+  perform set_config('bizzoo.prise', '', true);
+  if combien = 0 and not exists (
+       select 1 from public.commande_lignes l
+        where l.commande_id = commande and l.boutique_id = boutique
+          and l.livreur_id = moi and l.recu_le is not null) then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  return combien;
+end $$;
+revoke all on function public.accepter_course(text, text) from public, anon;
+grant execute on function public.accepter_course(text, text) to authenticated;
+
+-- ---------- La demande de course, envoyée à tous (3.59.0) ----------
+--
+-- Dès que la commande est payée, la course est PROPOSÉE à plusieurs
+-- livreurs à la fois ; le premier qui touche « Commande reçue » la prend.
+--
+--   * Une commande d'UNE boutique : ses livreurs. Une boutique qui n'en
+--     a aucun de validé passe la main aux livreurs de BIZZOO — sinon sa
+--     commande attendrait un porteur qui n'existe pas.
+--   * Une commande de PLUSIEURS boutiques : livraison groupée, aux seuls
+--     livreurs de BIZZOO. Celui qui la prend récupère les colis dans
+--     chaque boutique et livre le tout au client.
+--
+-- Un livreur est « validé » quand il a enregistré sa position (3.58.0).
+create or replace function public.candidats_course(commande text)
+returns uuid[]
+language plpgsql stable security definer set search_path = public as $$
+declare
+  boutiques text[];
+  qui       uuid[];
+begin
+  select array_agg(distinct l.boutique_id) into boutiques
+    from public.commande_lignes l
+   where l.commande_id = commande and l.etat <> 'annulee' and l.boutique_id is not null;
+  if boutiques is null then return '{}'; end if;
+  if array_length(boutiques, 1) = 1 then
+    select array_agg(p.id order by p.id) into qui
+      from public.profils p
+     where p.role = 'livreur' and p.actif and p.boutique_id = boutiques[1]
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+    if qui is not null then return qui; end if;
+  end if;
+  select array_agg(p.id order by p.id) into qui
+    from public.profils p
+   where p.role = 'livreur' and p.actif and p.boutique_id is null
+     and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+  return coalesce(qui, '{}');
+end $$;
+revoke all on function public.candidats_course(text) from public, anon, authenticated;
+
+-- La fiche de la demande : la fiche de chaque boutique, additionnée.
+-- Une seule boutique : un seul lieu de retrait. Groupée : un par boutique.
+create or replace function public.fiche_demande(commande text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  f        jsonb;
+  b        text;
+  retraits jsonb := '[]';
+  premiere jsonb;
+  frais    numeric := 0;
+  paye     numeric := 0;
+  reste    numeric := 0;
+begin
+  for b in select distinct l.boutique_id from public.commande_lignes l
+            where l.commande_id = commande and l.etat <> 'annulee' and l.boutique_id is not null
+            order by 1 loop
+    f := public.fiche_course(commande, b);
+    if f is null then continue; end if;
+    premiere := coalesce(premiere, f);
+    retraits := retraits || jsonb_build_array((f -> 'retrait') ||
+      jsonb_build_object('boutique_id', b, 'a_encaisser', f -> 'a_encaisser'));
+    frais := frais + coalesce((f ->> 'frais')::numeric, 0);
+    paye  := paye  + coalesce((f ->> 'deja_paye')::numeric, 0);
+    reste := reste + coalesce((f ->> 'a_encaisser')::numeric, 0);
+  end loop;
+  if premiere is null then return null; end if;
+  return jsonb_build_object(
+    'numero', premiere -> 'numero',
+    'groupee', jsonb_array_length(retraits) > 1,
+    'retraits', retraits,
+    'livraison', premiere -> 'livraison',
+    'devise', premiere -> 'devise',
+    'frais', frais, 'deja_paye', paye, 'a_encaisser', reste);
+end $$;
+revoke all on function public.fiche_demande(text) from public, anon, authenticated;
+
+-- Le texte de l'alerte : le même pour tous les livreurs à qui on la
+-- propose.
+create or replace function public.texte_demande(f jsonb)
+returns text
+language plpgsql stable set search_path = public as $$
+declare
+  r     jsonb;
+  texte text := '';
+begin
+  if coalesce((f ->> 'groupee')::boolean, false) then
+    texte := 'Livraison groupée : ' || jsonb_array_length(f -> 'retraits') || ' boutiques.' || E'\n';
+  end if;
+  for r in select * from jsonb_array_elements(f -> 'retraits') loop
+    texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') || E'\n';
+  end loop;
+  return texte ||
+    'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
+      coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
+    'Destinataire : +' || (f -> 'livraison' ->> 'indicatif') || ' ' || (f -> 'livraison' ->> 'tel') || E'\n' ||
+    'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
+    'Déjà payé : ' || public.montant_lisible((f ->> 'deja_paye')::numeric, f ->> 'devise') || E'\n' ||
+    case when (f ->> 'a_encaisser')::numeric > 0
+         then 'À récupérer : ' || public.montant_lisible((f ->> 'a_encaisser')::numeric, f ->> 'devise')
+         else 'Rien à récupérer : tout est payé.' end || E'\n' ||
+    'Le premier qui touche « Commande reçue » prend la course.';
+end $$;
+revoke all on function public.texte_demande(jsonb) from public, anon, authenticated;
+
+-- Au paiement : la demande part. Une panne ici ne doit jamais faire
+-- échouer le paiement — elle se lit dans le journal, et la boutique
+-- garde « Confier à un livreur ».
+create or replace function public.proposer_course() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  f jsonb;
+begin
+  if new.etat is not distinct from old.etat or new.etat <> 'payee' then
+    return null;
+  end if;
+  begin
+    f := public.fiche_demande(new.id);
+    if f is null then return null; end if;
+    perform public.notifier(public.candidats_course(new.id), 'course_proposee',
+      case when (f ->> 'groupee')::boolean
+           then 'Livraison groupée — ' || coalesce(new.numero, '')
+           else 'Nouvelle course — ' || coalesce(new.numero, '') end,
+      public.texte_demande(f),
+      '#/livraisons', new.id, null, true);
+  exception when others then
+    raise warning 'proposer_course(%) : %', new.id, sqlerrm;
+  end;
+  return null;
+end $$;
+
+drop trigger if exists commandes_proposent on public.commandes;
+create trigger commandes_proposent
+  after update of etat on public.commandes
+  for each row execute function public.proposer_course();
+
+-- Les demandes ouvertes que CE livreur peut prendre : payées, sans
+-- livreur, et dont il fait partie des destinataires.
+create or replace function public.courses_proposees()
+returns table (commande_id text, numero text, paye_le timestamptz, fiche jsonb)
+language plpgsql stable security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then return; end if;
+  if not exists (select 1 from public.positions_livreurs pl where pl.profil_id = moi) then return; end if;
+  return query
+    select c.id, c.numero, c.paye_le, public.fiche_demande(c.id)
+      from public.commandes c
+     where c.etat = 'payee'
+       and exists (select 1 from public.commande_lignes l
+                    where l.commande_id = c.id and l.etat <> 'annulee')
+       -- Personne ne l'a encore prise, ni reçue en secours.
+       and not exists (select 1 from public.commande_lignes l
+                        where l.commande_id = c.id and l.etat <> 'annulee'
+                          and l.livreur_id is not null)
+       and not exists (select 1 from public.commande_lignes l
+                        where l.commande_id = c.id
+                          and l.etat in ('en_livraison', 'remise'))
+       and c.paye_le > now() - interval '7 days'
+       and moi = any(public.candidats_course(c.id))
+       -- (3.59.0) Il l'a refusée : elle ne lui revient pas.
+       and not exists (select 1 from public.refus_courses rc
+                        where rc.commande_id = c.id and rc.livreur_id = moi)
+     order by c.paye_le;
+end $$;
+revoke all on function public.courses_proposees() from public, anon;
+grant execute on function public.courses_proposees() to authenticated;
+
+-- « Commande reçue » : le premier qui touche prend TOUTE la commande —
+-- toutes ses boutiques en livraison groupée. Le verrou sur la commande
+-- range les livreurs en file : le second trouve la course déjà prise.
+create or replace function public.prendre_course(commande text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  combien int;
+  preneur text;
+  numero  text;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul un livreur prend une course';
+  end if;
+  perform 1 from public.commandes c where c.id = commande and c.etat = 'payee' for update;
+  if not found then
+    raise exception 'Cette commande n''attend pas de livreur';
+  end if;
+  if not (moi = any(public.candidats_course(commande))) then
+    raise exception 'Cette course n''est pas proposée à votre compte';
+  end if;
+  if exists (select 1 from public.refus_courses rc
+              where rc.commande_id = commande and rc.livreur_id = moi) then
+    raise exception 'Vous avez refusé cette course.' using errcode = 'P0001';
+  end if;
+  -- (3.59.0) On dit QUI l'a prise.
+  select coalesce(nullif(p.nom, ''), 'un autre livreur') into preneur
+    from public.commande_lignes l join public.profils p on p.id = l.livreur_id
+   where l.commande_id = commande and l.etat <> 'annulee' and l.livreur_id is not null
+   limit 1;
+  if preneur is not null then
+    raise exception 'Déjà pris par %.', preneur using errcode = 'P0001';
+  end if;
+
+  perform set_config('bizzoo.livraison', 'oui', true);
+  perform set_config('bizzoo.prise', 'oui', true);
+  update public.commande_lignes l
+     set livreur_id = moi, recu_le = now()
+   where l.commande_id = commande
+     and l.livreur_id is null
+     and l.etat in ('nouvelle', 'vue', 'preparee');
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.prise', '', true);
+  perform set_config('bizzoo.livraison', '', true);
+  if combien = 0 then
+    raise exception 'Trop tard : un autre livreur a déjà pris cette course.'
+      using errcode = 'P0001';
+  end if;
+
+  -- (3.59.0) LES AUTRES SONT PRÉVENUS TOUT DE SUITE : « Déjà pris par … ».
+  -- La nouvelle arrive en temps réel sur leur téléphone, et leur
+  -- sonnerie s'arrête. Leur demande d'avant passe « lue ».
+  select coalesce(nullif(p.nom, ''), 'un autre livreur') into preneur
+    from public.profils p where p.id = moi;
+  select c.numero into numero from public.commandes c where c.id = commande;
+  update public.notifications n
+     set lue_le = now()
+   where n.commande_id = commande and n.type = 'course_proposee'
+     and n.destinataire <> moi and n.lue_le is null;
+  perform public.notifier(
+    array(select x from unnest(public.candidats_course(commande)) as x where x <> moi),
+    'course_prise',
+    'Déjà pris par ' || preneur,
+    'Commande ' || coalesce(numero, '') || ' — ' || preneur || ' a pris la course. Elle n''est plus disponible.',
+    '#/livraisons', commande, null, false);
+  return combien;
+end $$;
+revoke all on function public.prendre_course(text) from public, anon;
+grant execute on function public.prendre_course(text) to authenticated;
+
+-- ---------- Le reste payé à la livraison (3.59.0) ----------
+--
+-- AVANT, LE RESTE PASSAIT DE MAIN EN MAIN SANS LAISSER DE TRACE : le
+-- livreur touchait « Je l'ai remise », et l'application supposait que le
+-- client avait payé. Désormais :
+--
+--   1. le livreur DÉCLARE ce qu'il a encaissé, et comment (espèces ou
+--      Mobile Money), en remettant le colis (remettre_course). Un montant
+--      différent de ce qui était dû demande un motif écrit ;
+--   2. le client le voit sur son reçu (« Reste payé à la livraison »), en
+--      reçoit la nouvelle, et peut le contester (contester_encaissement) ;
+--   3. LA CAISSE : la boutique voit ce que chaque livreur a encaissé pour
+--      SES colis et ne lui a pas encore rendu, et marque « Argent reçu du
+--      livreur » (marquer_remis). BIZZOO voit tout.
+--
+-- Une ligne par boutique et par commande : c'est la part de CETTE
+-- boutique que son livreur réclame à la porte. Personne n'y écrit
+-- directement — seulement par les fonctions ci-dessous.
+create table if not exists public.encaissements (
+  id             bigserial primary key,
+  commande_id    text not null references public.commandes(id) on delete cascade,
+  boutique_id    text not null references public.boutiques(id) on delete cascade,
+  livreur_id     uuid references public.profils(id) on delete set null,
+  -- Ce que le client devait à cette boutique à la livraison, et ce que
+  -- le livreur dit avoir reçu.
+  du             bigint not null default 0,
+  montant        bigint not null default 0,
+  mode           text not null default 'aucun',
+  motif          text not null default '',
+  encaisse_le    timestamptz not null default now(),
+  -- L'argent rendu par le livreur à la boutique (ou à BIZZOO).
+  remis_le       timestamptz,
+  remis_par      uuid references public.profils(id) on delete set null,
+  -- Le client conteste ce qui a été déclaré.
+  conteste_le    timestamptz,
+  conteste_motif text not null default '',
+  constraint encaissements_un_par_part unique (commande_id, boutique_id),
+  constraint encaissements_mode check (mode in ('especes', 'mobile_money', 'aucun')),
+  constraint encaissements_montant check (montant >= 0 and du >= 0)
+);
+-- (3.59.0) Le numéro de la transaction MoMoPay, lu sur le SMS du client :
+-- c'est lui que BIZZOO retrouve dans son compte marchand.
+alter table public.encaissements add column if not exists transaction_id text not null default '';
+create index if not exists encaissements_livreur on public.encaissements(livreur_id) where remis_le is null;
+create index if not exists encaissements_boutique on public.encaissements(boutique_id, encaisse_le desc);
+alter table public.encaissements enable row level security;
+revoke all on public.encaissements from anon, authenticated;
+revoke all on sequence public.encaissements_id_seq from anon, authenticated;
+
+-- Qui tient la caisse d'une boutique : le superadministrateur, un compte
+-- de BIZZOO qui suit les commandes ou les finances, l'administrateur de
+-- CETTE boutique. Un modérateur, non : c'est de l'argent.
+create or replace function public.tient_la_caisse(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or public.droit_enseigne('commandes')
+      or public.droit_enseigne('finances')
+      or (public.est_admin() and cible is not null
+          and cible = public.boutique_du_compte());
+$$;
+revoke all on function public.tient_la_caisse(text) from public, anon, authenticated;
+grant execute on function public.tient_la_caisse(text) to authenticated;
+
+-- « Je l'ai remise » (3.59.0) : PLUS D'ESPÈCES. Le reste se paie par
+-- MoMoPay, sur le compte marchand de BIZZOO : le livreur montre le code et
+-- le montant, le client paie depuis son téléphone et reçoit un SMS avec le
+-- numéro de la transaction. Le livreur le saisit ici (« motif ») : sans
+-- lui, le colis ne se remet pas. Le montant est celui qui était dû, au
+-- franc près. BIZZOO vérifie ensuite chaque transaction dans son compte
+-- MoMoPay (« Caisse ») ; d'ici là, le paiement est « à vérifier ».
+create or replace function public.remettre_course(
+  commande text, boutique text, montant bigint, mode text, motif text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi      uuid := auth.uid();
+  combien  int;
+  du       bigint;
+  trans    text := upper(left(regexp_replace(coalesce(motif, ''), '[^A-Za-z0-9.-]', '', 'g'), 40));
+  c        record;
+  porteur  text;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  if not exists (select 1 from public.commande_lignes l
+                  where l.commande_id = commande and l.boutique_id = boutique
+                    and l.livreur_id = moi and l.etat = 'en_livraison') then
+    raise exception 'Rien à remettre ici : cette course n''en est pas là.';
+  end if;
+  select c0.numero, c0.client_id, coalesce(nullif(c0.devise, ''), 'FCFA') as devise
+    into c from public.commandes c0 where c0.id = commande;
+  select coalesce(r.a_encaisser, 0) into du
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  du := coalesce(du, 0);
+
+  if du > 0 then
+    if coalesce(mode, '') <> 'mobile_money' then
+      raise exception 'Plus d''espèces : le client paie % par MoMoPay. Mettez l''application à jour.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if coalesce(montant, 0) <> du then
+      raise exception 'Le client doit payer exactement % par MoMoPay.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if length(trans) < 4 then
+      raise exception 'Saisissez le numéro de la transaction MoMoPay, lu sur le SMS du client.'
+        using errcode = 'P0001';
+    end if;
+    if exists (select 1 from public.encaissements x
+                where x.mode = 'mobile_money' and x.transaction_id = trans) then
+      raise exception 'Cette transaction MoMoPay a déjà servi pour une autre commande : vérifiez le SMS du client.'
+        using errcode = 'P0001';
+    end if;
+  end if;
+
+  perform set_config('bizzoo.livraison', 'oui', true);
+  update public.commande_lignes l
+     set etat = 'remise',
+         recu_le = coalesce(l.recu_le, now())
+   where l.commande_id = commande
+     and l.boutique_id = boutique
+     and l.livreur_id = moi
+     and l.etat = 'en_livraison';
+  get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
+
+  if du = 0 then
+    -- Rien n'était dû : la part est soldée, rien à vérifier.
+    insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, remis_le)
+    values (commande, boutique, moi, 0, 0, 'aucun', now())
+    on conflict (commande_id, boutique_id) do nothing;
+    return jsonb_build_object('lignes', combien, 'du', 0, 'montant', 0, 'mode', 'aucun');
+  end if;
+
+  -- Payé par MoMoPay : « remis_le » reste vide tant que BIZZOO n'a pas
+  -- retrouvé la transaction dans son compte.
+  insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id)
+  values (commande, boutique, moi, du, du, 'mobile_money', 'MoMoPay — transaction ' || trans, trans)
+  on conflict (commande_id, boutique_id) do nothing;
+
+  select coalesce(nullif(p.nom, ''), 'votre livreur') into porteur from public.profils p where p.id = moi;
+  if c.client_id is not null then
+    perform public.notifier(array[c.client_id], 'reste_encaisse',
+      'Reste payé : ' || public.montant_lisible(du, c.devise),
+      'Commande ' || coalesce(c.numero, '') ||
+        coalesce(' — ' || nullif((select b.nom from public.boutiques b where b.id = boutique), ''), '') || '.' ||
+        E'\nPayé par MoMoPay (transaction ' || trans || '), remis par ' || porteur || '.' ||
+        E'\nSi ce n''est pas exact, signalez-le depuis votre commande.',
+      '#/commande/' || commande, commande, boutique, true);
+  end if;
+  perform public.notifier(public.equipe_de(boutique) || public.enseigne_des_commandes() || public.les_superadmins(),
+    'reste_encaisse',
+    'MoMoPay à vérifier : ' || public.montant_lisible(du, c.devise),
+    'Commande ' || coalesce(c.numero, '') || ' — transaction ' || trans || ', remise par ' || porteur || '.' ||
+      E'\nÀ retrouver dans le compte MoMoPay de BIZZOO.',
+    '#/caisse', commande, boutique, true);
+
+  return jsonb_build_object('lignes', combien, 'du', du, 'montant', du, 'mode', 'mobile_money',
+    'transaction', trans);
+end $$;
+revoke all on function public.remettre_course(text, text, bigint, text, text) from public, anon;
+grant execute on function public.remettre_course(text, text, bigint, text, text) to authenticated;
+
+-- Le client conteste ce que le livreur a déclaré. Comme pour suivre sa
+-- commande : son compte, ou son numéro.
+create or replace function public.contester_encaissement(
+  commande text, boutique text, motif text, tel text default '')
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  combien  int;
+  pourquoi text := left(trim(coalesce(motif, '')), 300);
+  e        record;
+begin
+  if not (public.ma_commande(commande)
+          or exists (select 1 from public.commandes c
+                      where c.id = commande and not c.compte_supprime
+                        and regexp_replace(coalesce(tel, ''), '\D', '', 'g') <> ''
+                        and c.client_tel = regexp_replace(coalesce(tel, ''), '\D', '', 'g'))) then
+    raise exception 'Cette commande n''est pas la vôtre';
+  end if;
+  if length(pourquoi) < 3 then
+    raise exception 'Dites en quelques mots ce qui ne va pas.' using errcode = 'P0001';
+  end if;
+  update public.encaissements x
+     set conteste_le = now(), conteste_motif = pourquoi
+   where x.commande_id = commande and x.boutique_id = boutique and x.conteste_le is null;
+  get diagnostics combien = row_count;
+  if combien = 0 then
+    if exists (select 1 from public.encaissements x
+                where x.commande_id = commande and x.boutique_id = boutique) then
+      raise exception 'Vous l''avez déjà signalé : la boutique et BIZZOO sont prévenus.' using errcode = 'P0001';
+    end if;
+    raise exception 'Aucun paiement à la livraison n''est enregistré pour cette commande.' using errcode = 'P0001';
+  end if;
+
+  select x.montant, x.mode, cm.numero, coalesce(nullif(cm.devise, ''), 'FCFA') as devise,
+         coalesce(nullif(p.nom, ''), 'le livreur') as porteur
+    into e
+    from public.encaissements x
+    join public.commandes cm on cm.id = x.commande_id
+    left join public.profils p on p.id = x.livreur_id
+   where x.commande_id = commande and x.boutique_id = boutique;
+  perform public.notifier(public.equipe_de(boutique) || public.enseigne_des_commandes() || public.les_superadmins(),
+    'encaissement_conteste',
+    'Paiement contesté — ' || coalesce(e.numero, ''),
+    'Le client conteste : « ' || pourquoi || ' ».' ||
+      E'\nDéclaré : ' || public.montant_lisible(e.montant, e.devise) || ' encaissé par ' || e.porteur || '.',
+    '#/caisse', commande, boutique, true);
+  return combien;
+end $$;
+revoke all on function public.contester_encaissement(text, text, text, text) from public;
+grant execute on function public.contester_encaissement(text, text, text, text) to anon, authenticated;
+
+-- LA CAISSE : ce qui a été encaissé à la livraison, sur les boutiques que
+-- l'on tient — rendu ou pas encore. Et les remises SANS déclaration
+-- (faites depuis une application d'avant 3.59.0) alors qu'un reste était
+-- dû : « declare » à faux, pour qu'elles ne passent pas inaperçues.
+create or replace function public.caisse_livreurs()
+returns table (
+  id bigint, commande_id text, numero text, boutique_id text, nom_boutique text,
+  livreur_id uuid, livreur_nom text, livreur_tel text,
+  du bigint, montant bigint, mode text, motif text,
+  encaisse_le timestamptz, remis_le timestamptz, remis_par_nom text,
+  conteste_le timestamptz, conteste_motif text, declare boolean, devise text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return; end if;
+  return query
+    select x.id, x.commande_id, c.numero::text, x.boutique_id,
+           coalesce(b.nom, '')::text,
+           x.livreur_id, coalesce(nullif(p.nom, ''), p.email, '')::text, coalesce(p.tel, '')::text,
+           x.du, x.montant, x.mode, x.motif,
+           x.encaisse_le, x.remis_le, coalesce(nullif(q.nom, ''), q.email, '')::text,
+           x.conteste_le, x.conteste_motif, true,
+           coalesce(nullif(c.devise, ''), 'FCFA')::text
+      from public.encaissements x
+      join public.commandes c on c.id = x.commande_id
+      left join public.boutiques b on b.id = x.boutique_id
+      left join public.profils p on p.id = x.livreur_id
+      left join public.profils q on q.id = x.remis_par
+     where public.tient_la_caisse(x.boutique_id)
+       and (x.remis_le is null or x.encaisse_le > now() - interval '60 days')
+    union all
+    select null::bigint, l.commande_id, c.numero::text, l.boutique_id,
+           coalesce(b.nom, '')::text,
+           l.livreur_id, coalesce(nullif(p.nom, ''), p.email, '')::text, coalesce(p.tel, '')::text,
+           r.a_encaisser, null::bigint, ''::text, ''::text,
+           max(c.paye_le), null::timestamptz, ''::text,
+           null::timestamptz, ''::text, false,
+           coalesce(nullif(c.devise, ''), 'FCFA')::text
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+      left join public.boutiques b on b.id = l.boutique_id
+      left join public.profils p on p.id = l.livreur_id
+      join lateral (select rr.a_encaisser from public.restes_par_boutique(l.commande_id) rr
+                     where rr.boutique_id = l.boutique_id) r on true
+     where l.etat = 'remise'
+       and public.tient_la_caisse(l.boutique_id)
+       and c.paye_le > now() - interval '60 days'
+       and r.a_encaisser > 0
+       and not exists (select 1 from public.encaissements x
+                        where x.commande_id = l.commande_id and x.boutique_id = l.boutique_id)
+     group by l.commande_id, c.numero, l.boutique_id, b.nom, l.livreur_id, p.nom, p.email, p.tel,
+              r.a_encaisser, c.devise
+     order by 13 desc;
+end $$;
+revoke all on function public.caisse_livreurs() from public, anon;
+grant execute on function public.caisse_livreurs() to authenticated;
+
+-- « Argent reçu du livreur » : une ou plusieurs lignes à la fois. Le
+-- livreur est prévenu de ce que la boutique a bien reçu de lui.
+create or replace function public.marquer_remis(ids bigint[])
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  faits jsonb;
+  r     record;
+begin
+  if auth.uid() is null then raise exception 'Connectez-vous'; end if;
+  with marques as (
+    update public.encaissements x
+       set remis_le = now(), remis_par = auth.uid()
+     where x.id = any(ids) and x.remis_le is null and x.montant > 0
+       and public.tient_la_caisse(x.boutique_id)
+       -- (3.59.0) Un paiement MoMoPay arrive sur le compte de BIZZOO :
+       -- BIZZOO seul peut dire l'y avoir trouvé.
+       and (x.mode <> 'mobile_money' or public.est_super()
+            or public.droit_enseigne('finances') or public.droit_enseigne('commandes'))
+    returning x.livreur_id, x.boutique_id, x.montant, x.commande_id, x.mode
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'livreur', m.livreur_id, 'boutique', m.boutique_id, 'montant', m.montant, 'mode', m.mode,
+           'devise', (select coalesce(nullif(c.devise, ''), 'FCFA') from public.commandes c
+                       where c.id = m.commande_id))), '[]'::jsonb)
+    into faits from marques m;
+  if jsonb_array_length(faits) = 0 then
+    raise exception 'Rien à marquer : ces encaissements sont déjà rendus, ou ne sont pas de votre boutique.'
+      using errcode = 'P0001';
+  end if;
+  for r in select (f ->> 'livreur')::uuid as livreur, f ->> 'boutique' as boutique,
+                  sum((f ->> 'montant')::bigint) as total, min(f ->> 'devise') as devise, count(*) as nb
+             from jsonb_array_elements(faits) f
+            where f ->> 'livreur' is not null
+              -- MoMoPay : le livreur n'avait rien en main, rien à lui dire.
+              and f ->> 'mode' <> 'mobile_money'
+            group by 1, 2 loop
+    perform public.notifier(array[r.livreur], 'caisse_remise',
+      'Argent bien reçu : ' || public.montant_lisible(r.total, r.devise),
+      coalesce((select b.nom from public.boutiques b where b.id = r.boutique), 'La boutique') ||
+        ' a bien reçu de vous ' || public.montant_lisible(r.total, r.devise) ||
+        ' (' || r.nb || ' course' || case when r.nb > 1 then 's' else '' end || ').',
+      '#/livraisons', null, r.boutique, false);
+  end loop;
+  return jsonb_array_length(faits);
+end $$;
+revoke all on function public.marquer_remis(bigint[]) from public, anon;
+grant execute on function public.marquer_remis(bigint[]) to authenticated;
+
+-- Ce que le livreur a encaissé et n'a pas encore rendu, boutique par
+-- boutique : il sait à qui il doit quoi.
+create or replace function public.ma_caisse()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then return null; end if;
+  return jsonb_build_object(
+    -- (3.59.0) Un paiement MoMoPay n'est jamais passé par ses mains.
+    'a_remettre', coalesce((select sum(x.montant) from public.encaissements x
+                             where x.livreur_id = moi and x.remis_le is null
+                               and x.mode <> 'mobile_money'), 0),
+    'courses', (select count(*) from public.encaissements x
+                 where x.livreur_id = moi and x.remis_le is null and x.montant > 0
+                   and x.mode <> 'mobile_money'),
+    'boutiques', coalesce((
+      select jsonb_agg(jsonb_build_object('boutique', coalesce(b.nom, ''), 'montant', t.total) order by b.nom)
+        from (select x.boutique_id, sum(x.montant) as total from public.encaissements x
+               where x.livreur_id = moi and x.remis_le is null and x.montant > 0
+                 and x.mode <> 'mobile_money'
+               group by x.boutique_id) t
+        left join public.boutiques b on b.id = t.boutique_id), '[]'::jsonb));
+end $$;
+revoke all on function public.ma_caisse() from public, anon;
+grant execute on function public.ma_caisse() to authenticated;
+
+-- ---------- Le livreur refuse une course (3.59.0) ----------
+--
+-- Une course confiée — ou prise sur la demande — se refuse tant que le
+-- colis n'est pas parti (« Je l'ai prise »). Elle redevient libre : la
+-- boutique voit « Commande refusée par le livreur » et la confie à
+-- nouveau, et la demande se rouvre aux autres livreurs. Celui qui a
+-- refusé ne la revoit plus. Chaque refus est gardé.
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
+create or replace function public.refuser_course(commande text, motif text default '')
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  moi      uuid := auth.uid();
+  pourquoi text := left(trim(coalesce(motif, '')), 300);
+  parts    record;
+  combien  int := 0;
+  porteur  text;
+  c        record;
+  annonce  boolean;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul le livreur de la course la refuse';
+  end if;
+  if not exists (select 1 from public.commande_lignes l
+                  where l.commande_id = commande and l.livreur_id = moi
+                    and l.etat in ('nouvelle', 'vue', 'preparee')) then
+    if exists (select 1 from public.commande_lignes l
+                where l.commande_id = commande and l.livreur_id = moi) then
+      raise exception 'Le colis est déjà parti avec vous : vous ne pouvez plus refuser cette course.'
+        using errcode = 'P0001';
+    end if;
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  select coalesce(nullif(p.nom, ''), 'Le livreur') into porteur from public.profils p where p.id = moi;
+  select c0.numero, c0.client_id into c from public.commandes c0 where c0.id = commande;
+  -- Le client savait-il déjà qui viendrait ?
+  select exists (select 1 from public.commande_lignes l
+                  where l.commande_id = commande and l.livreur_id = moi and l.recu_le is not null)
+    into annonce;
+
+  -- UNE NOUVELLE COURSE, DE NOUVELLES NOUVELLES. Chaque sorte de
+  -- notification ne part qu'une fois par commande ; sans ceci, le client
+  -- ne recevrait jamais le nom du livreur suivant. Les anciennes restent
+  -- lisibles, mises de côté sous « …_avant_<n> » — le numéro, parce
+  -- qu'une course peut être refusée plus d'une fois.
+  update public.notifications n
+     set type = n.type || '_avant_' || n.id
+   where n.commande_id = commande
+     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee');
+
+  perform set_config('bizzoo.livraison', 'oui', true);
+  perform set_config('bizzoo.refus', 'oui', true);
+  for parts in
+    with liberees as (
+      update public.commande_lignes l
+         set livreur_id = null, recu_le = null
+       where l.commande_id = commande and l.livreur_id = moi
+         and l.etat in ('nouvelle', 'vue', 'preparee')
+      returning l.boutique_id
+    )
+    select distinct boutique_id from liberees
+  loop
+    combien := combien + 1;
+    insert into public.refus_courses (commande_id, boutique_id, livreur_id, motif)
+    values (commande, parts.boutique_id, moi, pourquoi);
+    perform public.notifier(public.equipe_de(parts.boutique_id), 'course_refusee',
+      'Commande refusée par le livreur — ' || coalesce(c.numero, ''),
+      porteur || ' a refusé la course' ||
+        case when pourquoi <> '' then ' : « ' || pourquoi || ' »' else '' end || '.' ||
+        E'\nConfiez-la à un autre livreur : la demande est aussi repartie vers les autres.',
+      '#/commandes/' || commande, commande, parts.boutique_id, true);
+  end loop;
+  perform set_config('bizzoo.refus', '', true);
+  perform set_config('bizzoo.livraison', '', true);
+
+  if annonce and c.client_id is not null then
+    perform public.notifier(array[c.client_id], 'course_refusee',
+      'Votre livreur a changé',
+      'Commande ' || coalesce(c.numero, '') || ' : ' || porteur ||
+        ' ne peut pas la livrer. Un autre livreur va la prendre ; vous recevrez son nom et son numéro.',
+      '#/commande/' || commande, commande, null, true);
+  end if;
+  return combien;
+end $$;
+revoke all on function public.refuser_course(text, text) from public, anon;
+grant execute on function public.refuser_course(text, text) to authenticated;
+
+-- CE QUE LA BOUTIQUE VOIT DE LA LIVRAISON de ses commandes : qui a pris
+-- la course (nom, numéro), s'il l'a acceptée, et le dernier refus. Les
+-- lignes de commande ne se lisent que colonne par colonne, et le livreur
+-- n'en fait pas partie : c'est cette fonction qui le dit, et seulement
+-- pour les boutiques que le compte tient.
+create or replace function public.livraison_des_commandes(cibles text[])
+returns table (commande_id text, boutique_id text,
+               livreur_nom text, livreur_tel text, livreur_bizzoo boolean, recu_le timestamptz,
+               refus_nom text, refus_motif text, refuse_le timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not (public.est_equipe() or public.est_compte_enseigne()) then return; end if;
+  return query
+    select x.commande_id, x.boutique_id,
+           coalesce(nullif(p.nom, ''), p.email, '')::text, coalesce(p.tel, '')::text,
+           (p.id is not null and p.boutique_id is null), x.recu,
+           coalesce(nullif(q.nom, ''), q.email, '')::text, coalesce(r.motif, '')::text, r.refuse_le
+      from (select l.commande_id, l.boutique_id,
+                   (array_agg(l.livreur_id) filter (where l.livreur_id is not null and l.etat <> 'annulee'))[1] as livreur,
+                   min(l.recu_le) as recu
+              from public.commande_lignes l
+             where l.commande_id = any(cibles)
+               and public.peut_agir_sur(l.boutique_id)
+             group by l.commande_id, l.boutique_id) x
+      left join public.profils p on p.id = x.livreur
+      left join lateral (select rc.livreur_id, rc.motif, rc.refuse_le from public.refus_courses rc
+                          where rc.commande_id = x.commande_id and rc.boutique_id = x.boutique_id
+                          order by rc.refuse_le desc limit 1) r on true
+      left join public.profils q on q.id = r.livreur_id;
+end $$;
+revoke all on function public.livraison_des_commandes(text[]) from public, anon;
+grant execute on function public.livraison_des_commandes(text[]) to authenticated;
 
 -- ---------- Le livreur avance sa course ----------
 -- DEUX ÉTAPES, ET PAS D'AUTRES : « je l'ai prise » et « je l'ai
@@ -3343,13 +4649,33 @@ begin
   -- jamais avoir été prise.
   depuis := case when vers = 'en_livraison' then 'preparee' else 'en_livraison' end;
 
+  -- (3.59.0) PAS DE REMISE SANS LE RESTE PAYÉ PAR MOMOPAY. Ce chemin
+  -- d'avant (« Je l'ai remise » sans rien déclarer) ne passe plus quand
+  -- le client doit encore quelque chose : c'est remettre_course, avec le
+  -- numéro de la transaction, qui remet le colis.
+  if vers = 'remise'
+     and coalesce((select r.a_encaisser from public.restes_par_boutique(commande) r
+                    where r.boutique_id = boutique), 0) > 0
+     and not exists (select 1 from public.encaissements x
+                      where x.commande_id = commande and x.boutique_id = boutique
+                        and x.mode = 'mobile_money') then
+    raise exception 'Le client doit d''abord payer le reste par MoMoPay : touchez « Remettre le colis » et saisissez le numéro de la transaction.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Prendre la course sans avoir touché « Reçu » vaut acceptation.
+  perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set etat = vers
+     set etat = vers,
+         recu_le = coalesce(l.recu_le, now())
    where l.commande_id = commande
      and l.boutique_id = boutique
      and l.livreur_id = moi
      and l.etat = depuis;
+  -- Le compte AVANT de rendre le drapeau : « row_count » parle de la
+  -- dernière instruction, et ce serait alors celle-là.
   get diagnostics combien = row_count;
+  perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
     raise exception 'Rien à avancer ici : cette course n''en est pas là.';
@@ -3820,6 +5146,8 @@ declare
   verdict  jsonb;
   manque   record;
   taux     int;
+  les_parts jsonb;
+  manquant  bigint;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -3879,12 +5207,8 @@ begin
   -- elle ne saurait pas les montrer, et le client paierait un montant
   -- qu'on ne lui a jamais annoncé.
   -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
-  if coalesce(avec_frais, false) then
-    update public.commandes
-       set frais_livraison = greatest(0, coalesce(
-             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
-     where id = nouvelle;
-  end if;
+  -- (3.59.0) Ils se posent désormais APRÈS les lignes, boutique par
+  -- boutique : voir « Les conditions de chaque boutique », plus bas.
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -3892,9 +5216,22 @@ begin
     if not found then
       raise exception 'Un des produits de votre panier n''existe plus.';
     end if;
+    -- (3.59.0) Un produit masqué ne se commande plus.
+    if coalesce(p.masque, false) then
+      raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
+    -- UNE BOUTIQUE FERMÉE NE REÇOIT PAS DE COMMANDE (3.59.0) : fermée par
+    -- son interrupteur, ou en dehors de ses heures d'ouverture.
+    if exists (select 1 from public.boutiques b
+                where b.id = p.boutique_id
+                  and (not b.actif or not public.boutique_ouverte(b.ouvertures))) then
+      raise exception 'La boutique « % » est fermée en ce moment : « % » se commandera à sa réouverture.',
+        (select b.nom from public.boutiques b where b.id = p.boutique_id), p.nom
+        using errcode = 'P0001';
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
@@ -3981,16 +5318,85 @@ begin
   --
   -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
   -- plus que le total.
-  taux := case when coalesce(avec_acompte, false)
-               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
-               else 100 end;
-  perform set_config('bizzoo.interne', 'oui', true);
-  update public.commandes c
-     set taux_acompte = taux,
-         acompte = case when c.total <= 0 then 0
-                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
-   where c.id = nouvelle;
-  perform set_config('bizzoo.interne', '', true);
+  -- ---------- Les conditions de chaque boutique (3.59.0) ----------
+  -- CHAQUE BOUTIQUE A SES FRAIS ET SON ACOMPTE. Sa part, c'est ce que
+  -- valent ses articles, remise déduite au prorata, plus ses frais ;
+  -- elle se paie en entier à la commande (« total ») ou par son taux
+  -- d'acompte — le reste à la livraison, à son livreur.
+  --
+  -- UNE APPLICATION D'AVANT ne demande ni frais ni acompte : elle fait
+  -- tout payer, et n'a pas de frais à annoncer. On ne change rien pour
+  -- elle.
+  if coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+    perform set_config('bizzoo.interne', 'oui', true);
+    if coalesce(avec_frais, false) then
+      update public.commandes
+         set frais_livraison = coalesce((
+               select sum(greatest(0, b.frais_livraison))
+                 from public.boutiques b
+                where b.id in (select l.boutique_id from public.commande_lignes l
+                                where l.commande_id = nouvelle)), 0)
+       where id = nouvelle;
+      perform public.commande_total(nouvelle);
+      perform set_config('bizzoo.interne', 'oui', true);
+    end if;
+    with brut as (
+      select l.boutique_id as bou, sum(l.prix * l.quantite)::numeric as montant
+        from public.commande_lignes l
+       where l.commande_id = nouvelle
+       group by l.boutique_id
+    ), tout as (
+      select sum(montant) as s from brut
+    ), chacune as (
+      select br.bou,
+             case when coalesce(avec_frais, false) then greatest(0, b.frais_livraison) else 0 end as frais,
+             case when coalesce(avec_acompte, false) and b.mode_paiement = 'acompte'
+                  then b.taux_acompte else 100 end as taux,
+             greatest(0, round(br.montant - coalesce(c.remise, 0) * br.montant / nullif(t.s, 0))) as net
+        from brut br
+        join public.boutiques b on b.id = br.bou
+        cross join tout t
+        cross join (select remise from public.commandes where id = nouvelle) c
+    )
+    select jsonb_object_agg(x.bou, jsonb_build_object(
+             'frais', x.frais, 'taux', x.taux, 'du', x.net + x.frais,
+             'acompte', least(x.net + x.frais, ceil((x.net + x.frais) * x.taux / 100.0)::bigint)))
+      into les_parts
+      from chacune x;
+
+    -- 100 francs au moins en ligne, l'encaissement minimum chez FeexPay :
+    -- le manque va à la plus grosse part.
+    select greatest(0, least(c.total, 100) - coalesce((
+             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0))
+      into manquant
+      from public.commandes c where c.id = nouvelle;
+    if manquant > 0 and les_parts is not null then
+      select jsonb_set(les_parts, array[k, 'acompte'],
+               to_jsonb(least((v ->> 'du')::bigint, (v ->> 'acompte')::bigint + manquant)))
+        into les_parts
+        from jsonb_each(les_parts) e(k, v)
+       order by (v ->> 'du')::bigint desc limit 1;
+    end if;
+
+    update public.commandes c
+       set parts = les_parts,
+           acompte = least(c.total, coalesce((
+                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)),
+           -- Le taux affiché : ce que représente l'acompte du total.
+           taux_acompte = case when c.total <= 0 then 100
+                               else least(100, greatest(1, round(100.0 * coalesce((
+                                 select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)),
+                                 c.total) / c.total)))::int end
+     where c.id = nouvelle;
+    perform set_config('bizzoo.interne', '', true);
+  else
+    perform set_config('bizzoo.interne', 'oui', true);
+    update public.commandes c
+       set taux_acompte = 100,
+           acompte = c.total
+     where c.id = nouvelle;
+    perform set_config('bizzoo.interne', '', true);
+  end if;
 
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
@@ -4005,6 +5411,7 @@ begin
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
+    'parts', c.parts,
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,
@@ -4068,7 +5475,18 @@ begin
                 from public.restes_par_boutique(c.id) r),
     'restes', (select coalesce(jsonb_object_agg(r.boutique_id, r.a_encaisser), '{}'::jsonb)
                  from public.restes_par_boutique(c.id) r
-                where r.boutique_id is not null));
+                where r.boutique_id is not null),
+    -- (3.59.0) Ce que le client a payé au livreur, boutique par boutique,
+    -- d'après la déclaration du livreur — et s'il l'a contesté.
+    'encaissements', (select coalesce(jsonb_object_agg(x.boutique_id, jsonb_build_object(
+                         'montant', x.montant, 'mode', x.mode, 'encaisse_le', x.encaisse_le,
+                         'livreur', coalesce(nullif(p.nom, ''), ''),
+                         'conteste', x.conteste_le is not null)), '{}'::jsonb)
+                        from public.encaissements x
+                        left join public.profils p on p.id = x.livreur_id
+                       where x.commande_id = c.id),
+    'paye_livraison', (select coalesce(sum(x.montant), 0) from public.encaissements x
+                        where x.commande_id = c.id));
 end $$;
 revoke all on function public.suivre_commande(text, text) from public;
 grant execute on function public.suivre_commande(text, text) to anon, authenticated;
@@ -4918,6 +6336,8 @@ declare
   client   uuid;
   equipe   uuid[];
   enseigne uuid[];
+  fiche    jsonb;
+  porteur  record;
 begin
   select c.numero, c.client_id into cmd
     from public.commandes c where c.id = new.commande_id;
@@ -4928,16 +6348,71 @@ begin
 
   -- ---- Une course confiée, ou reprise ----
   if new.livreur_id is distinct from old.livreur_id then
-    if new.livreur_id is not null then
-      -- LE LIVREUR NE VOIT AUCUN MONTANT, ici comme ailleurs.
+    -- Le livreur qui a pris la course lui-même (« Commande reçue »)
+    -- connaît déjà sa fiche : l'alerte n'est que pour une course que la
+    -- boutique lui CONFIE.
+    if new.livreur_id is not null
+       and coalesce(current_setting('bizzoo.prise', true), '') <> 'oui' then
+      -- (3.59.0) L'ALERTE DIT TOUT CE QU'IL FAUT POUR PARTIR : où prendre
+      -- le colis, où le livrer, le numéro du destinataire, les frais, ce
+      -- qui est déjà payé, et ce qu'il reste à récupérer. Les montants de
+      -- CETTE boutique seulement ; pas le prix des articles.
+      fiche := public.fiche_course(new.commande_id, new.boutique_id);
       perform public.notifier(array[new.livreur_id], 'course_confiee',
-        'Une course vous est confiée',
-        'Commande ' || numero || ' — ouvrez vos livraisons pour l''adresse.',
+        'Nouvelle course — ' || numero,
+        'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+        'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
+          coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
+        'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||
+        'Frais de livraison : ' || public.montant_lisible((fiche ->> 'frais')::numeric, fiche ->> 'devise') || E'\n' ||
+        'Déjà payé : ' || public.montant_lisible((fiche ->> 'deja_paye')::numeric, fiche ->> 'devise') || E'\n' ||
+        case when (fiche ->> 'a_encaisser')::numeric > 0
+             then 'Reste à payer par MoMoPay : ' || public.montant_lisible((fiche ->> 'a_encaisser')::numeric, fiche ->> 'devise') ||
+                  ' (pas d''espèces)'
+             else 'Rien à récupérer : tout est payé.' end || E'\n' ||
+        'Touchez « Commande reçue » pour accepter la course.',
         '#/livraisons', new.commande_id, new.boutique_id, true);
     end if;
+    if coalesce(current_setting('bizzoo.refus', true), '') <> 'oui' then
     perform public.notifier(enseigne, 'course_confiee',
       'Course confiée à un livreur',
       'Commande ' || numero || '.',
+      '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    end if;
+  end if;
+
+  -- ---- « Reçu » : le livreur a accepté (3.59.0) ----
+  -- LE CLIENT REÇOIT LE NOM ET LE NUMÉRO DE SON LIVREUR, pour le joindre
+  -- si besoin. La boutique apprend que sa course est acceptée.
+  if new.recu_le is not null and old.recu_le is null and new.livreur_id is not null then
+    select coalesce(nullif(p.nom, ''), 'Votre livreur') as nom, coalesce(p.tel, '') as tel
+      into porteur from public.profils p where p.id = new.livreur_id;
+    if client is not null then
+      -- Une commande prise d'un coup (« Commande reçue ») : UNE nouvelle
+      -- pour toute la commande — toutes ses boutiques en livraison
+      -- groupée —, pas une par boutique.
+      perform public.notifier(array[client], 'course_acceptee',
+        'Votre livreur : ' || porteur.nom,
+        porteur.nom || ' livre votre commande ' || numero ||
+          coalesce(' (' || nullif(
+            case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui'
+                 then (select string_agg(distinct b.nom, ', ') from public.commande_lignes l2
+                         join public.boutiques b on b.id = l2.boutique_id
+                        where l2.commande_id = new.commande_id and l2.etat <> 'annulee')
+                 else (select b.nom from public.boutiques b where b.id = new.boutique_id) end,
+            '') || ')', '') || '.' ||
+          case when porteur.tel <> ''
+               then E'\nSon numéro : +' || coalesce(nullif((select b.indicatif from public.boutiques b where b.id = new.boutique_id), ''), '229') ||
+                    ' ' || porteur.tel || ' — appelez-le si besoin.'
+               else '' end,
+        '#/commande/' || new.commande_id, new.commande_id,
+        case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui' then null
+             else new.boutique_id end, true);
+    end if;
+    perform public.notifier(equipe, 'course_acceptee',
+      'Course acceptée par ' || porteur.nom,
+      'Commande ' || numero || ' — le livreur a accepté la course.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
   end if;
 
@@ -5230,6 +6705,324 @@ end $$;
 revoke all on function public.tout_marquer_lu() from public, anon;
 grant execute on function public.tout_marquer_lu() to authenticated;
 
+-- ---------- Le suivi des commandes en direct (3.59.0) ----------
+-- CHAQUE MODIFICATION D'UNE COMMANDE PRÉVIENT TOUS CEUX QUI LA VOIENT :
+-- le client qui l'a passée, l'administrateur et le modérateur de chaque
+-- boutique concernée, BIZZOO, et le livreur qui la porte. Leur écran se
+-- met à jour tout seul — étape, livreur, paiement à la livraison.
+--
+-- Pourquoi un « signal » plutôt que la commande elle-même : les lignes
+-- de commande ont des colonnes que personne ne lit (le prix BIZZOO). Le
+-- temps réel relit la ligne modifiée avec les droits de chacun ; on lui
+-- donne donc une table qui ne porte RIEN d'autre que l'identifiant de la
+-- commande et l'heure, et chaque écran relit ensuite ce qui le regarde
+-- par ses chemins habituels.
+create table if not exists public.commandes_signaux (
+  commande_id text primary key references public.commandes(id) on delete cascade,
+  maj_le      timestamptz not null default now()
+);
+alter table public.commandes_signaux enable row level security;
+revoke all on public.commandes_signaux from anon, authenticated;
+grant select on public.commandes_signaux to authenticated;
+
+-- Qui voit cette commande : son client, l'équipe d'une boutique dont
+-- elle porte un article (et BIZZOO), le livreur d'une de ses parts.
+create or replace function public.voit_la_commande(cible text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return false; end if;
+  return exists (select 1 from public.commandes c where c.id = cible and c.client_id = auth.uid())
+      or exists (select 1 from public.commande_lignes l
+                  where l.commande_id = cible
+                    and (l.livreur_id = auth.uid() or public.peut_agir_sur(l.boutique_id)));
+end $$;
+revoke all on function public.voit_la_commande(text) from public, anon;
+grant execute on function public.voit_la_commande(text) to authenticated;
+
+drop policy if exists "signaux de mes commandes" on public.commandes_signaux;
+create policy "signaux de mes commandes" on public.commandes_signaux
+  for select to authenticated using (public.voit_la_commande(commande_id));
+
+create or replace function public.signaler_commande() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.commandes_signaux (commande_id, maj_le) values (new.id, now())
+  on conflict (commande_id) do update set maj_le = now();
+  return null;
+end $$;
+revoke all on function public.signaler_commande() from public, anon, authenticated;
+
+create or replace function public.signaler_ligne() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.commandes_signaux (commande_id, maj_le) values (new.commande_id, now())
+  on conflict (commande_id) do update set maj_le = now();
+  return null;
+end $$;
+revoke all on function public.signaler_ligne() from public, anon, authenticated;
+
+create or replace trigger commandes_signalent
+  after update on public.commandes
+  for each row execute function public.signaler_commande();
+create or replace trigger lignes_signalent
+  after insert or update on public.commande_lignes
+  for each row execute function public.signaler_ligne();
+create or replace trigger encaissements_signalent
+  after insert or update on public.encaissements
+  for each row execute function public.signaler_ligne();
+
+-- ---------- Le solde de chaque boutique, et ses reversements (3.59.0) ----------
+--
+-- TOUT L'ARGENT ARRIVE CHEZ BIZZOO : l'acompte en ligne, le reste par
+-- MoMoPay. Chaque boutique a donc, chez BIZZOO, un SOLDE : ce que lui
+-- rapportent ses ventes, commission de BIZZOO déduite — le prix BIZZOO de
+-- chaque article, celui qu'elle a fixé en créant le produit.
+--
+--   GAGNÉ          ses articles REMIS au client (une vente n'est acquise
+--                  qu'une fois livrée) ;
+--   À VENIR        ses articles payés, pas encore remis ;
+--   DÉJÀ ENCAISSÉ  le reste payé en espèces, du temps où le livreur le
+--                  rendait à la boutique : elle a déjà cet argent en main ;
+--   REVERSÉ        les reversements validés par BIZZOO ;
+--   EN ATTENTE     les demandes pas encore tranchées ;
+--   DISPONIBLE     gagné − déjà encaissé − reversé − en attente.
+--
+-- Les frais de livraison ne sont pas des ventes : ils n'y entrent pas.
+--
+-- LE NUMÉRO DE RÉCEPTION vit dans une table à part, fermée : la table des
+-- boutiques se lit sans compte, et un numéro de paiement n'a pas à
+-- traîner sous les yeux de tous. Chaque demande garde le numéro du moment
+-- où elle a été faite.
+create table if not exists public.boutiques_reception (
+  boutique_id text primary key references public.boutiques(id) on delete cascade,
+  tel         text not null default '',
+  reseau      text not null default '' check (reseau in ('', 'MTN', 'MOOV', 'CELTIIS')),
+  titulaire   text not null default '',
+  maj_le      timestamptz not null default now(),
+  maj_par     text not null default ''
+);
+alter table public.boutiques_reception enable row level security;
+revoke all on public.boutiques_reception from anon, authenticated;
+
+create table if not exists public.reversements (
+  id          bigserial primary key,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  montant     bigint not null check (montant > 0),
+  tel         text not null default '',
+  reseau      text not null default '',
+  titulaire   text not null default '',
+  etat        text not null default 'en_attente' check (etat in ('en_attente', 'valide', 'refuse')),
+  demande_par text not null default '',
+  demande_le  timestamptz not null default now(),
+  decide_par  text not null default '',
+  decide_le   timestamptz,
+  reference   text not null default '',
+  motif       text not null default ''
+);
+create index if not exists reversements_boutique on public.reversements(boutique_id, demande_le desc);
+create index if not exists reversements_attente on public.reversements(demande_le) where etat = 'en_attente';
+alter table public.reversements enable row level security;
+revoke all on public.reversements from anon, authenticated;
+revoke all on sequence public.reversements_id_seq from anon, authenticated;
+
+-- Qui DEMANDE un reversement et règle le numéro : l'administrateur de la
+-- boutique, ou le superadministrateur. Un modérateur, non : c'est de
+-- l'argent.
+create or replace function public.gere_les_fonds(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or (public.est_admin() and cible is not null and cible = public.boutique_du_compte());
+$$;
+revoke all on function public.gere_les_fonds(text) from public, anon, authenticated;
+grant execute on function public.gere_les_fonds(text) to authenticated;
+
+create or replace function public.nom_du_compte() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select coalesce(nullif(p.nom, ''), nullif(p.email, ''), 'l''équipe')
+                     from public.profils p where p.id = auth.uid()), '');
+$$;
+revoke all on function public.nom_du_compte() from public, anon, authenticated;
+
+create or replace function public.solde_boutique(cible text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  gagne bigint; a_venir bigint; encaisse bigint; reverse bigint; attente bigint;
+  r public.boutiques_reception%rowtype;
+begin
+  if not public.tient_la_caisse(cible) then
+    raise exception 'Ce solde n''est pas celui de votre boutique.';
+  end if;
+  select coalesce(sum(l.prix_bizzoo::bigint * l.quantite) filter (where l.etat = 'remise'), 0),
+         coalesce(sum(l.prix_bizzoo::bigint * l.quantite)
+                    filter (where l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')), 0)
+    into gagne, a_venir
+    from public.commande_lignes l
+    join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+   where l.boutique_id = cible;
+  select coalesce(sum(x.montant), 0) into encaisse from public.encaissements x
+   where x.boutique_id = cible and x.mode = 'especes' and x.remis_le is not null;
+  select coalesce(sum(v.montant) filter (where v.etat = 'valide'), 0),
+         coalesce(sum(v.montant) filter (where v.etat = 'en_attente'), 0)
+    into reverse, attente
+    from public.reversements v where v.boutique_id = cible;
+  select * into r from public.boutiques_reception where boutique_id = cible;
+  return jsonb_build_object(
+    'gagne', gagne, 'a_venir', a_venir, 'deja_encaisse', encaisse,
+    'reverse', reverse, 'en_attente', attente,
+    'disponible', greatest(0, gagne - encaisse - reverse - attente),
+    'devise', coalesce((select nullif(b.devise, '') from public.boutiques b where b.id = cible), 'FCFA'),
+    'reception', case when r.boutique_id is null or r.tel = '' then null
+                      else jsonb_build_object('tel', r.tel, 'reseau', r.reseau, 'titulaire', r.titulaire,
+                                              'maj_le', r.maj_le, 'maj_par', r.maj_par) end);
+end $$;
+revoke all on function public.solde_boutique(text) from public, anon;
+grant execute on function public.solde_boutique(text) to authenticated;
+
+-- LE NUMÉRO DE RÉCEPTION. Le changer prévient BIZZOO : c'est la porte
+-- par laquelle on détournerait les reversements d'une boutique.
+create or replace function public.regler_reception(cible text, tel text, reseau text, titulaire text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  national text := regexp_replace(coalesce(tel, ''), '\D', '', 'g');
+  res      text := upper(coalesce(reseau, ''));
+  qui      text := public.nom_du_compte();
+begin
+  if not public.gere_les_fonds(cible) then
+    raise exception 'Seul l''administrateur de la boutique règle son numéro de réception.';
+  end if;
+  national := regexp_replace(national, '^229', '');
+  if length(national) = 8 then national := '01' || national; end if;
+  if length(national) <> 10 or national !~ '^01[0-9]+' then
+    raise exception 'Ce numéro n''a pas la forme d''un numéro béninois : dix chiffres commençant par 01.'
+      using errcode = 'P0001';
+  end if;
+  if res not in ('MTN', 'MOOV', 'CELTIIS') then
+    raise exception 'Choisissez le réseau du numéro : MTN, Moov ou Celtiis.' using errcode = 'P0001';
+  end if;
+  insert into public.boutiques_reception (boutique_id, tel, reseau, titulaire, maj_le, maj_par)
+  values (cible, national, res, left(trim(coalesce(titulaire, '')), 80), now(), qui)
+  on conflict (boutique_id) do update
+     set tel = excluded.tel, reseau = excluded.reseau, titulaire = excluded.titulaire,
+         maj_le = now(), maj_par = excluded.maj_par;
+  perform public.notifier(public.les_superadmins(), 'reception_reglee',
+    'Numéro de réception changé — ' || coalesce((select b.nom from public.boutiques b where b.id = cible), cible),
+    qui || ' a réglé le numéro de réception : ' || res || ' ' || national ||
+      coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
+    '#/reversements', null, cible, false);
+  return jsonb_build_object('tel', national, 'reseau', res);
+end $$;
+revoke all on function public.regler_reception(text, text, text, text) from public, anon;
+grant execute on function public.regler_reception(text, text, text, text) to authenticated;
+
+create or replace function public.demander_reversement(cible text, montant bigint)
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  solde jsonb;
+  r     public.boutiques_reception%rowtype;
+  qui   text := public.nom_du_compte();
+  nouv  bigint;
+begin
+  if not public.gere_les_fonds(cible) then
+    raise exception 'Seul l''administrateur de la boutique demande un reversement.';
+  end if;
+  -- Une demande à la fois par boutique : on la tranche avant la suivante.
+  perform 1 from public.boutiques b where b.id = cible for update;
+  select * into r from public.boutiques_reception where boutique_id = cible;
+  if r.boutique_id is null or r.tel = '' then
+    raise exception 'Réglez d''abord le numéro qui recevra les fonds.' using errcode = 'P0001';
+  end if;
+  solde := public.solde_boutique(cible);
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Indiquez le montant à reverser.' using errcode = 'P0001';
+  end if;
+  if montant > (solde ->> 'disponible')::bigint then
+    raise exception 'Le solde disponible est de % : vous ne pouvez pas demander plus.',
+      public.montant_lisible((solde ->> 'disponible')::bigint, solde ->> 'devise') using errcode = 'P0001';
+  end if;
+  insert into public.reversements (boutique_id, montant, tel, reseau, titulaire, demande_par)
+  values (cible, montant, r.tel, r.reseau, r.titulaire, qui)
+  returning id into nouv;
+  perform public.notifier(public.les_superadmins(), 'reversement_demande',
+    'Reversement demandé : ' || public.montant_lisible(montant, solde ->> 'devise'),
+    coalesce((select b.nom from public.boutiques b where b.id = cible), cible) || ' — à envoyer sur ' ||
+      r.reseau || ' ' || r.tel || coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '. Demandé par ' || qui || '.',
+    '#/reversements', null, cible, true);
+  return nouv;
+end $$;
+revoke all on function public.demander_reversement(text, bigint) from public, anon;
+grant execute on function public.demander_reversement(text, bigint) to authenticated;
+
+-- La liste : la boutique, les siens ; le superadministrateur, tous
+-- (« cible » vide) ou ceux d'une boutique.
+create or replace function public.reversements_liste(cible text default null)
+returns table (id bigint, boutique_id text, nom_boutique text, montant bigint, tel text, reseau text,
+               titulaire text, etat text, demande_par text, demande_le timestamptz, decide_par text,
+               decide_le timestamptz, reference text, motif text, devise text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (public.est_super() or (cible is not null and public.tient_la_caisse(cible))) then
+    return;
+  end if;
+  return query
+    select v.id, v.boutique_id, coalesce(b.nom, '')::text, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
+           v.demande_par, v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif,
+           coalesce(nullif(b.devise, ''), 'FCFA')::text
+      from public.reversements v left join public.boutiques b on b.id = v.boutique_id
+     where cible is null or v.boutique_id = cible
+     order by (v.etat = 'en_attente') desc, v.demande_le desc
+     limit 200;
+end $$;
+revoke all on function public.reversements_liste(text) from public, anon;
+grant execute on function public.reversements_liste(text) to authenticated;
+
+-- LE SUPERADMINISTRATEUR TRANCHE. Validé : il a envoyé l'argent, et note
+-- la référence de la transaction. Refusé : avec un motif ; le montant
+-- revient au solde disponible.
+create or replace function public.decider_reversement(cible bigint, accord boolean,
+  reference text default '', motif text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v   public.reversements%rowtype;
+  ref text := left(trim(coalesce(reference, '')), 60);
+  pourquoi text := left(trim(coalesce(motif, '')), 300);
+  dev text;
+begin
+  if not public.est_super() then
+    raise exception 'Seul le superadministrateur valide un reversement.';
+  end if;
+  select * into v from public.reversements where id = cible for update;
+  if not found then raise exception 'Demande introuvable.'; end if;
+  if v.etat <> 'en_attente' then
+    raise exception 'Cette demande est déjà tranchée.' using errcode = 'P0001';
+  end if;
+  if accord and length(ref) < 4 then
+    raise exception 'Notez la référence de la transaction envoyée.' using errcode = 'P0001';
+  end if;
+  update public.reversements
+     set etat = case when accord then 'valide' else 'refuse' end,
+         decide_par = public.nom_du_compte(), decide_le = now(),
+         reference = case when accord then ref else '' end, motif = pourquoi
+   where id = cible;
+  dev := coalesce((select nullif(b.devise, '') from public.boutiques b where b.id = v.boutique_id), 'FCFA');
+  perform public.notifier(
+    array(select p.id from public.profils p
+           where p.actif and p.boutique_id = v.boutique_id and p.role = 'administrateur'),
+    'reversement_decide',
+    case when accord then 'Reversement envoyé : ' || public.montant_lisible(v.montant, dev)
+         else 'Reversement refusé : ' || public.montant_lisible(v.montant, dev) end,
+    case when accord then 'Envoyé sur ' || v.reseau || ' ' || v.tel || ' — référence ' || ref || '.'
+         else 'BIZZOO a refusé la demande' || coalesce(' : « ' || nullif(pourquoi, '') || ' »', '') ||
+              '. Le montant revient à votre solde.' end,
+    '#/solde', null, v.boutique_id, true);
+  return case when accord then 'valide' else 'refuse' end;
+end $$;
+revoke all on function public.decider_reversement(bigint, boolean, text, text) from public, anon;
+grant execute on function public.decider_reversement(bigint, boolean, text, text) to authenticated;
+
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,
 -- sans avoir à être fermée et rouverte. Sans risque à ré-exécuter.
@@ -5239,7 +7032,8 @@ declare
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
     foreach t in array array['boutique', 'boutiques', 'categories', 'sous_categories', 'produits',
-                          'slides', 'commandes', 'commande_lignes', 'notifications'] loop
+                          'slides', 'commandes', 'commande_lignes', 'notifications',
+                          'commandes_signaux'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
@@ -5392,6 +7186,13 @@ begin
   -- d'équipe : lui poser une fiche client ferait de lui les deux à la
   -- fois, ce que « compte_unique » refuse — et à raison.
   if exists (select 1 from public.profils p where p.id = new.id and p.actif) then
+    return new;
+  end if;
+  -- Un livreur créé par son numéro (« compte: equipe ») n'est pas un
+  -- acheteur, même avant que sa fiche soit activée. Sans ce test, un
+  -- Supabase réglé pour confirmer les numéros d'office lui poserait une
+  -- fiche client à la création — et sa fiche d'équipe serait refusée.
+  if coalesce(new.raw_user_meta_data ->> 'compte', '') = 'equipe' then
     return new;
   end if;
 
@@ -7215,7 +9016,9 @@ begin
   numero := regexp_replace(coalesce(p.tel, ''), '\D', '', 'g');
   return jsonb_build_object(
     'equipe', true,
-    'sms_exige', public.sms_equipe_exige(),
+    -- (3.59.0) Exigé de ce compte-ci : seul le superadministrateur
+    -- rend un code.
+    'sms_exige', public.sms_equipe_exige() and p.role = 'superadministrateur',
     'session_confirmee', public.session_confirmee(),
     'numero', length(numero) >= 8,
     'fin_numero', case when length(numero) >= 8 then right(numero, 2) else '' end,
@@ -7244,7 +9047,7 @@ begin
     raise exception 'Réservé au superadministrateur';
   end if;
   if voulu and not public.session_confirmee() then
-    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger de toute l''équipe.';
+    raise exception 'Recevez et saisissez d''abord votre propre code : c''est la preuve que le SMS arrive, avant de l''exiger des superadministrateurs.';
   end if;
   select coalesce(nullif(trim(p.nom), ''), p.email, '') into qui
     from public.profils p where p.id = auth.uid();
@@ -7259,13 +9062,107 @@ begin
   insert into public.journal (famille, action, libelle, cible)
   values ('compte', 'modification',
           case when voulu
-               then 'Connexion de l''équipe : code SMS exigé à chaque connexion'
-               else 'Connexion de l''équipe : code SMS plus exigé' end,
+               then 'Connexion du superadministrateur : code SMS exigé (sauf appareil de confiance)'
+               else 'Connexion du superadministrateur : code SMS plus exigé' end,
           '');
   return voulu;
 end $$;
 revoke all on function public.regler_sms_equipe(boolean) from public, anon;
 grant execute on function public.regler_sms_equipe(boolean) to authenticated;
+
+-- ---------- Les appareils de confiance (3.59.0) ----------
+--
+-- Le superadministrateur qui coche « Faire confiance à cet appareil »
+-- n'y rend plus son code pendant 30 jours. L'appareil garde un jeton
+-- tiré au hasard ; la base n'en garde que l'EMPREINTE — une copie de la
+-- base ne permet pas de se faire passer pour l'appareil. Le mot de passe
+-- reste demandé à chaque connexion : la confiance ne remplace que le SMS.
+create table if not exists public.appareils_confiance (
+  id          bigserial primary key,
+  utilisateur uuid not null references auth.users(id) on delete cascade,
+  empreinte   text not null,
+  appareil    text not null default '',
+  cree_le     timestamptz not null default now(),
+  expire_le   timestamptz not null,
+  constraint appareils_confiance_un unique (utilisateur, empreinte)
+);
+alter table public.appareils_confiance enable row level security;
+revoke all on public.appareils_confiance from public, anon, authenticated;
+revoke all on sequence public.appareils_confiance_id_seq from public, anon, authenticated;
+
+-- Après le code : cet appareil devient de confiance pour 30 jours.
+create or replace function public.confier_appareil(jeton text, appareil text default '')
+returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  fin timestamptz := now() + interval '30 days';
+begin
+  if moi is null then raise exception 'Connectez-vous'; end if;
+  if length(coalesce(jeton, '')) < 32 then raise exception 'Jeton d''appareil invalide'; end if;
+  if not public.session_confirmee() then
+    raise exception 'Saisissez d''abord le code reçu par SMS.' using errcode = 'P0001';
+  end if;
+  insert into public.appareils_confiance (utilisateur, empreinte, appareil, expire_le)
+  values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), left(coalesce(appareil, ''), 120), fin)
+  on conflict (utilisateur, empreinte) do update
+    set expire_le = excluded.expire_le, cree_le = now(), appareil = excluded.appareil;
+  return fin;
+end $$;
+revoke all on function public.confier_appareil(text, text) from public, anon;
+grant execute on function public.confier_appareil(text, text) to authenticated;
+
+-- À la connexion : un appareil de confiance encore valable confirme la
+-- session sans SMS. Faux sinon — l'écran demande alors le code.
+create or replace function public.reconnaitre_appareil(jeton text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  moi     uuid := auth.uid();
+  session uuid := public.session_courante();
+begin
+  if moi is null or session is null or length(coalesce(jeton, '')) < 32 then return false; end if;
+  if not exists (select 1 from public.appareils_confiance a
+                  where a.utilisateur = moi
+                    and a.empreinte = encode(sha256(convert_to(jeton, 'UTF8')), 'hex')
+                    and a.expire_le > now()) then
+    return false;
+  end if;
+  insert into public.sessions_sms (session_id, utilisateur)
+  values (session, moi) on conflict (session_id) do nothing;
+  return true;
+end $$;
+revoke all on function public.reconnaitre_appareil(text) from public, anon;
+grant execute on function public.reconnaitre_appareil(text) to authenticated;
+
+-- « Oublier mes appareils de confiance » : le code sera redemandé
+-- partout, à la prochaine connexion. On fait EXPIRER la confiance plutôt
+-- que d'effacer la ligne : même effet, et la trace reste.
+create or replace function public.oublier_appareils()
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int;
+begin
+  if auth.uid() is null then raise exception 'Connectez-vous'; end if;
+  update public.appareils_confiance a
+     set expire_le = now() - interval '1 second'
+   where a.utilisateur = auth.uid() and a.expire_le > now();
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.oublier_appareils() from public, anon;
+grant execute on function public.oublier_appareils() to authenticated;
+
+-- Combien d'appareils de confiance encore valables : l'écran du compte
+-- le dit, et propose de les oublier.
+create or replace function public.mes_appareils_confiance()
+returns int
+language sql stable security definer set search_path = public as $$
+  select count(*)::int from public.appareils_confiance a
+   where a.utilisateur = auth.uid() and a.expire_le > now();
+$$;
+revoke all on function public.mes_appareils_confiance() from public, anon;
+grant execute on function public.mes_appareils_confiance() to authenticated;
 
 -- ---------- Qui a créé le compte ----------
 -- Un nom lisible, figé au moment de la création : « Awa (superadministrateur) ».
@@ -7303,6 +9200,13 @@ declare
 begin
   if coalesce(current_setting('bizzoo.compte', true), '') = 'oui' then
     return new;
+  end if;
+
+  -- (3.59.0) ON NE TOUCHE PAS À SON CRÉATEUR, par aucun chemin : ni
+  -- l'écran, ni l'Historique, ni une fonction de la base.
+  if tg_op = 'UPDATE' and public.est_mon_createur(old.id) then
+    raise exception 'Ce compte vous a créé : vous ne pouvez pas modifier ses droits.'
+      using errcode = 'P0001';
   end if;
 
   if tg_op = 'INSERT' then
@@ -7904,6 +9808,7 @@ create policy "positions livreurs lecture" on public.positions_livreurs
   for select to authenticated
   using (profil_id = auth.uid()
          or public.est_super()
+         or public.est_admin_bizzoo()
          or exists (select 1 from public.profils p
                      where p.id = positions_livreurs.profil_id
                        and public.administre(p.boutique_id)));

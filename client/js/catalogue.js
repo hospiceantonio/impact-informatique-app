@@ -102,6 +102,9 @@ const Catalogue = (() => {
            On garde le prix public à part, pour pouvoir le montrer. */
         return Object.assign({}, p, {
           prix, ancienPrix: null, prixPublic: p.prix, prixRevendeur: true,
+          /* La promotion du public, gardée pour l'affichage « prix
+             publics » (3.59.0). */
+          ancienPrixPublic: p.ancienPrix,
         });
       }),
     });
@@ -127,12 +130,51 @@ const Catalogue = (() => {
     const change = (avant ? avant.size : 0) !== (prixCompte ? prixCompte.size : 0)
       || (prixCompte && [...prixCompte].some(([id, prix]) => !avant || avant.get(id) !== prix));
     appliquerPrix();
-    if (change && donnees) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    if (change && donnees) maj([]);
     return change;
+  }
+
+  /* « catalogue:maj » DIT CE QUI EST NOUVEAU (3.59.0). L'écran se redessine
+     à chaque changement, mais on ne l'annonce que s'il y a de quoi : un
+     produit qui vient d'apparaître. Une vente qui fait baisser un stock,
+     une boutique qui change ses horaires, un prix revendeur qui arrive :
+     l'écran suit, sans « Catalogue mis à jour » à chaque fois. */
+  const idsVisibles = () => new Set(produits().map((p) => p.id));
+  function maj(nouveaux) {
+    document.dispatchEvent(new CustomEvent("catalogue:maj", { detail: { nouveaux: nouveaux || [] } }));
+  }
+  function nouveauxDepuis(avant) {
+    if (!avant || !avant.size) return [];
+    return produits().filter((p) => !avant.has(p.id)).map((p) => p.nom);
   }
 
   /** Ce compte voit-il des prix qui lui sont propres ? */
   const auxPrixRevendeur = () => !!(prixCompte && prixCompte.size);
+
+  /* ---------- Prix revendeur ou prix publics, à l'écran (3.59.0) ----------
+     Un revendeur peut afficher les PRIX PUBLICS — pour les montrer à son
+     propre client, téléphone en main. Ce n'est qu'un AFFICHAGE, gardé sur
+     ce téléphone : le catalogue et la fiche montrent le prix public, mais
+     la base facture toujours son prix revendeur, et le panier dit ce
+     qu'il paiera vraiment. */
+  const CLE_AFFICHAGE = "bizzoo-prix-affiches";
+  function affichePrixPublics() {
+    try { return localStorage.getItem(CLE_AFFICHAGE) === "public"; } catch (_) { return false; }
+  }
+  function afficherPrixPublics(oui) {
+    try {
+      if (oui) localStorage.setItem(CLE_AFFICHAGE, "public");
+      else localStorage.removeItem(CLE_AFFICHAGE);
+    } catch (_) { /* navigation privée : le choix ne survivra pas */ }
+    if (donnees) maj([]);
+  }
+  /** Le prix à MONTRER : celui du revendeur, ou le public s'il l'a choisi. */
+  function prixVu(p) {
+    if (p && p.prixRevendeur && affichePrixPublics()) {
+      return { prix: p.prixPublic, ancienPrix: p.ancienPrixPublic || null, revendeur: false };
+    }
+    return { prix: p.prix, ancienPrix: p.ancienPrix, revendeur: !!(p && p.prixRevendeur) };
+  }
 
   /* ---------- Lecture de la base Supabase ---------- */
 
@@ -241,6 +283,15 @@ const Catalogue = (() => {
           ordre: b2.ordre || 0,
           tel: b2.tel || "", whatsapp: b2.whatsapp || "", indicatif: b2.indicatif || "",
           devise: b2.devise || "", adresse: b2.adresse || "", horaires: b2.horaires || "",
+          /* Les jours et heures d'ouverture (3.59.0). « null » : pas encore
+             renseignés — la boutique reste ouverte, comme avant. */
+          ouvertures: b2.ouvertures && typeof b2.ouvertures === "object" ? b2.ouvertures : null,
+          /* Ses conditions de paiement et ses frais (3.59.0). « undefined »
+             sur une base d'avant : l'application applique alors les
+             réglages de l'enseigne, comme avant. */
+          modePaiement: b2.mode_paiement === "total" || b2.mode_paiement === "acompte" ? b2.mode_paiement : undefined,
+          tauxAcompte: b2.taux_acompte == null ? undefined : Number(b2.taux_acompte),
+          fraisLivraison: b2.frais_livraison == null ? undefined : Math.max(0, Number(b2.frais_livraison) || 0),
           siteWeb: b2.site_web || "",
           facebook: b2.facebook || "", instagram: b2.instagram || "",
           tiktok: b2.tiktok || "", youtube: b2.youtube || "", snapchat: b2.snapchat || "",
@@ -277,7 +328,9 @@ const Catalogue = (() => {
             .map((s) => ({ id: s.id, nom: s.nom, ordre: s.ordre || 0 }))
             .sort((a, x) => a.ordre - x.ordre),
         })),
-        produits: (produits || []).map((p) => ({
+        /* UN PRODUIT MASQUÉ par sa boutique (3.59.0) n'existe pas pour le
+           client : ni catalogue, ni recherche, ni fiche, ni lien partagé. */
+        produits: (produits || []).filter((p) => p.masque !== true).map((p) => ({
           id: p.id,
           boutiqueId: p.boutique_id || "",
           nom: p.nom,
@@ -384,15 +437,14 @@ const Catalogue = (() => {
     try {
       const frais = c ? await telechargerDepuisBase(c) : await telechargerDemo();
       const changement = brutes && JSON.stringify(frais) !== JSON.stringify(brutes);
+      const avant = donnees ? idsVisibles() : null;
       brutes = frais;
       appliquerPrix();
       source = c ? "reseau" : "demo";
       /* On garde les prix de la vitrine, jamais ceux du compte. */
       if (c) ecrireCache(frais);
       signalerAndroid();
-      if (changement && enCache) {
-        document.dispatchEvent(new CustomEvent("catalogue:maj"));
-      }
+      if (changement && enCache) maj(nouveauxDepuis(avant));
     } catch (_) {
       /* hors connexion : on reste sur la copie locale si elle existe */
     }
@@ -418,14 +470,13 @@ const Catalogue = (() => {
       return false; // hors connexion : on garde l'affichage actuel
     }
     const change = JSON.stringify(frais) !== JSON.stringify(brutes);
+    const avant = donnees ? idsVisibles() : null;
     brutes = frais;
     appliquerPrix();
     source = "reseau";
     ecrireCache(frais);
     signalerAndroid();
-    if (change && !(options && options.silencieux)) {
-      document.dispatchEvent(new CustomEvent("catalogue:maj"));
-    }
+    if (change && !(options && options.silencieux)) maj(nouveauxDepuis(avant));
     return change;
   }
 
@@ -452,6 +503,54 @@ const Catalogue = (() => {
       .filter((b) => b.actif !== false)
       .slice()
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+  }
+
+  /* ---------- Ouverte maintenant ? (3.59.0) ----------
+     UNE BOUTIQUE FERMÉE NE MONTRE PAS SES PRODUITS : une commande passée
+     pendant qu'elle dort tombait dans le vide. On lit ses jours et heures
+     d'ouverture À L'HEURE DU BÉNIN (UTC+1, sans heure d'été) — pas à celle
+     du téléphone, qui peut être réglé ailleurs. La base fait le même
+     calcul, et refuse la commande : l'écran ne fait que l'annoncer. */
+  const JOURS = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
+  const NOMS_JOURS = { lun: "lundi", mar: "mardi", mer: "mercredi", jeu: "jeudi",
+    ven: "vendredi", sam: "samedi", dim: "dimanche" };
+  function heureBenin(moment) {
+    const d = new Date((moment ? moment.getTime() : Date.now()) + 3600000);
+    const deux = (n) => String(n).padStart(2, "0");
+    return { jour: (d.getUTCDay() + 6) % 7, hm: deux(d.getUTCHours()) + ":" + deux(d.getUTCMinutes()) };
+  }
+  function ouverteMaintenant(b, moment) {
+    if (!b || b.actif === false) return false;
+    const o = b.ouvertures;
+    if (!o) return true;
+    const t = heureBenin(moment);
+    const plage = o[JOURS[t.jour]];
+    return !!(plage && plage.de && plage.a && t.hm >= plage.de && t.hm < plage.a);
+  }
+  /** « aujourd'hui à 14:00 », « demain à 08:00 », « lundi à 08:00 » — ou "". */
+  function prochaineOuverture(b, moment) {
+    const o = b && b.ouvertures;
+    if (!o) return "";
+    const t = heureBenin(moment);
+    for (let ecart = 0; ecart < 8; ecart++) {
+      const jour = JOURS[(t.jour + ecart) % 7];
+      const plage = o[jour];
+      if (!plage || !plage.de) continue;
+      if (ecart === 0 && plage.de <= t.hm) continue;
+      const quand = ecart === 0 ? "aujourd'hui" : ecart === 1 ? "demain" : NOMS_JOURS[jour];
+      return quand + " à " + plage.de.replace(":", " h ");
+    }
+    return "";
+  }
+  /** Les horaires, lisibles : « lundi : 08 h 00 – 19 h 00 », jour par jour. */
+  function horairesLisibles(b) {
+    const o = b && b.ouvertures;
+    if (!o) return [];
+    return JOURS.map((j) => {
+      const p = o[j];
+      return { jour: NOMS_JOURS[j], texte: p && p.de
+        ? p.de.replace(":", " h ") + " – " + p.a.replace(":", " h ") : "Fermé" };
+    });
   }
 
   /** Vrai dès que la base connaît des boutiques : sinon, on garde l'ancien mode. */
@@ -501,6 +600,8 @@ const Catalogue = (() => {
       devise: b.devise || "FCFA",
       adresse: b.adresse || "",
       horaires: b.horaires || "",
+      ouvertures: b.ouvertures || null,
+      actif: b.actif !== false,
       siteWeb: b.siteWeb || "",
       facebook: b.facebook || "",
       instagram: b.instagram || "",
@@ -592,7 +693,7 @@ const Catalogue = (() => {
        réunit maintenant toutes les boutiques, et une fermée n'a rien à
        y faire. */
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return ((donnees && donnees.produits) || [])
       .filter(dansLaBoutique)
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
@@ -669,7 +770,7 @@ const Catalogue = (() => {
    */
   function produitsDeLEnseigne(idBoutique, tri) {
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return tousProduits()
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
       .filter((p) => !idBoutique || p.boutiqueId === idBoutique)
@@ -789,7 +890,7 @@ const Catalogue = (() => {
    */
   function publicites() {
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return ((donnees && donnees.slides) || [])
       .filter((s) => s.actif !== false && s.portee === "publicite")
       .filter((s) => {
@@ -978,7 +1079,7 @@ const Catalogue = (() => {
     if (!t) return [];
     const mots = t.split(/\s+/).filter(Boolean);
     const ouvertes = {};
-    boutiques().forEach((b) => { ouvertes[b.id] = true; });
+    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return tousProduits()
       /* Une boutique fermée ne vend plus : ses produits n'ont pas à
          remonter dans les résultats. */
@@ -1024,7 +1125,7 @@ const Catalogue = (() => {
 
   return {
     charger, rafraichir, pret, depuisCache, modeDemo,
-    definirPrixCompte, auxPrixRevendeur,
+    definirPrixCompte, auxPrixRevendeur, affichePrixPublics, afficherPrixPublics, prixVu,
     estConfigure, majConfiguration, configuration,
     boutique, enseigne, versionPubliee,
     boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,
@@ -1037,7 +1138,7 @@ const Catalogue = (() => {
     enVenteFlash, ventesFlash,
     nouveautes, promotions, meilleureRemise, produitsPopulaires,
     rechercher, similaires,
-    boutiqueDuProduit, deviseDe,
+    boutiqueDuProduit, deviseDe, ouverteMaintenant, prochaineOuverture, horairesLisibles,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };

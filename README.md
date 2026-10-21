@@ -4276,6 +4276,556 @@ Bancs : [`supabase/tests/99zz-positions-comptes.sql`](supabase/tests/99zz-positi
 (20 constats) et [`tools/banc-positions-comptes.mjs`](tools/banc-positions-comptes.mjs)
 (26 constats).
 
+## Entrer avec son numéro, son mot de passe, et un code (3.59.0)
+
+**Clients et livreurs** entrent désormais avec leur **numéro de téléphone
+et leur mot de passe, puis un code reçu par SMS**. L'adresse e-mail n'est
+plus exigée nulle part.
+
+**Client — créer son compte.** *Créer mon compte* demande le nom, le
+numéro et un mot de passe (deux fois). Supabase envoie un code par SMS ;
+le code validé ouvre le compte. « Pour revendre » garde sa demande, son
+commerce et sa position.
+
+**Client — se connecter.** *Se connecter* demande le numéro et le mot de
+passe. Mauvais mot de passe : refus, et **aucun SMS ne part**. Mot de
+passe juste : le code part, et c'est lui qui ouvre la session. La session
+ouverte par le seul mot de passe n'est jamais gardée : elle est fermée
+dès le code validé (`logout?scope=local`).
+
+**Mot de passe oublié — ou jamais choisi.** Les comptes ouverts par SMS
+avant la 3.59.0 n'ont pas de mot de passe. *Mot de passe oublié* propose
+d'abord le numéro : un code, puis le choix du mot de passe. Le lien par
+e-mail reste, pour qui a un e-mail.
+
+**L'e-mail, facultatif, porte de secours.** Dans *Mon compte*, la carte
+*Mes accès* permet d'ajouter son e-mail et de changer son mot de passe.
+Sans son téléphone, on entre alors par *Entrer avec mon e-mail* : e-mail et
+mot de passe, **sans code** (choix de BIZZOO). Un compte d'avant, ouvert
+avec un e-mail et sans numéro, y confirme son numéro une fois, comme en
+3.58.0.
+
+**Livreurs.** *Créer un livreur* (BIZZOO Admin) demande d'abord son
+**numéro**, un mot de passe, son nom, et son e-mail **facultatif**. Le
+compte naît par le numéro (`compte: equipe` dans les métadonnées, sans
+quoi la base le prendrait pour un acheteur). Supabase lui envoie alors un
+SMS de confirmation : il peut l'ignorer. À l'écran de connexion de
+BIZZOO Admin, le champ accepte **un e-mail ou un numéro** : avec un numéro,
+le livreur donne son mot de passe, puis le code reçu par SMS (ce code
+confirme aussi son numéro la première fois). L'e-mail noté sur sa fiche
+devient, à cette première connexion, sa porte de secours : e-mail et mot
+de passe, sans code. **Les autres comptes de l'équipe ne changent pas** :
+e-mail et mot de passe, et le code d'équipe quand l'enseigne l'exige.
+
+**Ce que la base change** ([`supabase/connexion-telephone.sql`](supabase/connexion-telephone.sql)) :
+
+- `profil_nouveau_compte` pose la fiche d'équipe en attente d'un compte né
+  par numéro avec `compte: equipe` ;
+- `au_numero_confirme` ne pose jamais de fiche client à un tel compte ;
+- `session_confirmee` reconnaît, **pour un livreur seulement**, la session
+  ouverte par le code Supabase (jeton signé : méthode `otp`, numéro
+  confirmé) : quand l'enseigne exige le code d'équipe, il n'a pas à rendre
+  un second code.
+
+**À savoir, honnêtement.** C'est l'application qui enchaîne mot de passe
+puis code : la base ne distingue pas une session « mot de passe + code »
+d'une session « code seul ». Le code seul reste, volontairement, le
+chemin de *Mot de passe oublié*. Côté Supabase, laisser **Authentication →
+Sign In / Providers → Phone → « Enable phone confirmations »** coché (s'il
+ne l'est pas, l'application redemande quand même le code).
+
+Bancs : [`supabase/tests/99zzz-connexion-telephone.sql`](supabase/tests/99zzz-connexion-telephone.sql)
+(9 constats), [`tools/banc-connexion-telephone.mjs`](tools/banc-connexion-telephone.mjs)
+(28 constats, BIZZOO Admin) et [`tools/banc-connexion-sms.mjs`](tools/banc-connexion-sms.mjs)
+réécrit (101 constats, application client) ; contrôle 131 de
+l'état des lieux.
+
+## Une mise à jour du site se voit tout de suite (3.59.0)
+
+**Le symptôme.** Après une mise à jour du site, un lien de partage ouvert
+sur un téléphone qui connaissait déjà BIZZOO montrait l'ancienne version ;
+la nouvelle n'apparaissait qu'à l'ouverture suivante.
+
+**La cause.** Le service worker (`client/sw.js`, `admin/sw.js`) servait
+sa coquille gardée *avant* le réseau, et ne rangeait la nouvelle qu'en
+arrière-plan.
+
+**Désormais : le réseau d'abord.** En ligne, chaque ouverture reçoit la
+version du serveur. Hors connexion — ou réseau de plus de 4 secondes —,
+la version gardée prend le relais : BIZZOO s'ouvre toujours sans réseau.
+À l'installation, les fichiers sont pris au serveur, jamais au cache du
+navigateur.
+
+**Pour les téléphones qui ont encore l'ancien service worker** : la
+correction leur arrive à leur prochaine ouverture (le navigateur
+vérifie `sw.js` à chaque visite). Cette fois encore, ils peuvent voir
+l'ancienne version une dernière fois ; ensuite, plus jamais.
+
+Banc : [`tools/banc-mise-a-jour.mjs`](tools/banc-mise-a-jour.mjs)
+(8 constats) — il rejoue la scène sur une copie : visite, mise à jour du
+site, lien rouvert, puis serveur coupé. L'ancien service worker y montre
+la version A ; le nouveau, la B.
+
+## Un livreur n'est ni acheteur ni revendeur (3.59.0)
+
+**Le constat** (message du CEO) : un livreur qui ouvrait l'application
+client se voyait proposer « Devenir revendeur », « Mes commandes » et
+« Retrouver mes commandes d'avant », comme un acheteur. La cause : un
+livreur créé par e-mail qui entrait par **son numéro** dans l'application
+client y recevait un **second compte**, client. En ligne, un livreur et
+deux administrateurs avaient ainsi un compte client à leur numéro.
+
+**Désormais :**
+
+- **le numéro d'un livreur n'ouvre plus de compte client** (inscription ou
+  code SMS) : l'application dit d'entrer avec le compte livreur ;
+- **un livreur ne devient pas revendeur**, même par un compte client
+  ouvert avant ; BIZZOO ne peut pas valider une telle demande (la refuser
+  reste possible) ;
+- **dans « Mon compte », un livreur** ne voit plus les rubriques
+  d'acheteur (revendeur, « Mes commandes », « Retrouver mes commandes
+  d'avant », « Vérifier par SMS ») : **« Mes courses »** les remplace —
+  à livrer, livrées ces deux derniers jours, ce qu'il y a à encaisser —,
+  avec le bouton de l'espace vendeur pour les faire avancer ;
+- **un compte client « double »** (ouvert avant avec le numéro d'un
+  livreur) est prévenu : « Ce numéro est celui d'un livreur », avec
+  « Me déconnecter » pour entrer avec son compte livreur.
+
+Le numéro se compare sur ses **huit derniers chiffres** (« 97 12 15 96 »
+et « 01 97 12 15 96 » sont le même téléphone).
+
+Au passage : un « non » à la question « ce compte est-il de l'équipe ? »
+posée sans session ne survit plus à la connexion qui suit.
+
+À coller : [`supabase/livreurs-sans-compte-client.sql`](supabase/livreurs-sans-compte-client.sql)
+(après `connexion-telephone.sql`).
+
+Bancs : [`supabase/tests/99zzzz-livreur-pas-client.sql`](supabase/tests/99zzzz-livreur-pas-client.sql)
+(14 constats), [`tools/banc-livreur-compte-client.mjs`](tools/banc-livreur-compte-client.mjs)
+(25 constats) ; contrôle 132 de l'état des lieux.
+
+## L'administrateur de BIZZOO gère livreurs et revendeurs ; la boutique voit ses livreurs (3.59.0)
+
+**L'administrateur de BIZZOO** — un compte *administrateur* rattaché à
+aucune boutique — fait désormais, comme le superadministrateur :
+
+- **les livreurs** : il les voit tous, avec leur position ; il crée un
+  livreur (par son numéro, pour BIZZOO ou pour une boutique), modifie sa
+  fiche, le retire. **Il ne nomme personne d'autre** : ni modérateur, ni
+  administrateur, ni superadministrateur — la base le refuse ;
+- **les revendeurs** : *Créer un revendeur* (écran *Comptes revendeurs*)
+  demande son nom, son numéro, un mot de passe, son commerce et
+  l'adresse de son commerce. Le compte naît par le numéro, avec une
+  **demande en attente**. Le revendeur entre dans l'application BIZZOO
+  (numéro, mot de passe, code SMS), **active la position de son
+  téléphone** dans *Mon compte*, puis l'administrateur **valide** — la
+  base refuse toujours de valider sans position.
+
+Son accueil porte une carte *Livreurs et revendeurs*, et les demandes en
+attente s'y affichent. Un **modérateur** de BIZZOO n'a pas ces droits.
+
+**L'administrateur d'une boutique voit ses livreurs** (*Comptes → Les
+livreurs*) : ceux de sa boutique, avec leur position et leur numéro, et
+ceux de **BIZZOO** qui portent pour toutes les boutiques. Il ne les crée
+ni ne les modifie : un nouveau livreur se demande à BIZZOO.
+
+À coller : [`supabase/admin-bizzoo-livreurs-revendeurs.sql`](supabase/admin-bizzoo-livreurs-revendeurs.sql).
+Les règles de `profils` sont aussi reportées dans `connexion-sms.sql`,
+qui les redéfinissait : l'ordre des fichiers n'y change plus rien.
+
+Bancs : [`supabase/tests/99zzzzz-admin-bizzoo.sql`](supabase/tests/99zzzzz-admin-bizzoo.sql)
+(25 constats) et [`tools/banc-admin-bizzoo.mjs`](tools/banc-admin-bizzoo.mjs)
+(27 constats) ; contrôle 133 de l'état des lieux.
+
+## Créer un produit demande l'habilitation (3.59.0)
+
+**Avant**, retirer à un compte le droit « produits » l'empêchait de
+*retoucher* un produit, pas d'en *créer* ; un administrateur de boutique
+l'avait d'office ; un administrateur de BIZZOO réduit aux commandes
+intégrait quand même des produits dans les boutiques.
+
+**Désormais une seule habilitation — créer, modifier, supprimer un
+produit —, et elle vaut pour tous** : modérateur, administrateur de
+boutique, compte de BIZZOO (interrupteur *Le catalogue*). **Seul le
+superadministrateur passe outre.** Dans la fiche d'un compte, l'interrupteur
+s'appelle *Peut créer et modifier les produits* et paraît aussi pour un
+administrateur de boutique. Sans l'habilitation, l'application vendeur
+masque le « + » de la barre et *Ajouter un produit*, et le formulaire dit
+qu'il faut la demander au superadministrateur. La base refuse de toute
+façon (`produits ajout`, `prix achat ajout`, `peut_modifier_produits`).
+
+En ligne, tous les administrateurs de boutique ont déjà l'habilitation :
+personne ne perd un droit par surprise. Un modérateur de BIZZOO ne l'a
+pas — il ne pourra plus créer de produit.
+
+À coller : [`supabase/produits-habilitation.sql`](supabase/produits-habilitation.sql).
+
+## Les jours et heures d'ouverture des boutiques (3.59.0)
+
+**Chaque boutique a ses jours et heures d'ouverture** — sept lignes :
+ouvert ou fermé, heure d'ouverture, heure de fermeture. On les pose **à la
+création** de la boutique (obligatoires), puis dans sa fiche ou dans
+*Réglages*. Le texte libre « Horaires » devient *Précisions* (fêtes,
+exceptions).
+
+**Fermée en ce moment** — hors de ses heures, à l'heure du **Bénin** :
+
+- ses produits **disparaissent** des listes, de la recherche et de
+  l'accueil de l'application client ;
+- sa page dit *« Fermée en ce moment. Elle ouvre demain à 08 h 00 »*, sans
+  vitrine ; la fiche d'un produit (lien partagé) n'a pas de panier ;
+- un panier qui en contient ne laisse pas commander, et dit quand elle
+  rouvre ;
+- **la base refuse la commande** (`creer_commande`) — même depuis une
+  application pas à jour ;
+- *À propos* montre les horaires, jour par jour.
+
+**Les boutiques déjà en service n'ont pas encore d'horaires** : elles
+restent ouvertes en permanence, comme avant, et leurs *Réglages* les
+invitent à les poser.
+
+À coller : [`supabase/horaires-boutiques.sql`](supabase/horaires-boutiques.sql).
+
+Bancs : [`supabase/tests/99zzzzzz-produits-habilitation.sql`](supabase/tests/99zzzzzz-produits-habilitation.sql),
+[`supabase/tests/99zzzzzzz-horaires.sql`](supabase/tests/99zzzzzzz-horaires.sql),
+[`tools/banc-horaires-droits.mjs`](tools/banc-horaires-droits.mjs) ;
+contrôles 134 et 135 de l'état des lieux.
+
+## Chaque boutique : sa condition de paiement, ses frais de livraison (3.59.0)
+
+**Chaque boutique dit comment on la paie** :
+
+- **Tout à la commande** : le client paie sa part entière en commandant ;
+- **Un acompte à la commande** (1 à 99 %) : le client en paie ce
+  pourcentage en commandant, et **le livreur de la boutique encaisse le
+  reste à la livraison**.
+
+**Et elle fixe ses frais de livraison** (0 : livraison offerte). Aucun code
+promo ne les touche.
+
+On les règle à la création de la boutique (*Paiement et livraison*, dans sa
+fiche), puis l'administrateur de la boutique les change dans *Réglages*.
+
+**À la commande, la base calcule tout** (`creer_commande`) : la part de
+chaque boutique — ses articles, remise d'un code promo déduite au prorata,
+plus ses frais —, ce qui se paie maintenant (100 % ou son acompte, au franc
+supérieur) et ce qui restera à la livraison. Ces parts sont figées sur la
+commande (`commandes.parts`). Une commande sur deux boutiques additionne
+leurs deux conditions et leurs deux frais.
+
+**À la livraison**, chaque livreur encaisse la part de **sa** boutique, moins
+son acompte (`restes_par_boutique`). Rien de ce que le client a versé n'est
+perdu pour lui : un surplus, ou l'acompte d'une part annulée par sa
+boutique, diminue ce qui reste dû aux autres.
+
+**Dans l'application client**, le panier et l'écran de commande annoncent
+le total, *À payer à la commande* et *À payer à la livraison* — et, sur
+plusieurs boutiques, le détail de chacune (« tout à la commande · livraison
+1 500 », « acompte 30 % »). C'est un aperçu, calculé comme la base ; le
+montant demandé à l'agrégateur est celui que la base renvoie.
+
+**Les boutiques déjà en service** reçoivent ce que l'enseigne appliquait à
+toutes : acompte de 10 %, livraison 1 000 FCFA. Dans *Réglages → Paiement*,
+l'acompte et les frais de l'enseigne ne sont plus que les valeurs proposées
+aux nouvelles boutiques. Les commandes passées avant gardent leur ancienne
+règle.
+
+À coller : [`supabase/conditions-paiement-boutiques.sql`](supabase/conditions-paiement-boutiques.sql)
+(après `horaires-boutiques.sql`).
+
+Bancs : [`supabase/tests/99zzzzzzzz-conditions-boutiques.sql`](supabase/tests/99zzzzzzzz-conditions-boutiques.sql),
+[`tools/banc-conditions-boutiques.mjs`](tools/banc-conditions-boutiques.mjs) ;
+`99t-acompte.sql` et `99z-frais-livraison.sql` adaptés à la règle par
+boutique ; contrôle 136 de l'état des lieux.
+
+## Le parcours de livraison : la demande à tous, « Commande reçue », le livreur annoncé (3.59.0)
+
+**1. Dès que la commande est payée, la demande de livraison part à
+plusieurs livreurs à la fois** (`proposer_course`) :
+
+- **Commande d'une seule boutique** : à **tous les livreurs de cette
+  boutique** (validés, c'est-à-dire qui ont enregistré leur position). Une
+  boutique qui n'en a aucun passe la main aux livreurs de BIZZOO.
+- **Commande de plusieurs boutiques — livraison groupée** : aux **seuls
+  livreurs BIZZOO**, sans passer par ceux des boutiques.
+
+L'alerte (dans les notifications, avec les trois bips) dit tout :
+
+- **Récupérer** : la boutique et son adresse — une ligne par boutique en
+  livraison groupée ;
+- **Livrer à** : le nom et l'adresse du destinataire ;
+- **Destinataire** : son numéro ;
+- **Frais de livraison** ;
+- **Déjà payé** : ce que le client a réglé à la commande ;
+- **À récupérer** : ce qu'il reste à encaisser à la porte — ou « Rien à
+  récupérer : tout est payé ».
+
+La demande s'affiche aussi en tête de *Mes courses* (application admin, et
+application client pour un livreur) : `courses_proposees`. **Aucun prix
+d'article** n'y figure.
+
+**2. « Commande reçue »** : le **premier** livreur qui touche le bouton
+prend la course (`prendre_course`) — toute la commande, toutes ses boutiques
+en livraison groupée. Le suivant reçoit « Trop tard : un autre livreur a
+déjà pris cette course », et la demande disparaît de la liste des autres.
+**À ce moment**, le client reçoit *Votre livreur : Nom* avec le numéro du
+livreur (une seule nouvelle, même groupée), et chaque boutique apprend qui
+vient chercher son colis. Le reçu du client montre alors son livreur, avec
+*Appeler* et *WhatsApp* — **pas avant**.
+
+**3. Puis** : la boutique prépare le colis (*En préparation* chez le
+livreur) ; une fois prêt, *Je l'ai prise*, puis *Je l'ai remise*. En
+livraison groupée, le livreur a une course par boutique, chacune avec son
+lieu de retrait et ce qu'il y encaisse.
+
+**Le secours** : si personne ne prend la demande, la boutique garde
+*Confier à un livreur* dès le paiement (`assigner_livreur`) ; le livreur
+désigné reçoit la fiche et accepte par *Commande reçue* (`accepter_course`).
+Une course confiée à un autre livreur repart de zéro. Personne n'écrit
+« reçu » à la main (`commande_lignes.recu_le`, verrouillé).
+
+**Qui voit quoi**
+
+| | Les livreurs | Le client |
+|---|---|---|
+| Au paiement | la demande complète (ci-dessus), tous ceux concernés | rien de nouveau |
+| « Commande reçue » | celui qui l'a prise garde la course ; pour les autres, elle disparaît | le nom et le numéro du livreur |
+| Toujours | jamais le prix des articles | jamais l'adresse personnelle du livreur |
+
+Base : [`supabase/livraison-parcours.sql`](supabase/livraison-parcours.sql).
+Bancs : [`supabase/tests/99zzzzzzzzz-parcours-livraison.sql`](supabase/tests/99zzzzzzzzz-parcours-livraison.sql),
+[`supabase/tests/99zzzzzzzzzz-demande-course.sql`](supabase/tests/99zzzzzzzzzz-demande-course.sql),
+[`tools/banc-parcours-livraison.mjs`](tools/banc-parcours-livraison.mjs) ;
+contrôles 137 et 138 de l'état des lieux.
+
+## Le reste payé à la livraison : déclaré, visible, rendu (3.59.0)
+
+Le client paie l'acompte en ligne, et **le reste au livreur**. Avant, ce
+reste passait de main en main sans laisser de trace. Désormais :
+
+**1. Le livreur déclare ce qu'il encaisse.** *Je l'ai remise* ouvre une
+feuille : le montant reçu — déjà rempli avec ce que le client devait — et
+la façon de payer, **espèces** ou **Mobile Money**. Un autre montant
+demande un mot d'explication (« remise de 500 accordée par la boutique »).
+Remettre et déclarer se font d'un seul geste (`remettre_course`). En tête
+de *Mes courses*, **Ma caisse** dit ce qu'il a encaissé et doit encore
+rendre, boutique par boutique (`ma_caisse`).
+
+**2. Le client le voit.** Il reçoit *Reste payé : 7 000 FCFA* (à qui,
+comment, quand). Son reçu affiche **Payé à la livraison**, puis
+**Commande soldée** (`suivre_commande`). S'il n'a pas payé ce qui est
+déclaré, *Ce n'est pas exact* prévient la boutique et BIZZOO
+(`contester_encaissement`).
+
+**3. La caisse des livreurs** (*Accueil → Caisse des livreurs*,
+`#/caisse`) : livreur par livreur, ce qu'il a encaissé et pas encore
+rendu, les écarts avec leur motif, les contestations, et les colis remis
+**sans déclaration** depuis une ancienne application. *Argent reçu du
+livreur* le marque (`marquer_remis`) ; le livreur en est prévenu.
+
+**Qui voit la caisse** (`tient_la_caisse`) : l'administrateur d'une
+boutique, pour l'argent de **ses** colis — y compris encaissé par un
+livreur BIZZOO en livraison groupée ; BIZZOO (superadministrateur, compte
+de l'enseigne avec le droit *commandes* ou *finances*) : tout. Pas un
+modérateur.
+
+Base : [`supabase/reste-livraison.sql`](supabase/reste-livraison.sql)
+(table `encaissements`, à coller après `livraison-parcours.sql`).
+Bancs : [`supabase/tests/99zzzzzzzzzzz-reste-livraison.sql`](supabase/tests/99zzzzzzzzzzz-reste-livraison.sql),
+[`tools/banc-reste-livraison.mjs`](tools/banc-reste-livraison.mjs) ;
+contrôle 139 de l'état des lieux.
+
+## Qui livre, vu de la boutique ; le livreur peut refuser (3.59.0)
+
+**Sur chaque commande payée, la boutique voit qui livre** (`livraison_des_commandes`) :
+
+- **Prise par Kodjo · 01 96 …** — le livreur a accepté ; son numéro s'appelle d'un appui ;
+- **Confiée à Nadia — en attente de sa réponse** — confiée à la main, pas encore acceptée ;
+- **Commande refusée par le livreur** — avec son nom, son motif et l'heure ; le bouton devient **Confier à nouveau** ;
+- **En attente d'un livreur** — la demande est partie à tous les livreurs, personne ne l'a encore prise.
+
+**Le livreur peut refuser** (*Refuser la course*, `refuser_course`) tant que le colis n'est pas
+parti avec lui (*Je l'ai prise*). La course redevient libre : la boutique est prévenue
+(*Commande refusée par le livreur*), la demande se rouvre aux autres livreurs — pas à celui
+qui a refusé —, et le client, s'il connaissait déjà son livreur, apprend qu'il change. Quand un
+autre livreur la prend, le client reçoit bien **le nouveau** nom et numéro. Chaque refus est
+gardé (`refus_courses`).
+
+Base : [`supabase/refus-course.sql`](supabase/refus-course.sql) (à coller après
+`reste-livraison.sql`). Bancs : [`supabase/tests/99zzzzzzzzzzzz-refus-course.sql`](supabase/tests/99zzzzzzzzzzzz-refus-course.sql),
+[`tools/banc-refus-course.mjs`](tools/banc-refus-course.mjs) ; contrôle 140 de l'état des lieux.
+
+## Le livreur de BIZZOO livre toute la commande (3.59.0)
+
+- **Livreur BIZZOO** (rattaché à aucune boutique) : quand une boutique lui
+  confie une course, il reçoit **tous les produits de la commande**, ceux
+  des autres boutiques aussi. Les autres boutiques sont prévenues
+  (« Un livreur BIZZOO passe récupérer vos produits »). Une part déjà
+  confiée au livreur d'une autre boutique lui reste.
+- Il accepte d'un seul « Commande reçue » toute la commande ; le client
+  reçoit une seule nouvelle avec son nom et son numéro.
+- **Livreur d'une boutique** : il ne reçoit que les produits de sa boutique.
+- La feuille « Confier » l'explique avant d'appuyer.
+- À coller : `supabase/livreur-bizzoo-commande.sql` (après `refus-course.sql`).
+  Essai : `supabase/tests/99zzzzzzzzzzzzzz-livreur-bizzoo-commande.sql`.
+
+## Ajouter plusieurs produits d'affilée (3.59.0)
+
+Après « Ajouter le produit », le formulaire se vide (nom, prix, rayon,
+photos, vidéo, stock) et une nouvelle référence est proposée : on saisit
+le produit suivant tout de suite. Un bandeau dit « … est ajouté » avec le
+lien « Voir sa fiche ». Une modification, elle, ramène toujours à la fiche.
+
+## Un revendeur achète comme un client (3.59.0)
+
+Un revendeur validé commande dans l'application à ses prix revendeur,
+paie l'acompte en ligne et se fait livrer comme n'importe quel client :
+frais de livraison, demande de course aux livreurs, nom et numéro du
+livreur, reste payé à la porte, confirmation de réception, suivi de la
+commande. La commande porte la marque « Revendeur » chez la boutique.
+Essai de bout en bout : `supabase/tests/99zzzzzzzzzzzzzzz-revendeur-client.sql`.
+
+## Le reste se paie par MoMoPay, plus en espèces (3.59.0)
+
+- **BIZZOO enregistre son code MoMoPay** : Réglages → onglet de l'enseigne →
+  « MoMoPay — le reste à la livraison » (code marchand et nom affiché).
+- **À la porte**, « Je l'ai remise » montre au client, en grand, le code
+  MoMoPay de BIZZOO et le montant à payer. Le client paie depuis son
+  téléphone et reçoit un SMS ; le livreur saisit le **numéro de la
+  transaction**. Sans lui, le colis ne se remet pas.
+- **Plus d'espèces** : la base refuse tout autre paiement, un autre montant,
+  une transaction déjà utilisée, et l'ancien « Je l'ai remise » sans
+  paiement.
+- **Le livreur n'a rien en main**, rien à rendre (« Ma caisse » reste vide).
+- **Caisse → « MoMoPay à vérifier »** : BIZZOO retrouve chaque transaction
+  dans son compte MoMoPay et touche « Vérifié ». La boutique la voit mais ne
+  peut pas la vérifier.
+- Sans code enregistré, le livreur voit « Appelez BIZZOO » et ne peut pas
+  remettre un colis dont le reste est dû.
+- À coller : `supabase/reste-momopay.sql` (après `livreur-bizzoo-commande.sql`).
+
+## Qui crée quels comptes (3.59.0)
+
+- **Superadministrateur** : tous les comptes.
+- **Administrateur de BIZZOO** : des livreurs (de BIZZOO ou d'une boutique) et
+  des revendeurs, qu'il valide.
+- **Administrateur d'une boutique** : des modérateurs et des **livreurs de sa
+  boutique** (écran Livreurs), et des **revendeurs** (écran Revendeurs →
+  « Créer un revendeur ») — la demande reste en attente, **BIZZOO seul la
+  valide**. Il ne crée **jamais d'administrateur** ni de superadministrateur,
+  ni de livreur de BIZZOO ou d'une autre boutique. La base le refuse.
+- **On ne touche pas à son créateur** : un compte créé par un autre — par
+  exemple un superadministrateur nommé par un autre — ne peut ni changer le
+  rôle, ni désactiver, ni changer le mot de passe, ni supprimer celui qui
+  l'a créé, ni ceux au-dessus dans la chaîne. L'écran Comptes l'affiche
+  « vous a créé », sans crayon ; la base le refuse par tous les chemins.
+- À coller : `supabase/admin-boutique-comptes.sql` (après `reste-momopay.sql`).
+
+## La sonnerie du livreur (3.59.0)
+
+Quand une course attend « Commande reçue » — confiée par la boutique, ou
+proposée à tous —, l'application du livreur joue **trois notes qui
+montent, trois fois**, plus fort qu'avant, et **fait vibrer le
+téléphone**. Elle recommence **toutes les quatre secondes** jusqu'à ce
+qu'il touche « Commande reçue » (ou refuse la course). Son coupé dans les
+réglages : la vibration reste. Application fermée : c'est la notification
+du téléphone qui sonne. Le son se fabrique dans l'application, aucun
+fichier à charger (`admin/js/son.js`). Banc : `tools/banc-sonnerie-livreur.mjs`.
+
+**Livraison groupée** : la commande payée sonne chez **tous les livreurs de
+BIZZOO** à la fois. Dès que l'un touche « Commande reçue », les autres
+reçoivent **« Déjà pris par <son nom> »** en temps réel : leur sonnerie
+s'arrête, la carte disparaît, et la mention reste une heure dans « Mes
+courses ». Celui qui arrive trop tard lit le même nom. À coller :
+`supabase/course-deja-prise.sql`.
+
+## Masquer un produit (3.59.0)
+
+Sur la fiche d'un produit (application admin), **« Masquer le produit »** le
+retire du catalogue des clients sans le supprimer : ni catalogue, ni
+recherche, ni fiche, ni lien partagé, et il ne se commande plus. Sa fiche,
+ses photos, son code et ses ventes restent ; **« Réafficher le produit »** le
+remet en vente. Il porte « Masqué » dans la liste des produits, avec qui l'a
+masqué et quand. L'administrateur ou le modérateur de la boutique le peut,
+même sans le droit de modifier les produits ; BIZZOO sur toutes. À coller :
+`supabase/produit-masque.sql`.
+
+## Le suivi des commandes en direct, et le message du catalogue (3.59.0)
+
+- **Chaque modification d'une commande** — paiement, étape (préparée, en
+  livraison, remise), livreur confié ou accepté, paiement à la livraison —
+  met à jour **tout seul** l'écran de ceux qui la suivent : le client (son
+  reçu, « Mes commandes »), l'administrateur et le modérateur de la boutique
+  (Commandes, Caisse, accueil), BIZZOO, et le livreur (« Mes courses »).
+  La base pousse un **signal** (table `commandes_signaux`) que le temps réel
+  ne remet qu'à ceux qui voient la commande ; l'écran se relit à la même
+  hauteur, jamais sous les doigts (feuille ouverte, saisie en cours).
+  À coller : `supabase/suivi-commandes.sql`.
+- **« Catalogue mis à jour » ne s'affiche plus à chaque changement** (une
+  vente qui baisse un stock, un horaire de boutique…) : l'écran suit en
+  silence, et l'on annonce seulement un produit qui apparaît
+  (« Nouveau : … »).
+
+## Le solde de chaque boutique, et ses reversements (3.59.0)
+
+Tout l'argent arrive chez BIZZOO (acompte en ligne, reste par MoMoPay).
+Chaque boutique a donc un **solde** chez BIZZOO — écran **Solde de la
+boutique** (accueil de l'administrateur, `#/solde`) :
+
+- **Ventes livrées** : ses articles **remis au client**, au **prix BIZZOO**
+  de chaque article (la commission de BIZZOO déduite). Les frais de livraison
+  n'en font pas partie ; payé mais pas encore livré = **à venir**.
+- Moins ce qui a déjà été **encaissé en espèces** par la boutique (l'ancien
+  système), moins ce qui est **déjà reversé** et la demande **en attente** =
+  **disponible**.
+- L'administrateur règle le **numéro de réception** (réseau, numéro,
+  titulaire) — BIZZOO est prévenu de chaque changement — et **demande un
+  reversement** (pas plus que le disponible).
+- Le superadministrateur voit les demandes (**Reversements**, `#/reversements`),
+  envoie l'argent, puis touche **« Envoyé »** avec la référence de la
+  transaction, ou **refuse** avec un motif (le montant revient au solde). La
+  boutique est prévenue.
+- Un modérateur ne voit pas le solde. À coller : `supabase/soldes-boutiques.sql`.
+
+## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
+
+**Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code
+reçu par SMS ne sert plus qu'à **confirmer le numéro une fois**, à l'inscription (ou à la
+première connexion d'un livreur que l'administrateur vient de créer), et pour **« Mot de passe
+oublié »**.
+
+**L'équipe** (administrateurs, modérateurs, livreurs) entre avec son mot de passe seul. Le
+code n'est plus demandé qu'aux **superadministrateurs**, quand l'interrupteur est allumé
+(*Réglages → Code SMS du superadministrateur* ; `equipe_en_service`).
+
+**L'appareil de confiance** : sur l'écran du code, la case *Faire confiance à cet appareil
+pendant 1 mois*. Cochée, le code n'est plus demandé sur cet appareil pendant 30 jours — le mot
+de passe, si. L'appareil garde un jeton tiré au hasard ; la base n'en garde que l'empreinte
+(`confier_appareil`, `reconnaitre_appareil`). Dans les Réglages, *Oublier mes appareils de
+confiance* fait redemander le code partout (`oublier_appareils`).
+
+Base : [`supabase/connexion-superadmin.sql`](supabase/connexion-superadmin.sql).
+Bancs : [`supabase/tests/99zzzzzzzzzzzzz-appareil-confiance.sql`](supabase/tests/99zzzzzzzzzzzzz-appareil-confiance.sql),
+`99u-connexion-sms.sql` et `99zzz-connexion-telephone.sql` adaptés ;
+[`tools/banc-connexion-equipe.mjs`](tools/banc-connexion-equipe.mjs),
+`banc-connexion-sms.mjs` et `banc-connexion-telephone.mjs` adaptés ; contrôle 141.
+
+## Un livreur n'a pas de lien vers l'application admin (3.59.0)
+
+Dans l'application client, la carte **Espace vendeur** (et son bouton *Ouvrir l'espace
+vendeur*) n'apparaît plus pour un livreur — ni sur *Mon compte*, ni sous *Mes courses*. Les
+administrateurs et modérateurs qui ouvrent l'application client la gardent. Banc :
+[`tools/banc-livreur-compte-client.mjs`](tools/banc-livreur-compte-client.mjs).
+
+## Le revendeur choisit les prix qu'il affiche (3.59.0)
+
+Dans *Mon compte → Compte revendeur*, deux boutons : **Prix revendeur** (par défaut) et **Prix
+publics**. En « prix publics », le catalogue, la fiche produit et l'accueil montrent les prix
+publics, sans rien de revendeur — pour les montrer à son propre client. Ce n'est qu'un
+**affichage**, gardé sur le téléphone : la base facture toujours le prix revendeur, et le
+**panier** montre toujours ce qu'il paiera (« Total à vos prix revendeur »). Le partage d'un
+produit donne toujours le prix public. Banc : [`tools/banc-prix-revendeur.mjs`](tools/banc-prix-revendeur.mjs).
+
 ## Structure
 
 ```
@@ -4316,6 +4866,12 @@ impact-informatique-app/
 │   ├── live-tiktok.sql              # Le live TikTok : démarrer, arrêter, lives en cours (3.58.0)
 │   ├── frais-livraison.sql          # Les frais de livraison : 1 000 FCFA par commande, hors code promo (3.58.0)
 │   ├── positions-comptes.sql        # Livreurs et revendeurs valident leur compte par leur position (3.58.0)
+│   ├── connexion-telephone.sql      # Numéro + mot de passe + code : livreurs créés par leur numéro (3.59.0)
+│   ├── livreurs-sans-compte-client.sql # Un livreur n'est ni acheteur ni revendeur (3.59.0)
+│   ├── admin-bizzoo-livreurs-revendeurs.sql # L'admin de BIZZOO : livreurs, revendeurs, validation (3.59.0)
+│   ├── produits-habilitation.sql    # Créer un produit demande l'habilitation (3.59.0)
+│   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
+│   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

@@ -321,7 +321,7 @@ reset role;
 select essai.verifie(public.sms_equipe_exige(), 'l''enseigne exige le code');
 select essai.verifie(
   exists (select 1 from public.journal
-           where libelle like 'Connexion de l''équipe : code SMS exigé%'),
+           where libelle like 'Connexion du superadministrateur : code SMS exigé%'),
   'et le journal le dit');
 
 -- ---------------------------------------------------------
@@ -344,48 +344,22 @@ select essai.egal(
   'il ne lit plus que sa propre fiche');
 reset role;
 
+-- (3.59.0) LE CODE NE VAUT PLUS QUE POUR LE SUPERADMINISTRATEUR : les
+-- autres rangs entrent avec leur mot de passe seul, interrupteur allumé.
 select essai.devenir(:CHEF::uuid, :S6::uuid); set role authenticated;
-select essai.verifie(not public.est_admin(), 'l''administrateur sans code : plus administrateur');
-select essai.verifie(public.boutique_du_compte() is null, 'plus de boutique');
-select essai.verifie(not public.peut_agir_sur('bou_informatique'),
-  'plus aucune prise sur sa boutique');
-select essai.sans_effet(
-  'update public.produits set nom = nom || '' (piraté)'' where boutique_id = ''bou_informatique''',
-  'son catalogue ne se modifie plus');
-select essai.egal((select count(*)::int from public.commandes), 0,
-  'ses commandes ne se lisent plus');
-select essai.egal((select count(*)::int from public.journal), 0,
-  'ni le journal');
+select essai.verifie(public.est_admin(), 'l''administrateur sans code : toujours administrateur');
+select essai.egal(public.boutique_du_compte(), 'bou_informatique', 'toujours sa boutique');
+select essai.egal((public.etat_connexion() ->> 'sms_exige')::boolean, false,
+  'l''écran ne lui demande pas de code');
 reset role;
 
 select essai.devenir(:ADJOINT::uuid, :S6::uuid); set role authenticated;
-select essai.verifie(not public.est_compte_enseigne(),
-  'le compte de BIZZOO sans code n''est plus compte de BIZZOO');
-select essai.verifie(not public.droit_enseigne('commandes'),
-  'ses interrupteurs ne valent plus rien');
-select essai.verifie(not public.peut_voir_commandes(),
-  'les commandes de toutes les boutiques lui sont fermées');
+select essai.verifie(public.est_compte_enseigne(),
+  'le compte de BIZZOO sans code reste compte de BIZZOO');
 reset role;
 
 select essai.devenir(:PORTEUR::uuid, :S6::uuid); set role authenticated;
-select essai.verifie(not public.est_livreur(), 'le livreur sans code : plus livreur');
-select essai.egal((select count(*)::int from public.mes_livraisons()), 0,
-  'ses courses ne se lisent plus');
-reset role;
-
-select essai.devenir(:PORTEUR::uuid, :S5::uuid); set role authenticated;
-select essai.verifie(public.est_livreur(),
-  'dans la session où il a rendu son code, il porte toujours');
-reset role;
-
--- Le code rendu, tout revient.
-select essai.envoyer(:CHEF::uuid, :S7::uuid, '777777');
-select essai.devenir(:CHEF::uuid, :S7::uuid); set role authenticated;
-select essai.verifie(not public.est_admin(), 'code demandé mais pas rendu : toujours rien');
-select essai.egal((public.confirmer_code_connexion('777777') ->> 'ok')::boolean, true,
-  'le code rendu');
-select essai.verifie(public.est_admin(), 'l''administrateur retrouve ses droits');
-select essai.egal(public.boutique_du_compte(), 'bou_informatique', 'et sa boutique');
+select essai.verifie(public.est_livreur(), 'le livreur sans code : toujours livreur');
 reset role;
 
 -- Un acheteur n'est pas concerné : il n'a pas de rang à perdre.

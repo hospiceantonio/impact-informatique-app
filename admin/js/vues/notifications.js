@@ -25,12 +25,26 @@ const VueNotifications = (() => {
     reception_confirmee:   { nom: "Réceptions confirmées", icone: "check" },
     commande_annulee:      { nom: "Annulations",        icone: "alerte" },
     course_confiee:        { nom: "Courses confiées",   icone: "voiture" },
+    course_acceptee:       { nom: "Courses acceptées",  icone: "check" },
+    course_proposee:       { nom: "Demandes de course", icone: "voiture" },
+    course_prise:          { nom: "Courses déjà prises", icone: "voiture" },
+    reception_reglee:      { nom: "Numéros de réception", icone: "tel" },
+    reversement_demande:   { nom: "Reversements demandés", icone: "promo" },
+    reversement_decide:    { nom: "Reversements", icone: "promo" },
+    /* La caisse des livreurs (3.59.0). */
+    reste_encaisse:        { nom: "Encaissé à la livraison", icone: "promo" },
+    encaissement_conteste: { nom: "Paiements contestés", icone: "alerte" },
+    caisse_remise:         { nom: "Argent rendu", icone: "check" },
+    course_refusee:        { nom: "Courses refusées", icone: "alerte" },
     /* Le stock, que chaque vente payée décompte toute seule. */
     stock_epuise:          { nom: "Ruptures de stock",  icone: "boite" },
     stock_insuffisant:     { nom: "Stock insuffisant",  icone: "alerte" },
     stock_a_verifier:      { nom: "Stock à vérifier",   icone: "alerte" },
   };
-  const famille = (type) => FAMILLES[type] || { nom: "Autres", icone: "cloche" };
+  /* « …_avant_<n> » : une nouvelle d'une course reprise par un autre
+     livreur (3.59.0) — elle garde sa famille. */
+  const famille = (type) => FAMILLES[String(type || "").replace(/_avant_\d+$/, "")] ||
+    { nom: "Autres", icone: "cloche" };
 
   function htmlUne(n) {
     return (

@@ -73,6 +73,21 @@ update public.commande_lignes set etat = 'preparee' where commande_id = :'cmd';
 select public.assigner_livreur(:'cmd', 'bou_informatique', :PORTEUR2::uuid) as n \gset
 reset role; select essai.personne();
 
+-- (3.59.0) CONFIÉE N'EST PAS ACCEPTÉE : tant que le livreur n'a pas touché
+-- « Reçu », on ne sait pas encore qui viendra.
+select essai.devenir(:KOFI::uuid); set role authenticated;
+select essai.egal((select count(*)::int from public.livreurs_de_ma_commande(:'cmd')), 0,
+  'confiée mais pas encore acceptée : aucun livreur à montrer');
+reset role; select essai.personne();
+select essai.devenir(:PORTEUR2::uuid); set role authenticated;
+select public.accepter_course(:'cmd', 'bou_informatique') as recu \gset
+reset role; select essai.personne();
+select essai.egal((select count(*)::int from public.notifications
+                    where commande_id = :'cmd' and destinataire = :KOFI::uuid
+                      and type = 'course_acceptee'
+                      and titre = 'Votre livreur : Sèna' and corps like '%0196554433%'), 1,
+  '« Reçu » : le client est prévenu, avec le nom et le numéro de son livreur');
+
 -- ---------------------------------------------------------
 select essai.titre('2. Le client voit son livreur, et rien d''autre');
 

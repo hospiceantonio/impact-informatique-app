@@ -37,7 +37,7 @@ const Notifs = (() => {
   let tentatives = 0;
   let refMessage = 0;
   let actif = false;
-  let enCours = false;
+  let enCours = null;
   const abonnes = [];
 
   /* ---------- Ce que l'écran écoute ---------- */
@@ -55,9 +55,19 @@ const Notifs = (() => {
    * besoin de toute façon, et deux appels là où un suffit coûtent deux
    * fois plus cher sur une connexion qui se paie au mégaoctet.
    */
-  async function recharger() {
-    if (enCours || typeof Compte === "undefined" || !Compte.connecte()) return false;
-    enCours = true;
+  /* UNE LECTURE EN COURS SE PARTAGE. L'écran ouvert d'emblée sur
+     « #/notifications » — en touchant une alerte — demandait sa liste
+     pendant que le démarrage lisait déjà la sienne : il repartait les
+     mains vides et affichait « Rien de neuf ». Il attend désormais la
+     lecture déjà partie. */
+  function recharger() {
+    if (enCours) return enCours;
+    if (typeof Compte === "undefined" || !Compte.connecte()) return Promise.resolve(false);
+    enCours = lire();
+    return enCours;
+  }
+
+  async function lire() {
     try {
       const avant = nonLues;
       const lignes = await Compte.rest("GET",
@@ -88,7 +98,7 @@ const Notifs = (() => {
       /* Base injoignable, jeton périmé : on garde ce qu'on a. */
       return false;
     } finally {
-      enCours = false;
+      enCours = null;
     }
   }
 
@@ -162,7 +172,10 @@ const Notifs = (() => {
                  sur nous pour les jeter. C'est la base qui trie, pas
                  l'écran — ici comme partout ailleurs. */
               postgres_changes: [{ event: "INSERT", schema: "public",
-                table: "notifications", filter: "destinataire=eq." + moi }],
+                table: "notifications", filter: "destinataire=eq." + moi },
+                /* (3.59.0) Le signal de ses commandes — et de ses courses,
+                   pour un livreur. La base ne l'envoie qu'aux siens. */
+                { event: "*", schema: "public", table: "commandes_signaux" }],
             },
             access_token: t,
           },
@@ -180,7 +193,14 @@ const Notifs = (() => {
       socket.onmessage = (message) => {
         let donnees;
         try { donnees = JSON.parse(message.data); } catch (_) { return; }
-        if (donnees && donnees.event === "postgres_changes") recharger();
+        if (!donnees || donnees.event !== "postgres_changes") return;
+        const table = donnees.payload && donnees.payload.data && donnees.payload.data.table;
+        if (table === "commandes_signaux") {
+          const r = donnees.payload.data.record || {};
+          window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id: r.commande_id || "" } }));
+          return;
+        }
+        recharger();
       };
 
       socket.onclose = () => {

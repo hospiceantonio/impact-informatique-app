@@ -122,6 +122,8 @@ const VueCommandes = (() => {
      La liste se lit au moment de confier, pas à chaque ouverture de
      l'écran des commandes : une boutique qui n'a pas de livreur n'a pas
      à payer une lecture de plus à chaque fois. */
+  const ETATS_CONFIABLES = ["nouvelle", "vue", "preparee", "en_livraison"];
+
   async function confier(vue, commandeId) {
     const commande = (await Store.listerCommandes({ combien: 100 }))
       .find((c) => c.id === commandeId);
@@ -129,7 +131,7 @@ const VueCommandes = (() => {
     /* La boutique de CETTE commande, vue d'ici : un administrateur ne
        confie que ses propres lignes, et la base le vérifie. */
     const boutique = (commande.lignes.find((l) =>
-      l.etat === "preparee" || l.etat === "en_livraison") || {}).boutiqueId || "";
+      ETATS_CONFIABLES.includes(l.etat)) || {}).boutiqueId || "";
 
     let livreurs = [];
     try {
@@ -152,6 +154,9 @@ const VueCommandes = (() => {
     }
 
     const corps = UI.ouvrirFeuille("Confier « " + (commande.numero || "") + " »",
+      '<p class="aide" style="margin:0 0 10px"><strong>La demande est partie à tous les ' +
+        "livreurs dès le paiement</strong> : le premier qui touche « Commande reçue » la prend. " +
+        "Confiez à la main seulement si personne ne l'a prise.</p>" +
       '<p class="aide" style="margin:0 0 14px">Il verra ce qu\'il doit porter, le nom ' +
         "du client, son numéro et son adresse, et <strong>ce qu'il doit encaisser à la " +
         "livraison</strong>" +
@@ -159,6 +164,13 @@ const VueCommandes = (() => {
           ? " : " + Utils.echapper(Utils.fmtMontant(commande.aEncaisser, commande.devise))
           : " : rien, tout est payé") +
         ". Aucun autre montant — ni le prix des articles, ni ce que vous touchez.</p>" +
+      /* (3.59.0) Qui porte quoi : le livreur de BIZZOO, toute la commande ;
+         celui de la boutique, ses produits seulement. */
+      (livreurs.some((l) => l.bizzoo)
+        ? '<p class="aide" style="margin:0 0 14px">Un livreur <strong>BIZZOO</strong> livre ' +
+          "<strong>toute la commande</strong>, les produits des autres boutiques aussi. " +
+          "Le livreur de votre boutique ne livre que vos produits.</p>"
+        : "") +
       livreurs.map((l) =>
         '<button type="button" class="btn btn-clair cmd-livreur" style="margin-bottom:8px" ' +
           'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
@@ -189,9 +201,10 @@ const VueCommandes = (() => {
              qu'il faut aller lever ailleurs. Et on annonce qu'il est
              prévenu : c'est la base qui s'en charge, mais celui qui
              confie n'a aucun moyen de le savoir autrement. */
-          const qui = (livreurs.find((l) => l.id === b.dataset.livreur) || {}).affichage;
+          const choisi = livreurs.find((l) => l.id === b.dataset.livreur) || {};
           UI.toast(b.dataset.livreur
-            ? "Course confiée à " + (qui || "ce livreur") + " — il est prévenu."
+            ? "Course confiée à " + (choisi.affichage || "ce livreur") +
+              (choisi.bizzoo ? " — il livre toute la commande, il est prévenu." : " — il est prévenu.")
             : "Course reprise.");
           await afficher(vue);
         } catch (err) {
@@ -200,6 +213,65 @@ const VueCommandes = (() => {
         }
       };
     }
+  }
+
+  /* -----------------------------------------------------
+     Qui livre (3.59.0)
+     -----------------------------------------------------
+     Sur chaque commande payée : le livreur qui a pris la course — son
+     nom, son numéro à appeler —, ou « confiée, en attente de sa
+     réponse », ou « Commande refusée par le livreur » avec son motif, et
+     alors « Confier à nouveau ». Sans livreur ni refus : la demande est
+     partie à tous les livreurs. */
+  async function remplirLivraisons(vue, ids) {
+    if (!ids.length) return;
+    const lignes = await Store.livraisonDesCommandes(ids);
+    if (!vue.isConnected) return;
+    const parCommande = new Map();
+    for (const l of lignes) {
+      if (!parCommande.has(l.commandeId)) parCommande.set(l.commandeId, []);
+      parCommande.get(l.commandeId).push(l);
+    }
+    for (const zone of UI.$$("[data-livraison-pour]", vue)) {
+      const parts = parCommande.get(zone.dataset.livraisonPour);
+      if (!parts || !parts.length) continue;
+      zone.innerHTML = parts.map((l) => htmlLivraison(l, parts.length > 1)).join("");
+      zone.hidden = false;
+      if (parts.some((l) => !l.livreurNom && l.refusNom)) {
+        const carte = zone.closest(".cmd-carte");
+        const bouton = carte && UI.$("[data-confier]", carte);
+        if (bouton) bouton.lastChild.textContent = "Confier à nouveau";
+      }
+    }
+  }
+
+  function htmlLivraison(l, avecBoutique) {
+    const e = Utils.echapper;
+    const qui = l.livreurNom
+      ? "<strong>" + e(l.livreurNom) + "</strong>" +
+        (l.livreurBizzoo ? ' <span class="cmd-livreur-bizzoo">BIZZOO</span>' : "") +
+        (l.livreurTel
+          ? ' · <a href="' + e(Utils.lienTel(l.livreurTel, "229")) + '">' + e(l.livreurTel) + "</a>"
+          : "")
+      : "";
+    let texte;
+    if (l.livreurNom && l.recuLe) {
+      texte = '<div class="cmd-livraison-etat cmd-livraison-prise">' + UI.icone("voiture", "ic-sm") +
+        "<span>Prise par " + qui + "</span></div>";
+    } else if (l.livreurNom) {
+      texte = '<div class="cmd-livraison-etat">' + UI.icone("horloge", "ic-sm") +
+        "<span>Confiée à " + qui + " — en attente de sa réponse</span></div>";
+    } else if (l.refusNom) {
+      texte = '<div class="cmd-livraison-etat cmd-livraison-refusee">' + UI.icone("alerte", "ic-sm") +
+        "<span><strong>Commande refusée par le livreur</strong><br>" + e(l.refusNom) +
+        (l.refusMotif ? " : « " + e(l.refusMotif) + " »" : "") +
+        (l.refuseLe ? " — " + e(Utils.fmtDateHeure(l.refuseLe)) : "") +
+        "<br>Confiez-la à un autre livreur.</span></div>";
+    } else {
+      texte = '<div class="cmd-livraison-etat">' + UI.icone("horloge", "ic-sm") +
+        "<span>En attente d'un livreur : la demande est partie à tous les livreurs.</span></div>";
+    }
+    return (avecBoutique ? '<div class="aide">' + e(l.boutiqueId) + "</div>" : "") + texte;
   }
 
   function htmlCommande(c) {
@@ -217,7 +289,9 @@ const VueCommandes = (() => {
        qu'elle n'est pas préparée, il n'y a rien à donner à porter, et la
        base refuse d'ailleurs. La liste des livreurs ne se lit qu'au
        moment où l'on veut confier, pas à chaque ouverture de l'écran. */
-    const confiable = c.lignes.some((l) => l.etat === "preparee" || l.etat === "en_livraison");
+    /* (3.59.0) Dès le paiement : la demande part à tous les livreurs, et
+       « Confier » reste le secours de la boutique si personne ne la prend. */
+    const confiable = payee && c.lignes.some((l) => ETATS_CONFIABLES.includes(l.etat));
     const aConfirmer = attendue && Supabase.estSuper() && c.transactionAnnoncee;
 
     return (
@@ -337,6 +411,10 @@ const VueCommandes = (() => {
           '<div class="cmd-lignes">' + c.lignes.map((l) => htmlLigne(l, c.devise)).join("") + "</div>" +
         "</div>" +
 
+        /* QUI LIVRE (3.59.0) : rempli quand la base répond. */
+        (payee
+          ? '<div class="cmd-livraison" data-livraison-pour="' + Utils.echapper(c.id) + '" hidden></div>'
+          : "") +
         (confiable || aConfirmer
           ? '<div class="cmd-actions">' +
               (confiable
@@ -474,6 +552,8 @@ const VueCommandes = (() => {
     for (const bouton of UI.$$("[data-confier]", vue)) {
       bouton.onclick = () => confier(vue, bouton.dataset.confier);
     }
+
+    remplirLivraisons(vue, commandes.filter((c) => c.etat === "payee").map((c) => c.id));
 
     for (const bouton of UI.$$("[data-confirmer]", vue)) {
       bouton.onclick = async () => {

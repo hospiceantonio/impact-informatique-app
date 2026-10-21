@@ -119,6 +119,21 @@ const VueRevendeurs = (() => {
 
   async function afficher(vue) {
     UI.entete({ titre: "Comptes revendeurs", sous: "Qui achète au prix BIZZOO", retour: true });
+    /* (3.59.0) L'ADMINISTRATEUR D'UNE BOUTIQUE CRÉE un revendeur, sans voir
+       les demandes ni les valider : la décision reste à BIZZOO. */
+    if (!(Supabase.estSuper() || Supabase.estAdminBizzoo())) {
+      vue.innerHTML =
+        '<div class="carte carte-publier" id="rv-boutique">' +
+          '<div class="carte-titre">' + UI.icone("personne", "ic-sm") + " Créer un revendeur</div>" +
+          '<p class="aide" style="margin:0">Un revendeur achète au prix BIZZOO sur tout le ' +
+            "catalogue. Vous créez son compte ; <strong>BIZZOO le valide</strong> ensuite, une " +
+            "fois qu'il a activé la position de son téléphone dans « Mon compte ».</p>" +
+          '<button type="button" class="btn" id="rv-nouveau" style="margin-top:12px">' +
+            UI.icone("plus") + "Créer un revendeur</button>" +
+        "</div>";
+      UI.$("#rv-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue));
+      return;
+    }
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
       "Lecture des demandes…</div>";
 
@@ -147,6 +162,12 @@ const VueRevendeurs = (() => {
           "— celui que la boutique annonce en créant le produit — sur tout le " +
           "catalogue et dans toutes les boutiques. Ce qu'il a déjà commandé ne " +
           "change pas, dans un sens comme dans l'autre.</p>" +
+        /* BIZZOO CRÉE UN REVENDEUR (3.59.0) : le superadministrateur ou un
+           administrateur de BIZZOO. Le compte naît par le numéro, avec
+           une demande en attente ; le revendeur entre, active sa
+           position, et on le valide ici. */
+        '<button type="button" class="btn" id="rv-nouveau" style="margin-top:12px">' +
+          UI.icone("plus") + "Créer un revendeur</button>" +
       "</div>" +
       (attente.length ? attente.map(htmlDemande).join("") : "") +
       (traitees.length
@@ -158,6 +179,7 @@ const VueRevendeurs = (() => {
         : "");
 
     const recharger = () => afficher(vue);
+    UI.$("#rv-nouveau", vue).onclick = () => ouvrirCreation(recharger);
 
     /* Le nom sert le message de confirmation : « Valider Awa ? » se lit,
        « Valider 3f2a-… ? » ne se lit pas. */
@@ -212,6 +234,52 @@ const VueRevendeurs = (() => {
         }
       };
     }
+  }
+
+  /* ---------- Créer un revendeur ----------
+     Son numéro et un mot de passe à lui communiquer ; son commerce et
+     son adresse. Il entre ensuite dans l'application client avec son
+     numéro, ce mot de passe et le code reçu par SMS, puis active la
+     position de son téléphone dans « Mon compte » : c'est ce qui permet
+     de le valider. */
+  function ouvrirCreation(apres) {
+    const corps = UI.ouvrirFeuille("Nouveau revendeur",
+      UI.champTexte({ id: "nr-nom", label: "Nom du revendeur", obligatoire: true,
+        placeholder: "Nom et prénom" }) +
+      UI.champTexte({ id: "nr-tel", label: "Téléphone", type: "tel", obligatoire: true,
+        placeholder: "01 97 00 00 00",
+        aide: "C'est avec lui qu'il se connectera : son numéro, son mot de passe, puis un code reçu par SMS." }) +
+      UI.champTexte({ id: "nr-mdp", label: "Mot de passe", type: "password", obligatoire: true,
+        placeholder: "6 caractères minimum", aide: "À lui communiquer ; il pourra le changer ensuite." }) +
+      UI.champTexte({ id: "nr-commerce", label: "Son commerce",
+        placeholder: "Nom de la boutique, ce qu'il revend" }) +
+      UI.champTexte({ id: "nr-adresse", label: "Adresse du commerce", obligatoire: true,
+        placeholder: "Quartier, repère… ex. Dantokpa, face à la pharmacie" }) +
+      '<p class="aide" style="margin:12px 0 0">Le compte naît <strong>en attente</strong>. Pour ' +
+        "être validé, le revendeur active la <strong>position de son téléphone</strong> dans " +
+        "« Mon compte » de l'application BIZZOO.</p>" +
+      '<div class="btn-rangee" style="margin-top:18px">' +
+        '<button type="button" class="btn" id="nr-creer">' + UI.icone("plus") + "Créer le revendeur</button>" +
+      "</div>" +
+      '<div id="nr-resultat"></div>');
+    const bouton = UI.$("#nr-creer", corps);
+    bouton.onclick = async () => {
+      bouton.disabled = true;
+      try {
+        await Store.creerRevendeur({
+          nom: UI.$("#nr-nom", corps).value, tel: UI.$("#nr-tel", corps).value,
+          motDePasse: UI.$("#nr-mdp", corps).value, commerce: UI.$("#nr-commerce", corps).value,
+          adresse: UI.$("#nr-adresse", corps).value,
+        });
+        UI.fermerFeuille();
+        UI.toast("Revendeur créé : il entre avec son numéro et ce mot de passe.", "ok");
+        apres();
+      } catch (err) {
+        UI.$("#nr-resultat", corps).innerHTML =
+          '<p class="aide" style="color:var(--rouge);margin:12px 0 0">' + Utils.echapper(err.message) + "</p>";
+        bouton.disabled = false;
+      }
+    };
   }
 
   return { afficher };

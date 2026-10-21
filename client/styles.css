@@ -1845,7 +1845,7 @@ a.pub-carte:active{transform:scale(.98)}
 .notif-corps{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .notif-titre{font-size:13.5px;font-weight:700;line-height:1.3;color:var(--encre)}
 .notif-lue .notif-titre{font-weight:600;color:var(--encre-douce)}
-.notif-texte{font-size:12.5px;line-height:1.35;color:var(--encre-douce)}
+.notif-texte{font-size:12.5px;line-height:1.35;color:var(--encre-douce);white-space:pre-line}
 .notif-quand{font-size:11px;color:var(--encre-tres-douce);margin-top:2px}
 .notif-point{
   flex:none;width:9px;height:9px;border-radius:50%;
@@ -2201,3 +2201,38 @@ a.pub-carte:active{transform:scale(.98)}
 .re-frais{margin-top:4px;font-size:13px;color:var(--encre-douce)}
 /* Une demande revendeur qui attend sa position */
 .cp-ou-requis{border:1.5px solid var(--orange, #FF8A00)}
+
+/* ---------- Boutique fermée en ce moment (3.59.0) ---------- */
+.bou-fermee { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+  font-weight: 600; color: var(--rouge, #c62828); margin-left: 8px; }
+.bou-fermee .ic { width: 14px; height: 14px; }
+.bou-fermee-bandeau { margin: 12px 0; }
+.pa-ferme { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-weight: 600; color: var(--rouge, #c62828); padding: 10px 4px; text-align: center; }
+
+/* ---------- Le détail par boutique : conditions et frais (3.59.0) ---------- */
+.pa-detail-boutiques { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--trait, #e6e8ef); }
+.pa-recap-boutique { font-size: 12.5px; color: var(--encre-douce, #556); }
+.pa-recap-boutique small { display: block; font-size: 11.5px; }
+
+/* ---------- La fiche d'une course (3.59.0) ----------
+   Ce qu'il récupère à la porte en tête, puis les deux lieux, puis « Reçu ». */
+.cp-course-recuperer{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:var(--orange-clair,#FFF1E6);font-size:14px}
+.cp-course-recuperer.cp-course-rien{background:var(--vert-clair,#E8F7EE)}
+.cp-course-lieu{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding-top:8px;border-top:1px solid var(--trait,#E5E7EB);font-size:13px}
+.cp-course-lieu small{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce)}
+.cp-course-lieu a{color:var(--bleu,#1D4ED8);font-weight:600}
+
+/* ---------- Le reste payé à la livraison (3.59.0) ---------- */
+.re-encaisse{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--vert-clair,#E4F5EC)}
+.re-encaisse-tete{display:flex;gap:8px;align-items:flex-start;color:var(--vert)}
+.re-encaisse-tete div{display:flex;flex-direction:column;gap:1px}
+.re-encaisse-tete small{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.re-encaisse-tete strong{font-size:16px;color:var(--encre)}
+.re-encaisse-tete span{font-size:12.5px;color:var(--encre-douce)}
+.re-encaisse .re-contester{margin-top:6px}
+.re-contester-zone{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.re-contester-zone textarea{width:100%;box-sizing:border-box;border:1px solid var(--trait);border-radius:8px;padding:8px;font:inherit}
+.re-encaisse-signale{margin:6px 0 0}
+.re-barre span,.re-barre strong{text-decoration:line-through;opacity:.6}
+.re-soldee{display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;color:var(--vert)}

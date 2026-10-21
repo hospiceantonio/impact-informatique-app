@@ -25,7 +25,8 @@ const VueProduits = (() => {
     if (!produits.length) {
       vue.innerHTML = UI.vide("boite", "Aucun produit pour l'instant",
         "Ajoutez votre premier produit : photo, prix, catégorie, et il sera prêt à publier.",
-        '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>");
+        Supabase.peutModifierProduits()
+          ? '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>" : "");
       return;
     }
 
@@ -315,7 +316,8 @@ const VueProduits = (() => {
     if (!produits.length) {
       vue.innerHTML = UI.vide("boite", "Aucun produit pour l'instant",
         "Ajoutez un produit : son stock se suivra ici.",
-        '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>");
+        Supabase.peutModifierProduits()
+          ? '<a class="btn" href="#/produit/nouveau">' + UI.icone("plus") + "Ajouter un produit</a>" : "");
       return;
     }
 
@@ -620,15 +622,16 @@ const VueProduits = (() => {
   }
 
 
-  async function formulaire(vue, id) {
-    /* Retoucher un produit existant demande le droit de modification ;
-       en créer un neuf reste ouvert à toute l'équipe. */
-    if (id && !Supabase.peutModifierProduits()) {
-      UI.entete({ titre: "Modifier le produit", retour: true });
-      vue.innerHTML = UI.vide("cle", "Modification non autorisée",
-        "Votre compte peut ajouter des produits, mais pas retoucher ceux du catalogue. " +
-        "Demandez ce droit à l'administrateur.",
-        '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(id) + '">Revenir à la fiche</a>');
+  async function formulaire(vue, id, ajoute) {
+    /* CRÉER COMME RETOUCHER demande l'habilitation (3.59.0) : sans elle,
+       la base refuse l'un et l'autre — autant le dire avant le formulaire. */
+    if (!Supabase.peutModifierProduits()) {
+      UI.entete({ titre: id ? "Modifier le produit" : "Nouveau produit", retour: true });
+      vue.innerHTML = UI.vide("cle", "Produits non autorisés",
+        "Votre compte n'a pas l'habilitation pour créer ou modifier des produits. " +
+        "Demandez-la au superadministrateur.",
+        id ? '<a class="btn btn-clair" href="#/produit/' + Utils.echapper(id) + '">Revenir à la fiche</a>'
+           : '<a class="btn btn-clair" href="#/produits">Revenir aux produits</a>');
       return;
     }
 
@@ -695,6 +698,15 @@ const VueProduits = (() => {
       Supabase.peutChangerDeBoutique();
 
     vue.innerHTML =
+      /* (3.59.0) LE PRODUIT D'AVANT EST ENREGISTRÉ, le formulaire est vide
+         pour le suivant : on le dit, avec de quoi voir sa fiche. */
+      (ajoute
+        ? '<div class="carte p-ajoute" id="p-ajoute">' + UI.icone("check", "ic-sm") +
+            " <span><strong>« " + Utils.echapper(ajoute.nom || "Produit") + " » est ajouté.</strong> " +
+            "Le formulaire est vide : saisissez le produit suivant. " +
+            '<a href="#/produit/' + Utils.echapper(ajoute.id) + '">Voir sa fiche</a></span>' +
+          "</div>"
+        : "") +
       (existant
         ? UI.liensPartage([{ nom: "Ce produit", lien: UI.lienPartage("produit", existant.id) }])
         : "") +
@@ -886,7 +898,7 @@ const VueProduits = (() => {
         try {
           const ouverte = Store.choisirBoutique(champBoutique.value);
           UI.toast("Produit pour « " + ouverte.nomBoutique + " »", "ok");
-          formulaire(vue, id);
+          formulaire(vue, id, ajoute);
         } catch (err) {
           UI.toast(err.message, "err");
         }
@@ -990,8 +1002,17 @@ const VueProduits = (() => {
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),
           video: videoTravail,
         }, photosTravail);
-        UI.toast(existant ? "Produit modifié" : "Produit ajouté", "ok");
-        location.hash = "#/produit/" + produit.id;
+        /* Une modification : retour à la fiche. Un ajout : le formulaire
+           se vide pour le produit suivant (3.59.0) — saisir dix articles
+           d'affilée ne passe plus par dix allers-retours. */
+        if (existant) {
+          UI.toast("Produit modifié", "ok");
+          location.hash = "#/produit/" + produit.id;
+          return;
+        }
+        UI.toast("Produit ajouté — formulaire prêt pour le suivant", "ok");
+        await formulaire(vue, null, { id: produit.id, nom: produit.nom || UI.$("#p-nom").value });
+        window.scrollTo(0, 0);
       } catch (err) {
         btnEnregistrer.disabled = false;
         /* Une vente est passée pendant la retouche : on garde ce qui a
@@ -1143,6 +1164,28 @@ const VueProduits = (() => {
         "</div></div>";
     }
 
+    /* MASQUER LE PRODUIT (3.59.0) : l'administrateur ou le modérateur de
+       la boutique, même sans le droit de modifier. Il disparaît du
+       catalogue des clients sans être supprimé, et revient d'un geste. */
+    const peutMasquer = Supabase.role() !== "livreur";
+    if (peutMasquer) {
+      html += '<div class="carte" id="p-carte-masque">' +
+        '<div class="carte-titre">' + UI.icone(p.masque ? "alerte" : "personne", "ic-sm") +
+          (p.masque ? " Masqué aux clients" : " Visible par les clients") + "</div>" +
+        '<p class="aide" style="margin:0 0 12px">' +
+          (p.masque
+            ? "Vos clients ne le voient plus et ne peuvent plus le commander" +
+              (p.masquePar ? " — masqué par " + Utils.echapper(p.masquePar) : "") +
+              (p.masqueLe ? " le " + Utils.echapper(Utils.fmtDateHeure(p.masqueLe)) : "") +
+              ". Sa fiche, ses photos et ses ventes sont gardées."
+            : "Masquez-le pour le retirer du catalogue des clients sans le supprimer : " +
+              "il reviendra d'un geste.") + "</p>" +
+        '<button type="button" class="btn' + (p.masque ? "" : " btn-clair") + '" id="p-masquer">' +
+          UI.icone(p.masque ? "check" : "fermer") +
+          (p.masque ? "Réafficher le produit" : "Masquer le produit") + "</button>" +
+      "</div>";
+    }
+
     /* Le slider de l'application client se compose côté administrateur. */
     const admin = Supabase.estAdmin();
     html += peutModifier
@@ -1176,6 +1219,29 @@ const VueProduits = (() => {
     const serie = photos.map((photo) => ({ src: photo.apercu }));
     for (const img of UI.$$("[data-photo]", vue)) {
       img.addEventListener("click", () => UI.ouvrirVisionneuse(serie, Number(img.dataset.photo)));
+    }
+
+    const btnMasquer = UI.$("#p-masquer");
+    if (btnMasquer) {
+      btnMasquer.onclick = async () => {
+        if (!p.masque) {
+          const ok = await UI.confirmer({
+            titre: "Masquer « " + p.nom + " » ?",
+            texte: "Vos clients ne le verront plus et ne pourront plus le commander. " +
+              "Rien n'est supprimé : vous pourrez le réafficher.",
+            bouton: "Masquer" });
+          if (!ok) return;
+        }
+        btnMasquer.disabled = true;
+        try {
+          await Store.masquerProduit(p.id, !p.masque);
+          UI.toast(p.masque ? "Produit réaffiché : vos clients le voient." : "Produit masqué aux clients.", "ok");
+          detail(vue, p.id);
+        } catch (err) {
+          btnMasquer.disabled = false;
+          UI.toast(err.message, "err");
+        }
+      };
     }
 
     if (!peutModifier) return;

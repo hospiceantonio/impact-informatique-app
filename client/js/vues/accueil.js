@@ -54,7 +54,8 @@ const VueAccueil = (() => {
   /** Un produit mis en avant : sa photo, son nom, son prix. */
   function slideProduit(p, index) {
     const src = Catalogue.imagePrincipale(p);
-    const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
+    const vu = Catalogue.prixVu(p);
+    const remise = Utils.remisePourcent(vu.ancienPrix, vu.prix);
     const devise = Catalogue.boutique().devise;
     return (
       '<a class="slide" href="#/produit/' + Utils.echapper(p.id) + '" aria-label="' + Utils.echapper(p.nom) + '">' +
@@ -65,8 +66,8 @@ const VueAccueil = (() => {
         (remise !== null ? '<span class="badge badge-promo slide-badge">-' + remise + " %</span>" : "") +
         '<span class="slide-infos">' +
           '<span class="slide-nom">' + Utils.echapper(p.nom) + "</span>" +
-          '<span class="slide-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
-            (remise !== null ? ' <s>' + Utils.echapper(Utils.fmtMontant(p.ancienPrix, devise)) + "</s>" : "") +
+          '<span class="slide-prix">' + Utils.echapper(Utils.fmtMontant(vu.prix, devise)) +
+            (remise !== null ? ' <s>' + Utils.echapper(Utils.fmtMontant(vu.ancienPrix, devise)) + "</s>" : "") +
           "</span>" +
           '<span class="slide-cta">Voir le produit ' + UI.icone("chevron", "ic-sm") + "</span>" +
         "</span>" +
@@ -133,7 +134,7 @@ const VueAccueil = (() => {
               (etiquette ? '<span class="pub-titre">' + Utils.echapper(etiquette) + "</span>" : "") +
               (produit
                 ? '<span class="pub-prix">' +
-                    Utils.echapper(Utils.fmtMontant(produit.prix, Catalogue.deviseDe(produit))) +
+                    Utils.echapper(Utils.fmtMontant(Catalogue.prixVu(produit).prix, Catalogue.deviseDe(produit))) +
                   "</span>" +
                   (boutique
                     ? '<span class="pub-boutique">' + UI.icone("magasin", "ic-sm") +
@@ -328,6 +329,11 @@ const VueAccueil = (() => {
             /* PAS D'AVIS, PAS DE NOTE. On le dit, plutôt que d'afficher
                un zéro qui passerait pour une mauvaise note. */
             (UI.noteCourte(b) || '<span class="bou-sans-avis">Pas encore d\'avis</span>') +
+            (!Catalogue.ouverteMaintenant(b)
+              ? '<span class="bou-fermee">' + UI.icone("horloge", "ic-sm") + "Fermée" +
+                  (Catalogue.prochaineOuverture(b) ? " · ouvre " + Utils.echapper(Catalogue.prochaineOuverture(b)) : "") +
+                "</span>"
+              : "") +
             (typeof distance === "number"
               ? '<span class="bou-distance">' + UI.icone("lieu", "ic-sm") +
                   "à " + fmtDistance(distance) + "</span>"
@@ -757,6 +763,15 @@ const VueAccueil = (() => {
           ? '<p class="bou-fiche-slogan">' + Utils.echapper(b.slogan || b.description) + "</p>"
           : "") +
         atouts() +
+        /* FERMÉE EN CE MOMENT (3.59.0) : on le dit en tête, avec l'heure
+           de réouverture. Ses produits réapparaissent à l'ouverture. */
+        (!Catalogue.ouverteMaintenant(b)
+          ? '<div class="pa-avertissement bou-fermee-bandeau" id="bou-fermee">' + UI.icone("horloge", "ic-sm") +
+              "<div><strong>Fermée en ce moment.</strong> " +
+              (Catalogue.prochaineOuverture(b)
+                ? "Elle ouvre " + Utils.echapper(Catalogue.prochaineOuverture(b)) + ". " : "") +
+              "Ses produits seront visibles à l'ouverture.</div></div>"
+          : "") +
         '<button type="button" class="btn' + (suivie ? " btn-clair" : "") + '" id="bou-suivre" ' +
           'aria-pressed="' + suivie + '">' +
           (suivie ? UI.icone("check") + "Boutique suivie" : "Suivre") + "</button>" +
@@ -850,6 +865,15 @@ const VueAccueil = (() => {
 
     const etat = htmlEtatCatalogue();
     const banniere = htmlSlider(slides, enAvant);
+
+    /* Fermée : pas de vitrine. Un client qui commanderait maintenant
+       n'aurait personne en face (3.59.0). */
+    const ici = Catalogue.boutiqueChoisie && Catalogue.boutiqueChoisie();
+    if (ici && !Catalogue.ouverteMaintenant(ici)) {
+      const quand = Catalogue.prochaineOuverture(ici);
+      return banniere + UI.vide("horloge", "Boutique fermée en ce moment",
+        (quand ? "Elle ouvre " + quand + ". " : "") + "Ses produits seront visibles à l'ouverture.");
+    }
 
     if (!tous.length) {
       return banniere + etat + UI.vide("boite", "Le catalogue arrive bientôt",

@@ -24,6 +24,62 @@
 -- livreurs.
 
 -- Les fonctions qu'appellent celles qui suivent, telles quelles.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+create or replace function public.equipe_de(cible text) returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(p.id), '{}'::uuid[])
+    from public.profils p
+   where p.actif and cible is not null and p.boutique_id = cible
+     and p.role in ('administrateur', 'moderateur');
+$$;
+
+
+create or replace function public.notifier(
+  qui uuid[], quoi text, le_titre text, le_corps text,
+  le_lien text, la_commande text, la_boutique text, qui_sonne boolean)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare combien int := 0;
+begin
+  if qui is null or array_length(qui, 1) is null then return 0; end if;
+  insert into public.notifications
+    (destinataire, type, titre, corps, lien, commande_id, boutique_id, sonne)
+  select u, quoi, coalesce(le_titre, ''), coalesce(le_corps, ''),
+         coalesce(le_lien, ''), la_commande, la_boutique, coalesce(qui_sonne, false)
+    from unnest(qui) as u
+   where u is not null
+  on conflict do nothing;
+  get diagnostics combien = row_count;
+  return combien;
+end $$;
+revoke all on function public.notifier(uuid[], text, text, text, text, text, text, boolean)
+  from public, anon, authenticated;
+
+
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
+
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+
 create or replace function public.administre(cible text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.est_super()
@@ -117,6 +173,7 @@ create policy "positions livreurs lecture" on public.positions_livreurs
   for select to authenticated
   using (profil_id = auth.uid()
          or public.est_super()
+         or public.est_admin_bizzoo()
          or exists (select 1 from public.profils p
                      where p.id = positions_livreurs.profil_id
                        and public.administre(p.boutique_id)));
@@ -167,7 +224,8 @@ declare
   qui  text;
   etat text;
 begin
-  if not public.est_super() then
+  -- Le superadministrateur, ou un administrateur de BIZZOO (3.59.0).
+  if not (public.est_super() or public.est_admin_bizzoo()) then
     raise exception 'Seul BIZZOO valide un compte revendeur';
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
@@ -182,6 +240,14 @@ begin
           and c.revendeur_latitude is not null and c.revendeur_longitude is not null
           and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
     raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Une demande déposée avant la 3.59.0 avec le numéro d'un livreur ne
+  -- se valide pas : un livreur n'est pas revendeur.
+  if accord and exists (select 1 from public.clients c
+                         where c.id = cible and public.numero_de_livreur(c.tel)) then
+    raise exception 'Ce numéro est celui d''un livreur BIZZOO : un livreur ne devient pas revendeur.'
       using errcode = 'P0001';
   end if;
 
@@ -213,8 +279,12 @@ create or replace function public.assigner_livreur(
 returns int
 language plpgsql security definer set search_path = public as $$
 declare
-  combien int;
-  rang    text;
+  combien  int;
+  autres   int := 0;
+  rang     text;
+  bizzoo   boolean := false;
+  numero   text;
+  b        record;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -223,7 +293,7 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role into rang from public.profils p
+    select p.role, (p.boutique_id is null) into rang, bizzoo from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -243,17 +313,47 @@ begin
 
   perform set_config('bizzoo.livraison', 'oui', true);
   update public.commande_lignes l
-     set livreur_id = livreur
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
      and l.boutique_id = boutique
-     and l.etat in ('preparee', 'en_livraison');
+     -- (3.59.0) En secours de la demande envoyée à tous les livreurs : la
+     -- boutique peut confier dès le paiement, sans attendre le colis.
+     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+     and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
   get diagnostics combien = row_count;
+
+  -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
+  -- prendre une part déjà confiée au livreur d'une autre boutique.
+  if bizzoo and combien > 0 then
+    update public.commande_lignes l
+       set livreur_id = livreur, recu_le = null
+     where l.commande_id = commande
+       and l.boutique_id <> boutique
+       and l.livreur_id is null
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+    get diagnostics autres = row_count;
+  end if;
   perform set_config('bizzoo.livraison', '', true);
 
   if combien = 0 then
-    raise exception 'Rien à confier ici : préparez d''abord la commande.';
+    raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
   end if;
-  return combien;
+
+  -- Les autres boutiques le savent : un livreur BIZZOO passera chez elles.
+  if autres > 0 then
+    select c.numero into numero from public.commandes c where c.id = commande;
+    for b in select distinct l.boutique_id as id from public.commande_lignes l
+              where l.commande_id = commande and l.boutique_id <> boutique and l.livreur_id = livreur
+    loop
+      perform public.notifier(public.equipe_de(b.id), 'course_confiee',
+        'Un livreur BIZZOO passe récupérer vos produits',
+        'Commande ' || coalesce(numero, '') || ' — il livre toute la commande. Préparez le colis.',
+        '#/commandes/' || commande, commande, b.id, true);
+    end loop;
+  end if;
+  return combien + autres;
 end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
 grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;

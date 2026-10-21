@@ -61,6 +61,33 @@ alter table public.profils
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Les colonnes que les fonctions plus bas lisent (3.59.0).
+alter table public.commandes add column if not exists parts jsonb;
+
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
+
+create or replace function public.numero_de_livreur(numero text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select length(regexp_replace(coalesce(numero, ''), '\D', '', 'g')) >= 8
+     and exists (
+       select 1 from public.profils p
+        where p.actif and p.role = 'livreur'
+          and length(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g')) >= 8
+          and right(regexp_replace(p.tel, '\D', '', 'g'), 8)
+            = right(regexp_replace(numero, '\D', '', 'g'), 8));
+$$;
+revoke all on function public.numero_de_livreur(text) from public, anon, authenticated;
+
+
 create or replace function public.est_compte_enseigne() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((
@@ -230,8 +257,11 @@ language sql stable security definer set search_path = public as $$
   select case
     when public.est_super() then true
     when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    -- L'HABILITATION VAUT POUR TOUS (3.59.0), administrateur de boutique
+    -- compris : retirée, on ne crée, ne modifie ni ne supprime plus de
+    -- produit. Seul le superadministrateur passe outre.
     else public.est_equipe()
-     and coalesce((select role = 'administrateur' or peut_modifier_produits
+     and coalesce((select peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false)
   end;
 $$;
@@ -363,6 +393,11 @@ begin
     end if;
     if new.type_compte is distinct from old.type_compte then
       if new.type_compte = 'revendeur' then
+        -- UN LIVREUR NE DEVIENT PAS REVENDEUR (3.59.0), même par un compte
+        -- client ouvert avec son numéro.
+        if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+          raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+        end if;
         -- Déjà validé : on ne redemande pas ce qu'on a.
         if old.revendeur_etat <> 'validee' then
           new.revendeur_etat       := 'en_attente';
@@ -431,6 +466,9 @@ begin
     new.revendeur_etat       := 'aucune';
     new.revendeur_demande_le := null;
   else
+    if public.numero_de_livreur(coalesce(nullif(new.tel, ''), auth.jwt() ->> 'phone', '')) then
+      raise exception 'Un livreur BIZZOO ne devient pas revendeur.' using errcode = 'P0001';
+    end if;
     new.revendeur_etat       := 'en_attente';
     new.revendeur_demande_le := now();
   end if;
@@ -512,6 +550,7 @@ begin
   -- de dehors, pas plus que l'argent versé.
   new.taux_acompte := null;
   new.acompte := null;
+  new.parts := null;
   new.verse := null;
   -- Les frais de livraison aussi : « creer_commande » les pose, d'après
   -- les réglages de l'enseigne. Le téléphone n'en décide pas.
@@ -628,6 +667,7 @@ begin
   -- le livreur va réclamer à la porte du client.
   or new.taux_acompte is distinct from old.taux_acompte
   or new.acompte is distinct from old.acompte
+  or new.parts is distinct from old.parts
   or new.verse is distinct from old.verse
   or new.frais_livraison is distinct from old.frais_livraison
   or new.paye_le is distinct from old.paye_le then
@@ -673,7 +713,7 @@ language sql stable security definer set search_path = public as $$
          c.revendeur_adresse, c.revendeur_latitude, c.revendeur_longitude
     from public.clients c
     left join auth.users u on u.id = c.id
-   where public.est_super()
+   where (public.est_super() or public.est_admin_bizzoo())
      and c.revendeur_etat <> 'aucune'
      and (coalesce(filtre, '') = '' or c.revendeur_etat = filtre)
    order by c.revendeur_demande_le desc nulls last;
@@ -693,7 +733,8 @@ declare
   qui  text;
   etat text;
 begin
-  if not public.est_super() then
+  -- Le superadministrateur, ou un administrateur de BIZZOO (3.59.0).
+  if not (public.est_super() or public.est_admin_bizzoo()) then
     raise exception 'Seul BIZZOO valide un compte revendeur';
   end if;
   select coalesce(p.email, '') into qui from public.profils p where p.id = auth.uid();
@@ -708,6 +749,14 @@ begin
           and c.revendeur_latitude is not null and c.revendeur_longitude is not null
           and length(trim(coalesce(c.revendeur_adresse, ''))) >= 3) then
     raise exception 'Ce revendeur n''a pas encore enregistré sa position : il doit activer la localisation de son téléphone dans son compte, et indiquer son adresse.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Une demande déposée avant la 3.59.0 avec le numéro d'un livreur ne
+  -- se valide pas : un livreur n'est pas revendeur.
+  if accord and exists (select 1 from public.clients c
+                         where c.id = cible and public.numero_de_livreur(c.tel)) then
+    raise exception 'Ce numéro est celui d''un livreur BIZZOO : un livreur ne devient pas revendeur.'
       using errcode = 'P0001';
   end if;
 

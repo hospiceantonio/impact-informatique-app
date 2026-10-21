@@ -273,8 +273,33 @@ titre("Un double appui sur « Ajouter le produit » ne crée qu'un produit");
   ok(photos.length === 1, "une seule photo au stockage (" + photos.length + ")");
   ok(creations[0] && photos[0] && creations[0].corps.images[0] === photos[0].chemin,
     "le produit désigne la photo envoyée");
-  ok(await page.evaluate(() => /^#\/produit\/prod_/.test(location.hash)),
-    "après l'envoi, on est sur la fiche du produit créé");
+  /* (3.59.0) Après un ajout, le formulaire se vide pour le suivant. */
+  const apres = await page.evaluate(() => ({
+    hash: location.hash,
+    nom: (document.querySelector("#p-nom") || {}).value,
+    prix: (document.querySelector("#p-grossiste") || {}).value,
+    rayon: (document.querySelector("#p-souscategorie") || {}).value,
+    photos: document.querySelectorAll("#photos-zone .photo-boite img").length,
+    bouton: !!document.querySelector("#p-enregistrer") && !document.querySelector("#p-enregistrer").disabled,
+    bandeau: (document.querySelector("#p-ajoute") || {}).textContent || "",
+    lien: (document.querySelector("#p-ajoute a") || {}).getAttribute
+      ? document.querySelector("#p-ajoute a").getAttribute("href") : "",
+  }));
+  ok(apres.hash === "#/produit/nouveau" && apres.nom === "" && apres.prix === "" && apres.rayon === "" &&
+     apres.photos === 0 && apres.bouton,
+    "après l'ajout, le formulaire est vide et prêt pour le produit suivant");
+  ok(/Early éducation device.*est ajouté/.test(apres.bandeau) && /^#\/produit\/prod_/.test(apres.lien),
+    "un bandeau dit que le produit est ajouté, avec le lien vers sa fiche");
+  /* Le suivant s'enregistre à son tour. */
+  await page.fill("#p-nom", "Cubes en bois");
+  await page.fill("#p-grossiste", "2500");
+  await page.selectOption("#p-souscategorie", "sc_eveil");
+  await page.click("#p-enregistrer");
+  await page.waitForTimeout(2000);
+  ok(ecritures.filter((e) => e.methode === "POST" && e.table === "produits").length === 2 &&
+     await page.evaluate(() => /Cubes en bois/.test((document.querySelector("#p-ajoute") || {}).textContent || "") &&
+       document.querySelector("#p-nom").value === ""),
+    "le produit suivant s'ajoute, et le formulaire se vide encore");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

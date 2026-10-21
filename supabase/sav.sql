@@ -134,8 +134,11 @@ language sql stable security definer set search_path = public as $$
   select case
     when public.est_super() then true
     when public.est_compte_enseigne() then public.droit_enseigne('produits')
+    -- L'HABILITATION VAUT POUR TOUS (3.59.0), administrateur de boutique
+    -- compris : retirée, on ne crée, ne modifie ni ne supprime plus de
+    -- produit. Seul le superadministrateur passe outre.
     else public.est_equipe()
-     and coalesce((select role = 'administrateur' or peut_modifier_produits
+     and coalesce((select peut_modifier_produits
                      from public.profils where id = auth.uid() and actif), false)
   end;
 $$;

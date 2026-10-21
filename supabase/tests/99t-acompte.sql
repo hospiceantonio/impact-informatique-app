@@ -217,7 +217,8 @@ select essai.egal((:'promo'::jsonb ->> 'reste')::int, 12150, 'reste 12 150');
 -- ---------------------------------------------------------
 select essai.titre('3. L''acompte est figé, et personne ne le réécrit');
 
-update public.paiement set taux_acompte = 30 where id = 1;
+-- (3.59.0) Le taux est celui de la BOUTIQUE.
+update public.boutiques set taux_acompte = 30 where id = 'bou_informatique';
 set role anon;
 select public.creer_commande('{"nom":"Awa","tel":"97000321"}'::jsonb,
   '[{"produit_id":"prod_ac_a","quantite":1}]'::jsonb, '', true) as trente \gset
@@ -227,7 +228,7 @@ select essai.egal((select acompte from public.commandes where id = :'awa'), 1500
   'celle d''avant garde ses 1 500');
 select essai.egal((select taux_acompte from public.commandes where id = :'awa'), 10,
   'et son taux de 10 %');
-update public.paiement set taux_acompte = 10 where id = 1;
+update public.boutiques set taux_acompte = 10 where id = 'bou_informatique';
 
 select essai.devenir(:ENSEIGNE::uuid);
 set role authenticated;

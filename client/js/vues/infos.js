@@ -190,6 +190,19 @@ const VueInfos = (() => {
           UI.icone("chevron", "ic-sm") +
         "</a>");
     }
+    /* LES JOURS ET HEURES D'OUVERTURE (3.59.0), jour par jour — ceux que
+       l'application suit pour montrer, ou cacher, les produits. */
+    const jours = Catalogue.horairesLisibles(b);
+    if (jours.length) {
+      contacts.push(
+        '<div class="ligne-info" id="bou-horaires">' +
+          '<span class="rond-bleu">' + UI.icone("horloge") + "</span>" +
+          "<span><strong>Ouverture</strong>" +
+            (Catalogue.ouverteMaintenant(b) ? " · <em>ouverte en ce moment</em>" : " · <em>fermée en ce moment</em>") +
+            "<br><small>" + jours.map((j) => Utils.echapper(j.jour.charAt(0).toUpperCase() + j.jour.slice(1)) +
+              " : " + Utils.echapper(j.texte)).join("<br>") + "</small></span>" +
+        "</div>");
+    }
     if (b.horaires) {
       contacts.push(
         '<div class="ligne-info">' +

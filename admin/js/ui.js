@@ -564,6 +564,9 @@ const UI = (() => {
   function badgesProduit(p) {
     const remise = Utils.remisePourcent(p.ancienPrix, p.prix);
     let html = "";
+    /* MASQUÉ (3.59.0) : en tête, c'est ce qui compte le plus — le client
+       ne le voit pas. */
+    if (p.masque) html += '<span class="badge badge-masque">' + icone("fermer", "ic-sm") + "Masqué</span>";
     if (p.enAvant) html += '<span class="badge badge-avant">' + icone("etoile", "ic-sm") + "En avant</span>";
     if (Store.enVenteFlash(p)) html += '<span class="badge badge-flash">' + icone("energie", "ic-sm") + "Vente flash</span>";
     if (remise !== null) html += '<span class="badge badge-promo">-' + remise + " %</span>";
@@ -653,6 +656,120 @@ const UI = (() => {
     );
   }
 
+  /* ---------- Les jours et heures d'ouverture (3.59.0) ----------
+     Sept lignes : le jour (ouvert ou non), l'heure d'ouverture, l'heure
+     de fermeture. Fermée, une boutique ne montre pas ses produits aux
+     clients, et la base refuse leurs commandes. */
+  const JOURS_HORAIRES = [["lun", "Lundi"], ["mar", "Mardi"], ["mer", "Mercredi"],
+    ["jeu", "Jeudi"], ["ven", "Vendredi"], ["sam", "Samedi"], ["dim", "Dimanche"]];
+  const HORAIRES_DEFAUT = { lun: { de: "08:00", a: "19:00" }, mar: { de: "08:00", a: "19:00" },
+    mer: { de: "08:00", a: "19:00" }, jeu: { de: "08:00", a: "19:00" },
+    ven: { de: "08:00", a: "19:00" }, sam: { de: "08:00", a: "19:00" }, dim: null };
+
+  function champsHoraires(prefixe, ouvertures, aide) {
+    const o = ouvertures || HORAIRES_DEFAUT;
+    return (
+      '<div class="champ champ-horaires" id="' + prefixe + '-ouvertures">' +
+        '<label>Jours et heures d\'ouverture <span class="obligatoire">*</span></label>' +
+        (aide ? '<div class="aide" style="margin:0 0 8px">' + aide + "</div>" : "") +
+        JOURS_HORAIRES.map(([cle, nom]) => {
+          const p = o[cle];
+          return (
+            '<div class="horaire-ligne" data-jour="' + cle + '">' +
+              '<label class="horaire-jour"><input type="checkbox" data-ouvert' + (p ? " checked" : "") + "> " +
+                nom + "</label>" +
+              '<input type="time" data-de value="' + escapeAttr((p && p.de) || "08:00") + '" aria-label="' + nom + ', ouverture">' +
+              '<span class="horaire-tiret">–</span>' +
+              '<input type="time" data-a value="' + escapeAttr((p && p.a) || "19:00") + '" aria-label="' + nom + ', fermeture">' +
+            "</div>"
+          );
+        }).join("") +
+      "</div>"
+    );
+  }
+  function escapeAttr(t) { return String(t).replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+  /** Lit l'éditeur ; refuse en le disant ce que la base refuserait. */
+  function lireHoraires(racine, prefixe) {
+    const zone = $("#" + prefixe + "-ouvertures", racine);
+    if (!zone) return undefined;
+    const sortie = {};
+    let ouverts = 0;
+    for (const [cle, nom] of JOURS_HORAIRES) {
+      const ligne = zone.querySelector('[data-jour="' + cle + '"]');
+      if (!ligne.querySelector("[data-ouvert]").checked) { sortie[cle] = null; continue; }
+      const de = ligne.querySelector("[data-de]").value;
+      const a = ligne.querySelector("[data-a]").value;
+      if (!/^\d\d:\d\d/.test(de) || !/^\d\d:\d\d/.test(a)) {
+        throw new Error(nom + " : indiquez l'heure d'ouverture et de fermeture.");
+      }
+      if (de.slice(0, 5) >= a.slice(0, 5)) {
+        throw new Error(nom + " : la fermeture doit venir après l'ouverture.");
+      }
+      sortie[cle] = { de: de.slice(0, 5), a: a.slice(0, 5) };
+      ouverts++;
+    }
+    if (!ouverts) throw new Error("Indiquez au moins un jour d'ouverture.");
+    return sortie;
+  }
+
+  /* ---------- Conditions de paiement et frais d'une boutique (3.59.0) ----------
+     Tout à la commande, ou un acompte (1 à 99 %) à la commande et le
+     reste à la livraison ; et ses frais de livraison. */
+  function champsConditions(prefixe, b, defauts) {
+    const d = defauts || {};
+    const mode = (b && b.modePaiement) || d.modePaiement || "acompte";
+    const taux = (b && b.tauxAcompte != null ? b.tauxAcompte : d.tauxAcompte) || 10;
+    const frais = b && b.fraisLivraison != null ? b.fraisLivraison : (d.fraisLivraison != null ? d.fraisLivraison : 1000);
+    return (
+      '<div class="champ champ-conditions" id="' + prefixe + '-conditions">' +
+        '<label for="' + prefixe + '-mode">Paiement à la commande <span class="obligatoire">*</span></label>' +
+        '<select id="' + prefixe + '-mode">' +
+          '<option value="total"' + (mode === "total" ? " selected" : "") + ">Tout à la commande</option>" +
+          '<option value="acompte"' + (mode === "acompte" ? " selected" : "") +
+            ">Un acompte à la commande, le reste à la livraison</option>" +
+        "</select>" +
+        '<div class="champ-montant" id="' + prefixe + '-bloc-taux" style="margin-top:8px"' +
+          (mode === "acompte" ? "" : " hidden") + ">" +
+          '<input id="' + prefixe + '-taux" inputmode="numeric" autocomplete="off" value="' + escapeAttr(taux) + '">' +
+          '<span class="devise">%</span>' +
+        "</div>" +
+        '<div class="aide">Le client paie ce pourcentage de la part de la boutique (articles et ' +
+          "livraison) en commandant ; son livreur encaisse le reste à la livraison.</div>" +
+      "</div>" +
+      '<div class="champ">' +
+        '<label for="' + prefixe + '-frais">Frais de livraison <span class="obligatoire">*</span></label>' +
+        '<div class="champ-montant">' +
+          '<input id="' + prefixe + '-frais" inputmode="numeric" autocomplete="off" value="' + escapeAttr(frais) + '">' +
+          '<span class="devise">FCFA</span>' +
+        "</div>" +
+        '<div class="aide">Ajoutés à chaque commande qui contient ses produits. Les codes promo ne ' +
+          "les touchent pas. 0 : livraison offerte.</div>" +
+      "</div>"
+    );
+  }
+  /** Branche le menu : le taux ne paraît que pour l'acompte. */
+  function brancherConditions(racine, prefixe) {
+    const menu = $("#" + prefixe + "-mode", racine);
+    const bloc = $("#" + prefixe + "-bloc-taux", racine);
+    if (menu && bloc) menu.onchange = () => { bloc.hidden = menu.value !== "acompte"; };
+  }
+  function lireConditions(racine, prefixe) {
+    const menu = $("#" + prefixe + "-mode", racine);
+    if (!menu) return {};
+    const modePaiement = menu.value === "total" ? "total" : "acompte";
+    const taux = Math.round(Number(String($("#" + prefixe + "-taux", racine).value).replace(/\s|%/g, "")));
+    if (modePaiement === "acompte" && !(taux >= 1 && taux <= 99)) {
+      throw new Error("L'acompte se donne en pour cent, de 1 à 99 %.");
+    }
+    const brut = String($("#" + prefixe + "-frais", racine).value).replace(/\s|fcfa/gi, "");
+    const frais = Math.round(Number(brut));
+    if (brut === "" || !(frais >= 0 && frais <= 100000)) {
+      throw new Error("Les frais de livraison : un montant de 0 à 100 000 FCFA.");
+    }
+    return { modePaiement, tauxAcompte: modePaiement === "acompte" ? taux : undefined, fraisLivraison: frais };
+  }
+
   function interrupteur({ id, label, actif, aide }) {
     return (
       '<label class="inter" for="' + id + '">' +
@@ -715,6 +832,7 @@ const UI = (() => {
     lienPartage, liensPartage,
     $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,
+    champsHoraires, lireHoraires, champsConditions, brancherConditions, lireConditions,
     ouvrirVisionneuse, fermerVisionneuse,
     vignetteProduit, badgesProduit, ligneProduit, vide,
     champTexte, champMontant, champZone, interrupteur,

@@ -46,6 +46,52 @@ alter table public.commande_lignes
 alter table public.commandes add column if not exists frais_livraison bigint not null default 0;
 alter table public.paiement add column if not exists frais_livraison int not null default 1000;
 
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- Emprunté par les fonctions plus bas (3.59.0), recopié tel quel.
+-- La colonne que « creer_commande » lit plus bas (3.59.0).
+alter table public.boutiques add column if not exists ouvertures jsonb;
+
+-- Les conditions de chaque boutique, que « creer_commande » lit plus bas (3.59.0).
+alter table public.boutiques add column if not exists mode_paiement text not null default 'acompte';
+alter table public.boutiques add column if not exists taux_acompte int not null default 10;
+alter table public.boutiques add column if not exists frais_livraison int not null default 1000;
+
+create or replace function public.ouvertures_valides(o jsonb) returns boolean
+language sql immutable set search_path = public as $$
+  select jsonb_typeof(o) = 'object'
+     and not exists (select 1 from jsonb_object_keys(o) k
+                      where k not in ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'))
+     and not exists (
+       select 1 from jsonb_each(o) j
+        where jsonb_typeof(j.value) not in ('null', 'object')
+           or (jsonb_typeof(j.value) = 'object' and not (
+                length(coalesce(j.value ->> 'de', '')) = 5
+            and (j.value ->> 'de') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]'
+            and length(coalesce(j.value ->> 'a', '')) = 5
+            and ((j.value ->> 'a') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]' or (j.value ->> 'a') = '24:00')
+            and (j.value ->> 'de') < (j.value ->> 'a'))))
+     and exists (select 1 from jsonb_each(o) j where jsonb_typeof(j.value) = 'object');
+$$;
+
+
+create or replace function public.boutique_ouverte(o jsonb, moment timestamptz default now())
+returns boolean
+language sql stable set search_path = public as $$
+  with ici as (select (moment at time zone 'Africa/Porto-Novo') as t)
+  select case
+    when o is null then true
+    else coalesce((
+      select jsonb_typeof(o -> j.jour) = 'object'
+         and to_char(ici.t, 'HH24:MI') >= (o -> j.jour ->> 'de')
+         and to_char(ici.t, 'HH24:MI') <  (o -> j.jour ->> 'a')
+        from ici, lateral (select (array['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'])
+                                    [extract(isodow from ici.t)::int] as jour) j), false)
+  end;
+$$;
+grant execute on function public.ouvertures_valides(jsonb) to anon, authenticated;
+grant execute on function public.boutique_ouverte(jsonb, timestamptz) to anon, authenticated;
+
+
 create or replace function public.compte_exige() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select r.compte_obligatoire from public.reglages r where r.id = 1), false);
@@ -196,7 +242,14 @@ alter table public.commandes add column if not exists acompte int;
 alter table public.commandes add column if not exists verse int;
 create or replace function public.restes_par_boutique(cible text)
 returns table (boutique_id text, a_encaisser bigint)
-language sql stable security definer set search_path = public as $$
+language plpgsql stable security definer set search_path = public as $$
+declare lp jsonb;
+begin
+  select c.parts into lp from public.commandes c where c.id = cible;
+  -- UNE COMMANDE D'AVANT LES CONDITIONS PAR BOUTIQUE (« parts » vide) :
+  -- l'ancienne règle, celle d'un acompte unique réparti au prorata.
+  if lp is null then
+    return query
   with commande as (
     select c.total::numeric as total,
            greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
@@ -232,7 +285,58 @@ language sql stable security definer set search_path = public as $$
   select x.boutique,
          (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
     from repartie x;
-$$;
+    return;
+  end if;
+  -- (3.59.0) CHAQUE BOUTIQUE ENCAISSE SA PART, moins SON acompte : ce
+  -- que valent ses articles servis, remise déduite au prorata, plus ses
+  -- frais tant qu'il y a quelque chose à livrer.
+  --
+  -- CE QUE LE CLIENT A VERSÉ N'EST JAMAIS PERDU POUR LUI. Chaque boutique
+  -- déduit d'abord son propre acompte ; ce qui a été versé en plus — un
+  -- surplus, ou l'acompte d'une part annulée — diminue les autres parts
+  -- au prorata, l'arrondi à la plus grosse.
+  return query
+    with commande as (
+      select greatest(0, coalesce(c.remise, 0))::numeric as remise,
+             greatest(0, coalesce(c.verse, c.acompte, c.total))::numeric as paye
+        from public.commandes c where c.id = cible
+    ), lignes as (
+      select l.boutique_id as bou,
+             sum(l.prix * l.quantite)::numeric as brut,
+             coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+        from public.commande_lignes l
+       where l.commande_id = cible
+       group by l.boutique_id
+    ), tout as (
+      select sum(x.brut) as s from lignes x
+    ), brutes as (
+      select x.bou,
+             greatest(0, round(x.servi - k.remise * x.servi / nullif(t.s, 0))
+                         + case when x.servi > 0 then coalesce((lp -> x.bou ->> 'frais')::numeric, 0) else 0 end) as du
+        from lignes x, tout t, commande k
+    ), propres as (
+      select b.bou, b.du,
+             least(b.du, coalesce((lp -> b.bou ->> 'acompte')::numeric, 0)) as sien
+        from brutes b
+    ), credit as (
+      select greatest(0, k.paye - coalesce(sum(p.sien), 0)) as reste_credit,
+             coalesce(sum(p.du - p.sien), 0) as a_couvrir
+        from propres p, commande k
+       group by k.paye
+    ), allege as (
+      select p.bou, p.du - p.sien as du,
+             case when c.a_couvrir > 0
+                  then floor(least(c.reste_credit, c.a_couvrir) * (p.du - p.sien) / c.a_couvrir)
+                  else 0 end as moins,
+             least(c.reste_credit, c.a_couvrir) as credit,
+             row_number() over (order by p.du - p.sien desc, p.bou) as rang
+        from propres p, credit c
+    )
+    select a.bou,
+           greatest(0, a.du - a.moins
+                       - case when a.rang = 1 then a.credit - sum(a.moins) over () else 0 end)::bigint
+      from allege a;
+end $$;
 revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
 
 drop function if exists public.creer_commande(jsonb, jsonb);
@@ -257,6 +361,8 @@ declare
   verdict  jsonb;
   manque   record;
   taux     int;
+  les_parts jsonb;
+  manquant  bigint;
 begin
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
@@ -316,12 +422,8 @@ begin
   -- elle ne saurait pas les montrer, et le client paierait un montant
   -- qu'on ne lui a jamais annoncé.
   -- (Le drapeau « interne » est déjà posé pour l'insertion, plus haut.)
-  if coalesce(avec_frais, false) then
-    update public.commandes
-       set frais_livraison = greatest(0, coalesce(
-             (select pa.frais_livraison from public.paiement pa where pa.id = 1), 0))
-     where id = nouvelle;
-  end if;
+  -- (3.59.0) Ils se posent désormais APRÈS les lignes, boutique par
+  -- boutique : voir « Les conditions de chaque boutique », plus bas.
 
   for article in select * from jsonb_array_elements(articles) loop
     qte := greatest(1, least(99, coalesce((article ->> 'quantite')::int, 1)));
@@ -329,9 +431,22 @@ begin
     if not found then
       raise exception 'Un des produits de votre panier n''existe plus.';
     end if;
+    -- (3.59.0) Un produit masqué ne se commande plus.
+    if coalesce(p.masque, false) then
+      raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
+    end if;
+    -- UNE BOUTIQUE FERMÉE NE REÇOIT PAS DE COMMANDE (3.59.0) : fermée par
+    -- son interrupteur, ou en dehors de ses heures d'ouverture.
+    if exists (select 1 from public.boutiques b
+                where b.id = p.boutique_id
+                  and (not b.actif or not public.boutique_ouverte(b.ouvertures))) then
+      raise exception 'La boutique « % » est fermée en ce moment : « % » se commandera à sa réouverture.',
+        (select b.nom from public.boutiques b where b.id = p.boutique_id), p.nom
+        using errcode = 'P0001';
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
@@ -418,16 +533,85 @@ begin
   --
   -- 100 francs au moins, l'encaissement minimum chez FeexPay, et jamais
   -- plus que le total.
-  taux := case when coalesce(avec_acompte, false)
-               then coalesce((select pa.taux_acompte from public.paiement pa where pa.id = 1), 100)
-               else 100 end;
-  perform set_config('bizzoo.interne', 'oui', true);
-  update public.commandes c
-     set taux_acompte = taux,
-         acompte = case when c.total <= 0 then 0
-                        else least(c.total, greatest(ceil(c.total * taux / 100.0)::int, 100)) end
-   where c.id = nouvelle;
-  perform set_config('bizzoo.interne', '', true);
+  -- ---------- Les conditions de chaque boutique (3.59.0) ----------
+  -- CHAQUE BOUTIQUE A SES FRAIS ET SON ACOMPTE. Sa part, c'est ce que
+  -- valent ses articles, remise déduite au prorata, plus ses frais ;
+  -- elle se paie en entier à la commande (« total ») ou par son taux
+  -- d'acompte — le reste à la livraison, à son livreur.
+  --
+  -- UNE APPLICATION D'AVANT ne demande ni frais ni acompte : elle fait
+  -- tout payer, et n'a pas de frais à annoncer. On ne change rien pour
+  -- elle.
+  if coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+    perform set_config('bizzoo.interne', 'oui', true);
+    if coalesce(avec_frais, false) then
+      update public.commandes
+         set frais_livraison = coalesce((
+               select sum(greatest(0, b.frais_livraison))
+                 from public.boutiques b
+                where b.id in (select l.boutique_id from public.commande_lignes l
+                                where l.commande_id = nouvelle)), 0)
+       where id = nouvelle;
+      perform public.commande_total(nouvelle);
+      perform set_config('bizzoo.interne', 'oui', true);
+    end if;
+    with brut as (
+      select l.boutique_id as bou, sum(l.prix * l.quantite)::numeric as montant
+        from public.commande_lignes l
+       where l.commande_id = nouvelle
+       group by l.boutique_id
+    ), tout as (
+      select sum(montant) as s from brut
+    ), chacune as (
+      select br.bou,
+             case when coalesce(avec_frais, false) then greatest(0, b.frais_livraison) else 0 end as frais,
+             case when coalesce(avec_acompte, false) and b.mode_paiement = 'acompte'
+                  then b.taux_acompte else 100 end as taux,
+             greatest(0, round(br.montant - coalesce(c.remise, 0) * br.montant / nullif(t.s, 0))) as net
+        from brut br
+        join public.boutiques b on b.id = br.bou
+        cross join tout t
+        cross join (select remise from public.commandes where id = nouvelle) c
+    )
+    select jsonb_object_agg(x.bou, jsonb_build_object(
+             'frais', x.frais, 'taux', x.taux, 'du', x.net + x.frais,
+             'acompte', least(x.net + x.frais, ceil((x.net + x.frais) * x.taux / 100.0)::bigint)))
+      into les_parts
+      from chacune x;
+
+    -- 100 francs au moins en ligne, l'encaissement minimum chez FeexPay :
+    -- le manque va à la plus grosse part.
+    select greatest(0, least(c.total, 100) - coalesce((
+             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0))
+      into manquant
+      from public.commandes c where c.id = nouvelle;
+    if manquant > 0 and les_parts is not null then
+      select jsonb_set(les_parts, array[k, 'acompte'],
+               to_jsonb(least((v ->> 'du')::bigint, (v ->> 'acompte')::bigint + manquant)))
+        into les_parts
+        from jsonb_each(les_parts) e(k, v)
+       order by (v ->> 'du')::bigint desc limit 1;
+    end if;
+
+    update public.commandes c
+       set parts = les_parts,
+           acompte = least(c.total, coalesce((
+                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)),
+           -- Le taux affiché : ce que représente l'acompte du total.
+           taux_acompte = case when c.total <= 0 then 100
+                               else least(100, greatest(1, round(100.0 * coalesce((
+                                 select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)),
+                                 c.total) / c.total)))::int end
+     where c.id = nouvelle;
+    perform set_config('bizzoo.interne', '', true);
+  else
+    perform set_config('bizzoo.interne', 'oui', true);
+    update public.commandes c
+       set taux_acompte = 100,
+           acompte = c.total
+     where c.id = nouvelle;
+    perform set_config('bizzoo.interne', '', true);
+  end if;
 
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
@@ -442,6 +626,7 @@ begin
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
+    'parts', c.parts,
     'boutiques', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', g.boutique_id,

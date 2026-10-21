@@ -69,6 +69,9 @@ alter table public.commande_lignes add column if not exists confirme_le timestam
 -- s'arrête à la première ligne avancée.
 alter table public.commande_lignes add column if not exists livreur_id uuid;
 
+-- Les colonnes que les fonctions plus bas lisent (3.59.0).
+alter table public.commande_lignes add column if not exists recu_le timestamptz;
+
 create or replace function public.ligne_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -88,6 +91,11 @@ begin
   if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
      and new.livreur_id is distinct from old.livreur_id then
     raise exception 'Une livraison se confie depuis le compte de la boutique';
+  end if;
+  -- « Reçu » se pose par « accepter_course », par le livreur lui-même.
+  if coalesce(current_setting('bizzoo.livraison', true), '') <> 'oui'
+     and new.recu_le is distinct from old.recu_le then
+    raise exception 'Une course s''accepte depuis le compte du livreur';
   end if;
 
   if new.commande_id is distinct from old.commande_id

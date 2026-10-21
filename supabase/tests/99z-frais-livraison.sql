@@ -93,25 +93,26 @@ select public.creer_commande('{"nom":"Afi","tel":"97666002","adresse":"Fidjross�
   '[{"produit_id":"prod_frais_a","quantite":1},{"produit_id":"prod_frais_b","quantite":1}]'::jsonb,
   '', true, true) as c3 \gset
 reset role; select essai.personne();
-select essai.egal((:'c3'::jsonb ->> 'total')::bigint, 16000::bigint,
-  'deux boutiques, une seule course : 15 000 + 1 000');
-select essai.egal((:'c3'::jsonb ->> 'acompte')::bigint, 1600::bigint,
-  'l''acompte de 10 % se prend sur 16 000');
-select essai.egal((:'c3'::jsonb ->> 'reste')::bigint, 14400::bigint,
-  'il reste 14 400 à payer à la livraison');
+-- (3.59.0) CHAQUE BOUTIQUE A SES FRAIS : deux boutiques, deux courses.
+select essai.egal((:'c3'::jsonb ->> 'total')::bigint, 17000::bigint,
+  'deux boutiques, deux courses : 15 000 + 1 000 + 1 000');
+select essai.egal((:'c3'::jsonb ->> 'acompte')::bigint, 1700::bigint,
+  'l''acompte de 10 % se prend sur la part de chacune, frais compris : 1 100 + 600');
+select essai.egal((:'c3'::jsonb ->> 'reste')::bigint, 15300::bigint,
+  'il reste 15 300 à payer à la livraison');
 select essai.egal((select sum((x ->> 'a_encaisser')::bigint)
-                     from jsonb_array_elements(:'c3'::jsonb -> 'boutiques') x), 14400::numeric,
-  'les deux boutiques encaissent 14 400 à elles deux, au franc près');
+                     from jsonb_array_elements(:'c3'::jsonb -> 'boutiques') x), 15300::numeric,
+  'les deux boutiques encaissent 15 300 à elles deux, au franc près');
 
 -- ---------------------------------------------------------
 select essai.titre('5. Annulations : la course garde son prix, sauf s''il n''y a plus de course');
 
-select public.marquer_payee(:'c3'::jsonb ->> 'id', 'TRX-FRAIS', 1600, 'feexpay') as p3 \gset
+select public.marquer_payee(:'c3'::jsonb ->> 'id', 'TRX-FRAIS', 1700, 'feexpay') as p3 \gset
 -- La souris (5 000) est annulée : il reste le clavier (10 000) + la course.
 update public.commande_lignes set etat = 'annulee'
  where commande_id = :'c3'::jsonb ->> 'id' and produit_id = 'prod_frais_b';
 select essai.egal((select coalesce(sum(a_encaisser), 0) from public.restes_par_boutique(:'c3'::jsonb ->> 'id')),
-  9400::numeric, 'une ligne annulée : 10 000 + 1 000 − 1 600 versés = 9 400');
+  9300::numeric, 'une ligne annulée : le clavier, 10 000 + 1 000 de sa course − les 1 700 versés (son acompte, et celui de la souris annulée) = 9 300');
 update public.commande_lignes set etat = 'annulee'
  where commande_id = :'c3'::jsonb ->> 'id';
 select essai.egal((select coalesce(sum(a_encaisser), 0) from public.restes_par_boutique(:'c3'::jsonb ->> 'id')),
