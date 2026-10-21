@@ -172,7 +172,10 @@ const Notifs = (() => {
                  sur nous pour les jeter. C'est la base qui trie, pas
                  l'écran — ici comme partout ailleurs. */
               postgres_changes: [{ event: "INSERT", schema: "public",
-                table: "notifications", filter: "destinataire=eq." + moi }],
+                table: "notifications", filter: "destinataire=eq." + moi },
+                /* (3.59.0) Le signal de ses commandes — et de ses courses,
+                   pour un livreur. La base ne l'envoie qu'aux siens. */
+                { event: "*", schema: "public", table: "commandes_signaux" }],
             },
             access_token: t,
           },
@@ -190,7 +193,14 @@ const Notifs = (() => {
       socket.onmessage = (message) => {
         let donnees;
         try { donnees = JSON.parse(message.data); } catch (_) { return; }
-        if (donnees && donnees.event === "postgres_changes") recharger();
+        if (!donnees || donnees.event !== "postgres_changes") return;
+        const table = donnees.payload && donnees.payload.data && donnees.payload.data.table;
+        if (table === "commandes_signaux") {
+          const r = donnees.payload.data.record || {};
+          window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id: r.commande_id || "" } }));
+          return;
+        }
+        recharger();
       };
 
       socket.onclose = () => {

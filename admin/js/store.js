@@ -955,6 +955,48 @@ const Store = (() => {
   /** La caisse des livreurs : ce qui a été encaissé à la livraison sur
       les boutiques que l'on tient — rendu ou pas —, et les remises faites
       sans déclaration. */
+  /* ---------- Le solde de la boutique, et ses reversements (3.59.0) ---------- */
+  async function soldeBoutique(boutique) {
+    const s = await Supabase.rpc("solde_boutique", { cible: boutique });
+    const r = s && s.reception;
+    return {
+      gagne: Number(s.gagne) || 0, aVenir: Number(s.a_venir) || 0,
+      dejaEncaisse: Number(s.deja_encaisse) || 0, reverse: Number(s.reverse) || 0,
+      enAttente: Number(s.en_attente) || 0, disponible: Number(s.disponible) || 0,
+      devise: s.devise || "FCFA",
+      reception: r ? { tel: r.tel || "", reseau: r.reseau || "", titulaire: r.titulaire || "",
+                       majLe: r.maj_le || "", majPar: r.maj_par || "" } : null,
+    };
+  }
+  async function reglerReception(boutique, tel, reseau, titulaire) {
+    const r = await Supabase.rpc("regler_reception", { cible: boutique, tel: tel || "", reseau: reseau || "",
+      titulaire: titulaire || "" });
+    journaliser("boutique", "modification", "Numéro de réception réglé : " + (r && r.reseau) + " " + (r && r.tel),
+      boutique, undefined, boutique);
+    return r;
+  }
+  async function demanderReversement(boutique, montant) {
+    const id = await Supabase.rpc("demander_reversement", { cible: boutique, montant: Math.round(Number(montant) || 0) });
+    journaliser("boutique", "ajout", "Reversement demandé : " + montant, boutique, undefined, boutique);
+    return id;
+  }
+  async function reversements(boutique) {
+    const lignes = await Supabase.rpcLecture("reversements_liste", { cible: boutique || null });
+    return (lignes || []).map((l) => ({
+      id: l.id, boutiqueId: l.boutique_id, nomBoutique: l.nom_boutique || "", montant: Number(l.montant) || 0,
+      tel: l.tel || "", reseau: l.reseau || "", titulaire: l.titulaire || "", etat: l.etat,
+      demandePar: l.demande_par || "", demandeLe: l.demande_le || "", decidePar: l.decide_par || "",
+      decideLe: l.decide_le || "", reference: l.reference || "", motif: l.motif || "", devise: l.devise || "FCFA",
+    }));
+  }
+  async function deciderReversement(id, accord, reference, motif) {
+    const r = await Supabase.rpc("decider_reversement", { cible: id, accord: !!accord,
+      reference: reference || "", motif: motif || "" });
+    journaliser("boutique", "modification", (accord ? "Reversement envoyé, réf. " + reference : "Reversement refusé"),
+      String(id));
+    return r;
+  }
+
   async function caisseLivreurs() {
     const lignes = await Supabase.rpcLecture("caisse_livreurs", {});
     return (lignes || []).map((l) => ({
@@ -3788,7 +3830,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
-    remettreCourse, maCaisse, caisseLivreurs, marquerRemis, refuserCourse, livraisonDesCommandes,
+    remettreCourse, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

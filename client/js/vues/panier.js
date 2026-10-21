@@ -1136,6 +1136,19 @@ const VuePanier = (() => {
     dessinerRecu(vue, commande);
     brancherSuivi(vue, commande);
 
+    /* (3.59.0) LA COPIE DU TÉLÉPHONE N'EST QU'UN PREMIER COUP D'ŒIL : on
+       relit la commande en base, et si elle a bougé — une étape, un
+       livreur, un paiement —, le reçu se redessine. C'est aussi ce que
+       fait le suivi en direct quand la base prévient. */
+    if (Panier.commande(id) && typeof Compte !== "undefined" && Compte.connecte()) {
+      Compte.commande(id).then((fraiche) => {
+        if (fraiche && Panier.remplacer(fraiche) && vue.isConnected &&
+            location.hash === "#/commande/" + id) {
+          window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id } }));
+        }
+      }).catch(() => { /* hors connexion : la copie suffit */ });
+    }
+
     /* Le SAV, sous le reçu : c'est ici que le client est quand il
        constate un problème, et c'est cette commande-là qui prouve son
        achat. Le bloc ne s'ajoute qu'à une commande PAYÉE — avant, il

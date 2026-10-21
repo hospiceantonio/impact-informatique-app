@@ -58,6 +58,10 @@
     /* La caisse des livreurs (3.59.0) : la base ne rend que ce que le
        compte tient ; l'écran le dit à qui n'en tient aucune. */
     { motif: /^\/caisse$/, vue: (v) => VueCaisse.afficher(v) },
+    /* Le solde de la boutique, et les reversements (3.59.0) : la base ne
+       rend que ce que le compte tient. */
+    { motif: /^\/solde$/, vue: (v) => VueSoldes.afficher(v) },
+    { motif: /^\/reversements$/, vue: (v) => VueSoldes.reversements(v), super: true },
     /* Les codes promo : l'enseigne seule. Une remise sort de SA marge —
        on ne laisse pas quelqu'un d'autre l'engager. */
     { motif: /^\/codes$/, vue: (v) => VueCodes.afficher(v), super: true },
@@ -167,6 +171,34 @@
     file = file.then(dessinerEcran).catch((err) => { console.error(err); });
     return file;
   }
+
+  /* ---------- Le suivi des commandes en direct (3.59.0) ----------
+     Une commande qu'on voit vient de bouger — étape, livreur, paiement :
+     l'écran qui la montre se relit tout seul, à la même hauteur. Jamais
+     sous les doigts : une feuille ouverte, une boîte de dialogue ou une
+     saisie en cours, et l'on attend qu'elles se ferment. */
+  const ECRANS_SUIVIS = [/^#\/commandes/, /^#\/livraisons$/, /^#\/caisse$/, /^#\/?$/];
+  let suiviMinuterie = null;
+  function ecranOccupe() {
+    const feuille = document.getElementById("feuille");
+    const actif = document.activeElement;
+    /* « Visible » se juge à l'écran : une fenêtre peut rester dans la
+       page, cachée par son parent. */
+    const fenetreOuverte = [...document.querySelectorAll("[role=dialog], .dialogue")]
+      .some((el) => el.getClientRects().length > 0);
+    return (feuille && !feuille.hidden) || fenetreOuverte ||
+      (actif && /^(INPUT|TEXTAREA|SELECT)$/.test(actif.tagName));
+  }
+  function rafraichirSuivi() {
+    if (!ECRANS_SUIVIS.some((r) => r.test(location.hash || "#/"))) return;
+    if (ecranOccupe()) { suiviMinuterie = setTimeout(rafraichirSuivi, 2000); return; }
+    const hauteur = window.scrollY || 0;
+    naviguer().then(() => { if (hauteur) window.scrollTo(0, hauteur); });
+  }
+  window.addEventListener("bizzoo:commande", () => {
+    clearTimeout(suiviMinuterie);
+    suiviMinuterie = setTimeout(rafraichirSuivi, 600);
+  });
 
   async function dessinerEcran() {
     const { chemin, params } = lireHash();

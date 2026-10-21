@@ -130,8 +130,22 @@ const Catalogue = (() => {
     const change = (avant ? avant.size : 0) !== (prixCompte ? prixCompte.size : 0)
       || (prixCompte && [...prixCompte].some(([id, prix]) => !avant || avant.get(id) !== prix));
     appliquerPrix();
-    if (change && donnees) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    if (change && donnees) maj([]);
     return change;
+  }
+
+  /* « catalogue:maj » DIT CE QUI EST NOUVEAU (3.59.0). L'écran se redessine
+     à chaque changement, mais on ne l'annonce que s'il y a de quoi : un
+     produit qui vient d'apparaître. Une vente qui fait baisser un stock,
+     une boutique qui change ses horaires, un prix revendeur qui arrive :
+     l'écran suit, sans « Catalogue mis à jour » à chaque fois. */
+  const idsVisibles = () => new Set(produits().map((p) => p.id));
+  function maj(nouveaux) {
+    document.dispatchEvent(new CustomEvent("catalogue:maj", { detail: { nouveaux: nouveaux || [] } }));
+  }
+  function nouveauxDepuis(avant) {
+    if (!avant || !avant.size) return [];
+    return produits().filter((p) => !avant.has(p.id)).map((p) => p.nom);
   }
 
   /** Ce compte voit-il des prix qui lui sont propres ? */
@@ -152,7 +166,7 @@ const Catalogue = (() => {
       if (oui) localStorage.setItem(CLE_AFFICHAGE, "public");
       else localStorage.removeItem(CLE_AFFICHAGE);
     } catch (_) { /* navigation privée : le choix ne survivra pas */ }
-    if (donnees) document.dispatchEvent(new CustomEvent("catalogue:maj"));
+    if (donnees) maj([]);
   }
   /** Le prix à MONTRER : celui du revendeur, ou le public s'il l'a choisi. */
   function prixVu(p) {
@@ -423,15 +437,14 @@ const Catalogue = (() => {
     try {
       const frais = c ? await telechargerDepuisBase(c) : await telechargerDemo();
       const changement = brutes && JSON.stringify(frais) !== JSON.stringify(brutes);
+      const avant = donnees ? idsVisibles() : null;
       brutes = frais;
       appliquerPrix();
       source = c ? "reseau" : "demo";
       /* On garde les prix de la vitrine, jamais ceux du compte. */
       if (c) ecrireCache(frais);
       signalerAndroid();
-      if (changement && enCache) {
-        document.dispatchEvent(new CustomEvent("catalogue:maj"));
-      }
+      if (changement && enCache) maj(nouveauxDepuis(avant));
     } catch (_) {
       /* hors connexion : on reste sur la copie locale si elle existe */
     }
@@ -457,14 +470,13 @@ const Catalogue = (() => {
       return false; // hors connexion : on garde l'affichage actuel
     }
     const change = JSON.stringify(frais) !== JSON.stringify(brutes);
+    const avant = donnees ? idsVisibles() : null;
     brutes = frais;
     appliquerPrix();
     source = "reseau";
     ecrireCache(frais);
     signalerAndroid();
-    if (change && !(options && options.silencieux)) {
-      document.dispatchEvent(new CustomEvent("catalogue:maj"));
-    }
+    if (change && !(options && options.silencieux)) maj(nouveauxDepuis(avant));
     return change;
   }
 

@@ -956,7 +956,24 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-         and p.prosrc like '%p.masque%'))
+         and p.prosrc like '%p.masque%')),
+  (148, 'Le suivi des commandes en direct (commandes_signaux, temps réel)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'commandes_signaux')
+    and exists (
+      select 1 from pg_trigger where tgname = 'lignes_signalent')
+    and exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and tablename = 'commandes_signaux')),
+  (149, 'Le solde des boutiques et leurs reversements (solde_boutique, reversements)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'reversements')
+    and exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'boutiques_reception')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'decider_reversement'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

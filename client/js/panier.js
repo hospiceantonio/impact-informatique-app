@@ -234,6 +234,21 @@ const Panier = (() => {
 
   const commande = (id) => mesCommandes().find((c) => c.id === id) || null;
 
+  /** (3.59.0) La commande relue en base remplace la copie du téléphone —
+      étapes, livreur, paiement — en gardant sa place dans la liste. Rend
+      vrai si quelque chose a changé. */
+  function remplacer(fraiche) {
+    if (!fraiche || !fraiche.id) return false;
+    const liste = mesCommandes();
+    const i = liste.findIndex((x) => x.id === fraiche.id);
+    if (i < 0) return false;
+    const avant = JSON.stringify(liste[i]);
+    liste[i] = { ...liste[i], ...fraiche, gardeeLe: liste[i].gardeeLe };
+    if (JSON.stringify(liste[i]) === avant) return false;
+    ecrireCommandes(liste);
+    return true;
+  }
+
   /** L'état vient de la base, jamais du téléphone : on ne fait que le noter. */
   function majEtat(id, etat, extra) {
     const liste = mesCommandes();
@@ -255,6 +270,6 @@ const Panier = (() => {
     lignes, vide, nombre, contient, quantiteDe, total, devise,
     monnaiesMelangees, parBoutique, articles,
     ajouter, regler, retirer, vider,
-    mesCommandes, memoriser, commande, majEtat,
+    mesCommandes, memoriser, commande, majEtat, remplacer,
   };
 })();

@@ -1809,3 +1809,14 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Produit masqué (3.59.0) ---------- */
 .badge-masque{background:#3b3b3b;color:#fff}
+
+/* ---------- Solde de la boutique (3.59.0) ---------- */
+.sd-solde .sd-etiquette{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce)}
+.sd-solde .sd-montant{font-size:30px;font-weight:700;color:var(--encre);margin:2px 0 10px}
+.sd-details>div{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:4px 0;border-top:1px solid var(--trait)}
+.sd-details .sd-a-venir{color:var(--encre-douce)}
+.sd-ligne{padding:10px 0;border-top:1px solid var(--trait)}
+.sd-ligne:first-child{border-top:0}
+.sd-ligne-haut{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sd-boutique{font-size:13px;font-weight:600}
+.sd-refus{color:var(--rouge)}

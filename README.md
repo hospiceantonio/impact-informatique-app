@@ -4750,6 +4750,43 @@ masqué et quand. L'administrateur ou le modérateur de la boutique le peut,
 même sans le droit de modifier les produits ; BIZZOO sur toutes. À coller :
 `supabase/produit-masque.sql`.
 
+## Le suivi des commandes en direct, et le message du catalogue (3.59.0)
+
+- **Chaque modification d'une commande** — paiement, étape (préparée, en
+  livraison, remise), livreur confié ou accepté, paiement à la livraison —
+  met à jour **tout seul** l'écran de ceux qui la suivent : le client (son
+  reçu, « Mes commandes »), l'administrateur et le modérateur de la boutique
+  (Commandes, Caisse, accueil), BIZZOO, et le livreur (« Mes courses »).
+  La base pousse un **signal** (table `commandes_signaux`) que le temps réel
+  ne remet qu'à ceux qui voient la commande ; l'écran se relit à la même
+  hauteur, jamais sous les doigts (feuille ouverte, saisie en cours).
+  À coller : `supabase/suivi-commandes.sql`.
+- **« Catalogue mis à jour » ne s'affiche plus à chaque changement** (une
+  vente qui baisse un stock, un horaire de boutique…) : l'écran suit en
+  silence, et l'on annonce seulement un produit qui apparaît
+  (« Nouveau : … »).
+
+## Le solde de chaque boutique, et ses reversements (3.59.0)
+
+Tout l'argent arrive chez BIZZOO (acompte en ligne, reste par MoMoPay).
+Chaque boutique a donc un **solde** chez BIZZOO — écran **Solde de la
+boutique** (accueil de l'administrateur, `#/solde`) :
+
+- **Ventes livrées** : ses articles **remis au client**, au **prix BIZZOO**
+  de chaque article (la commission de BIZZOO déduite). Les frais de livraison
+  n'en font pas partie ; payé mais pas encore livré = **à venir**.
+- Moins ce qui a déjà été **encaissé en espèces** par la boutique (l'ancien
+  système), moins ce qui est **déjà reversé** et la demande **en attente** =
+  **disponible**.
+- L'administrateur règle le **numéro de réception** (réseau, numéro,
+  titulaire) — BIZZOO est prévenu de chaque changement — et **demande un
+  reversement** (pas plus que le disponible).
+- Le superadministrateur voit les demandes (**Reversements**, `#/reversements`),
+  envoie l'argent, puis touche **« Envoyé »** avec la référence de la
+  transaction, ou **refuse** avec un motif (le montant revient au solde). La
+  boutique est prévenue.
+- Un modérateur ne voit pas le solde. À coller : `supabase/soldes-boutiques.sql`.
+
 ## Le code SMS : plus à chaque connexion — le superadministrateur seul, et l'appareil de confiance (3.59.0)
 
 **Clients et livreurs** entrent avec leur **numéro et leur mot de passe**, sans code. Le code

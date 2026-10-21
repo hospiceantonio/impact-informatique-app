@@ -221,7 +221,10 @@ const Notifs = (() => {
                  serveur enverrait les lignes des autres et compterait
                  sur nous pour les jeter. */
               postgres_changes: [{ event: "INSERT", schema: "public",
-                table: "notifications", filter: "destinataire=eq." + moi }],
+                table: "notifications", filter: "destinataire=eq." + moi },
+                /* (3.59.0) Le signal des commandes qu'on voit : la base ne
+                   l'envoie qu'à ceux qui y ont droit. */
+                { event: "*", schema: "public", table: "commandes_signaux" }],
             },
             access_token: s.access_token,
           },
@@ -238,7 +241,15 @@ const Notifs = (() => {
       socket.onmessage = (message) => {
         let donnees;
         try { donnees = JSON.parse(message.data); } catch (_) { return; }
-        if (donnees && donnees.event === "postgres_changes") recharger();
+        if (!donnees || donnees.event !== "postgres_changes") return;
+        const table = donnees.payload && donnees.payload.data && donnees.payload.data.table;
+        if (table === "commandes_signaux") {
+          /* UNE COMMANDE A BOUGÉ (3.59.0) : l'écran qui la montre se relit. */
+          const r = donnees.payload.data.record || {};
+          window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id: r.commande_id || "" } }));
+          return;
+        }
+        recharger();
       };
 
       socket.onclose = () => {

@@ -273,6 +273,31 @@ const VueAccueil = (() => {
         "</a>";
     }
 
+    /* ---- Le solde de la boutique, et les reversements (3.59.0) ---- */
+    if (Supabase.tientLaCaisse() && Store.boutiqueCourante() && !Supabase.estSuper()) {
+      html +=
+        '<a class="carte" href="#/solde" id="ac-solde">' +
+          '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Solde de la boutique</div>" +
+          '<p class="aide" style="margin:0">Vos ventes livrées, commission de BIZZOO déduite, et ' +
+            "vos demandes de reversement.</p>" +
+        "</a>";
+    }
+    if (Supabase.estSuper()) {
+      html +=
+        '<a class="carte" href="#/reversements" id="ac-reversements">' +
+          '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Reversements aux boutiques</div>" +
+          '<p class="aide" style="margin:0">Les demandes des boutiques : envoyez l\'argent, puis ' +
+            "validez avec la référence de la transaction.</p>" +
+        "</a>" +
+        (Store.boutiqueCourante()
+          ? '<a class="carte" href="#/solde" id="ac-solde">' +
+              '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Solde de « " +
+                Utils.echapper(Store.boutiqueCourante().nomBoutique) + " »</div>" +
+              '<p class="aide" style="margin:0">Ce que BIZZOO doit à cette boutique.</p>' +
+            "</a>"
+          : "");
+    }
+
     /* ---- Retrouver un client, et suivre l'argent ----
        Deux écrans de l'enseigne seule : une boutique voit déjà ses
        propres acheteurs sur ses commandes, et ses ventes encaissées
