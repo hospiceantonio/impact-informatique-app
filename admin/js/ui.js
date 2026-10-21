@@ -828,7 +828,7 @@ const UI = (() => {
     toast("Lien copié", "ok");
   });
 
-  /* ---------- Une porte dans une liste (3.61.0) ----------
+  /* ---------- Une porte dans une liste (3.62.0) ----------
      La rangée « tuile, nom, un mot dessous, chevron » : celle de « À
      propos de BIZZOO » chez le client, reprise ici pour les Réglages et
      « Vos données et vos droits ». Un lien si « href » est donné, un

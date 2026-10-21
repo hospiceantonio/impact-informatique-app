@@ -75,7 +75,7 @@
   /* LE TEXTE ET LE FOND DE LA DA. */
   --encre:#1F2937;
   --encre-douce:#4B5563;
-  /* LE GRIS DES TEXTES D'AIDE (3.61.0). Le gris très doux de la DA
+  /* LE GRIS DES TEXTES D'AIDE (3.62.0). Le gris très doux de la DA
      (#9AA3AF) tombe à 2,8:1 sur blanc : un paragraphe entier dans
      cette teinte ne se lit plus au soleil. Celui-ci donne 4,8:1, le
      seuil des règles d'accessibilité ; le très doux reste pour les
@@ -103,7 +103,7 @@
 
 *,*::before,*::after{box-sizing:border-box}
 
-/* CE QUI DÉBORDE NE POUSSE PLUS L'ÉCRAN (3.61.0). Sur un téléphone, un
+/* CE QUI DÉBORDE NE POUSSE PLUS L'ÉCRAN (3.62.0). Sur un téléphone, un
    seul élément plus large que l'écran — une adresse web sans espace,
    une tuile trop pleine — élargit la page entière : le navigateur la
    laisse défiler de côté, et la barre du bas, calée sur cette page
@@ -149,7 +149,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    boutiques » ou « Mon panier » sur la DA : plus sombre que le bleu
    des titres de section, pour que l'écran et ses rubriques ne se
    confondent pas. */
-/* LE TITRE SE PLIE SUR DEUX LIGNES PLUTÔT QUE DE SE COUPER (3.61.0).
+/* LE TITRE SE PLIE SUR DEUX LIGNES PLUTÔT QUE DE SE COUPER (3.62.0).
    Entre le retour et trois ou quatre boutons, il lui reste cent trente
    pixels : avec les grands caractères d'un téléphone, « Mon compte »
    finissait en « Mon co… » et « À propos de BIZZOO » en « À propos d… ».
@@ -325,7 +325,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* Cinq onglets sur un téléphone de 320 px : 64 px chacun, et
    « Catégories » s'écourtait en « Catégori… ». Un point de moins et
    les marges à 1 px : il tient en entier. */
-/* En grands caractères aussi (3.61.0) : à cinq, « Catégories » et
+/* En grands caractères aussi (3.62.0) : à cinq, « Catégories » et
    « Recherche » s'écourtaient sur un téléphone de 360 px. */
 @media (max-width:480px){
   body.en-boutique .tabbar a{font-size:10px;padding-left:1px;padding-right:1px;letter-spacing:-.01em}
@@ -423,7 +423,7 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
      de 13 px d'avant en faisaient des rectangles adoucis, que la
      maquette ne montre nulle part.
 
-     EN LIGNE, PAS EN FLEX (3.61.0). Un bouton en « flex » faisait de
+     EN LIGNE, PAS EN FLEX (3.62.0). Un bouton en « flex » faisait de
      son texte une boîte à part : dès qu'il se pliait sur deux lignes,
      cette boîte prenait toute la largeur, le texte se centrait dedans
      et l'icône restait seule collée au bord gauche. Avec les grands
@@ -812,7 +812,7 @@ video.slide-img{background:#000}
 /* Photo posée par-dessus le cadre : c'est le cadre qui commande la
    taille, jamais l'inverse (sans quoi une photo haute l'étirerait). */
 .p-carte-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-/* Les pastilles s'arrêtent AVANT le cœur (3.61.0) : « Sur commande »
+/* Les pastilles s'arrêtent AVANT le cœur (3.62.0) : « Sur commande »
    passait dessous, et l'on ne lisait ni l'un ni l'autre. Elles ont la
    largeur de la photo moins la place du cœur ; une seconde pastille
    passe à la ligne. */
@@ -1032,7 +1032,7 @@ a.pub-carte:active{transform:scale(.98)}
   padding:7px 12px;border-radius:999px;
 }
 /* LA LISTE DE PORTES : une rangée par endroit où aller — la tuile, le
-   nom, un mot dessous, le chevron. Depuis la 3.61.0 elle sert aussi à
+   nom, un mot dessous, le chevron. Depuis la 3.62.0 elle sert aussi à
    « Mon compte » (Mes commandes, Mes adresses…) et aux Réglages de
    l'admin : cinq boutons empilés se lisaient comme cinq alarmes, une
    liste se parcourt. Les mêmes classes dans les deux applications. */
@@ -1516,7 +1516,7 @@ a.pub-carte:active{transform:scale(.98)}
   font-size:13px;font-weight:700;color:var(--encre-douce);
 }
 .champ label small{font-weight:500;color:var(--encre-tres-douce)}
-/* LE MÊME CHAMP QUE DANS L'ADMIN (3.61.0) : trait d'un pixel et demi,
+/* LE MÊME CHAMP QUE DANS L'ADMIN (3.62.0) : trait d'un pixel et demi,
    coins de 12 px, 48 px de haut, et un halo bleu quand on y écrit. Les
    deux applications ne doivent pas avoir deux dessins de champ. */
 .champ input,.champ select,.champ textarea{

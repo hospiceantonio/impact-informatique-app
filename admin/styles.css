@@ -75,7 +75,7 @@
   /* LE TEXTE ET LE FOND DE LA DA. */
   --encre:#1F2937;
   --encre-douce:#4B5563;
-  /* LE GRIS DES TEXTES D'AIDE (3.61.0). Le gris très doux de la DA
+  /* LE GRIS DES TEXTES D'AIDE (3.62.0). Le gris très doux de la DA
      (#9AA3AF) tombe à 2,8:1 sur blanc : un paragraphe entier dans
      cette teinte ne se lit plus au soleil. Celui-ci donne 4,8:1, le
      seuil des règles d'accessibilité ; le très doux reste pour les
@@ -102,7 +102,7 @@
 
 *,*::before,*::after{box-sizing:border-box}
 
-/* CE QUI DÉBORDE NE POUSSE PLUS L'ÉCRAN (3.61.0). Sur un téléphone, un
+/* CE QUI DÉBORDE NE POUSSE PLUS L'ÉCRAN (3.62.0). Sur un téléphone, un
    seul élément plus large que l'écran élargit la page entière : le
    navigateur la laisse défiler de côté, et les barres fixes du haut et
    du bas, calées sur cette page élargie, sortent de l'écran — c'est
@@ -143,7 +143,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   border-bottom:1px solid var(--trait);
 }
 .topbar-ligne{display:flex;align-items:center;gap:10px;min-height:40px}
-/* LE TITRE SE PLIE SUR DEUX LIGNES PLUTÔT QUE DE SE COUPER (3.61.0).
+/* LE TITRE SE PLIE SUR DEUX LIGNES PLUTÔT QUE DE SE COUPER (3.62.0).
    Avec les grands caractères d'un téléphone, « Comptes revendeurs »
    finissait en « Comptes rev… » : deux lignes gardent le mot entier.
    Au-delà, « … » — un nom de produit peut faire quatre-vingts
@@ -286,7 +286,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
      coins arrondis. Le dégradé d'avant venait d'une autre charte ;
      la DA montre un aplat.
 
-     EN LIGNE, PAS EN FLEX (3.61.0). Un bouton en « flex » faisait de
+     EN LIGNE, PAS EN FLEX (3.62.0). Un bouton en « flex » faisait de
      son texte une boîte à part : dès qu'il se pliait sur deux lignes,
      cette boîte prenait toute la largeur, le texte se centrait dedans
      et l'icône restait seule collée au bord gauche. Avec les grands
@@ -370,7 +370,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .avant-actions{display:flex;gap:5px;align-items:center}
 
 /* ---------- Lignes produit ---------- */
-/* LE NOM A SA LIGNE, LE PRIX LA SUIVANTE (3.61.0). En une rangée, le
+/* LE NOM A SA LIGNE, LE PRIX LA SUIVANTE (3.62.0). En une rangée, le
    prix, le stock et les pastilles à droite ne laissaient au nom qu'une
    centaine de pixels : « Ordin… ». Une grille : la vignette à gauche,
    le nom (deux lignes au plus) et sa sous-ligne, puis le prix, le
@@ -745,7 +745,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Catégories ---------- */
 .cat-bloc{padding:13px 16px}
-/* LE NOM A SA LIGNE, LE COMPTE LA SUIVANTE (3.61.0). En une seule
+/* LE NOM A SA LIGNE, LE COMPTE LA SUIVANTE (3.62.0). En une seule
    rangée, la pastille, le compte et les trois boutons laissaient
    soixante pixels au nom : « Mode & Vêtements » devenait « Mo… ». Une
    grille à trois colonnes : la pastille, les mots (nom sur deux lignes
@@ -823,7 +823,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .ligne-multi .btn-ic-clair{flex:none}
 
 /* ---------- Boutiques (les secteurs de l'enseigne) ---------- */
-/* LE NOM A TOUTE LA LIGNE (3.61.0). À côté de la pastille et des trois
+/* LE NOM A TOUTE LA LIGNE (3.62.0). À côté de la pastille et des trois
    boutons, il lui restait cent pixels : « IMPACT INFORMATIQUE »
    devenait « IMPACT INF… ». Une grille : le nom en haut sur toute la
    largeur, le secteur et les boutons dessous. « display:contents »
@@ -906,7 +906,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .choix-picto.actif{border-color:var(--blanc);box-shadow:0 0 0 2.5px var(--bleu)}
 
 /* ---------- Enseigne ou boutique : la bascule des réglages ---------- */
-/* « minmax(0,1fr) », PAS « 1fr » (3.61.0) : une colonne de grille
+/* « minmax(0,1fr) », PAS « 1fr » (3.62.0) : une colonne de grille
    refuse par défaut d'être plus étroite que son contenu, et « IMPACT
    INFORMATIQUE » sur une ligne la poussait hors de la carte — la tuile
    finissait coupée au bord de l'écran, et la page entière défilait de
@@ -1242,7 +1242,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cmd-somme{flex:none;text-align:right}
 .cmd-montant{font-size:15.5px;font-weight:800;line-height:1.3;color:var(--orange-fonce);white-space:nowrap}
 /* « sur 319 500 FCFA », « dont 1 000 FCFA de livraison » : SOUS
-   L'EN-TÊTE, sur toute la largeur (3.61.0). À droite du montant, ces
+   L'EN-TÊTE, sur toute la largeur (3.62.0). À droite du montant, ces
    deux lignes prenaient la moitié de la carte, et le numéro, l'état et
    l'heure se pliaient dans l'autre moitié : « BZ- » / « 000062 »,
    « Colis » / « préparé », « il y a 23 » / « min ». */
@@ -1952,7 +1952,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Produit masqué (3.59.0) ---------- */
 .badge-masque{background:#3b3b3b;color:#fff}
 
-/* ---------- Une liste de portes (3.61.0) ----------
+/* ---------- Une liste de portes (3.62.0) ----------
    Une rangée par écran où aller : la tuile, le nom, un mot dessous, le
    chevron. C'est la liste « À propos de BIZZOO » du client — les mêmes
    classes, le même dessin — pour que les deux applications se

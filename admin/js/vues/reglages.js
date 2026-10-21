@@ -284,7 +284,7 @@ const VueReglages = (() => {
                 "<span><strong>" + Utils.echapper((courante || {}).nomBoutique || "Boutique") +
                 "</strong><small>La boutique ouverte</small></span></button>" +
             "</div>" +
-            /* Les portes permanentes, en liste (3.61.0) : cinq boutons
+            /* Les portes permanentes, en liste (3.62.0) : cinq boutons
                empilés se lisaient comme cinq alarmes. L'accueil ne parle
                des demandes que lorsqu'une attend : sans ces portes,
                retirer un statut accordé par erreur serait impossible, et
