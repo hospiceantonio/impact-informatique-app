@@ -4844,7 +4844,7 @@ Une troisième application, `personnel/`, pour les employés de BIZZOO eux-même
 
 Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une fiche en attente, refusée ou sortie n'a aucun droit.
 
-**Le premier CEO** s'amorce une seule fois : un superadministrateur de BIZZOO qui ouvre l'application et qu'aucun CEO n'existe encore se voit proposer « Je suis le CEO de BIZZOO » (`rh_devenir_ceo`). Dès qu'un CEO existe, la porte est fermée.
+**Le premier CEO** s'installe une seule fois, par un superadministrateur de BIZZOO qui ouvre l'application alors qu'aucun CEO n'existe encore. Deux choix : « Je suis le CEO » (`rh_devenir_ceo`), ou « Désigner le CEO » (`rh_designer_ceo`) : nom et adresse professionnelle du CEO, premier mot de passe si cette adresse n'a pas encore de compte, et, en option, l'inscription du superadministrateur lui-même dans l'administration pour tout préparer en attendant. Dès qu'un CEO existe, la porte est fermée.
 
 ### Les circuits
 

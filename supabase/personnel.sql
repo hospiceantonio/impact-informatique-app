@@ -417,6 +417,66 @@ begin
   return nouveau;
 end $$;
 
+/**
+ * Désigner le CEO sans l'être. Le superadministrateur qui installe
+ * l'application n'est pas toujours le CEO : il inscrit le CEO par son
+ * adresse professionnelle — le compte de connexion doit déjà exister,
+ * l'application le crée juste avant —, et peut s'inscrire lui-même dans
+ * l'administration pour préparer profils et employés en attendant.
+ * Même porte que « rh_devenir_ceo » : un superadministrateur, une seule
+ * fois, tant qu'aucun CEO n'existe.
+ */
+create or replace function public.rh_designer_ceo(nom text, prenoms text, sexe text, email_pro text,
+                                                  moi_nom text default null, moi_prenoms text default '',
+                                                  moi_sexe text default null)
+returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  courriel text := lower(btrim(coalesce(email_pro, '')));
+  compte uuid;
+  moi_courriel text;
+  nouveau uuid;
+begin
+  if not public.est_super() then
+    raise exception 'Seul un superadministrateur de BIZZOO peut désigner le CEO';
+  end if;
+  if exists (select 1 from public.rh_employes where ceo) then
+    raise exception 'BIZZOO a déjà son CEO dans l''application';
+  end if;
+  if courriel = '' then
+    raise exception 'Indiquez l''adresse professionnelle du CEO';
+  end if;
+  select u.id into compte from auth.users u where lower(u.email) = courriel;
+  if compte is null then
+    raise exception 'AUCUN_COMPTE : aucun compte n''existe encore pour %', courriel;
+  end if;
+  if compte = auth.uid() then
+    raise exception 'C''est votre propre adresse : choisissez « Je suis le CEO »';
+  end if;
+  if exists (select 1 from public.rh_employes x
+              where x.compte_id = compte or lower(x.email_pro) = courriel) then
+    raise exception 'Cette adresse est déjà celle d''un employé';
+  end if;
+  perform set_config('rh.decision', 'oui', true);
+  insert into public.rh_employes (compte_id, nom, prenoms, sexe, email_pro, date_embauche,
+                                  statut, ceo, administration, etat, cree_par, cree_le, valide_le)
+  values (compte, btrim(nom), btrim(coalesce(prenoms, '')), sexe, courriel, current_date,
+          'employe', true, true, 'actif', null, now(), now())
+  returning id into nouveau;
+  if btrim(coalesce(moi_nom, '')) <> '' then
+    if exists (select 1 from public.rh_employes where compte_id = auth.uid()) then
+      raise exception 'Votre compte a déjà une fiche employé';
+    end if;
+    select u.email into moi_courriel from auth.users u where u.id = auth.uid();
+    insert into public.rh_employes (compte_id, nom, prenoms, sexe, email_pro, date_embauche,
+                                    statut, administration, etat, cree_le, valide_par, valide_le)
+    values (auth.uid(), btrim(moi_nom), btrim(coalesce(moi_prenoms, '')), moi_sexe, lower(moi_courriel),
+            current_date, 'employe', true, 'actif', now(), nouveau, now());
+  end if;
+  perform set_config('rh.decision', '', true);
+  return nouveau;
+end $$;
+
 /** L'annuaire : qui est qui, sans le salaire. Pour tout employé en poste. */
 create or replace function public.rh_annuaire()
 returns table (id uuid, matricule text, nom text, prenoms text, sexe text, poste text,
@@ -1738,6 +1798,7 @@ begin
     'rh_responsable_de(uuid)', 'rh_membre_de(uuid)', 'rh_peut_ecrire_a(uuid)',
     'rh_decider_employe(uuid, boolean, text)', 'rh_sortie_employe(uuid, date, text)',
     'rh_rattacher_compte(uuid)', 'rh_devenir_ceo(text, text, text)', 'rh_annuaire()',
+    'rh_designer_ceo(text, text, text, text, text, text, text)',
     'rh_marquer_lu(text)', 'rh_conversations()',
     'rh_repondre_mission(uuid, boolean, text)', 'rh_rendre_rapport_mission(uuid, text)',
     'rh_cloturer_mission(uuid, boolean, text)',

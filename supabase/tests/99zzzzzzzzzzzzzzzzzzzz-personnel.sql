@@ -55,6 +55,33 @@ select essai.verifie(exists (select 1 from public.profils where id = :NOUVEAU::u
   'un compte ordinaire reçoit toujours sa fiche en attente');
 
 -- ---------------------------------------------------------
+select essai.titre('1 bis. Désigner le CEO sans l''être (essai annulé ensuite)');
+begin;
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.refuse($$select public.rh_designer_ceo('X', 'Y', 'M', 'admin.rh@bizzoomarket.com')$$,
+  'un compte qui n''est pas superadministrateur ne désigne pas le CEO');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_designer_ceo('X', 'Y', 'M', 'personne@bizzoomarket.com')$$,
+  'une adresse sans compte de connexion : refusée');
+select essai.refuse($$select public.rh_designer_ceo('X', 'Y', 'M', 'enseigne@bizzoo.bj')$$,
+  'sa propre adresse : refusée (il y a « Je suis le CEO » pour cela)');
+select public.rh_designer_ceo('DIRECTEUR', 'Vrai', 'M', 'Resp.Marketing@bizzoomarket.com',
+  'INSTALLATEUR', 'Technique', 'F');
+select essai.egal((select count(*)::int from public.rh_employes
+                    where ceo and compte_id = :RESP::uuid and etat = 'actif'), 1,
+  'le CEO désigné est en poste, relié au compte de SON adresse');
+select essai.egal((public.rh_tableau_de_bord() -> 'moi' ->> 'ceo')::boolean, false,
+  'le superadministrateur n''est pas devenu CEO');
+select essai.egal((public.rh_tableau_de_bord() -> 'moi' ->> 'administration')::boolean, true,
+  'il est inscrit dans l''administration');
+select essai.refuse($$select public.rh_designer_ceo('A', 'B', 'M', 'caisse@bizzoomarket.com')$$,
+  'un second CEO : refusé');
+select essai.refuse($$select public.rh_devenir_ceo('A', 'B', 'M')$$, 'ni par l''autre porte');
+reset role; select essai.personne();
+rollback;
+
+-- ---------------------------------------------------------
 select essai.titre('1. Le premier CEO');
 select essai.devenir(:ADMRH::uuid); set role authenticated;
 select essai.egal((public.rh_tableau_de_bord() -> 'moi'), 'null'::jsonb,
