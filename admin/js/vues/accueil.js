@@ -104,12 +104,16 @@ const VueAccueil = (() => {
     if (Supabase.estAdminBizzoo() && !Supabase.estSuper()) {
       html +=
         '<div class="carte" id="ac-livreurs-revendeurs">' +
-          '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Livreurs et revendeurs</div>" +
+          '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Livreurs, revendeurs, modérateurs</div>" +
           '<p class="aide" style="margin:0 0 10px">Créez les comptes des livreurs et des ' +
-            "revendeurs, et validez les demandes de compte revendeur.</p>" +
+            "revendeurs, validez les demandes de compte revendeur — et créez des modérateurs, " +
+            "que le superadministrateur validera.</p>" +
           '<div class="btn-rangee">' +
             '<a class="btn btn-clair" href="#/livreurs">' + UI.icone("voiture") + "Les livreurs</a>" +
             '<a class="btn btn-clair" href="#/revendeurs">' + UI.icone("personne") + "Les revendeurs</a>" +
+            /* (3.63.0) Demande du CEO : il crée les modérateurs. */
+            '<a class="btn btn-clair" href="#/comptes" id="ac-moderateurs">' + UI.icone("equipe") +
+              "Les modérateurs</a>" +
           "</div>" +
         "</div>";
     }

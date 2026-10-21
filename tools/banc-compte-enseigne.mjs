@@ -226,11 +226,16 @@ titre("3. Ses interrupteurs décident de ce qu'il voit");
   const reg = await aller(page, "#/reglages");
   ok(reg.hash === "#/" && /Les boutiques/.test(reg.toast),
     "« Réglages » le renvoie, en nommant l'interrupteur (" + JSON.stringify(reg.toast) + ")");
-  for (const ecran of ["#/statistiques", "#/historique", "#/comptes"]) {
+  for (const ecran of ["#/statistiques", "#/historique"]) {
     const x = await aller(page, ecran);
     ok(x.hash === "#/" && /comptes de BIZZOO/.test(x.toast),
       ecran + " : renvoyé, avec une raison (" + JSON.stringify(x.toast) + ")");
   }
+  /* (3.63.0) Demande du CEO : l'administrateur de BIZZOO crée des
+     modérateurs, que le superadministrateur valide. « Comptes » lui
+     ouvre donc ses portes. */
+  const cpt = await aller(page, "#/comptes");
+  ok(cpt.hash === "#/comptes", "#/comptes : ouvert, pour créer des modérateurs à valider");
   const moi = await aller(page, "#/compte");
   ok(/Administrateur de BIZZOO/.test(moi.texte) && /toutes les boutiques/.test(moi.texte),
     "« Mon compte » dit ce qu'il est : administrateur de BIZZOO, toutes les boutiques");

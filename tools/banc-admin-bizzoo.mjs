@@ -12,7 +12,11 @@
      4. un modérateur de BIZZOO n'entre ni chez les livreurs ni chez les
         revendeurs ;
      5. l'administrateur d'une boutique VOIT ses livreurs — ceux de sa
-        boutique et ceux de BIZZOO —, sans rien créer ni modifier.
+        boutique et ceux de BIZZOO —, sans rien créer ni modifier ;
+     7. (3.63.0) l'administrateur de BIZZOO a le crayon sur TOUS les
+        livreurs — mot de passe et suppression compris —, et crée un
+        modérateur qui naît INACTIF, « à valider » ;
+     8. (3.63.0) le superadministrateur le valide d'un bouton.
    ========================================================= */
 let chromium;
 try {
@@ -41,6 +45,8 @@ const CHEF = "a3330000-0000-0000-0000-000000000003";
 const LIV_A = "a4440000-0000-0000-0000-000000000004";
 const LIV_BZ = "a5550000-0000-0000-0000-000000000005";
 const NEUF = "a6660000-0000-0000-0000-000000000006";
+const SUPER = "a7770000-0000-0000-0000-000000000007";
+const PEND = "a8880000-0000-0000-0000-000000000008";
 const P = (id, email, role, boutique, extra) => ({ id, email, role, actif: true, peut_modifier_produits: true,
   boutique_id: boutique, nom: "", tel: "0197000000", peut_commandes: true, peut_boutiques: false,
   peut_finances: false, ...(extra || {}) });
@@ -50,6 +56,9 @@ const PROFILS = [
   P(CHEF, "chef@alpha.bj", "administrateur", "bou_a"),
   P(LIV_A, "rohim@alpha.bj", "livreur", "bou_a", { nom: "Rohim", tel: "0196000101" }),
   P(LIV_BZ, "", "livreur", null, { nom: "Sèna", tel: "0196000202" }),
+  P(SUPER, "patron@bizzoo.bj", "superadministrateur", null),
+  P(PEND, "fifame@alpha.bj", "moderateur", "bou_a",
+    { nom: "Fifamè", actif: false, a_valider: true, cree_par: ADMBZ, cree_par_nom: "Admin (administrateur)" }),
 ];
 const BOU = [{ id: "bou_a", nom: "Alpha", categorie_id: null, icone: "magasin", couleur: "#0047D9",
   devise: "FCFA", indicatif: "229", actif: true, ordre: 1 }];
@@ -61,7 +70,7 @@ async function ouvrir(moi, hash = "") {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 } });
   const page = await ctx.newPage();
   const erreurs = [];
-  const note = { signup: [], profils: [], rpc: [] };
+  const note = { signup: [], profils: [], rpc: [], patch: [] };
   page.on("pageerror", (e) => erreurs.push(e.message));
   page.on("dialog", (d) => d.accept());
   await page.addInitScript((a) => {
@@ -103,10 +112,18 @@ async function ouvrir(moi, hash = "") {
     if (c.startsWith("profils")) {
       if (req.method() === "POST") { const x = corpsDe(req); note.profils.push(x); return d([x], 201); }
       const id = (u.searchParams.get("id") || "").replace(/^eq\./, "");
+      if (req.method() === "PATCH") {
+        note.patch.push({ id, corps: corpsDe(req) });
+        return d(PROFILS.filter((p) => p.id === id).map((p) => ({ ...p, ...corpsDe(req) })));
+      }
       if (id) return d(PROFILS.filter((p) => p.id === id));
       // Ce que la base rend à chacun (règles de « profils »)
       if (moi === CHEF) return d(PROFILS.filter((p) => p.id === CHEF || p.boutique_id === "bou_a"));
-      if (moi === ADMBZ) return d(PROFILS.filter((p) => p.id === ADMBZ || p.role === "livreur"));
+      if (moi === ADMBZ) {
+        return d(PROFILS.filter((p) => p.id === ADMBZ || p.role === "livreur" ||
+          (p.role === "moderateur" && p.cree_par === ADMBZ)));
+      }
+      if (moi === SUPER) return d(PROFILS);
       return d(PROFILS.filter((p) => p.id === moi));
     }
     if (c.startsWith("boutiques")) return d(BOU);
@@ -129,6 +146,8 @@ titre("1. L'accueil de l'administrateur de BIZZOO");
   ok(!!(await o.page.$('#ac-livreurs-revendeurs a[href="#/livreurs"]')) &&
      !!(await o.page.$('#ac-livreurs-revendeurs a[href="#/revendeurs"]')), "elle mène aux deux écrans");
   ok(o.note.rpc.some((r) => r.nom === "revendeurs"), "les demandes en attente sont lues pour lui");
+  ok(!!(await o.page.$('#ac-livreurs-revendeurs a[href="#/comptes"]')),
+    "(3.63.0) et aux modérateurs qu'il crée");
   sansErreur(o);
   await o.ctx.close();
 }
@@ -268,6 +287,70 @@ titre("6. L'administrateur d'une boutique crée un revendeur ; BIZZOO valide");
   await pause(1500);
   ok(o.note.rpc.some((r) => r.nom === "creer_fiche_revendeur" && r.corps && r.corps.nom === "Boutique Azon"),
     "creer_fiche_revendeur : la demande part, en attente");
+  sansErreur(o);
+  await o.ctx.close();
+}
+
+titre("7. L'administrateur de BIZZOO : ses livreurs, et un modérateur à valider (3.63.0)");
+{
+  const o = await ouvrir(ADMBZ, "#/livreurs");
+  ok(!!(await o.page.$('.livreur-bloc [data-compte="' + LIV_A + '"]')) &&
+     !!(await o.page.$('.livreur-bloc [data-compte="' + LIV_BZ + '"]')),
+    "le crayon sur chaque livreur — d'une boutique comme de BIZZOO");
+  await o.page.click('.livreur-bloc [data-compte="' + LIV_BZ + '"]');
+  await pause(600);
+  ok(!!(await o.page.$("#cp-mdp-changer")) && !!(await o.page.$("#cp-supprimer")) &&
+     !!(await o.page.$("#cp-enregistrer")),
+    "sa fiche : enregistrer, redonner un mot de passe, supprimer");
+  await o.page.fill("#cp-nom", "Sèna D.");
+  await o.page.click("#cp-enregistrer");
+  await pause(1000);
+  ok(o.note.patch.some((x) => x.id === LIV_BZ && x.corps && x.corps.nom === "Sèna D."), "il le renomme");
+  await o.page.evaluate(() => { location.hash = "#/comptes"; });
+  await pause(1500);
+  ok(await ici(o.page) === "#/comptes", "il entre dans Comptes");
+  const t = await texte(o.page);
+  ok(/Fifamè/.test(t) && /à valider par le superadministrateur/.test(t),
+    "il y voit le modérateur qu'il a créé, « à valider »");
+  ok(!!(await o.page.$('[data-compte="' + PEND + '"]')), "et peut le retoucher tant qu'il attend");
+  await o.page.click('[data-compte="' + PEND + '"]');
+  await pause(600);
+  ok(!(await o.page.$("#cp-actif")) && /En attente de validation/.test(await o.page.innerText("body")),
+    "sa fiche : pas d'interrupteur « actif », l'attente est dite");
+  await o.page.evaluate(() => UI.fermerFeuille());
+  await pause(400);
+  await o.page.click("#cp-nouveau");
+  await pause(600);
+  const f = await o.page.evaluate(() => ({
+    roles: [...document.querySelectorAll("#nc-role option")].map((x) => x.value),
+    boutiques: [...document.querySelector("#nc-boutique").options].map((x) => x.value),
+    libre: !document.querySelector("#nc-boutique").disabled }));
+  ok(f.roles.join() === "moderateur", "il crée un modérateur, et rien d'autre (" + f.roles.join(", ") + ")");
+  ok(f.libre && f.boutiques.includes("bou_a") && f.boutiques.includes("__enseigne"),
+    "pour une boutique ou pour BIZZOO");
+  await o.page.fill("#nc-email", "kossi@alpha.bj");
+  await o.page.fill("#nc-mdp", "secret-essai");
+  await o.page.fill("#nc-nom", "Kossi");
+  await o.page.fill("#nc-tel", "0197112233");
+  await o.page.selectOption("#nc-boutique", "bou_a");
+  await o.page.click("#nc-creer");
+  await pause(1500);
+  const fiche = o.note.profils[0] || {};
+  ok(fiche.role === "moderateur" && fiche.boutique_id === "bou_a" && fiche.actif === false,
+    "sa fiche part INACTIVE : modérateur d'Alpha, à valider");
+  sansErreur(o);
+  await o.ctx.close();
+}
+
+titre("8. Le superadministrateur valide (3.63.0)");
+{
+  const o = await ouvrir(SUPER, "#/comptes");
+  const t = await texte(o.page);
+  ok(/À valider \(1\)/.test(t) && /Fifamè/.test(t), "« À valider (1) », en tête");
+  await o.page.click('[data-valider="' + PEND + '"]');
+  await pause(1200);
+  ok(o.note.patch.some((x) => x.id === PEND && x.corps && x.corps.actif === true),
+    "« Valider » l'active");
   sansErreur(o);
   await o.ctx.close();
 }

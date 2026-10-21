@@ -5127,6 +5127,43 @@ en ligne le 21 octobre 2026). L'essai
 fermé : ni modérateur, ni administrateur, ni lui-même ; et
 l'administrateur d'une boutique toujours enfermé dans la sienne.
 
+Il manquait aussi **le crayon** : à l'écran, `Store.gereLeCompte` exigeait
+une boutique, et l'administrateur de BIZZOO n'en a pas — ses livreurs
+s'affichaient sans aucun moyen de les ouvrir. Il l'a désormais sur tous.
+
+### Le modérateur créé par l'administrateur, validé par le superadministrateur
+
+Demande du CEO (message vocal du 21 octobre 2026) : *« un administrateur
+peut créer un compte modérateur, et c'est le superadministrateur qui va
+juste valider »* — pour pouvoir ensuite ramener les superadministrateurs
+au rang d'administrateur.
+
+- **L'administrateur de BIZZOO** entre dans « Comptes » et crée un
+  modérateur, pour une boutique ou pour BIZZOO. Le compte naît
+  **inactif** et « à valider par le superadministrateur ». Tant qu'il
+  attend, son créateur le voit, le retouche, lui redonne un mot de
+  passe ou le retire ; l'activer, jamais.
+- **Le superadministrateur** est prévenu (notification « Un compte
+  modérateur à valider ») et trouve en tête de « Comptes » une carte
+  « À valider » avec un bouton **Valider**. Activer le compte le valide ;
+  son créateur en est prévenu à son tour.
+- **Personne d'autre ne l'active** : ni l'administrateur de la boutique
+  concernée, ni une requête qui écrirait la colonne elle-même. C'est la
+  base qui y veille (`profil_validation`, colonne `profils.a_valider`),
+  pas l'écran.
+- Validé, le compte n'appartient plus à son créateur : il se gère comme
+  les autres. L'administrateur de BIZZOO ne crée toujours ni
+  administrateur ni superadministrateur.
+
+Le tout est dans `supabase/admin-bizzoo-livreurs.sql`. Un piège en
+chemin : l'écran pose le rang par `insert … on conflict`, et PostgreSQL
+exige alors que la ligne **proposée** soit lisible par son auteur —
+avant même la mise à jour. Elle ne l'était que par son créateur, qui
+n'était pas encore posé : `profil_validation` le pose dès l'insertion.
+
+Gardés par l'essai `99zzz…-moderateur-a-valider.sql` (19 constats) et
+les chapitres 7 et 8 de `tools/banc-admin-bizzoo.mjs`.
+
 ## Structure
 
 ```

@@ -535,6 +535,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Comptes de l'équipe ---------- */
 .compte-ligne{display:flex;align-items:center;gap:11px;padding:11px 0}
 .compte-ligne + .compte-ligne{border-top:1px solid var(--trait)}
+/* (3.63.0) Un compte à valider : sa ligne, et le bouton « Valider » dessous. */
+.compte-a-valider{padding:2px 0 12px}
+.compte-a-valider + .compte-a-valider{border-top:1px solid var(--trait)}
+.compte-a-valider > .btn-mini{margin-left:44px}
 .compte-inactif{opacity:.55}
 .compte-rond{
   flex:none;display:flex;align-items:center;justify-content:center;
