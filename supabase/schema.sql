@@ -1182,6 +1182,14 @@ create extension if not exists pgcrypto with schema extensions;
 -- Qui a le droit d'agir sur ce compte-là ? Le superadministrateur sur
 -- tous ; l'administrateur seulement sur les modérateurs et les livreurs
 -- (3.59.0) de sa boutique.
+--
+-- (3.63.0) ET L'ADMINISTRATEUR DE BIZZOO SUR TOUS LES LIVREURS. Les
+-- règles de « profils » le lui permettaient déjà — créer, modifier,
+-- retirer un livreur, de n'importe quelle boutique ou de BIZZOO — mais
+-- cette fonction l'avait oublié : « Redonner un mot de passe » et
+-- « Supprimer » lui répondaient « Ce compte n'est pas sous votre
+-- responsabilité ». Un livreur, et rien d'autre : ni modérateur, ni
+-- administrateur.
 create or replace function public.gere_le_compte(cible uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   -- (3.59.0) Jamais sur celui qui vous a créé, ni plus haut.
@@ -1190,7 +1198,10 @@ language sql stable security definer set search_path = public as $$
             select 1 from public.profils p
              where p.id = cible and p.role in ('moderateur', 'livreur')
                and p.boutique_id is not null
-               and p.boutique_id = public.boutique_du_compte())));
+               and p.boutique_id = public.boutique_du_compte()))
+      or (public.est_admin_bizzoo() and exists (
+            select 1 from public.profils p
+             where p.id = cible and p.role = 'livreur')));
 $$;
 grant execute on function public.gere_le_compte(uuid) to authenticated;
 

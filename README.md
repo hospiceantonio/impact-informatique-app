@@ -5113,6 +5113,20 @@ L'essai de base, 17 constats : la fiche posée, la fiche en attente
 remplacée, le compte d'équipe écarté, et les étapes rendues par le
 numéro — « nouvelle », « remise », puis confirmée.
 
+### L'administrateur de BIZZOO et ses livreurs
+
+Depuis la 3.59.0, l'administrateur de BIZZOO crée et modifie tous les
+livreurs : les règles de `profils` le lui permettent. Mais « Redonner un
+mot de passe » et « Supprimer » passent par `gere_le_compte`, qui ne
+connaissait que le superadministrateur et l'administrateur d'une
+boutique : ces deux gestes lui répondaient « Ce compte n'est pas sous
+votre responsabilité ». La fonction l'accepte désormais — pour un
+livreur, et rien d'autre (`supabase/admin-bizzoo-livreurs.sql`, appliqué
+en ligne le 21 octobre 2026). L'essai
+`99zzz…-admin-bizzoo-livreurs.sql` le garde, avec ce qui doit rester
+fermé : ni modérateur, ni administrateur, ni lui-même ; et
+l'administrateur d'une boutique toujours enfermé dans la sienne.
+
 ## Structure
 
 ```

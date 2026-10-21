@@ -135,7 +135,10 @@ language sql stable security definer set search_path = public as $$
             select 1 from public.profils p
              where p.id = cible and p.role in ('moderateur', 'livreur')
                and p.boutique_id is not null
-               and p.boutique_id = public.boutique_du_compte())));
+               and p.boutique_id = public.boutique_du_compte()))
+      or (public.est_admin_bizzoo() and exists (
+            select 1 from public.profils p
+             where p.id = cible and p.role = 'livreur')));
 $$;
 grant execute on function public.gere_le_compte(uuid) to authenticated;
 
