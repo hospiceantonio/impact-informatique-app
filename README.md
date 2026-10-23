@@ -5318,6 +5318,11 @@ Fichiers : `supabase/notifications-push.sql`,
 3. Construire les APK : les livreurs et les boutiques installent la
    nouvelle BIZZOO Admin et s'y reconnectent une fois.
 
+En ligne le 23 octobre 2026 : pg_net activé, tables, déclencheur et
+fonctions posés, `envoyer-push` déployée (essayée : « Rien à envoyer » pour
+un numéro inconnu, 400 pour un numéro absurde), adresse réglée, et l'ID
+Firebase de l'application admin renseigné.
+
 Android seulement : l'application iOS n'a pas encore de notifications push
 (il faudrait un certificat Apple). Dans un navigateur, rien ne change.
 
