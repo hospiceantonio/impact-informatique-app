@@ -23,7 +23,8 @@ const Paiement = (() => {
   const ATTENTE_MAX = 90000;    // 1 min 30 : le bac à sable prend son temps
   const INTERVALLE = 3000;
 
-  let reglages = null;          // { actif, fournisseur, clePublique, bacASable, tauxAcompte }
+  let reglages = null;          // { actif, fournisseur, clePublique, bacASable, tauxAcompte, livraison }
+  const CLE_DESTINATION = "bizzoo-destination";
   let widgetCharge = null;      // promesse de chargement du script
   let enCours = null;           // la promesse du paiement ouvert
 
@@ -143,6 +144,10 @@ const Paiement = (() => {
         /* LES FRAIS DE LIVRAISON, par commande, en FCFA. Une base d'avant
            ne les connaît pas : il n'y en a pas, et on n'en annonce pas. */
         fraisLivraison: Math.max(0, Math.round(Number(ligne.frais_livraison) || 0)),
+        /* (3.64.0) LA LIVRAISON AU KILOMÈTRE : en service dès que le
+           superadministrateur a réglé le point BIZZOO. Une base d'avant
+           ne la connaît pas : null, et rien ne change. */
+        livraison: lireLivraison(ligne),
       };
     } catch (_) {
       if (options && options.garder && reglages) return reglages;
@@ -151,7 +156,88 @@ const Paiement = (() => {
       reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true,
                    tauxAcompte: 100, fraisLivraison: 0 };
     }
+    /* Les écrans déjà dessinés sans eux peuvent se compléter. */
+    document.dispatchEvent(new CustomEvent("paiement:charge"));
     return reglages;
+  }
+
+  function lireLivraison(ligne) {
+    const lat = ligne.livraison_latitude, lng = ligne.livraison_longitude;
+    if (lat === null || lat === undefined || lng === null || lng === undefined) return null;
+    const n = (v, d) => (v === null || v === undefined || isNaN(Number(v)) ? d : Number(v));
+    return {
+      point: { latitude: Number(lat), longitude: Number(lng) },
+      adresse: String(ligne.livraison_adresse || ""),
+      rayon: n(ligne.livraison_rayon_km, 10),
+      coef: n(ligne.livraison_coef, 1.3),
+      moto: { forfait: n(ligne.moto_forfait, 1000), prixKm: n(ligne.moto_prix_km, 100) },
+      tricycle: { forfait: n(ligne.tricycle_forfait, 4000), prixKm: n(ligne.tricycle_prix_km, 500) },
+    };
+  }
+
+  /* ---------- La livraison au kilomètre (3.64.0) ----------
+     UN frais pour la commande, du point BIZZOO jusqu'au client : le
+     forfait du véhicule jusqu'au rayon (10 km), puis chaque kilomètre
+     ENTAMÉ. Le tricycle dès qu'un seul produit l'exige. Ce qui suit est
+     un APERÇU, calculé comme « devis_livraison » le fait en base : c'est
+     elle qui fige les frais sur la commande, et c'est son montant qui se
+     paie. */
+  const livraisonAuKm = () => !!(reglages && reglages.livraison);
+  const tarifs = () => (reglages && reglages.livraison) || null;
+
+  /** Le véhicule du panier : tricycle dès qu'un produit l'exige. */
+  function vehiculePanier() {
+    const lignes = typeof Panier !== "undefined" ? Panier.lignes() : [];
+    return lignes.some((l) => l.produit && l.produit.vehicule === "tricycle") ? "tricycle" : "moto";
+  }
+
+  /** Le devis d'une livraison vers « dest », ou null. */
+  function devis(dest, vehicule) {
+    const t = tarifs();
+    if (!t || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) return null;
+    const v = vehicule === "tricycle" ? "tricycle" : "moto";
+    const rad = (d) => d * Math.PI / 180;
+    const dlat = rad(dest.latitude - t.point.latitude);
+    const dlng = rad(dest.longitude - t.point.longitude);
+    const a = Math.sin(dlat / 2) ** 2 +
+      Math.cos(rad(t.point.latitude)) * Math.cos(rad(dest.latitude)) * Math.sin(dlng / 2) ** 2;
+    const dist = Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000;
+    const km = dist > t.rayon ? Math.ceil(dist - t.rayon) : 0;
+    const tarif = t[v];
+    return { vehicule: v, distanceKm: Math.round(dist * 10) / 10, rayon: t.rayon, kmFactures: km,
+             forfait: tarif.forfait, prixKm: tarif.prixKm, frais: tarif.forfait + km * tarif.prixKm };
+  }
+
+  /** « Livraison tricycle : 4 000 F jusqu'à 10 km, 500 F par km au-delà. » */
+  function phraseTarif(vehicule, devise) {
+    const t = tarifs();
+    if (!t) return "";
+    const v = vehicule === "tricycle" ? "tricycle" : "moto";
+    const f = (n) => Utils.fmtMontant(n, devise || "FCFA");
+    return "Livraison " + (v === "tricycle" ? "en tricycle" : "à moto") + " : " + f(t[v].forfait) +
+      " jusqu'à " + String(t.rayon).replace(".", ",") + " km, " + f(t[v].prixKm) + " par km au-delà.";
+  }
+
+  /* Où livrer : gardé sur le téléphone, pour ne pas le redemander à
+     chaque commande. Le client le change d'un geste. */
+  function destination() {
+    try {
+      const d = JSON.parse(localStorage.getItem(CLE_DESTINATION) || "null");
+      if (d && isFinite(d.latitude) && isFinite(d.longitude) &&
+          Math.abs(d.latitude) <= 90 && Math.abs(d.longitude) <= 180 &&
+          !(d.latitude === 0 && d.longitude === 0)) {
+        return { latitude: Number(d.latitude), longitude: Number(d.longitude) };
+      }
+    } catch (_) { /* navigation privée */ }
+    return null;
+  }
+  function choisirDestination(d) {
+    try {
+      if (d) localStorage.setItem(CLE_DESTINATION, JSON.stringify({
+        latitude: Number(Number(d.latitude).toFixed(6)), longitude: Number(Number(d.longitude).toFixed(6)) }));
+      else localStorage.removeItem(CLE_DESTINATION);
+    } catch (_) { /* stockage plein : elle vivra le temps de l'écran */ }
+    document.dispatchEvent(new CustomEvent("destination:maj"));
   }
 
   const fournisseur = () => (reglages && reglages.fournisseur) || "kkiapay";
@@ -191,7 +277,12 @@ const Paiement = (() => {
     const groupes = typeof Panier !== "undefined" ? Panier.parBoutique() : [];
     const sousTotal = groupes.reduce((s, g) => s + g.montant, 0);
     const r = Math.min(Math.max(0, Math.round(Number(remise) || 0)), sousTotal);
-    const parBoutique = groupes.some((g) => g.boutique && g.boutique.fraisLivraison !== undefined);
+    /* (3.64.0) Au kilomètre, plus de frais par boutique : UN frais pour
+       la commande, payé en entier en ligne avec l'acompte. Tant que le
+       client n'a pas dit où livrer, on n'en connaît que le forfait. */
+    const auKm = livraisonAuKm();
+    const leDevis = auKm ? devis(destination(), vehiculePanier()) : null;
+    const parBoutique = !auKm && groupes.some((g) => g.boutique && g.boutique.fraisLivraison !== undefined);
     const parts = groupes.map((g) => {
       const b = g.boutique || {};
       const net = Math.max(0, Math.round(g.montant - (sousTotal ? r * g.montant / sousTotal : 0)));
@@ -202,15 +293,20 @@ const Paiement = (() => {
       const du = net + frais;
       return { boutique: b, frais, taux, du, acompte: Math.min(du, Math.ceil(du * taux / 100)) };
     });
-    const fraisUniques = parBoutique ? 0 : (groupes.length ? fraisLivraison() : 0);
+    const fraisKm = leDevis && groupes.length ? leDevis.frais : 0;
+    const fraisUniques = auKm ? fraisKm : parBoutique ? 0 : (groupes.length ? fraisLivraison() : 0);
     const frais = parts.reduce((s, p) => s + p.frais, 0) + fraisUniques;
     const total = Math.max(0, sousTotal - r) + frais;
-    let acompte = parBoutique
-      ? parts.reduce((s, p) => s + p.acompte, 0)
-      : (total > 0 ? Math.ceil(total * tauxAcompte() / 100) : 0);
+    let acompte = auKm
+      ? parts.reduce((s, p) => s + p.acompte, 0) + fraisKm
+      : parBoutique
+        ? parts.reduce((s, p) => s + p.acompte, 0)
+        : (total > 0 ? Math.ceil(total * tauxAcompte() / 100) : 0);
     if (total > 0) acompte = Math.min(total, Math.max(acompte, 100));
     const taux = [...new Set(parts.map((p) => p.taux))];
     return { sousTotal, remise: r, frais, total, acompte, reste: total - acompte, parts,
+      /* Au kilomètre : le devis, ou null tant qu'on ne sait pas où livrer. */
+      auKm, devis: leDevis, vehicule: auKm ? vehiculePanier() : null,
       /* Un seul taux pour tout le panier : on peut l'écrire. */
       tauxUnique: parBoutique ? (taux.length === 1 ? taux[0] : null) : tauxAcompte() };
   }
@@ -390,9 +486,20 @@ const Paiement = (() => {
    * sans lui, et la commande se paie en entier — la réponse le dit, et
    * l'écran suit la réponse.
    */
-  async function creerCommande(client, articles, code) {
+  async function creerCommande(client, articles, code, ou) {
     /* Du plus récent au plus ancien : une base d'avant les frais de
        livraison, ou d'avant l'acompte, ne connaît pas ces paramètres. */
+    /* (3.64.0) Où livrer : la base en tire la distance et les frais. Une
+       base d'avant ne connaît pas « destination » : on retombe plus bas. */
+    if (ou) {
+      try {
+        return await rpc("creer_commande",
+          { client, articles, code: code || "", avec_acompte: true, avec_frais: true,
+            destination: { latitude: ou.latitude, longitude: ou.longitude } });
+      } catch (err) {
+        if (!err.inconnue) throw err;
+      }
+    }
     try {
       return await rpc("creer_commande",
         { client, articles, code: code || "", avec_acompte: true, avec_frais: true });
@@ -527,6 +634,7 @@ const Paiement = (() => {
   return {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe, fraisLivraison, apercu,
+    livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,

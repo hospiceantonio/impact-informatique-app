@@ -364,7 +364,12 @@ const VueCommandes = (() => {
                 : "") +
               (c.fraisLivraison > 0
                 ? '<span class="cmd-part">dont ' +
-                    Utils.echapper(Utils.fmtMontant(c.fraisLivraison, c.devise)) + " de livraison</span>"
+                    Utils.echapper(Utils.fmtMontant(c.fraisLivraison, c.devise)) + " de livraison" +
+                    (c.livraison && c.livraison.vehicule
+                      ? " (" + (c.livraison.vehicule === "tricycle" ? "tricycle" : "moto") +
+                        (c.livraison.distance_km != null
+                          ? ", " + Utils.echapper(String(c.livraison.distance_km).replace(".", ",")) + " km" : "") + ")"
+                      : "") + "</span>"
                 : "") +
             "</div>"
           : "") +

@@ -1278,6 +1278,7 @@ const Compte = (() => {
       verse: l.verse == null ? null : Number(l.verse),
       reste: l.restes ? Math.max(0, Number(l.restes.reste) || 0) : 0,
       frais_livraison: Math.max(0, Number(l.frais_livraison) || 0),
+      livraison: l.livraison && typeof l.livraison === "object" ? l.livraison : null,
       client: {
         nom: l.client_nom || "", tel: l.client_tel || "",
         indicatif: l.client_indicatif || "229",
@@ -1306,6 +1307,9 @@ const Compte = (() => {
   /* Les frais de livraison : une base d'avant n'a pas la colonne. */
   const CHAMPS_FRAIS = ",frais_livraison";
   let avecFrais = true;
+  /* (3.64.0) Le véhicule et la distance : une base d'avant n'a pas la colonne. */
+  const CHAMPS_KM = ",livraison";
+  let avecKm = true;
 
   /**
    * Lire des commandes avec leur acompte. Une base d'avant l'acompte ne
@@ -1313,6 +1317,15 @@ const Compte = (() => {
    * sans elles, et l'on ne les redemande plus.
    */
   async function lireCommandes(suite) {
+    if (avecAcompte && avecFrais && avecKm) {
+      try {
+        return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE +
+          CHAMPS_FRAIS + CHAMPS_KM + suite);
+      } catch (err) {
+        if (!/livraison/i.test(err.message || "")) throw err;
+        avecKm = false;
+      }
+    }
     if (avecAcompte && avecFrais) {
       try {
         return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE +

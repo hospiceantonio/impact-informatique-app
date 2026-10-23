@@ -70,6 +70,8 @@
        rien à faire ici, il confie les courses depuis les commandes. */
     { motif: /^\/livraisons$/, vue: (v) => VueLivraisons.afficher(v),
       livreur: true, onglet: "/livraisons" },
+    /* (3.64.0) Ses gains : sa part des frais de livraison, ses reversements. */
+    { motif: /^\/gains$/, vue: (v) => VueSoldes.gains(v), livreur: true, onglet: "/livraisons" },
     { motif: /^\/client\/([^/]+)$/, vue: (v, m) => VueClients.fiche(v, m[1]), super: true },
     /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
        la base ne montre à chacun que les siens. Masquer reste à

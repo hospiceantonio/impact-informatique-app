@@ -2334,3 +2334,28 @@ a.pub-carte:active{transform:scale(.98)}
 .re-encaisse-signale{margin:6px 0 0}
 .re-barre span,.re-barre strong{text-decoration:line-through;opacity:.6}
 .re-soldee{display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;color:var(--vert)}
+
+/* =========================================================
+   La livraison au kilomètre (3.64.0)
+   ========================================================= */
+/* Sur la fiche : le véhicule et son tarif, en bleu qui informe. */
+.fiche-livraison{
+  display:flex;align-items:center;gap:7px;
+  margin:10px 0 2px;padding:9px 12px;border-radius:var(--r-sm);
+  background:var(--bleu-50);color:var(--bleu-700);
+  font-size:12.5px;font-weight:600;
+}
+.fiche-livraison[hidden]{display:none}
+.pa-recap-tarif{margin:-2px 0 0;font-size:11.5px;color:var(--encre-douce, #556)}
+/* « Où livrer ? » : l'état d'abord — orange tant qu'on ne sait pas,
+   vert quand les frais sont connus —, puis les deux gestes, puis la carte. */
+.co-ou .btn-rangee{margin-top:10px}
+.co-ou-etat{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;
+  border-radius:var(--r-sm);font-size:13px;font-weight:600;line-height:1.35}
+.co-ou-vide{background:var(--ambre-clair);color:var(--orange-fonce)}
+.co-ou-ok{background:var(--vert-clair);color:var(--vert)}
+.co-ou-ok strong{color:var(--encre)}
+.co-carte{height:230px;margin-top:12px;border-radius:var(--r-sm);overflow:hidden;
+  border:1px solid var(--trait);background:var(--bleu-50)}
+.co-carte[hidden]{display:none}
+.co-carte .leaflet-control-attribution{font-size:9px}

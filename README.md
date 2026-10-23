@@ -5164,6 +5164,103 @@ n'était pas encore posé : `profil_validation` le pose dès l'insertion.
 Gardés par l'essai `99zzz…-moderateur-a-valider.sql` (19 constats) et
 les chapitres 7 et 8 de `tools/banc-admin-bizzoo.mjs`.
 
+
+## La livraison au kilomètre, et le solde des livreurs (3.64.0)
+
+Les frais de livraison ne dépendent plus de la boutique mais de la
+**distance** entre le point de départ de BIZZOO et le client.
+
+### Le tarif
+
+| Véhicule | Jusqu'à 10 km | Au-delà, par km entamé |
+|---|---|---|
+| Moto | 1 000 FCFA | 100 FCFA |
+| Tricycle | 4 000 FCFA | 500 FCFA |
+
+- **La distance** : à vol d'oiseau du point BIZZOO au client, × 1,3 (le
+  coefficient de la route). Le kilomètre **entamé** compte : 10,1 km
+  facturent 11 km. Pas de distance maximale.
+- **Le véhicule** : chaque produit a le sien (*moto* par défaut, pour
+  tous les produits existants ; modifiable dans sa fiche, « Livré
+  par »). **Un seul produit en tricycle** fait livrer toute la commande
+  en tricycle.
+- **Un seul frais par commande**, même si elle traverse plusieurs
+  boutiques : les frais de chaque boutique ne comptent plus. Il se paie
+  **en ligne, avec l'acompte** ; les codes promo n'y touchent pas ; les
+  revendeurs paient le même. Le reste à la livraison ne le compte pas.
+- Tout se règle dans **Réglages → BIZZOO → Livraison au kilomètre**
+  (superadministrateur seul) : le point (position actuelle, ou épingle
+  sur la carte), les forfaits, les prix au km, le rayon, la part du
+  livreur.
+
+**Rien ne change tant que le point BIZZOO n'est pas réglé** : chaque
+boutique garde ses frais. Les commandes passées gardent les leurs.
+« Arrêter la livraison au km » rend la main aux frais par boutique.
+
+### Le client
+
+- Le panier annonce « Livraison à moto — selon la distance — dès
+  1 000 FCFA » et le tarif du véhicule ; la fiche d'un produit dit
+  « Livraison en tricycle : 4 000 FCFA jusqu'à 10 km, 500 FCFA par km
+  au-delà ».
+- **Sa position est obligatoire** pour commander : « Utiliser ma
+  position », puis l'épingle se déplace sur la carte (ou l'on colle un
+  lien Google Maps) pour être livré ailleurs. Les frais s'affichent
+  aussitôt ; la position est gardée pour la commande suivante. Sans
+  position, la base refuse la commande.
+- Le reçu dit « dont 1 400 FCFA de frais de livraison (moto, 13,4 km) ».
+
+La carte est **Leaflet 1.9.4** (licence BSD), embarquée dans
+`client/vendor/leaflet` et `admin/vendor/leaflet`, avec les tuiles
+d'OpenStreetMap. Elle ne se charge qu'à l'ouverture d'une carte
+(`js/carte.js`). Sans connexion, « Utiliser ma position » marche
+toujours.
+
+### Les livreurs
+
+- **Un seul livreur par commande** au kilomètre. Une commande de
+  plusieurs boutiques se confie à un livreur de BIZZOO, qui les livre
+  toutes ; une commande en tricycle, à un livreur en tricycle — la base
+  refuse le reste, et ne la propose qu'aux bons livreurs.
+- Chaque livreur a un **véhicule** (moto par défaut), réglé dans sa
+  fiche (« Livreurs »).
+- Sa course montre le véhicule, la distance et **son gain**.
+- **Ses gains** : 80 % des frais de chaque commande, crédités dès que
+  **toute la commande est remise** (sans attendre le « J'ai bien reçu »
+  du client), au taux du jour, figé. Une commande annulée ne rapporte
+  rien. Le reste (20 %) revient à BIZZOO. Le taux se change dans les
+  Réglages ; il vaut pour tous les livreurs, ceux de BIZZOO comme ceux
+  des boutiques.
+- **Mes gains** (icône en haut de « Mes courses ») : le solde, le numéro
+  Mobile Money qui reçoit les gains, « Demander un reversement »,
+  l'historique.
+- **Le superadministrateur** trouve les demandes des livreurs dans
+  « Reversements », à côté de celles des boutiques : il envoie
+  l'argent, puis touche « Envoyé » avec la référence — ou refuse, avec un
+  motif.
+
+### Mise en service
+
+1. Exécuter `supabase/livraison-au-km.sql` (ou `schema.sql`) — sans
+   effet sur les commandes tant que le point n'est pas réglé.
+2. Régler les véhicules : les gros produits en tricycle, les livreurs
+   en tricycle.
+3. Réglages → BIZZOO → Livraison au kilomètre : poser le point BIZZOO,
+   vérifier les tarifs, **Enregistrer**. C'est en service.
+
+### Les essais
+
+- `supabase/tests/99zzz…-livraison-au-km.sql` : le devis (forfait, km
+  entamé, tricycle, positions absurdes refusées), la commande (position
+  obligatoire, un seul frais, acompte + frais, restes sans frais), un
+  livreur par commande, le tricycle aux tricycles, le crédit de 80 %
+  une seule fois, rien sur une commande annulée, le solde, les
+  reversements tranchés par le superadministrateur seul.
+- `tools/banc-livraison-km.mjs` : panier, fiche produit, « Où livrer ? »
+  avec la position du téléphone et un lien collé, la commande et son
+  reçu, une base sans point BIZZOO, les Réglages, l'écran du livreur et
+  « Mes gains », la décision du superadministrateur.
+
 ## Structure
 
 ```

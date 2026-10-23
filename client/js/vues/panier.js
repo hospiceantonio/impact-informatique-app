@@ -216,11 +216,15 @@ const VuePanier = (() => {
       '<div class="carte pa-recap">' +
         '<div class="pa-recap-ligne"><span>Sous-total</span><span>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
-        (frais > 0
+        (ap.auKm
+          ? ligneLivraisonKm(ap, devise, "pa-recap-ligne pa-recap-frais") +
+            '<p class="pa-recap-tarif" id="pa-tarif">' + Utils.echapper(Paiement.phraseTarif(ap.vehicule, devise)) + "</p>"
+          : frais > 0
           ? '<div class="pa-recap-ligne pa-recap-frais"><span>Frais de livraison</span><span>' +
               Utils.echapper(Utils.fmtMontant(frais, devise)) + "</span></div>"
           : '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>') +
-        '<div class="pa-recap-ligne pa-recap-total"><span>Total</span><strong>' +
+        '<div class="pa-recap-ligne pa-recap-total"><span>' +
+          (ap.auKm && !ap.devis ? "Total <small>hors livraison</small>" : "Total") + "</span><strong>" +
           Utils.echapper(Utils.fmtMontant(totalPanier, devise)) + "</strong></div>" +
         /* L'ACOMPTE, DÈS LE PANIER : le client doit savoir ce qu'il paiera
            en commandant avant de taper ses coordonnées. C'est un aperçu ;
@@ -273,7 +277,7 @@ const VuePanier = (() => {
     if (!Paiement.connu()) {
       Paiement.charger().then(() => {
         if (location.hash === "#/panier" &&
-            (Paiement.disponible() || Paiement.fraisLivraison() > 0)) afficher(vue);
+            (Paiement.disponible() || Paiement.fraisLivraison() > 0 || Paiement.livraisonAuKm())) afficher(vue);
       }).catch(() => { /* sans réglages : pas d'acompte à annoncer */ });
     }
 
@@ -305,12 +309,41 @@ const VuePanier = (() => {
     if (ap.acompte >= ap.total) return "";
     return (
       '<div class="pa-recap-ligne pa-recap-acompte"><span>À payer à la commande ' +
-        "<small>" + Utils.echapper(motAcompte(ap)) + "</small></span><span>" +
+        "<small>" + Utils.echapper(motAcompte(ap)) +
+          /* Au kilomètre, la livraison s'y ajoutera, une fois la distance connue. */
+          (ap.auKm && !ap.devis ? " + livraison" : "") + "</small></span><span>" +
         Utils.echapper(Utils.fmtMontant(ap.acompte, devise)) + "</span></div>" +
       '<div class="pa-recap-ligne"><span>À payer à la livraison</span><span>' +
         Utils.echapper(Utils.fmtMontant(ap.reste, devise)) + "</span></div>" +
       detailBoutiques(ap, devise)
     );
+  }
+
+  /**
+   * (3.64.0) La ligne de la livraison au kilomètre : le véhicule, la
+   * distance et les frais quand on sait où livrer ; sinon le forfait,
+   * « dès … », calculé à l'étape suivante.
+   */
+  function ligneLivraisonKm(ap, devise, classe) {
+    const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, devise));
+    const mot = ap.vehicule === "tricycle" ? "en tricycle" : "à moto";
+    const t = Paiement.tarifs();
+    if (ap.devis) {
+      return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
+        " <small>" + String(ap.devis.distanceKm).replace(".", ",") + " km</small></span><span>" +
+        fmt(ap.devis.frais) + "</span></div>";
+    }
+    return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
+      " <small>selon la distance</small></span><span>dès " +
+      fmt(t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait : 0) + "</span></div>";
+  }
+
+  /** « (moto, 13,4 km) » : le véhicule et la distance figés sur la commande. */
+  function motLivraison(l) {
+    if (!l || !l.vehicule) return "";
+    const d = Number(l.distance_km);
+    return " (" + (l.vehicule === "tricycle" ? "tricycle" : "moto") +
+      (isFinite(d) && d > 0 ? ", " + String(d).replace(".", ",") + " km" : "") + ")";
   }
 
   /** « acompte de 30 % », ou « selon chaque boutique » quand elles diffèrent. */
@@ -636,6 +669,10 @@ const VuePanier = (() => {
           '<textarea id="co-note" rows="2" placeholder="Précisions sur la couleur, la taille…"></textarea></div>' +
       "</div>" +
 
+      /* (3.64.0) OÙ LIVRER, quand la livraison se compte au kilomètre :
+         la position est obligatoire — sans elle, ni distance ni frais. */
+      (enLigne && Paiement.livraisonAuKm() ? blocOuLivrer(devise) : "") +
+
       /* LE CODE PROMO N'A DE SENS QUE SI BIZZOO ENCAISSE. Quand le
          paiement en ligne est fermé, la commande part directement chez
          chaque boutique par WhatsApp : aucune commande n'est créée en
@@ -763,6 +800,7 @@ const VuePanier = (() => {
     }
 
     brancherCode(vue, devise, boutonPayer);
+    if (enLigne && Paiement.livraisonAuKm()) brancherOuLivrer(vue, devise, boutonPayer);
 
     /* Les réglages déjà connus se relisent à côté : si le taux a changé
        entre-temps, le total et le bouton suivent. Une relecture qui échoue
@@ -773,6 +811,118 @@ const VuePanier = (() => {
           rafraichirTotal(vue, devise, boutonPayer);
         }
       }).catch(() => { /* on garde ce qu'on a */ });
+    }
+  }
+
+  /* -----------------------------------------------------
+     Où livrer (3.64.0)
+     -----------------------------------------------------
+     « Utiliser ma position » pose l'épingle là où est le téléphone ; on
+     la déplace sur la carte — ou l'on colle un lien de carte — pour
+     être livré ailleurs. Les frais suivent, en aperçu : la base les
+     recalcule et les fige en créant la commande. */
+  let carteOu = null;
+
+  function etatOuLivrer(devise) {
+    const ap = Paiement.apercu(promo.remise || 0);
+    if (!ap.devis) {
+      return '<div class="co-ou-etat co-ou-vide">' + UI.icone("alerte", "ic-sm") +
+        "<span>Indiquez où livrer : les frais de livraison se calculent selon la distance.</span></div>";
+    }
+    return '<div class="co-ou-etat co-ou-ok">' + UI.icone("check", "ic-sm") +
+      "<span>Livraison " + (ap.vehicule === "tricycle" ? "en tricycle" : "à moto") + " · " +
+      String(ap.devis.distanceKm).replace(".", ",") + " km · <strong>" +
+      Utils.echapper(Utils.fmtMontant(ap.devis.frais, devise)) + "</strong></span></div>";
+  }
+
+  function blocOuLivrer(devise) {
+    return (
+      '<div class="carte co-ou" id="co-ou">' +
+        '<div class="carte-titre">Où livrer ?</div>' +
+        '<div id="co-ou-etat">' + etatOuLivrer(devise) + "</div>" +
+        '<div class="btn-rangee">' +
+          '<button type="button" class="btn btn-clair" id="co-ma-position">' + UI.icone("lieu", "ic-sm") +
+            "Utiliser ma position</button>" +
+          '<button type="button" class="btn btn-clair" id="co-sur-carte">Choisir sur la carte</button>' +
+        "</div>" +
+        '<div class="co-carte" id="co-carte"' + (Paiement.destination() ? "" : " hidden") + "></div>" +
+        '<p class="aide" style="margin:8px 0 0">Livré ailleurs ? Déplacez l\'épingle, touchez la carte, ' +
+          "ou collez un lien de carte :</p>" +
+        '<input id="co-ou-lien" type="text" inputmode="url" autocomplete="off" ' +
+          'placeholder="Lien Google Maps ou coordonnées" style="margin-top:6px">' +
+        '<p class="aide" style="margin:6px 0 0">' + Utils.echapper(Paiement.phraseTarif(Paiement.vehiculePanier(), devise)) + "</p>" +
+      "</div>"
+    );
+  }
+
+  function brancherOuLivrer(vue, devise, boutonPayer) {
+    const etat = UI.$("#co-ou-etat", vue);
+    const zone = UI.$("#co-carte", vue);
+    const maj = () => {
+      if (etat) etat.innerHTML = etatOuLivrer(devise);
+      rafraichirTotal(vue, devise, boutonPayer);
+    };
+    const choisir = (d, recentrer) => {
+      Paiement.choisirDestination(d);
+      if (carteOu) carteOu.placer(d, recentrer);
+      maj();
+    };
+    async function montrerCarte() {
+      if (!zone) return;
+      zone.hidden = false;
+      if (carteOu) return;
+      const t = Paiement.tarifs();
+      try {
+        carteOu = await Carte.monter(zone, {
+          position: Paiement.destination(),
+          centre: t ? t.point : null,
+          deplace: (d) => choisir(d, false),
+        });
+      } catch (_) {
+        zone.innerHTML = '<p class="aide" style="padding:12px">La carte ne s\'affiche pas sans connexion. ' +
+          "« Utiliser ma position » marche toujours.</p>";
+      }
+    }
+    /* Une carte d'un écran précédent ne survit pas à son écran. */
+    if (carteOu) { carteOu.detruire(); carteOu = null; }
+    if (Paiement.destination()) montrerCarte();
+
+    const boutonPos = UI.$("#co-ma-position", vue);
+    if (boutonPos) {
+      boutonPos.onclick = async () => {
+        const libelle = boutonPos.innerHTML;
+        boutonPos.disabled = true;
+        boutonPos.innerHTML = '<span class="chargement-rond"></span>Localisation…';
+        try {
+          const p = await Compte.positionActuelle();
+          await montrerCarte();
+          choisir(p, true);
+        } catch (err) {
+          UI.toast(err.message || "Position introuvable", "err");
+        }
+        boutonPos.disabled = false;
+        boutonPos.innerHTML = libelle;
+      };
+    }
+    const boutonCarte = UI.$("#co-sur-carte", vue);
+    if (boutonCarte) {
+      boutonCarte.onclick = async () => {
+        await montrerCarte();
+        if (!Paiement.destination()) UI.toast("Touchez la carte là où livrer");
+      };
+    }
+    const lien = UI.$("#co-ou-lien", vue);
+    if (lien) {
+      lien.addEventListener("change", async () => {
+        const p = Compte.positionDuLien(lien.value);
+        if (!p || Math.abs(p.latitude) > 90 || Math.abs(p.longitude) > 180) {
+          UI.toast("Ce lien ne contient pas de position", "err");
+          return;
+        }
+        await montrerCarte();
+        choisir(p, true);
+        lien.value = "";
+      });
     }
   }
 
@@ -801,7 +951,7 @@ const VuePanier = (() => {
     const total = ap.total;
     const acompte = enLigne ? ap.acompte : total;
     const frais = ap.frais;
-    return (promo.remise > 0 || frais > 0
+    return (promo.remise > 0 || frais > 0 || ap.auKm
         ? '<div class="pa-total-ligne"><span>Sous-total</span><span>' +
             fmt(Panier.total()) + "</span></div>"
         : "") +
@@ -809,7 +959,9 @@ const VuePanier = (() => {
         ? '<div class="pa-total-ligne co-remise"><span>Code ' +
             Utils.echapper(promo.code) + "</span><span>− " + fmt(promo.remise) + "</span></div>"
         : "") +
-      (frais > 0
+      (ap.auKm
+        ? ligneLivraisonKm(ap, devise, "pa-total-ligne co-frais")
+        : frais > 0
         ? '<div class="pa-total-ligne co-frais"><span>Frais de livraison</span><span>' +
             fmt(frais) + "</span></div>"
         : "") +
@@ -1033,6 +1185,15 @@ const VuePanier = (() => {
       }
     }
 
+    /* (3.64.0) Au kilomètre, pas de commande sans savoir où livrer. */
+    const ou = Paiement.livraisonAuKm() ? Paiement.destination() : null;
+    if (Paiement.livraisonAuKm() && !ou) {
+      UI.toast("Indiquez où livrer : touchez « Utiliser ma position »", "err");
+      const bloc = UI.$("#co-ou");
+      if (bloc) bloc.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     garderCoordonnees(client);
     /* Le moyen de paiement est arrêté : celui qu'on a choisi, ou celui
        qu'on a gardé. Le module ne le dit qu'une fois par écran. */
@@ -1062,7 +1223,7 @@ const VuePanier = (() => {
          entre-temps, quota atteint — la base passe la commande SANS lui
          plutôt que de la refuser : le panier est bon, c'est le code qui
          ne l'est plus. Le récapitulatif dira ce qui a été retenu. */
-      commande = await Paiement.creerCommande(client, Panier.articles(), promo.code);
+      commande = await Paiement.creerCommande(client, Panier.articles(), promo.code, ou);
     } catch (err) {
       bouton.disabled = false;
       bouton.innerHTML = libelle;
@@ -1093,6 +1254,8 @@ const VuePanier = (() => {
       reste: commande.reste,
       /* Les frais de livraison que la base a figés sur la commande. */
       frais_livraison: Number(commande.frais_livraison) || 0,
+      /* (3.64.0) Le véhicule et la distance, quand elle se compte au km. */
+      livraison: commande.livraison || null,
       client, boutiques: commande.boutiques || [],
     });
 
@@ -1653,7 +1816,7 @@ const VuePanier = (() => {
           Utils.echapper(Utils.fmtMontant(commande.total, commande.devise)) + "</div>" +
         (Number(commande.frais_livraison) > 0
           ? '<div class="re-frais">dont ' + fmt(Number(commande.frais_livraison)) +
-              " de frais de livraison</div>"
+              " de frais de livraison" + motLivraison(commande.livraison) + "</div>"
           : "") +
         /* Ce qui se paie en ligne, puis à la porte. Avant le versement,
            l'acompte est « à payer » ; après, c'est ce que l'agrégateur a

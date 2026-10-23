@@ -229,6 +229,16 @@ const VueComptes = (() => {
         type: "tel", placeholder: "01 97 00 00 00",
         aide: "C'est là que part son code de connexion par SMS. Le changer annule " +
           "sa vérification : le prochain code partira au nouveau numéro." }) +
+      /* (3.64.0) Son véhicule : le tricycle porte les gros colis. */
+      (compte.role === "livreur" && compte.vehicule !== undefined
+        ? '<div class="champ"><label for="cp-vehicule">Véhicule</label>' +
+          '<select id="cp-vehicule">' +
+            '<option value="moto"' + (compte.vehicule === "tricycle" ? "" : " selected") + ">Moto</option>" +
+            '<option value="tricycle"' + (compte.vehicule === "tricycle" ? " selected" : "") + ">Tricycle</option>" +
+          "</select>" +
+          '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
+        "</div>"
+        : "") +
       /* (3.63.0) UN COMPTE À VALIDER : seul le superadministrateur
          l'active, et l'activer le valide. Son créateur le voit attendre. */
       (compte.aValider && !Supabase.estSuper()
@@ -397,6 +407,10 @@ const VueComptes = (() => {
         const tel = UI.$("#cp-tel", corps).value.trim();
         if (nom !== (compte.nom || "")) await Store.majCompte(compte.id, { nom });
         if (tel !== (compte.tel || "")) await Store.majCompte(compte.id, { tel });
+        const champVehicule = UI.$("#cp-vehicule", corps);
+        if (champVehicule && champVehicule.value !== (compte.vehicule || "moto")) {
+          await Store.majCompte(compte.id, { vehicule: champVehicule.value });
+        }
         /* Les interrupteurs d'enseigne, s'ils sont à l'écran. On
            n'envoie que ce qui a bougé : le journal raconte alors
            précisément quel droit a été donné ou retiré. */
@@ -490,6 +504,13 @@ const VueComptes = (() => {
               : "Vous ne créez des comptes que pour votre boutique.") + "</div>" +
           "</div>"
         : "") +
+      (livreur ? '<div class="champ"><label for="nc-vehicule">Véhicule</label>' +
+          '<select id="nc-vehicule">' +
+            '<option value="moto"' + ("" === "tricycle" ? "" : " selected") + ">Moto</option>" +
+            '<option value="tricycle"' + ("" === "tricycle" ? " selected" : "") + ">Tricycle</option>" +
+          "</select>" +
+          '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
+        "</div>" : "") +
       (livreur
         ? '<p class="aide" style="margin:12px 0 0">À sa première connexion à BIZZOO Admin, le ' +
             "livreur devra <strong>valider son compte en enregistrant sa position</strong> " +
@@ -525,6 +546,12 @@ const VueComptes = (() => {
           UI.$("#nc-email", corps).value, UI.$("#nc-mdp", corps).value, selecteur.value,
           champBoutique ? champBoutique.value : "",
           UI.$("#nc-nom", corps).value, UI.$("#nc-tel", corps).value);
+        /* (3.64.0) Le tricycle se pose juste après : le compte naît « moto ». */
+        const champVehicule = UI.$("#nc-vehicule", corps);
+        if (livreur && champVehicule && champVehicule.value === "tricycle" && compte.id) {
+          try { await Store.majCompte(compte.id, { vehicule: "tricycle" }); }
+          catch (err) { UI.toast("Livreur créé, mais son véhicule n'a pas pu être réglé : " + err.message, "err"); }
+        }
         UI.fermerFeuille();
         if (compte.aValider) {
           UI.toast(nomRole(compte.role) + " créé : il attend la validation du superadministrateur.", "ok");
@@ -771,8 +798,13 @@ const VueComptes = (() => {
                 Number(p.longitude) + '" target="_blank" rel="noopener">voir sur la carte</a></div>'
           : '<div class="livreur-position livreur-position-manque">' + UI.icone("alerte", "ic-sm") +
               " Position pas encore validée : aucune course ne peut lui être confiée.</div>";
+      /* (3.64.0) Le tricycle se dit : c'est à lui qu'iront les gros colis. */
+      const vehicule = c.vehicule === "tricycle"
+        ? '<div class="livreur-position">' + UI.icone("voiture", "ic-sm") +
+            " En tricycle : il reçoit aussi les commandes de gros colis.</div>"
+        : "";
       return '<div class="livreur-bloc">' + (gere || (chezMoi && !c.bizzoo) ? htmlLigne(c, false) : ligneLecture(c)) +
-        etat + "</div>";
+        etat + vehicule + "</div>";
     };
     vue.innerHTML =
       '<div class="carte">' +

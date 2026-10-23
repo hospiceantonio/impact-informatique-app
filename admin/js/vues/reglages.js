@@ -227,6 +227,144 @@ const VueReglages = (() => {
      formulaire — et efface ce que le gérant était en train d'y saisir. */
   let generation = 0;
 
+  /* ---------- La livraison au kilomètre (3.64.0) ---------- */
+  let carteKm = null;
+  const unEnvoi = async (bouton, action) => {
+    bouton.disabled = true;
+    try { await action(); } finally { bouton.disabled = false; }
+  };
+
+  function htmlLivraisonKm(l) {
+    const actif = l.latitude !== null && l.longitude !== null;
+    const champ = (id, label, valeur, unite, aide) =>
+      '<div class="champ"><label for="' + id + '">' + Utils.echapper(label) + "</label>" +
+        '<div class="champ-montant"><input id="' + id + '" inputmode="decimal" autocomplete="off" value="' +
+          Utils.echapper(String(valeur)) + '"><span class="devise">' + Utils.echapper(unite) + "</span></div>" +
+        (aide ? '<div class="aide">' + Utils.echapper(aide) + "</div>" : "") + "</div>";
+    return (
+      (actif
+        ? '<div class="note-ok" style="margin:0 0 12px">' + UI.icone("check", "ic-sm") +
+            " En service : chaque commande paie UN frais, du point BIZZOO jusqu'au client.</div>"
+        : '<div class="note-attente" style="margin:0 0 12px">' + UI.icone("alerte", "ic-sm") +
+            " Pas encore en service : réglez le point BIZZOO pour l'ouvrir. D'ici là, chaque " +
+            "boutique garde ses frais de livraison.</div>") +
+      '<p class="aide" style="margin:0 0 12px">La distance se mesure à vol d\'oiseau du point BIZZOO ' +
+        "jusqu'au client, multipliée par le coefficient de la route ; chaque kilomètre entamé au-delà " +
+        "du rayon compte. Le tricycle s'applique dès qu'un produit de la commande l'exige. Les frais se " +
+        "paient en ligne avec l'acompte ; le livreur en touche sa part une fois la commande remise.</p>" +
+      '<div class="carte-titre" style="font-size:14px">Le point BIZZOO</div>' +
+      '<div class="btn-rangee">' +
+        '<button type="button" class="btn btn-clair" id="km-position">' + UI.icone("carte") +
+          "Ma position actuelle</button>" +
+      "</div>" +
+      '<div class="km-carte" id="km-carte"></div>' +
+      '<p class="aide" style="margin:6px 0 10px">Déplacez l\'épingle ou touchez la carte pour poser le point.</p>' +
+      '<div class="champ-duo">' +
+        UI.champTexte({ id: "km-lat", label: "Latitude", valeur: actif ? l.latitude : "", placeholder: "6.3654" }) +
+        UI.champTexte({ id: "km-lng", label: "Longitude", valeur: actif ? l.longitude : "", placeholder: "2.4183" }) +
+      "</div>" +
+      UI.champTexte({ id: "km-adresse", label: "Adresse du point (facultatif)", valeur: l.adresse,
+        placeholder: "Siège BIZZOO, Cotonou" }) +
+      '<div class="carte-titre" style="font-size:14px;margin-top:6px">Les tarifs</div>' +
+      '<div class="champ-duo">' +
+        champ("km-moto-forfait", "Moto : forfait", l.motoForfait, "FCFA") +
+        champ("km-moto-km", "Moto : par km au-delà", l.motoPrixKm, "FCFA") +
+      "</div>" +
+      '<div class="champ-duo">' +
+        champ("km-tri-forfait", "Tricycle : forfait", l.tricycleForfait, "FCFA") +
+        champ("km-tri-km", "Tricycle : par km au-delà", l.tricyclePrixKm, "FCFA") +
+      "</div>" +
+      '<div class="champ-duo">' +
+        champ("km-rayon", "Le forfait couvre", l.rayon, "km") +
+        champ("km-taux", "Part du livreur", l.tauxLivreur, "%",
+          "Sur les frais de chaque commande ; le reste revient à BIZZOO.") +
+      "</div>" +
+      '<div class="btn-rangee" style="margin-top:6px">' +
+        '<button type="button" class="btn" id="km-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
+        (actif ? '<button type="button" class="btn btn-clair" id="km-arreter">Arrêter la livraison au km</button>' : "") +
+      "</div>"
+    );
+  }
+
+  function brancherLivraisonKm(toujoursLa) {
+    if (carteKm) { carteKm.detruire(); carteKm = null; }
+    Store.lirePaiement().then(async (p) => {
+      const corps = UI.$("#km-corps");
+      if (!toujoursLa() || !corps) return;
+      if (!p.livraison) {
+        corps.innerHTML = '<p class="aide" style="margin:0">Exécutez d\'abord le fichier ' +
+          "supabase/livraison-au-km.sql.</p>";
+        return;
+      }
+      const l = p.livraison;
+      corps.innerHTML = htmlLivraisonKm(l);
+      const lat = UI.$("#km-lat"), lng = UI.$("#km-lng");
+      const lire = () => {
+        const a = Number(String(lat.value).replace(",", ".")), b = Number(String(lng.value).replace(",", "."));
+        return lat.value.trim() && lng.value.trim() && isFinite(a) && isFinite(b) ? { latitude: a, longitude: b } : null;
+      };
+      const poser = (d) => { lat.value = d.latitude.toFixed(6); lng.value = d.longitude.toFixed(6); };
+      try {
+        carteKm = await Carte.monter(UI.$("#km-carte"), { position: lire(), deplace: poser });
+      } catch (_) {
+        const zone = UI.$("#km-carte");
+        if (zone) zone.innerHTML = '<p class="aide" style="padding:12px">La carte ne s\'affiche pas sans ' +
+          "connexion : saisissez les coordonnées, ou « Ma position actuelle ».</p>";
+      }
+      for (const champ of [lat, lng]) {
+        champ.addEventListener("change", () => { const d = lire(); if (d && carteKm) carteKm.placer(d); });
+      }
+      UI.$("#km-position").onclick = () => {
+        if (!navigator.geolocation) { UI.toast("Ce téléphone ne permet pas de relever la position.", "err"); return; }
+        UI.toast("Relevé de la position…");
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const d = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+            poser(d);
+            if (carteKm) carteKm.placer(d);
+            UI.toast("Position relevée : enregistrez pour la retenir.", "ok");
+          },
+          (err) => UI.toast(err.code === 1
+            ? "Autorisation refusée : activez la localisation pour cette application."
+            : "Position introuvable : sortez à l'air libre puis réessayez.", "err"),
+          { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+      };
+      const valeurs = (point) => ({
+        point,
+        adresse: UI.$("#km-adresse").value,
+        rayon: UI.$("#km-rayon").value,
+        motoForfait: UI.$("#km-moto-forfait").value, motoPrixKm: UI.$("#km-moto-km").value,
+        tricycleForfait: UI.$("#km-tri-forfait").value, tricyclePrixKm: UI.$("#km-tri-km").value,
+        tauxLivreur: UI.$("#km-taux").value,
+      });
+      const bouton = UI.$("#km-enregistrer");
+      bouton.onclick = () => unEnvoi(bouton, async () => {
+        const point = lire();
+        if (!point) { UI.toast("Posez d'abord le point BIZZOO sur la carte", "err"); return; }
+        try {
+          await Store.majLivraisonKm(valeurs(point));
+          UI.toast("Livraison au kilomètre enregistrée — en service", "ok");
+          brancherLivraisonKm(toujoursLa);
+        } catch (err) { UI.toast(err.message, "err"); }
+      });
+      const arreter = UI.$("#km-arreter");
+      if (arreter) {
+        arreter.onclick = () => unEnvoi(arreter, async () => {
+          if (!window.confirm("Arrêter la livraison au kilomètre ? Les frais de chaque boutique " +
+              "s'appliqueront de nouveau aux nouvelles commandes.")) return;
+          try {
+            await Store.majLivraisonKm(valeurs(null));
+            UI.toast("Livraison au kilomètre arrêtée", "ok");
+            brancherLivraisonKm(toujoursLa);
+          } catch (err) { UI.toast(err.message, "err"); }
+        });
+      }
+    }).catch(() => {
+      const corps = UI.$("#km-corps");
+      if (corps) corps.innerHTML = '<p class="aide" style="margin:0">Réglages illisibles pour l\'instant.</p>';
+    });
+  }
+
   async function afficher(vue, params) {
     const moi = ++generation;
     const boutiques = Store.listerBoutiques();
@@ -697,6 +835,18 @@ const VueReglages = (() => {
           "</div>"
         : "") +
 
+      /* ---------- La livraison au kilomètre (3.64.0) ----------
+         UN point de départ, celui de BIZZOO ; un forfait jusqu'au rayon,
+         puis le kilomètre entamé, au tarif du véhicule. Tant que le point
+         n'est pas réglé, rien ne change : chaque boutique garde ses frais.
+         Le réglage vaut pour toute l'enseigne, et vous seul y touchez. */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte" id="section-km">' +
+            '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Livraison au kilomètre</div>" +
+            '<div id="km-corps"><p class="aide" style="margin:0">Lecture…</p></div>' +
+          "</div>"
+        : "") +
+
       /* ---------- Un compte pour commander ----------
          Le seul réglage de l'application qui puisse FERMER la caisse.
          Il mérite donc son avertissement : tant qu'aucune porte
@@ -799,6 +949,8 @@ const VueReglages = (() => {
           "Base en ligne : les modifications sont visibles immédiatement par les clients." +
         "</p>" +
       "</div>";
+
+    if (UI.$("#km-corps")) brancherLivraisonKm(() => moi === generation);
 
     const boutonMomo = UI.$("#momo-enregistrer");
     if (boutonMomo) {

@@ -1993,3 +1993,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .sd-ligne-haut{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sd-boutique{font-size:13px;font-weight:600}
 .sd-refus{color:var(--rouge)}
+
+/* =========================================================
+   La livraison au kilomètre (3.64.0)
+   ========================================================= */
+.km-carte{height:240px;margin-top:12px;border-radius:var(--r-sm, 10px);overflow:hidden;
+  border:1px solid var(--trait);background:var(--bleu-50, #ECF2FE)}
+.km-carte .leaflet-control-attribution{font-size:9px}
+.lv-gain strong{color:var(--vert, #0F9D58)}

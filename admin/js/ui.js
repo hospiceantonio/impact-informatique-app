@@ -737,7 +737,10 @@ const UI = (() => {
         '<div class="aide">Le client paie ce pourcentage de la part de la boutique (articles et ' +
           "livraison) en commandant ; son livreur encaisse le reste à la livraison.</div>" +
       "</div>" +
-      '<div class="champ">' +
+      '<div class="note-ok" id="' + prefixe + '-frais-km" hidden style="margin:0 0 12px">' + icone("check", "ic-sm") +
+        " Livraison au kilomètre en service : BIZZOO calcule les frais selon la distance. " +
+        "Ceux de la boutique ne s'appliquent plus.</div>" +
+      '<div class="champ" id="' + prefixe + '-bloc-frais">' +
         '<label for="' + prefixe + '-frais">Frais de livraison <span class="obligatoire">*</span></label>' +
         '<div class="champ-montant">' +
           '<input id="' + prefixe + '-frais" inputmode="numeric" autocomplete="off" value="' + escapeAttr(frais) + '">' +
@@ -753,6 +756,18 @@ const UI = (() => {
     const menu = $("#" + prefixe + "-mode", racine);
     const bloc = $("#" + prefixe + "-bloc-taux", racine);
     if (menu && bloc) menu.onchange = () => { bloc.hidden = menu.value !== "acompte"; };
+    /* (3.64.0) Au kilomètre, les frais de la boutique ne comptent plus :
+       on ne les fait pas saisir pour rien. */
+    if (typeof Store !== "undefined" && Store.lirePaiement) {
+      Store.lirePaiement().then((p) => {
+        const l = p && p.livraison;
+        if (!l || l.latitude === null || l.longitude === null) return;
+        const frais = $("#" + prefixe + "-bloc-frais", racine);
+        const note = $("#" + prefixe + "-frais-km", racine);
+        if (frais) frais.hidden = true;
+        if (note) note.hidden = false;
+      }).catch(() => { /* on laisse le champ */ });
+    }
   }
   function lireConditions(racine, prefixe) {
     const menu = $("#" + prefixe + "-mode", racine);
