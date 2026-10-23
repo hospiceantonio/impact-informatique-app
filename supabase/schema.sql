@@ -406,6 +406,13 @@ alter table public.produits add column if not exists appro_le date;
 -- À null, pas de vente flash. Aucun nettoyage à faire : une date
 -- passée s'ignore d'elle-même.
 alter table public.produits add column if not exists flash_fin timestamptz;
+-- (3.64.0) COMMENT IL SE LIVRE : à moto, ou en tricycle pour ce qui ne
+-- tient pas sur une moto. Une commande se livre en tricycle dès qu'UN
+-- de ses produits l'exige, et ses frais suivent ce tarif-là. Les produits
+-- d'avant se livrent à moto.
+alter table public.produits add column if not exists vehicule text not null default 'moto';
+alter table public.produits drop constraint if exists produits_vehicule;
+alter table public.produits add constraint produits_vehicule check (vehicule in ('moto', 'tricycle'));
 
 -- Passage à la gestion de stock : les produits jusque-là « en stock »
 -- démarrent à 1 pour ne pas basculer d'un coup en « En rupture ».
@@ -663,6 +670,11 @@ alter table public.profils
 -- quand le client n'est pas chez lui.
 alter table public.profils add column if not exists nom text not null default '';
 alter table public.profils add column if not exists tel text not null default '';
+-- (3.64.0) Le véhicule du livreur : une commande en tricycle ne se propose
+-- qu'aux livreurs en tricycle. Sans objet pour le reste de l'équipe.
+alter table public.profils add column if not exists vehicule text not null default 'moto';
+alter table public.profils drop constraint if exists profils_vehicule;
+alter table public.profils add constraint profils_vehicule check (vehicule in ('moto', 'tricycle'));
 -- (3.63.0) Qui l'a créé, et s'il attend sa validation : les règles de
 -- « profils », plus bas, les lisent. Posées ici, avant elles — la suite
 -- du fichier les répète là où elles sont expliquées.
@@ -2846,6 +2858,109 @@ end $$;
 -- la livraison par MoMoPay, sur le compte marchand de BIZZOO : le livreur
 -- montre ce code et le montant, le client paie depuis son téléphone. Un
 -- code marchand est fait pour être montré : il peut être lu par tous.
+-- ---------- La livraison au kilomètre (3.64.0) ----------
+-- UN SEUL POINT DE DÉPART, celui de BIZZOO, réglé par le
+-- superadministrateur. Les frais d'une commande se comptent de ce point
+-- jusqu'au client :
+--   jusqu'à « livraison_rayon_km »  le forfait du véhicule ;
+--   au-delà                          + le prix du kilomètre, par kilomètre
+--                                      ENTAMÉ (10,1 km : un de plus).
+-- La distance est à vol d'oiseau, multipliée par « livraison_coef »
+-- (1,3) pour approcher le trajet par la route — gratuit et immédiat, sans
+-- service de cartes payant. TANT QUE LE POINT N'EST PAS RÉGLÉ, RIEN NE
+-- CHANGE : chaque boutique garde ses frais, comme avant. Régler le point,
+-- c'est mettre la livraison au kilomètre en service.
+--
+-- Le livreur qui porte la commande en touche « taux_livreur » % (80) ;
+-- le reste revient à BIZZOO.
+alter table public.paiement add column if not exists livraison_latitude double precision;
+alter table public.paiement add column if not exists livraison_longitude double precision;
+alter table public.paiement add column if not exists livraison_adresse text not null default '';
+alter table public.paiement add column if not exists livraison_rayon_km int not null default 10;
+alter table public.paiement add column if not exists livraison_coef numeric(4,2) not null default 1.3;
+alter table public.paiement add column if not exists moto_forfait int not null default 1000;
+alter table public.paiement add column if not exists moto_prix_km int not null default 100;
+alter table public.paiement add column if not exists tricycle_forfait int not null default 4000;
+alter table public.paiement add column if not exists tricycle_prix_km int not null default 500;
+alter table public.paiement add column if not exists taux_livreur int not null default 80;
+alter table public.paiement drop constraint if exists paiement_livraison_bornes;
+alter table public.paiement add constraint paiement_livraison_bornes check (
+  (livraison_latitude is null) = (livraison_longitude is null)
+  and (livraison_latitude is null or livraison_latitude between -90 and 90)
+  and (livraison_longitude is null or livraison_longitude between -180 and 180)
+  and livraison_rayon_km between 0 and 500
+  and livraison_coef between 1 and 3
+  and moto_forfait between 0 and 1000000 and moto_prix_km between 0 and 100000
+  and tricycle_forfait between 0 and 1000000 and tricycle_prix_km between 0 and 100000
+  and taux_livreur between 0 and 100
+  and length(livraison_adresse) <= 200);
+
+-- La livraison au kilomètre est-elle en service ? Oui dès que le point
+-- BIZZOO est réglé.
+create or replace function public.livraison_active() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select p.livraison_latitude is not null and p.livraison_longitude is not null
+                     from public.paiement p where p.id = 1), false);
+$$;
+revoke all on function public.livraison_active() from public;
+grant execute on function public.livraison_active() to anon, authenticated;
+
+-- LE DEVIS D'UNE LIVRAISON : la distance, les kilomètres facturés, les
+-- frais. Null tant que la livraison au kilomètre n'est pas en service.
+-- Ouverte à tous : l'écran de commande en montre l'aperçu, et elle ne
+-- dit rien que les réglages publics ne disent déjà. « creer_commande »
+-- l'appelle pour figer les frais : une seule règle, un seul endroit.
+create or replace function public.devis_livraison(
+  latitude double precision, longitude double precision, vehicule text default 'moto')
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  r     public.paiement%rowtype;
+  v     text := case when vehicule = 'tricycle' then 'tricycle' else 'moto' end;
+  dlat  double precision;
+  dlng  double precision;
+  a     double precision;
+  dist  numeric;
+  km    int;
+  forf  int;
+  prix  int;
+begin
+  select * into r from public.paiement where id = 1;
+  if not found or r.livraison_latitude is null or r.livraison_longitude is null then
+    return null;
+  end if;
+  if latitude is null or longitude is null
+     or latitude not between -90 and 90 or longitude not between -180 and 180
+     or (latitude = 0 and longitude = 0) then
+    raise exception 'Position de livraison invalide : touchez « Utiliser ma position ».'
+      using errcode = 'P0001';
+  end if;
+  -- À vol d'oiseau (formule de haversine, rayon terrestre de 6 371 km),
+  -- multipliée par le coefficient de la route ; au mètre près.
+  dlat := radians(latitude - r.livraison_latitude);
+  dlng := radians(longitude - r.livraison_longitude);
+  a := sin(dlat / 2) ^ 2
+       + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
+  dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  -- Le kilomètre ENTAMÉ compte : 10,001 km facturent un kilomètre de plus.
+  km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
+  forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
+  prix := case when v = 'tricycle' then r.tricycle_prix_km else r.moto_prix_km end;
+  return jsonb_build_object(
+    'vehicule', v,
+    'distance_km', round(dist, 1),
+    'rayon_km', r.livraison_rayon_km,
+    'km_factures', km,
+    'forfait', forf,
+    'prix_km', prix,
+    'frais', forf + km * prix,
+    'point', jsonb_build_object('latitude', r.livraison_latitude, 'longitude', r.livraison_longitude),
+    'destination', jsonb_build_object('latitude', round(latitude::numeric, 6),
+                                      'longitude', round(longitude::numeric, 6)));
+end $$;
+revoke all on function public.devis_livraison(double precision, double precision, text) from public;
+grant execute on function public.devis_livraison(double precision, double precision, text) to anon, authenticated;
+
 alter table public.paiement add column if not exists momopay_code text not null default '';
 alter table public.paiement add column if not exists momopay_nom text not null default '';
 do $$
@@ -3037,6 +3152,14 @@ alter table public.commandes add column if not exists frais_livraison bigint not
 -- est l'acompte de la commande. Null : une commande d'avant, réglée
 -- selon l'ancienne règle, celle de l'enseigne.
 alter table public.commandes add column if not exists parts jsonb;
+-- (3.64.0) LA LIVRAISON AU KILOMÈTRE, figée à la commande :
+--   { "vehicule": "moto", "distance_km": 13.4, "rayon_km": 10, "km_factures": 4,
+--     "forfait": 1000, "prix_km": 100, "frais": 1400,
+--     "point": {…}, "destination": { "latitude": …, "longitude": … } }
+-- Null : une commande d'avant, aux frais de chaque boutique. Non nulle,
+-- les frais sont ceux de la COMMANDE entière, payés en ligne avec
+-- l'acompte, et reviennent au livreur qui la porte (« gains_livreurs »).
+alter table public.commandes add column if not exists livraison jsonb;
 
 create index if not exists lignes_commande on public.commande_lignes(commande_id);
 create index if not exists lignes_boutique on public.commande_lignes(boutique_id, etat);
@@ -3073,6 +3196,7 @@ begin
   -- Les frais de livraison aussi : « creer_commande » les pose, d'après
   -- les réglages de l'enseigne. Le téléphone n'en décide pas.
   new.frais_livraison := 0;
+  new.livraison := null;
   new.revendeur := public.est_revendeur();
   if coalesce(new.numero, '') = '' then
     new.numero := 'BZ-' || lpad(nextval('public.commandes_numero')::text, 6, '0');
@@ -3231,6 +3355,9 @@ begin
   or new.parts is distinct from old.parts
   or new.verse is distinct from old.verse
   or new.frais_livraison is distinct from old.frais_livraison
+  -- (3.64.0) La distance, le véhicule et le tarif : ce que le livreur
+  -- touchera.
+  or new.livraison is distinct from old.livraison
   or new.paye_le is distinct from old.paye_le then
     raise exception 'Le montant et le paiement d''une commande ne se réécrivent pas';
   end if;
@@ -3437,7 +3564,12 @@ begin
   return query
     with commande as (
       select greatest(0, coalesce(c.remise, 0))::numeric as remise,
-             greatest(0, coalesce(c.verse, c.acompte, c.total))::numeric as paye
+             -- (3.64.0) Au kilomètre, les frais de livraison se paient en ligne
+             -- avec l'acompte, hors des parts des boutiques : ce versement-là
+             -- n'allège le reste d'aucune d'elles.
+             greatest(0, coalesce(c.verse, c.acompte, c.total)
+                         - case when c.livraison is not null
+                                then coalesce(c.frais_livraison, 0) else 0 end)::numeric as paye
         from public.commandes c where c.id = cible
     ), lignes as (
       select l.boutique_id as bou,
@@ -3649,15 +3781,29 @@ declare
   bizzoo   boolean := false;
   numero   text;
   b        record;
+  son_vehicule text;
+  besoin   text;
+  plusieurs boolean;
+  au_km    boolean;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
   end if;
+  -- (3.64.0) UN SEUL LIVREUR PAR COMMANDE AU KILOMÈTRE. Une telle
+  -- commande de plusieurs boutiques se confie à un livreur de BIZZOO, qui
+  -- les livre toutes ; et une commande en tricycle, à un livreur en
+  -- tricycle. Les commandes d'avant (frais par boutique) gardent leur
+  -- règle : un livreur par boutique.
+  select c.livraison ->> 'vehicule', c.livraison is not null into besoin, au_km
+    from public.commandes c where c.id = commande;
+  au_km := coalesce(au_km, false);
+  select au_km and count(distinct l.boutique_id) > 1 into plusieurs
+    from public.commande_lignes l where l.commande_id = commande and l.etat <> 'annulee';
 
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role, (p.boutique_id is null) into rang, bizzoo from public.profils p
+    select p.role, (p.boutique_id is null), p.vehicule into rang, bizzoo, son_vehicule from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -3666,6 +3812,14 @@ begin
             or p.boutique_id = public.boutique_du_compte());
     if rang is distinct from 'livreur' then
       raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
+    end if;
+    if coalesce(plusieurs, false) and not coalesce(bizzoo, false) then
+      raise exception 'Cette commande traverse plusieurs boutiques : confiez-la à un livreur de BIZZOO, qui les livre toutes.'
+        using errcode = 'P0001';
+    end if;
+    if besoin = 'tricycle' and son_vehicule is distinct from 'tricycle' then
+      raise exception 'Cette commande se livre en tricycle : confiez-la à un livreur en tricycle.'
+        using errcode = 'P0001';
     end if;
     -- UN LIVREUR VALIDE SON COMPTE EN ENREGISTRANT SA POSITION. Tant
     -- qu'il ne l'a pas fait, on ne lui confie rien.
@@ -3681,7 +3835,9 @@ begin
          -- Un autre livreur doit accepter à son tour (3.59.0).
          recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
    where l.commande_id = commande
-     and l.boutique_id = boutique
+     -- (3.64.0) Au kilomètre, retirer le livreur le retire de toute la
+     -- commande : une course, c'est la commande entière.
+     and (l.boutique_id = boutique or (livreur is null and au_km))
      -- (3.59.0) En secours de la demande envoyée à tous les livreurs : la
      -- boutique peut confier dès le paiement, sans attendre le colis.
      and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
@@ -3689,13 +3845,15 @@ begin
   get diagnostics combien = row_count;
 
   -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
-  -- prendre une part déjà confiée au livreur d'une autre boutique.
+  -- prendre une part déjà confiée au livreur d'une autre boutique —
+  -- (3.64.0) sauf au kilomètre : un seul livreur par commande, il les
+  -- prend toutes.
   if bizzoo and combien > 0 then
     update public.commande_lignes l
        set livreur_id = livreur, recu_le = null
      where l.commande_id = commande
        and l.boutique_id <> boutique
-       and l.livreur_id is null
+       and (l.livreur_id is null or (au_km and l.livreur_id is distinct from livreur))
        and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
     get diagnostics autres = row_count;
   end if;
@@ -3869,7 +4027,12 @@ begin
     from public.commande_lignes l where l.commande_id = commande;
   select coalesce(r.a_encaisser, 0) into reste
     from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
-  if c.parts is not null and c.parts ? boutique then
+  if c.livraison is not null then
+    -- (3.64.0) AU KILOMÈTRE, un seul livreur porte toute la commande : ses
+    -- frais sont ceux de la commande entière.
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := coalesce(c.frais_livraison, 0);
+  elsif c.parts is not null and c.parts ? boutique then
     part  := (c.parts -> boutique ->> 'du')::numeric;
     frais := (c.parts -> boutique ->> 'frais')::numeric;
   else
@@ -3888,9 +4051,17 @@ begin
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
       'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
-      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229')),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229'),
+      -- (3.64.0) Le point exact où livrer, quand le client l'a donné.
+      'latitude', c.livraison -> 'destination' -> 'latitude',
+      'longitude', c.livraison -> 'destination' -> 'longitude'),
     'devise', coalesce(c.devise, 'FCFA'),
     'frais', coalesce(frais, 0),
+    -- (3.64.0) Le véhicule, la distance, et ce que le livreur y gagne.
+    'trajet', case when c.livraison is null then null
+                   else jsonb_build_object('vehicule', c.livraison ->> 'vehicule',
+                                           'distance_km', c.livraison -> 'distance_km') end,
+    'gain', case when c.livraison is null then null else public.gain_livreur(c.id) end,
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
@@ -3970,29 +4141,47 @@ grant execute on function public.accepter_course(text, text) to authenticated;
 --     chaque boutique et livre le tout au client.
 --
 -- Un livreur est « validé » quand il a enregistré sa position (3.58.0).
+-- (3.64.0) LE VÉHICULE COMPTE. Une commande en tricycle ne se propose
+-- qu'aux livreurs en tricycle. Une commande à moto, aux livreurs à moto —
+-- et, s'il n'y en a aucun dans le groupe, aux tricycles, qui la portent
+-- aussi bien. Une commande d'avant (sans véhicule) va à tous, comme avant.
 create or replace function public.candidats_course(commande text)
 returns uuid[]
 language plpgsql stable security definer set search_path = public as $$
 declare
   boutiques text[];
   qui       uuid[];
+  besoin    text;
+  vs        text[];
+  v         text;
 begin
   select array_agg(distinct l.boutique_id) into boutiques
     from public.commande_lignes l
    where l.commande_id = commande and l.etat <> 'annulee' and l.boutique_id is not null;
   if boutiques is null then return '{}'; end if;
+  select c.livraison ->> 'vehicule' into besoin from public.commandes c where c.id = commande;
+  vs := case besoin when 'tricycle' then array['tricycle']
+                    when 'moto' then array['moto', 'tricycle']
+                    else array[null::text] end;
   if array_length(boutiques, 1) = 1 then
+    foreach v in array vs loop
+      select array_agg(p.id order by p.id) into qui
+        from public.profils p
+       where p.role = 'livreur' and p.actif and p.boutique_id = boutiques[1]
+         and (v is null or p.vehicule = v)
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+      if qui is not null then return qui; end if;
+    end loop;
+  end if;
+  foreach v in array vs loop
     select array_agg(p.id order by p.id) into qui
       from public.profils p
-     where p.role = 'livreur' and p.actif and p.boutique_id = boutiques[1]
+     where p.role = 'livreur' and p.actif and p.boutique_id is null
+       and (v is null or p.vehicule = v)
        and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
     if qui is not null then return qui; end if;
-  end if;
-  select array_agg(p.id order by p.id) into qui
-    from public.profils p
-   where p.role = 'livreur' and p.actif and p.boutique_id is null
-     and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
-  return coalesce(qui, '{}');
+  end loop;
+  return '{}';
 end $$;
 revoke all on function public.candidats_course(text) from public, anon, authenticated;
 
@@ -4023,12 +4212,19 @@ begin
     reste := reste + coalesce((f ->> 'a_encaisser')::numeric, 0);
   end loop;
   if premiere is null then return null; end if;
+  -- (3.64.0) Au kilomètre, les frais sont ceux de la commande, pas la
+  -- somme de chaque boutique : chaque fiche les porte déjà en entier.
+  if premiere -> 'trajet' is not null and jsonb_typeof(premiere -> 'trajet') = 'object' then
+    frais := coalesce((premiere ->> 'frais')::numeric, 0);
+  end if;
   return jsonb_build_object(
     'numero', premiere -> 'numero',
     'groupee', jsonb_array_length(retraits) > 1,
     'retraits', retraits,
     'livraison', premiere -> 'livraison',
     'devise', premiere -> 'devise',
+    'trajet', premiere -> 'trajet',
+    'gain', premiere -> 'gain',
     'frais', frais, 'deja_paye', paye, 'a_encaisser', reste);
 end $$;
 revoke all on function public.fiche_demande(text) from public, anon, authenticated;
@@ -4053,7 +4249,15 @@ begin
     'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
       coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
     'Destinataire : +' || (f -> 'livraison' ->> 'indicatif') || ' ' || (f -> 'livraison' ->> 'tel') || E'\n' ||
+    -- (3.64.0) Le véhicule et la distance, puis ce qu'il y gagne.
+    case when jsonb_typeof(f -> 'trajet') = 'object'
+         then 'Véhicule : ' || case when f -> 'trajet' ->> 'vehicule' = 'tricycle' then 'tricycle' else 'moto' end ||
+              ' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km' || E'\n'
+         else '' end ||
     'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
+    case when (f ->> 'gain') is not null
+         then 'Votre gain : ' || public.montant_lisible((f ->> 'gain')::numeric, f ->> 'devise') || E'\n'
+         else '' end ||
     'Déjà payé : ' || public.montant_lisible((f ->> 'deja_paye')::numeric, f ->> 'devise') || E'\n' ||
     case when (f ->> 'a_encaisser')::numeric > 0
          then 'À récupérer : ' || public.montant_lisible((f ->> 'a_encaisser')::numeric, f ->> 'devise')
@@ -5179,12 +5383,22 @@ grant execute on function public.remises_periode(date, date, text) to authentica
 drop function if exists public.creer_commande(jsonb, jsonb);
 drop function if exists public.creer_commande(jsonb, jsonb, text);
 drop function if exists public.creer_commande(jsonb, jsonb, text, boolean);
+-- (3.64.0) Et « destination », la position du client : sans le retrait de
+-- la signature à cinq paramètres, l'appel d'une application d'avant
+-- deviendrait ambigu. Avec, il trouve celle-ci, « destination » à null.
+drop function if exists public.creer_commande(jsonb, jsonb, text, boolean, boolean);
 create or replace function public.creer_commande(
   client jsonb, articles jsonb, code text default '',
-  avec_acompte boolean default false, avec_frais boolean default false)
+  avec_acompte boolean default false, avec_frais boolean default false,
+  destination jsonb default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
+  -- (3.64.0) La livraison au kilomètre : en service dès que le point
+  -- BIZZOO est réglé.
+  au_km    boolean := public.livraison_active();
+  devis    jsonb;
+  frais_km bigint := 0;
   nouvelle text := 'cmd_' || replace(gen_random_uuid()::text, '-', '');
   article  jsonb;
   qte      int;
@@ -5210,6 +5424,19 @@ begin
   end if;
   if coalesce(trim(client ->> 'tel'), '') = '' then
     raise exception 'Un numéro de téléphone est nécessaire pour vous joindre.';
+  end if;
+  -- (3.64.0) LA POSITION DU CLIENT EST OBLIGATOIRE quand la livraison se
+  -- compte au kilomètre : sans elle, pas de distance, donc pas de frais.
+  -- Une application d'avant ne l'envoie pas — on lui dit quoi faire.
+  if au_km then
+    if destination is null or jsonb_typeof(destination) <> 'object'
+       or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
+      if coalesce(avec_frais, false) and destination is null then
+        raise exception 'Mettez BIZZOO à jour pour commander : les frais de livraison se calculent désormais selon votre position.'
+          using errcode = 'P0001';
+      end if;
+      raise exception 'Indiquez où livrer : touchez « Utiliser ma position ».' using errcode = 'P0001';
+    end if;
   end if;
 
   -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
@@ -5411,9 +5638,30 @@ begin
   -- UNE APPLICATION D'AVANT ne demande ni frais ni acompte : elle fait
   -- tout payer, et n'a pas de frais à annoncer. On ne change rien pour
   -- elle.
-  if coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+  -- ---------- La livraison au kilomètre (3.64.0) ----------
+  -- UN SEUL FRAIS POUR LA COMMANDE, du point BIZZOO jusqu'au client, au
+  -- tarif du véhicule : le tricycle dès qu'UN produit l'exige. Les frais
+  -- de chaque boutique ne comptent plus. Ils se paient EN LIGNE, avec
+  -- l'acompte : c'est BIZZOO qui les détient, et qui en doit sa part au
+  -- livreur (« gains_livreurs »).
+  if au_km then
+    devis := public.devis_livraison(
+      (destination ->> 'latitude')::double precision,
+      (destination ->> 'longitude')::double precision,
+      case when exists (select 1 from public.commande_lignes l
+                          join public.produits pr on pr.id = l.produit_id
+                         where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
+           then 'tricycle' else 'moto' end);
+    frais_km := coalesce((devis ->> 'frais')::bigint, 0);
     perform set_config('bizzoo.interne', 'oui', true);
-    if coalesce(avec_frais, false) then
+    update public.commandes set frais_livraison = frais_km, livraison = devis where id = nouvelle;
+    perform public.commande_total(nouvelle);
+    perform set_config('bizzoo.interne', '', true);
+  end if;
+
+  if au_km or coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+    perform set_config('bizzoo.interne', 'oui', true);
+    if coalesce(avec_frais, false) and not au_km then
       update public.commandes
          set frais_livraison = coalesce((
                select sum(greatest(0, b.frais_livraison))
@@ -5433,7 +5681,10 @@ begin
       select sum(montant) as s from brut
     ), chacune as (
       select br.bou,
-             case when coalesce(avec_frais, false) then greatest(0, b.frais_livraison) else 0 end as frais,
+             -- Au kilomètre, la part d'une boutique n'a plus de frais : ceux
+             -- de la commande s'ajoutent à part, plus bas.
+             case when coalesce(avec_frais, false) and not au_km
+                  then greatest(0, b.frais_livraison) else 0 end as frais,
              case when coalesce(avec_acompte, false) and b.mode_paiement = 'acompte'
                   then b.taux_acompte else 100 end as taux,
              greatest(0, round(br.montant - coalesce(c.remise, 0) * br.montant / nullif(t.s, 0))) as net
@@ -5451,7 +5702,7 @@ begin
     -- 100 francs au moins en ligne, l'encaissement minimum chez FeexPay :
     -- le manque va à la plus grosse part.
     select greatest(0, least(c.total, 100) - coalesce((
-             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0))
+             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0) - frais_km)
       into manquant
       from public.commandes c where c.id = nouvelle;
     if manquant > 0 and les_parts is not null then
@@ -5462,15 +5713,18 @@ begin
        order by (v ->> 'du')::bigint desc limit 1;
     end if;
 
+    -- (3.64.0) Au kilomètre, l'acompte, c'est celui des boutiques PLUS les
+    -- frais de livraison, payés en entier en ligne.
     update public.commandes c
        set parts = les_parts,
            acompte = least(c.total, coalesce((
-                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)),
+                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)
+                       + frais_km),
            -- Le taux affiché : ce que représente l'acompte du total.
            taux_acompte = case when c.total <= 0 then 100
-                               else least(100, greatest(1, round(100.0 * coalesce((
+                               else least(100, greatest(1, round(100.0 * least(c.total, coalesce((
                                  select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)),
-                                 c.total) / c.total)))::int end
+                                 c.total) + frais_km) / c.total)))::int end
      where c.id = nouvelle;
     perform set_config('bizzoo.interne', '', true);
   else
@@ -5492,6 +5746,8 @@ begin
     /* Les frais de livraison, à part : le récapitulatif les montre sur
        leur propre ligne. */
     'frais_livraison', c.frais_livraison,
+    /* (3.64.0) Le véhicule, la distance, les kilomètres facturés. */
+    'livraison', c.livraison,
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
@@ -5526,8 +5782,8 @@ begin
   return sortie;
 end $$;
 
-revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) from public;
-grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean) to anon, authenticated;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean, jsonb) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean, jsonb) to anon, authenticated;
 
 -- ---------- Suivre sa commande ----------
 -- Après le paiement, l'application ATTEND que l'état bouge, elle ne
@@ -5549,6 +5805,8 @@ begin
     'numero', c.numero, 'etat', c.etat, 'total', c.total, 'devise', c.devise,
     'paye_le', c.paye_le, 'remarque', c.remarque,
     'frais_livraison', c.frais_livraison,
+    -- (3.64.0) Le véhicule et la distance de la livraison.
+    'livraison', c.livraison,
     -- L'acompte, ce qui a été versé, et ce qui reste à payer à la
     -- livraison, boutique par boutique. Une commande d'avant l'acompte
     -- se payait en entier : son acompte est son total.
@@ -7122,6 +7380,323 @@ begin
 end $$;
 revoke all on function public.decider_reversement(bigint, boolean, text, text) from public, anon;
 grant execute on function public.decider_reversement(bigint, boolean, text, text) to authenticated;
+
+-- =========================================================
+-- Le solde des livreurs (3.64.0)
+-- =========================================================
+-- LES FRAIS DE LIVRAISON REVIENNENT AU LIVREUR qui porte la commande —
+-- « taux_livreur » % (80) ; le reste à BIZZOO, qui a encaissé ces frais
+-- en ligne avec l'acompte.
+--
+--   CRÉDITÉ   une fois la commande payée ET remise en entier (toutes ses
+--             lignes « remise », ou annulées) : une ligne par commande,
+--             au taux du jour, figée. Sans attendre le « J'ai bien reçu »
+--             du client, qui peut ne jamais venir ;
+--   À VENIR   ses courses payées, pas encore remises ;
+--   REVERSÉ   ses reversements validés par BIZZOO ;
+--   EN ATTENTE ses demandes pas encore tranchées ;
+--   DISPONIBLE crédité − reversé − en attente.
+--
+-- Comme pour les boutiques : il règle son numéro Mobile Money, demande
+-- un montant, et le superadministrateur envoie l'argent puis valide avec
+-- la référence de la transaction — ou refuse, avec un motif.
+create table if not exists public.gains_livreurs (
+  commande_id text primary key references public.commandes(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  frais       bigint not null default 0,
+  taux        int not null default 80,
+  montant     bigint not null default 0 check (montant >= 0),
+  credite_le  timestamptz not null default now()
+);
+create index if not exists gains_livreur on public.gains_livreurs(livreur_id, credite_le desc);
+alter table public.gains_livreurs enable row level security;
+revoke all on public.gains_livreurs from anon, authenticated;
+
+create table if not exists public.livreurs_reception (
+  livreur_id uuid primary key references public.profils(id) on delete cascade,
+  tel        text not null default '',
+  reseau     text not null default '' check (reseau in ('', 'MTN', 'MOOV', 'CELTIIS')),
+  titulaire  text not null default '',
+  maj_le     timestamptz not null default now()
+);
+alter table public.livreurs_reception enable row level security;
+revoke all on public.livreurs_reception from anon, authenticated;
+
+create table if not exists public.reversements_livreurs (
+  id          bigserial primary key,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  nom_livreur text not null default '',
+  montant     bigint not null check (montant > 0),
+  tel         text not null default '',
+  reseau      text not null default '',
+  titulaire   text not null default '',
+  etat        text not null default 'en_attente' check (etat in ('en_attente', 'valide', 'refuse')),
+  demande_le  timestamptz not null default now(),
+  decide_par  text not null default '',
+  decide_le   timestamptz,
+  reference   text not null default '',
+  motif       text not null default ''
+);
+create index if not exists reversements_livreurs_livreur on public.reversements_livreurs(livreur_id, demande_le desc);
+create index if not exists reversements_livreurs_attente on public.reversements_livreurs(demande_le) where etat = 'en_attente';
+alter table public.reversements_livreurs enable row level security;
+revoke all on public.reversements_livreurs from anon, authenticated;
+revoke all on sequence public.reversements_livreurs_id_seq from anon, authenticated;
+
+-- Ce que le livreur gagne sur une commande : figé s'il est crédité, sinon
+-- au taux du jour.
+create or replace function public.gain_livreur(cible text) returns bigint
+language plpgsql stable security definer set search_path = public as $$
+declare g bigint; f bigint; t int;
+begin
+  select x.montant into g from public.gains_livreurs x where x.commande_id = cible;
+  if found then return g; end if;
+  select coalesce(c.frais_livraison, 0) into f from public.commandes c
+   where c.id = cible and c.livraison is not null;
+  if f is null then return null; end if;
+  select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
+  return floor(f * coalesce(t, 80) / 100.0)::bigint;
+end $$;
+revoke all on function public.gain_livreur(text) from public, anon, authenticated;
+
+-- Créditer le livreur d'une commande remise en entier. Rejouable : une
+-- seule ligne par commande.
+create or replace function public.crediter_livreur(cible text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  c     public.commandes%rowtype;
+  qui   uuid;
+  t     int;
+  gain  bigint;
+  combien int;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found or c.etat <> 'payee' or c.livraison is null or coalesce(c.frais_livraison, 0) <= 0 then
+    return 0;
+  end if;
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = cible and l.etat not in ('remise', 'annulee')) then
+    return 0;
+  end if;
+  select l.livreur_id into qui from public.commande_lignes l
+   where l.commande_id = cible and l.etat = 'remise' and l.livreur_id is not null
+   order by l.id limit 1;
+  if qui is null then return 0; end if;
+  select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
+  gain := floor(c.frais_livraison * coalesce(t, 80) / 100.0)::bigint;
+  insert into public.gains_livreurs (commande_id, livreur_id, frais, taux, montant)
+  values (cible, qui, c.frais_livraison, coalesce(t, 80), gain)
+  on conflict (commande_id) do nothing;
+  get diagnostics combien = row_count;
+  if combien > 0 then
+    perform public.notifier(array[qui], 'gain_livraison',
+      'Course payée : + ' || public.montant_lisible(gain, c.devise),
+      'Commande ' || coalesce(c.numero, '') || ' remise — ' || public.montant_lisible(gain, c.devise) ||
+        ' ajoutés à votre solde.',
+      '#/gains', cible, null, false);
+  end if;
+  return gain;
+end $$;
+revoke all on function public.crediter_livreur(text) from public, anon, authenticated;
+
+-- À la remise de la dernière ligne, le livreur est crédité. Une panne ici
+-- ne bloque jamais la remise : le solde se rattrape en rejouant
+-- « crediter_livreur ».
+create or replace function public.ligne_remise_credite() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.etat = 'remise' and old.etat is distinct from 'remise' then
+    begin
+      perform public.crediter_livreur(new.commande_id);
+    exception when others then
+      raise warning 'crediter_livreur(%) : %', new.commande_id, sqlerrm;
+    end;
+  end if;
+  return null;
+end $$;
+drop trigger if exists lignes_creditent_livreur on public.commande_lignes;
+create trigger lignes_creditent_livreur
+  after update of etat on public.commande_lignes
+  for each row execute function public.ligne_remise_credite();
+
+-- Le solde d'un livreur : le sien, ou celui de n'importe lequel pour le
+-- superadministrateur.
+create or replace function public.solde_livreur(cible uuid default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  qui uuid := coalesce(cible, auth.uid());
+  gagne bigint; a_venir bigint; reverse bigint; attente bigint; t int;
+  r public.livreurs_reception%rowtype;
+begin
+  if qui is null or not ((qui = auth.uid() and public.est_livreur()) or public.est_super()) then
+    raise exception 'Ce solde n''est pas le vôtre.';
+  end if;
+  select coalesce(sum(g.montant), 0) into gagne from public.gains_livreurs g where g.livreur_id = qui;
+  select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
+  select coalesce(sum(floor(c.frais_livraison * coalesce(t, 80) / 100.0)), 0)::bigint into a_venir
+    from public.commandes c
+   where c.etat = 'payee' and c.livraison is not null
+     and not exists (select 1 from public.gains_livreurs g where g.commande_id = c.id)
+     and exists (select 1 from public.commande_lignes l
+                  where l.commande_id = c.id and l.livreur_id = qui
+                    and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison'));
+  select coalesce(sum(v.montant) filter (where v.etat = 'valide'), 0),
+         coalesce(sum(v.montant) filter (where v.etat = 'en_attente'), 0)
+    into reverse, attente
+    from public.reversements_livreurs v where v.livreur_id = qui;
+  select * into r from public.livreurs_reception where livreur_id = qui;
+  return jsonb_build_object(
+    'gagne', gagne, 'a_venir', a_venir, 'reverse', reverse, 'en_attente', attente,
+    'disponible', greatest(0, gagne - reverse - attente),
+    'taux', coalesce(t, 80), 'devise', 'FCFA',
+    'reception', case when r.livreur_id is null or r.tel = '' then null
+                      else jsonb_build_object('tel', r.tel, 'reseau', r.reseau, 'titulaire', r.titulaire,
+                                              'maj_le', r.maj_le) end,
+    'courses', coalesce((select jsonb_agg(jsonb_build_object(
+                  'commande_id', g.commande_id, 'numero', c.numero, 'frais', g.frais,
+                  'taux', g.taux, 'montant', g.montant, 'credite_le', g.credite_le,
+                  'vehicule', c.livraison ->> 'vehicule',
+                  'distance_km', c.livraison -> 'distance_km') order by g.credite_le desc)
+                 from (select * from public.gains_livreurs x where x.livreur_id = qui
+                        order by x.credite_le desc limit 50) g
+                 join public.commandes c on c.id = g.commande_id), '[]'::jsonb));
+end $$;
+revoke all on function public.solde_livreur(uuid) from public, anon;
+grant execute on function public.solde_livreur(uuid) to authenticated;
+
+-- SON NUMÉRO DE RÉCEPTION : le livreur le règle lui-même ; BIZZOO est
+-- prévenu de chaque changement — c'est par là qu'on détournerait ses gains.
+create or replace function public.regler_reception_livreur(tel text, reseau text, titulaire text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi      uuid := auth.uid();
+  national text := regexp_replace(coalesce(tel, ''), '\D', '', 'g');
+  res      text := upper(coalesce(reseau, ''));
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul un livreur règle son numéro de réception.';
+  end if;
+  national := regexp_replace(national, '^229', '');
+  if length(national) = 8 then national := '01' || national; end if;
+  if length(national) <> 10 or national !~ '^01[0-9]+' then
+    raise exception 'Ce numéro n''a pas la forme d''un numéro béninois : dix chiffres commençant par 01.'
+      using errcode = 'P0001';
+  end if;
+  if res not in ('MTN', 'MOOV', 'CELTIIS') then
+    raise exception 'Choisissez le réseau du numéro : MTN, Moov ou Celtiis.' using errcode = 'P0001';
+  end if;
+  insert into public.livreurs_reception (livreur_id, tel, reseau, titulaire, maj_le)
+  values (moi, national, res, left(trim(coalesce(titulaire, '')), 80), now())
+  on conflict (livreur_id) do update
+     set tel = excluded.tel, reseau = excluded.reseau, titulaire = excluded.titulaire, maj_le = now();
+  perform public.notifier(public.les_superadmins(), 'reception_reglee',
+    'Numéro de réception d''un livreur — ' || public.nom_du_compte(),
+    public.nom_du_compte() || ' a réglé son numéro de réception : ' || res || ' ' || national ||
+      coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
+    '#/reversements', null, null, false);
+  return jsonb_build_object('tel', national, 'reseau', res);
+end $$;
+revoke all on function public.regler_reception_livreur(text, text, text) from public, anon;
+grant execute on function public.regler_reception_livreur(text, text, text) to authenticated;
+
+create or replace function public.demander_reversement_livreur(montant bigint)
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  moi   uuid := auth.uid();
+  solde jsonb;
+  r     public.livreurs_reception%rowtype;
+  qui   text := public.nom_du_compte();
+  nouv  bigint;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul un livreur demande le reversement de ses gains.';
+  end if;
+  -- Une demande à la fois : on la tranche avant la suivante.
+  perform 1 from public.profils p where p.id = moi for update;
+  select * into r from public.livreurs_reception where livreur_id = moi;
+  if r.livreur_id is null or r.tel = '' then
+    raise exception 'Réglez d''abord le numéro qui recevra vos gains.' using errcode = 'P0001';
+  end if;
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Indiquez le montant à reverser.' using errcode = 'P0001';
+  end if;
+  solde := public.solde_livreur(moi);
+  if montant > (solde ->> 'disponible')::bigint then
+    raise exception 'Votre solde disponible est de % : vous ne pouvez pas demander plus.',
+      public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
+  end if;
+  insert into public.reversements_livreurs (livreur_id, nom_livreur, montant, tel, reseau, titulaire)
+  values (moi, qui, montant, r.tel, r.reseau, r.titulaire)
+  returning id into nouv;
+  perform public.notifier(public.les_superadmins(), 'reversement_demande',
+    'Reversement demandé par un livreur : ' || public.montant_lisible(montant, 'FCFA'),
+    qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
+      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
+    '#/reversements', null, null, true);
+  return nouv;
+end $$;
+revoke all on function public.demander_reversement_livreur(bigint) from public, anon;
+grant execute on function public.demander_reversement_livreur(bigint) to authenticated;
+
+-- La liste : le livreur, les siennes ; le superadministrateur, toutes.
+create or replace function public.reversements_livreurs_liste()
+returns table (id bigint, livreur_id uuid, nom_livreur text, montant bigint, tel text, reseau text,
+               titulaire text, etat text, demande_le timestamptz, decide_par text,
+               decide_le timestamptz, reference text, motif text)
+language plpgsql stable security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not (public.est_super() or public.est_livreur()) then return; end if;
+  return query
+    select v.id, v.livreur_id, v.nom_livreur, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
+           v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif
+      from public.reversements_livreurs v
+     where public.est_super() or v.livreur_id = moi
+     order by (v.etat = 'en_attente') desc, v.demande_le desc
+     limit 200;
+end $$;
+revoke all on function public.reversements_livreurs_liste() from public, anon;
+grant execute on function public.reversements_livreurs_liste() to authenticated;
+
+create or replace function public.decider_reversement_livreur(cible bigint, accord boolean,
+  reference text default '', motif text default '')
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v   public.reversements_livreurs%rowtype;
+  ref text := left(trim(coalesce(reference, '')), 60);
+  pourquoi text := left(trim(coalesce(motif, '')), 300);
+begin
+  if not public.est_super() then
+    raise exception 'Seul le superadministrateur valide un reversement.';
+  end if;
+  select * into v from public.reversements_livreurs where id = cible for update;
+  if not found then raise exception 'Demande introuvable.'; end if;
+  if v.etat <> 'en_attente' then
+    raise exception 'Cette demande est déjà tranchée.' using errcode = 'P0001';
+  end if;
+  if accord and length(ref) < 4 then
+    raise exception 'Notez la référence de la transaction envoyée.' using errcode = 'P0001';
+  end if;
+  update public.reversements_livreurs
+     set etat = case when accord then 'valide' else 'refuse' end,
+         decide_par = public.nom_du_compte(), decide_le = now(),
+         reference = case when accord then ref else '' end, motif = pourquoi
+   where id = cible;
+  perform public.notifier(array[v.livreur_id], 'reversement_decide',
+    case when accord then 'Gains envoyés : ' || public.montant_lisible(v.montant, 'FCFA')
+         else 'Reversement refusé : ' || public.montant_lisible(v.montant, 'FCFA') end,
+    case when accord then 'Envoyé sur ' || v.reseau || ' ' || v.tel || ' — référence ' || ref || '.'
+         else 'BIZZOO a refusé la demande' || coalesce(' : « ' || nullif(pourquoi, '') || ' »', '') ||
+              '. Le montant revient à votre solde.' end,
+    '#/gains', null, null, true);
+  return case when accord then 'valide' else 'refuse' end;
+end $$;
+revoke all on function public.decider_reversement_livreur(bigint, boolean, text, text) from public, anon;
+grant execute on function public.decider_reversement_livreur(bigint, boolean, text, text) to authenticated;
 
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,
