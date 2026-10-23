@@ -5248,6 +5248,13 @@ toujours.
 3. Réglages → BIZZOO → Livraison au kilomètre : poser le point BIZZOO,
    vérifier les tarifs, **Enregistrer**. C'est en service.
 
+Appliqué en ligne le 23 octobre 2026, en sept morceaux. L'ancienne
+`creer_commande` à cinq paramètres n'a pas été effacée mais **renommée**
+`creer_commande_avant_km` (sans droit d'appel) : avec les deux, PostgREST
+n'aurait pas su laquelle choisir. Vérifié après coup : les 37 fonctions
+du fichier sont identiques en ligne, et une commande d'essai (annulée)
+se comporte comme avant tant que le point BIZZOO n'est pas réglé.
+
 ### Les essais
 
 - `supabase/tests/99zzz…-livraison-au-km.sql` : le devis (forfait, km

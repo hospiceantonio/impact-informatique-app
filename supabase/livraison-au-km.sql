@@ -1185,6 +1185,8 @@ begin
     from public.commandes c where c.id = nouvelle;
   return sortie;
 end $$;
+revoke all on function public.creer_commande(jsonb, jsonb, text, boolean, boolean, jsonb) from public;
+grant execute on function public.creer_commande(jsonb, jsonb, text, boolean, boolean, jsonb) to anon, authenticated;
 
 create or replace function public.restes_par_boutique(cible text)
 returns table (boutique_id text, a_encaisser bigint)
