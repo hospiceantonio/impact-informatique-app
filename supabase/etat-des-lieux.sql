@@ -1006,7 +1006,18 @@ with controles(rang, element, ok) as (values
       select 1 from pg_trigger where tgname = 'lignes_creditent_livreur')
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'decider_reversement_livreur'))
+       where n.nspname = 'public' and p.proname = 'decider_reversement_livreur')),
+  -- Les notifications push, application fermée (3.65.0).
+  (152, 'Les notifications push (appareils_push, enregistrer_appareil, déclencheur)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'appareils_push')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enregistrer_appareil')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'push_a_envoyer')
+    and exists (select 1 from pg_trigger where tgname = 'notifications_poussent'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

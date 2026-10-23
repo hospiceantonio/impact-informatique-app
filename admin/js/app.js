@@ -433,6 +433,8 @@
         document.dispatchEvent(new CustomEvent("notifs:maj")));
       Notifs.demarrer();
     }
+    /* (3.65.0) Ce téléphone sonne pour ce compte, application fermée. */
+    if (typeof Push !== "undefined") Push.declarer();
     /* Un compte de boutique dont la boutique n'existe pas n'a de prise sur
        rien : mieux vaut un écran qui l'explique qu'une application à
        moitié morte — ou pire, des produits créés hors de toute boutique.

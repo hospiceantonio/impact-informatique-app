@@ -3,4 +3,6 @@
     <color name="fond_demarrage">#FFFFFF</color>
     <!-- Prévenir le client des nouveautés du catalogue. -->
     <bool name="notifications_actives">true</bool>
+    <!-- Le client n'a pas de push personnel : les lives passent par le sujet « tous ». -->
+    <bool name="push_equipe">false</bool>
 </resources>

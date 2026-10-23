@@ -73,6 +73,15 @@ public class MainActivity extends Activity {
     private static final int CODE_POSITION = 42;
     private static final int CODE_NOTIFICATIONS = 43;
 
+    /* (3.65.0) La page à ouvrir quand on touche une notification de
+       course ou de commande (« #/livraisons », « #/commandes/… »). */
+    static final String EXTRA_LIEN = "bizzoo.lien";
+    /* L'application est-elle à l'écran ? Alors elle sonne elle-même, et
+       la notification push n'a pas à sonner une seconde fois. */
+    static volatile boolean auPremierPlan = false;
+    private String lienEnAttente;
+    private boolean pageChargee = false;
+
     private WebView vueWeb;
     private ValueCallback<Uri[]> rappelChoixFichier;
     private Uri photoEnCours;
@@ -161,6 +170,12 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageFinished(WebView vue, String adresse) {
+                pageChargee = true;
+                ouvrirLienEnAttente();
+            }
+
+            @Override
             public void onReceivedError(WebView vue, WebResourceRequest requete, WebResourceError erreur) {
                 if (!requete.isForMainFrame()) return;
                 /* Page de diagnostic : version visible + bouton réessayer. */
@@ -205,6 +220,7 @@ public class MainActivity extends Activity {
             }
         });
 
+        lienEnAttente = lienDe(getIntent());
         vueWeb.loadUrl(PAGE_ACCUEIL);
 
         demanderNotifications();
@@ -215,6 +231,53 @@ public class MainActivity extends Activity {
         if (getResources().getBoolean(R.bool.notifications_actives)) {
             ServiceNotifications.abonner(this);
         }
+        /* (3.65.0) L'équipe — livreurs et boutiques : le jeton Firebase de
+           ce téléphone, que la page déclarera à la base une fois connectée. */
+        if (getResources().getBoolean(R.bool.push_equipe)) {
+            ServiceNotifications.preparerPush(this);
+        }
+    }
+
+    /* ---------- (3.65.0) Ouvrir la page d'une notification ---------- */
+
+    @Override
+    protected void onNewIntent(Intent intention) {
+        super.onNewIntent(intention);
+        setIntent(intention);
+        String lien = lienDe(intention);
+        if (lien != null) {
+            lienEnAttente = lien;
+            ouvrirLienEnAttente();
+        }
+    }
+
+    /** Seulement une adresse interne (« #/… ») : rien d'autre ne s'ouvre d'une notification. */
+    private static String lienDe(Intent intention) {
+        if (intention == null) return null;
+        String lien = intention.getStringExtra(EXTRA_LIEN);
+        if (lien == null || !lien.matches("#/[A-Za-z0-9_/\\-]{0,120}")) return null;
+        return lien;
+    }
+
+    private void ouvrirLienEnAttente() {
+        if (!pageChargee || lienEnAttente == null || vueWeb == null) return;
+        final String lien = lienEnAttente;
+        lienEnAttente = null;
+        vueWeb.evaluateJavascript("location.hash = " + org.json.JSONObject.quote(lien) + ";", null);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        auPremierPlan = true;
+        /* L'application est là : elle prend le relais des sonneries. */
+        if (getResources().getBoolean(R.bool.push_equipe)) ServiceNotifications.taireEquipe(this);
+    }
+
+    @Override
+    protected void onPause() {
+        auPremierPlan = false;
+        super.onPause();
     }
 
     /**
@@ -258,7 +321,8 @@ public class MainActivity extends Activity {
      * est acquise à l'installation.
      */
     private void demanderNotifications() {
-        if (!getResources().getBoolean(R.bool.notifications_actives)) return;
+        if (!getResources().getBoolean(R.bool.notifications_actives)
+                && !getResources().getBoolean(R.bool.push_equipe)) return;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 == PackageManager.PERMISSION_GRANTED) return;
@@ -596,6 +660,16 @@ public class MainActivity extends Activity {
                     annoncer("Impossible d'ouvrir l'espace vendeur : " + e.getMessage());
                 }
             });
+        }
+
+        /**
+         * (3.65.0) Le jeton Firebase de ce téléphone, « » tant que Firebase
+         * ne l'a pas donné (ou n'est pas réglé). La page le déclare à la
+         * base avec la session du compte connecté.
+         */
+        @JavascriptInterface
+        public String jetonPush() {
+            return ServiceNotifications.jeton(MainActivity.this);
         }
 
         /**

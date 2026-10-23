@@ -5268,6 +5268,70 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   reçu, une base sans point BIZZOO, les Réglages, l'écran du livreur et
   « Mes gains », la décision du superadministrateur.
 
+
+## Le téléphone sonne, application fermée (3.65.0)
+
+Avant, une course confiée à un livreur ou une commande payée chez une
+boutique ne sonnait que si BIZZOO Admin était **ouverte**. Désormais le
+téléphone sonne même application fermée ou en veille, par Firebase Cloud
+Messaging (le même projet Firebase que les lives TikTok).
+
+- **Une course** (confiée par la boutique, ou proposée à tous) : la
+  notification **sonne jusqu'à ce qu'on la touche** (trois notes qui
+  montent, en boucle, et vibration), comme la sonnerie de l'application.
+- **Une commande payée** (et toute notification « qui sonne » pour une
+  boutique) : elle sonne une fois, fort.
+- **Toucher la notification** ouvre BIZZOO Admin directement sur la course
+  ou la commande. Ouvrir l'application arrête les sonneries : elle prend le
+  relais.
+- Application déjà à l'écran : pas de double sonnerie.
+- Chaque téléphone se **déclare** à la connexion pour le compte connecté,
+  et se **retire** à la déconnexion. Un téléphone désinstallé est oublié au
+  premier refus de Firebase.
+
+### Comment ça marche
+
+1. `notifier()` écrit la notification, comme avant.
+2. Si elle **sonne** et que son destinataire a un téléphone déclaré, le
+   déclencheur `notifications_poussent` appelle la fonction Edge
+   `envoyer-push` par **pg_net**, après la transaction.
+3. La fonction ne reçoit que le **numéro** de la notification ; elle relit
+   tout dans la base (`push_a_envoyer`), qui la marque envoyée au passage :
+   rien ne part deux fois, et un appel forgé n'envoie rien qui ne vienne de
+   la base.
+
+Fichiers : `supabase/notifications-push.sql`,
+`supabase/functions/envoyer-push/`, `admin/js/push.js`, et dans
+`android/` : `ServiceNotifications.java`, `MainActivity.java`,
+`res/raw/sonnerie_course.wav`.
+
+### Mise en service
+
+1. Firebase : ajouter l'application Android **`com.impactinformatique.admin`**
+   au projet « bizzoo » (Paramètres du projet → Vos applications → Ajouter
+   une application), et recopier son **ID de l'application** dans
+   `android/firebase.properties`, ligne `admin_app_id=`. C'est un
+   identifiant public, pas un secret. Vide : pas de push pour l'équipe.
+2. Supabase : activer l'extension **pg_net**, exécuter
+   `supabase/notifications-push.sql`, déployer `envoyer-push` **sans
+   vérification du jeton**, et poser son adresse dans `push_reglage`.
+3. Construire les APK : les livreurs et les boutiques installent la
+   nouvelle BIZZOO Admin et s'y reconnectent une fois.
+
+Android seulement : l'application iOS n'a pas encore de notifications push
+(il faudrait un certificat Apple). Dans un navigateur, rien ne change.
+
+### Les essais
+
+- `supabase/tests/99zzz…-notifications-push.sql` (24 constats) : la
+  déclaration du téléphone, les droits, l'appel par pg_net (simulé) pour
+  les seules notifications qui sonnent, l'envoi unique, l'oubli.
+- `tools/eprouver-push.sh` (19 constats) : la fonction Edge, Google et
+  Firebase en doublures.
+- `tools/banc-push-equipe.mjs` (14 constats) : la déclaration à la
+  connexion, le retrait à la déconnexion, le navigateur sans pont, une
+  base d'avant.
+
 ## Structure
 
 ```
