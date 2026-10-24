@@ -4870,7 +4870,7 @@ Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la
 
 ### Les statistiques (3.61.1)
 
-Menu « Statistiques » : commandes (payées, passées, en attente, articles, revendeurs, par jour, boutiques et produits qui vendent le plus), livraisons (états des articles payés, délai moyen paiement → réception, livreurs) et SAV (réclamations par état et par motif, avis et notes), sur une période au choix. Une commande compte au jour de son paiement ; une ligne annulée ne compte jamais.
+Menu « Statistiques » : un sommaire, puis six sous-menus, chacun sur sa page avec son choix de période (gardée quand on passe de l'un à l'autre ; sur ordinateur, ils s'affichent aussi sous « Statistiques » dans le menu de gauche) : Commandes (payées, passées, en attente, articles, revendeurs, jour par jour), Boutiques qui vendent le plus, Produits les plus vendus, Livraisons (états des articles payés, délai moyen paiement → réception), Livreurs, Service après-vente et avis (réclamations par état et par motif, avis et notes). Adresses : `#/statistiques/<sous-menu>?p=30j` ou `?du=…&au=…`. Une commande compte au jour de son paiement ; une ligne annulée ne compte jamais.
 
 C'est `rh_statistiques` (`supabase/personnel-statistiques.sql`) qui décide de ce qui sort de la base : le CEO voit tout, **la marge de BIZZOO comprise** ; l'administration tout sauf la marge ; le responsable d'un profil, les seules rubriques que l'administration a cochées pour ce profil (écran Profils), **sans aucun montant** ; les autres, rien. Les statistiques de l'application admin restent en place.
 

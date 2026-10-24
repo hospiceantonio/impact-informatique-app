@@ -1,6 +1,12 @@
 /* =========================================================
-   Statistiques — commandes, livraisons, SAV et avis de BIZZOO,
-   sur une période.
+   Statistiques — commandes, boutiques, produits, livraisons,
+   livreurs, SAV et avis de BIZZOO, chacun sur sa page, avec
+   son choix de période.
+
+   #/statistiques               : le sommaire des sous-menus ;
+   #/statistiques/<sous-menu>   : une page, période dans l'adresse
+                                  (?p=30j, ou ?du=…&au=…), gardée
+                                  d'un sous-menu à l'autre.
 
    C'est la base (rh_statistiques) qui décide de ce que chacun
    voit : le CEO tout, marge comprise ; l'administration tout
@@ -12,12 +18,31 @@
 const VueStatistiques = (() => {
   const { h } = UI;
 
+  /** Les sous-menus, et la rubrique de la base dont chacun dépend. */
+  const SOUS_MENUS = [
+    { cle: "commandes", libelle: "Commandes", rubrique: "commandes", icone: "argent",
+      texte: "Payées, passées, en attente, articles vendus, jour par jour" },
+    { cle: "boutiques", libelle: "Boutiques qui vendent le plus", rubrique: "commandes", icone: "profils",
+      texte: "Le classement des boutiques sur la période" },
+    { cle: "produits", libelle: "Produits les plus vendus", rubrique: "commandes", icone: "paie",
+      texte: "Les articles qui partent le plus" },
+    { cle: "livraisons", libelle: "Livraisons", rubrique: "livraisons", icone: "mission",
+      texte: "Livrés, à livrer, annulés, délai moyen" },
+    { cle: "livreurs", libelle: "Livreurs", rubrique: "livraisons", icone: "equipe",
+      texte: "Ce que chaque livreur a livré" },
+    { cle: "sav", libelle: "Service après-vente et avis", rubrique: "sav", icone: "bulle",
+      texte: "Réclamations, avis et notes des clients" },
+  ];
+
   const ETATS_LIGNE = { nouvelle: "Nouvelle", vue: "Vue par la boutique", preparee: "Préparée",
     en_livraison: "En livraison", remise: "Livrée", annulee: "Annulée" };
   const ETATS_SAV = { ouverte: "Ouverte", repondue: "Répondue", resolue: "Résolue",
     escaladee: "Escaladée vers BIZZOO", tranchee: "Tranchée par BIZZOO" };
   const SUJETS_SAV = { non_recu: "Non reçu", abime: "Abîmé", pas_conforme: "Pas conforme",
     incomplet: "Incomplet", autre: "Autre" };
+
+  /** Les sous-menus que ce compte peut ouvrir (la base tranche de toute façon). */
+  const permis = () => SOUS_MENUS.filter((s) => App.rubriquesStatistiques().includes(s.rubrique));
 
   const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   function periodes() {
@@ -35,45 +60,93 @@ const VueStatistiques = (() => {
     ];
   }
 
+  /** La période demandée par l'adresse, et ce qu'il faut recopier dans les liens. */
+  function periodeDe(params) {
+    const liste = periodes();
+    const choix = liste.find((p) => p[0] === params.p) || (params.du ? null : liste[1]);
+    const depuis = choix ? choix[2] : params.du;
+    const jusqu = choix ? choix[3] : (params.au || iso(new Date()));
+    const suffixe = choix ? "?p=" + choix[0] : "?du=" + depuis + "&au=" + jusqu;
+    return { liste, choix, depuis, jusqu, suffixe };
+  }
+
   const nombre = (n) => (n === null || n === undefined ? "—" : UI.entier(n));
   const tuile = (valeur, libelle, petit) => h("div", { class: "tuile" },
     h("b", { style: petit ? { fontSize: "17px" } : null }, valeur), h("span", {}, libelle));
   const montant = (v) => (v === null || v === undefined ? null : UI.fcfa(v));
 
   async function afficher(zone, morceaux, params) {
-    const liste = periodes();
-    const choix = liste.find((p) => p[0] === params.p) || (params.du ? null : liste[1]);
-    const depuis = choix ? choix[2] : params.du;
-    const jusqu = choix ? choix[3] : (params.au || iso(new Date()));
+    const periode = periodeDe(params);
+    const ouverts = permis();
+    const sous = ouverts.find((s) => s.cle === morceaux[0]);
+    if (morceaux[0] && !sous) {
+      UI.vider(zone, UI.vide("Ce sous-menu n'existe pas, ou votre compte n'y a pas accès."));
+      return;
+    }
+    if (!sous) return sommaire(zone, ouverts, periode);
 
-    const du = h("input", { type: "date", value: depuis });
-    const au = h("input", { type: "date", value: jusqu });
+    App.titre(sous.libelle);
+    const route = "#/statistiques/" + sous.cle;
+    const du = h("input", { type: "date", value: periode.depuis });
+    const au = h("input", { type: "date", value: periode.jusqu });
     const formPeriode = h("form", { class: "ligne" },
       h("label", { class: "champ" }, h("span", {}, "Du"), du),
       h("label", { class: "champ" }, h("span", {}, "Au"), au),
       h("button", { class: "btn btn-second", type: "submit", style: { alignSelf: "flex-end" } }, "Afficher"));
     formPeriode.addEventListener("submit", (ev) => {
       ev.preventDefault();
-      location.hash = "#/statistiques?du=" + du.value + "&au=" + au.value;
+      if (au.value < du.value) return UI.echec("La fin de la période précède son début.");
+      location.hash = route + "?du=" + du.value + "&au=" + au.value;
     });
 
     const corps = h("div", { class: "pile" }, UI.chargement());
     UI.vider(zone,
-      h("div", { class: "filtres" }, liste.map(([cle, libelle]) =>
-        h("button", { class: choix && choix[0] === cle ? "actif" : "", onclick: () => { location.hash = "#/statistiques?p=" + cle; } }, libelle))),
-      formPeriode, corps);
+      /* Les sous-menus : on passe de l'un à l'autre en gardant la période. */
+      h("div", { class: "filtres" }, ouverts.map((s) =>
+        h("button", { class: s.cle === sous.cle ? "actif" : "", onclick: () => { location.hash = "#/statistiques/" + s.cle + periode.suffixe; } },
+          s.libelle))),
+      h("div", { class: "carte pile" },
+        h("div", { class: "filtres" }, periode.liste.map(([cle, libelle]) =>
+          h("button", { class: periode.choix && periode.choix[0] === cle ? "actif" : "",
+                        onclick: () => { location.hash = route + "?p=" + cle; } }, libelle))),
+        formPeriode),
+      corps);
 
-    const s = await Supabase.rpc("rh_statistiques", { depuis, jusqu });
+    const s = await Supabase.rpc("rh_statistiques", { depuis: periode.depuis, jusqu: periode.jusqu });
     if (!corps.isConnected) return;
     const blocs = [h("p", { class: "doux petit" }, "Du " + UI.dateLongue(s.periode.depuis) + " au " + UI.dateLongue(s.periode.jusqu) +
       (s.droits.argent ? "" : " · sans les montants, réservés à l'administration"))];
-    if (s.commandes) blocs.push(...commandes(s.commandes, s.droits));
-    if (s.livraisons) blocs.push(...livraisons(s.livraisons, s.droits));
-    if (s.sav) blocs.push(...sav(s.sav));
+    const PAGES = { commandes, boutiques, produits, livraisons, livreurs, sav };
+    const donnees = s[sous.rubrique];
+    if (!donnees) blocs.push(UI.vide("Votre compte n'a pas accès à cette rubrique."));
+    else blocs.push(...PAGES[sous.cle](donnees, s.droits));
     UI.vider(corps, blocs);
   }
 
-  /* ---------- Les commandes ---------- */
+  /** Le sommaire : une tuile par sous-menu. */
+  function sommaire(zone, ouverts, periode) {
+    UI.vider(zone,
+      h("p", { class: "doux" }, "Choisissez ce que vous voulez voir. La période se règle sur chaque page."),
+      ouverts.length ? h("div", { class: "liste" }, ouverts.map((s) =>
+        h("a", { class: "element", href: "#/statistiques/" + s.cle + periode.suffixe },
+          h("div", { class: "avatar", style: { background: "var(--bleu-50)", color: "var(--bleu-800)" } }, UI.icone(s.icone, "ic-sm")),
+          h("div", { class: "etire" }, h("div", { class: "gras" }, s.libelle), h("div", { class: "petit doux" }, s.texte)),
+          UI.icone("chevron", "ic-sm"))))
+        : UI.vide("Votre compte n'a accès à aucune statistique."));
+  }
+
+  function tableau(titre, entetes, lignes) {
+    const garder = entetes.map((e) => e !== null);
+    return h("div", { class: "carte defile" },
+      titre ? h("h3", { style: { marginBottom: "8px" } }, titre) : null,
+      h("table", { class: "tableau" },
+        h("thead", {}, h("tr", {}, entetes.filter((e, i) => garder[i]).map((e, i) =>
+          h("th", { class: i === 0 ? "" : "nombre" }, e)))),
+        h("tbody", {}, lignes.map((l) => h("tr", {}, l.filter((_, i) => garder[i]).map((v, i) =>
+          h("td", { class: i === 0 ? "" : "nombre" }, v)))))));
+  }
+
+  /* ---------- Commandes ---------- */
 
   function commandes(c, droits) {
     const tuiles = [
@@ -94,19 +167,9 @@ const VueStatistiques = (() => {
         h("span", {}, "marge de BIZZOO (CEO seul)")));
       tuiles.push(tuile(montant(c.reverse_boutiques), "reversé aux boutiques", true));
     }
-    const sortie = [h("h2", { style: { fontSize: "18px" } }, "Commandes"), h("div", { class: "tuiles" }, tuiles)];
+    const sortie = [h("div", { class: "tuiles" }, tuiles)];
     if (c.par_jour.length) sortie.push(courbe(c.par_jour, droits.argent));
-    if (c.boutiques.length) {
-      sortie.push(tableau("Boutiques qui vendent le plus",
-        ["Boutique", "Commandes", "Articles", droits.argent ? "Ventes" : null, droits.marge ? "Marge" : null],
-        c.boutiques.map((b) => [b.boutique || "—", nombre(b.commandes), nombre(b.articles),
-          droits.argent ? UI.entier(b.ventes) : null, droits.marge ? UI.entier(b.benefice) : null])));
-    }
-    if (c.produits.length) {
-      sortie.push(tableau("Produits les plus vendus",
-        ["Produit", "Articles", droits.argent ? "Ventes" : null],
-        c.produits.map((p) => [(p.code ? p.code + " · " : "") + p.produit, nombre(p.articles), droits.argent ? UI.entier(p.ventes) : null])));
-    }
+    else sortie.push(UI.vide("Aucune commande payée sur cette période."));
     return sortie;
   }
 
@@ -124,25 +187,35 @@ const VueStatistiques = (() => {
         h("span", {}, UI.date(jours[0].jour)), h("span", {}, UI.date(jours[jours.length - 1].jour))));
   }
 
-  function tableau(titre, entetes, lignes) {
-    const garder = entetes.map((e) => e !== null);
-    return h("div", { class: "carte defile" },
-      h("h3", { style: { marginBottom: "8px" } }, titre),
-      h("table", { class: "tableau" },
-        h("thead", {}, h("tr", {}, entetes.filter((e, i) => garder[i]).map((e, i) =>
-          h("th", { class: i === 0 ? "" : "nombre" }, e)))),
-        h("tbody", {}, lignes.map((l) => h("tr", {}, l.filter((_, i) => garder[i]).map((v, i) =>
-          h("td", { class: i === 0 ? "" : "nombre" }, v)))))));
+  /* ---------- Boutiques qui vendent le plus ---------- */
+
+  function boutiques(c, droits) {
+    if (!c.boutiques.length) return [UI.vide("Aucune vente sur cette période.")];
+    return [tableau(null,
+      ["Boutique", "Commandes", "Articles", droits.argent ? "Ventes (FCFA)" : null, droits.marge ? "Marge (FCFA)" : null],
+      c.boutiques.map((b, i) => [(i + 1) + ". " + (b.boutique || "—"), nombre(b.commandes), nombre(b.articles),
+        droits.argent ? UI.entier(b.ventes) : null, droits.marge ? UI.entier(b.benefice) : null])),
+      h("p", { class: "doux tres-petit" }, "Les 10 premières, classées par nombre d'articles vendus.")];
   }
 
-  /* ---------- Les livraisons ---------- */
+  /* ---------- Produits les plus vendus ---------- */
 
-  function livraisons(l, droits) {
+  function produits(c, droits) {
+    if (!c.produits.length) return [UI.vide("Aucune vente sur cette période.")];
+    return [tableau(null,
+      ["Produit", "Articles", droits.argent ? "Ventes (FCFA)" : null],
+      c.produits.map((p, i) => [(i + 1) + ". " + (p.code ? p.code + " · " : "") + p.produit, nombre(p.articles),
+        droits.argent ? UI.entier(p.ventes) : null])),
+      h("p", { class: "doux tres-petit" }, "Les 10 premiers, classés par nombre d'articles vendus.")];
+  }
+
+  /* ---------- Livraisons ---------- */
+
+  function livraisons(l) {
     const delai = l.delai_moyen_heures === null ? "—"
       : l.delai_moyen_heures < 48 ? String(l.delai_moyen_heures).replace(".", ",") + " h"
       : (Math.round(l.delai_moyen_heures / 24 * 10) / 10).toString().replace(".", ",") + " j";
     const sortie = [
-      h("h2", { style: { fontSize: "18px" } }, "Livraisons"),
       h("div", { class: "tuiles" },
         tuile(nombre(l.livrees), "articles livrés"),
         tuile(nombre(l.en_cours), "à livrer"),
@@ -154,18 +227,21 @@ const VueStatistiques = (() => {
       sortie.push(tableau("Où en sont les articles payés", ["État", "Articles"],
         etats.sort((a, b) => b[1] - a[1]).map(([e, n]) => [ETATS_LIGNE[e] || e, nombre(n)])));
     }
-    if (l.livreurs.length) {
-      sortie.push(tableau("Livreurs", ["Livreur", "Commandes", "Articles livrés", droits.argent ? "Gains" : null],
-        l.livreurs.map((x) => [x.livreur, nombre(x.commandes), nombre(x.livrees), droits.argent ? UI.entier(x.gains) : null])));
-    }
     return sortie;
+  }
+
+  /* ---------- Livreurs ---------- */
+
+  function livreurs(l, droits) {
+    if (!l.livreurs.length) return [UI.vide("Aucune course confiée à un livreur sur cette période.")];
+    return [tableau(null, ["Livreur", "Commandes", "Articles livrés", droits.argent ? "Gains (FCFA)" : null],
+      l.livreurs.map((x) => [x.livreur, nombre(x.commandes), nombre(x.livrees), droits.argent ? UI.entier(x.gains) : null]))];
   }
 
   /* ---------- SAV et avis ---------- */
 
   function sav(s) {
     const sortie = [
-      h("h2", { style: { fontSize: "18px" } }, "Service après-vente et avis"),
       h("div", { class: "tuiles" },
         tuile(nombre(s.reclamations), "réclamations"),
         tuile(nombre(s.avis), "avis déposés"),
@@ -185,5 +261,5 @@ const VueStatistiques = (() => {
     return sortie;
   }
 
-  return { titre: "Statistiques", afficher };
+  return { titre: "Statistiques", afficher, SOUS_MENUS };
 })();

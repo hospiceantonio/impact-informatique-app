@@ -24,6 +24,8 @@ const App = (() => {
   const responsableDe = (profil) => !!(moi() && (moi().responsable_de || []).includes(profil));
   const estResponsable = () => !!(moi() && (moi().responsable_de || []).length);
   const voitStatistiques = () => estAdmin() || rubriquesStats.length > 0;
+  /** Les rubriques de statistiques de ce compte : toutes pour l'administration. */
+  const rubriquesStatistiques = () => (estAdmin() ? ["commandes", "livraisons", "sav"] : rubriquesStats);
 
   /* ---------- Les écrans ---------- */
   const VUES = {
@@ -76,8 +78,14 @@ const App = (() => {
       items.map((m) => {
         const titre = m.groupe && m.groupe !== groupe ? h("div", { class: "titre-groupe" }, m.groupe) : null;
         if (m.groupe) groupe = m.groupe;
-        return [titre, h("a", { href: "#/" + m.route, "data-route": m.route },
-          UI.icone(m.icone), m.libelle, pastille(m.pastille))];
+        const lien = h("a", { href: "#/" + m.route, "data-route": m.route },
+          UI.icone(m.icone), m.libelle, pastille(m.pastille));
+        /* Les sous-menus des statistiques, visibles quand on y est. */
+        const sous = m.route === "statistiques"
+          ? VueStatistiques.SOUS_MENUS.filter((x) => rubriquesStatistiques().includes(x.rubrique)).map((x) =>
+            h("a", { class: "sous", href: "#/statistiques/" + x.cle, "data-sous": "statistiques/" + x.cle }, x.libelle))
+          : [];
+        return [titre, lien, sous];
       }),
       h("div", { class: "pied" }, UI.nomComplet(moi()), h("br"), h("span", { class: "tres-petit" },
         estCeo() ? "CEO" : estAdmin() ? "Administration" : (moi() && moi().profil) || "")));
@@ -98,6 +106,12 @@ const App = (() => {
     const r = routeCourante || "accueil";
     document.querySelectorAll("[data-route]").forEach((a) => {
       a.classList.toggle("actif", a.dataset.route === r);
+    });
+    const { morceaux } = lireRoute();
+    const ici = r + "/" + (morceaux[0] || "");
+    document.querySelectorAll("[data-sous]").forEach((a) => {
+      a.hidden = r !== "statistiques";
+      a.classList.toggle("actif", a.dataset.sous === ici);
     });
   }
 
@@ -231,7 +245,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable,
+    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable, rubriquesStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer,
   };
 })();
