@@ -5,7 +5,7 @@
    ========================================================= */
 const VueProfils = (() => {
   const { h } = UI;
-  const RUBRIQUES = [["commandes", "Commandes et ventes (volumes)"], ["livraisons", "Livraisons et livreurs"], ["sav", "Réclamations et avis"]];
+  const RUBRIQUES = [["commandes", "Commandes et ventes (volumes)"], ["livraisons", "Livraisons et livreurs"], ["sav", "Réclamations et avis"], ["suivi", "Suivi des commandes (statuts, incidents, clôture)"]];
 
   async function afficher(zone, morceaux) {
     UI.vider(zone, UI.chargement());
@@ -78,7 +78,7 @@ const VueProfils = (() => {
             location.hash = "#/profils";
           } }, UI.icone("poubelle", "ic-sm")))),
       h("div", { class: "carte pile" },
-        h("h3", {}, "Statistiques que voit son responsable"),
+        h("h3", {}, "Ce que voit son responsable"),
         h("p", { class: "doux petit" }, "Sans aucun montant : l'argent reste à l'administration, la marge au CEO."),
         RUBRIQUES.map(([v, l]) => h("label", { class: "case" },
           cases[v] = h("input", { type: "checkbox", checked: (p.statistiques || []).includes(v) }), l)),

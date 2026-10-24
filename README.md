@@ -4874,6 +4874,20 @@ Menu « Statistiques » : un sommaire, puis six sous-menus, chacun sur sa page a
 
 C'est `rh_statistiques` (`supabase/personnel-statistiques.sql`) qui décide de ce qui sort de la base : le CEO voit tout, **la marge de BIZZOO comprise** ; l'administration tout sauf la marge ; le responsable d'un profil, les seules rubriques que l'administration a cochées pour ce profil (écran Profils), **sans aucun montant** ; les autres, rien. Les statistiques de l'application admin restent en place.
 
+### Le suivi des commandes
+
+Menu « Suivi commandes » : le tableau de bord demandé par BIZZOO (document « Tableau de bord de suivi des commandes » et classeur « Suivi commandes »). `supabase/personnel-suivi.sql`, écran `personnel/js/vues/suivi.js`, export `personnel/js/xlsx.js`.
+
+- **Une commande par ligne** : n°, date et heure, client / téléphone / zone, articles, marchands, frais, total, reste à encaisser, livreur, statut, confirmation du client, délai de livraison, observations. Filtres par période, statut, zone, alertes, recherche libre. Fiche par commande : articles par marchand, chronologie, incidents, réclamations, courses refusées.
+- **Les 14 statuts du document**, calculés : ceux que la place de marché connaît (nouvelle, vue, préparée, en livraison, déclarée livrée, « je l'ai reçu » du client, annulée, réclamation « non reçu ») et ceux que l'administration note elle-même dans le suivi (colis récupéré, livraison échouée, retour en cours, retourné au marchand, clôturée). Une commande à plusieurs marchands prend le statut de l'article le moins avancé, sauf contestation, échec ou retour, qui priment.
+- **Les alertes, à part du statut** (seuils réglables, en heures) : pas vue par le marchand, préparation en retard, livraison en retard, livrée sans confirmation du client, livraison contestée, échec ou retour, incident ouvert, course refusée, encaissement contesté.
+- **Incidents et clôture** : une commande ne se clôture pas tant qu'un incident reste ouvert, qu'un client conteste, ou qu'un article n'a pas fini son parcours. Seule l'administration rouvre.
+- **Le journal des étapes** (`rh_journal_lignes`), tenu par deux déclencheurs sur `commande_lignes` et `commandes` qui ne bloquent jamais une commande (une erreur du journal est avalée). Il donne les délais vu → préparé → reçu ; les commandes d'avant son installation n'ont que les dates déjà connues, marquées « reconstitué ».
+- **Les zones** : lues dans l'adresse libre du client avec le référentiel du découpage du Bénin (77 communes, 152 quartiers et arrondissements), quartier d'abord ; l'administration corrige la zone d'une commande et ajoute les quartiers non reconnus.
+- **Le bilan** par jour, semaine ou mois : commandes reçues, payées, livrées et confirmées, en cours, en retard, contestées, annulées (et motifs), échecs et retours, reste à encaisser ; par livreur, par marchand, par zone ; heures et jours de pointe ; clients nouveaux et fidèles.
+- **L'export Excel** (.xlsx fabriqué dans le navigateur, sans bibliothèque) : « Suivi commandes » au format exact du classeur de BIZZOO, « Détail par marchand » (une ligne par article), « Bilan ». Les montants restent des nombres.
+- **Qui** : le CEO et l'administration, montants compris ; le responsable d'un profil coché « Suivi des commandes » (écran Profils), sans aucun montant.
+
 ### Mise en service
 
 1. **La base** : exécuter `supabase/personnel.sql` dans l'éditeur SQL de Supabase (il se suffit, et se rejoue sans rien casser). Il active `pg_cron` et programme `rh-paie-fin-de-mois`.
@@ -5391,6 +5405,7 @@ impact-informatique-app/
 │   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
 │   ├── personnel.sql                # BIZZOO Personnel : employés, missions, rapports, dépenses, paie (3.61.0)
 │   ├── personnel-statistiques.sql   # BIZZOO Personnel : les statistiques, selon le rang (3.61.1)
+│   ├── personnel-suivi.sql          # BIZZOO Personnel : le suivi des commandes, journal, alertes, zones
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL
