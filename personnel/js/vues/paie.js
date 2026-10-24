@@ -132,9 +132,17 @@ const VuePaie = (() => {
   /* ---------- Une fiche, imprimable ---------- */
 
   async function fiche(zone, id) {
-    const [f] = await Supabase.lire("rh_fiches_paie?select=*&id=eq." + encodeURIComponent(id));
+    const [[f], [ent]] = await Promise.all([
+      Supabase.lire("rh_fiches_paie?select=*&id=eq." + encodeURIComponent(id)),
+      /* L’en-tête de l’entreprise (menu Paramètres) ; base pas à jour : le nom seul. */
+      Supabase.lire("rh_entreprise?select=*").catch(() => []),
+    ]);
     if (!zone.isConnected) return;
     if (!f) return UI.vider(zone, UI.vide("Fiche introuvable."));
+    const entreprise = ent || { raison_sociale: "BIZZOO", site: "bizzoomarket.com" };
+    const mentions = [entreprise.adresse, entreprise.telephone, entreprise.email,
+      entreprise.ifu ? "IFU " + entreprise.ifu : "", entreprise.rccm ? "RCCM " + entreprise.rccm : "",
+      entreprise.cnss_employeur ? "N° employeur CNSS " + entreprise.cnss_employeur : ""].filter(Boolean);
     const e = f.employe || {};
     App.titre("Paie " + UI.mois(f.mois).toLowerCase());
     const recharger = () => App.rafraichir().then(() => fiche(zone, id));
@@ -160,7 +168,9 @@ const VuePaie = (() => {
       h("div", { class: "fiche-paie" },
         h("div", { class: "en-tete" },
           h("div", { class: "ligne" }, h("img", { src: "icons/icon-192.png", alt: "" }),
-            h("div", {}, h("div", { class: "gras", style: { fontSize: "18px" } }, "BIZZOO"), h("div", { class: "doux petit" }, "bizzoomarket.com"))),
+            h("div", {}, h("div", { class: "gras", style: { fontSize: "18px" } }, entreprise.raison_sociale),
+              h("div", { class: "doux petit" }, entreprise.site),
+              mentions.length ? h("div", { class: "doux tres-petit" }, mentions.join(" · ")) : null)),
           h("div", { class: "droite" }, h("div", { class: "gras", style: { fontSize: "16px" } }, "BULLETIN DE PAIE"),
             h("div", {}, UI.mois(f.mois)), h("div", { class: "petit" }, etiquette(f.statut)))),
         h("div", { class: "formulaire petit", style: { marginBottom: "12px" } },

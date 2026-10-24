@@ -50,14 +50,43 @@ language sql stable security definer set search_path = public as $$
                   where compte_id = auth.uid() and etat = 'actif' and (administration or ceo));
 $$;
 
-/** Le droit au suivi : « admin » (montants compris), « responsable » (sans montant), ou rien. */
+create or replace function public.rh_mon_profil() returns uuid
+language sql stable security definer set search_path = public as $$
+  select profil_id from public.rh_employes where compte_id = auth.uid() and etat = 'actif';
+$$;
+
+create or replace function public.rh_menu_ouvert(cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  v_profil uuid := public.rh_mon_profil();
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if v_moi is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return cle in ('mails', 'discussions', 'missions', 'rapports');
+  end if;
+  if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
+    return cle in ('mails', 'discussions');
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+      join public.rh_profils p on p.id = a.profil_id
+     where a.menu = cle
+       and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)));
+end $$;
+
+/** Le droit au suivi : « admin » (montants compris), « responsable »
+    (sans montant : un profil à qui le menu Paramètres l'ouvre), ou rien. */
 create or replace function public.rh_suivi_acces() returns text
 language sql stable security definer set search_path = public as $$
   select case
     when public.rh_est_admin() then 'admin'
-    when exists (select 1 from public.rh_profils p
-                  where p.responsable_id is not null and p.responsable_id = public.rh_moi()
-                    and 'suivi' = any(p.statistiques)) then 'responsable'
+    when public.rh_menu_ouvert('suivi') then 'responsable'
   end;
 $$;
 

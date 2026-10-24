@@ -4872,13 +4872,13 @@ Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la
 
 Menu « Statistiques » : un sommaire, puis six sous-menus, chacun sur sa page avec son choix de période (gardée quand on passe de l'un à l'autre ; sur ordinateur, ils s'affichent aussi sous « Statistiques » dans le menu de gauche) : Commandes (payées, passées, en attente, articles, revendeurs, jour par jour), Boutiques qui vendent le plus, Produits les plus vendus, Livraisons (états des articles payés, délai moyen paiement → réception), Livreurs, Service après-vente et avis (réclamations par état et par motif, avis et notes). Adresses : `#/statistiques/<sous-menu>?p=30j` ou `?du=…&au=…`. Une commande compte au jour de son paiement ; une ligne annulée ne compte jamais.
 
-C'est `rh_statistiques` (`supabase/personnel-statistiques.sql`) qui décide de ce qui sort de la base : le CEO voit tout, **la marge de BIZZOO comprise** ; l'administration tout sauf la marge ; le responsable d'un profil, les seules rubriques que l'administration a cochées pour ce profil (écran Profils), **sans aucun montant** ; les autres, rien. Les statistiques de l'application admin restent en place.
+C'est `rh_statistiques` (`supabase/personnel-statistiques.sql`) qui décide de ce qui sort de la base : le CEO voit tout, **la marge de BIZZOO comprise** ; l'administration tout sauf la marge ; les autres, les seuls sous-menus que le menu Paramètres ouvre à leur profil, **sans aucun montant** (un sous-menu fermé ne sort même pas de la base : « Livreurs » seul ne donne que le classement des livreurs). Les statistiques de l'application admin restent en place.
 
 ### Le suivi des commandes
 
 Menu « Suivi commandes » : le tableau de bord demandé par BIZZOO (document « Tableau de bord de suivi des commandes » et classeur « Suivi commandes »). `supabase/personnel-suivi.sql`, écran `personnel/js/vues/suivi.js`, export `personnel/js/xlsx.js`.
 
-- **Une commande par ligne** : n°, date et heure, client / téléphone / zone, articles, marchands, frais, total, reste à encaisser, livreur, statut, confirmation du client, délai de livraison, observations. Filtres par période, statut, zone, alertes, recherche libre. Fiche par commande : articles par marchand, chronologie, incidents, réclamations, courses refusées.
+- **Un tableau, une commande par ligne** (toute la largeur de l'écran, tri par clic sur l'en-tête, n° de commande figé à gauche) : n°, date et heure, client / téléphone / zone, articles, marchands, frais, total, reste à encaisser, livreur, statut, confirmation du client, délai de livraison, observations. Filtres par période, statut, zone, alertes, recherche libre. Fiche par commande : articles par marchand, chronologie, incidents, réclamations, courses refusées.
 - **Les 14 statuts du document**, calculés : ceux que la place de marché connaît (nouvelle, vue, préparée, en livraison, déclarée livrée, « je l'ai reçu » du client, annulée, réclamation « non reçu ») et ceux que l'administration note elle-même dans le suivi (colis récupéré, livraison échouée, retour en cours, retourné au marchand, clôturée). Une commande à plusieurs marchands prend le statut de l'article le moins avancé, sauf contestation, échec ou retour, qui priment.
 - **Les alertes, à part du statut** (seuils réglables, en heures) : pas vue par le marchand, préparation en retard, livraison en retard, livrée sans confirmation du client, livraison contestée, échec ou retour, incident ouvert, course refusée, encaissement contesté.
 - **Incidents et clôture** : une commande ne se clôture pas tant qu'un incident reste ouvert, qu'un client conteste, ou qu'un article n'a pas fini son parcours. Seule l'administration rouvre.
@@ -4886,7 +4886,17 @@ Menu « Suivi commandes » : le tableau de bord demandé par BIZZOO (document «
 - **Les zones** : lues dans l'adresse libre du client avec le référentiel du découpage du Bénin (77 communes, 152 quartiers et arrondissements), quartier d'abord ; l'administration corrige la zone d'une commande et ajoute les quartiers non reconnus.
 - **Le bilan** par jour, semaine ou mois : commandes reçues, payées, livrées et confirmées, en cours, en retard, contestées, annulées (et motifs), échecs et retours, reste à encaisser ; par livreur, par marchand, par zone ; heures et jours de pointe ; clients nouveaux et fidèles.
 - **L'export Excel** (.xlsx fabriqué dans le navigateur, sans bibliothèque) : « Suivi commandes » au format exact du classeur de BIZZOO, « Détail par marchand » (une ligne par article), « Bilan ». Les montants restent des nombres.
-- **Qui** : le CEO et l'administration, montants compris ; le responsable d'un profil coché « Suivi des commandes » (écran Profils), sans aucun montant.
+- **Qui** : le CEO et l'administration, montants compris ; les profils à qui le menu Paramètres ouvre « Suivi des commandes » (responsable seul ou tous les membres), sans aucun montant.
+
+### Le menu Paramètres
+
+Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`, écran `personnel/js/vues/parametres.js`.
+
+- **Accès aux menus** : pour chaque profil, menu par menu, « Fermé », « Responsable » (le responsable du profil seul) ou « Tous les membres » (le responsable compris). Menus réglables : Mails, Discussions, Missions, Rapports, Dépenses (responsable seulement : c'est lui qui les demande), Suivi des commandes, chacun des six sous-menus des Statistiques, et l'Annuaire des employés (en lecture : nom, poste, profil, contact pro ; jamais le salaire). Profils, Paie et Paramètres ne s'ouvrent à aucun profil. Une vue d'ensemble montre tous les profils d'un coup.
+- **La base applique ces accès elle-même** : `rh_acces_menus` (écrite seulement par `rh_regler_acces`, qui note qui a réglé), `rh_acces(profil, menu)` et `rh_menu_ouvert(menu)`, consultées par les règles RLS des missions, rapports, dépenses et messages, par les fonctions des missions et des rapports, par `rh_conversations`, `rh_suivi_acces`, `rh_statistiques` et par la fonction `rh-messagerie`. Fermer un menu le ferme vraiment, pas seulement à l'écran.
+- **Le premier passage reprend les droits d'avant** : mails, discussions, missions et rapports à tous les membres, dépenses au responsable, et les anciennes rubriques cochées dans Profils (statistiques, suivi) au responsable. Un profil créé ensuite reçoit les mêmes accès de base. Un employé sans profil garde ses mails et ses messages directs.
+- **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
+- **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
 ### Mise en service
 
@@ -4895,7 +4905,9 @@ Menu « Suivi commandes » : le tableau de bord demandé par BIZZOO (document «
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (99 constats : chaque porte, et une paie au franc près calculée à la main).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql` (puis redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+
+Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 
 ## L'ergonomie revue : ce qui débordait, et pourquoi (3.62.0)
 

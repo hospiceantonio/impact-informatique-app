@@ -10,8 +10,8 @@
 
    C'est la base (rh_statistiques) qui décide de ce que chacun
    voit : le CEO tout, marge comprise ; l'administration tout
-   sauf la marge ; un responsable les seules rubriques ouvertes
-   à son profil, sans aucun montant. Un chiffre absent de la
+   sauf la marge ; les autres, les seuls sous-menus que le menu
+   Paramètres ouvre à leur profil, sans aucun montant. Un chiffre absent de la
    réponse n'est donc jamais affiché : l'écran ne cache rien,
    il n'a simplement rien reçu.
    ========================================================= */
@@ -42,7 +42,7 @@ const VueStatistiques = (() => {
     incomplet: "Incomplet", autre: "Autre" };
 
   /** Les sous-menus que ce compte peut ouvrir (la base tranche de toute façon). */
-  const permis = () => SOUS_MENUS.filter((s) => App.rubriquesStatistiques().includes(s.rubrique));
+  const permis = () => SOUS_MENUS.filter((s) => App.sousMenusStatistiques().includes(s.cle));
 
   const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   function periodes() {

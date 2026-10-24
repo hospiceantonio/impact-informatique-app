@@ -143,30 +143,59 @@ const VueSuivi = (() => {
         (!q || [c.numero, c.client.nom, c.client.tel, c.client.adresse, c.marchands, c.livreurs, c.articles]
           .join(" ").toLowerCase().includes(q)));
     };
+    /* Les colonnes du classeur de BIZZOO ; un clic sur l'en-tête trie. */
+    const zoneDe = (c) => c.client.zone || c.client.adresse || "";
+    const colonnes = [
+      { titre: "N° commande", cle: (c) => c.numero || c.id, cellule: (c) => h("span", { class: "gras" }, c.numero || c.id) },
+      { titre: "Date / heure", cle: (c) => c.cree_le || "", cellule: (c) => dateSuivi(c.cree_le), classe: "sans-retour" },
+      { titre: "Client / téléphone / zone", cle: (c) => c.client.nom || "", classe: "moyen",
+        cellule: (c) => [h("div", {}, c.client.nom || "—"), h("div", { class: "doux tres-petit" }, [c.client.tel, zoneDe(c)].filter(Boolean).join(" · "))] },
+      { titre: "Articles commandés", cle: (c) => c.articles || "", cellule: (c) => c.articles || "—", classe: "large" },
+      { titre: "Marchand", cle: (c) => c.marchands || "", cellule: (c) => c.marchands || "—", classe: "moyen" },
+      ...(r.montants ? [
+        { titre: "Frais de livraison", cle: (c) => Number(c.frais), cellule: (c) => montant(c.frais), classe: "nombre" },
+        { titre: "Total commande", cle: (c) => Number(c.total), cellule: (c) => h("span", { class: "gras" }, montant(c.total)), classe: "nombre" },
+        { titre: "Reste à encaisser", cle: (c) => Number(c.reste),
+          cellule: (c) => Number(c.reste) > 0 ? h("span", { style: { color: "var(--orange-fonce)" } }, montant(c.reste)) : montant(c.reste), classe: "nombre" },
+      ] : []),
+      { titre: "Livreur", cle: (c) => c.livreurs || "", cellule: (c) => c.livreurs || "—", classe: "moyen" },
+      { titre: "Statut", cle: (c) => c.rang, cellule: (c) => etiquetteStatut(c) },
+      { titre: "Confirmation client", cle: (c) => c.confirmation || "", cellule: (c) => c.confirmation || "—" },
+      { titre: "Délai de livraison", cle: (c) => (c.delai_h === null || c.delai_h === undefined ? -1 : Number(c.delai_h)),
+        cellule: (c) => delai(c.delai_h), classe: "nombre" },
+      { titre: "Observations / alertes", cle: (c) => c.alertes.length,
+        cellule: (c) => [c.observations ? h("div", { class: "petit" }, c.observations) : null,
+          c.alertes.length ? h("div", { class: "actions" }, etiquettesAlertes(c.alertes)) : null,
+          c.incidents_ouverts ? h("div", { class: "tres-petit", style: { color: "var(--rouge-fonce)" } }, c.incidents_ouverts + " incident(s) ouvert(s)") : null,
+          !c.observations && !c.alertes.length && !c.incidents_ouverts ? "—" : null], classe: "large" },
+    ];
+    let tri = { col: 1, sens: -1 };
+    const comparer = (a, b) => {
+      const ka = colonnes[tri.col].cle(a), kb = colonnes[tri.col].cle(b);
+      const d = typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb), "fr", { numeric: true });
+      return d * tri.sens;
+    };
     const dessiner = () => {
-      const liste = filtrees();
+      const liste = filtrees().sort(comparer);
       compte.textContent = liste.length + " commande(s) sur " + toutes.length;
-      UI.vider(corps, liste.length ? h("div", { class: "liste" }, liste.map((c) =>
-        h("a", { class: "element", href: "#/suivi/commande/" + encodeURIComponent(c.id) },
-          h("div", { class: "etire" },
-            h("div", { class: "ligne" },
-              h("span", { class: "gras" }, c.numero || c.id),
-              h("span", { class: "doux tres-petit" }, dateSuivi(c.cree_le)),
-              h("span", { class: "etire" }), etiquetteStatut(c)),
-            h("div", { class: "petit" }, [c.client.nom, c.client.tel, c.client.zone].filter(Boolean).join(" · ")),
-            h("div", { class: "petit doux coupe" }, c.articles + (c.marchands ? " — " + c.marchands : "")),
-            h("div", { class: "ligne tres-petit" },
-              c.livreurs ? h("span", { class: "doux" }, "Livreur : " + c.livreurs) : null,
-              h("span", { class: "doux" }, "Client : " + c.confirmation),
-              c.delai_h !== null ? h("span", { class: "doux" }, "Délai : " + delai(c.delai_h)) : null,
-              r.montants ? h("span", { class: "gras" }, montant(c.total)) : null,
-              r.montants && c.reste > 0 ? h("span", { style: { color: "var(--orange-fonce)" } }, "Reste " + montant(c.reste)) : null),
-            c.alertes.length ? h("div", { class: "actions" }, etiquettesAlertes(c.alertes)) : null),
-          UI.icone("chevron", "ic-sm")))) : UI.vide("Aucune commande ne correspond."));
+      if (!liste.length) return UI.vider(corps, UI.vide("Aucune commande ne correspond."));
+      const ouvrir = (c) => { location.hash = "#/suivi/commande/" + encodeURIComponent(c.id); };
+      UI.vider(corps, h("div", { class: "carte defile tableau-suivi" },
+        h("table", { class: "tableau" },
+          h("thead", {}, h("tr", {}, colonnes.map((col, i) =>
+            h("th", { class: (col.classe || "") + " triable", title: "Trier",
+                      onclick: () => { tri = { col: i, sens: tri.col === i ? -tri.sens : 1 }; dessiner(); } },
+              col.titre, tri.col === i ? (tri.sens > 0 ? " ▲" : " ▼") : "")))),
+          h("tbody", {}, liste.map((c) =>
+            h("tr", { class: c.alertes.length ? "en-alerte" : "", tabindex: "0", title: "Ouvrir la fiche",
+                      onclick: () => ouvrir(c), onkeydown: (ev) => { if (ev.key === "Enter") ouvrir(c); } },
+              colonnes.map((col) => h("td", { class: col.classe || "" }, col.cellule(c)))))))));
     };
     for (const e of [recherche]) e.addEventListener("input", dessiner);
     for (const e of [choixStatut, choixZone, avecAlertes]) e.addEventListener("change", dessiner);
 
+    /* Le tableau prend toute la largeur de l’écran (zone neuve à chaque page). */
+    zone.classList.add("vue-large");
     UI.vider(zone,
       onglets(""),
       barrePeriode("#/suivi", periode),

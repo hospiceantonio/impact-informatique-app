@@ -148,6 +148,58 @@ language sql stable security definer set search_path = public as $$
      and (public.rh_mon_profil() = cible or public.rh_responsable_de(cible));
 $$;
 
+/** Ce menu est-il ouvert à mon compte POUR CE PROFIL ? L'administration
+    voit tout ; sinon il faut une ligne de rh_acces_menus (menu Paramètres) :
+    « membres » vaut pour qui est rangé dans le profil, et le responsable
+    passe dans les deux cas. Sans la table (fichier rejoué seul sur une
+    base plus ancienne), les règles d'avant : être membre du profil. */
+create or replace function public.rh_acces(cible uuid, cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if cible is null or public.rh_moi() is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return public.rh_membre_de(cible);
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+     where a.profil_id = cible and a.menu = cle
+       and (public.rh_responsable_de(cible)
+            or (a.qui = 'membres' and public.rh_mon_profil() = cible)));
+end $$;
+
+/** Ce menu est-il ouvert à mon compte, par l'un de mes profils ? Un
+    employé sans profil (ni profil à diriger) garde sa boîte mail et ses
+    messages directs. */
+create or replace function public.rh_menu_ouvert(cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  v_profil uuid := public.rh_mon_profil();
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if v_moi is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return cle in ('mails', 'discussions', 'missions', 'rapports');
+  end if;
+  if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
+    return cle in ('mails', 'discussions');
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+      join public.rh_profils p on p.id = a.profil_id
+     where a.menu = cle
+       and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)));
+end $$;
+
 -- ---------- Les verrous de la fiche employé ----------
 -- Les règles RLS disent QUI écrit ; ce déclencheur dit QUOI. Les
 -- décisions (valider, refuser, faire sortir, rattacher un compte) ne
@@ -570,12 +622,13 @@ language sql stable security definer set search_path = public as $$
   groupes as (
     select 'p:' || p.id as cle, 'profil'::text as genre, p.id as cible, p.nom as titre
       from public.rh_profils p, moi
-     where moi.id is not null and (moi.admin or public.rh_membre_de(p.id))
+     where moi.id is not null and (moi.admin or public.rh_acces(p.id, 'discussions'))
   ),
   personnes as (
     select distinct case when m.auteur_id = moi.id then m.destinataire_id else m.auteur_id end as autre
       from public.rh_messages m, moi
      where m.destinataire_id is not null and (m.auteur_id = moi.id or m.destinataire_id = moi.id)
+       and public.rh_menu_ouvert('discussions')
   ),
   prives as (
     select 'd:' || e.id as cle, 'personne'::text as genre, e.id as cible,
@@ -668,6 +721,9 @@ begin
   if not found or not public.rh_responsable_de(m.profil_id) then
     raise exception 'Seul le responsable du profil répond à cette mission';
   end if;
+  if not public.rh_acces(m.profil_id, 'missions') then
+    raise exception 'Le menu Missions n''est pas ouvert à votre profil';
+  end if;
   if m.statut <> 'proposee' then
     raise exception 'Cette mission a déjà reçu sa réponse';
   end if;
@@ -691,6 +747,9 @@ begin
   select * into m from public.rh_missions where id = mission for update;
   if not found or not public.rh_responsable_de(m.profil_id) then
     raise exception 'Seul le responsable du profil rend le rapport de mission';
+  end if;
+  if not public.rh_acces(m.profil_id, 'missions') then
+    raise exception 'Le menu Missions n''est pas ouvert à votre profil';
   end if;
   if m.statut not in ('acceptee', 'a_reprendre') then
     raise exception 'Le rapport se rend sur une mission acceptée';
@@ -785,6 +844,9 @@ begin
   if not found or r.auteur_id is distinct from public.rh_moi()
      or not public.rh_responsable_de(r.profil_id) then
     raise exception 'Seul le responsable du profil publie son rapport';
+  end if;
+  if not public.rh_acces(r.profil_id, 'rapports') then
+    raise exception 'Le menu Rapports n''est pas ouvert à votre profil';
   end if;
   if r.statut not in ('brouillon', 'rejete') then
     raise exception 'Ce rapport est déjà publié';
@@ -1594,15 +1656,17 @@ begin
       'employes_a_valider', case when v_ceo then
         (select count(*) from public.rh_employes where etat = 'en_attente') else 0 end,
       'missions_a_repondre',
-        (select count(*) from public.rh_missions where statut = 'proposee' and profil_id = any(mes_profils)),
+        (select count(*) from public.rh_missions where statut = 'proposee' and profil_id = any(mes_profils)
+            and public.rh_acces(profil_id, 'missions')),
       'missions_en_cours',
         (select count(*) from public.rh_missions
           where statut in ('acceptee', 'a_reprendre')
-            and (profil_id = any(mes_profils) or profil_id = moi.profil_id or v_admin)),
+            and (v_admin or ((profil_id = any(mes_profils) or profil_id = moi.profil_id)
+                             and public.rh_acces(profil_id, 'missions')))),
       'missions_en_retard',
         (select count(*) from public.rh_missions
           where statut in ('acceptee', 'a_reprendre') and echeance < aujourdhui
-            and (profil_id = any(mes_profils) or v_admin)),
+            and (v_admin or (profil_id = any(mes_profils) and public.rh_acces(profil_id, 'missions')))),
       'missions_a_cloturer', case when v_admin then
         (select count(*) from public.rh_missions where statut = 'rapport_remis') else 0 end,
       'rapports_a_valider', case when v_ceo then
@@ -1674,20 +1738,22 @@ drop policy if exists "rh messages envoi" on public.rh_messages;
 -- de tous les profils, pas les messages entre deux personnes.
 create policy "rh messages lecture" on public.rh_messages
   for select to authenticated using (
-    (profil_id is not null and (public.rh_est_admin() or public.rh_membre_de(profil_id)))
+    (profil_id is not null and public.rh_acces(profil_id, 'discussions'))
     or (destinataire_id is not null
-        and (auteur_id = public.rh_moi() or destinataire_id = public.rh_moi())));
+        and (auteur_id = public.rh_moi() or destinataire_id = public.rh_moi())
+        and public.rh_menu_ouvert('discussions')));
 create policy "rh messages envoi" on public.rh_messages
   for insert to authenticated with check (
-    (profil_id is not null and (public.rh_est_admin() or public.rh_membre_de(profil_id)))
-    or (destinataire_id is not null and public.rh_peut_ecrire_a(destinataire_id)));
+    (profil_id is not null and public.rh_acces(profil_id, 'discussions'))
+    or (destinataire_id is not null and public.rh_peut_ecrire_a(destinataire_id)
+        and public.rh_menu_ouvert('discussions')));
 
 drop policy if exists "rh missions lecture" on public.rh_missions;
 drop policy if exists "rh missions creation" on public.rh_missions;
 drop policy if exists "rh missions modification" on public.rh_missions;
 drop policy if exists "rh missions suppression" on public.rh_missions;
 create policy "rh missions lecture" on public.rh_missions
-  for select to authenticated using (public.rh_est_admin() or public.rh_membre_de(profil_id));
+  for select to authenticated using (public.rh_acces(profil_id, 'missions'));
 create policy "rh missions creation" on public.rh_missions
   for insert to authenticated with check (public.rh_est_admin());
 create policy "rh missions modification" on public.rh_missions
@@ -1703,13 +1769,15 @@ create policy "rh rapports lecture" on public.rh_rapports
   for select to authenticated using (
     auteur_id = public.rh_moi()
     or (public.rh_est_admin() and statut <> 'brouillon')
-    or (public.rh_membre_de(profil_id) and statut = 'valide'));
+    or (statut = 'valide' and public.rh_acces(profil_id, 'rapports')));
 create policy "rh rapports creation" on public.rh_rapports
-  for insert to authenticated with check (public.rh_responsable_de(profil_id));
+  for insert to authenticated
+  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'rapports'));
 create policy "rh rapports modification" on public.rh_rapports
   for update to authenticated
   using (auteur_id = public.rh_moi() and public.rh_responsable_de(profil_id))
-  with check (auteur_id = public.rh_moi() and public.rh_responsable_de(profil_id));
+  with check (auteur_id = public.rh_moi() and public.rh_responsable_de(profil_id)
+              and public.rh_acces(profil_id, 'rapports'));
 create policy "rh rapports suppression" on public.rh_rapports
   for delete to authenticated using (auteur_id = public.rh_moi() and statut = 'brouillon');
 
@@ -1723,7 +1791,8 @@ create policy "rh depenses lecture" on public.rh_depenses
     or public.rh_responsable_de(profil_id)
     or (public.rh_peut_decaisser() and statut in ('approuvee', 'decaissee')));
 create policy "rh depenses demande" on public.rh_depenses
-  for insert to authenticated with check (public.rh_responsable_de(profil_id));
+  for insert to authenticated
+  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'depenses'));
 create policy "rh depenses modification" on public.rh_depenses
   for update to authenticated
   using (demandeur_id = public.rh_moi()) with check (demandeur_id = public.rh_moi());
@@ -1796,6 +1865,7 @@ begin
   foreach f in array array[
     'rh_moi()', 'rh_est_ceo()', 'rh_est_admin()', 'rh_peut_decaisser()', 'rh_mon_profil()',
     'rh_responsable_de(uuid)', 'rh_membre_de(uuid)', 'rh_peut_ecrire_a(uuid)',
+    'rh_acces(uuid, text)', 'rh_menu_ouvert(text)',
     'rh_decider_employe(uuid, boolean, text)', 'rh_sortie_employe(uuid, date, text)',
     'rh_rattacher_compte(uuid)', 'rh_devenir_ceo(text, text, text)', 'rh_annuaire()',
     'rh_designer_ceo(text, text, text, text, text, text, text)',

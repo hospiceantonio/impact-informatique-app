@@ -53,6 +53,36 @@ $$;
  * heure du Bénin). Une commande compte au jour de son paiement ; une
  * ligne annulée ne compte jamais comme vente.
  */
+create or replace function public.rh_mon_profil() returns uuid
+language sql stable security definer set search_path = public as $$
+  select profil_id from public.rh_employes where compte_id = auth.uid() and etat = 'actif';
+$$;
+
+create or replace function public.rh_menu_ouvert(cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  v_profil uuid := public.rh_mon_profil();
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if v_moi is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return cle in ('mails', 'discussions', 'missions', 'rapports');
+  end if;
+  if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
+    return cle in ('mails', 'discussions');
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+      join public.rh_profils p on p.id = a.profil_id
+     where a.menu = cle
+       and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)));
+end $$;
+
 create or replace function public.rh_statistiques(depuis date default null, jusqu date default null)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -67,16 +97,26 @@ declare
   argent boolean;
   marge boolean;
   rubriques text[];
+  sous text[];
   commandes jsonb := null;
   livraisons jsonb := null;
   sav jsonb := null;
 begin
-  if v_admin then
-    rubriques := array['commandes', 'livraisons', 'sav'];
-  else
-    select coalesce(array_agg(distinct r), '{}') into rubriques
-      from public.rh_profils p, unnest(p.statistiques) r
-     where p.responsable_id is not null and p.responsable_id = public.rh_moi();
+  -- Les sous-menus ouverts par le menu Paramètres (tous pour
+  -- l'administration), puis les blocs de calcul dont ils dépendent.
+  select coalesce(array_agg(x.s order by x.n), '{}') into sous
+    from unnest(array['commandes', 'boutiques', 'produits', 'livraisons', 'livreurs', 'sav'])
+         with ordinality as x(s, n)
+   where public.rh_menu_ouvert('stats_' || x.s);
+  rubriques := array[]::text[];
+  if sous && array['commandes', 'boutiques', 'produits'] then
+    rubriques := rubriques || 'commandes'::text;
+  end if;
+  if sous && array['livraisons', 'livreurs'] then
+    rubriques := rubriques || 'livraisons'::text;
+  end if;
+  if 'sav' = any(sous) then
+    rubriques := rubriques || 'sav'::text;
   end if;
   if coalesce(array_length(rubriques, 1), 0) = 0 then
     raise exception 'Votre compte n''a pas accès aux statistiques';
@@ -200,9 +240,31 @@ begin
     ) into sav;
   end if;
 
+  -- Chacun ne reçoit que ce que ses sous-menus montrent.
+  if commandes is not null then
+    if not 'boutiques' = any(sous) then
+      commandes := commandes - 'boutiques';
+    end if;
+    if not 'produits' = any(sous) then
+      commandes := commandes - 'produits';
+    end if;
+    if not 'commandes' = any(sous) then
+      commandes := jsonb_strip_nulls(jsonb_build_object(
+        'boutiques', commandes -> 'boutiques', 'produits', commandes -> 'produits'));
+    end if;
+  end if;
+  if livraisons is not null then
+    if not 'livreurs' = any(sous) then
+      livraisons := livraisons - 'livreurs';
+    end if;
+    if not 'livraisons' = any(sous) then
+      livraisons := jsonb_strip_nulls(jsonb_build_object('livreurs', livraisons -> 'livreurs'));
+    end if;
+  end if;
+
   return jsonb_build_object(
     'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
-    'droits', jsonb_build_object('rubriques', to_jsonb(rubriques), 'argent', argent, 'marge', marge),
+    'droits', jsonb_build_object('rubriques', to_jsonb(sous), 'argent', argent, 'marge', marge),
     'commandes', commandes, 'livraisons', livraisons, 'sav', sav);
 end $$;
 

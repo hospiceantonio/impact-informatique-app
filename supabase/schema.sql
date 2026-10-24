@@ -10894,6 +10894,58 @@ language sql stable security definer set search_path = public as $$
      and (public.rh_mon_profil() = cible or public.rh_responsable_de(cible));
 $$;
 
+/** Ce menu est-il ouvert à mon compte POUR CE PROFIL ? L'administration
+    voit tout ; sinon il faut une ligne de rh_acces_menus (menu Paramètres) :
+    « membres » vaut pour qui est rangé dans le profil, et le responsable
+    passe dans les deux cas. Sans la table (fichier rejoué seul sur une
+    base plus ancienne), les règles d'avant : être membre du profil. */
+create or replace function public.rh_acces(cible uuid, cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if cible is null or public.rh_moi() is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return public.rh_membre_de(cible);
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+     where a.profil_id = cible and a.menu = cle
+       and (public.rh_responsable_de(cible)
+            or (a.qui = 'membres' and public.rh_mon_profil() = cible)));
+end $$;
+
+/** Ce menu est-il ouvert à mon compte, par l'un de mes profils ? Un
+    employé sans profil (ni profil à diriger) garde sa boîte mail et ses
+    messages directs. */
+create or replace function public.rh_menu_ouvert(cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  v_profil uuid := public.rh_mon_profil();
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if v_moi is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return cle in ('mails', 'discussions', 'missions', 'rapports');
+  end if;
+  if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
+    return cle in ('mails', 'discussions');
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+      join public.rh_profils p on p.id = a.profil_id
+     where a.menu = cle
+       and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)));
+end $$;
+
 -- ---------- Les verrous de la fiche employé ----------
 -- Les règles RLS disent QUI écrit ; ce déclencheur dit QUOI. Les
 -- décisions (valider, refuser, faire sortir, rattacher un compte) ne
@@ -11316,12 +11368,13 @@ language sql stable security definer set search_path = public as $$
   groupes as (
     select 'p:' || p.id as cle, 'profil'::text as genre, p.id as cible, p.nom as titre
       from public.rh_profils p, moi
-     where moi.id is not null and (moi.admin or public.rh_membre_de(p.id))
+     where moi.id is not null and (moi.admin or public.rh_acces(p.id, 'discussions'))
   ),
   personnes as (
     select distinct case when m.auteur_id = moi.id then m.destinataire_id else m.auteur_id end as autre
       from public.rh_messages m, moi
      where m.destinataire_id is not null and (m.auteur_id = moi.id or m.destinataire_id = moi.id)
+       and public.rh_menu_ouvert('discussions')
   ),
   prives as (
     select 'd:' || e.id as cle, 'personne'::text as genre, e.id as cible,
@@ -11414,6 +11467,9 @@ begin
   if not found or not public.rh_responsable_de(m.profil_id) then
     raise exception 'Seul le responsable du profil répond à cette mission';
   end if;
+  if not public.rh_acces(m.profil_id, 'missions') then
+    raise exception 'Le menu Missions n''est pas ouvert à votre profil';
+  end if;
   if m.statut <> 'proposee' then
     raise exception 'Cette mission a déjà reçu sa réponse';
   end if;
@@ -11437,6 +11493,9 @@ begin
   select * into m from public.rh_missions where id = mission for update;
   if not found or not public.rh_responsable_de(m.profil_id) then
     raise exception 'Seul le responsable du profil rend le rapport de mission';
+  end if;
+  if not public.rh_acces(m.profil_id, 'missions') then
+    raise exception 'Le menu Missions n''est pas ouvert à votre profil';
   end if;
   if m.statut not in ('acceptee', 'a_reprendre') then
     raise exception 'Le rapport se rend sur une mission acceptée';
@@ -11531,6 +11590,9 @@ begin
   if not found or r.auteur_id is distinct from public.rh_moi()
      or not public.rh_responsable_de(r.profil_id) then
     raise exception 'Seul le responsable du profil publie son rapport';
+  end if;
+  if not public.rh_acces(r.profil_id, 'rapports') then
+    raise exception 'Le menu Rapports n''est pas ouvert à votre profil';
   end if;
   if r.statut not in ('brouillon', 'rejete') then
     raise exception 'Ce rapport est déjà publié';
@@ -12340,15 +12402,17 @@ begin
       'employes_a_valider', case when v_ceo then
         (select count(*) from public.rh_employes where etat = 'en_attente') else 0 end,
       'missions_a_repondre',
-        (select count(*) from public.rh_missions where statut = 'proposee' and profil_id = any(mes_profils)),
+        (select count(*) from public.rh_missions where statut = 'proposee' and profil_id = any(mes_profils)
+            and public.rh_acces(profil_id, 'missions')),
       'missions_en_cours',
         (select count(*) from public.rh_missions
           where statut in ('acceptee', 'a_reprendre')
-            and (profil_id = any(mes_profils) or profil_id = moi.profil_id or v_admin)),
+            and (v_admin or ((profil_id = any(mes_profils) or profil_id = moi.profil_id)
+                             and public.rh_acces(profil_id, 'missions')))),
       'missions_en_retard',
         (select count(*) from public.rh_missions
           where statut in ('acceptee', 'a_reprendre') and echeance < aujourdhui
-            and (profil_id = any(mes_profils) or v_admin)),
+            and (v_admin or (profil_id = any(mes_profils) and public.rh_acces(profil_id, 'missions')))),
       'missions_a_cloturer', case when v_admin then
         (select count(*) from public.rh_missions where statut = 'rapport_remis') else 0 end,
       'rapports_a_valider', case when v_ceo then
@@ -12420,20 +12484,22 @@ drop policy if exists "rh messages envoi" on public.rh_messages;
 -- de tous les profils, pas les messages entre deux personnes.
 create policy "rh messages lecture" on public.rh_messages
   for select to authenticated using (
-    (profil_id is not null and (public.rh_est_admin() or public.rh_membre_de(profil_id)))
+    (profil_id is not null and public.rh_acces(profil_id, 'discussions'))
     or (destinataire_id is not null
-        and (auteur_id = public.rh_moi() or destinataire_id = public.rh_moi())));
+        and (auteur_id = public.rh_moi() or destinataire_id = public.rh_moi())
+        and public.rh_menu_ouvert('discussions')));
 create policy "rh messages envoi" on public.rh_messages
   for insert to authenticated with check (
-    (profil_id is not null and (public.rh_est_admin() or public.rh_membre_de(profil_id)))
-    or (destinataire_id is not null and public.rh_peut_ecrire_a(destinataire_id)));
+    (profil_id is not null and public.rh_acces(profil_id, 'discussions'))
+    or (destinataire_id is not null and public.rh_peut_ecrire_a(destinataire_id)
+        and public.rh_menu_ouvert('discussions')));
 
 drop policy if exists "rh missions lecture" on public.rh_missions;
 drop policy if exists "rh missions creation" on public.rh_missions;
 drop policy if exists "rh missions modification" on public.rh_missions;
 drop policy if exists "rh missions suppression" on public.rh_missions;
 create policy "rh missions lecture" on public.rh_missions
-  for select to authenticated using (public.rh_est_admin() or public.rh_membre_de(profil_id));
+  for select to authenticated using (public.rh_acces(profil_id, 'missions'));
 create policy "rh missions creation" on public.rh_missions
   for insert to authenticated with check (public.rh_est_admin());
 create policy "rh missions modification" on public.rh_missions
@@ -12449,13 +12515,15 @@ create policy "rh rapports lecture" on public.rh_rapports
   for select to authenticated using (
     auteur_id = public.rh_moi()
     or (public.rh_est_admin() and statut <> 'brouillon')
-    or (public.rh_membre_de(profil_id) and statut = 'valide'));
+    or (statut = 'valide' and public.rh_acces(profil_id, 'rapports')));
 create policy "rh rapports creation" on public.rh_rapports
-  for insert to authenticated with check (public.rh_responsable_de(profil_id));
+  for insert to authenticated
+  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'rapports'));
 create policy "rh rapports modification" on public.rh_rapports
   for update to authenticated
   using (auteur_id = public.rh_moi() and public.rh_responsable_de(profil_id))
-  with check (auteur_id = public.rh_moi() and public.rh_responsable_de(profil_id));
+  with check (auteur_id = public.rh_moi() and public.rh_responsable_de(profil_id)
+              and public.rh_acces(profil_id, 'rapports'));
 create policy "rh rapports suppression" on public.rh_rapports
   for delete to authenticated using (auteur_id = public.rh_moi() and statut = 'brouillon');
 
@@ -12469,7 +12537,8 @@ create policy "rh depenses lecture" on public.rh_depenses
     or public.rh_responsable_de(profil_id)
     or (public.rh_peut_decaisser() and statut in ('approuvee', 'decaissee')));
 create policy "rh depenses demande" on public.rh_depenses
-  for insert to authenticated with check (public.rh_responsable_de(profil_id));
+  for insert to authenticated
+  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'depenses'));
 create policy "rh depenses modification" on public.rh_depenses
   for update to authenticated
   using (demandeur_id = public.rh_moi()) with check (demandeur_id = public.rh_moi());
@@ -12542,6 +12611,7 @@ begin
   foreach f in array array[
     'rh_moi()', 'rh_est_ceo()', 'rh_est_admin()', 'rh_peut_decaisser()', 'rh_mon_profil()',
     'rh_responsable_de(uuid)', 'rh_membre_de(uuid)', 'rh_peut_ecrire_a(uuid)',
+    'rh_acces(uuid, text)', 'rh_menu_ouvert(text)',
     'rh_decider_employe(uuid, boolean, text)', 'rh_sortie_employe(uuid, date, text)',
     'rh_rattacher_compte(uuid)', 'rh_devenir_ceo(text, text, text)', 'rh_annuaire()',
     'rh_designer_ceo(text, text, text, text, text, text, text)',
@@ -12635,16 +12705,26 @@ declare
   argent boolean;
   marge boolean;
   rubriques text[];
+  sous text[];
   commandes jsonb := null;
   livraisons jsonb := null;
   sav jsonb := null;
 begin
-  if v_admin then
-    rubriques := array['commandes', 'livraisons', 'sav'];
-  else
-    select coalesce(array_agg(distinct r), '{}') into rubriques
-      from public.rh_profils p, unnest(p.statistiques) r
-     where p.responsable_id is not null and p.responsable_id = public.rh_moi();
+  -- Les sous-menus ouverts par le menu Paramètres (tous pour
+  -- l'administration), puis les blocs de calcul dont ils dépendent.
+  select coalesce(array_agg(x.s order by x.n), '{}') into sous
+    from unnest(array['commandes', 'boutiques', 'produits', 'livraisons', 'livreurs', 'sav'])
+         with ordinality as x(s, n)
+   where public.rh_menu_ouvert('stats_' || x.s);
+  rubriques := array[]::text[];
+  if sous && array['commandes', 'boutiques', 'produits'] then
+    rubriques := rubriques || 'commandes'::text;
+  end if;
+  if sous && array['livraisons', 'livreurs'] then
+    rubriques := rubriques || 'livraisons'::text;
+  end if;
+  if 'sav' = any(sous) then
+    rubriques := rubriques || 'sav'::text;
   end if;
   if coalesce(array_length(rubriques, 1), 0) = 0 then
     raise exception 'Votre compte n''a pas accès aux statistiques';
@@ -12768,9 +12848,31 @@ begin
     ) into sav;
   end if;
 
+  -- Chacun ne reçoit que ce que ses sous-menus montrent.
+  if commandes is not null then
+    if not 'boutiques' = any(sous) then
+      commandes := commandes - 'boutiques';
+    end if;
+    if not 'produits' = any(sous) then
+      commandes := commandes - 'produits';
+    end if;
+    if not 'commandes' = any(sous) then
+      commandes := jsonb_strip_nulls(jsonb_build_object(
+        'boutiques', commandes -> 'boutiques', 'produits', commandes -> 'produits'));
+    end if;
+  end if;
+  if livraisons is not null then
+    if not 'livreurs' = any(sous) then
+      livraisons := livraisons - 'livreurs';
+    end if;
+    if not 'livraisons' = any(sous) then
+      livraisons := jsonb_strip_nulls(jsonb_build_object('livreurs', livraisons -> 'livreurs'));
+    end if;
+  end if;
+
   return jsonb_build_object(
     'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
-    'droits', jsonb_build_object('rubriques', to_jsonb(rubriques), 'argent', argent, 'marge', marge),
+    'droits', jsonb_build_object('rubriques', to_jsonb(sous), 'argent', argent, 'marge', marge),
     'commandes', commandes, 'livraisons', livraisons, 'sav', sav);
 end $$;
 
@@ -12829,14 +12931,13 @@ language sql stable security definer set search_path = public as $$
                   where compte_id = auth.uid() and etat = 'actif' and (administration or ceo));
 $$;
 
-/** Le droit au suivi : « admin » (montants compris), « responsable » (sans montant), ou rien. */
+/** Le droit au suivi : « admin » (montants compris), « responsable »
+    (sans montant : un profil à qui le menu Paramètres l'ouvre), ou rien. */
 create or replace function public.rh_suivi_acces() returns text
 language sql stable security definer set search_path = public as $$
   select case
     when public.rh_est_admin() then 'admin'
-    when exists (select 1 from public.rh_profils p
-                  where p.responsable_id is not null and p.responsable_id = public.rh_moi()
-                    and 'suivi' = any(p.statistiques)) then 'responsable'
+    when public.rh_menu_ouvert('suivi') then 'responsable'
   end;
 $$;
 
@@ -13869,6 +13970,201 @@ begin
     'rh_journaliser_ligne()', 'rh_journaliser_commande()', 'rh_suivi_donnees(timestamptz, timestamptz, text)',
     'rh_suivi_sans_montants(jsonb)', 'rh_zone_de(text)', 'rh_statut_ligne(text, timestamptz, text, boolean)',
     'rh_statut_libelle(int)', 'rh_cle(text)'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+  end loop;
+end $$;
+
+-- =========================================================
+-- BIZZOO Personnel : le menu Paramètres
+--
+-- Les accès aux menus, profil par profil (rh_acces_menus) : à qui
+-- l'administration ouvre le suivi des commandes, chacun des six
+-- sous-menus des statistiques, les missions, les rapports, les
+-- dépenses, les mails, les discussions et l'annuaire des employés —
+-- au responsable seul, ou à tous les membres du profil. Et
+-- l'en-tête de l'entreprise imprimé sur les bulletins de paie.
+--
+-- La base applique elle-même ces accès : les règles RLS et les
+-- fonctions des missions, des rapports, des dépenses, des discussions,
+-- du suivi et des statistiques consultent rh_acces() et
+-- rh_menu_ouvert(). Le premier passage reprend les droits d'avant :
+-- rien ne se ferme pour personne ce jour-là.
+-- =========================================================
+
+-- ---------- Les accès aux menus, profil par profil ----------
+-- Une ligne = un menu ouvert à un profil : à son responsable seul, ou à
+-- tous ses membres (le responsable compris). Pas de ligne = menu fermé.
+-- L'administration (CEO compris) a toujours tout. Profils, Paie et
+-- Paramètres ne s'ouvrent à personne d'autre : ils touchent aux
+-- salaires et aux droits. « Employés » s'ouvre en lecture : l'annuaire,
+-- sans salaire.
+create table if not exists public.rh_acces_menus (
+  profil_id    uuid not null references public.rh_profils(id) on delete cascade,
+  menu         text not null,
+  qui          text not null default 'membres',
+  modifie_par  uuid references public.rh_employes(id) on delete set null,
+  modifie_le   timestamptz not null default now(),
+  primary key (profil_id, menu),
+  constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
+    'depenses', 'suivi', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
+  constraint rh_acces_menus_qui check (qui in ('responsable', 'membres')),
+  -- Une dépense se demande par le responsable du profil : c'est la règle.
+  constraint rh_acces_depenses_responsable check (menu <> 'depenses' or qui = 'responsable')
+);
+
+-- Le premier passage reprend ce qui était vrai jusqu'ici : mails,
+-- discussions, missions et rapports pour tous les membres, dépenses
+-- pour le responsable, et les rubriques de statistiques et de suivi
+-- déjà cochées dans la fiche du profil, pour son responsable.
+do $$
+begin
+  if not exists (select 1 from public.rh_acces_menus) then
+    insert into public.rh_acces_menus (profil_id, menu, qui)
+    select p.id, d.menu, d.qui
+      from public.rh_profils p,
+           (values ('mails', 'membres'), ('discussions', 'membres'), ('missions', 'membres'),
+                   ('rapports', 'membres'), ('depenses', 'responsable')) as d(menu, qui)
+    union all
+    select p.id, m.menu, 'responsable'
+      from public.rh_profils p
+      cross join lateral unnest(p.statistiques) as r(rubrique)
+      cross join lateral unnest(case r.rubrique
+          when 'commandes' then array['stats_commandes', 'stats_boutiques', 'stats_produits']
+          when 'livraisons' then array['stats_livraisons', 'stats_livreurs']
+          when 'sav' then array['stats_sav']
+          when 'suivi' then array['suivi']
+          else array[]::text[] end) as m(menu)
+    on conflict do nothing;
+  end if;
+end $$;
+
+/** Un profil qui naît reçoit les accès de base. */
+create or replace function public.rh_profil_acces_defaut() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.rh_acces_menus (profil_id, menu, qui)
+  values (new.id, 'mails', 'membres'), (new.id, 'discussions', 'membres'),
+         (new.id, 'missions', 'membres'), (new.id, 'rapports', 'membres'),
+         (new.id, 'depenses', 'responsable')
+  on conflict do nothing;
+  return null;
+end $$;
+drop trigger if exists rh_profil_acces_defaut on public.rh_profils;
+create trigger rh_profil_acces_defaut after insert on public.rh_profils
+  for each row execute function public.rh_profil_acces_defaut();
+
+/** Régler les accès d'un profil : { "menu": "membres" | "responsable" | "ferme" }.
+    Un menu absent du réglage ne change pas. L'administration seule. */
+create or replace function public.rh_regler_acces(cible uuid, choix jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  k text;
+  v text;
+begin
+  if not public.rh_est_admin() then
+    raise exception 'Seule l''administration règle les accès aux menus';
+  end if;
+  if not exists (select 1 from public.rh_profils where id = cible) then
+    raise exception 'Profil introuvable';
+  end if;
+  if jsonb_typeof(choix) is distinct from 'object' then
+    raise exception 'Réglage illisible';
+  end if;
+  for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi',
+                 'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
+                 'stats_livreurs', 'stats_sav', 'employes') then
+      raise exception 'Menu inconnu : %', k;
+    end if;
+    if v is null or v = 'ferme' then
+      delete from public.rh_acces_menus where profil_id = cible and menu = k;
+    elsif v not in ('membres', 'responsable') then
+      raise exception 'Réglage inconnu pour le menu %', k;
+    elsif k = 'depenses' and v = 'membres' then
+      raise exception 'Les dépenses se demandent par le responsable du profil seulement';
+    else
+      insert into public.rh_acces_menus (profil_id, menu, qui, modifie_par, modifie_le)
+      values (cible, k, v, public.rh_moi(), now())
+      on conflict on constraint rh_acces_menus_pkey do update
+        set qui = excluded.qui, modifie_par = excluded.modifie_par, modifie_le = excluded.modifie_le
+        where public.rh_acces_menus.qui is distinct from excluded.qui;
+    end if;
+  end loop;
+end $$;
+
+/** Les menus ouverts à mon compte, dans l'ordre du menu. */
+create or replace function public.rh_mes_menus() returns text[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(x.m order by x.n), '{}')
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi',
+                      'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
+                      'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
+   where public.rh_menu_ouvert(x.m);
+$$;
+
+-- ---------- L'entreprise ----------
+-- L'en-tête des bulletins de paie. Rien n'est inventé : seuls le nom et
+-- le site, déjà imprimés jusqu'ici, sont remplis d'avance.
+create table if not exists public.rh_entreprise (
+  id              boolean primary key default true check (id),
+  raison_sociale  text not null default 'BIZZOO',
+  site            text not null default 'bizzoomarket.com',
+  adresse         text not null default '',
+  telephone       text not null default '',
+  email           text not null default '',
+  ifu             text not null default '',
+  rccm            text not null default '',
+  cnss_employeur  text not null default '',
+  modifie_par     uuid references public.rh_employes(id) on delete set null,
+  modifie_le      timestamptz,
+  constraint rh_entreprise_raison check (length(btrim(raison_sociale)) between 1 and 120),
+  constraint rh_entreprise_longueurs check (greatest(length(site), length(adresse), length(telephone),
+    length(email), length(ifu), length(rccm), length(cnss_employeur)) <= 200)
+);
+insert into public.rh_entreprise (id) values (true) on conflict (id) do nothing;
+
+create or replace function public.rh_entreprise_trace() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.id := true;
+  new.modifie_par := public.rh_moi();
+  new.modifie_le := now();
+  return new;
+end $$;
+drop trigger if exists rh_entreprise_trace on public.rh_entreprise;
+create trigger rh_entreprise_trace before update on public.rh_entreprise
+  for each row execute function public.rh_entreprise_trace();
+
+-- ---------- Les règles d'accès ----------
+alter table public.rh_acces_menus enable row level security;
+alter table public.rh_entreprise enable row level security;
+drop policy if exists "rh acces lecture" on public.rh_acces_menus;
+-- Personne n'écrit la table directement : rh_regler_acces le fait.
+create policy "rh acces lecture" on public.rh_acces_menus
+  for select to authenticated using (public.rh_est_admin() or public.rh_membre_de(profil_id));
+drop policy if exists "rh entreprise lecture" on public.rh_entreprise;
+drop policy if exists "rh entreprise modification" on public.rh_entreprise;
+create policy "rh entreprise lecture" on public.rh_entreprise
+  for select to authenticated using (public.rh_moi() is not null);
+create policy "rh entreprise modification" on public.rh_entreprise
+  for update to authenticated using (public.rh_est_admin()) with check (public.rh_est_admin());
+
+revoke all on table public.rh_acces_menus, public.rh_entreprise from public, anon, authenticated;
+grant all on table public.rh_acces_menus, public.rh_entreprise to service_role;
+grant select on public.rh_acces_menus, public.rh_entreprise to authenticated;
+grant update (raison_sociale, site, adresse, telephone, email, ifu, rccm, cnss_employeur)
+  on public.rh_entreprise to authenticated;
+
+do $$
+declare f text;
+begin
+  foreach f in array array['rh_regler_acces(uuid, jsonb)', 'rh_mes_menus()',
+                           'rh_acces(uuid, text)', 'rh_menu_ouvert(text)'] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated, service_role', f);
+  end loop;
+  foreach f in array array['rh_profil_acces_defaut()', 'rh_entreprise_trace()'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
   end loop;
 end $$;
