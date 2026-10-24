@@ -5431,11 +5431,15 @@ remises des **30 derniers jours**, et envoie **une seule** notification par
 livreur avec le total (pas une par course). Relancé, il ne crédite rien deux
 fois.
 
+**En ligne depuis le 24/10/2026** : règles appliquées, rattrapage fait —
+9 courses, 6 560 F crédités à 4 livreurs, une notification chacun.
+
 ### Les essais
 
-- `supabase/tests/99zzz…-gains-toutes-courses.sql` (21 constats) : deux
+- `supabase/tests/99zzz…-gains-toutes-courses.sql` (22 constats) : deux
   livreurs, deux parts ; un livreur pour deux boutiques ; le prorata ; une
-  part annulée ; le rattrapage silencieux et rejouable.
+  part annulée ; un compte livreur supprimé depuis (sauté, sans priver
+  l'autre) ; le rattrapage silencieux et rejouable.
 - `tools/banc-livraison-km.mjs` : le bandeau « Mon solde ».
 - `tools/banc-livreur-compte-client.mjs`, `tools/banc-parcours-livraison.mjs` :
   le renvoi vers BIZZOO Admin.

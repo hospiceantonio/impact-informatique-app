@@ -7540,8 +7540,10 @@ begin
   select * into c from public.commandes where id = cible;
   if not found or c.etat <> 'payee' then return 0; end if;
   select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
+  -- Un compte livreur supprimé depuis n'a plus de solde : on le saute.
   for qui in select distinct l.livreur_id from public.commande_lignes l
-              where l.commande_id = cible and l.etat = 'remise' and l.livreur_id is not null loop
+              join public.profils p on p.id = l.livreur_id
+              where l.commande_id = cible and l.etat = 'remise' loop
     if exists (select 1 from public.commande_lignes l
                 where l.commande_id = cible and l.livreur_id = qui
                   and l.etat not in ('remise', 'annulee')) then

@@ -145,6 +145,20 @@ select pg_temp.remettre(:'c4', 'bou_informatique');
 select essai.egal((select montant::int from public.gains_livreurs where commande_id = :'c4'), 800,
   'la voisine annulée : Koffi touche sa seule boutique');
 
+-- Un compte livreur supprimé depuis : on le saute, sans priver l'autre.
+select pg_temp.commander() as c5 \gset
+select pg_temp.confier(:'c5', 'bou_informatique', :LA::uuid);
+insert into auth.users (id, email) values ('c9c9c9c9-0000-0000-0000-0000000000ff', 'parti.gains@essai.bj')
+on conflict do nothing;
+update public.profils set role = 'livreur', actif = true, boutique_id = 'bou_essai_voisine'
+ where id = 'c9c9c9c9-0000-0000-0000-0000000000ff';
+select pg_temp.confier(:'c5', 'bou_essai_voisine', 'c9c9c9c9-0000-0000-0000-0000000000ff'::uuid);
+delete from auth.users where id = 'c9c9c9c9-0000-0000-0000-0000000000ff';
+select pg_temp.remettre(:'c5', 'bou_essai_voisine');
+select pg_temp.remettre(:'c5', 'bou_informatique');
+select essai.egal((select string_agg(montant::text, ',') from public.gains_livreurs where commande_id = :'c5'), '800',
+  'l''autre livreur n''existe plus : Koffi touche quand même ses 800 F');
+
 select essai.titre('5. Le rattrapage : crédite sans prévenir course par course');
 delete from public.gains_livreurs where commande_id = :'c2';
 delete from public.notifications where commande_id = :'c2' and type = 'gain_livraison';
