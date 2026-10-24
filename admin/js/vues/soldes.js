@@ -262,8 +262,9 @@ const VueSoldes = (() => {
   }
 
   /* ---------- Le livreur : ses gains (3.64.0) ----------
-     Sa part des frais de livraison de chaque commande qu'il a remise,
-     son numéro Mobile Money, ses demandes de reversement. */
+     Sa part des frais de livraison de chaque commande qu'il a remise —
+     toutes ses courses depuis 3.66.0 —, son numéro Mobile Money, ses
+     demandes de reversement. */
   async function gains(vue) {
     UI.entete({ titre: "Mes gains", sous: "Vos frais de livraison", retour: true });
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture de vos gains…</div>';
@@ -289,8 +290,9 @@ const VueSoldes = (() => {
             : "") +
           '<div class="sd-a-venir"><span>À venir (courses en cours)</span><strong>' + e(m(solde.aVenir, d)) + "</strong></div>" +
         "</div>" +
-        '<p class="aide" style="margin:10px 0 0">Une course compte dès que <strong>toute la commande est ' +
-          "remise</strong> au client : vous touchez " + e(String(solde.taux)) + " % de ses frais de livraison.</p>" +
+        '<p class="aide" style="margin:10px 0 0">Chaque course compte dès que <strong>vous avez remis ' +
+          "tout ce que vous portiez</strong> et que la commande est payée : vous touchez " + e(String(solde.taux)) +
+          " % de ses frais de livraison — de la part de votre boutique quand la commande en compte plusieurs.</p>" +
         '<button type="button" class="btn" id="gn-demander" style="margin-top:12px"' +
           (solde.disponible > 0 && r ? "" : " disabled") + ">Demander un reversement</button>" +
         (!r ? '<p class="aide" style="margin:8px 0 0">Réglez d\'abord le numéro qui recevra vos gains.</p>' : "") +

@@ -4061,7 +4061,8 @@ begin
     'trajet', case when c.livraison is null then null
                    else jsonb_build_object('vehicule', c.livraison ->> 'vehicule',
                                            'distance_km', c.livraison -> 'distance_km') end,
-    'gain', case when c.livraison is null then null else public.gain_livreur(c.id) end,
+    -- (3.66.0) Au kilomètre ou à l'ancien tarif : sa part des frais.
+    'gain', public.gain_livreur(c.id),
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
@@ -7388,10 +7389,12 @@ grant execute on function public.decider_reversement(bigint, boolean, text, text
 -- « taux_livreur » % (80) ; le reste à BIZZOO, qui a encaissé ces frais
 -- en ligne avec l'acompte.
 --
---   CRÉDITÉ   une fois la commande payée ET remise en entier (toutes ses
---             lignes « remise », ou annulées) : une ligne par commande,
---             au taux du jour, figée. Sans attendre le « J'ai bien reçu »
---             du client, qui peut ne jamais venir ;
+--   CRÉDITÉ   une fois la commande payée ET tout ce qu'il porte remis
+--             (ses lignes « remise », ou annulées) : une ligne par
+--             commande ET par livreur, au taux du jour, figée. Sans
+--             attendre le « J'ai bien reçu » du client, qui peut ne
+--             jamais venir. Depuis 3.66.0, TOUTES les courses comptent —
+--             au kilomètre comme à l'ancien tarif par boutique ;
 --   À VENIR   ses courses payées, pas encore remises ;
 --   REVERSÉ   ses reversements validés par BIZZOO ;
 --   EN ATTENTE ses demandes pas encore tranchées ;
@@ -7411,6 +7414,21 @@ create table if not exists public.gains_livreurs (
 create index if not exists gains_livreur on public.gains_livreurs(livreur_id, credite_le desc);
 alter table public.gains_livreurs enable row level security;
 revoke all on public.gains_livreurs from anon, authenticated;
+-- (3.66.0) UNE LIGNE PAR LIVREUR, et non plus par commande : une commande à
+-- l'ancien tarif (frais par boutique) a parfois un livreur par boutique,
+-- et chacun touche la part des boutiques qu'il a livrées.
+alter table public.gains_livreurs add column if not exists id bigserial;
+do $$
+begin
+  if exists (select 1 from pg_constraint
+              where conname = 'gains_livreurs_pkey' and conrelid = 'public.gains_livreurs'::regclass
+                and pg_get_constraintdef(oid) = 'PRIMARY KEY (commande_id)') then
+    alter table public.gains_livreurs drop constraint gains_livreurs_pkey;
+    alter table public.gains_livreurs add constraint gains_livreurs_pkey primary key (id);
+  end if;
+end $$;
+create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
+revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
 create table if not exists public.livreurs_reception (
   livreur_id uuid primary key references public.profils(id) on delete cascade,
@@ -7443,59 +7461,109 @@ alter table public.reversements_livreurs enable row level security;
 revoke all on public.reversements_livreurs from anon, authenticated;
 revoke all on sequence public.reversements_livreurs_id_seq from anon, authenticated;
 
--- Ce que le livreur gagne sur une commande : figé s'il est crédité, sinon
--- au taux du jour.
+-- (3.66.0) LA PART DES FRAIS QUI REVIENT À UN LIVREUR sur une commande :
+--   au kilomètre, les frais entiers — un seul livreur la porte ;
+--   à l'ancien tarif, les frais des boutiques dont il livre les produits ;
+--   plus ancienne encore (pas de frais par boutique), au prorata de ce
+--   qu'il porte.
+-- Une commande que personne n'a encore prise : celui qui la prendra la
+-- portera entière. Une part annulée ne compte pas : pas de course, pas de
+-- frais.
+create or replace function public.part_frais_livreur(cible text, qui uuid) returns numeric
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c          public.commandes%rowtype;
+  f          numeric;
+  siennes    int;
+  confiees   int;
+  part       numeric;
+  brut_moi   numeric;
+  brut_tout  numeric;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found then return 0; end if;
+  f := greatest(0, coalesce(c.frais_livraison, 0));
+  if f <= 0 then return 0; end if;
+  select count(*) filter (where l.livreur_id = qui), count(*) filter (where l.livreur_id is not null)
+    into siennes, confiees
+    from public.commande_lignes l where l.commande_id = cible and l.etat <> 'annulee';
+  if coalesce(siennes, 0) = 0 then
+    return case when coalesce(confiees, 0) = 0 then f else 0 end;
+  end if;
+  if c.livraison is not null then return f; end if;
+  if c.parts is not null and exists (select 1 from jsonb_each(c.parts) e(k, v)
+                                      where coalesce((v ->> 'frais')::numeric, 0) > 0) then
+    select coalesce(sum(coalesce((c.parts -> b.bou ->> 'frais')::numeric, 0)), 0) into part
+      from (select distinct l.boutique_id as bou from public.commande_lignes l
+             where l.commande_id = cible and l.livreur_id = qui and l.etat <> 'annulee') b;
+    return least(f, part);
+  end if;
+  select coalesce(sum(l.prix * l.quantite) filter (where l.livreur_id = qui), 0),
+         coalesce(sum(l.prix * l.quantite), 0)
+    into brut_moi, brut_tout
+    from public.commande_lignes l where l.commande_id = cible and l.etat <> 'annulee';
+  if brut_tout <= 0 then return 0; end if;
+  return round(f * brut_moi / brut_tout);
+end $$;
+revoke all on function public.part_frais_livreur(text, uuid) from public, anon, authenticated;
+
+-- Ce que le livreur connecté gagne sur une commande : figé s'il est
+-- crédité, sinon au taux du jour. Null quand il n'y a rien pour lui.
 create or replace function public.gain_livreur(cible text) returns bigint
 language plpgsql stable security definer set search_path = public as $$
-declare g bigint; f bigint; t int;
+declare g bigint; p numeric; t int;
 begin
-  select x.montant into g from public.gains_livreurs x where x.commande_id = cible;
-  if found then return g; end if;
-  select coalesce(c.frais_livraison, 0) into f from public.commandes c
-   where c.id = cible and c.livraison is not null;
-  if f is null then return null; end if;
-  select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
-  return floor(f * coalesce(t, 80) / 100.0)::bigint;
+  select sum(x.montant)::bigint into g from public.gains_livreurs x
+   where x.commande_id = cible and x.livreur_id = auth.uid();
+  if g is not null then return g; end if;
+  p := public.part_frais_livreur(cible, auth.uid());
+  if coalesce(p, 0) <= 0 then return null; end if;
+  select coalesce(x.taux_livreur, 80) into t from public.paiement x where x.id = 1;
+  return floor(p * coalesce(t, 80) / 100.0)::bigint;
 end $$;
 revoke all on function public.gain_livreur(text) from public, anon, authenticated;
 
--- Créditer le livreur d'une commande remise en entier. Rejouable : une
--- seule ligne par commande.
+-- Créditer les livreurs d'une commande payée : chacun dès qu'il a remis
+-- TOUT ce qu'il porte (3.66.0 : au kilomètre ou à l'ancien tarif).
+-- Rejouable : une seule ligne par commande et par livreur. Rend ce que la
+-- commande a rapporté à ses livreurs.
 create or replace function public.crediter_livreur(cible text) returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
-  c     public.commandes%rowtype;
-  qui   uuid;
-  t     int;
-  gain  bigint;
+  c       public.commandes%rowtype;
+  qui     uuid;
+  t       int;
+  part    numeric;
+  gain    bigint;
   combien int;
 begin
   select * into c from public.commandes where id = cible;
-  if not found or c.etat <> 'payee' or c.livraison is null or coalesce(c.frais_livraison, 0) <= 0 then
-    return 0;
-  end if;
-  if exists (select 1 from public.commande_lignes l
-              where l.commande_id = cible and l.etat not in ('remise', 'annulee')) then
-    return 0;
-  end if;
-  select l.livreur_id into qui from public.commande_lignes l
-   where l.commande_id = cible and l.etat = 'remise' and l.livreur_id is not null
-   order by l.id limit 1;
-  if qui is null then return 0; end if;
+  if not found or c.etat <> 'payee' then return 0; end if;
   select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
-  gain := floor(c.frais_livraison * coalesce(t, 80) / 100.0)::bigint;
-  insert into public.gains_livreurs (commande_id, livreur_id, frais, taux, montant)
-  values (cible, qui, c.frais_livraison, coalesce(t, 80), gain)
-  on conflict (commande_id) do nothing;
-  get diagnostics combien = row_count;
-  if combien > 0 then
-    perform public.notifier(array[qui], 'gain_livraison',
-      'Course payée : + ' || public.montant_lisible(gain, c.devise),
-      'Commande ' || coalesce(c.numero, '') || ' remise — ' || public.montant_lisible(gain, c.devise) ||
-        ' ajoutés à votre solde.',
-      '#/gains', cible, null, false);
-  end if;
-  return gain;
+  for qui in select distinct l.livreur_id from public.commande_lignes l
+              where l.commande_id = cible and l.etat = 'remise' and l.livreur_id is not null loop
+    if exists (select 1 from public.commande_lignes l
+                where l.commande_id = cible and l.livreur_id = qui
+                  and l.etat not in ('remise', 'annulee')) then
+      continue;
+    end if;
+    part := public.part_frais_livreur(cible, qui);
+    if coalesce(part, 0) <= 0 then continue; end if;
+    gain := floor(part * coalesce(t, 80) / 100.0)::bigint;
+    insert into public.gains_livreurs (commande_id, livreur_id, frais, taux, montant)
+    values (cible, qui, part::bigint, coalesce(t, 80), gain)
+    on conflict (commande_id, livreur_id) do nothing;
+    get diagnostics combien = row_count;
+    -- Un rattrapage prévient une fois par livreur, pas une fois par course.
+    if combien > 0 and coalesce(current_setting('bizzoo.rattrapage', true), '') <> 'oui' then
+      perform public.notifier(array[qui], 'gain_livraison',
+        'Course payée : + ' || public.montant_lisible(gain, c.devise),
+        'Commande ' || coalesce(c.numero, '') || ' remise — ' || public.montant_lisible(gain, c.devise) ||
+          ' ajoutés à votre solde.',
+        '#/gains', cible, null, false);
+    end if;
+  end loop;
+  return coalesce((select sum(g.montant) from public.gains_livreurs g where g.commande_id = cible), 0)::bigint;
 end $$;
 revoke all on function public.crediter_livreur(text) from public, anon, authenticated;
 
@@ -7534,10 +7602,11 @@ begin
   end if;
   select coalesce(sum(g.montant), 0) into gagne from public.gains_livreurs g where g.livreur_id = qui;
   select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
-  select coalesce(sum(floor(c.frais_livraison * coalesce(t, 80) / 100.0)), 0)::bigint into a_venir
+  select coalesce(sum(floor(public.part_frais_livreur(c.id, qui) * coalesce(t, 80) / 100.0)), 0)::bigint
+    into a_venir
     from public.commandes c
-   where c.etat = 'payee' and c.livraison is not null
-     and not exists (select 1 from public.gains_livreurs g where g.commande_id = c.id)
+   where c.etat = 'payee' and coalesce(c.frais_livraison, 0) > 0
+     and not exists (select 1 from public.gains_livreurs g where g.commande_id = c.id and g.livreur_id = qui)
      and exists (select 1 from public.commande_lignes l
                   where l.commande_id = c.id and l.livreur_id = qui
                     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison'));

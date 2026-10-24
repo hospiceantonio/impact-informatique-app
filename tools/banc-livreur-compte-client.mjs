@@ -8,8 +8,9 @@
    écrans :
 
      1. le compte du livreur : ni revendeur, ni « Mes commandes », ni
-        « Retrouver » ; « Mes courses » à la place, et l'espace vendeur ;
-     2. « Mes courses » : à livrer, livrées, ce qu'il y a à encaisser ;
+        « Retrouver » ; (3.66.0) un renvoi vers BIZZOO Admin, où sont ses
+        courses, leur sonnerie et ses gains ;
+     2. « Mes courses » (un ancien lien) : le même renvoi ;
      3. un compte client « double » (ouvert avec le numéro d'un livreur) :
         on lui dit d'entrer avec son compte livreur ;
      4. un client ordinaire : rien ne change ;
@@ -43,12 +44,14 @@ const COURSES = [
     etat: "remise", articles: [{ nom: "Souris", quantite: 1 }], paye_le: "2026-10-16T08:00:00Z", a_encaisser: 0 },
 ];
 
-async function ouvrir({ sorte, hash = "#/compte", connecte = true, inscription = false }) {
+async function ouvrir({ sorte, hash = "#/compte", connecte = true, inscription = false, sansAdmin = false }) {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 2200 }, serviceWorkers: "block" });
   const page = await ctx.newPage();
   const erreurs = [];
   page.on("pageerror", (e) => erreurs.push(e.message));
-  await page.addInitScript(({ s }) => {
+  await page.addInitScript(({ s, sansAdmin }) => {
+    /* Le téléphone sans BIZZOO Admin : le pont Android le dit. */
+    if (sansAdmin) window.AndroidPont = { espaceVendeurPresent: () => false };
     localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "k" }));
     if (s) localStorage.setItem("bizzoo-session", JSON.stringify(s));
     window.__toasts = [];
@@ -59,7 +62,7 @@ async function ouvrir({ sorte, hash = "#/compte", connecte = true, inscription =
       }).observe(zone, { childList: true });
     });
   }, { s: connecte ? { access_token: jwt({ sub: MOI, phone: "2290196000111", email: "" }), refresh_token: "r",
-    expire_a: Date.now() + 3600000, email: "", tel: "2290196000111" } : null });
+    expire_a: Date.now() + 3600000, email: "", tel: "2290196000111" } : null, sansAdmin });
   await page.route("**/auth/v1/**", (r) => {
     const c = new URL(r.request().url()).pathname.replace(/^.*\/auth\/v1\//, "");
     if (c === "settings") return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ external: { phone: true } }) });
@@ -98,22 +101,32 @@ titre("1. Le compte du livreur : pas un acheteur");
   ok(!(await ilYa(o.page, 'a[href="#/mes-commandes"]')), "pas de « Mes commandes »");
   ok(!(await ilYa(o.page, "#cp-reprendre")) && !/Retrouver mes commandes/.test(t), "pas de « Retrouver mes commandes d'avant »");
   ok(!(await ilYa(o.page, "#cp-verifier")), "pas de « Vérifier par SMS » d'acheteur");
-  ok(await ilYa(o.page, 'a[href="#/mes-courses"]') && /Mes courses/.test(t), "« Mes courses » à la place");
-  /* (3.59.0) Plus de lien vers l'application admin pour un livreur. */
-  ok(!/Espace vendeur/.test(t) && !(await ilYa(o.page, "#cp-vendeur-ouvrir")),
-    "pas de lien vers l'application admin");
+  /* (3.66.0) Le livreur travaille dans BIZZOO Admin : l'application
+     client l'y renvoie, au lieu d'une liste de courses incomplète. */
+  ok(!(await ilYa(o.page, 'a[href="#/mes-courses"]')), "plus de « Mes courses » dans l'application client");
+  ok(await ilYa(o.page, "#cp-espace-livreur") && /Vos courses sont dans BIZZOO Admin/.test(t) &&
+     /même numéro et ce même mot de passe/.test(t), "il est renvoyé vers BIZZOO Admin, avec les mêmes identifiants");
+  ok(await ilYa(o.page, "#cp-espace-livreur #cp-vendeur-ouvrir") && /Ouvrir BIZZOO Admin/.test(t),
+    "un bouton « Ouvrir BIZZOO Admin »");
+  ok(!/Espace vendeur/.test(t), "pas d'« Espace vendeur » : il n'a rien à vendre");
   sansErreur(o);
-
-  titre("2. Mes courses");
-  await o.page.click("#cp-mes-courses");
-  await pause(1500);
+  await o.ctx.close();
+}
+{
+  titre("2. « Mes courses » (un ancien lien) : le même renvoi, sans liste");
+  const o = await ouvrir({ sorte: "livreur", hash: "#/mes-courses" });
   const c = await texte(o.page);
-  ok(/À livrer \(1\)/.test(c) && /BZ-101/.test(c) && /En livraison/.test(c), "à livrer : la commande BZ-101, en livraison");
-  ok(/Livrées \(1\)/.test(c) && /BZ-099/.test(c), "livrées : BZ-099");
-  ok(/Afi/.test(c) && /Fidjrossè/.test(c) && /2 × Câble/.test(c), "le client, l'adresse, les articles");
-  ok(/À payer par MoMoPay : 3\s?500 FCFA/.test(c), "ce qu'il y a à encaisser");
-  ok(!/Espace vendeur/.test(c) && !(await ilYa(o.page, "#cp-vendeur-ouvrir")),
-    "ni sous « Mes courses »");
+  ok(await ilYa(o.page, "#cp-espace-livreur") && !/BZ-101|À livrer/.test(c),
+    "le renvoi vers BIZZOO Admin, et aucune course listée ici");
+  sansErreur(o);
+  await o.ctx.close();
+}
+{
+  /* Sur le téléphone, sans BIZZOO Admin installée : on le lui dit. */
+  const o = await ouvrir({ sorte: "livreur", sansAdmin: true });
+  const t = await texte(o.page);
+  ok(!(await ilYa(o.page, "#cp-vendeur-ouvrir")) && /BIZZOO Admin n'est pas installée/.test(t),
+    "BIZZOO Admin absente du téléphone : on lui dit de la demander");
   sansErreur(o);
   await o.ctx.close();
 }

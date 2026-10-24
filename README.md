@@ -5395,6 +5395,51 @@ Android seulement : l'application iOS n'a pas encore de notifications push
   connexion, le retrait à la déconnexion, le navigateur sans pont, une
   base d'avant.
 
+## Le livreur touche sa part de toutes ses courses (3.66.0)
+
+Avant, seules les commandes **au kilomètre** créditaient le livreur : ses
+courses à l'ancien tarif (frais par boutique) ne lui rapportaient rien à
+l'écran, et son solde restait à zéro. Désormais **chaque course remise et
+payée** lui rapporte 80 % (« taux du livreur », Réglages) des frais :
+
+- **au kilomètre** : les frais entiers — un seul livreur porte la commande ;
+- **à l'ancien tarif** : les frais **des boutiques dont il a livré les
+  produits**. Deux boutiques, deux livreurs : chacun 80 % des frais de la
+  sienne, dès qu'il a remis sa part, sans attendre l'autre. Un livreur de
+  BIZZOO qui porte les deux touche les deux ;
+- **plus ancienne encore** (sans frais par boutique) : au prorata de ce
+  qu'il porte.
+
+Une part annulée ne compte pas. Le gain affiché sur la course, le « à
+venir » et le crédit disent la même chose : une seule règle,
+`part_frais_livreur()`, en base. `gains_livreurs` a désormais **une ligne
+par commande et par livreur** (jamais deux pour le même).
+
+**Le solde se voit** : un bandeau vert « Mon solde » en tête de « Mes
+courses » (BIZZOO Admin) mène à « Mes gains ».
+
+**Le livreur travaille dans BIZZOO Admin.** L'application client ne liste
+plus ses courses : « Mon compte » et l'ancien lien « Mes courses » le
+renvoient vers BIZZOO Admin (bouton « Ouvrir BIZZOO Admin », ou « pas
+installée : demandez-la à BIZZOO »), où il entre avec le même numéro et le
+même mot de passe — c'est là que les courses sonnent et que sont ses gains.
+
+### Le rattrapage
+
+`supabase/livreurs-gains-toutes-courses.sql` crédite une fois les courses
+remises des **30 derniers jours**, et envoie **une seule** notification par
+livreur avec le total (pas une par course). Relancé, il ne crédite rien deux
+fois.
+
+### Les essais
+
+- `supabase/tests/99zzz…-gains-toutes-courses.sql` (21 constats) : deux
+  livreurs, deux parts ; un livreur pour deux boutiques ; le prorata ; une
+  part annulée ; le rattrapage silencieux et rejouable.
+- `tools/banc-livraison-km.mjs` : le bandeau « Mon solde ».
+- `tools/banc-livreur-compte-client.mjs`, `tools/banc-parcours-livraison.mjs` :
+  le renvoi vers BIZZOO Admin.
+
 ## Structure
 
 ```

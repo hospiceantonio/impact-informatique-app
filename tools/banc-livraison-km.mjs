@@ -395,6 +395,10 @@ titre("6. Le livreur : sa course, son gain ; « Mes gains »");
   ok(/Moto · 13,4 km depuis BIZZOO/.test(await texte(page, '[data-lv="trajet"]')), "sa course : « Moto · 13,4 km depuis BIZZOO »");
   ok(/Votre gain : 1 120 FCFA/.test(await texte(page, '[data-lv="gain"]')), "« Votre gain : 1 120 FCFA »");
   ok(await page.$('.lv-course a.lv-ou[href*="6.458099"]') !== null, "« Livrer à » ouvre la carte sur le point exact du client");
+  /* (3.66.0) Son solde, en tête de ses courses : il ne le cherche plus. */
+  ok(await texte(page, "#lv-solde-dispo") === F(1120) && /à venir : 1 120 FCFA/.test(await texte(page, "#lv-solde")),
+    "« Mon solde : 1 120 FCFA », et ce qui est à venir, en tête de ses courses");
+  ok(await page.$eval("#lv-solde", (a) => a.getAttribute("href")).catch(() => "") === "#/gains", "le bandeau mène à « Mes gains »");
 
   await page.click("#lv-gains");
   await page.waitForSelector("#gn-solde", { timeout: 6000 }).catch(() => {});
