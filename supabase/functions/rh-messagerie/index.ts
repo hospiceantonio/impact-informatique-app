@@ -90,6 +90,17 @@ async function employeConnecte(req: Request): Promise<Employe> {
     "rh_employes?select=id,email_pro,nom,prenoms&etat=eq.actif&compte_id=eq." + encodeURIComponent(u.id));
   const e = (lignes as Employe[])[0];
   if (!e) throw new Refus("Votre compte n'est pas celui d'un employé en poste.", "employe");
+  /* Le menu Mails se ferme à un profil depuis le menu Paramètres. La base
+     juge avec le jeton de l'employé : c'est son droit à lui qu'elle lit.
+     Une base pas encore à jour (fonction absente) laisse passer, comme avant. */
+  const acces = await fetch(BASE + "/rest/v1/rpc/rh_menu_ouvert", {
+    method: "POST",
+    headers: { apikey: ANON, Authorization: "Bearer " + jeton, "Content-Type": "application/json" },
+    body: JSON.stringify({ cle: "mails" }),
+  });
+  if (acces.ok && (await acces.json()) === false) {
+    throw new Refus("Le menu Mails n'est pas ouvert à votre profil.", "acces");
+  }
   if (!e.email_pro) {
     throw new Refus("Votre fiche n'a pas d'adresse professionnelle : voyez l'administration.", "adresse");
   }

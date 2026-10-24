@@ -26,10 +26,42 @@ const VueEmployes = (() => {
 
   async function afficher(zone, morceaux, params) {
     UI.vider(zone, UI.chargement());
+    /* Ouvert à un profil par le menu Paramètres : l’annuaire, en lecture. */
+    if (!App.estAdmin()) return annuaire(zone);
     profils = await Supabase.lire("rh_profils?select=id,nom,responsable_id&order=nom");
     if (morceaux[0] === "nouveau") return formulaire(zone);
     if (morceaux[0]) return fiche(zone, morceaux[0]);
     return liste(zone, params.filtre || "actif", params.q || "");
+  }
+
+  /** L’annuaire : qui est qui, comment le joindre. Aucun salaire, aucune
+      donnée personnelle : rh_annuaire() ne les donne pas. */
+  async function annuaire(zone) {
+    const employes = await Supabase.rpc("rh_annuaire");
+    if (!zone.isConnected) return;
+    const champ = h("input", { type: "search", placeholder: "Rechercher un nom, un poste, un profil" });
+    const corps = h("div", {});
+    const dessiner = () => {
+      const q = champ.value.trim().toLowerCase();
+      const visibles = employes.filter((e) => !q ||
+        [e.nom, e.prenoms, e.poste, e.matricule, e.profil].join(" ").toLowerCase().includes(q));
+      UI.vider(corps, visibles.length ? h("div", { class: "liste" }, visibles.map((e) =>
+        h("div", { class: "element" },
+          h("div", { class: "avatar" }, UI.initiales(e.nom, e.prenoms)),
+          h("div", { class: "etire" },
+            h("div", { class: "ligne" }, h("span", { class: "gras etire coupe" }, UI.nomComplet(e)),
+              e.ceo ? UI.etiquette("CEO", "bleu") : e.administration ? UI.etiquette("Administration", "bleu") : null,
+              e.responsable ? UI.etiquette("Responsable", "vert") : null),
+            h("div", { class: "petit doux coupe" }, [e.matricule, e.poste, e.profil].filter(Boolean).join(" · ")),
+            h("div", { class: "petit coupe" }, [e.email_pro, e.telephone].filter(Boolean).join(" · ") || "—")))))
+        : UI.vide("Aucun employé ici."));
+    };
+    champ.addEventListener("input", dessiner);
+    UI.vider(zone,
+      h("div", { class: "titre-section" }, h("h2", {}, "Annuaire (" + employes.length + ")")),
+      h("p", { class: "doux petit" }, "Les employés en poste, en lecture seule."),
+      h("label", { class: "champ" }, champ), corps);
+    dessiner();
   }
 
   const nomProfil = (id) => (profils.find((p) => p.id === id) || {}).nom || "—";

@@ -19,7 +19,11 @@
 --      calcul au franc près, avances étalées, prorata d'embauche, fiche
 --      invisible à l'employé avant validation, figée après ;
 --  10. la boîte mail chiffrée n'est lisible par aucun compte ;
---  11. un compte « personnel » ne devient pas un compte de boutique.
+--  11. un compte « personnel » ne devient pas un compte de boutique ;
+--  12. les statistiques : chacun ne reçoit que ses sous-menus ;
+--  13. le suivi des commandes ;
+--  14. le menu Paramètres : les accès aux menus, que la base applique
+--      elle-même, et l'en-tête de l'entreprise.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -511,7 +515,7 @@ reset role; select essai.personne();
 select essai.devenir(:RESP::uuid); set role authenticated;
 select essai.refuse($$select public.rh_statistiques()$$,
   'un responsable dont le profil n''a aucune rubrique ouverte : rien');
-select essai.sans_effet(format($$update public.rh_profils set statistiques = '{livraisons}' where id = %L$$, :'p_mkt'),
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"stats_livraisons":"responsable"}')$$, :'p_mkt'),
   'il ne s''ouvre pas les statistiques lui-même');
 reset role; select essai.personne();
 
@@ -555,9 +559,9 @@ select essai.verifie((:'admin_stats'::jsonb #>> '{commandes,benefice}') is null
   'mais pas la marge de BIZZOO, nulle part');
 
 select essai.devenir(:ADMRH::uuid); set role authenticated;
-update public.rh_profils set statistiques = '{livraisons}' where id = :'p_mkt';
-select essai.refuse(format($$update public.rh_profils set statistiques = '{marge}' where id = %L$$, :'p_mkt'),
-  'une rubrique inconnue est refusée');
+select public.rh_regler_acces(:'p_mkt', '{"stats_livraisons":"responsable","stats_livreurs":"responsable"}');
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"marge":"responsable"}')$$, :'p_mkt'),
+  'un menu inconnu est refusé');
 reset role; select essai.personne();
 select essai.devenir(:RESP::uuid); set role authenticated;
 select public.rh_statistiques(current_date - 1, current_date + 1) as resp_stats \gset
@@ -630,7 +634,7 @@ select essai.verifie(exists (select 1 from public.rh_journal_lignes
   'le journal date le passage à « préparée »');
 
 select essai.devenir(:ADMRH::uuid); set role authenticated;
-update public.rh_profils set statistiques = '{livraisons,suivi}' where id = :'p_mkt';
+select public.rh_regler_acces(:'p_mkt', '{"suivi":"responsable"}');
 select public.rh_incident_ouvrir(:'cmd_suivi', 'client_absent', 'Client injoignable à 14 h') as incident \gset
 select essai.refuse(format($$select public.rh_suivi_cloturer(%L)$$, :'cmd_suivi'),
   'un incident ouvert empêche la clôture');
@@ -679,6 +683,97 @@ select essai.verifie((select cloturee_le from public.rh_suivi_commandes where co
 set role anon;
 select essai.refuse($$select * from public.rh_journal_lignes$$, 'un visiteur ne lit pas le journal');
 reset role;
+
+-- ---------------------------------------------------------
+select essai.titre('14. Les paramètres : les accès aux menus, profil par profil');
+select essai.egal((select string_agg(menu || '=' || qui, ',' order by menu) from public.rh_acces_menus
+                    where profil_id = :'p_log'),
+  'depenses=responsable,discussions=membres,mails=membres,missions=membres,rapports=membres',
+  'un profil reçoit à sa naissance les accès d''avant');
+select (select count(*) from public.rh_missions where profil_id = :'p_mkt') as nb_missions_mkt \gset
+select essai.verifie(:'nb_missions_mkt'::int > 0, 'le Marketing a des missions');
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_mes_menus(), array['mails', 'discussions', 'missions', 'rapports'],
+  'un membre : mails, discussions, missions, rapports');
+select essai.egal(public.rh_suivi_acces(), null::text, 'le suivi, ouvert au seul responsable, lui reste fermé');
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"suivi":"membres"}')$$, :'p_mkt'),
+  'un membre ne s''ouvre pas un menu');
+select essai.refuse(format($$insert into public.rh_acces_menus (profil_id, menu, qui) values (%L, 'suivi', 'membres')$$, :'p_mkt'),
+  'ni en écrivant la table');
+select essai.egal((select count(*)::int from public.rh_missions where profil_id = :'p_mkt'), :'nb_missions_mkt'::int,
+  'il voit les missions de son profil');
+reset role; select essai.personne();
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.egal(public.rh_mes_menus(),
+  array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'stats_livraisons', 'stats_livreurs'],
+  'son responsable a en plus les dépenses, le suivi et deux sous-menus de statistiques');
+reset role; select essai.personne();
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt',
+  '{"missions":"responsable","discussions":"ferme","stats_livraisons":"ferme","employes":"membres"}');
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"depenses":"membres"}')$$, :'p_mkt'),
+  'les dépenses ne s''ouvrent pas à tous les membres : le responsable les demande');
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"paie":"membres"}')$$, :'p_mkt'),
+  'la paie ne s''ouvre à aucun profil');
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"mails":"tous"}')$$, :'p_mkt'),
+  'un réglage inconnu est refusé');
+select essai.egal((select modifie_par from public.rh_acces_menus where profil_id = :'p_mkt' and menu = 'missions'),
+  :'e_admrh'::uuid, 'qui a réglé l''accès reste noté');
+select essai.verifie((select count(*) from public.rh_messages where profil_id = :'p_mkt') > 0,
+  'l''administration lit toujours la discussion du profil');
+reset role; select essai.personne();
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_mes_menus(), array['mails', 'rapports', 'employes'],
+  'le membre n''a plus que mails, rapports et l''annuaire');
+select essai.egal((select count(*)::int from public.rh_missions where profil_id = :'p_mkt'), 0,
+  'missions fermées aux membres : il ne les voit plus');
+select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_mkt'), 0,
+  'discussions fermées : il ne lit plus celle du profil');
+select essai.refuse(format($$insert into public.rh_messages (profil_id, texte) values (%L, 'encore là ?')$$, :'p_mkt'),
+  'ni n''y écrit');
+select essai.refuse(format($$insert into public.rh_messages (destinataire_id, texte) values (%L, 'en privé')$$, :'e_resp'),
+  'ni n''envoie de message direct');
+select essai.egal((select count(*)::int from public.rh_conversations()), 0, 'sa liste de discussions est vide');
+select essai.verifie((select count(*) from public.rh_annuaire()) > 0, 'l''annuaire, lui, s''ouvre');
+reset role; select essai.personne();
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.egal((select count(*)::int from public.rh_missions where profil_id = :'p_mkt'), :'nb_missions_mkt'::int,
+  'le responsable voit toujours les missions');
+select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_mkt'), 0,
+  'mais plus la discussion, fermée à tout le profil');
+select public.rh_statistiques(current_date - 1, current_date + 1) as st14 \gset
+select essai.egal((select array_agg(k order by k) from jsonb_object_keys(:'st14'::jsonb -> 'livraisons') k),
+  array['livreurs'], 'Livraisons fermée, Livreurs ouverte : il ne reçoit que le classement des livreurs');
+select essai.egal(:'st14'::jsonb #> '{droits,rubriques}', '["livreurs"]'::jsonb, 'et la base le lui dit');
+reset role; select essai.personne();
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"missions":"membres","discussions":"membres","employes":"ferme"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_mkt') > 0, true,
+  'rouverte, la discussion revient avec ses messages');
+reset role; select essai.personne();
+
+select essai.titre('14 bis. L''en-tête de l''entreprise');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal((select raison_sociale from public.rh_entreprise), 'BIZZOO', 'tout employé lit l''en-tête');
+select essai.sans_effet($$update public.rh_entreprise set ifu = '0000000000000'$$, 'un employé ne le change pas');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+update public.rh_entreprise set adresse = 'Cotonou';
+select essai.refuse($$update public.rh_entreprise set modifie_par = null$$, 'la trace de la modification ne s''écrit pas à la main');
+reset role; select essai.personne();
+select essai.egal((select adresse || '/' || modifie_par from public.rh_entreprise), 'Cotonou/' || :'e_admrh',
+  'l''administration le change, et la base note qui');
+select essai.verifie(not exists (select 1 from information_schema.role_table_grants
+                                  where table_name in ('rh_acces_menus', 'rh_entreprise') and grantee = 'anon'),
+  'rien pour un visiteur');
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

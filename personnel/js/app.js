@@ -11,8 +11,8 @@
 const App = (() => {
 
   let tableau = null;          // la réponse de rh_tableau_de_bord()
-  /* Les rubriques de statistiques ouvertes aux profils que je dirige. */
-  let rubriquesStats = [];
+  /* Les menus que le menu Paramètres ouvre à mes profils (rh_mes_menus). */
+  let menus = [];
   let routeCourante = "";
   let minuterie = null;
 
@@ -23,12 +23,15 @@ const App = (() => {
   const peutDecaisser = () => !!(moi() && moi().peut_decaisser);
   const responsableDe = (profil) => !!(moi() && (moi().responsable_de || []).includes(profil));
   const estResponsable = () => !!(moi() && (moi().responsable_de || []).length);
-  const voitStatistiques = () => estAdmin() || rubriquesStats.some((r) => ["commandes", "livraisons", "sav"].includes(r));
-  const voitSuivi = () => estAdmin() || rubriquesStats.includes("suivi");
+  /** Ce menu m'est-il ouvert ? L'administration a tout ; la base refuse le reste. */
+  const ouvert = (cle) => estAdmin() || menus.includes(cle);
+  const voitSuivi = () => ouvert("suivi");
   /* Les commandes en alerte : la pastille du suivi. */
   let alertesSuivi = 0;
-  /** Les rubriques de statistiques de ce compte : toutes pour l'administration. */
-  const rubriquesStatistiques = () => (estAdmin() ? ["commandes", "livraisons", "sav"] : rubriquesStats);
+  /** Les sous-menus des statistiques ouverts à ce compte (leurs clés). */
+  const sousMenusStatistiques = () =>
+    VueStatistiques.SOUS_MENUS.map((s) => s.cle).filter((c) => ouvert("stats_" + c));
+  const voitStatistiques = () => sousMenusStatistiques().length > 0;
 
   /* ---------- Les écrans ---------- */
   const VUES = {
@@ -43,6 +46,7 @@ const App = (() => {
     paie: VuePaie,
     statistiques: VueStatistiques,
     suivi: VueSuivi,
+    parametres: VueParametres,
     compte: VueCompte,
   };
 
@@ -51,21 +55,25 @@ const App = (() => {
     const c = compteurs();
     return [
       { route: "accueil", libelle: "Accueil", icone: "accueil" },
-      { route: "mails", libelle: "Mails", icone: "mail" },
-      { route: "discussions", libelle: "Discussions", icone: "bulle", pastille: c.messages_non_lus },
-      { route: "missions", libelle: "Missions", icone: "mission",
+      { route: "mails", libelle: "Mails", icone: "mail", pour: () => ouvert("mails") },
+      { route: "discussions", libelle: "Discussions", icone: "bulle", pour: () => ouvert("discussions"),
+        pastille: c.messages_non_lus },
+      { route: "missions", libelle: "Missions", icone: "mission", pour: () => ouvert("missions"),
         pastille: (c.missions_a_repondre || 0) + (c.missions_a_cloturer || 0) },
-      { route: "rapports", libelle: "Rapports", icone: "rapport", pastille: c.rapports_a_valider },
+      { route: "rapports", libelle: "Rapports", icone: "rapport", pour: () => ouvert("rapports"),
+        pastille: c.rapports_a_valider },
       { route: "depenses", libelle: "Dépenses", icone: "argent",
-        pour: () => estAdmin() || estResponsable() || peutDecaisser(),
+        pour: () => ouvert("depenses") || peutDecaisser(),
         pastille: (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
-      { route: "employes", libelle: "Employés", icone: "equipe", pour: estAdmin,
-        pastille: c.employes_a_valider, groupe: "Administration" },
+      /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
+      { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
+        pastille: c.employes_a_valider, groupe: estAdmin() ? "Administration" : undefined },
       { route: "profils", libelle: "Profils", icone: "profils", pour: estAdmin },
       { route: "paie", libelle: "Paie", icone: "paie", pour: () => estAdmin() || peutDecaisser(),
         pastille: (c.fiches_a_valider || 0) + (c.baremes_a_valider || 0) + (c.fiches_a_payer || 0) },
+      { route: "parametres", libelle: "Paramètres", icone: "reglages", pour: estAdmin },
       { route: "compte", libelle: "Mon compte", icone: "personne", groupe: "Moi" },
     ].filter((m) => !m.pour || m.pour());
   }
@@ -87,7 +95,7 @@ const App = (() => {
           UI.icone(m.icone), m.libelle, pastille(m.pastille));
         /* Les sous-menus des statistiques, visibles quand on y est. */
         const sous = m.route === "statistiques"
-          ? VueStatistiques.SOUS_MENUS.filter((x) => rubriquesStatistiques().includes(x.rubrique)).map((x) =>
+          ? VueStatistiques.SOUS_MENUS.filter((x) => sousMenusStatistiques().includes(x.cle)).map((x) =>
             h("a", { class: "sous", href: "#/statistiques/" + x.cle, "data-sous": "statistiques/" + x.cle }, x.libelle))
           : [];
         return [titre, lien, sous];
@@ -180,6 +188,7 @@ const App = (() => {
   async function rafraichir() {
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
+      if (tableau && tableau.moi) await chargerMenus();
       if (tableau && tableau.moi && voitSuivi()) {
         alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => alertesSuivi);
       }
@@ -188,6 +197,18 @@ const App = (() => {
       if (err && err.deconnecte) deconnecte();
     }
     return tableau;
+  }
+
+  /** Les menus ouverts par le menu Paramètres. Base pas encore à jour :
+      les menus d'avant, sans suivi ni statistiques. */
+  async function chargerMenus() {
+    if (estAdmin()) return;
+    try {
+      menus = (await Supabase.rpc("rh_mes_menus")) || [];
+    } catch (err) {
+      if (err && err.deconnecte) throw err;
+      menus = ["mails", "discussions", "missions", "rapports"].concat(estResponsable() ? ["depenses"] : []);
+    }
   }
 
   function deconnecte() {
@@ -220,14 +241,9 @@ const App = (() => {
       VueConnexion.sansFiche(zone, tableau || {}, demarrer, deconnecte);
       return;
     }
-    rubriquesStats = [];
+    menus = [];
     alertesSuivi = 0;
-    if (!estAdmin() && estResponsable()) {
-      try {
-        const profils = await Supabase.lire("rh_profils?select=statistiques&responsable_id=eq." + moi().id);
-        rubriquesStats = [...new Set(profils.flatMap((p) => p.statistiques || []))];
-      } catch (_) { /* base pas encore à jour : pas de statistiques */ }
-    }
+    await chargerMenus();
     if (voitSuivi()) alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);
     dessinerMenus();
     /* La paie de fin de mois se rattrape à l'ouverture si personne ne
@@ -255,7 +271,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable, rubriquesStatistiques,
+    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer,
   };
 })();
