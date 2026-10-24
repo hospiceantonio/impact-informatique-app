@@ -4898,6 +4898,16 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
 - **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
+### La caisse
+
+`supabase/personnel-caisse.sql` ; écran `personnel/js/vues/caisse.js`.
+
+- **Quatre compartiments** : espèces, MTN Mobile Money, Moov Money, Celtiis Cash ; leur somme fait le solde. Le menu Caisse montre le solde à l'instant (total et par compartiment) et, pour une période, le solde de début, les entrées, les sorties, le solde de fin et la liste des mouvements (exportable en Excel).
+- **Le gestionnaire**, désigné par le CEO (`rh_designer_gestionnaire_caisse`), tient la caisse : **lui seul décaisse les dépenses approuvées et paie les salaires** (`rh_peut_decaisser()` = être ce gestionnaire ; la case « habilité à décaisser » de la fiche employé a disparu). Chaque décaissement ou paiement se **répartit** entre compartiments (« 20 000 en espèces + 30 000 sur MTN », `rh_decaisser` / `rh_payer`) : la somme doit tomber juste, et aucun compartiment ne passe sous zéro (la base refuse). Des déclencheurs font sortir de la caisse TOUT décaissement et TOUT salaire payé, quel que soit le chemin.
+- **Les entrées** : apports du CEO ou d'une autre source nommée (`rh_caisse_apport`, par le gestionnaire ou le CEO). Le gestionnaire **déplace** l'argent entre compartiments (retrait Mobile Money en espèces…), frais de l'opérateur compris (`rh_caisse_transfert`).
+- **Rien ne s'efface** : `rh_caisse_mouvements` est figée (ni modification, ni suppression) et fermée à la lecture directe ; chaque mouvement garde le solde qu'il laisse et qui l'a fait. Une erreur ou un écart de comptage se corrige par un **ajustement** du CEO, avec motif (`rh_caisse_ajustement`).
+- **Qui la voit** (`rh_caisse_acces`) : le CEO, le gestionnaire, le superadministrateur, et les profils à qui Paramètres ouvre « Caisse (consultation) » ; l'administration n'y entre pas d'office. En consultation, on ne fait rien, et un salaire ne dit pas de qui il est.
+
 ### Localiser un livreur
 
 `supabase/localiser-livreurs.sql` ; écran `personnel/js/vues/localiser.js` ; côté livreur `admin/js/suivi-position.js` et le service Android `ServiceSuiviPosition`.
@@ -4940,7 +4950,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

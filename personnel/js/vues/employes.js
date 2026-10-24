@@ -156,8 +156,8 @@ const VueEmployes = (() => {
         h("h2", {}, "Droits (CEO)"),
         h("label", { class: "case" }, champs.administration = h("input", { type: "checkbox", checked: !!val("administration", false) }),
           "Membre de l'administration (droits sur tous les profils)"),
-        h("label", { class: "case" }, champs.peut_decaisser = h("input", { type: "checkbox", checked: !!val("peut_decaisser", false) }),
-          "Habilité à décaisser (dépenses approuvées, salaires validés)")) : null,
+        /* Décaisser, c'est tenir la caisse : le gestionnaire se désigne dans Caisse. */
+        h("p", { class: "doux petit" }, "Le gestionnaire de la caisse, seul à décaisser les dépenses et à payer les salaires, se désigne dans le menu Caisse.")) : null,
       !e && !ceo ? h("div", { class: "info" }, "Cette fiche partira chez le CEO pour validation.") : null,
       h("div", { class: "actions" },
         h("button", { class: "btn", type: "submit" }, e ? "Enregistrer" : "Créer la fiche"),
@@ -285,7 +285,6 @@ const VueEmployes = (() => {
         h("div", { class: "actions" },
           e.ceo ? UI.etiquette("CEO", "bleu") : null,
           e.administration && !e.ceo ? UI.etiquette("Administration", "bleu") : null,
-          e.peut_decaisser ? UI.etiquette("Habilité à décaisser", "orange") : null,
           responsableDe.length ? UI.etiquette("Responsable : " + responsableDe.join(", "), "vert") : null,
           e.compte_id ? UI.etiquette("Accès créé", "vert") : (e.etat === "actif" ? UI.etiquette("Pas encore d'accès", "orange") : null)),
         e.etat === "refuse" && e.motif_refus ? h("div", { class: "erreur" }, "Refusée par le CEO : " + e.motif_refus) : null,

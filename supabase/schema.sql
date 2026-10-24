@@ -10949,11 +10949,20 @@ language sql stable security definer set search_path = public as $$
                   where compte_id = auth.uid() and etat = 'actif' and (administration or ceo));
 $$;
 
+/** Décaisser (dépenses, salaires), c'est tenir la caisse : le seul
+    gestionnaire de caisse désigné par le CEO. Sans la table de la caisse
+    (fichier rejoué seul sur une base plus ancienne), l'ancien droit. */
 create or replace function public.rh_peut_decaisser() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.rh_employes
-                  where compte_id = auth.uid() and etat = 'actif' and peut_decaisser);
-$$;
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.rh_caisse') is null then
+    return exists (select 1 from public.rh_employes
+                    where compte_id = auth.uid() and etat = 'actif' and peut_decaisser);
+  end if;
+  return exists (select 1 from public.rh_caisse c
+                   join public.rh_employes e on e.id = c.gestionnaire_id
+                  where e.compte_id = auth.uid() and e.etat = 'actif');
+end $$;
 
 create or replace function public.rh_mon_profil() returns uuid
 language sql stable security definer set search_path = public as $$
@@ -11727,7 +11736,10 @@ create table if not exists public.rh_depenses (
   motif_decision     text not null default '',
   decaisse_par       uuid,
   decaisse_le        timestamptz,
-  mode_decaissement  text check (mode_decaissement in ('especes', 'virement', 'mobile_money', 'cheque')),
+  -- Le compartiment de la caisse d'où sort l'argent (« virement », « cheque »
+  -- et « mobile_money » : les décaissements d'avant la caisse).
+  mode_decaissement  text check (mode_decaissement in ('especes', 'mtn', 'moov', 'celtiis', 'mixte',
+                                                       'virement', 'mobile_money', 'cheque')),
   reference          text not null default ''
 );
 -- La validation du responsable du profil, avant le CEO.
@@ -11807,8 +11819,8 @@ begin
   if not public.rh_peut_decaisser() then
     raise exception 'Votre compte n''est pas habilité à décaisser';
   end if;
-  if mode not in ('especes', 'virement', 'mobile_money', 'cheque') then
-    raise exception 'Mode de décaissement inconnu';
+  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
+    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
   end if;
   if exists (select 1 from public.rh_depenses where id = depense and demandeur_id = public.rh_moi()) then
     raise exception 'On ne décaisse pas sa propre demande : un autre habilité s''en charge';
@@ -12429,8 +12441,8 @@ begin
   if not public.rh_peut_decaisser() then
     raise exception 'Votre compte n''est pas habilité à payer';
   end if;
-  if mode not in ('especes', 'virement', 'mobile_money', 'cheque') then
-    raise exception 'Mode de paiement inconnu';
+  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
+    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
   end if;
   update public.rh_fiches_paie
      set statut = 'payee', paye_par = public.rh_moi(), paye_le = now(),
@@ -12497,7 +12509,7 @@ begin
     'moi', jsonb_build_object(
       'id', moi.id, 'matricule', moi.matricule, 'nom', moi.nom, 'prenoms', moi.prenoms,
       'sexe', moi.sexe, 'poste', moi.poste, 'email_pro', moi.email_pro,
-      'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', moi.peut_decaisser,
+      'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', public.rh_peut_decaisser(),
       'super', public.est_super(),
       'profil_id', moi.profil_id,
       'profil', (select nom from public.rh_profils where id = moi.profil_id),
@@ -12525,7 +12537,7 @@ begin
         (select count(*) from public.rh_depenses where statut = 'demandee' and profil_id = any(mes_profils)),
       'depenses_a_approuver', case when v_ceo then
         (select count(*) from public.rh_depenses where statut = 'validee_responsable') else 0 end,
-      'depenses_a_decaisser', case when moi.peut_decaisser then
+      'depenses_a_decaisser', case when public.rh_peut_decaisser() then
         (select count(*) from public.rh_depenses where statut = 'approuvee') else 0 end,
       'baremes_a_valider', case when v_ceo then
         (select count(*) from public.rh_cotisations where actif and not valide)
@@ -12535,7 +12547,7 @@ begin
         (select count(*) from public.rh_fiches_paie
           where statut = 'calculee'
             and mois < date_trunc('month', aujourdhui + 1)::date) else 0 end,
-      'fiches_a_payer', case when moi.peut_decaisser then
+      'fiches_a_payer', case when public.rh_peut_decaisser() then
         (select count(*) from public.rh_fiches_paie where statut = 'validee') else 0 end,
       'messages_non_lus', (select coalesce(sum(non_lus), 0) from public.rh_conversations())));
 end $$;
@@ -14112,7 +14124,7 @@ create table if not exists public.rh_acces_menus (
   modifie_le   timestamptz not null default now(),
   primary key (profil_id, menu),
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
-    'depenses', 'suivi', 'livreurs', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
   constraint rh_acces_menus_qui check (qui in ('responsable', 'membres'))
 );
@@ -14176,7 +14188,7 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
@@ -14199,7 +14211,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -15105,3 +15117,440 @@ begin
 end $$;
 revoke all on function public.rh_valider_depense(uuid, boolean, text) from public, anon;
 grant execute on function public.rh_valider_depense(uuid, boolean, text) to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : la caisse
+--
+-- La caisse de la maison : quatre compartiments (espèces, MTN Mobile
+-- Money, Moov Money, Celtiis Cash), dont la somme fait le solde. Un
+-- gestionnaire, désigné par le CEO, la tient : lui seul décaisse les
+-- dépenses approuvées et paie les salaires, en répartissant s'il le faut
+-- entre les compartiments (20 000 en espèces + 30 000 sur MTN). Les
+-- apports viennent du CEO ou d'une autre source nommée. Aucun
+-- compartiment ne passe sous zéro ; aucun mouvement ne s'efface : le CEO
+-- corrige par un ajustement motivé. La voient : le CEO, le gestionnaire,
+-- le superadministrateur, et les profils à qui Paramètres l'ouvre.
+-- =========================================================
+
+-- ---------- La caisse et son gestionnaire ----------
+create table if not exists public.rh_caisse (
+  id              boolean primary key default true check (id),
+  gestionnaire_id uuid references public.rh_employes(id) on delete set null,
+  designe_par     uuid,
+  designe_le      timestamptz
+);
+insert into public.rh_caisse (id) values (true) on conflict (id) do nothing;
+
+-- ---------- Les mouvements : on n'y efface rien, on n'y corrige rien ----------
+-- Une erreur se rattrape par un ajustement du CEO, avec son motif.
+create table if not exists public.rh_caisse_mouvements (
+  id            bigint generated always as identity primary key,
+  le            timestamptz not null default now(),
+  compte        text not null check (compte in ('especes', 'mtn', 'moov', 'celtiis')),
+  sens          text not null check (sens in ('entree', 'sortie')),
+  nature        text not null check (nature in ('apport_ceo', 'apport_autre', 'depense', 'salaire',
+                                                 'transfert', 'frais', 'ajustement')),
+  montant       bigint not null check (montant > 0),
+  libelle       text not null default '',
+  reference     text not null default '',
+  depense_id    uuid references public.rh_depenses(id) on delete set null,
+  fiche_id      uuid references public.rh_fiches_paie(id) on delete set null,
+  par           uuid,
+  solde_compte  bigint not null,   -- le compartiment, après ce mouvement
+  solde_total   bigint not null    -- toute la caisse, après ce mouvement
+);
+create index if not exists rh_caisse_mouvements_le on public.rh_caisse_mouvements (le);
+
+create or replace function public.rh_caisse_figee() returns trigger
+language plpgsql as $$
+begin
+  raise exception 'Un mouvement de caisse ne se modifie ni ne s''efface : le CEO corrige par un ajustement';
+end $$;
+drop trigger if exists rh_caisse_figee on public.rh_caisse_mouvements;
+create trigger rh_caisse_figee before update or delete on public.rh_caisse_mouvements
+  for each row execute function public.rh_caisse_figee();
+
+/** Qui voit la caisse : « gestion » (son gestionnaire), « ceo »,
+    « super » (le superadministrateur de BIZZOO), « consultation »
+    (un profil à qui Paramètres l'ouvre), ou rien. L'administration
+    n'y entre pas d'office. */
+create or replace function public.rh_caisse_acces() returns text
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+begin
+  if v_moi is not null and exists (select 1 from public.rh_caisse where gestionnaire_id = v_moi) then
+    return 'gestion';
+  end if;
+  if public.rh_est_ceo() then
+    return 'ceo';
+  end if;
+  if public.est_super() then
+    return 'super';
+  end if;
+  if v_moi is not null and exists (
+       select 1 from public.rh_acces_menus a join public.rh_profils p on p.id = a.profil_id
+        where a.menu = 'caisse'
+          and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = public.rh_mon_profil()))) then
+    return 'consultation';
+  end if;
+  return null;
+end $$;
+
+/** Un mouvement, la caisse verrouillée : le solde ne passe jamais sous
+    zéro, compartiment par compartiment. Interne. */
+create or replace function public.rh_caisse_mouvoir(p_compte text, p_sens text, p_nature text,
+  p_montant bigint, p_libelle text, p_reference text default '', p_depense uuid default null,
+  p_fiche uuid default null)
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  dispo bigint;
+  total bigint;
+  nouveau bigint;
+  ligne bigint;
+begin
+  if p_montant is null or p_montant <= 0 then
+    raise exception 'Le montant doit être positif';
+  end if;
+  perform 1 from public.rh_caisse where id for update;
+  select coalesce(sum(case when sens = 'entree' then montant else -montant end), 0) into dispo
+    from public.rh_caisse_mouvements where compte = p_compte;
+  select coalesce(sum(case when sens = 'entree' then montant else -montant end), 0) into total
+    from public.rh_caisse_mouvements;
+  if p_sens = 'sortie' and dispo < p_montant then
+    raise exception 'Solde insuffisant en % : % FCFA disponibles, % FCFA demandés',
+      case p_compte when 'especes' then 'espèces' when 'mtn' then 'MTN Mobile Money'
+                    when 'moov' then 'Moov Money' else 'Celtiis Cash' end,
+      replace(to_char(dispo, 'FM999G999G999G990'), ',', ' '), replace(to_char(p_montant, 'FM999G999G999G990'), ',', ' ');
+  end if;
+  nouveau := dispo + case when p_sens = 'entree' then p_montant else -p_montant end;
+  insert into public.rh_caisse_mouvements (compte, sens, nature, montant, libelle, reference,
+                                           depense_id, fiche_id, par, solde_compte, solde_total)
+  values (p_compte, p_sens, p_nature, p_montant, left(btrim(coalesce(p_libelle, '')), 300),
+          left(btrim(coalesce(p_reference, '')), 120), p_depense, p_fiche, public.rh_moi(), nouveau,
+          total + case when p_sens = 'entree' then p_montant else -p_montant end)
+  returning id into ligne;
+  return ligne;
+end $$;
+
+/** La répartition d'un paiement entre les compartiments : { "especes":
+    20000, "mtn": 30000 }. Sa somme doit faire le montant, exactement. */
+create or replace function public.rh_caisse_repartition(brut jsonb, montant bigint) returns jsonb
+language plpgsql immutable as $$
+declare
+  k text;
+  v jsonb;
+  somme bigint := 0;
+  propre jsonb := '{}'::jsonb;
+begin
+  if brut is null or jsonb_typeof(brut) <> 'object' then
+    raise exception 'Indiquez d''où sort l''argent : espèces, MTN, Moov ou Celtiis';
+  end if;
+  for k, v in select e.key, e.value from jsonb_each(brut) as e loop
+    if k not in ('especes', 'mtn', 'moov', 'celtiis') then
+      raise exception 'Compartiment de caisse inconnu : %', k;
+    end if;
+    if jsonb_typeof(v) <> 'number' or (v #>> '{}')::numeric <> round((v #>> '{}')::numeric) or (v #>> '{}')::numeric < 0 then
+      raise exception 'Un montant en francs entiers, positif, pour %', k;
+    end if;
+    if (v #>> '{}')::bigint > 0 then
+      propre := propre || jsonb_build_object(k, (v #>> '{}')::bigint);
+      somme := somme + (v #>> '{}')::bigint;
+    end if;
+  end loop;
+  if somme <> montant then
+    raise exception 'La répartition fait % FCFA, pour un montant de % FCFA : elle doit tomber juste',
+      replace(to_char(somme, 'FM999G999G999G990'), ',', ' '), replace(to_char(montant, 'FM999G999G999G990'), ',', ' ');
+  end if;
+  return propre;
+end $$;
+
+-- ---------- Ce qui sort : les dépenses et les salaires ----------
+-- Un déclencheur, pour qu'AUCUN décaissement n'échappe à la caisse : il
+-- lit la répartition posée par rh_decaisser / rh_payer (« rh.repartition »),
+-- ou, à défaut, met tout le montant sur le compartiment choisi.
+create or replace function public.rh_depense_sort_de_caisse() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  rep jsonb;
+  k text;
+  v jsonb;
+begin
+  if new.statut <> 'decaissee' or old.statut = 'decaissee' then
+    return null;
+  end if;
+  rep := nullif(current_setting('rh.repartition', true), '')::jsonb;
+  if rep is null then
+    if new.mode_decaissement not in ('especes', 'mtn', 'moov', 'celtiis') then
+      raise exception 'Une dépense sort de la caisse : espèces, MTN, Moov ou Celtiis';
+    end if;
+    rep := jsonb_build_object(new.mode_decaissement, new.montant);
+  end if;
+  rep := public.rh_caisse_repartition(rep, new.montant);
+  for k, v in select e.key, e.value from jsonb_each(rep) as e order by e.key loop
+    perform public.rh_caisse_mouvoir(k, 'sortie', 'depense', (v #>> '{}')::bigint,
+      'D-' || lpad(new.numero::text, 4, '0') || ' · ' || new.objet, new.reference, new.id, null);
+  end loop;
+  return null;
+end $$;
+drop trigger if exists rh_depense_sort_de_caisse on public.rh_depenses;
+create trigger rh_depense_sort_de_caisse after update of statut on public.rh_depenses
+  for each row execute function public.rh_depense_sort_de_caisse();
+
+create or replace function public.rh_salaire_sort_de_caisse() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  rep jsonb;
+  k text;
+  v jsonb;
+begin
+  if new.statut <> 'payee' or old.statut = 'payee' then
+    return null;
+  end if;
+  rep := nullif(current_setting('rh.repartition', true), '')::jsonb;
+  if rep is null then
+    if new.mode_paiement not in ('especes', 'mtn', 'moov', 'celtiis') then
+      raise exception 'Un salaire sort de la caisse : espèces, MTN, Moov ou Celtiis';
+    end if;
+    rep := jsonb_build_object(new.mode_paiement, new.net);
+  end if;
+  rep := public.rh_caisse_repartition(rep, new.net);
+  for k, v in select e.key, e.value from jsonb_each(rep) as e order by e.key loop
+    perform public.rh_caisse_mouvoir(k, 'sortie', 'salaire', (v #>> '{}')::bigint,
+      'Salaire de ' || to_char(new.mois, 'MM/YYYY'), new.reference, null, new.id);
+  end loop;
+  return null;
+end $$;
+drop trigger if exists rh_salaire_sort_de_caisse on public.rh_fiches_paie;
+create trigger rh_salaire_sort_de_caisse after update of statut on public.rh_fiches_paie
+  for each row execute function public.rh_salaire_sort_de_caisse();
+
+/** Décaisser une dépense, réparti entre les compartiments. */
+create or replace function public.rh_decaisser(depense uuid, repartition jsonb, reference text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  d public.rh_depenses;
+  rep jsonb;
+begin
+  select * into d from public.rh_depenses where id = depense;
+  if not found then
+    raise exception 'Dépense introuvable';
+  end if;
+  rep := public.rh_caisse_repartition(repartition, d.montant);
+  perform set_config('rh.repartition', rep::text, true);
+  perform public.rh_decaisser_depense(depense,
+    case when (select count(*) from jsonb_object_keys(rep)) = 1 then (select k from jsonb_object_keys(rep) k) else 'mixte' end,
+    reference);
+  perform set_config('rh.repartition', '', true);
+end $$;
+
+/** Payer une fiche de paie, répartie entre les compartiments. */
+create or replace function public.rh_payer(fiche uuid, repartition jsonb, reference text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  f public.rh_fiches_paie;
+  rep jsonb;
+begin
+  select * into f from public.rh_fiches_paie where id = fiche;
+  if not found then
+    raise exception 'Fiche introuvable';
+  end if;
+  rep := public.rh_caisse_repartition(repartition, f.net);
+  perform set_config('rh.repartition', rep::text, true);
+  perform public.rh_payer_fiche(fiche,
+    case when (select count(*) from jsonb_object_keys(rep)) = 1 then (select k from jsonb_object_keys(rep) k) else 'mixte' end,
+    reference);
+  perform set_config('rh.repartition', '', true);
+end $$;
+
+-- ---------- Ce qui entre, ce qui se déplace, ce qui se corrige ----------
+/** Désigner le gestionnaire de la caisse : le CEO seul. */
+create or replace function public.rh_designer_gestionnaire_caisse(qui uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_ceo() then
+    raise exception 'Seul le CEO désigne le gestionnaire de la caisse';
+  end if;
+  if not exists (select 1 from public.rh_employes where id = qui and etat = 'actif') then
+    raise exception 'Le gestionnaire doit être un employé en poste';
+  end if;
+  update public.rh_caisse set gestionnaire_id = qui, designe_par = public.rh_moi(), designe_le = now() where id;
+end $$;
+
+/** Un apport : du CEO, ou d'une autre source qu'on nomme. Le gestionnaire
+    ou le CEO l'enregistre. */
+create or replace function public.rh_caisse_apport(compte text, montant bigint, provenance text,
+  libelle text default '', reference text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.rh_caisse_acces() not in ('gestion', 'ceo') or public.rh_caisse_acces() is null then
+    raise exception 'Seuls le gestionnaire de la caisse et le CEO enregistrent un apport';
+  end if;
+  if compte not in ('especes', 'mtn', 'moov', 'celtiis') then
+    raise exception 'Compartiment de caisse inconnu';
+  end if;
+  if provenance not in ('ceo', 'autre') then
+    raise exception 'D''où vient l''argent : du CEO, ou d''une autre source ?';
+  end if;
+  if provenance = 'autre' and length(btrim(coalesce(libelle, ''))) < 3 then
+    raise exception 'Nommez la source de cet apport';
+  end if;
+  perform public.rh_caisse_mouvoir(compte, 'entree',
+    case when provenance = 'ceo' then 'apport_ceo' else 'apport_autre' end, montant,
+    coalesce(nullif(btrim(libelle), ''), 'Apport du CEO'), reference);
+end $$;
+
+/** Déplacer de l'argent d'un compartiment à l'autre (retrait Mobile
+    Money en espèces, dépôt…), avec les frais de l'opérateur s'il y en a. */
+create or replace function public.rh_caisse_transfert(de text, vers text, montant bigint,
+  frais bigint default 0, libelle text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  nom text := case de when 'especes' then 'Espèces' when 'mtn' then 'MTN' when 'moov' then 'Moov' else 'Celtiis' end
+              || ' → ' || case vers when 'especes' then 'Espèces' when 'mtn' then 'MTN' when 'moov' then 'Moov' else 'Celtiis' end;
+begin
+  if public.rh_caisse_acces() is distinct from 'gestion' then
+    raise exception 'Seul le gestionnaire de la caisse déplace de l''argent entre les compartiments';
+  end if;
+  if de = vers or de not in ('especes', 'mtn', 'moov', 'celtiis') or vers not in ('especes', 'mtn', 'moov', 'celtiis') then
+    raise exception 'Choisissez deux compartiments différents';
+  end if;
+  if coalesce(frais, 0) < 0 then
+    raise exception 'Les frais ne sont pas négatifs';
+  end if;
+  perform public.rh_caisse_mouvoir(de, 'sortie', 'transfert', montant, nom || coalesce(' · ' || nullif(btrim(libelle), ''), ''));
+  perform public.rh_caisse_mouvoir(vers, 'entree', 'transfert', montant, nom || coalesce(' · ' || nullif(btrim(libelle), ''), ''));
+  if coalesce(frais, 0) > 0 then
+    perform public.rh_caisse_mouvoir(de, 'sortie', 'frais', frais, 'Frais de l''opérateur · ' || nom);
+  end if;
+end $$;
+
+/** Corriger une erreur ou un écart constaté au comptage : le CEO seul,
+    avec un motif. Positif : de l'argent en plus ; négatif : en moins. */
+create or replace function public.rh_caisse_ajustement(compte text, montant bigint, motif text)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_ceo() then
+    raise exception 'Seul le CEO ajuste la caisse';
+  end if;
+  if compte not in ('especes', 'mtn', 'moov', 'celtiis') then
+    raise exception 'Compartiment de caisse inconnu';
+  end if;
+  if coalesce(montant, 0) = 0 then
+    raise exception 'Un ajustement de zéro ne change rien';
+  end if;
+  if length(btrim(coalesce(motif, ''))) < 3 then
+    raise exception 'Dites pourquoi vous ajustez la caisse';
+  end if;
+  perform public.rh_caisse_mouvoir(compte, case when montant > 0 then 'entree' else 'sortie' end,
+    'ajustement', abs(montant), btrim(motif));
+end $$;
+
+/** La caisse : le solde à l'instant, par compartiment, et les mouvements
+    d'une période. En consultation, un salaire ne dit pas de qui il est. */
+create or replace function public.rh_caisse(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_caisse_acces();
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  debut date := coalesce(depuis, date_trunc('month', aujourdhui)::date);
+  fin date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès à la caisse';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
+  return jsonb_build_object(
+    'acces', acces,
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'gestionnaire', (select jsonb_build_object('id', e.id, 'nom', btrim(e.prenoms || ' ' || e.nom), 'le', c.designe_le)
+                       from public.rh_caisse c join public.rh_employes e on e.id = c.gestionnaire_id),
+    'comptes', (select jsonb_agg(jsonb_build_object(
+        'compte', k.compte,
+        'solde', coalesce((select sum(case when m.sens = 'entree' then m.montant else -m.montant end)
+                             from public.rh_caisse_mouvements m where m.compte = k.compte), 0),
+        'debut', coalesce((select sum(case when m.sens = 'entree' then m.montant else -m.montant end)
+                             from public.rh_caisse_mouvements m where m.compte = k.compte and m.le < t1), 0),
+        'entrees', coalesce((select sum(m.montant) from public.rh_caisse_mouvements m
+                              where m.compte = k.compte and m.sens = 'entree' and m.le >= t1 and m.le < t2), 0),
+        'sorties', coalesce((select sum(m.montant) from public.rh_caisse_mouvements m
+                              where m.compte = k.compte and m.sens = 'sortie' and m.le >= t1 and m.le < t2), 0))
+        order by k.n)
+      from unnest(array['especes', 'mtn', 'moov', 'celtiis']) with ordinality as k(compte, n)),
+    'mouvements', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', m.id, 'le', m.le, 'compte', m.compte, 'sens', m.sens, 'nature', m.nature, 'montant', m.montant,
+        'libelle', case when m.nature = 'salaire' and acces <> 'consultation'
+                        then m.libelle || ' · ' || coalesce((select f.employe ->> 'prenoms' || ' ' || (f.employe ->> 'nom')
+                                                               from public.rh_fiches_paie f where f.id = m.fiche_id), '')
+                        else m.libelle end,
+        'reference', m.reference, 'depense_id', m.depense_id,
+        'par', (select btrim(e.prenoms || ' ' || e.nom) from public.rh_employes e where e.id = m.par),
+        'solde_compte', m.solde_compte, 'solde_total', m.solde_total) order by m.id desc), '[]')
+      from public.rh_caisse_mouvements m where m.le >= t1 and m.le < t2));
+end $$;
+
+-- ---------- Les droits ----------
+alter table public.rh_caisse enable row level security;
+alter table public.rh_caisse_mouvements enable row level security;
+-- Aucune règle : tout passe par les fonctions ci-dessus.
+revoke all on table public.rh_caisse, public.rh_caisse_mouvements from public, anon, authenticated;
+grant all on table public.rh_caisse, public.rh_caisse_mouvements to service_role;
+
+do $$
+declare f text;
+begin
+  foreach f in array array['rh_caisse_acces()', 'rh_decaisser(uuid, jsonb, text)', 'rh_payer(uuid, jsonb, text)',
+                           'rh_designer_gestionnaire_caisse(uuid)', 'rh_caisse_apport(text, bigint, text, text, text)',
+                           'rh_caisse_transfert(text, text, bigint, bigint, text)', 'rh_caisse_ajustement(text, bigint, text)',
+                           'rh_caisse(date, date)'] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated, service_role', f);
+  end loop;
+  foreach f in array array['rh_caisse_mouvoir(text, text, text, bigint, text, text, uuid, uuid)',
+                           'rh_caisse_repartition(jsonb, bigint)', 'rh_depense_sort_de_caisse()',
+                           'rh_salaire_sort_de_caisse()', 'rh_caisse_figee()'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+  end loop;
+end $$;
+
+-- ---------- Le menu « caisse » dans Paramètres (consultation) ----------
+do $$
+begin
+  if to_regclass('public.rh_acces_menus') is null then
+    return;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu'
+               and pg_get_constraintdef(oid) not like '%''caisse''%') then
+    alter table public.rh_acces_menus drop constraint rh_acces_menus_menu;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
+    alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes',
+      'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
+  end if;
+end $$;
+
+-- Les décaissements d'avant la caisse gardent leur mode ; la colonne
+-- accepte désormais les compartiments.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'rh_depenses_mode_decaissement_check'
+               and pg_get_constraintdef(oid) not like '%celtiis%') then
+    alter table public.rh_depenses drop constraint rh_depenses_mode_decaissement_check;
+    alter table public.rh_depenses add constraint rh_depenses_mode_decaissement_check
+      check (mode_decaissement in ('especes', 'mtn', 'moov', 'celtiis', 'mixte', 'virement', 'mobile_money', 'cheque'));
+  end if;
+end $$;

@@ -23,7 +23,8 @@ const VueDepenses = (() => {
     refusee: ["Refusée", "rouge"],
     annulee: ["Annulée", ""],
   };
-  const MODES = { especes: "Espèces", virement: "Virement", mobile_money: "Mobile Money", cheque: "Chèque" };
+  /* Les compartiments de la caisse ; les autres : décaissements d'avant la caisse. */
+  const MODES = { especes: "Espèces", mtn: "MTN Mobile Money", moov: "Moov Money", celtiis: "Celtiis Cash", mixte: "Plusieurs compartiments", virement: "Virement", mobile_money: "Mobile Money", cheque: "Chèque" };
   const etiquette = (s) => UI.etiquette(...(STATUTS[s] || [s, ""]));
   const numero = (d) => "D-" + String(d.numero).padStart(4, "0");
 
@@ -168,11 +169,10 @@ const VueDepenses = (() => {
     }
     if (App.peutDecaisser() && d.statut === "approuvee" && !demandeur) {
       actions.push(h("button", { class: "btn btn-orange", onclick: async (ev) => {
-        const v = await UI.formulaire({ titre: "Décaisser " + UI.fcfa(d.montant), valider: "Confirmer le décaissement", champs: [
-          { nom: "mode", libelle: "Mode", type: "select", valeur: "especes", options: Object.entries(MODES).map(([valeur, libelle]) => ({ valeur, libelle })) },
-          { nom: "reference", libelle: "Référence (n° de transaction, de chèque…)" }] });
+        /* L'argent sort de la caisse : espèces seules, ou réparti avec le Mobile Money. */
+        const v = await VueCaisse.repartir({ titre: "Décaisser " + UI.fcfa(d.montant), montant: Number(d.montant), valider: "Confirmer le décaissement" });
         if (!v) return;
-        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_decaisser_depense", { depense: d.id, mode: v.mode, reference: v.reference }), "Décaissement enregistré.");
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_decaisser", { depense: d.id, repartition: v.repartition, reference: v.reference }), "Décaissement enregistré : il sort de la caisse.");
         recharger();
       } }, UI.icone("argent", "ic-sm"), "Décaisser"));
     }

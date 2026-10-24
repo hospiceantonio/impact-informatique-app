@@ -16,7 +16,8 @@ const VuePaie = (() => {
   const { h } = UI;
 
   const STATUTS = { calculee: ["À valider", "orange"], validee: ["Validée", "bleu"], payee: ["Payée", "vert"] };
-  const MODES = { especes: "Espèces", virement: "Virement", mobile_money: "Mobile Money", cheque: "Chèque" };
+  /* Le mode préféré de l'employé (sa fiche), et les compartiments de la caisse d'où sort le salaire. */
+  const MODES = { especes: "Espèces", mtn: "MTN Mobile Money", moov: "Moov Money", celtiis: "Celtiis Cash", mixte: "Plusieurs compartiments", virement: "Virement", mobile_money: "Mobile Money", cheque: "Chèque" };
   const NATURES = { prime: "Prime", indemnite: "Indemnité", retenue: "Retenue" };
   const etiquette = (s) => UI.etiquette(...(STATUTS[s] || [s, ""]));
 
@@ -119,13 +120,10 @@ const VuePaie = (() => {
   }
 
   async function payer(bouton, l, suite) {
-    const v = await UI.formulaire({ titre: "Payer " + UI.nomComplet(l.employe) + " : " + UI.fcfa(l.net), valider: "Confirmer le paiement",
-      champs: [
-        { nom: "mode", libelle: "Mode", type: "select", valeur: l.employe.mode_paiement || "especes",
-          options: Object.entries(MODES).map(([valeur, libelle]) => ({ valeur, libelle })) },
-        { nom: "reference", libelle: "Référence (n° de transaction, de virement…)" }] });
+    /* Le salaire sort de la caisse : espèces seules, ou réparti avec le Mobile Money. */
+    const v = await VueCaisse.repartir({ titre: "Payer " + UI.nomComplet(l.employe) + " : " + UI.fcfa(l.net), montant: Number(l.net), valider: "Confirmer le paiement" });
     if (!v) return;
-    await UI.agir(bouton, () => Supabase.rpc("rh_payer_fiche", { fiche: l.id, mode: v.mode, reference: v.reference }), "Paiement enregistré.");
+    await UI.agir(bouton, () => Supabase.rpc("rh_payer", { fiche: l.id, repartition: v.repartition, reference: v.reference }), "Paiement enregistré : il sort de la caisse.");
     suite();
   }
 

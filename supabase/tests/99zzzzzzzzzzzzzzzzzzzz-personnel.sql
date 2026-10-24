@@ -28,7 +28,9 @@
 --  16. les statistiques internes : salaires, dépenses, effectifs, revenus ;
 --  17. photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours ;
 --  18. localiser un livreur : son téléphone envoie sa position pendant ses
---      courses, par un jeton qui ne sert qu'à cela ; Personnel la lit.
+--      courses, par un jeton qui ne sert qu'à cela ; Personnel la lit ;
+--  19. la caisse : quatre compartiments, un gestionnaire, des mouvements
+--      qu'on n'efface pas, un solde qui ne passe jamais sous zéro.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -183,6 +185,10 @@ select public.rh_decider_employe(:'e_membre', true);
 select public.rh_decider_employe(:'e_autre', true);
 select public.rh_decider_employe(:'e_caisse', true);
 update public.rh_employes set peut_decaisser = true where id = :'e_caisse';
+-- La caisse : son gestionnaire, et de quoi décaisser.
+select public.rh_designer_gestionnaire_caisse(:'e_caisse');
+select public.rh_caisse_apport('especes', 2000000, 'ceo');
+select public.rh_caisse_apport('mtn', 1000000, 'ceo');
 select essai.egal((select count(*)::int from public.rh_employes where etat = 'actif'), 6,
   'cinq validés (le CEO compris, six en poste)');
 reset role; select essai.personne();
@@ -407,7 +413,13 @@ select essai.refuse(format($$select public.rh_decaisser_depense(%L, 'especes')$$
 select public.rh_decider_depense(:'depense', true);
 reset role; select essai.personne();
 select essai.devenir(:CAISSE::uuid); set role authenticated;
-select public.rh_decaisser_depense(:'depense', 'mobile_money', 'MM-123');
+select essai.refuse(format($$select public.rh_decaisser(%L, '{"especes": 20000, "mtn": 30000}', 'MM-123')$$, :'depense'),
+  'une répartition qui ne tombe pas juste est refusée');
+select public.rh_decaisser(:'depense', '{"especes": 20000, "mtn": 35000}', 'MM-123');
+select essai.egal((select string_agg((x ->> 'compte') || ':' || (x ->> 'montant'), ',' order by x ->> 'compte')
+                     from jsonb_array_elements(public.rh_caisse() -> 'mouvements') x
+                    where x ->> 'depense_id' = :'depense'), 'especes:20000,mtn:35000',
+  'décaissée en espèces + MTN : deux sorties de caisse');
 select essai.egal((select statut || '/' || (decaisse_par = :'e_caisse'::uuid) from public.rh_depenses where id = :'depense'),
   'decaissee/true', 'approuvée par le CEO, décaissée par l''habilité, qui est noté');
 select essai.refuse(format($$select public.rh_decaisser_depense(%L, 'especes')$$, :'depense'),
@@ -535,7 +547,12 @@ select essai.refuse(format($$select public.rh_payer_fiche(%L, 'especes')$$, :'fi
   'une fiche pas encore validée ne se paie pas');
 reset role; select essai.personne();
 select essai.devenir(:CAISSE::uuid); set role authenticated;
-select public.rh_payer_fiche(:'fiche_sept', 'virement', 'VIR-09');
+select essai.refuse(format($$select public.rh_payer_fiche(%L, 'virement', 'VIR-09')$$, :'fiche_sept'),
+  'un salaire sort de la caisse : pas de virement bancaire');
+select public.rh_payer_fiche(:'fiche_sept', 'mtn', 'MTN-09');
+select essai.egal((select (x ->> 'montant')::bigint from jsonb_array_elements(public.rh_caisse() -> 'mouvements') x
+                    where x ->> 'nature' = 'salaire' and x ->> 'compte' = 'mtn' limit 1),
+  (select net from public.rh_fiches_paie where id = :'fiche_sept'), 'le net payé sort du compartiment MTN');
 reset role; select essai.personne();
 select essai.egal((select statut from public.rh_fiches_paie where id = :'fiche_sept'), 'payee',
   'validée par le CEO, payée par l''habilité');
@@ -1105,6 +1122,81 @@ select essai.egal(public.position_en_course(:'suivi2'::jsonb ->> 'jeton', 6.37, 
 select essai.verifie(not exists (select 1 from public.suivis_livreurs where profil_id = :LIVREUR_RH::uuid),
   'et son jeton disparaît');
 delete from auth.users where id = :LIVREUR_RH::uuid;
+
+-- ---------------------------------------------------------
+select essai.titre('19. La caisse');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_caisse_acces(), null::text, 'un employé ne voit pas la caisse');
+select essai.refuse($$select public.rh_caisse()$$, 'ni ne la lit');
+select essai.refuse($$select * from public.rh_caisse_mouvements$$, 'ni ne lit ses mouvements directement');
+select essai.refuse($$select public.rh_caisse_apport('especes', 1000, 'ceo')$$, 'ni n''y fait entrer d''argent');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.egal(public.rh_caisse_acces(), null::text, 'l''administration non plus, d''office');
+select essai.refuse(format($$select public.rh_designer_gestionnaire_caisse(%L)$$, :'e_admrh'),
+  'ni ne désigne le gestionnaire');
+reset role; select essai.personne();
+select essai.devenir(:SUPER2::uuid); set role authenticated;
+select essai.egal(public.rh_caisse_acces(), 'super', 'le superadministrateur la voit');
+reset role; select essai.personne();
+
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.egal(public.rh_caisse_acces(), 'gestion', 'son gestionnaire la tient');
+select (select sum((x ->> 'solde')::bigint) from jsonb_array_elements(public.rh_caisse() -> 'comptes') x) as solde_avant \gset
+select public.rh_caisse_apport('celtiis', 50000, 'autre', 'Vente de cartons', 'CEL-1');
+select essai.refuse($$select public.rh_caisse_apport('moov', 5000, 'autre', '')$$, 'un apport d''une autre source se nomme');
+select essai.refuse($$select public.rh_caisse_transfert('celtiis', 'especes', 60000)$$,
+  'on ne déplace pas plus que le compartiment n''a');
+select public.rh_caisse_transfert('celtiis', 'especes', 40000, 500, 'Retrait au kiosque');
+select essai.refuse($$select public.rh_caisse_ajustement('especes', -1000, 'Pièce perdue')$$,
+  'le gestionnaire n''ajuste pas : le CEO seul');
+select public.rh_caisse() as caisse \gset
+reset role; select essai.personne();
+select essai.egal((select (x ->> 'solde')::bigint from jsonb_array_elements(:'caisse'::jsonb -> 'comptes') x where x ->> 'compte' = 'celtiis'),
+  9500::bigint, 'Celtiis : 50 000 entrés, 40 000 déplacés, 500 de frais');
+select essai.egal((select sum((x ->> 'solde')::bigint)::bigint from jsonb_array_elements(:'caisse'::jsonb -> 'comptes') x),
+  :'solde_avant'::bigint + 50000 - 500, 'le solde total : la somme des quatre compartiments');
+select essai.egal((select solde_total from public.rh_caisse_mouvements order by id desc limit 1),
+  :'solde_avant'::bigint + 50000 - 500, 'chaque mouvement garde le solde qu''il laisse');
+select essai.refuse($$update public.rh_caisse_mouvements set montant = 1$$, 'un mouvement ne se modifie pas');
+select essai.refuse($$delete from public.rh_caisse_mouvements$$, 'ni ne s''efface');
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_caisse_ajustement('moov', -1, 'Écart')$$, 'aucun compartiment ne passe sous zéro');
+select public.rh_caisse_ajustement('especes', -1000, 'Écart constaté au comptage');
+select essai.egal((select (x ->> 'nature') || '/' || (x ->> 'sens') || '/' || (x ->> 'montant') from (select public.rh_caisse() -> 'mouvements' -> 0 as x) y),
+  'ajustement/sortie/1000', 'le CEO corrige par un ajustement motivé');
+select public.rh_regler_acces(:'p_mkt', '{"caisse":"responsable"}');
+reset role; select essai.personne();
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.egal(public.rh_caisse_acces(), 'consultation', 'le responsable du Marketing consulte, droit reçu');
+select public.rh_caisse('2026-01-01', current_date) as vue_resp \gset
+select essai.refuse($$select public.rh_caisse_apport('especes', 1000, 'ceo')$$, 'il consulte seulement');
+reset role; select essai.personne();
+select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(:'vue_resp'::jsonb -> 'mouvements') x
+                    where x ->> 'nature' = 'salaire'), 'Salaire de 09/2026',
+  'en consultation, un salaire ne dit pas de qui il est');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(public.rh_caisse('2026-01-01', current_date) -> 'mouvements') x
+                    where x ->> 'nature' = 'salaire'),
+  'Salaire de 09/2026 · ' || (select btrim(prenoms || ' ' || nom) from public.rh_employes where id = :'e_resp'),
+  'le CEO, lui, voit de qui');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_caisse_acces(), null::text, 'ses membres, eux, ne la voient pas');
+reset role; select essai.personne();
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"caisse":"ferme"}');
+select public.rh_designer_gestionnaire_caisse(:'e_admrh');
+reset role; select essai.personne();
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.egal(public.rh_peut_decaisser(), false, 'remplacé, l''ancien gestionnaire ne décaisse plus');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_designer_gestionnaire_caisse(:'e_caisse');
+reset role; select essai.personne();
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

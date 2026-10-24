@@ -127,7 +127,7 @@ create table if not exists public.rh_acces_menus (
   modifie_le   timestamptz not null default now(),
   primary key (profil_id, menu),
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
-    'depenses', 'suivi', 'livreurs', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
   constraint rh_acces_menus_qui check (qui in ('responsable', 'membres'))
 );
@@ -191,7 +191,7 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
@@ -214,7 +214,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -403,6 +403,18 @@ begin
   perform set_config('rh.decision', '', true);
 end $$;
 
+create or replace function public.rh_peut_decaisser() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.rh_caisse') is null then
+    return exists (select 1 from public.rh_employes
+                    where compte_id = auth.uid() and etat = 'actif' and peut_decaisser);
+  end if;
+  return exists (select 1 from public.rh_caisse c
+                   join public.rh_employes e on e.id = c.gestionnaire_id
+                  where e.compte_id = auth.uid() and e.etat = 'actif');
+end $$;
+
 create or replace function public.rh_tableau_de_bord() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
@@ -429,7 +441,7 @@ begin
     'moi', jsonb_build_object(
       'id', moi.id, 'matricule', moi.matricule, 'nom', moi.nom, 'prenoms', moi.prenoms,
       'sexe', moi.sexe, 'poste', moi.poste, 'email_pro', moi.email_pro,
-      'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', moi.peut_decaisser,
+      'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', public.rh_peut_decaisser(),
       'super', public.est_super(),
       'profil_id', moi.profil_id,
       'profil', (select nom from public.rh_profils where id = moi.profil_id),
@@ -457,7 +469,7 @@ begin
         (select count(*) from public.rh_depenses where statut = 'demandee' and profil_id = any(mes_profils)),
       'depenses_a_approuver', case when v_ceo then
         (select count(*) from public.rh_depenses where statut = 'validee_responsable') else 0 end,
-      'depenses_a_decaisser', case when moi.peut_decaisser then
+      'depenses_a_decaisser', case when public.rh_peut_decaisser() then
         (select count(*) from public.rh_depenses where statut = 'approuvee') else 0 end,
       'baremes_a_valider', case when v_ceo then
         (select count(*) from public.rh_cotisations where actif and not valide)
@@ -467,7 +479,7 @@ begin
         (select count(*) from public.rh_fiches_paie
           where statut = 'calculee'
             and mois < date_trunc('month', aujourdhui + 1)::date) else 0 end,
-      'fiches_a_payer', case when moi.peut_decaisser then
+      'fiches_a_payer', case when public.rh_peut_decaisser() then
         (select count(*) from public.rh_fiches_paie where statut = 'validee') else 0 end,
       'messages_non_lus', (select coalesce(sum(non_lus), 0) from public.rh_conversations())));
 end $$;

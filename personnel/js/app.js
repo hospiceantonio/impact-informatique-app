@@ -13,6 +13,8 @@ const App = (() => {
   let tableau = null;          // la réponse de rh_tableau_de_bord()
   /* Les menus que le menu Paramètres ouvre à mes profils (rh_mes_menus). */
   let menus = [];
+  /* Le droit sur la caisse (rh_caisse_acces) : la caisse ne suit pas les autres menus. */
+  let caisseAcces = null;
   let routeCourante = "";
   let minuterie = null;
 
@@ -46,6 +48,7 @@ const App = (() => {
     missions: VueMissions,
     rapports: VueRapports,
     depenses: VueDepenses,
+    caisse: VueCaisse,
     employes: VueEmployes,
     profils: VueProfils,
     paie: VuePaie,
@@ -71,6 +74,7 @@ const App = (() => {
       { route: "depenses", libelle: "Dépenses", icone: "argent",
         pour: () => ouvert("depenses") || peutDecaisser(),
         pastille: (c.depenses_a_valider || 0) + (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
+      { route: "caisse", libelle: "Caisse", icone: "caisse", pour: () => !!caisseAcces },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
@@ -209,6 +213,7 @@ const App = (() => {
   /** Les menus ouverts par le menu Paramètres. Base pas encore à jour :
       les menus d'avant, sans suivi ni statistiques. */
   async function chargerMenus() {
+    caisseAcces = await Supabase.rpc("rh_caisse_acces").catch(() => null);
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];
