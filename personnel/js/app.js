@@ -23,7 +23,12 @@ const App = (() => {
   const peutDecaisser = () => !!(moi() && moi().peut_decaisser);
   const responsableDe = (profil) => !!(moi() && (moi().responsable_de || []).includes(profil));
   const estResponsable = () => !!(moi() && (moi().responsable_de || []).length);
-  const voitStatistiques = () => estAdmin() || rubriquesStats.length > 0;
+  const voitStatistiques = () => estAdmin() || rubriquesStats.some((r) => ["commandes", "livraisons", "sav"].includes(r));
+  const voitSuivi = () => estAdmin() || rubriquesStats.includes("suivi");
+  /* Les commandes en alerte : la pastille du suivi. */
+  let alertesSuivi = 0;
+  /** Les rubriques de statistiques de ce compte : toutes pour l'administration. */
+  const rubriquesStatistiques = () => (estAdmin() ? ["commandes", "livraisons", "sav"] : rubriquesStats);
 
   /* ---------- Les écrans ---------- */
   const VUES = {
@@ -37,6 +42,7 @@ const App = (() => {
     profils: VueProfils,
     paie: VuePaie,
     statistiques: VueStatistiques,
+    suivi: VueSuivi,
     compte: VueCompte,
   };
 
@@ -53,6 +59,7 @@ const App = (() => {
       { route: "depenses", libelle: "Dépenses", icone: "argent",
         pour: () => estAdmin() || estResponsable() || peutDecaisser(),
         pastille: (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
+      { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       { route: "employes", libelle: "Employés", icone: "equipe", pour: estAdmin,
         pastille: c.employes_a_valider, groupe: "Administration" },
@@ -76,8 +83,14 @@ const App = (() => {
       items.map((m) => {
         const titre = m.groupe && m.groupe !== groupe ? h("div", { class: "titre-groupe" }, m.groupe) : null;
         if (m.groupe) groupe = m.groupe;
-        return [titre, h("a", { href: "#/" + m.route, "data-route": m.route },
-          UI.icone(m.icone), m.libelle, pastille(m.pastille))];
+        const lien = h("a", { href: "#/" + m.route, "data-route": m.route },
+          UI.icone(m.icone), m.libelle, pastille(m.pastille));
+        /* Les sous-menus des statistiques, visibles quand on y est. */
+        const sous = m.route === "statistiques"
+          ? VueStatistiques.SOUS_MENUS.filter((x) => rubriquesStatistiques().includes(x.rubrique)).map((x) =>
+            h("a", { class: "sous", href: "#/statistiques/" + x.cle, "data-sous": "statistiques/" + x.cle }, x.libelle))
+          : [];
+        return [titre, lien, sous];
       }),
       h("div", { class: "pied" }, UI.nomComplet(moi()), h("br"), h("span", { class: "tres-petit" },
         estCeo() ? "CEO" : estAdmin() ? "Administration" : (moi() && moi().profil) || "")));
@@ -98,6 +111,12 @@ const App = (() => {
     const r = routeCourante || "accueil";
     document.querySelectorAll("[data-route]").forEach((a) => {
       a.classList.toggle("actif", a.dataset.route === r);
+    });
+    const { morceaux } = lireRoute();
+    const ici = r + "/" + (morceaux[0] || "");
+    document.querySelectorAll("[data-sous]").forEach((a) => {
+      a.hidden = r !== "statistiques";
+      a.classList.toggle("actif", a.dataset.sous === ici);
     });
   }
 
@@ -161,6 +180,9 @@ const App = (() => {
   async function rafraichir() {
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
+      if (tableau && tableau.moi && voitSuivi()) {
+        alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => alertesSuivi);
+      }
       if (tableau && tableau.moi) dessinerMenus();
     } catch (err) {
       if (err && err.deconnecte) deconnecte();
@@ -199,12 +221,14 @@ const App = (() => {
       return;
     }
     rubriquesStats = [];
+    alertesSuivi = 0;
     if (!estAdmin() && estResponsable()) {
       try {
         const profils = await Supabase.lire("rh_profils?select=statistiques&responsable_id=eq." + moi().id);
         rubriquesStats = [...new Set(profils.flatMap((p) => p.statistiques || []))];
       } catch (_) { /* base pas encore à jour : pas de statistiques */ }
     }
+    if (voitSuivi()) alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);
     dessinerMenus();
     /* La paie de fin de mois se rattrape à l'ouverture si personne ne
        l'a faite (et si pg_cron n'est pas là pour la faire). */
@@ -231,7 +255,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable,
+    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable, rubriquesStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer,
   };
 })();

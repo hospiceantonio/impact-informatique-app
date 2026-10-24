@@ -575,6 +575,112 @@ select essai.refuse($$select public.rh_statistiques(current_date, current_date -
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
+select essai.titre('13. Le suivi des commandes');
+select essai.egal(public.rh_cle('Fidjrossè, von-Morija'), 'fidjrosse von morija', 'une adresse se lit sans accents ni ponctuation');
+select essai.egal(public.rh_zone_de('Fidjrosse von morija, Cotonou'), 'Fidjrossè (Cotonou)',
+  'le quartier est reconnu dans l''adresse libre, avant la commune');
+
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Fidjrosse von morija"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_suivi \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_suivi', 'TRX-RH-SUIVI',
+  (select coalesce(acompte, total) from public.commandes where id = :'cmd_suivi'), 'feexpay') as p \gset
+select (select id from public.commande_lignes where commande_id = :'cmd_suivi' limit 1) as ligne_suivi \gset
+
+select essai.verifie(exists (select 1 from public.rh_journal_lignes
+                              where ligne_id = :'ligne_suivi' and quoi = 'etat' and valeur = 'nouvelle' and not reconstitue),
+  'le journal note la naissance de l''article');
+select essai.verifie(exists (select 1 from public.rh_journal_lignes
+                              where commande_id = :'cmd_suivi' and quoi = 'commande' and valeur = 'payee'),
+  'et le paiement de la commande');
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_suivi()$$, 'un simple employé ne voit pas le suivi');
+reset role; select essai.personne();
+
+-- Le paiement recule de 5 heures : la boutique n'a toujours rien vu.
+do $$ begin
+  perform set_config('bizzoo.paiement', 'oui', true);
+  update public.commandes set paye_le = now() - interval '5 hours'
+   where id = (select id from public.commandes where transaction_id = 'TRX-RH-SUIVI' limit 1);
+end $$;
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_suivi_regler(1, 1, 3, 1);
+select x as ligne_cmd from jsonb_array_elements(public.rh_suivi(current_date - 1, current_date + 1) -> 'commandes') x
+ where x ->> 'id' = :'cmd_suivi' \gset
+reset role; select essai.personne();
+select essai.egal(:'ligne_cmd'::jsonb ->> 'statut', 'Nouvelle commande', 'payée, pas encore vue : « Nouvelle commande »');
+select essai.egal(:'ligne_cmd'::jsonb #>> '{client,zone}', 'Fidjrossè (Cotonou)', 'sa zone est lue dans l''adresse');
+select essai.verifie((:'ligne_cmd'::jsonb -> 'alertes') ? 'non_vue', 'alerte : la boutique ne l''a pas vue');
+select essai.verifie((:'ligne_cmd'::jsonb -> 'alertes') ? 'retard_livraison', 'alerte : en retard de livraison');
+select essai.verifie((:'ligne_cmd'::jsonb ->> 'total') is not null, 'l''administration voit les montants');
+select essai.egal(:'ligne_cmd'::jsonb ->> 'confirmation', 'Non', 'le client n''a rien confirmé');
+
+-- La boutique qui prépare : son administrateur, en poste (le fichier se suffit).
+insert into public.profils (id, email, role, boutique_id, actif)
+values (:CHEF::uuid, 'chef-boutique@bizzoo.bj', 'administrateur', 'bou_informatique', true)
+on conflict (id) do update set role = 'administrateur', boutique_id = 'bou_informatique', actif = true;
+select essai.devenir(:CHEF::uuid); set role authenticated;
+update public.commande_lignes set etat = 'preparee' where commande_id = :'cmd_suivi';
+reset role; select essai.personne();
+select essai.verifie(exists (select 1 from public.rh_journal_lignes
+                              where ligne_id = :'ligne_suivi' and quoi = 'etat' and valeur = 'preparee'),
+  'le journal date le passage à « préparée »');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+update public.rh_profils set statistiques = '{livraisons,suivi}' where id = :'p_mkt';
+select public.rh_incident_ouvrir(:'cmd_suivi', 'client_absent', 'Client injoignable à 14 h') as incident \gset
+select essai.refuse(format($$select public.rh_suivi_cloturer(%L)$$, :'cmd_suivi'),
+  'un incident ouvert empêche la clôture');
+select essai.refuse(format($$select public.rh_suivi_terrain(%L, 'echouee', '')$$, :'ligne_suivi'),
+  'un échec de livraison sans motif est refusé');
+select public.rh_suivi_terrain(:'ligne_suivi', 'echouee', 'Client absent deux fois');
+select public.rh_incident_resoudre(:'incident', 'Nouveau rendez-vous fixé');
+select public.rh_suivi_noter(:'cmd_suivi', 'Akpakpa (Cotonou)', 'Rappeler le client avant 10 h');
+select (public.rh_suivi_commande(:'cmd_suivi')) as fiche \gset
+reset role; select essai.personne();
+select essai.egal(:'fiche'::jsonb ->> 'statut', 'Livraison échouée', 'l''échec noté par l''administration devient le statut');
+select essai.egal(:'fiche'::jsonb #>> '{client,zone}', 'Akpakpa (Cotonou)', 'la zone corrigée remplace la zone devinée');
+select essai.verifie(jsonb_array_length(:'fiche'::jsonb -> 'journal') >= 3, 'la fiche porte sa chronologie');
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select x as vue_resp from jsonb_array_elements(public.rh_suivi(current_date - 1, current_date + 1) -> 'commandes') x
+ where x ->> 'id' = :'cmd_suivi' \gset
+select essai.refuse($$select public.rh_suivi_regler(5, 5, 5, 5)$$, 'ni ne règle les délais');
+select public.rh_suivi_bilan(current_date - 1, current_date + 1) as bilan_resp \gset
+reset role; select essai.personne();
+select essai.verifie(:'vue_resp'::jsonb is not null, 'le responsable d''un profil coché « suivi » voit les commandes');
+select essai.verifie(not (:'vue_resp'::jsonb ? 'total') and not (:'vue_resp'::jsonb ? 'reste')
+  and not (:'vue_resp'::jsonb::text ~ '"prix"'), 'mais aucun montant');
+select essai.verifie((:'bilan_resp'::jsonb #>> '{total,reste}') is null, 'ni dans le bilan');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_suivi_cloturer(:'cmd_suivi');
+select essai.egal(public.rh_suivi_commande(:'cmd_suivi') ->> 'statut', 'Clôturée', 'incident résolu, parcours fini : clôturée');
+select essai.refuse(format($$select public.rh_suivi_terrain(%L, 'retournee')$$, :'ligne_suivi'),
+  'une commande clôturée ne se retouche plus');
+select public.rh_suivi_bilan(current_date - 1, current_date + 1, 'jour') as bilan_admin \gset
+reset role; select essai.personne();
+select essai.verifie((:'bilan_admin'::jsonb #>> '{total,recues}')::int >= 2, 'le bilan compte les commandes reçues');
+select essai.verifie((:'bilan_admin'::jsonb #>> '{total,reste}') is not null, 'l''administration y voit le reste à encaisser');
+select essai.verifie(jsonb_array_length(:'bilan_admin'::jsonb -> 'par_zone') >= 1, 'et les commandes par zone');
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_suivi_rouvrir(%L)$$, :'cmd_suivi'), 'le responsable ne rouvre pas une commande clôturée');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_suivi_rouvrir(:'cmd_suivi');
+reset role; select essai.personne();
+select essai.verifie((select cloturee_le from public.rh_suivi_commandes where commande_id = :'cmd_suivi') is null,
+  'l''administration la rouvre');
+
+set role anon;
+select essai.refuse($$select * from public.rh_journal_lignes$$, 'un visiteur ne lit pas le journal');
+reset role;
+
+-- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.refuse(format($$select public.rh_sortie_employe(%L, current_date)$$, :'ceo'),
