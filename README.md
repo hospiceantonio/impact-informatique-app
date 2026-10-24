@@ -5404,6 +5404,17 @@ Android seulement : l'application iOS n'a pas encore de notifications push
   connexion, le retrait à la déconnexion, le navigateur sans pont, une
   base d'avant.
 
+## Le coefficient de la route se règle à l'écran (3.66.0)
+
+Dans **BIZZOO Admin → Réglages → BIZZOO (l'enseigne) → Livraison au
+kilomètre**, le superadministrateur règle désormais le **coefficient de la
+route** à côté du rayon du forfait. La distance en ligne droite entre le
+point BIZZOO et le client est multipliée par ce nombre pour suivre les
+routes : 1,3 = 30 % de détour (valeur en service). Entre 1 et 3, deux
+décimales ; une valeur hors bornes est refusée, avec un message. Rien à
+changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
+Banc : `tools/banc-livraison-km.mjs`, section 5.
+
 ## Qui entend quoi : commande payée, course prise (3.66.0)
 
 | Événement | Boutique (admin, modérateur) | Admins BIZZOO qui suivent les commandes | Superadministrateurs |

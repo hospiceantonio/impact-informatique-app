@@ -2503,6 +2503,15 @@ const Store = (() => {
     };
     const corps = {
       livraison_rayon_km: entier(m.rayon, 0, 500, "Le rayon du forfait va de 0 à 500 km."),
+      /* (3.66.0) Le coefficient de la route : un nombre à virgule, deux
+         décimales, comme la colonne. Absent (écran d'avant) : on n'y touche pas. */
+      ...(m.coef === undefined ? {} : { livraison_coef: (() => {
+        const n = Number(String(m.coef).replace(/\s|×|x/gi, "").replace(",", "."));
+        if (!String(m.coef).trim() || !isFinite(n) || n < 1 || n > 3) {
+          throw new Error("Le coefficient de la route va de 1 à 3 (par exemple 1,3).");
+        }
+        return Math.round(n * 100) / 100;
+      })() }),
       moto_forfait: entier(m.motoForfait, 0, 1000000, "Le forfait moto n'est pas un montant valable."),
       moto_prix_km: entier(m.motoPrixKm, 0, 100000, "Le prix du km à moto n'est pas valable."),
       tricycle_forfait: entier(m.tricycleForfait, 0, 1000000, "Le forfait tricycle n'est pas un montant valable."),
