@@ -127,7 +127,7 @@ create table if not exists public.rh_acces_menus (
   modifie_le   timestamptz not null default now(),
   primary key (profil_id, menu),
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
-    'depenses', 'suivi', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'depenses', 'suivi', 'livreurs', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
   constraint rh_acces_menus_qui check (qui in ('responsable', 'membres')),
   -- Une dépense se demande par le responsable du profil : c'est la règle.
@@ -193,7 +193,7 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
@@ -218,7 +218,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);

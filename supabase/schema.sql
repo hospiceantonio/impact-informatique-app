@@ -13548,7 +13548,7 @@ begin
                  'boutique_tel', x.boutique_tel, 'nom', x.nom, 'code', x.code, 'quantite', x.quantite,
                  'prix', x.prix, 'etat', x.etat, 'rang', x.rang, 'statut', public.rh_statut_libelle(x.rang),
                  'terrain', x.terrain, 'terrain_motif', coalesce(x.terrain_motif, ''),
-                 'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel,
+                 'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel, 'livreur_id', x.livreur_id,
                  'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le)
                order by x.boutique_nom, x.nom) from lig2 x where x.commande_id = c.id), '[]'),
     'articles', coalesce((select string_agg(x.quantite || ' × ' || x.nom
@@ -14089,7 +14089,7 @@ create table if not exists public.rh_acces_menus (
   modifie_le   timestamptz not null default now(),
   primary key (profil_id, menu),
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
-    'depenses', 'suivi', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'depenses', 'suivi', 'livreurs', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
   constraint rh_acces_menus_qui check (qui in ('responsable', 'membres')),
   -- Une dépense se demande par le responsable du profil : c'est la règle.
@@ -14155,7 +14155,7 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
@@ -14180,7 +14180,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -14827,3 +14827,199 @@ begin
 exception when others then
   raise notice 'Ménage des discussions non programmé (%)', sqlerrm;
 end $$;
+
+-- =========================================================
+-- Localiser un livreur
+--
+-- BIZZOO Admin : pendant ses courses, le téléphone du livreur envoie sa
+-- position (service Android, même application fermée ; la page, sinon),
+-- avec un jeton de suivi qui ne permet que cela (position_en_course).
+-- Il s'arrête de lui-même quand le livreur n'a plus de course.
+--
+-- BIZZOO Personnel : le menu « Localiser un livreur » (clé « livreurs »,
+-- réglable dans Paramètres) lit les positions et les courses en cours
+-- par rh_localiser_livreurs, avec la distance jusqu'au client.
+-- =========================================================
+
+-- ---------- Le livreur en course envoie sa position ----------
+-- Le téléphone du livreur l'envoie toutes les 20 secondes environ, même
+-- application fermée (service Android de BIZZOO Admin), tant qu'il a une
+-- course en cours. Ce service ne tient pas la session du compte : une
+-- session se renouvelle par un jeton à usage unique, et deux
+-- renouvellements concurrents (la page et le service) déconnecteraient
+-- le livreur. Il reçoit donc un JETON DE SUIVI : 64 caractères tirés au
+-- hasard, gardés seulement en empreinte (sha256), valables 16 heures, qui
+-- ne permettent QU'UNE chose : écrire la position de CE livreur.
+create table if not exists public.suivis_livreurs (
+  profil_id   uuid primary key references public.profils(id) on delete cascade,
+  jeton_hash  text not null,
+  expire_le   timestamptz not null,
+  cree_le     timestamptz not null default now()
+);
+alter table public.suivis_livreurs enable row level security;
+-- Aucune règle : personne ne lit ni n'écrit la table, sinon ces fonctions.
+revoke all on table public.suivis_livreurs from public, anon, authenticated;
+grant all on table public.suivis_livreurs to service_role;
+
+/** Ce livreur a-t-il une course en cours ? Une ligne qu'on lui a
+    confiée, d'une commande payée, pas encore remise ni annulée. */
+create or replace function public.livreur_en_course(qui uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+     where l.livreur_id = qui and c.etat = 'payee'
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison'));
+$$;
+
+/** Le jeton de suivi du livreur connecté (un nouveau à chaque appel :
+    l'ancien ne vaut plus rien). */
+create or replace function public.ouvrir_suivi_livreur() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  jeton text;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
+  end if;
+  jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+  insert into public.suivis_livreurs (profil_id, jeton_hash, expire_le, cree_le)
+  values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())
+  on conflict (profil_id) do update
+     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now();
+  return jsonb_build_object('jeton', jeton, 'en_course', public.livreur_en_course(moi),
+                            'expire_le', now() + interval '16 hours');
+end $$;
+
+/** La position d'un livreur en course, par son jeton de suivi. Répond
+    « continuer : false » quand il n'a plus de course : son téléphone
+    s'arrête alors de la suivre. */
+create or replace function public.position_en_course(jeton text, lat double precision,
+  lng double precision, precision_m int default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  qui uuid;
+  la double precision := public.coord_valable(lat, 90);
+  lo double precision := public.coord_valable(lng, 180);
+  derniere timestamptz;
+begin
+  select s.profil_id into qui from public.suivis_livreurs s
+   where s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+     and s.expire_le > now();
+  if qui is null then
+    raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.profils p where p.id = qui and p.actif and p.role = 'livreur') then
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false);
+  end if;
+  if not public.livreur_en_course(qui) then
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false);
+  end if;
+  if la is null or lo is null or (la = 0 and lo = 0) then
+    return jsonb_build_object('continuer', true);
+  end if;
+  -- Pas plus d'une écriture toutes les 5 secondes.
+  select enregistre_le into derniere from public.positions_livreurs where profil_id = qui;
+  if derniere is null or derniere < now() - interval '5 seconds' then
+    insert into public.positions_livreurs (profil_id, latitude, longitude, precision_m, adresse, enregistre_le)
+    values (qui, la, lo, greatest(0, precision_m), '', now())
+    on conflict (profil_id) do update
+       set latitude = excluded.latitude, longitude = excluded.longitude,
+           precision_m = excluded.precision_m, enregistre_le = now();
+  end if;
+  return jsonb_build_object('continuer', true);
+end $$;
+
+revoke all on function public.livreur_en_course(uuid) from public, anon, authenticated;
+revoke all on function public.ouvrir_suivi_livreur() from public, anon;
+grant execute on function public.ouvrir_suivi_livreur() to authenticated;
+-- Sans session : le jeton fait foi.
+revoke all on function public.position_en_course(text, double precision, double precision, int) from public;
+grant execute on function public.position_en_course(text, double precision, double precision, int)
+  to anon, authenticated;
+
+-- ---------- BIZZOO Personnel : le menu « Localiser un livreur » ----------
+do $$
+begin
+  if to_regclass('public.rh_acces_menus') is null then
+    return;  -- personnel-parametres.sql posera la table, « livreurs » compris
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu'
+               and pg_get_constraintdef(oid) not like '%''livreurs''%') then
+    alter table public.rh_acces_menus drop constraint rh_acces_menus_menu;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
+    alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'stats_commandes',
+      'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
+  end if;
+end $$;
+
+/** Les livreurs sur la carte : leur dernière position, et pour chacun
+    ses courses en cours, avec le point du client quand il l'a donné et
+    la distance qui les sépare — à vol d'oiseau, multipliée par le
+    coefficient de route de la livraison au kilomètre (« environ »).
+    Sans aucun montant. */
+create or replace function public.rh_localiser_livreurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+begin
+  if not public.rh_menu_ouvert('livreurs') then
+    raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
+  end if;
+  return jsonb_build_object(
+    'coef', coef,
+    'maintenant', now(),
+    'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
+      from (
+        select jsonb_build_object(
+          'id', p.id,
+          'nom', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur'),
+          'tel', coalesce(p.tel, ''),
+          'vehicule', coalesce(p.vehicule, 'moto'),
+          'boutique', (select b.nom from public.boutiques b where b.id = p.boutique_id),
+          'position', case when pl.profil_id is null then null else jsonb_build_object(
+              'latitude', pl.latitude, 'longitude', pl.longitude, 'precision', pl.precision_m,
+              'adresse', pl.adresse, 'le', pl.enregistre_le) end,
+          'en_course', public.livreur_en_course(p.id),
+          'suivi_actif', exists (select 1 from public.suivis_livreurs s
+                                  where s.profil_id = p.id and s.expire_le > now()),
+          'courses', (select coalesce(jsonb_agg(jsonb_build_object(
+              'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
+              'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
+              'retrait', case when k.b_lat is null then null
+                              else jsonb_build_object('latitude', k.b_lat, 'longitude', k.b_lng) end,
+              'destination', case when k.d_lat is null then null
+                                  else jsonb_build_object('latitude', k.d_lat, 'longitude', k.d_lng) end,
+              'distance_km', case when k.d_lat is null or pl.profil_id is null then null else round((
+                  2 * 6371 * asin(least(1, sqrt(
+                    sin(radians(k.d_lat - pl.latitude) / 2) ^ 2
+                    + cos(radians(pl.latitude)) * cos(radians(k.d_lat))
+                      * sin(radians(k.d_lng - pl.longitude) / 2) ^ 2))) * coef)::numeric, 1) end)
+              order by k.numero), '[]')
+            from (
+              select c.id as commande_id, c.numero, c.client_nom, c.client_adresse,
+                     (array['nouvelle', 'vue', 'preparee', 'en_livraison'])[
+                       min(array_position(array['nouvelle', 'vue', 'preparee', 'en_livraison'], l.etat))] as etat,
+                     max(b.nom) as boutique, max(b.latitude) as b_lat, max(b.longitude) as b_lng,
+                     public.coord_valable((c.livraison #>> '{destination,latitude}')::double precision, 90) as d_lat,
+                     public.coord_valable((c.livraison #>> '{destination,longitude}')::double precision, 180) as d_lng
+                from public.commande_lignes l
+                join public.commandes c on c.id = l.commande_id
+                left join public.boutiques b on b.id = l.boutique_id
+               where l.livreur_id = p.id and c.etat = 'payee'
+                 and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+               group by c.id, c.numero, c.client_nom, c.client_adresse, c.livraison) k)
+        ) as l
+          from public.profils p
+          left join public.positions_livreurs pl on pl.profil_id = p.id
+         where p.role = 'livreur' and p.actif
+      ) x));
+end $$;
+revoke all on function public.rh_localiser_livreurs() from public, anon;
+grant execute on function public.rh_localiser_livreurs() to authenticated, service_role;

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ce que seule BIZZOO Admin déclare : la position du livreur pendant
+     ses courses, application fermée (« Localiser un livreur » dans
+     BIZZOO Personnel). Android exige un service au premier plan, de
+     type « location », et ses deux permissions. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <application>
+        <service
+            android:name="com.impactinformatique.apps.ServiceSuiviPosition"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+    </application>
+</manifest>

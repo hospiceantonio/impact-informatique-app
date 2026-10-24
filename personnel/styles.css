@@ -198,6 +198,27 @@ p{margin:0}
 .tableau-suivi td.large{min-width:200px}
 .tableau-suivi td.moyen{min-width:170px}
 .vue.vue-large{max-width:none}
+/* Localiser un livreur : la carte prend tout l'écran disponible. */
+.vue.vue-carte{max-width:none;padding:0}
+.localiser{display:flex;height:calc(100dvh - 64px);background:var(--fond)}
+.localiser:fullscreen{height:100vh}
+.localiser-carte{flex:1;min-width:0;height:100%;z-index:0}
+.localiser-panneau{width:340px;max-width:40%;display:flex;flex-direction:column;gap:8px;padding:12px;overflow:auto;border-left:1px solid var(--trait);background:var(--blanc)}
+.localiser-liste{display:flex;flex-direction:column;gap:6px}
+.localiser-element{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;padding:10px;border:1px solid var(--trait);border-radius:12px;background:var(--blanc);color:var(--encre)}
+.localiser-element.actif{border-color:var(--orange);background:var(--orange-clair)}
+.pin-livreur{width:34px;height:34px;border-radius:50%;background:#64748B;color:#fff;font:700 12px/34px sans-serif;text-align:center;border:3px solid #fff;box-shadow:0 1px 4px #0006}
+.pin-livreur.en-course{background:var(--bleu)}
+.pin-livreur.ancien{opacity:.55}
+.pin-livreur.choisi{background:var(--orange-fonce);transform:scale(1.15)}
+.pin-livreur.petit-pin{flex:none;width:30px;height:30px;line-height:30px;font-size:11px;border-width:2px;box-shadow:none}
+.pin-client{width:22px;height:22px;border-radius:50%;background:var(--rouge);border:3px solid #fff;box-shadow:0 1px 4px #0006}
+@media (max-width:899px){
+  .localiser{flex-direction:column;height:auto}
+  .localiser-carte{height:62vh;flex:none}
+  .localiser:fullscreen .localiser-carte{height:70vh}
+  .localiser-panneau{width:auto;max-width:none;border-left:0;border-top:1px solid var(--trait);padding-bottom:calc(var(--barre-h) + var(--safe-b) + 16px)}
+}
 .tableau .centre{text-align:center}
 .tableau-acces td{vertical-align:middle}
 .tableau-acces th.centre{white-space:nowrap}

@@ -331,6 +331,8 @@ const VueLivraisons = (() => {
       /* La sonnerie suit ce que l'écran montre (3.59.0) : « Commande
          reçue » touchée, l'écran se relit, et elle s'arrête. */
       Notifs.majAlerte(courses, demandes);
+      /* Sa position suit, tant qu'une course est en cours (Localiser un livreur). */
+      if (typeof SuiviPosition !== "undefined") SuiviPosition.mettreAJour(courses);
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +

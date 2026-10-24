@@ -51,6 +51,7 @@ const App = (() => {
     paie: VuePaie,
     statistiques: VueStatistiques,
     suivi: VueSuivi,
+    livreurs: VueLocaliser,
     parametres: VueParametres,
     compte: VueCompte,
   };
@@ -71,6 +72,7 @@ const App = (() => {
         pour: () => ouvert("depenses") || peutDecaisser(),
         pastille: (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
+      { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),

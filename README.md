@@ -4898,6 +4898,15 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
 - **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
+### Localiser un livreur
+
+`supabase/localiser-livreurs.sql` ; écran `personnel/js/vues/localiser.js` ; côté livreur `admin/js/suivi-position.js` et le service Android `ServiceSuiviPosition`.
+
+- **La carte** (menu « Localiser un livreur », clé `livreurs` réglable dans Paramètres) : OpenStreetMap par Leaflet, embarqué dans `personnel/vendor/leaflet`, sur tout l'écran (bouton « Plein écran »), relue toutes les 10 secondes. Chaque livreur avec sa dernière position (« il y a 15 s »), et pour chaque course en cours le point du client — quand il l'a donné en commandant (livraison au kilomètre) — relié par un trait, avec la distance : à vol d'oiseau multipliée par le coefficient de route de la livraison au km, d'où « environ ». Aucun montant. `rh_localiser_livreurs()`.
+- **Depuis le suivi des commandes** : dans la fiche d'une commande, « Voir sa position » à côté du livreur ouvre la même carte centrée sur lui (`#/livreurs/<id>` ; `rh_suivi_donnees` donne `livreur_id`).
+- **D'où vient la position** : tant qu'il a une course en cours (ligne confiée, commande payée, pas encore remise), BIZZOO Admin demande un **jeton de suivi** (`ouvrir_suivi_livreur`, 64 caractères, gardé en empreinte sha256, 16 h) et le passe au service Android au premier plan (notification « Course en cours »), qui envoie la position toutes les 20 s (et toutes les 2 min s'il ne bouge pas) à `position_en_course` — **même application fermée**. Le jeton ne permet que d'écrire la position de ce livreur ; il ne tient pas sa session (deux renouvellements concurrents de session le déconnecteraient). Quand la base répond « plus de course », le service s'arrête de lui-même et le jeton disparaît. Dans un navigateur, c'est la page qui envoie, tant qu'elle est ouverte. Une écriture toutes les 5 secondes au plus ; une position impossible est ignorée.
+- **Limites** : il faut que le livreur ouvre l'écran de ses courses une fois après l'attribution (le service démarre là ; Android refuse de lancer un suivi de position depuis l'arrière-plan). Sans réseau ni GPS, la carte dit « pas de nouvelle position depuis plus de 5 min ». Le point du client n'est connu que s'il a touché « Utiliser ma position » en commandant ; sinon la carte affiche son adresse écrite.
+
 ### Photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours
 
 `supabase/personnel-pieces.sql`, fonction Edge `supabase/functions/rh-menage`.
@@ -4931,7 +4940,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

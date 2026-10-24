@@ -72,6 +72,9 @@ public class MainActivity extends Activity {
     private static final int CODE_CHOIX_FICHIER = 41;
     private static final int CODE_POSITION = 42;
     private static final int CODE_NOTIFICATIONS = 43;
+    private static final int CODE_SUIVI = 44;
+    /* Le suivi demandé par la page, en attendant l'autorisation de position. */
+    private String[] suiviEnAttente;
 
     /* (3.65.0) La page à ouvrir quand on touche une notification de
        course ou de commande (« #/livraisons », « #/commandes/… »). */
@@ -340,6 +343,14 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] resultats) {
         super.onRequestPermissionsResult(code, permissions, resultats);
+        if (code == CODE_SUIVI) {
+            boolean permis = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
+            if (permis && suiviEnAttente != null) {
+                ServiceSuiviPosition.demarrer(this, suiviEnAttente[0], suiviEnAttente[1], suiviEnAttente[2]);
+            }
+            suiviEnAttente = null;
+            return;
+        }
         if (code != CODE_POSITION || rappelPosition == null) return;
         boolean accordee = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
         rappelPosition.invoke(origineposition, accordee, false);
@@ -670,6 +681,39 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String jetonPush() {
             return ServiceNotifications.jeton(MainActivity.this);
+        }
+
+        /**
+         * (Localiser un livreur) Le livreur a une course en cours : son
+         * téléphone envoie sa position, même application fermée, avec le
+         * jeton de suivi donné par la base. BIZZOO Admin seulement.
+         */
+        @JavascriptInterface
+        public void demarrerSuivi(String url, String cle, String jeton) {
+            if (!getResources().getBoolean(R.bool.suivi_position)) return;
+            runOnUiThread(() -> {
+                try {
+                    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                            != PackageManager.PERMISSION_GRANTED
+                            && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                            != PackageManager.PERMISSION_GRANTED) {
+                        suiviEnAttente = new String[]{url, cle, jeton};
+                        requestPermissions(new String[]{
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION}, CODE_SUIVI);
+                        return;
+                    }
+                    ServiceSuiviPosition.demarrer(MainActivity.this, url, cle, jeton);
+                } catch (Exception e) {
+                    /* Android a refusé le service : la page réessaiera. */
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void arreterSuivi() {
+            if (!getResources().getBoolean(R.bool.suivi_position)) return;
+            ServiceSuiviPosition.arreter(MainActivity.this);
         }
 
         /**

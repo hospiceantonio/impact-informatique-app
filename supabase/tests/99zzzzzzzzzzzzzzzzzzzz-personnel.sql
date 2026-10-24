@@ -26,7 +26,9 @@
 --      elle-même, et l'en-tête de l'entreprise ;
 --  15. bloquer, débloquer, supprimer : le CEO et le superadministrateur ;
 --  16. les statistiques internes : salaires, dépenses, effectifs, revenus ;
---  17. photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours.
+--  17. photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours ;
+--  18. localiser un livreur : son téléphone envoie sa position pendant ses
+--      courses, par un jeton qui ne sert qu'à cela ; Personnel la lit.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -964,6 +966,98 @@ delete from storage.objects where bucket_id = 'rh-pieces';
 alter table storage.objects disable row level security;
 revoke select, insert, delete on storage.objects from authenticated;
 delete from public.rh_messages where piece is not null;
+
+-- ---------------------------------------------------------
+select essai.titre('18. Localiser un livreur');
+\set LIVREUR_RH '''a0a0a0a0-0010-4000-8000-000000000010'''
+insert into auth.users (id, email) values (:LIVREUR_RH::uuid, 'livreur.rh@essai.bj') on conflict do nothing;
+insert into public.profils (id, email, role, actif, nom, boutique_id)
+values (:LIVREUR_RH::uuid, 'livreur.rh@essai.bj', 'livreur', true, 'Codjo', 'bou_informatique')
+on conflict (id) do update set role = 'livreur', actif = true, nom = 'Codjo', boutique_id = 'bou_informatique';
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+values (:LIVREUR_RH::uuid, 6.36, 2.41, 'Cadjèhoun')
+on conflict (profil_id) do update set latitude = 6.36, longitude = 2.41;
+
+select essai.devenir(:LIVREUR_RH::uuid); set role authenticated;
+select public.ouvrir_suivi_livreur() as suivi \gset
+select essai.refuse($$select * from public.suivis_livreurs$$, 'un livreur ne lit pas les jetons de suivi');
+reset role; select essai.personne();
+select essai.egal((:'suivi'::jsonb ->> 'en_course')::boolean, false, 'sans course, rien à suivre');
+select essai.egal(length(:'suivi'::jsonb ->> 'jeton'), 64, 'le jeton : 64 caractères tirés au hasard');
+select essai.verifie(not exists (select 1 from public.suivis_livreurs where jeton_hash = :'suivi'::jsonb ->> 'jeton'),
+  'la base n''en garde que l''empreinte');
+select essai.egal(public.position_en_course(:'suivi'::jsonb ->> 'jeton', 6.37, 2.42) ->> 'continuer', 'false',
+  'sans course, son téléphone s''arrête de lui-même');
+select essai.egal((select latitude from public.positions_livreurs where profil_id = :LIVREUR_RH::uuid), 6.36::double precision,
+  'et sa position ne bouge pas');
+
+-- Une course : la commande payée de la section 12, livrée chez un point précis.
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select public.assigner_livreur(:'cmd_rh', 'bou_informatique', :LIVREUR_RH::uuid) as confiee \gset
+reset role; select essai.personne();
+-- Le point du client, posé comme le ferait la commande au kilomètre :
+-- déclencheurs coupés le temps de cette seule écriture du décor.
+set session_replication_role = replica;
+update public.commandes set livraison = '{"destination": {"latitude": 6.37, "longitude": 2.43}}'::jsonb where id = :'cmd_rh';
+set session_replication_role = origin;
+select essai.devenir(:LIVREUR_RH::uuid); set role authenticated;
+select public.ouvrir_suivi_livreur() as suivi2 \gset
+reset role; select essai.personne();
+select essai.egal((:'suivi2'::jsonb ->> 'en_course')::boolean, true, 'en course, le suivi s''ouvre');
+select essai.refuse(format($$select public.position_en_course(%L, 6.37, 2.42)$$, :'suivi'::jsonb ->> 'jeton'),
+  'l''ancien jeton ne vaut plus rien');
+select essai.refuse($$select public.position_en_course('faux', 6.37, 2.42)$$, 'un faux jeton est refusé');
+update public.positions_livreurs set enregistre_le = now() - interval '1 minute' where profil_id = :LIVREUR_RH::uuid;
+set role anon;
+select essai.egal(public.position_en_course(:'suivi2'::jsonb ->> 'jeton', 6.365, 2.415, 12) ->> 'continuer', 'true',
+  'sans session, le jeton suffit');
+reset role;
+select essai.egal((select latitude || '/' || longitude || '/' || precision_m from public.positions_livreurs
+                    where profil_id = :LIVREUR_RH::uuid), '6.365/2.415/12', 'sa position suit');
+select essai.egal(public.position_en_course(:'suivi2'::jsonb ->> 'jeton', 6.5, 2.5) ->> 'continuer', 'true',
+  'une seconde position dans les 5 secondes');
+select essai.egal((select latitude from public.positions_livreurs where profil_id = :LIVREUR_RH::uuid),
+  6.365::double precision, 'n''écrit rien : une écriture toutes les 5 secondes au plus');
+update public.positions_livreurs set enregistre_le = now() - interval '1 minute' where profil_id = :LIVREUR_RH::uuid;
+select essai.egal(public.position_en_course(:'suivi2'::jsonb ->> 'jeton', 1000, 2.415) ->> 'continuer', 'true',
+  'une position impossible est ignorée, sans arrêter le suivi');
+select essai.egal((select latitude from public.positions_livreurs where profil_id = :LIVREUR_RH::uuid),
+  6.365::double precision, 'et n''écrit rien');
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_localiser_livreurs()$$, 'menu fermé : un employé ne localise personne');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select x as livreur_carte from jsonb_array_elements(public.rh_localiser_livreurs() -> 'livreurs') x
+ where x ->> 'id' = :LIVREUR_RH \gset
+select (x -> 'lignes' -> 0 ->> 'livreur_id') as livreur_suivi from public.rh_suivi_commande(:'cmd_rh') x \gset
+reset role; select essai.personne();
+select essai.egal((:'livreur_carte'::jsonb ->> 'en_course')::boolean, true, 'l''administration le voit en course');
+select essai.egal(:'livreur_carte'::jsonb #>> '{courses,0,numero}', (select numero from public.commandes where id = :'cmd_rh'),
+  'avec sa commande');
+select essai.egal((:'livreur_carte'::jsonb #>> '{courses,0,distance_km}')::numeric,
+  round((sqrt((0.005 * 111.195) ^ 2 + (0.015 * 111.195 * cos(radians(6.3675))) ^ 2)
+         * (select livraison_coef from public.paiement where id = 1))::numeric, 1),
+  'et la distance jusqu''au client, coefficient de route compris');
+select essai.verifie(not (:'livreur_carte'::jsonb::text ~ '"(total|prix|montant|frais)"'), 'sans aucun montant');
+select essai.egal(:'livreur_suivi'::text, :LIVREUR_RH::text, 'le suivi des commandes donne son identifiant, pour « Voir sa position »');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"livreurs":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(jsonb_array_length(public.rh_localiser_livreurs() -> 'livreurs') >= 1, 'ouvert au profil, le membre localise');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"livreurs":"ferme"}');
+reset role; select essai.personne();
+
+update public.commande_lignes set etat = 'remise' where commande_id = :'cmd_rh';
+select essai.egal(public.position_en_course(:'suivi2'::jsonb ->> 'jeton', 6.37, 2.43) ->> 'continuer', 'false',
+  'course remise : le suivi s''arrête');
+select essai.verifie(not exists (select 1 from public.suivis_livreurs where profil_id = :LIVREUR_RH::uuid),
+  'et son jeton disparaît');
+delete from auth.users where id = :LIVREUR_RH::uuid;
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

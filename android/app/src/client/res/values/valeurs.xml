@@ -5,4 +5,6 @@
     <bool name="notifications_actives">true</bool>
     <!-- Le client n'a pas de push personnel : les lives passent par le sujet « tous ». -->
     <bool name="push_equipe">false</bool>
+    <!-- Le suivi de position des livreurs : BIZZOO Admin seulement. -->
+    <bool name="suivi_position">false</bool>
 </resources>

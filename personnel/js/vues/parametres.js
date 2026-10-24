@@ -24,6 +24,7 @@ const VueParametres = (() => {
     ]],
     ["Commandes", [
       ["suivi", "Suivi des commandes", "Statuts, alertes, incidents, export Excel : sans les montants."],
+      ["livreurs", "Localiser un livreur", "La carte des livreurs en course, et leur distance au client."],
     ]],
     ["Statistiques (sans les montants)", [
       ["stats_commandes", "Commandes", "Payées, passées, en attente, jour par jour."],
