@@ -118,6 +118,19 @@ const VueLivraisons = (() => {
           Utils.echapper(montant(f.deja_paye, f.devise)) + "</strong></div>" +
         '<div class="lv-ligne-montant" data-lv="frais">Frais de livraison : <strong>' +
           Utils.echapper(f.frais > 0 ? montant(f.frais, f.devise) : "aucun") + "</strong></div>" +
+        /* (3.64.0) Au kilomètre : le véhicule, la distance, et ce qu'il
+           touchera une fois toute la commande remise. */
+        (f.trajet && typeof f.trajet === "object"
+          ? '<div class="lv-ligne-montant" data-lv="trajet">' + UI.icone("voiture", "ic-sm") +
+              (f.trajet.vehicule === "tricycle" ? "Tricycle" : "Moto") +
+              (f.trajet.distance_km != null
+                ? " · " + Utils.echapper(String(f.trajet.distance_km).replace(".", ",")) + " km depuis BIZZOO"
+                : "") + "</div>"
+          : "") +
+        (f.gain != null
+          ? '<div class="lv-ligne-montant lv-gain" data-lv="gain">Votre gain : <strong>' +
+              Utils.echapper(montant(f.gain, f.devise)) + "</strong></div>"
+          : "") +
       "</div>"
     );
   }
@@ -208,7 +221,7 @@ const VueLivraisons = (() => {
           r.tel, r.indicatif || "229", r.latitude, r.longitude,
           "Adresse non renseignée : appelez la boutique.") +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
-          null, null, "Aucune adresse donnée : appelez le destinataire.") +
+          l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
         '<div class="lv-articles">' +
           c.articles.map((a) =>
@@ -260,7 +273,7 @@ const VueLivraisons = (() => {
             "magasin", r.boutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
             "Adresse non renseignée : appelez la boutique.")).join("") +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
-          null, null, "Aucune adresse donnée : appelez le destinataire.") +
+          l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
         '<button type="button" class="btn lv-prendre">' + UI.icone("check") + "Commande reçue</button>" +
         '<div class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui ' +
@@ -295,6 +308,8 @@ const VueLivraisons = (() => {
       accueil: false,
       actions: '<button type="button" class="btn-ic" id="lv-rafraichir" ' +
         'aria-label="Actualiser">' + UI.icone("actualiser") + "</button>" +
+        /* (3.64.0) Ses gains : sa part des frais de livraison. */
+        '<a class="btn-ic" href="#/gains" aria-label="Mes gains" id="lv-gains">' + UI.icone("promo") + "</a>" +
         '<a class="btn-ic" href="#/compte" aria-label="Mon compte">' +
         UI.icone("personne") + "</a>" });
 

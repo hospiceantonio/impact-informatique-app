@@ -83,13 +83,11 @@ export async function jetonSigne(compte: CompteService, maintenant = Math.floor(
   return entete + "." + charge + "." + base64url(signature);
 }
 
-export type Envoi = { ok: boolean; statut: number; message: string };
+export type Envoi = { ok: boolean; statut: number; message: string; mort?: boolean };
+export type Acces = { ok: true; jeton: string } | { ok: false; statut: number; message: string };
 
-/** Envoie des données à tous les téléphones abonnés au sujet. */
-export async function envoyerAuSujet(
-  compte: CompteService, sujet: string, donnees: Record<string, string>,
-): Promise<Envoi> {
-  let acces = "";
+/** Le jeton d'accès d'une heure que Google rend contre le jeton signé. */
+export async function jetonAcces(compte: CompteService): Promise<Acces> {
   try {
     const r = await fetch(compte.token_uri || JETON_GOOGLE, {
       method: "POST",
@@ -103,34 +101,68 @@ export async function envoyerAuSujet(
       return { ok: false, statut: r.status,
         message: "Google refuse le compte de service : " + (d.error_description || "HTTP " + r.status) };
     }
-    acces = d.access_token;
+    return { ok: true, jeton: d.access_token };
   } catch (e) {
     return { ok: false, statut: 0, message: "Google injoignable : " + String(e) };
   }
+}
 
+type ErreurFcm = { error?: { message?: string; status?: string;
+  details?: { errorCode?: string }[] } };
+
+/** Un message, tel que l'API HTTP v1 l'attend. */
+async function envoyer(compte: CompteService, acces: string, message: unknown): Promise<Envoi> {
   try {
     const r = await fetch(
       "https://fcm.googleapis.com/v1/projects/" + encodeURIComponent(compte.project_id) + "/messages:send", {
         method: "POST",
         headers: { "Authorization": "Bearer " + acces, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: {
-            topic: sujet,
-            data: donnees,
-            /* « HIGH » : la notification réveille le téléphone, même en
-               veille. Quatre heures de vie : au-delà, le live est fini. */
-            android: { priority: "HIGH", ttl: "14400s" },
-          },
-        }),
+        body: JSON.stringify({ message }),
         signal: AbortSignal.timeout(15000),
       });
-    const d = await r.json().catch(() => ({})) as { name?: string; error?: { message?: string } };
+    const d = await r.json().catch(() => ({})) as { name?: string } & ErreurFcm;
     if (!r.ok) {
+      const code = ((d.error && d.error.details) || []).map((x) => x.errorCode || "").join(",");
       return { ok: false, statut: r.status,
-        message: "Firebase refuse l'envoi : " + ((d.error && d.error.message) || "HTTP " + r.status) };
+        message: "Firebase refuse l'envoi : " + ((d.error && d.error.message) || "HTTP " + r.status),
+        /* L'application a été désinstallée, ou ce jeton n'a jamais
+           existé : inutile de le garder. */
+        mort: r.status === 404 || /UNREGISTERED/.test(code) ||
+          (r.status === 400 && /registration token/i.test((d.error && d.error.message) || "")) };
     }
     return { ok: true, statut: r.status, message: d.name || "envoyée" };
   } catch (e) {
     return { ok: false, statut: 0, message: "Firebase injoignable : " + String(e) };
   }
+}
+
+/** Envoie des données à tous les téléphones abonnés au sujet. */
+export async function envoyerAuSujet(
+  compte: CompteService, sujet: string, donnees: Record<string, string>,
+): Promise<Envoi> {
+  const acces = await jetonAcces(compte);
+  if (!acces.ok) return { ok: false, statut: acces.statut, message: acces.message };
+  return await envoyer(compte, acces.jeton, {
+    topic: sujet,
+    data: donnees,
+    /* « HIGH » : la notification réveille le téléphone, même en
+       veille. Quatre heures de vie : au-delà, le live est fini. */
+    android: { priority: "HIGH", ttl: "14400s" },
+  });
+}
+
+/**
+ * Envoie des données à UN téléphone (son jeton Firebase). « ttl » en
+ * secondes : passé ce délai, Firebase ne la délivre plus — une course
+ * d'il y a une heure n'a plus à sonner.
+ */
+export async function envoyerAuJeton(
+  compte: CompteService, acces: string, jeton: string,
+  donnees: Record<string, string>, ttl = 900,
+): Promise<Envoi> {
+  return await envoyer(compte, acces, {
+    token: jeton,
+    data: donnees,
+    android: { priority: "HIGH", ttl: ttl + "s" },
+  });
 }

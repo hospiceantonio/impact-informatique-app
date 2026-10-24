@@ -29,8 +29,8 @@ android {
     defaultConfig {
         minSdk 24
         targetSdk 36
-        versionCode 107
-        versionName "3.63.0"
+        versionCode 109
+        versionName "3.65.0"
     }
 
     // Deux applications à partir du même code : client (bleue) et admin (rouge).
@@ -49,6 +49,13 @@ android {
         admin {
             dimension "application"
             applicationId "com.impactinformatique.admin"
+            // (3.65.0) Les notifications push des livreurs et des boutiques :
+            // le même projet Firebase, mais l'application admin y a SON
+            // identifiant (« admin_app_id »). Vide : pas de push, comme avant.
+            resValue "string", "google_app_id", reglageFirebase("admin_app_id")
+            resValue "string", "google_api_key", reglageFirebase("api_key")
+            resValue "string", "project_id", reglageFirebase("project_id")
+            resValue "string", "gcm_defaultSenderId", reglageFirebase("sender_id")
         }
     }
 
@@ -111,6 +118,7 @@ dependencies {
     implementation "androidx.exifinterface:exifinterface:1.3.7"
     // Vérification périodique du catalogue, même application fermée (app client).
     implementation "androidx.work:work-runtime:2.9.1"
-    // Notifications des lives TikTok (Firebase Cloud Messaging).
+    // Notifications des lives TikTok (client) et des courses et commandes
+    // (admin, 3.65.0) : Firebase Cloud Messaging.
     implementation "com.google.firebase:firebase-messaging:24.1.0"
 }

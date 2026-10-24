@@ -251,6 +251,10 @@ const VueProduit = (() => {
           ? '<div class="flash-echeance">' + UI.icone("horloge", "ic-sm") +
             " Vente flash — se termine " + Utils.echapper(dansCombien(p.flashFin)) + "</div>"
           : "") +
+        /* (3.64.0) Le véhicule qui le livre, et ce que coûte la livraison :
+           un réfrigérateur part en tricycle, et le client doit le savoir
+           avant de l'ajouter. */
+        '<div class="fiche-livraison" id="fiche-livraison" hidden></div>' +
         /* Le réassort annoncé : le client sait quand revenir. */
         (etat === "approvisionnement"
           ? '<div class="appro-echeance">' + UI.icone("horloge", "ic-sm") +
@@ -349,6 +353,21 @@ const VueProduit = (() => {
     }
 
     vue.innerHTML = html;
+
+    /* (3.64.0) Le tarif de la livraison : les réglages du paiement
+       arrivent parfois après l'écran, au démarrage — il se pose alors
+       dès qu'ils sont là. */
+    const remplirLivraison = () => {
+      const zone = document.getElementById("fiche-livraison");
+      if (!zone || typeof Paiement === "undefined" || !Paiement.livraisonAuKm()) return;
+      zone.innerHTML = UI.icone("lieu", "ic-sm") +
+        Utils.echapper(Paiement.phraseTarif(p.vehicule, Catalogue.deviseDe(p)));
+      zone.hidden = false;
+    };
+    if (typeof Paiement !== "undefined") {
+      if (Paiement.connu()) remplirLivraison();
+      else document.addEventListener("paiement:charge", remplirLivraison, { once: true });
+    }
     activerCarrousel();
 
     const signalerFiche = UI.$("#p-signaler-fiche", vue);

@@ -4868,6 +4868,12 @@ La fonction Edge `rh-messagerie` parle IMAP (`mail.bizzoomarket.com:993`) et SMT
 
 Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la page), images distantes bloquées tant qu'on ne clique pas « Afficher les images ».
 
+### Les statistiques (3.61.1)
+
+Menu « Statistiques » : commandes (payées, passées, en attente, articles, revendeurs, par jour, boutiques et produits qui vendent le plus), livraisons (états des articles payés, délai moyen paiement → réception, livreurs) et SAV (réclamations par état et par motif, avis et notes), sur une période au choix. Une commande compte au jour de son paiement ; une ligne annulée ne compte jamais.
+
+C'est `rh_statistiques` (`supabase/personnel-statistiques.sql`) qui décide de ce qui sort de la base : le CEO voit tout, **la marge de BIZZOO comprise** ; l'administration tout sauf la marge ; le responsable d'un profil, les seules rubriques que l'administration a cochées pour ce profil (écran Profils), **sans aucun montant** ; les autres, rien. Les statistiques de l'application admin restent en place.
+
 ### Mise en service
 
 1. **La base** : exécuter `supabase/personnel.sql` dans l'éditeur SQL de Supabase (il se suffit, et se rejoue sans rien casser). Il active `pg_cron` et programme `rh-paie-fin-de-mois`.
@@ -5164,6 +5170,179 @@ n'était pas encore posé : `profil_validation` le pose dès l'insertion.
 Gardés par l'essai `99zzz…-moderateur-a-valider.sql` (19 constats) et
 les chapitres 7 et 8 de `tools/banc-admin-bizzoo.mjs`.
 
+
+## La livraison au kilomètre, et le solde des livreurs (3.64.0)
+
+Les frais de livraison ne dépendent plus de la boutique mais de la
+**distance** entre le point de départ de BIZZOO et le client.
+
+### Le tarif
+
+| Véhicule | Jusqu'à 10 km | Au-delà, par km entamé |
+|---|---|---|
+| Moto | 1 000 FCFA | 100 FCFA |
+| Tricycle | 4 000 FCFA | 500 FCFA |
+
+- **La distance** : à vol d'oiseau du point BIZZOO au client, × 1,3 (le
+  coefficient de la route). Le kilomètre **entamé** compte : 10,1 km
+  facturent 11 km. Pas de distance maximale.
+- **Le véhicule** : chaque produit a le sien (*moto* par défaut, pour
+  tous les produits existants ; modifiable dans sa fiche, « Livré
+  par »). **Un seul produit en tricycle** fait livrer toute la commande
+  en tricycle.
+- **Un seul frais par commande**, même si elle traverse plusieurs
+  boutiques : les frais de chaque boutique ne comptent plus. Il se paie
+  **en ligne, avec l'acompte** ; les codes promo n'y touchent pas ; les
+  revendeurs paient le même. Le reste à la livraison ne le compte pas.
+- Tout se règle dans **Réglages → BIZZOO → Livraison au kilomètre**
+  (superadministrateur seul) : le point (position actuelle, ou épingle
+  sur la carte), les forfaits, les prix au km, le rayon, la part du
+  livreur.
+
+**Rien ne change tant que le point BIZZOO n'est pas réglé** : chaque
+boutique garde ses frais. Les commandes passées gardent les leurs.
+« Arrêter la livraison au km » rend la main aux frais par boutique.
+
+### Le client
+
+- Le panier annonce « Livraison à moto — selon la distance — dès
+  1 000 FCFA » et le tarif du véhicule ; la fiche d'un produit dit
+  « Livraison en tricycle : 4 000 FCFA jusqu'à 10 km, 500 FCFA par km
+  au-delà ».
+- **Sa position est obligatoire** pour commander : « Utiliser ma
+  position », puis l'épingle se déplace sur la carte (ou l'on colle un
+  lien Google Maps) pour être livré ailleurs. Les frais s'affichent
+  aussitôt ; la position est gardée pour la commande suivante. Sans
+  position, la base refuse la commande.
+- Le reçu dit « dont 1 400 FCFA de frais de livraison (moto, 13,4 km) ».
+
+La carte est **Leaflet 1.9.4** (licence BSD), embarquée dans
+`client/vendor/leaflet` et `admin/vendor/leaflet`, avec les tuiles
+d'OpenStreetMap. Elle ne se charge qu'à l'ouverture d'une carte
+(`js/carte.js`). Sans connexion, « Utiliser ma position » marche
+toujours.
+
+### Les livreurs
+
+- **Un seul livreur par commande** au kilomètre. Une commande de
+  plusieurs boutiques se confie à un livreur de BIZZOO, qui les livre
+  toutes ; une commande en tricycle, à un livreur en tricycle — la base
+  refuse le reste, et ne la propose qu'aux bons livreurs.
+- Chaque livreur a un **véhicule** (moto par défaut), réglé dans sa
+  fiche (« Livreurs »).
+- Sa course montre le véhicule, la distance et **son gain**.
+- **Ses gains** : 80 % des frais de chaque commande, crédités dès que
+  **toute la commande est remise** (sans attendre le « J'ai bien reçu »
+  du client), au taux du jour, figé. Une commande annulée ne rapporte
+  rien. Le reste (20 %) revient à BIZZOO. Le taux se change dans les
+  Réglages ; il vaut pour tous les livreurs, ceux de BIZZOO comme ceux
+  des boutiques.
+- **Mes gains** (icône en haut de « Mes courses ») : le solde, le numéro
+  Mobile Money qui reçoit les gains, « Demander un reversement »,
+  l'historique.
+- **Le superadministrateur** trouve les demandes des livreurs dans
+  « Reversements », à côté de celles des boutiques : il envoie
+  l'argent, puis touche « Envoyé » avec la référence — ou refuse, avec un
+  motif.
+
+### Mise en service
+
+1. Exécuter `supabase/livraison-au-km.sql` (ou `schema.sql`) — sans
+   effet sur les commandes tant que le point n'est pas réglé.
+2. Régler les véhicules : les gros produits en tricycle, les livreurs
+   en tricycle.
+3. Réglages → BIZZOO → Livraison au kilomètre : poser le point BIZZOO,
+   vérifier les tarifs, **Enregistrer**. C'est en service.
+
+Appliqué en ligne le 23 octobre 2026, en sept morceaux. L'ancienne
+`creer_commande` à cinq paramètres n'a pas été effacée mais **renommée**
+`creer_commande_avant_km` (sans droit d'appel) : avec les deux, PostgREST
+n'aurait pas su laquelle choisir. Vérifié après coup : les 37 fonctions
+du fichier sont identiques en ligne, et une commande d'essai (annulée)
+se comporte comme avant tant que le point BIZZOO n'est pas réglé.
+
+### Les essais
+
+- `supabase/tests/99zzz…-livraison-au-km.sql` : le devis (forfait, km
+  entamé, tricycle, positions absurdes refusées), la commande (position
+  obligatoire, un seul frais, acompte + frais, restes sans frais), un
+  livreur par commande, le tricycle aux tricycles, le crédit de 80 %
+  une seule fois, rien sur une commande annulée, le solde, les
+  reversements tranchés par le superadministrateur seul.
+- `tools/banc-livraison-km.mjs` : panier, fiche produit, « Où livrer ? »
+  avec la position du téléphone et un lien collé, la commande et son
+  reçu, une base sans point BIZZOO, les Réglages, l'écran du livreur et
+  « Mes gains », la décision du superadministrateur.
+
+
+## Le téléphone sonne, application fermée (3.65.0)
+
+Avant, une course confiée à un livreur ou une commande payée chez une
+boutique ne sonnait que si BIZZOO Admin était **ouverte**. Désormais le
+téléphone sonne même application fermée ou en veille, par Firebase Cloud
+Messaging (le même projet Firebase que les lives TikTok).
+
+- **Une course** (confiée par la boutique, ou proposée à tous) : la
+  notification **sonne jusqu'à ce qu'on la touche** (trois notes qui
+  montent, en boucle, et vibration), comme la sonnerie de l'application.
+- **Une commande payée** (et toute notification « qui sonne » pour une
+  boutique) : elle sonne une fois, fort.
+- **Toucher la notification** ouvre BIZZOO Admin directement sur la course
+  ou la commande. Ouvrir l'application arrête les sonneries : elle prend le
+  relais.
+- Application déjà à l'écran : pas de double sonnerie.
+- Chaque téléphone se **déclare** à la connexion pour le compte connecté,
+  et se **retire** à la déconnexion. Un téléphone désinstallé est oublié au
+  premier refus de Firebase.
+
+### Comment ça marche
+
+1. `notifier()` écrit la notification, comme avant.
+2. Si elle **sonne** et que son destinataire a un téléphone déclaré, le
+   déclencheur `notifications_poussent` appelle la fonction Edge
+   `envoyer-push` par **pg_net**, après la transaction.
+3. La fonction ne reçoit que le **numéro** de la notification ; elle relit
+   tout dans la base (`push_a_envoyer`), qui la marque envoyée au passage :
+   rien ne part deux fois, et un appel forgé n'envoie rien qui ne vienne de
+   la base.
+
+Fichiers : `supabase/notifications-push.sql`,
+`supabase/functions/envoyer-push/`, `admin/js/push.js`, et dans
+`android/` : `ServiceNotifications.java`, `MainActivity.java`,
+`res/raw/sonnerie_course.wav`.
+
+### Mise en service
+
+1. Firebase : ajouter l'application Android **`com.impactinformatique.admin`**
+   au projet « bizzoo » (Paramètres du projet → Vos applications → Ajouter
+   une application), et recopier son **ID de l'application** dans
+   `android/firebase.properties`, ligne `admin_app_id=`. C'est un
+   identifiant public, pas un secret. Vide : pas de push pour l'équipe.
+2. Supabase : activer l'extension **pg_net**, exécuter
+   `supabase/notifications-push.sql`, déployer `envoyer-push` **sans
+   vérification du jeton**, et poser son adresse dans `push_reglage`.
+3. Construire les APK : les livreurs et les boutiques installent la
+   nouvelle BIZZOO Admin et s'y reconnectent une fois.
+
+En ligne le 23 octobre 2026 : pg_net activé, tables, déclencheur et
+fonctions posés, `envoyer-push` déployée (essayée : « Rien à envoyer » pour
+un numéro inconnu, 400 pour un numéro absurde), adresse réglée, et l'ID
+Firebase de l'application admin renseigné.
+
+Android seulement : l'application iOS n'a pas encore de notifications push
+(il faudrait un certificat Apple). Dans un navigateur, rien ne change.
+
+### Les essais
+
+- `supabase/tests/99zzz…-notifications-push.sql` (24 constats) : la
+  déclaration du téléphone, les droits, l'appel par pg_net (simulé) pour
+  les seules notifications qui sonnent, l'envoi unique, l'oubli.
+- `tools/eprouver-push.sh` (19 constats) : la fonction Edge, Google et
+  Firebase en doublures.
+- `tools/banc-push-equipe.mjs` (14 constats) : la déclaration à la
+  connexion, le retrait à la déconnexion, le navigateur sans pont, une
+  base d'avant.
+
 ## Structure
 
 ```
@@ -5211,6 +5390,7 @@ impact-informatique-app/
 │   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
 │   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
 │   ├── personnel.sql                # BIZZOO Personnel : employés, missions, rapports, dépenses, paie (3.61.0)
+│   ├── personnel-statistiques.sql   # BIZZOO Personnel : les statistiques, selon le rang (3.61.1)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

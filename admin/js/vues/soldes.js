@@ -36,7 +36,8 @@ const VueSoldes = (() => {
         "<strong>" + e(m(r.montant, r.devise)) + "</strong>" +
         '<span class="badge ' + etat.classe + '">' + e(etat.mot) + "</span>" +
       "</div>" +
-      (avecBoutique ? '<div class="sd-boutique">' + e(r.nomBoutique) + "</div>" : "") +
+      (avecBoutique ? '<div class="sd-boutique">' + (r.livreur ? UI.icone("voiture", "ic-sm") + " Livreur — " : "") +
+        e(r.nomBoutique) + "</div>" : "") +
       '<div class="aide">Vers ' + e(r.reseau) + " " + e(r.tel) +
         (r.titulaire ? " (" + e(r.titulaire) + ")" : "") +
         " — demandé le " + e(Utils.fmtDateHeure(r.demandeLe)) +
@@ -185,7 +186,7 @@ const VueSoldes = (() => {
 
   /* ---------- Le superadministrateur ---------- */
   async function reversements(vue) {
-    UI.entete({ titre: "Reversements", sous: "Les demandes des boutiques", retour: true });
+    UI.entete({ titre: "Reversements", sous: "Les demandes des boutiques et des livreurs", retour: true });
     if (!Supabase.estSuper()) {
       vue.innerHTML = UI.vide("promo", "Réservé au superadministrateur",
         "Seul le superadministrateur envoie et valide les reversements.");
@@ -194,7 +195,14 @@ const VueSoldes = (() => {
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des demandes…</div>';
     let liste;
     try {
-      liste = await Store.reversements(null);
+      /* (3.64.0) Les livreurs demandent aussi : leurs gains de livraison.
+         Une base d'avant ne les connaît pas — la liste des boutiques
+         s'affiche seule. */
+      const [deBoutiques, deLivreurs] = await Promise.all([
+        Store.reversements(null),
+        Store.reversementsLivreurs().catch(() => [])]);
+      liste = deBoutiques.concat(deLivreurs)
+        .sort((a, b) => String(b.demandeLe).localeCompare(String(a.demandeLe)));
     } catch (err) {
       vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' + e(err.message) + "</p></div>";
       return;
@@ -209,8 +217,10 @@ const VueSoldes = (() => {
         ? attente.map((r) => '<div class="carte">' + htmlDemande(r, true) +
             '<p class="aide" style="margin:8px 0">Envoyez l\'argent sur ce numéro, puis notez la référence de la transaction.</p>' +
             '<div class="btn-rangee">' +
-              '<button type="button" class="btn" data-valider="' + e(String(r.id)) + '">' + UI.icone("check") + "Envoyé</button>" +
-              '<button type="button" class="btn btn-clair btn-danger-clair" data-refuser="' + e(String(r.id)) + '">' +
+              '<button type="button" class="btn" data-valider="' + e(String(r.id)) + '"' + (r.livreur ? ' data-livreur="1"' : "") +
+                ">" + UI.icone("check") + "Envoyé</button>" +
+              '<button type="button" class="btn btn-clair btn-danger-clair" data-refuser="' + e(String(r.id)) + '"' +
+                (r.livreur ? ' data-livreur="1"' : "") + ">" +
                 UI.icone("fermer") + "Refuser</button>" +
             "</div></div>").join("")
         : "") +
@@ -225,8 +235,10 @@ const VueSoldes = (() => {
         if (ref === null) return;
         b.disabled = true;
         try {
-          await Store.deciderReversement(Number(b.dataset.valider), true, ref, "");
-          UI.toast("Reversement validé : la boutique est prévenue.", "ok");
+          if (b.dataset.livreur) await Store.deciderReversementLivreur(Number(b.dataset.valider), true, ref, "");
+          else await Store.deciderReversement(Number(b.dataset.valider), true, ref, "");
+          UI.toast("Reversement validé : " + (b.dataset.livreur ? "le livreur" : "la boutique") + " est prévenu" +
+            (b.dataset.livreur ? "." : "e."), "ok");
           reversements(vue);
         } catch (err) { UI.toast(err.message, "err"); b.disabled = false; }
       };
@@ -234,12 +246,14 @@ const VueSoldes = (() => {
     for (const b of UI.$$("[data-refuser]", vue)) {
       b.onclick = async () => {
         const motif = await UI.demanderTexte({ titre: "Refuser le reversement",
-          texte: "Dites pourquoi : la boutique le verra. Le montant revient à son solde.",
+          texte: "Dites pourquoi : " + (b.dataset.livreur ? "le livreur" : "la boutique") +
+            " le verra. Le montant revient à son solde.",
           libelle: "Motif", bouton: "Refuser", danger: true });
         if (motif === null) return;
         b.disabled = true;
         try {
-          await Store.deciderReversement(Number(b.dataset.refuser), false, "", motif);
+          if (b.dataset.livreur) await Store.deciderReversementLivreur(Number(b.dataset.refuser), false, "", motif);
+          else await Store.deciderReversement(Number(b.dataset.refuser), false, "", motif);
           UI.toast("Demande refusée.", "ok");
           reversements(vue);
         } catch (err) { UI.toast(err.message, "err"); b.disabled = false; }
@@ -247,5 +261,131 @@ const VueSoldes = (() => {
     }
   }
 
-  return { afficher, reversements };
+  /* ---------- Le livreur : ses gains (3.64.0) ----------
+     Sa part des frais de livraison de chaque commande qu'il a remise,
+     son numéro Mobile Money, ses demandes de reversement. */
+  async function gains(vue) {
+    UI.entete({ titre: "Mes gains", sous: "Vos frais de livraison", retour: true });
+    vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture de vos gains…</div>';
+    let solde, demandes;
+    try {
+      [solde, demandes] = await Promise.all([Store.soldeLivreur(null), Store.reversementsLivreurs()]);
+    } catch (err) {
+      vue.innerHTML = '<div class="carte"><div class="carte-titre">Gains indisponibles</div>' +
+        '<p class="aide" style="margin:0">' + e(err.message) + "</p></div>";
+      return;
+    }
+    const d = solde.devise;
+    const r = solde.reception;
+    vue.innerHTML =
+      '<div class="carte sd-solde" id="gn-solde">' +
+        '<div class="sd-etiquette">Disponible</div>' +
+        '<div class="sd-montant" id="gn-disponible">' + e(m(solde.disponible, d)) + "</div>" +
+        '<div class="sd-details">' +
+          "<div><span>Gagné (" + e(String(solde.taux)) + " % des frais)</span><strong>" + e(m(solde.gagne, d)) + "</strong></div>" +
+          "<div><span>Déjà reversé</span><strong>− " + e(m(solde.reverse, d)) + "</strong></div>" +
+          (solde.enAttente
+            ? "<div><span>Demande en attente</span><strong>− " + e(m(solde.enAttente, d)) + "</strong></div>"
+            : "") +
+          '<div class="sd-a-venir"><span>À venir (courses en cours)</span><strong>' + e(m(solde.aVenir, d)) + "</strong></div>" +
+        "</div>" +
+        '<p class="aide" style="margin:10px 0 0">Une course compte dès que <strong>toute la commande est ' +
+          "remise</strong> au client : vous touchez " + e(String(solde.taux)) + " % de ses frais de livraison.</p>" +
+        '<button type="button" class="btn" id="gn-demander" style="margin-top:12px"' +
+          (solde.disponible > 0 && r ? "" : " disabled") + ">Demander un reversement</button>" +
+        (!r ? '<p class="aide" style="margin:8px 0 0">Réglez d\'abord le numéro qui recevra vos gains.</p>' : "") +
+      "</div>" +
+
+      '<div class="carte" id="gn-reception">' +
+        '<div class="carte-titre">' + UI.icone("tel", "ic-sm") + " Numéro qui reçoit vos gains</div>" +
+        (r
+          ? '<p style="margin:0 0 6px"><strong>' + e(r.reseau) + " " + e(r.tel) + "</strong>" +
+              (r.titulaire ? " — " + e(r.titulaire) : "") + "</p>" +
+            '<p class="aide" style="margin:0 0 10px">Réglé le ' + e(Utils.fmtDateHeure(r.majLe)) +
+              ". BIZZOO est prévenu de chaque changement.</p>"
+          : '<p class="aide" style="margin:0 0 10px">Aucun numéro : BIZZOO ne saurait pas où vous envoyer l\'argent.</p>') +
+        '<button type="button" class="btn btn-clair" id="gn-regler">' + UI.icone("crayon") +
+          (r ? "Changer le numéro" : "Régler le numéro") + "</button>" +
+      "</div>" +
+
+      '<div class="titre-section">Mes demandes</div>' +
+      (demandes.length
+        ? '<div class="carte">' + demandes.map((x) => htmlDemande(x, false)).join("") + "</div>"
+        : '<div class="carte"><p class="aide" style="margin:0">Aucune demande pour l\'instant.</p></div>') +
+
+      '<div class="titre-section">Mes courses payées</div>' +
+      (solde.courses.length
+        ? '<div class="carte">' + solde.courses.map((c) =>
+            '<div class="sd-ligne"><div class="sd-ligne-haut"><strong>+ ' + e(m(c.montant, d)) + "</strong>" +
+              "<span>" + e(c.numero) + "</span></div>" +
+              '<div class="aide">' + e(Utils.fmtDateHeure(c.crediteLe)) + " — frais " + e(m(c.frais, d)) +
+                (c.vehicule ? " · " + (c.vehicule === "tricycle" ? "tricycle" : "moto") : "") +
+                (c.distanceKm != null ? " · " + e(String(c.distanceKm).replace(".", ",")) + " km" : "") +
+              "</div></div>").join("") + "</div>"
+        : '<div class="carte"><p class="aide" style="margin:0">Aucune course payée pour l\'instant.</p></div>');
+
+    UI.$("#gn-regler", vue).onclick = () => feuilleReceptionLivreur(r, () => gains(vue));
+    const demander = UI.$("#gn-demander", vue);
+    if (demander) demander.onclick = () => feuilleDemandeLivreur(solde, () => gains(vue));
+  }
+
+  function feuilleReceptionLivreur(r, apres) {
+    const corps = UI.ouvrirFeuille("Numéro de réception",
+      '<p class="aide" style="margin:0 0 12px">Le numéro Mobile Money sur lequel BIZZOO enverra vos ' +
+        "gains. BIZZOO est prévenu de chaque changement.</p>" +
+      '<div class="champ"><label>Réseau</label><div class="st-filtres" id="gn-reseaux">' +
+        RESEAUX.map(([v, nom]) => '<button type="button" class="puce' + (r && r.reseau === v ? " active" : "") +
+          '" data-reseau="' + v + '">' + nom + "</button>").join("") + "</div></div>" +
+      UI.champTexte({ id: "gn-tel", label: "Numéro", type: "tel", valeur: r ? r.tel : "",
+        placeholder: "01 97 00 00 00" }) +
+      UI.champTexte({ id: "gn-titulaire", label: "Au nom de (facultatif)", valeur: r ? r.titulaire : "",
+        placeholder: "Le nom du compte Mobile Money" }) +
+      '<button type="button" class="btn" id="gn-enregistrer">' + UI.icone("check") + "Enregistrer</button>");
+    let reseau = r ? r.reseau : "";
+    for (const b of UI.$$("[data-reseau]", corps)) {
+      b.onclick = () => {
+        reseau = b.dataset.reseau;
+        for (const x of UI.$$("[data-reseau]", corps)) x.classList.toggle("active", x === b);
+      };
+    }
+    const bouton = UI.$("#gn-enregistrer", corps);
+    bouton.onclick = async () => {
+      bouton.disabled = true;
+      try {
+        await Store.reglerReceptionLivreur(UI.$("#gn-tel", corps).value, reseau, UI.$("#gn-titulaire", corps).value);
+        UI.fermerFeuille();
+        UI.toast("Numéro de réception enregistré.", "ok");
+        apres();
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
+      }
+    };
+  }
+
+  function feuilleDemandeLivreur(solde, apres) {
+    const r = solde.reception;
+    const corps = UI.ouvrirFeuille("Demander un reversement",
+      '<p class="aide" style="margin:0 0 12px">Disponible : <strong>' + e(m(solde.disponible, solde.devise)) +
+        "</strong>. BIZZOO l'enverra sur <strong>" + e(r.reseau) + " " + e(r.tel) + "</strong>" +
+        (r.titulaire ? " (" + e(r.titulaire) + ")" : "") + ", puis le validera ici.</p>" +
+      UI.champMontant({ id: "gn-montant", label: "Montant à reverser", valeur: solde.disponible }) +
+      '<button type="button" class="btn" id="gn-envoyer">' + UI.icone("check") + "Envoyer la demande</button>");
+    const bouton = UI.$("#gn-envoyer", corps);
+    bouton.onclick = async () => {
+      const montant = Math.round(Utils.lireNombre(UI.$("#gn-montant", corps).value) || 0);
+      bouton.disabled = true;
+      try {
+        await Store.demanderReversementLivreur(montant);
+        UI.fermerFeuille();
+        UI.toast("Demande envoyée : BIZZOO est prévenu.", "ok");
+        apres();
+      } catch (err) {
+        UI.toast(err.message, "err");
+        bouton.disabled = false;
+      }
+    };
+  }
+
+  return { afficher, reversements, gains };
 })();

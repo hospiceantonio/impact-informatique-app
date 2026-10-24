@@ -345,6 +345,9 @@ const Catalogue = (() => {
           sousCategorieId: p.sous_categorie_id || "",
           stock: stockDeLigne(p),
           surCommande: !!p.sur_commande,
+          /* (3.64.0) Le véhicule qui le livre : un seul produit en
+             tricycle fait livrer toute la commande en tricycle. */
+          vehicule: p.vehicule === "tricycle" ? "tricycle" : "moto",
           approLe: p.appro_le || "",
           flashFin: p.flash_fin ? Date.parse(p.flash_fin) || null : null,
           enAvant: !!p.en_avant,
@@ -682,6 +685,7 @@ const Catalogue = (() => {
     ...p,
     stock: stockDeLigne(p),
     surCommande: !!p.surCommande,
+    vehicule: p.vehicule === "tricycle" ? "tricycle" : "moto",
     images: Array.isArray(p.images) ? p.images : [],
     video: p.video || "",
   });

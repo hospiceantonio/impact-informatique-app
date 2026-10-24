@@ -324,7 +324,13 @@ const Store = (() => {
     };
   }
 
+  /* (3.64.0) La base connaît-elle le véhicule des produits ? Appris à la
+     première fiche lue. */
+  let baseVehicule = false;
+  const connaitVehicule = () => baseVehicule;
+
   function produitDepuisLigne(l) {
+    if (l && l.vehicule !== undefined) baseVehicule = true;
     const images = Array.isArray(l.images) ? l.images : [];
     const stock = stockDepuisLigne(l);
     const prive = priveDepuisLigne(l);
@@ -345,8 +351,10 @@ const Store = (() => {
       sousCategorieId: l.sous_categorie_id || "",
       stock,
       surCommande: !!l.sur_commande,
+      /* (3.64.0) Le véhicule qui le livre. Une base d'avant n'a pas la
+         colonne : undefined, et le formulaire ne le propose pas. */
+      vehicule: l.vehicule === undefined ? undefined : (l.vehicule === "tricycle" ? "tricycle" : "moto"),
       approLe: l.appro_le || "",
-      /* Fin de la vente flash (ms), ou null. Passée, elle ne compte plus. */
       flashFin: l.flash_fin ? Date.parse(l.flash_fin) || null : null,
       enAvant: !!l.en_avant,
       ordreAvant: l.ordre_avant || 0,
@@ -383,6 +391,8 @@ const Store = (() => {
       ordre_avant: p.ordreAvant,
       images: p.images,
       video: p.video || "",
+      /* Seulement si la base le connaît : sinon l'écriture serait refusée. */
+      ...(p.vehicule ? { vehicule: p.vehicule === "tricycle" ? "tricycle" : "moto" } : {}),
       modifie_le: new Date().toISOString(),
     };
   }
@@ -997,6 +1007,48 @@ const Store = (() => {
     return r;
   }
 
+  /* ---------- Le solde des livreurs (3.64.0) ----------
+     80 % des frais de chaque commande qu'il a remise ; reversés comme
+     aux boutiques. La base calcule et décide ; ces fonctions ne font
+     que relayer. */
+  async function soldeLivreur(livreur) {
+    const s = await Supabase.rpc("solde_livreur", livreur ? { cible: livreur } : {});
+    const r = s && s.reception;
+    return {
+      gagne: Number(s.gagne) || 0, aVenir: Number(s.a_venir) || 0, reverse: Number(s.reverse) || 0,
+      enAttente: Number(s.en_attente) || 0, disponible: Number(s.disponible) || 0,
+      taux: Number(s.taux) || 0, devise: s.devise || "FCFA",
+      reception: r ? { tel: r.tel || "", reseau: r.reseau || "", titulaire: r.titulaire || "",
+                       majLe: r.maj_le || "" } : null,
+      courses: (s.courses || []).map((c) => ({
+        commandeId: c.commande_id, numero: c.numero || "", frais: Number(c.frais) || 0,
+        taux: Number(c.taux) || 0, montant: Number(c.montant) || 0, crediteLe: c.credite_le || "",
+        vehicule: c.vehicule || "", distanceKm: c.distance_km == null ? null : Number(c.distance_km),
+      })),
+    };
+  }
+  const reglerReceptionLivreur = (tel, reseau, titulaire) =>
+    Supabase.rpc("regler_reception_livreur", { tel: tel || "", reseau: reseau || "", titulaire: titulaire || "" });
+  const demanderReversementLivreur = (montant) =>
+    Supabase.rpc("demander_reversement_livreur", { montant: Math.round(Number(montant) || 0) });
+  async function reversementsLivreurs() {
+    const lignes = await Supabase.rpcLecture("reversements_livreurs_liste", {});
+    return (lignes || []).map((l) => ({
+      id: l.id, livreurId: l.livreur_id, nomBoutique: l.nom_livreur || "Livreur", montant: Number(l.montant) || 0,
+      tel: l.tel || "", reseau: l.reseau || "", titulaire: l.titulaire || "", etat: l.etat,
+      demandePar: "", demandeLe: l.demande_le || "", decidePar: l.decide_par || "",
+      decideLe: l.decide_le || "", reference: l.reference || "", motif: l.motif || "", devise: "FCFA",
+      livreur: true,
+    }));
+  }
+  async function deciderReversementLivreur(id, accord, reference, motif) {
+    const r = await Supabase.rpc("decider_reversement_livreur", { cible: id, accord: !!accord,
+      reference: reference || "", motif: motif || "" });
+    journaliser("compte", "modification",
+      (accord ? "Gains d'un livreur envoyés, réf. " + reference : "Reversement d'un livreur refusé"), String(id));
+    return r;
+  }
+
   async function caisseLivreurs() {
     const lignes = await Supabase.rpcLecture("caisse_livreurs", {});
     return (lignes || []).map((l) => ({
@@ -1116,6 +1168,9 @@ const Store = (() => {
       /* (3.63.0) Créé par l'administrateur de BIZZOO : il attend que le
          superadministrateur l'active. */
       aValider: l.a_valider === true,
+      /* (3.64.0) Le véhicule d'un livreur. Une base d'avant n'a pas la
+         colonne : undefined, et l'écran ne le propose pas. */
+      vehicule: l.vehicule === undefined ? undefined : (l.vehicule === "tricycle" ? "tricycle" : "moto"),
     };
   }
 
@@ -1330,6 +1385,10 @@ const Store = (() => {
       const nom = (lireBoutique(maj.boutiqueId) || {}).nomBoutique || "toutes les boutiques";
       journaliser("compte", "modification", c.email + " s'occupe de " + nom, c.email, retour,
         c.boutiqueId || null);
+    } else if (maj.vehicule !== undefined) {
+      journaliser("compte", "modification",
+        (c.nom || c.email || c.tel) + " livre " + (maj.vehicule === "tricycle" ? "en tricycle" : "à moto"),
+        c.email, retour, c.boutiqueId || null);
     } else if (maj.peutModifier !== undefined) {
       journaliser("compte", "modification",
         (maj.peutModifier
@@ -2271,6 +2330,8 @@ const Store = (() => {
       verse: l.verse == null ? null : Number(l.verse),
       /* Les frais de livraison, dans le total : une fois par commande. */
       fraisLivraison: Math.max(0, Number(l.frais_livraison) || 0),
+      /* (3.64.0) Au kilomètre : le véhicule et la distance figés. */
+      livraison: l.livraison && typeof l.livraison === "object" ? l.livraison : null,
       aEncaisser: restes ? Math.max(0, Number(restes.reste) || 0) : 0,
       devise: l.devise || "FCFA",
       etat: l.etat || "a_payer",
@@ -2417,7 +2478,51 @@ const Store = (() => {
          sur ce compte. Une base d'avant ne le connaît pas : null. */
       momopayCode: l.momopay_code == null ? null : String(l.momopay_code),
       momopayNom: l.momopay_nom == null ? "" : String(l.momopay_nom),
+      /* (3.64.0) LA LIVRAISON AU KILOMÈTRE. Une base d'avant ne la
+         connaît pas : null, et l'écran ne la propose pas. Le point vide :
+         elle n'est pas en service. */
+      livraison: l.moto_forfait == null ? null : {
+        latitude: l.livraison_latitude == null ? null : Number(l.livraison_latitude),
+        longitude: l.livraison_longitude == null ? null : Number(l.livraison_longitude),
+        adresse: String(l.livraison_adresse || ""),
+        rayon: Number(l.livraison_rayon_km),
+        coef: Number(l.livraison_coef),
+        motoForfait: Number(l.moto_forfait), motoPrixKm: Number(l.moto_prix_km),
+        tricycleForfait: Number(l.tricycle_forfait), tricyclePrixKm: Number(l.tricycle_prix_km),
+        tauxLivreur: Number(l.taux_livreur),
+      },
     };
+  }
+  /** (3.64.0) Le point BIZZOO et les tarifs au kilomètre. « point » null :
+      la livraison au kilomètre s'arrête, les frais par boutique reviennent. */
+  async function majLivraisonKm(m) {
+    const entier = (v, min, max, quoi) => {
+      const n = Number(String(v).replace(/\s|fcfa|%/gi, "").replace(",", "."));
+      if (!isFinite(n) || n < min || n > max) throw new Error(quoi);
+      return Math.round(n);
+    };
+    const corps = {
+      livraison_rayon_km: entier(m.rayon, 0, 500, "Le rayon du forfait va de 0 à 500 km."),
+      moto_forfait: entier(m.motoForfait, 0, 1000000, "Le forfait moto n'est pas un montant valable."),
+      moto_prix_km: entier(m.motoPrixKm, 0, 100000, "Le prix du km à moto n'est pas valable."),
+      tricycle_forfait: entier(m.tricycleForfait, 0, 1000000, "Le forfait tricycle n'est pas un montant valable."),
+      tricycle_prix_km: entier(m.tricyclePrixKm, 0, 100000, "Le prix du km en tricycle n'est pas valable."),
+      taux_livreur: entier(m.tauxLivreur, 0, 100, "La part du livreur va de 0 à 100 %."),
+      livraison_adresse: String(m.adresse || "").trim().slice(0, 200),
+      livraison_latitude: m.point ? Number(m.point.latitude) : null,
+      livraison_longitude: m.point ? Number(m.point.longitude) : null,
+      maj_le: new Date().toISOString(),
+    };
+    if (m.point && (!isFinite(corps.livraison_latitude) || !isFinite(corps.livraison_longitude) ||
+        Math.abs(corps.livraison_latitude) > 90 || Math.abs(corps.livraison_longitude) > 180)) {
+      throw new Error("Le point BIZZOO n'est pas une position valable.");
+    }
+    await Supabase.requete("PATCH", "paiement?id=eq.1", corps);
+    journaliser("boutique", "modification",
+      m.point ? "Livraison au kilomètre réglée (point " + corps.livraison_latitude + ", " +
+                corps.livraison_longitude + ")"
+              : "Livraison au kilomètre arrêtée", "livraison", undefined, null);
+    return corps;
   }
 
   /** Le code MoMoPay de BIZZOO, que le livreur montre au client. */
@@ -3285,6 +3390,7 @@ const Store = (() => {
       ordreAvant,
       images: chemins,
       video: cheminVideo,
+      vehicule: donnees.vehicule || (existant && existant.vehicule) || undefined,
     };
 
     const ligne = ligneDepuisProduit(produit);
@@ -3864,7 +3970,7 @@ const Store = (() => {
     statutCommande,
     statistiquesVentes,
     statistiquesBoutique,
-    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, majMomopay, lireRegles, majRegles,
+    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,
     annulerAction,

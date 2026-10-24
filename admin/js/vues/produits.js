@@ -826,6 +826,24 @@ const VueProduits = (() => {
         "</div>" +
       "</div>" +
 
+      /* (3.64.0) LE VÉHICULE QUI LE LIVRE. Un seul produit en tricycle fait
+         livrer toute la commande en tricycle, au tarif du tricycle. */
+      ((existant ? existant.vehicule !== undefined : Store.connaitVehicule())
+        ? '<div class="carte">' +
+            '<div class="champ" style="margin:0">' +
+              '<label for="p-vehicule">Livré par</label>' +
+              '<select id="p-vehicule">' +
+                '<option value="moto"' + (existant && existant.vehicule === "tricycle" ? "" : " selected") +
+                  ">Moto — petits et moyens colis</option>" +
+                '<option value="tricycle"' + (existant && existant.vehicule === "tricycle" ? " selected" : "") +
+                  ">Tricycle — gros colis (réfrigérateur, meuble…)</option>" +
+              "</select>" +
+              '<div class="aide">Le client voit ce véhicule sur la fiche du produit. Une commande ' +
+                "qui contient un produit en tricycle se livre entière en tricycle.</div>" +
+            "</div>" +
+          "</div>"
+        : "") +
+
       '<div class="carte">' +
         UI.interrupteur({ id: "p-sur-commande", label: "Produit sur commande",
           actif: existant ? !!existant.surCommande : false,
@@ -997,6 +1015,7 @@ const VueProduits = (() => {
           stock: UI.$("#p-stock").value,
           stockVu,
           surCommande: UI.$("#p-sur-commande").checked,
+          vehicule: UI.$("#p-vehicule") ? UI.$("#p-vehicule").value : undefined,
           approJours: UI.$("#p-appro").checked ? Number(UI.$("#p-appro-jours").value) : 0,
           /* Sans l'interrupteur à l'écran (modérateur), la mise en avant ne bouge pas. */
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),

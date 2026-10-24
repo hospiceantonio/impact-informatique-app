@@ -3,4 +3,6 @@
     <color name="fond_demarrage">#FFFFFF</color>
     <!-- Le gérant fait lui-même les mises à jour : rien à lui annoncer. -->
     <bool name="notifications_actives">false</bool>
+    <!-- Sonner chez le livreur et la boutique, application fermée (3.65.0). -->
+    <bool name="push_equipe">true</bool>
 </resources>

@@ -11,6 +11,8 @@
 const App = (() => {
 
   let tableau = null;          // la réponse de rh_tableau_de_bord()
+  /* Les rubriques de statistiques ouvertes aux profils que je dirige. */
+  let rubriquesStats = [];
   let routeCourante = "";
   let minuterie = null;
 
@@ -21,6 +23,7 @@ const App = (() => {
   const peutDecaisser = () => !!(moi() && moi().peut_decaisser);
   const responsableDe = (profil) => !!(moi() && (moi().responsable_de || []).includes(profil));
   const estResponsable = () => !!(moi() && (moi().responsable_de || []).length);
+  const voitStatistiques = () => estAdmin() || rubriquesStats.length > 0;
 
   /* ---------- Les écrans ---------- */
   const VUES = {
@@ -33,6 +36,7 @@ const App = (() => {
     employes: VueEmployes,
     profils: VueProfils,
     paie: VuePaie,
+    statistiques: VueStatistiques,
     compte: VueCompte,
   };
 
@@ -49,6 +53,7 @@ const App = (() => {
       { route: "depenses", libelle: "Dépenses", icone: "argent",
         pour: () => estAdmin() || estResponsable() || peutDecaisser(),
         pastille: (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
+      { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       { route: "employes", libelle: "Employés", icone: "equipe", pour: estAdmin,
         pastille: c.employes_a_valider, groupe: "Administration" },
       { route: "profils", libelle: "Profils", icone: "profils", pour: estAdmin },
@@ -192,6 +197,13 @@ const App = (() => {
       document.body.classList.remove("connecte");
       VueConnexion.sansFiche(zone, tableau || {}, demarrer, deconnecte);
       return;
+    }
+    rubriquesStats = [];
+    if (!estAdmin() && estResponsable()) {
+      try {
+        const profils = await Supabase.lire("rh_profils?select=statistiques&responsable_id=eq." + moi().id);
+        rubriquesStats = [...new Set(profils.flatMap((p) => p.statistiques || []))];
+      } catch (_) { /* base pas encore à jour : pas de statistiques */ }
     }
     dessinerMenus();
     /* La paie de fin de mois se rattrape à l'ouverture si personne ne

@@ -761,14 +761,14 @@ with controles(rang, element, ok) as (values
        where t.tgname = 'profils_trace' and not t.tgisinternal)),
   -- Les frais de livraison : réglés par l'enseigne, figés sur la
   -- commande, comptés dans le total, hors remise.
-  (129, 'Les frais de livraison (paiement.frais_livraison, creer_commande, 5e paramètre)', exists (
+  (129, 'Les frais de livraison (paiement.frais_livraison, creer_commande, 5e paramètre et suivants)', exists (
       select 1 from information_schema.columns
        where table_schema = 'public' and table_name = 'paiement'
          and column_name = 'frais_livraison')
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-         and p.pronargs = 5 and p.prosrc like '%frais_livraison%')
+         and p.pronargs >= 5 and p.prosrc like '%frais_livraison%')
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'commande_total'
@@ -973,7 +973,51 @@ with controles(rang, element, ok) as (values
        where table_schema = 'public' and table_name = 'boutiques_reception')
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       where n.nspname = 'public' and p.proname = 'decider_reversement'))
+       where n.nspname = 'public' and p.proname = 'decider_reversement')),
+  -- La livraison au kilomètre (3.64.0) : un point BIZZOO, un véhicule
+  -- par produit et par livreur, des frais calculés par la base.
+  (150, 'La livraison au kilomètre (devis_livraison, produits.vehicule, commandes.livraison)', exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'paiement' and column_name = 'livraison_latitude')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'produits' and column_name = 'vehicule')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'profils' and column_name = 'vehicule')
+    and exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'commandes' and column_name = 'livraison')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'devis_livraison')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'creer_commande'
+         and p.pronargs = 6 and p.prosrc like '%devis_livraison%')),
+  -- Le solde des livreurs : 80 % des frais, reversés comme aux boutiques.
+  (151, 'Le solde des livreurs et leurs reversements (solde_livreur, reversements_livreurs)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'gains_livreurs')
+    and exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'reversements_livreurs')
+    and exists (
+      select 1 from pg_trigger where tgname = 'lignes_creditent_livreur')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'decider_reversement_livreur')),
+  -- Les notifications push, application fermée (3.65.0).
+  (152, 'Les notifications push (appareils_push, enregistrer_appareil, déclencheur)', exists (
+      select 1 from information_schema.tables
+       where table_schema = 'public' and table_name = 'appareils_push')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enregistrer_appareil')
+    and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'push_a_envoyer')
+    and exists (select 1 from pg_trigger where tgname = 'notifications_poussent'))
 )
 select rang                                            as "#",
        element                                         as "Ce qui est vérifié",

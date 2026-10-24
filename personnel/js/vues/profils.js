@@ -5,6 +5,7 @@
    ========================================================= */
 const VueProfils = (() => {
   const { h } = UI;
+  const RUBRIQUES = [["commandes", "Commandes et ventes (volumes)"], ["livraisons", "Livraisons et livreurs"], ["sav", "Réclamations et avis"]];
 
   async function afficher(zone, morceaux) {
     UI.vider(zone, UI.chargement());
@@ -55,6 +56,7 @@ const VueProfils = (() => {
       h("option", { value: "" }, "— Aucun —"),
       membres.map((e) => h("option", { value: e.id, selected: e.id === p.responsable_id }, UI.nomComplet(e))));
     const recharger = () => App.naviguer();
+    const cases = {};
     UI.vider(zone,
       h("div", { class: "carte pile" },
         h("h2", { style: { marginBottom: 0 } }, p.nom),
@@ -75,6 +77,16 @@ const VueProfils = (() => {
             await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_profils", "id=eq." + p.id), "Profil supprimé.");
             location.hash = "#/profils";
           } }, UI.icone("poubelle", "ic-sm")))),
+      h("div", { class: "carte pile" },
+        h("h3", {}, "Statistiques que voit son responsable"),
+        h("p", { class: "doux petit" }, "Sans aucun montant : l'argent reste à l'administration, la marge au CEO."),
+        RUBRIQUES.map(([v, l]) => h("label", { class: "case" },
+          cases[v] = h("input", { type: "checkbox", checked: (p.statistiques || []).includes(v) }), l)),
+        h("div", { class: "actions" }, h("button", { class: "btn btn-second", onclick: async (ev) => {
+          const statistiques = RUBRIQUES.map(([v]) => v).filter((v) => cases[v].checked);
+          await UI.agir(ev.currentTarget, () => Supabase.modifier("rh_profils", "id=eq." + p.id, { statistiques }),
+            "Rubriques enregistrées : le responsable les verra à sa prochaine ouverture.");
+        } }, "Enregistrer les rubriques"))),
       h("h2", { style: { fontSize: "16px" } }, "Membres (" + membres.length + ")"),
       membres.length ? h("div", { class: "liste" }, membres.map((e) =>
         h("a", { class: "element", href: "#/employes/" + e.id },

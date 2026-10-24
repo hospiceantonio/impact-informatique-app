@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v118";
+const VERSION = "impact-admin-v120";
 
 const FICHIERS = [
   "./",
@@ -29,7 +29,15 @@ const FICHIERS = [
   "./js/store.js",
   "./js/son.js",
   "./js/notifications.js",
+  "./js/push.js",
   "./js/ui.js",
+  "./js/carte.js",
+  /* La carte de la livraison au kilomètre (3.64.0) : Leaflet, embarqué. */
+  "./vendor/leaflet/leaflet.js",
+  "./vendor/leaflet/leaflet.css",
+  "./vendor/leaflet/images/marker-icon.png",
+  "./vendor/leaflet/images/marker-icon-2x.png",
+  "./vendor/leaflet/images/marker-shadow.png",
   "./js/conditions-ugc.js",
   "./js/vues/connexion.js",
   "./js/vues/accueil.js",

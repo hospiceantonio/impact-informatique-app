@@ -1,3 +1,121 @@
+-- ---------- Le socle de la livraison au kilomètre (3.64.0) ----------
+-- Répété dans chaque fichier qui s'en sert : collé seul, il doit se suffire.
+-- Les colonnes de la livraison au kilomètre (3.64.0).
+alter table public.produits add column if not exists vehicule text not null default 'moto';
+alter table public.produits drop constraint if exists produits_vehicule;
+alter table public.produits add constraint produits_vehicule check (vehicule in ('moto', 'tricycle'));
+alter table public.profils add column if not exists vehicule text not null default 'moto';
+alter table public.profils drop constraint if exists profils_vehicule;
+alter table public.profils add constraint profils_vehicule check (vehicule in ('moto', 'tricycle'));
+alter table public.commandes add column if not exists livraison jsonb;
+alter table public.paiement add column if not exists livraison_latitude double precision;
+alter table public.paiement add column if not exists livraison_longitude double precision;
+alter table public.paiement add column if not exists livraison_adresse text not null default '';
+alter table public.paiement add column if not exists livraison_rayon_km int not null default 10;
+alter table public.paiement add column if not exists livraison_coef numeric(4,2) not null default 1.3;
+alter table public.paiement add column if not exists moto_forfait int not null default 1000;
+alter table public.paiement add column if not exists moto_prix_km int not null default 100;
+alter table public.paiement add column if not exists tricycle_forfait int not null default 4000;
+alter table public.paiement add column if not exists tricycle_prix_km int not null default 500;
+alter table public.paiement add column if not exists taux_livreur int not null default 80;
+alter table public.paiement drop constraint if exists paiement_livraison_bornes;
+alter table public.paiement add constraint paiement_livraison_bornes check (
+  (livraison_latitude is null) = (livraison_longitude is null)
+  and (livraison_latitude is null or livraison_latitude between -90 and 90)
+  and (livraison_longitude is null or livraison_longitude between -180 and 180)
+  and livraison_rayon_km between 0 and 500
+  and livraison_coef between 1 and 3
+  and moto_forfait between 0 and 1000000 and moto_prix_km between 0 and 100000
+  and tricycle_forfait between 0 and 1000000 and tricycle_prix_km between 0 and 100000
+  and taux_livreur between 0 and 100
+  and length(livraison_adresse) <= 200);
+
+create table if not exists public.gains_livreurs (
+  commande_id text primary key references public.commandes(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  frais       bigint not null default 0,
+  taux        int not null default 80,
+  montant     bigint not null default 0 check (montant >= 0),
+  credite_le  timestamptz not null default now()
+);
+create index if not exists gains_livreur on public.gains_livreurs(livreur_id, credite_le desc);
+alter table public.gains_livreurs enable row level security;
+revoke all on public.gains_livreurs from anon, authenticated;
+
+create or replace function public.livraison_active() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select p.livraison_latitude is not null and p.livraison_longitude is not null
+                     from public.paiement p where p.id = 1), false);
+$$;
+revoke all on function public.livraison_active() from public;
+grant execute on function public.livraison_active() to anon, authenticated;
+
+create or replace function public.devis_livraison(
+  latitude double precision, longitude double precision, vehicule text default 'moto')
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  r     public.paiement%rowtype;
+  v     text := case when vehicule = 'tricycle' then 'tricycle' else 'moto' end;
+  dlat  double precision;
+  dlng  double precision;
+  a     double precision;
+  dist  numeric;
+  km    int;
+  forf  int;
+  prix  int;
+begin
+  select * into r from public.paiement where id = 1;
+  if not found or r.livraison_latitude is null or r.livraison_longitude is null then
+    return null;
+  end if;
+  if latitude is null or longitude is null
+     or latitude not between -90 and 90 or longitude not between -180 and 180
+     or (latitude = 0 and longitude = 0) then
+    raise exception 'Position de livraison invalide : touchez « Utiliser ma position ».'
+      using errcode = 'P0001';
+  end if;
+  -- À vol d'oiseau (formule de haversine, rayon terrestre de 6 371 km),
+  -- multipliée par le coefficient de la route ; au mètre près.
+  dlat := radians(latitude - r.livraison_latitude);
+  dlng := radians(longitude - r.livraison_longitude);
+  a := sin(dlat / 2) ^ 2
+       + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
+  dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  -- Le kilomètre ENTAMÉ compte : 10,001 km facturent un kilomètre de plus.
+  km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
+  forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
+  prix := case when v = 'tricycle' then r.tricycle_prix_km else r.moto_prix_km end;
+  return jsonb_build_object(
+    'vehicule', v,
+    'distance_km', round(dist, 1),
+    'rayon_km', r.livraison_rayon_km,
+    'km_factures', km,
+    'forfait', forf,
+    'prix_km', prix,
+    'frais', forf + km * prix,
+    'point', jsonb_build_object('latitude', r.livraison_latitude, 'longitude', r.livraison_longitude),
+    'destination', jsonb_build_object('latitude', round(latitude::numeric, 6),
+                                      'longitude', round(longitude::numeric, 6)));
+end $$;
+revoke all on function public.devis_livraison(double precision, double precision, text) from public;
+grant execute on function public.devis_livraison(double precision, double precision, text) to anon, authenticated;
+
+create or replace function public.gain_livreur(cible text) returns bigint
+language plpgsql stable security definer set search_path = public as $$
+declare g bigint; f bigint; t int;
+begin
+  select x.montant into g from public.gains_livreurs x where x.commande_id = cible;
+  if found then return g; end if;
+  select coalesce(c.frais_livraison, 0) into f from public.commandes c
+   where c.id = cible and c.livraison is not null;
+  if f is null then return null; end if;
+  select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
+  return floor(f * coalesce(t, 80) / 100.0)::bigint;
+end $$;
+revoke all on function public.gain_livreur(text) from public, anon, authenticated;
+
+
 -- =========================================================
 -- BIZZOO 3.59.0 — Masquer un produit
 --
@@ -284,7 +402,12 @@ begin
   return query
     with commande as (
       select greatest(0, coalesce(c.remise, 0))::numeric as remise,
-             greatest(0, coalesce(c.verse, c.acompte, c.total))::numeric as paye
+             -- (3.64.0) Au kilomètre, les frais de livraison se paient en ligne
+             -- avec l'acompte, hors des parts des boutiques : ce versement-là
+             -- n'allège le reste d'aucune d'elles.
+             greatest(0, coalesce(c.verse, c.acompte, c.total)
+                         - case when c.livraison is not null
+                                then coalesce(c.frais_livraison, 0) else 0 end)::numeric as paye
         from public.commandes c where c.id = cible
     ), lignes as (
       select l.boutique_id as bou,
@@ -359,12 +482,19 @@ grant execute on function public.masquer_produit(text, boolean) to authenticated
 drop function if exists public.creer_commande(jsonb, jsonb);
 drop function if exists public.creer_commande(jsonb, jsonb, text);
 drop function if exists public.creer_commande(jsonb, jsonb, text, boolean);
+drop function if exists public.creer_commande(jsonb, jsonb, text, boolean, boolean);
 create or replace function public.creer_commande(
   client jsonb, articles jsonb, code text default '',
-  avec_acompte boolean default false, avec_frais boolean default false)
+  avec_acompte boolean default false, avec_frais boolean default false,
+  destination jsonb default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
+  -- (3.64.0) La livraison au kilomètre : en service dès que le point
+  -- BIZZOO est réglé.
+  au_km    boolean := public.livraison_active();
+  devis    jsonb;
+  frais_km bigint := 0;
   nouvelle text := 'cmd_' || replace(gen_random_uuid()::text, '-', '');
   article  jsonb;
   qte      int;
@@ -390,6 +520,19 @@ begin
   end if;
   if coalesce(trim(client ->> 'tel'), '') = '' then
     raise exception 'Un numéro de téléphone est nécessaire pour vous joindre.';
+  end if;
+  -- (3.64.0) LA POSITION DU CLIENT EST OBLIGATOIRE quand la livraison se
+  -- compte au kilomètre : sans elle, pas de distance, donc pas de frais.
+  -- Une application d'avant ne l'envoie pas — on lui dit quoi faire.
+  if au_km then
+    if destination is null or jsonb_typeof(destination) <> 'object'
+       or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
+      if coalesce(avec_frais, false) and destination is null then
+        raise exception 'Mettez BIZZOO à jour pour commander : les frais de livraison se calculent désormais selon votre position.'
+          using errcode = 'P0001';
+      end if;
+      raise exception 'Indiquez où livrer : touchez « Utiliser ma position ».' using errcode = 'P0001';
+    end if;
   end if;
 
   -- Un compte de l'équipe ne passe pas commande pour lui-même : il agirait
@@ -591,9 +734,30 @@ begin
   -- UNE APPLICATION D'AVANT ne demande ni frais ni acompte : elle fait
   -- tout payer, et n'a pas de frais à annoncer. On ne change rien pour
   -- elle.
-  if coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+  -- ---------- La livraison au kilomètre (3.64.0) ----------
+  -- UN SEUL FRAIS POUR LA COMMANDE, du point BIZZOO jusqu'au client, au
+  -- tarif du véhicule : le tricycle dès qu'UN produit l'exige. Les frais
+  -- de chaque boutique ne comptent plus. Ils se paient EN LIGNE, avec
+  -- l'acompte : c'est BIZZOO qui les détient, et qui en doit sa part au
+  -- livreur (« gains_livreurs »).
+  if au_km then
+    devis := public.devis_livraison(
+      (destination ->> 'latitude')::double precision,
+      (destination ->> 'longitude')::double precision,
+      case when exists (select 1 from public.commande_lignes l
+                          join public.produits pr on pr.id = l.produit_id
+                         where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
+           then 'tricycle' else 'moto' end);
+    frais_km := coalesce((devis ->> 'frais')::bigint, 0);
     perform set_config('bizzoo.interne', 'oui', true);
-    if coalesce(avec_frais, false) then
+    update public.commandes set frais_livraison = frais_km, livraison = devis where id = nouvelle;
+    perform public.commande_total(nouvelle);
+    perform set_config('bizzoo.interne', '', true);
+  end if;
+
+  if au_km or coalesce(avec_acompte, false) or coalesce(avec_frais, false) then
+    perform set_config('bizzoo.interne', 'oui', true);
+    if coalesce(avec_frais, false) and not au_km then
       update public.commandes
          set frais_livraison = coalesce((
                select sum(greatest(0, b.frais_livraison))
@@ -613,7 +777,10 @@ begin
       select sum(montant) as s from brut
     ), chacune as (
       select br.bou,
-             case when coalesce(avec_frais, false) then greatest(0, b.frais_livraison) else 0 end as frais,
+             -- Au kilomètre, la part d'une boutique n'a plus de frais : ceux
+             -- de la commande s'ajoutent à part, plus bas.
+             case when coalesce(avec_frais, false) and not au_km
+                  then greatest(0, b.frais_livraison) else 0 end as frais,
              case when coalesce(avec_acompte, false) and b.mode_paiement = 'acompte'
                   then b.taux_acompte else 100 end as taux,
              greatest(0, round(br.montant - coalesce(c.remise, 0) * br.montant / nullif(t.s, 0))) as net
@@ -631,7 +798,7 @@ begin
     -- 100 francs au moins en ligne, l'encaissement minimum chez FeexPay :
     -- le manque va à la plus grosse part.
     select greatest(0, least(c.total, 100) - coalesce((
-             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0))
+             select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), 0) - frais_km)
       into manquant
       from public.commandes c where c.id = nouvelle;
     if manquant > 0 and les_parts is not null then
@@ -642,15 +809,18 @@ begin
        order by (v ->> 'du')::bigint desc limit 1;
     end if;
 
+    -- (3.64.0) Au kilomètre, l'acompte, c'est celui des boutiques PLUS les
+    -- frais de livraison, payés en entier en ligne.
     update public.commandes c
        set parts = les_parts,
            acompte = least(c.total, coalesce((
-                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)),
+                       select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)), c.total)
+                       + frais_km),
            -- Le taux affiché : ce que représente l'acompte du total.
            taux_acompte = case when c.total <= 0 then 100
-                               else least(100, greatest(1, round(100.0 * coalesce((
+                               else least(100, greatest(1, round(100.0 * least(c.total, coalesce((
                                  select sum((v ->> 'acompte')::bigint) from jsonb_each(les_parts) e(k, v)),
-                                 c.total) / c.total)))::int end
+                                 c.total) + frais_km) / c.total)))::int end
      where c.id = nouvelle;
     perform set_config('bizzoo.interne', '', true);
   else
@@ -672,6 +842,8 @@ begin
     /* Les frais de livraison, à part : le récapitulatif les montre sur
        leur propre ligne. */
     'frais_livraison', c.frais_livraison,
+    /* (3.64.0) Le véhicule, la distance, les kilomètres facturés. */
+    'livraison', c.livraison,
     /* Ce qui se paie maintenant, et ce qui restera pour la livraison. */
     'taux_acompte', c.taux_acompte, 'acompte', c.acompte,
     'reste', greatest(0, c.total - c.acompte),
