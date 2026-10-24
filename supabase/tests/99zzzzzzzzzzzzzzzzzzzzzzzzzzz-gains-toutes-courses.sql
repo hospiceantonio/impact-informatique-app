@@ -175,3 +175,40 @@ select essai.egal((public.solde_livreur() ->> 'gagne')::int, 1600, 'son solde : 
 select essai.refuse(format($$select public.part_frais_livreur(%L, %L::uuid)$$, :'c2', :LA),
   'un livreur ne calcule pas la part d''un autre');
 reset role; select essai.personne();
+
+select essai.titre('6. Une course prise sonne aussi chez BIZZOO (administrateurs et superadministrateurs)');
+-- (« bizzoo.prise » : le passage de « Commande reçue », qui prend toute la commande d'un coup.)
+create function pg_temp.recue(cible text, bou text, toute boolean) returns void language plpgsql as $$
+begin
+  perform set_config('bizzoo.livraison', 'oui', true);
+  if toute then perform set_config('bizzoo.prise', 'oui', true); end if;
+  update public.commande_lignes set recu_le = now()
+   where commande_id = cible and (toute or boutique_id = bou);
+  perform set_config('bizzoo.prise', '', true);
+  perform set_config('bizzoo.livraison', '', true);
+end $$;
+select essai.verifie(cardinality(public.les_superadmins()) > 0, 'le décor a des superadministrateurs');
+select pg_temp.commander() as c6 \gset
+select pg_temp.confier(:'c6', 'bou_informatique', :BZ::uuid);
+select pg_temp.confier(:'c6', 'bou_essai_voisine', :BZ::uuid);
+select pg_temp.recue(:'c6', null, true);
+select essai.egal((select count(*)::int from public.notifications n
+                    where n.commande_id = :'c6' and n.type = 'course_acceptee' and n.sonne
+                      and n.destinataire = any(public.les_superadmins() || public.enseigne_des_commandes())),
+  cardinality(array(select distinct u from unnest(public.les_superadmins() || public.enseigne_des_commandes()) u)),
+  'Sèna prend toute la commande : chaque superadministrateur et administrateur BIZZOO est sonné, UNE fois');
+select essai.verifie((select bool_and(n.titre like 'Course prise par Sèna%') from public.notifications n
+                       where n.commande_id = :'c6' and n.type = 'course_acceptee'
+                         and n.destinataire = any(public.les_superadmins())),
+  '« Course prise par Sèna »');
+select pg_temp.commander() as c7 \gset
+select pg_temp.confier(:'c7', 'bou_informatique', :LA::uuid);
+select pg_temp.recue(:'c7', 'bou_informatique', false);
+select essai.egal((select count(*)::int from public.notifications n
+                    where n.commande_id = :'c7' and n.type = 'course_acceptee' and n.sonne
+                      and n.destinataire = any(public.les_superadmins())),
+  cardinality(public.les_superadmins()), 'Koffi accepte la course de sa boutique : les superadministrateurs l''entendent');
+select essai.egal((select count(*)::int from public.notifications n
+                    where n.commande_id = :'c7' and n.type = 'course_acceptee' and n.sonne
+                      and n.destinataire = any(public.equipe_de('bou_informatique'))),
+  cardinality(public.equipe_de('bou_informatique')), 'et la boutique, comme avant');

@@ -6568,8 +6568,9 @@ $$;
 -- À dix boutiques et vingt commandes par jour, être prévenu de chaque
 -- cran ferait plusieurs centaines de pastilles quotidiennes : une
 -- pastille qui ne redescend jamais à zéro ne veut plus rien dire. Il
--- reçoit l'ARGENT qui entre et les INCIDENTS ; les étapes
--- intermédiaires restent lisibles sur l'écran des commandes.
+-- reçoit l'ARGENT qui entre, les INCIDENTS et (3.66.0) la COURSE PRISE
+-- par un livreur ; les autres étapes restent lisibles sur l'écran des
+-- commandes.
 create or replace function public.les_superadmins() returns uuid[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(p.id), '{}'::uuid[])
@@ -6773,6 +6774,15 @@ begin
       'Course acceptée par ' || porteur.nom,
       'Commande ' || numero || ' — le livreur a accepté la course.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    -- (3.66.0) BIZZOO AUSSI L'ENTEND : ses administrateurs qui suivent les
+    -- commandes et les superadministrateurs — une sonnerie par prise, pas
+    -- une par boutique quand le livreur prend toute la commande d'un coup.
+    perform public.notifier(enseigne || public.les_superadmins(), 'course_acceptee',
+      'Course prise par ' || porteur.nom,
+      'Commande ' || numero || ' — ' || porteur.nom || ' a pris la course.',
+      '#/commandes/' || new.commande_id, new.commande_id,
+      case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui' then null
+           else new.boutique_id end, true);
   end if;
 
   -- ---- L'accusé de réception du client ----

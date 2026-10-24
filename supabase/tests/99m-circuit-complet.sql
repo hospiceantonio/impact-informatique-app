@@ -222,13 +222,14 @@ select essai.egal(
     where commande_id = :'cmd' and destinataire = :KOFI::uuid), 5,
   'le client a été prévenu cinq fois : payé, prêt, son livreur (3.59.0), parti, livré');
 
--- LE SUPERADMINISTRATEUR N'A ÉTÉ DÉRANGÉ QU'UNE FOIS. Si ce nombre
--- monte un jour, c'est que quelqu'un a rebranché les crans
--- intermédiaires sur lui — et sa pastille ne redescendra plus.
+-- LE SUPERADMINISTRATEUR N'EST DÉRANGÉ QUE DEUX FOIS : l'argent qui
+-- entre, et (3.66.0, à la demande du CEO) la course prise par un
+-- livreur. Si ce nombre monte encore, c'est que quelqu'un a rebranché
+-- les autres crans sur lui — et sa pastille ne redescendra plus.
 select essai.egal(
-  (select count(*)::int from public.notifications
-    where commande_id = :'cmd' and destinataire = :ENSEIGNE::uuid), 1,
-  'et le superadministrateur une seule : le paiement');
+  (select string_agg(type, ',' order by type) from public.notifications
+    where commande_id = :'cmd' and destinataire = :ENSEIGNE::uuid), 'commande_payee,course_acceptee',
+  'et le superadministrateur deux : le paiement, la course prise');
 
 -- ---------------------------------------------------------
 select essai.titre('Ce que le client lit de son côté');

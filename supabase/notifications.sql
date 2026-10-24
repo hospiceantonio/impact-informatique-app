@@ -725,6 +725,15 @@ begin
       'Course acceptée par ' || porteur.nom,
       'Commande ' || numero || ' — le livreur a accepté la course.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    -- (3.66.0) BIZZOO AUSSI L'ENTEND : ses administrateurs qui suivent les
+    -- commandes et les superadministrateurs — une sonnerie par prise, pas
+    -- une par boutique quand le livreur prend toute la commande d'un coup.
+    perform public.notifier(enseigne || public.les_superadmins(), 'course_acceptee',
+      'Course prise par ' || porteur.nom,
+      'Commande ' || numero || ' — ' || porteur.nom || ' a pris la course.',
+      '#/commandes/' || new.commande_id, new.commande_id,
+      case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui' then null
+           else new.boutique_id end, true);
   end if;
 
   -- ---- L'accusé de réception du client ----

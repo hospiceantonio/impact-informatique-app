@@ -5395,6 +5395,26 @@ Android seulement : l'application iOS n'a pas encore de notifications push
   connexion, le retrait à la déconnexion, le navigateur sans pont, une
   base d'avant.
 
+## Qui entend quoi : commande payée, course prise (3.66.0)
+
+| Événement | Boutique (admin, modérateur) | Admins BIZZOO qui suivent les commandes | Superadministrateurs |
+|---|---|---|---|
+| Le client paie (commande confirmée) | sonne | sonne | sonne |
+| Un livreur prend / accepte la course | sonne | **sonne (nouveau)** | **sonne (nouveau)** |
+
+« Sonne » : trois bips quand BIZZOO Admin est ouverte ; une notification
+sonore quand elle est fermée ou en veille — à condition que le téléphone
+ait BIZZOO Admin **3.65.0 ou plus récente**, et que le compte s'y soit
+connecté une fois (le téléphone se déclare alors). Un livreur qui prend
+toute une commande de plusieurs boutiques fait sonner BIZZOO **une seule
+fois**. Les admins BIZZOO dont l'interrupteur « Commandes » est éteint ne
+sont pas dérangés.
+
+Fichier : `supabase/sonnerie-course-prise.sql` — **en ligne depuis le
+24/10/2026**. Essai : section 6 de `99zzz…-gains-toutes-courses.sql` ;
+`99m-circuit-complet.sql` attend désormais deux nouvelles pour le
+superadministrateur (le paiement, la course prise).
+
 ## Le livreur touche sa part de toutes ses courses (3.66.0)
 
 Avant, seules les commandes **au kilomètre** créditaient le livreur : ses
