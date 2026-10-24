@@ -16,7 +16,10 @@ const VueEmployes = (() => {
     actif: ["En poste", "vert"],
     refuse: ["Refusé", "rouge"],
     sorti: ["Sorti", ""],
+    bloque: ["Bloqué", "rouge"],
+    supprime: ["Archivé", ""],
   };
+  const ACTIONS_JOURNAL = { bloque: "Bloqué", debloque: "Débloqué", supprime: "Supprimé (fiche archivée)", efface: "Effacé" };
   const MODES = { especes: "Espèces", virement: "Virement bancaire", mobile_money: "Mobile Money", cheque: "Chèque" };
   const NIVEAUX = ["Sans diplôme", "CEP", "BEPC", "CAP", "BAC", "BTS / DUT (Bac+2)", "Licence (Bac+3)", "Master (Bac+5)", "Doctorat"];
   const DOMAINE = "@bizzoomarket.com";
@@ -68,7 +71,8 @@ const VueEmployes = (() => {
 
   async function liste(zone, filtre, recherche) {
     let chemin = "rh_employes?select=id,matricule,nom,prenoms,poste,statut,etat,profil_id,administration,ceo,peut_decaisser,compte_id,date_embauche&order=nom,prenoms";
-    if (filtre !== "tous") chemin += "&etat=eq." + filtre;
+    /* « Tous » : sauf les fiches archivées, qui ont leur filtre. */
+    chemin += filtre === "tous" ? "&etat=neq.supprime" : "&etat=eq." + filtre;
     const employes = await Supabase.lire(chemin);
     if (!zone.isConnected) return;
     const champ = h("input", { type: "search", placeholder: "Rechercher un nom, un poste, un matricule", value: recherche });
@@ -93,7 +97,7 @@ const VueEmployes = (() => {
     UI.vider(zone,
       h("div", { class: "titre-section" }, h("h2", {}, "Employés"),
         h("a", { class: "btn btn-petit", href: "#/employes/nouveau" }, UI.icone("plus", "ic-sm"), "Nouvel employé")),
-      h("div", { class: "filtres" }, [["actif", "En poste"], ["en_attente", "À valider"], ["refuse", "Refusés"], ["sorti", "Sortis"], ["tous", "Tous"]]
+      h("div", { class: "filtres" }, [["actif", "En poste"], ["en_attente", "À valider"], ["bloque", "Bloqués"], ["refuse", "Refusés"], ["sorti", "Sortis"], ["supprime", "Archivés"], ["tous", "Tous"]]
         .map(([v, l]) => h("button", { class: v === filtre ? "actif" : "", onclick: () => { location.hash = "#/employes?filtre=" + v; } }, l))),
       h("label", { class: "champ" }, champ),
       h("p", { class: "doux petit" }, employes.length + " employé(s)"),
@@ -193,7 +197,10 @@ const VueEmployes = (() => {
   /* ---------- La fiche ---------- */
 
   async function fiche(zone, id) {
-    const [e] = await Supabase.lire("rh_employes?select=*&id=eq." + encodeURIComponent(id));
+    const [[e], journal] = await Promise.all([
+      Supabase.lire("rh_employes?select=*&id=eq." + encodeURIComponent(id)),
+      Supabase.lire("rh_journal_employes?select=*&employe_id=eq." + encodeURIComponent(id) + "&order=id.desc").catch(() => []),
+    ]);
     if (!zone.isConnected) return;
     if (!e) return UI.vider(zone, UI.vide("Employé introuvable."));
     App.titre(UI.nomComplet(e));
@@ -217,12 +224,12 @@ const VueEmployes = (() => {
       } }, "Refuser"));
     }
     if (!e.ceo || ceo) {
-      if (e.etat !== "sorti") actions.push(h("button", { class: "btn btn-second", onclick: () => formulaire(zone, e) }, UI.icone("crayon", "ic-sm"), "Modifier"));
+      if (!["sorti", "supprime"].includes(e.etat)) actions.push(h("button", { class: "btn btn-second", onclick: () => formulaire(zone, e) }, UI.icone("crayon", "ic-sm"), "Modifier"));
     }
     if (e.etat === "actif" && !e.compte_id && (!e.ceo || ceo)) {
       actions.push(h("button", { class: "btn btn-orange", onclick: (ev) => creerAcces(ev.currentTarget, e, recharger) }, UI.icone("cle", "ic-sm"), "Créer l'accès"));
     }
-    if (ceo && e.etat === "actif" && !e.ceo) {
+    if (ceo && ["actif", "bloque"].includes(e.etat) && !e.ceo) {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
         const v = await UI.formulaire({ titre: "Sortie de " + UI.nomComplet(e), danger: true, valider: "Enregistrer la sortie",
           texte: "L'employé perd l'accès à l'application. Sa dernière paie est calculée jusqu'à la date de sortie.",
@@ -233,12 +240,38 @@ const VueEmployes = (() => {
         recharger();
       } }, UI.icone("sortie", "ic-sm"), "Sortie"));
     }
-    if (ceo && ["en_attente", "refuse"].includes(e.etat)) {
+    /* Bloquer, débloquer, supprimer : le CEO et le superadministrateur. */
+    const peutBloquer = (App.estCeo() || App.estSuper()) && !e.ceo && e.id !== (App.moi() || {}).id;
+    if (peutBloquer && e.etat === "actif") {
+      actions.push(h("button", { class: "btn btn-orange", onclick: async (ev) => {
+        const motif = await UI.motif("Bloquer " + UI.nomComplet(e),
+          "Pourquoi ? (Il ne pourra plus ouvrir l'application ; sa paie continue.)");
+        if (motif === null) return;
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_bloquer_employe", { qui: e.id, bloquer: true, motif }), "Accès bloqué.");
+        recharger();
+      } }, "Bloquer"));
+    }
+    if (peutBloquer && e.etat === "bloque") {
+      actions.push(h("button", { class: "btn btn-vert", onclick: async (ev) => {
+        if (!await UI.confirmer("Débloquer " + UI.nomComplet(e) + " ? Il retrouve l'accès à l'application.", { valider: "Débloquer" })) return;
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_bloquer_employe", { qui: e.id, bloquer: false, motif: "" }), "Accès débloqué.");
+        recharger();
+      } }, UI.icone("check", "ic-sm"), "Débloquer"));
+    }
+    if (peutBloquer && e.etat !== "supprime") {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
-        if (!await UI.confirmer("Supprimer définitivement cette fiche ?", { danger: true, valider: "Supprimer" })) return;
-        await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_employes", "id=eq." + e.id), "Fiche supprimée.");
+        const v = await UI.formulaire({ titre: "Supprimer " + UI.nomComplet(e), danger: true, valider: "Supprimer",
+          texte: "Sans paie validée ni avance, la fiche est effacée entièrement. Sinon, elle est archivée : " +
+                 "nom, matricule, n° CNSS et paie restent pour la comptabilité ; accès, messages, boîte mail et coordonnées sont effacés. " +
+                 "On ne revient pas en arrière.",
+          champs: [{ nom: "motif", libelle: "Motif", type: "textarea", requis: true }],
+          verifier: (x) => (x.motif.trim() ? null : "Le motif est obligatoire.") });
+        if (!v) return;
+        const r = await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_supprimer_employe", { qui: e.id, motif: v.motif }));
+        UI.succes(r === "archive" ? "Employé supprimé : sa fiche est archivée avec sa paie." : "Employé supprimé.");
+        App.rafraichir();
         location.hash = "#/employes";
-      } }, UI.icone("poubelle", "ic-sm")));
+      } }, UI.icone("poubelle", "ic-sm"), "Supprimer"));
     }
 
     UI.vider(zone,
@@ -257,6 +290,11 @@ const VueEmployes = (() => {
           e.compte_id ? UI.etiquette("Accès créé", "vert") : (e.etat === "actif" ? UI.etiquette("Pas encore d'accès", "orange") : null)),
         e.etat === "refuse" && e.motif_refus ? h("div", { class: "erreur" }, "Refusée par le CEO : " + e.motif_refus) : null,
         e.etat === "sorti" ? h("div", { class: "avertissement" }, "Sorti le " + UI.date(e.date_sortie) + (e.motif_refus ? " — " + e.motif_refus : "")) : null,
+        e.etat === "bloque" ? h("div", { class: "erreur" }, "Accès bloqué" +
+          (journal[0] && journal[0].action === "bloque" ? " le " + UI.dateHeure(journal[0].le) + (journal[0].motif ? " — " + journal[0].motif : "") : "") +
+          ". Sa paie continue.") : null,
+        e.etat === "supprime" ? h("div", { class: "avertissement" }, "Fiche archivée le " + UI.date(e.date_sortie) +
+          (e.motif_refus ? " — " + e.motif_refus : "") + ". Seules l'identité et la paie sont gardées.") : null,
         actions.length ? h("div", { class: "actions" }, actions) : null),
       h("div", { class: "carte" }, h("h2", {}, "Informations"),
         h("div", { class: "formulaire" },
@@ -273,6 +311,11 @@ const VueEmployes = (() => {
           ligne("Paiement", MODES[e.mode_paiement] + (e.compte_paiement ? " · " + e.compte_paiement : "")),
           ligne("N° CNSS", e.numero_cnss)),
         e.infos ? h("div", { class: "pre", style: { marginTop: "12px" } }, e.infos) : null),
+      journal.length ? h("div", { class: "carte" }, h("h2", {}, "Historique de l'accès"),
+        h("div", { class: "liste" }, journal.map((j) => h("div", { class: "element" },
+          h("div", { class: "etire" },
+            h("div", { class: "gras" }, (ACTIONS_JOURNAL[j.action] || j.action) + " par " + (j.par_nom || "—")),
+            h("div", { class: "petit doux" }, UI.dateHeure(j.le) + (j.motif ? " — " + j.motif : ""))))))) : null,
       h("div", { class: "actions" },
         h("a", { class: "btn btn-second", href: "#/paie/employe/" + e.id }, UI.icone("paie", "ic-sm"), "Paie de cet employé")));
   }

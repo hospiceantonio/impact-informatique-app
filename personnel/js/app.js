@@ -21,6 +21,8 @@ const App = (() => {
   const estCeo = () => !!(moi() && moi().ceo);
   const estAdmin = () => !!(moi() && moi().administration);
   const peutDecaisser = () => !!(moi() && moi().peut_decaisser);
+  /** Le superadministrateur de BIZZOO (rôle de la place de marché). */
+  const estSuper = () => !!(moi() && moi().super);
   const responsableDe = (profil) => !!(moi() && (moi().responsable_de || []).includes(profil));
   const estResponsable = () => !!(moi() && (moi().responsable_de || []).length);
   /** Ce menu m'est-il ouvert ? L'administration a tout ; la base refuse le reste. */
@@ -28,9 +30,12 @@ const App = (() => {
   const voitSuivi = () => ouvert("suivi");
   /* Les commandes en alerte : la pastille du suivi. */
   let alertesSuivi = 0;
-  /** Les sous-menus des statistiques ouverts à ce compte (leurs clés). */
-  const sousMenusStatistiques = () =>
-    VueStatistiques.SOUS_MENUS.map((s) => s.cle).filter((c) => ouvert("stats_" + c));
+  /** Les sous-menus des statistiques ouverts à ce compte (leurs clés) :
+      ceux de la place de marché selon Paramètres ; les internes à
+      l'administration ; revenus et résultat au CEO et au superadministrateur. */
+  const sousMenusStatistiques = () => VueStatistiques.SOUS_MENUS.filter((s) =>
+    s.interne === "revenus" ? estCeo() || estSuper() : s.interne ? estAdmin() || estSuper() : ouvert("stats_" + s.cle))
+    .map((s) => s.cle);
   const voitStatistiques = () => sousMenusStatistiques().length > 0;
 
   /* ---------- Les écrans ---------- */
@@ -271,7 +276,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer,
   };
 })();

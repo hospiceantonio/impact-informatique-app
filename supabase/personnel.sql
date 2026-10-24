@@ -64,7 +64,7 @@ create table if not exists public.rh_employes (
   ceo             boolean not null default false,
   peut_decaisser  boolean not null default false,
   etat            text not null default 'en_attente'
-                  check (etat in ('en_attente', 'actif', 'refuse', 'sorti')),
+                  check (etat in ('en_attente', 'actif', 'refuse', 'sorti', 'bloque', 'supprime')),
   motif_refus     text not null default '',
   date_sortie     date,
   cree_par        uuid,
@@ -301,10 +301,10 @@ create trigger rh_employes_verrous
 create or replace function public.rh_employe_apres() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if new.profil_id is distinct from old.profil_id or new.etat <> 'actif' then
+  if new.profil_id is distinct from old.profil_id or new.etat not in ('actif', 'bloque') then
     update public.rh_profils set responsable_id = null
      where responsable_id = new.id
-       and (new.etat <> 'actif' or id is distinct from new.profil_id);
+       and (new.etat not in ('actif', 'bloque') or id is distinct from new.profil_id);
   end if;
   return null;
 end $$;
@@ -389,7 +389,7 @@ begin
   update public.rh_employes
      set etat = 'sorti', date_sortie = coalesce(le, current_date),
          motif_refus = btrim(coalesce(motif, ''))
-   where id = employe and etat = 'actif';
+   where id = employe and etat in ('actif', 'bloque');
   if not found then
     raise exception 'Cet employé n''est pas en poste';
   end if;
@@ -1268,7 +1268,7 @@ begin
      calendaires du mois. */
   d1 := greatest(debut, e.date_embauche);
   d2 := least(fin, coalesce(e.date_sortie, fin));
-  if e.etat not in ('actif', 'sorti') or d2 < d1 then
+  if e.etat not in ('actif', 'bloque', 'sorti') or d2 < d1 then
     delete from public.rh_fiches_paie f
      where f.employe_id = qui and f.mois = debut and f.statut = 'calculee';
     return null;
@@ -1388,7 +1388,7 @@ declare
   combien int := 0;
 begin
   for e in select id from public.rh_employes
-            where (etat = 'actif' or (etat = 'sorti' and date_sortie >= debut))
+            where (etat in ('actif', 'bloque') or (etat = 'sorti' and date_sortie >= debut))
               and date_embauche <= fin loop
     if public.rh_calculer_fiche(e.id, debut) is not null then
       combien := combien + 1;
@@ -1399,7 +1399,7 @@ begin
    where f.mois = debut and f.statut = 'calculee'
      and not exists (select 1 from public.rh_employes x
                       where x.id = f.employe_id
-                        and (x.etat = 'actif' or (x.etat = 'sorti' and x.date_sortie >= debut))
+                        and (x.etat in ('actif', 'bloque') or (x.etat = 'sorti' and x.date_sortie >= debut))
                         and x.date_embauche <= fin);
   return combien;
 end $$;
@@ -1637,6 +1637,7 @@ begin
     return jsonb_build_object(
       'moi', null,
       'en_attente', exists (select 1 from public.rh_employes where compte_id = auth.uid()),
+      'bloque', exists (select 1 from public.rh_employes where compte_id = auth.uid() and etat = 'bloque'),
       'amorce_possible', not exists (select 1 from public.rh_employes where ceo)
                          and public.est_super());
   end if;
@@ -1649,6 +1650,7 @@ begin
       'id', moi.id, 'matricule', moi.matricule, 'nom', moi.nom, 'prenoms', moi.prenoms,
       'sexe', moi.sexe, 'poste', moi.poste, 'email_pro', moi.email_pro,
       'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', moi.peut_decaisser,
+      'super', public.est_super(),
       'profil_id', moi.profil_id,
       'profil', (select nom from public.rh_profils where id = moi.profil_id),
       'responsable_de', to_jsonb(mes_profils)),

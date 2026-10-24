@@ -58,7 +58,9 @@ const VueConnexion = (() => {
       amorce(zone, suite, sortir);
       return;
     }
-    const texte = tableau.en_attente
+    const texte = tableau.bloque
+      ? "Votre accès à BIZZOO Personnel est bloqué. Adressez-vous au CEO ou à l'administration."
+      : tableau.en_attente
       ? "Votre fiche existe, mais vous n'êtes pas (ou plus) en poste : elle attend la validation du CEO, ou votre accès a été fermé."
       : "Ce compte n'est relié à aucun employé de BIZZOO. Si vous êtes employé, demandez à l'administration de créer votre accès avec votre adresse professionnelle.";
     UI.vider(zone, cadre(h("div", { class: "pile" },

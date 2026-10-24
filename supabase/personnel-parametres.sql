@@ -421,6 +421,7 @@ begin
     return jsonb_build_object(
       'moi', null,
       'en_attente', exists (select 1 from public.rh_employes where compte_id = auth.uid()),
+      'bloque', exists (select 1 from public.rh_employes where compte_id = auth.uid() and etat = 'bloque'),
       'amorce_possible', not exists (select 1 from public.rh_employes where ceo)
                          and public.est_super());
   end if;
@@ -433,6 +434,7 @@ begin
       'id', moi.id, 'matricule', moi.matricule, 'nom', moi.nom, 'prenoms', moi.prenoms,
       'sexe', moi.sexe, 'poste', moi.poste, 'email_pro', moi.email_pro,
       'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', moi.peut_decaisser,
+      'super', public.est_super(),
       'profil_id', moi.profil_id,
       'profil', (select nom from public.rh_profils where id = moi.profil_id),
       'responsable_de', to_jsonb(mes_profils)),

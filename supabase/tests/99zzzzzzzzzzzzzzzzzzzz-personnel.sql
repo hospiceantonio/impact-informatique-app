@@ -23,7 +23,9 @@
 --  12. les statistiques : chacun ne reçoit que ses sous-menus ;
 --  13. le suivi des commandes ;
 --  14. le menu Paramètres : les accès aux menus, que la base applique
---      elle-même, et l'en-tête de l'entreprise.
+--      elle-même, et l'en-tête de l'entreprise ;
+--  15. bloquer, débloquer, supprimer : le CEO et le superadministrateur ;
+--  16. les statistiques internes : salaires, dépenses, effectifs, revenus.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -774,6 +776,121 @@ select essai.egal((select adresse || '/' || modifie_par from public.rh_entrepris
 select essai.verifie(not exists (select 1 from information_schema.role_table_grants
                                   where table_name in ('rh_acces_menus', 'rh_entreprise') and grantee = 'anon'),
   'rien pour un visiteur');
+
+-- ---------------------------------------------------------
+select essai.titre('15. Bloquer, débloquer, supprimer un employé');
+\set SUPER2 '''a0a0a0a0-0009-4000-8000-000000000009'''
+insert into auth.users (id, email) values (:SUPER2::uuid, 'second.super@essai.bj') on conflict do nothing;
+update public.profils set role = 'superadministrateur', actif = true where id = :SUPER2::uuid;
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_bloquer_employe(%L, true, 'Retards')$$, :'e_membre'),
+  'l''administration ne bloque pas');
+select essai.refuse(format($$select public.rh_supprimer_employe(%L, 'Doublon')$$, :'e_refuse'),
+  'ni ne supprime');
+reset role; select essai.personne();
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_bloquer_employe(%L, true, '')$$, :'e_membre'), 'un blocage sans motif est refusé');
+select essai.refuse(format($$select public.rh_bloquer_employe(%L, true, 'Essai')$$, :'ceo'), 'le CEO ne se bloque pas');
+select public.rh_bloquer_employe(:'e_membre', true, 'Absence prolongée');
+select essai.refuse(format($$select public.rh_bloquer_employe(%L, true, 'Encore')$$, :'e_membre'), 'on ne bloque pas deux fois');
+reset role; select essai.personne();
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_tableau_de_bord() -> 'moi', 'null'::jsonb, 'bloqué, il n''entre plus');
+select essai.egal((public.rh_tableau_de_bord() ->> 'bloque')::boolean, true, 'et l''écran sait pourquoi');
+select essai.egal((select count(*)::int from public.rh_messages), 0, 'il ne lit plus rien');
+reset role; select essai.personne();
+select essai.verifie(public.rh_calculer_fiche(:'e_membre', '2026-11-01') is not null, 'bloqué, sa paie se calcule toujours');
+delete from public.rh_fiches_paie where employe_id = :'e_membre' and mois = '2026-11-01';
+
+select essai.devenir(:SUPER2::uuid); set role authenticated;
+select essai.verifie(public.rh_peut_bloquer() and not public.rh_est_ceo(), 'un superadministrateur qui n''est pas le CEO');
+select public.rh_bloquer_employe(:'e_membre', false, '');
+reset role; select essai.personne();
+select essai.egal((select etat from public.rh_employes where id = :'e_membre'), 'actif', 'débloqué par lui, il est de nouveau en poste');
+select essai.egal((select string_agg(action || ':' || par_nom, ',' order by id) from public.rh_journal_employes
+                    where employe_id = :'e_membre'), 'bloque:Directeur AKPLOGAN,debloque:Superadministrateur',
+  'le journal dit qui a bloqué et qui a débloqué');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(public.rh_tableau_de_bord() -> 'moi' <> 'null'::jsonb, 'et il rentre');
+reset role; select essai.personne();
+
+select essai.verifie(not exists (select 1 from public.rh_fiches_paie where employe_id = :'e_refuse'),
+  'la fiche refusée n''a aucune paie');
+select essai.verifie(exists (select 1 from public.rh_fiches_paie where employe_id = :'e_autre' and statut <> 'calculee'),
+  'le logisticien a une paie validée');
+select (select count(*) from public.rh_fiches_paie where employe_id = :'e_autre' and statut <> 'calculee') as fiches_autre \gset
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_supprimer_employe(%L, '')$$, :'e_refuse'), 'une suppression sans motif est refusée');
+select essai.refuse(format($$select public.rh_supprimer_employe(%L, 'Essai')$$, :'ceo'), 'le CEO ne se supprime pas');
+select essai.egal(public.rh_supprimer_employe(:'e_refuse', 'Doublon'), 'efface', 'sans paie : tout s''efface');
+select essai.egal(public.rh_supprimer_employe(:'e_autre', 'Départ sans préavis'), 'archive',
+  'avec une paie validée : la fiche est archivée');
+reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from public.rh_employes where id = :'e_refuse'), 'la fiche effacée n''existe plus');
+select essai.egal((select etat || '/' || coalesce(compte_id::text, '-') || '/' || coalesce(email_pro, '-') || '/' || telephone || '/' || matricule
+                     from public.rh_employes where id = :'e_autre'),
+  'supprime/-/-//' || (select matricule from public.rh_employes where id = :'e_autre'),
+  'archivée : plus d''accès, plus d''adresse ni de téléphone ; le matricule reste');
+select essai.egal((select count(*) from public.rh_fiches_paie where employe_id = :'e_autre'), :'fiches_autre'::bigint,
+  'ses fiches de paie validées restent, pour la comptabilité');
+select essai.egal((select count(*)::int from public.rh_messages where auteur_id = :'e_autre' or destinataire_id = :'e_autre'), 0,
+  'ses messages sont partis');
+select essai.egal((select string_agg(action, ',' order by id) from public.rh_journal_employes
+                    where employe_id in (:'e_refuse', :'e_autre')), 'efface,supprime', 'les deux gestes sont au journal');
+select essai.devenir(:AUTRE::uuid); set role authenticated;
+select essai.egal(public.rh_tableau_de_bord() -> 'moi', 'null'::jsonb, 'supprimé, son compte n''ouvre plus rien');
+select essai.refuse(format($$select public.rh_rattacher_compte(%L)$$, :'e_autre'), 'ni ne se rattache de nouveau');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(not exists (select 1 from public.rh_annuaire() where id = :'e_autre'), 'il sort de l''annuaire');
+select essai.egal((select count(*)::int from public.rh_journal_employes), 0, 'un employé ne lit pas le journal');
+reset role; select essai.personne();
+
+-- ---------------------------------------------------------
+select essai.titre('16. Les statistiques internes : salaires, dépenses, effectifs, revenus');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_finances()$$, 'un employé ne voit pas les finances');
+reset role; select essai.personne();
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_finances('2026-09-01', current_date) as fin_admin \gset
+reset role; select essai.personne();
+select essai.egal(:'fin_admin'::jsonb -> 'revenus', 'null'::jsonb, 'l''administration ne voit pas les revenus de BIZZOO');
+select essai.egal((:'fin_admin'::jsonb #>> '{droits,revenus}')::boolean, false, 'et la base le lui dit');
+select essai.egal((select (x ->> 'brut')::bigint from jsonb_array_elements(:'fin_admin'::jsonb #> '{salaires,par_mois}') x
+                    where x ->> 'mois' = '2026-09-01'),
+  (select sum(brut)::bigint from public.rh_fiches_paie where mois = '2026-09-01' and statut <> 'calculee'),
+  'le brut de septembre est celui des fiches validées');
+select essai.egal((select sum((x ->> 'montant_decaisse')::bigint)::bigint from jsonb_array_elements(:'fin_admin'::jsonb #> '{depenses,par_mois}') x),
+  (select coalesce(sum(montant), 0)::bigint from public.rh_depenses where statut = 'decaissee' and decaisse_le >= '2026-09-01'),
+  'les dépenses décaissées sont toutes comptées');
+select essai.egal((:'fin_admin'::jsonb #>> '{effectifs,en_poste}')::bigint,
+  (select count(*) from public.rh_employes where etat in ('actif', 'bloque')), 'l''effectif en poste');
+
+select essai.devenir(:SUPER2::uuid); set role authenticated;
+select public.rh_finances(current_date, current_date) as fin_super \gset
+reset role; select essai.personne();
+select (:'fin_super'::jsonb #> '{revenus,0}') as ce_mois \gset
+select essai.egal((:'ce_mois'::jsonb ->> 'marge')::bigint,
+  (select coalesce(sum(greatest(0, l.prix - l.prix_bizzoo) * l.quantite), 0)::bigint
+     from public.commande_lignes l join public.commandes c on c.id = l.commande_id
+    where c.etat = 'payee' and l.etat <> 'annulee'
+      and date_trunc('month', c.paye_le at time zone 'Africa/Porto-Novo') = date_trunc('month', now() at time zone 'Africa/Porto-Novo')),
+  'le superadministrateur voit la marge du mois, exacte');
+select essai.verifie((:'ce_mois'::jsonb ->> 'marge')::bigint > 0, 'la commande d''essai y compte');
+select essai.egal((:'ce_mois'::jsonb ->> 'resultat')::bigint,
+  (:'ce_mois'::jsonb ->> 'revenus')::bigint - (:'ce_mois'::jsonb ->> 'salaires')::bigint - (:'ce_mois'::jsonb ->> 'depenses')::bigint,
+  'résultat = revenus − salaires − dépenses');
+select essai.egal((:'ce_mois'::jsonb ->> 'revenus')::bigint,
+  (:'ce_mois'::jsonb ->> 'marge')::bigint + (:'ce_mois'::jsonb ->> 'frais_livraison')::bigint
+  - (:'ce_mois'::jsonb ->> 'remises')::bigint - (:'ce_mois'::jsonb ->> 'gains_livreurs')::bigint,
+  'revenus = marge + frais de livraison − remises − gains des livreurs');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.verifie(public.rh_finances() -> 'revenus' <> 'null'::jsonb, 'le CEO les voit aussi');
+reset role; select essai.personne();
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

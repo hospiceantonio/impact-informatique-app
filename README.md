@@ -4898,6 +4898,24 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
 - **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
+### Bloquer, supprimer un employé
+
+`supabase/personnel-gestion.sql`. Sur la fiche d'un employé, le CEO et le superadministrateur de BIZZOO (`est_super()`, même s'il n'est pas le CEO) ont trois boutons ; l'administration ne les a pas. Le CEO ne se bloque ni ne se supprime, personne n'agit sur sa propre fiche, et chaque geste demande un motif.
+
+- **Bloquer** (`rh_bloquer_employe`) : état `bloque`. `rh_moi()` ne le reconnaît plus : il n'ouvre plus rien, et l'écran de connexion lui dit que son accès est bloqué. **Sa paie continue** (il reste employé), et il reste responsable de son profil. **Débloquer** le remet en poste.
+- **Supprimer** (`rh_supprimer_employe`) : sans paie validée ni avance, la fiche est effacée entièrement. Sinon, elle est **archivée** (état `supprime`, filtre « Archivés ») : nom, matricule, n° CNSS et paie validée restent pour la comptabilité et la CNSS ; accès, adresse pro, coordonnées, messages, boîte mail et brouillons de paie sont effacés. Sans retour.
+- **Le journal** (`rh_journal_employes`, lu par l'administration) garde qui a bloqué, débloqué ou supprimé, quand et pourquoi ; il s'affiche sur la fiche (« Historique de l'accès »).
+
+### Les statistiques internes
+
+Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par défaut), chacun avec ses tableaux exportables en Excel. `rh_finances` (`supabase/personnel-gestion.sql`).
+
+- **Salaires** (administration) : coût employeur, brut, net, charges patronales, cotisations et impôt, déjà payé, validé à payer, avances accordées et encore dues ; par mois, par profil, employés / stagiaires. Seules les fiches validées comptent ; les fiches à valider sont signalées à part.
+- **Dépenses** (administration) : demandé, approuvé, décaissé par mois ; par profil ; les plus grosses ; ce qui attend le CEO ou le décaissement ; délai moyen de décision.
+- **Effectifs** (administration) : en poste, masse et moyenne des salaires de base, âge et ancienneté moyens, répartition par profil, statut, sexe, niveau d'étude ; embauches et sorties par mois.
+- **Missions et rapports** (administration) : missions rendues à temps ou en retard, en retard aujourd'hui, délai de réponse des responsables, par profil ; rapports d'activité et délai de validation.
+- **Revenus et résultat** (CEO et superadministrateur seuls) : encaissé, reversé aux boutiques, marge, frais de livraison, remises, gains des livreurs. **Revenus = marge + frais de livraison − remises − gains des livreurs ; résultat = revenus − salaires (coût employeur des fiches validées) − dépenses décaissées.** Une estimation de gestion, pas une comptabilité : l'écran le dit.
+
 ### Mise en service
 
 1. **La base** : exécuter `supabase/personnel.sql` dans l'éditeur SQL de Supabase (il se suffit, et se rejoue sans rien casser). Il active `pg_cron` et programme `rh-paie-fin-de-mois`.
@@ -4905,7 +4923,7 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql` (puis redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql` (après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 
