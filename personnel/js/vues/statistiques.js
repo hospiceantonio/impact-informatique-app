@@ -218,9 +218,10 @@ const VueStatistiques = (() => {
     const sortie = [
       h("div", { class: "tuiles" },
         tuile(nombre(l.livrees), "articles livrés"),
+        tuile(nombre(l.confirmees), "réceptions confirmées par le client"),
         tuile(nombre(l.en_cours), "à livrer"),
         tuile(nombre(l.annulees), "annulés"),
-        tuile(delai, "délai moyen paiement → réception")),
+        tuile(delai, "délai moyen paiement → « je l'ai reçu » du client")),
     ];
     const etats = Object.entries(l.par_etat || {});
     if (etats.length) {

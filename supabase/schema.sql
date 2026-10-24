@@ -12727,8 +12727,11 @@ begin
       'livrees', (select count(*) from lignes where etat = 'remise'),
       'en_cours', (select count(*) from lignes where etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')),
       'annulees', (select count(*) from lignes where etat = 'annulee'),
-      'delai_moyen_heures', (select round(avg(extract(epoch from (recu_le - paye_le)) / 3600)::numeric, 1)
-                               from lignes where etat = 'remise' and recu_le is not null and recu_le >= paye_le),
+      -- « confirme_le » : le client a dit « je l'ai bien reçu ». (« recu_le », lui,
+      -- est le moment où le LIVREUR accepte la course : ce n'est pas une réception.)
+      'delai_moyen_heures', (select round(avg(extract(epoch from (confirme_le - paye_le)) / 3600)::numeric, 1)
+                               from lignes where confirme_le is not null and confirme_le >= paye_le),
+      'confirmees', (select count(*) from lignes where confirme_le is not null),
       'livreurs', (select coalesce(jsonb_agg(jsonb_build_object(
                       'livreur', coalesce(nullif(pr.nom, ''), pr.email, 'Livreur'),
                       'commandes', x.nb, 'livrees', x.livrees,
