@@ -4868,6 +4868,12 @@ La fonction Edge `rh-messagerie` parle IMAP (`mail.bizzoomarket.com:993`) et SMT
 
 Le HTML d'un mail s'affiche dans un cadre isolé (sans script, sans accès à la page), images distantes bloquées tant qu'on ne clique pas « Afficher les images ».
 
+### Les statistiques (3.61.1)
+
+Menu « Statistiques » : commandes (payées, passées, en attente, articles, revendeurs, par jour, boutiques et produits qui vendent le plus), livraisons (états des articles payés, délai moyen paiement → réception, livreurs) et SAV (réclamations par état et par motif, avis et notes), sur une période au choix. Une commande compte au jour de son paiement ; une ligne annulée ne compte jamais.
+
+C'est `rh_statistiques` (`supabase/personnel-statistiques.sql`) qui décide de ce qui sort de la base : le CEO voit tout, **la marge de BIZZOO comprise** ; l'administration tout sauf la marge ; le responsable d'un profil, les seules rubriques que l'administration a cochées pour ce profil (écran Profils), **sans aucun montant** ; les autres, rien. Les statistiques de l'application admin restent en place.
+
 ### Mise en service
 
 1. **La base** : exécuter `supabase/personnel.sql` dans l'éditeur SQL de Supabase (il se suffit, et se rejoue sans rien casser). Il active `pg_cron` et programme `rh-paie-fin-de-mois`.
@@ -5384,6 +5390,7 @@ impact-informatique-app/
 │   ├── horaires-boutiques.sql       # Jours et heures d'ouverture ; fermée, pas de commande (3.59.0)
 │   ├── conditions-paiement-boutiques.sql # Condition de paiement et frais de chaque boutique (3.59.0)
 │   ├── personnel.sql                # BIZZOO Personnel : employés, missions, rapports, dépenses, paie (3.61.0)
+│   ├── personnel-statistiques.sql   # BIZZOO Personnel : les statistiques, selon le rang (3.61.1)
 │   ├── etat-des-lieux.sql           # Ce qui est en place et ce qui manque (ne modifie rien)
 │   ├── etat-du-stockage.sql         # Les seaux, leur poids et les fichiers orphelins
 │   ├── tests/                       # La base éprouvée sur un vrai PostgreSQL

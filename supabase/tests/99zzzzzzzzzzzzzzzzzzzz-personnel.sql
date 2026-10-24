@@ -495,6 +495,86 @@ select essai.egal((public.rh_ma_messagerie() ->> 'configuree')::boolean, false,
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
+select essai.titre('12. Les statistiques : qui voit quoi, et des chiffres justes');
+\set ACHETEUSE_RH '''a0a0a0a0-0008-4000-8000-000000000008'''
+insert into auth.users (id, email) values (:ACHETEUSE_RH::uuid, 'acheteuse.rh@essai.bj') on conflict do nothing;
+insert into public.clients (id, nom, tel) values (:ACHETEUSE_RH::uuid, 'Sika', '97666088') on conflict (id) do nothing;
+insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
+values ('prod_rh_stats', 'bou_informatique', 'Écran', 50000, 'sc_hightech_accessoires', 100, true)
+on conflict (id) do update set stock = 100, disponible = true;
+insert into public.produits_prive (produit_id, prix_grossiste) values ('prod_rh_stats', 40000)
+on conflict (produit_id) do update set prix_grossiste = 40000;
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_statistiques()$$, 'un simple employé ne voit aucune statistique');
+reset role; select essai.personne();
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.refuse($$select public.rh_statistiques()$$,
+  'un responsable dont le profil n''a aucune rubrique ouverte : rien');
+select essai.sans_effet(format($$update public.rh_profils set statistiques = '{livraisons}' where id = %L$$, :'p_mkt'),
+  'il ne s''ouvre pas les statistiques lui-même');
+reset role; select essai.personne();
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_statistiques(current_date - 1, current_date + 1) as avant \gset
+reset role; select essai.personne();
+
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":2}]'::jsonb) ->> 'id' as cmd_rh \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_rh', 'TRX-RH-STATS',
+  (select coalesce(acompte, total) from public.commandes where id = :'cmd_rh'), 'feexpay') as p \gset
+select (select total from public.commandes where id = :'cmd_rh') as total_rh \gset
+select (select sum(greatest(0, prix - prix_bizzoo) * quantite) from public.commande_lignes
+         where commande_id = :'cmd_rh') as benef_rh \gset
+select essai.verifie(:'benef_rh'::bigint > 0, 'la commande d''essai rapporte une marge (' || :'benef_rh' || ')');
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_statistiques(current_date - 1, current_date + 1) as apres \gset
+reset role; select essai.personne();
+select essai.egal((:'apres'::jsonb #>> '{commandes,payees}')::bigint - (:'avant'::jsonb #>> '{commandes,payees}')::bigint,
+  1::bigint, 'une commande payée de plus');
+select essai.egal((:'apres'::jsonb #>> '{commandes,articles}')::bigint - (:'avant'::jsonb #>> '{commandes,articles}')::bigint,
+  2::bigint, 'deux articles de plus');
+select essai.egal((:'apres'::jsonb #>> '{commandes,montant}')::bigint - (:'avant'::jsonb #>> '{commandes,montant}')::bigint,
+  :'total_rh'::bigint, 'le montant monte exactement du total de la commande');
+select essai.egal((:'apres'::jsonb #>> '{commandes,benefice}')::bigint - (:'avant'::jsonb #>> '{commandes,benefice}')::bigint,
+  :'benef_rh'::bigint, 'le bénéfice monte exactement de la marge de ses lignes');
+select essai.egal((:'apres'::jsonb #>> '{livraisons,en_cours}')::bigint - (:'avant'::jsonb #>> '{livraisons,en_cours}')::bigint,
+  1::bigint, 'sa ligne est à livrer');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_statistiques(current_date - 1, current_date + 1) as admin_stats \gset
+reset role; select essai.personne();
+select essai.verifie((:'admin_stats'::jsonb #>> '{commandes,montant}') is not null,
+  'l''administration voit les montants');
+select essai.verifie((:'admin_stats'::jsonb #>> '{commandes,benefice}') is null
+  and (:'admin_stats'::jsonb #>> '{commandes,reverse_boutiques}') is null
+  and not (:'admin_stats'::jsonb::text ~ '"benefice": [0-9]'),
+  'mais pas la marge de BIZZOO, nulle part');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+update public.rh_profils set statistiques = '{livraisons}' where id = :'p_mkt';
+select essai.refuse(format($$update public.rh_profils set statistiques = '{marge}' where id = %L$$, :'p_mkt'),
+  'une rubrique inconnue est refusée');
+reset role; select essai.personne();
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_statistiques(current_date - 1, current_date + 1) as resp_stats \gset
+reset role; select essai.personne();
+select essai.verifie(:'resp_stats'::jsonb -> 'livraisons' <> 'null'::jsonb, 'le responsable du Marketing voit les livraisons');
+select essai.verifie(:'resp_stats'::jsonb -> 'commandes' = 'null'::jsonb and :'resp_stats'::jsonb -> 'sav' = 'null'::jsonb,
+  'et seulement elles');
+select essai.verifie(not (:'resp_stats'::jsonb::text ~ '"(gains|montant|ventes|benefice)": [0-9]'),
+  'sans aucun montant');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_statistiques()$$, 'les membres du profil, eux, ne voient toujours rien');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_statistiques(current_date, current_date - 3)$$, 'une période à l''envers est refusée');
+reset role; select essai.personne();
+
+-- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.refuse(format($$select public.rh_sortie_employe(%L, current_date)$$, :'ceo'),
