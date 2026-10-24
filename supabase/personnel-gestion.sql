@@ -284,7 +284,7 @@ begin
        from (select * from d where d.statut = 'decaissee' and d.decaisse_le >= t1 and d.decaisse_le < t2
               order by d.montant desc limit 10) x),
     'en_attente', (select jsonb_build_object('nombre', count(*), 'montant', coalesce(sum(montant), 0))
-                     from d where d.statut = 'demandee'),
+                     from d where d.statut in ('demandee', 'validee_responsable')),
     'a_decaisser', (select jsonb_build_object('nombre', count(*), 'montant', coalesce(sum(montant), 0))
                       from d where d.statut = 'approuvee'),
     'delai_decision_jours', (select round(avg(extract(epoch from (d.decision_le - d.cree_le)) / 86400)::numeric, 1)
@@ -481,7 +481,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a
@@ -796,8 +796,10 @@ begin
         (select count(*) from public.rh_missions where statut = 'rapport_remis') else 0 end,
       'rapports_a_valider', case when v_ceo then
         (select count(*) from public.rh_rapports where statut = 'publie') else 0 end,
+      'depenses_a_valider',
+        (select count(*) from public.rh_depenses where statut = 'demandee' and profil_id = any(mes_profils)),
       'depenses_a_approuver', case when v_ceo then
-        (select count(*) from public.rh_depenses where statut = 'demandee') else 0 end,
+        (select count(*) from public.rh_depenses where statut = 'validee_responsable') else 0 end,
       'depenses_a_decaisser', case when moi.peut_decaisser then
         (select count(*) from public.rh_depenses where statut = 'approuvee') else 0 end,
       'baremes_a_valider', case when v_ceo then

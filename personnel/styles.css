@@ -198,6 +198,12 @@ p{margin:0}
 .tableau-suivi td.large{min-width:200px}
 .tableau-suivi td.moyen{min-width:170px}
 .vue.vue-large{max-width:none}
+/* Le circuit d'une dépense : quatre étapes. */
+.etapes-depense{list-style:none;margin:4px 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.etapes-depense li{position:relative;padding-left:30px}
+.etapes-depense li::before{content:"";position:absolute;left:4px;top:3px;width:16px;height:16px;border-radius:50%;border:2px solid var(--trait);background:var(--blanc)}
+.etapes-depense li.fait::before{background:var(--vert-fonce);border-color:var(--vert-fonce)}
+.etapes-depense li.refus::before{background:var(--rouge);border-color:var(--rouge)}
 /* Localiser un livreur : la carte prend tout l'écran disponible. */
 .vue.vue-carte{max-width:none;padding:0}
 .localiser{display:flex;height:calc(100dvh - 64px);background:var(--fond)}

@@ -58,7 +58,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a
@@ -276,8 +276,6 @@ begin
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
     elsif v not in ('membres', 'responsable') then
       raise exception 'Réglage inconnu pour le menu %', k;
-    elsif k = 'depenses' and v = 'membres' then
-      raise exception 'Les dépenses se demandent par le responsable du profil seulement';
     else
       insert into public.rh_acces_menus (profil_id, menu, qui, modifie_par, modifie_le)
       values (cible, k, v, public.rh_moi(), now())

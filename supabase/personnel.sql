@@ -191,7 +191,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a
@@ -885,13 +885,15 @@ end $$;
 create table if not exists public.rh_depenses (
   id                 uuid primary key default gen_random_uuid(),
   numero             bigint generated always as identity,
-  profil_id          uuid not null references public.rh_profils(id) on delete restrict,
+  -- Le profil du demandeur ; vide pour un employé rangé dans aucun profil.
+  profil_id          uuid references public.rh_profils(id) on delete restrict,
   demandeur_id       uuid references public.rh_employes(id) on delete set null,
   objet              text not null check (length(btrim(objet)) > 0),
   details            text not null default '',
   montant            bigint not null check (montant > 0),
   statut             text not null default 'demandee'
-                     check (statut in ('demandee', 'approuvee', 'refusee', 'decaissee', 'annulee')),
+                     check (statut in ('demandee', 'validee_responsable', 'approuvee', 'refusee',
+                                       'decaissee', 'annulee')),
   cree_le            timestamptz not null default now(),
   decision_par       uuid,
   decision_le        timestamptz,
@@ -901,6 +903,10 @@ create table if not exists public.rh_depenses (
   mode_decaissement  text check (mode_decaissement in ('especes', 'virement', 'mobile_money', 'cheque')),
   reference          text not null default ''
 );
+-- La validation du responsable du profil, avant le CEO.
+alter table public.rh_depenses add column if not exists responsable_par uuid;
+alter table public.rh_depenses add column if not exists responsable_le timestamptz;
+alter table public.rh_depenses add column if not exists motif_responsable text not null default '';
 
 create or replace function public.rh_depense_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -912,15 +918,27 @@ begin
   end if;
   if tg_op = 'INSERT' then
     new.demandeur_id := public.rh_moi();
-    new.statut := 'demandee';
+    -- Le profil du DEMANDEUR, jamais celui que l'écran propose.
+    new.profil_id := public.rh_mon_profil();
+    -- Son responsable valide d'abord. Sans responsable (pas de profil,
+    -- profil sans responsable), ou s'il est lui-même le responsable,
+    -- la demande va droit au CEO.
+    new.statut := case
+      when exists (select 1 from public.rh_profils p
+                    where p.id = new.profil_id and p.responsable_id is not null
+                      and p.responsable_id <> new.demandeur_id) then 'demandee'
+      else 'validee_responsable' end;
     new.cree_le := now();
+    new.responsable_par := null; new.responsable_le := null; new.motif_responsable := '';
     new.decision_par := null; new.decision_le := null; new.motif_decision := '';
     new.decaisse_par := null; new.decaisse_le := null; new.mode_decaissement := null;
     new.reference := '';
     return new;
   end if;
-  if old.statut <> 'demandee' then
-    raise exception 'Une demande déjà tranchée ne se modifie plus';
+  -- Modifiable tant que personne ne l'a validée.
+  if not (old.statut = 'demandee'
+          or (old.statut = 'validee_responsable' and old.responsable_par is null)) then
+    raise exception 'Une demande déjà validée ou tranchée ne se modifie plus';
   end if;
   if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres) then
     raise exception 'Seuls l''objet, le détail et le montant se modifient';
@@ -948,9 +966,9 @@ begin
      set statut = case when approuver then 'approuvee' else 'refusee' end,
          decision_par = public.rh_moi(), decision_le = now(),
          motif_decision = btrim(coalesce(motif, ''))
-   where id = depense and statut = 'demandee';
+   where id = depense and statut = 'validee_responsable';
   if not found then
-    raise exception 'Cette dépense n''attend pas de décision';
+    raise exception 'Cette dépense n''attend pas la décision du CEO : son responsable doit d''abord la valider';
   end if;
   perform set_config('rh.decision', '', true);
 end $$;
@@ -964,6 +982,9 @@ begin
   end if;
   if mode not in ('especes', 'virement', 'mobile_money', 'cheque') then
     raise exception 'Mode de décaissement inconnu';
+  end if;
+  if exists (select 1 from public.rh_depenses where id = depense and demandeur_id = public.rh_moi()) then
+    raise exception 'On ne décaisse pas sa propre demande : un autre habilité s''en charge';
   end if;
   perform set_config('rh.decision', 'oui', true);
   update public.rh_depenses
@@ -981,7 +1002,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   perform set_config('rh.decision', 'oui', true);
   update public.rh_depenses set statut = 'annulee'
-   where id = depense and statut = 'demandee' and demandeur_id = public.rh_moi();
+   where id = depense and statut in ('demandee', 'validee_responsable') and demandeur_id = public.rh_moi();
   if not found then
     raise exception 'Seul le demandeur annule une demande encore en attente';
   end if;
@@ -1673,8 +1694,10 @@ begin
         (select count(*) from public.rh_missions where statut = 'rapport_remis') else 0 end,
       'rapports_a_valider', case when v_ceo then
         (select count(*) from public.rh_rapports where statut = 'publie') else 0 end,
+      'depenses_a_valider',
+        (select count(*) from public.rh_depenses where statut = 'demandee' and profil_id = any(mes_profils)),
       'depenses_a_approuver', case when v_ceo then
-        (select count(*) from public.rh_depenses where statut = 'demandee') else 0 end,
+        (select count(*) from public.rh_depenses where statut = 'validee_responsable') else 0 end,
       'depenses_a_decaisser', case when moi.peut_decaisser then
         (select count(*) from public.rh_depenses where statut = 'approuvee') else 0 end,
       'baremes_a_valider', case when v_ceo then
@@ -1790,11 +1813,11 @@ create policy "rh depenses lecture" on public.rh_depenses
   for select to authenticated using (
     public.rh_est_admin()
     or demandeur_id = public.rh_moi()
-    or public.rh_responsable_de(profil_id)
+    or (profil_id is not null and public.rh_responsable_de(profil_id))
     or (public.rh_peut_decaisser() and statut in ('approuvee', 'decaissee')));
 create policy "rh depenses demande" on public.rh_depenses
   for insert to authenticated
-  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'depenses'));
+  with check (public.rh_moi() is not null and public.rh_menu_ouvert('depenses'));
 create policy "rh depenses modification" on public.rh_depenses
   for update to authenticated
   using (demandeur_id = public.rh_moi()) with check (demandeur_id = public.rh_moi());

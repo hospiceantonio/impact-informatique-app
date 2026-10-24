@@ -103,7 +103,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a
@@ -129,9 +129,7 @@ create table if not exists public.rh_acces_menus (
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
     'depenses', 'suivi', 'livreurs', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
-  constraint rh_acces_menus_qui check (qui in ('responsable', 'membres')),
-  -- Une dépense se demande par le responsable du profil : c'est la règle.
-  constraint rh_acces_depenses_responsable check (menu <> 'depenses' or qui = 'responsable')
+  constraint rh_acces_menus_qui check (qui in ('responsable', 'membres'))
 );
 
 -- Le premier passage reprend ce qui était vrai jusqu'ici : mails,
@@ -145,7 +143,7 @@ begin
     select p.id, d.menu, d.qui
       from public.rh_profils p,
            (values ('mails', 'membres'), ('discussions', 'membres'), ('missions', 'membres'),
-                   ('rapports', 'membres'), ('depenses', 'responsable')) as d(menu, qui)
+                   ('rapports', 'membres'), ('depenses', 'membres')) as d(menu, qui)
     union all
     select p.id, m.menu, 'responsable'
       from public.rh_profils p
@@ -167,7 +165,7 @@ begin
   insert into public.rh_acces_menus (profil_id, menu, qui)
   values (new.id, 'mails', 'membres'), (new.id, 'discussions', 'membres'),
          (new.id, 'missions', 'membres'), (new.id, 'rapports', 'membres'),
-         (new.id, 'depenses', 'responsable')
+         (new.id, 'depenses', 'membres')
   on conflict do nothing;
   return null;
 end $$;
@@ -202,8 +200,6 @@ begin
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
     elsif v not in ('membres', 'responsable') then
       raise exception 'Réglage inconnu pour le menu %', k;
-    elsif k = 'depenses' and v = 'membres' then
-      raise exception 'Les dépenses se demandent par le responsable du profil seulement';
     else
       insert into public.rh_acces_menus (profil_id, menu, qui, modifie_par, modifie_le)
       values (cible, k, v, public.rh_moi(), now())
@@ -457,8 +453,10 @@ begin
         (select count(*) from public.rh_missions where statut = 'rapport_remis') else 0 end,
       'rapports_a_valider', case when v_ceo then
         (select count(*) from public.rh_rapports where statut = 'publie') else 0 end,
+      'depenses_a_valider',
+        (select count(*) from public.rh_depenses where statut = 'demandee' and profil_id = any(mes_profils)),
       'depenses_a_approuver', case when v_ceo then
-        (select count(*) from public.rh_depenses where statut = 'demandee') else 0 end,
+        (select count(*) from public.rh_depenses where statut = 'validee_responsable') else 0 end,
       'depenses_a_decaisser', case when moi.peut_decaisser then
         (select count(*) from public.rh_depenses where statut = 'approuvee') else 0 end,
       'baremes_a_valider', case when v_ceo then
@@ -706,4 +704,4 @@ create policy "rh rapports modification" on public.rh_rapports
 drop policy if exists "rh depenses demande" on public.rh_depenses;
 create policy "rh depenses demande" on public.rh_depenses
   for insert to authenticated
-  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'depenses'));
+  with check (public.rh_moi() is not null and public.rh_menu_ouvert('depenses'));

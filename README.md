@@ -4851,7 +4851,7 @@ Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une f
 - **Employé** : créé par l'administration → « en attente » → validé ou refusé (avec motif) par le CEO. Ensuite, « Créer l'accès » : un compte de connexion à son adresse `@bizzoomarket.com` (inscription avec `compte: personnel`, puis `rh_rattacher_compte`, qui ne rattache que le compte de SA propre adresse). Un compte BIZZOO existant à cette adresse est simplement rattaché. Le salaire d'un employé en poste et les droits ne changent que par le CEO ; l'employé ne touche qu'à son téléphone, son adresse et son e-mail personnel.
 - **Mission** : créée par l'administration pour un profil, avec une échéance → acceptée (ou refusée, motif) par le responsable → rapport rendu → clôturée, ou renvoyée « à reprendre ». En retard : le tableau de bord le dit.
 - **Rapport d'activité** : brouillon du responsable → publié → validé ou rejeté (commentaire) par le CEO. Validé, tous les membres du profil le lisent.
-- **Dépense** : demandée par le responsable → approuvée ou refusée par le CEO → décaissée par l'habilité (mode, référence). Le CEO lui-même ne décaisse pas sans l'habilitation.
+- **Dépense** (`personnel-depenses.sql`) : demandée par **tout employé** (motif, montant, détails) → validée ou refusée (motif) par le **responsable de son profil** → approuvée ou refusée par le **CEO** → décaissée par l'**habilité** (mode, référence), jamais sa propre demande. Statuts : « En attente du responsable » (`demandee`), « En attente du CEO » (`validee_responsable`), « En attente de décaissement » (`approuvee`), « Décaissée », « Refusée », « Annulée ». Sans responsable au-dessus du demandeur (pas de profil, profil sans responsable, ou demandeur responsable lui-même), la base envoie la demande droit au CEO. Le profil de la dépense est celui du demandeur, posé par la base. Modifiable et annulable par le demandeur tant que personne ne l'a validée ; chaque étape garde qui et quand, et la fiche les montre en quatre étapes. Le menu Dépenses s'ouvre à tous les membres (Paramètres peut le restreindre).
 - **Discussions** : celle de chaque profil (membres, responsable, administration) et les messages privés. Un message privé reste privé : l'administration ne le lit pas.
 
 ### La paie
@@ -4940,7 +4940,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

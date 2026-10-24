@@ -44,7 +44,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a

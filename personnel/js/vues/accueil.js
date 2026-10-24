@@ -22,12 +22,13 @@ const VueAccueil = (() => {
     if (App.estCeo()) {
       aFaire.push(tuile(c.employes_a_valider, "employé(s) à valider", "#/employes?filtre=en_attente", true));
       aFaire.push(tuile(c.rapports_a_valider, "rapport(s) d'activité à valider", "#/rapports?filtre=publie", true));
-      aFaire.push(tuile(c.depenses_a_approuver, "dépense(s) à approuver", "#/depenses?filtre=demandee", true));
+      aFaire.push(tuile(c.depenses_a_approuver, "dépense(s) à approuver", "#/depenses?filtre=validee_responsable", true));
       aFaire.push(tuile(c.fiches_a_valider, "fiche(s) de paie à valider", "#/paie", true));
       if (c.baremes_a_valider) aFaire.push(tuile(c.baremes_a_valider, "barème(s) de paie à valider", "#/paie/baremes", true));
     }
     if (App.estResponsable()) {
       aFaire.push(tuile(c.missions_a_repondre, "mission(s) à accepter", "#/missions?filtre=proposee", true));
+      aFaire.push(tuile(c.depenses_a_valider, "dépense(s) de votre équipe à valider", "#/depenses?filtre=demandee", true));
     }
     if (App.estAdmin()) {
       aFaire.push(tuile(c.missions_a_cloturer, "rapport(s) de mission à lire", "#/missions?filtre=rapport_remis", true));
@@ -47,6 +48,9 @@ const VueAccueil = (() => {
     }
     if (App.estResponsable()) {
       raccourcis.push(h("a", { class: "btn btn-second", href: "#/rapports/nouveau" }, UI.icone("plus", "ic-sm"), "Rapport d'activité"));
+    }
+    /* Tout employé demande une dépense, si Paramètres lui ouvre le menu. */
+    if (App.ouvert("depenses")) {
       raccourcis.push(h("a", { class: "btn btn-second", href: "#/depenses/nouvelle" }, UI.icone("plus", "ic-sm"), "Demande de dépense"));
     }
     raccourcis.push(h("a", { class: "btn btn-second", href: "#/mails/ecrire" }, UI.icone("mail", "ic-sm"), "Écrire un mail"));

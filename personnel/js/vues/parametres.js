@@ -20,7 +20,7 @@ const VueParametres = (() => {
       ["discussions", "Discussions", "La discussion du profil et les messages directs."],
       ["missions", "Missions", "Les missions du profil ; le responsable les accepte et rend le rapport."],
       ["rapports", "Rapports", "Le responsable publie ; les membres lisent les rapports validés."],
-      ["depenses", "Dépenses", "Demandées par le responsable du profil seulement.", true],
+      ["depenses", "Dépenses", "Demander une dépense ; le responsable valide, puis le CEO, puis l'habilité décaisse."],
     ]],
     ["Commandes", [
       ["suivi", "Suivi des commandes", "Statuts, alertes, incidents, export Excel : sans les montants."],

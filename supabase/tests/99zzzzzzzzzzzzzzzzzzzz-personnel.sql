@@ -360,17 +360,37 @@ select essai.egal((select count(*)::int from public.rh_rapports), 1, 'validé, l
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
-select essai.titre('8. Les dépenses');
+select essai.titre('8. Les dépenses : l''employé demande, son responsable valide, le CEO approuve, l''habilité décaisse');
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
-select essai.refuse(format($$insert into public.rh_depenses (profil_id, objet, montant) values (%L, 'Stylos', 5000)$$, :'p_mkt'),
-  'un simple membre ne demande pas de dépense');
-reset role; select essai.personne();
-select essai.devenir(:RESP::uuid); set role authenticated;
 insert into public.rh_depenses (profil_id, objet, montant, statut)
-values (:'p_mkt', 'Impression de 500 affiches', 50000, 'decaissee')
+values (:'p_log', 'Impression de 500 affiches', 50000, 'decaissee')
 returning id as depense \gset
 select essai.egal((select statut from public.rh_depenses where id = :'depense'), 'demandee',
-  'une dépense naît « demandée »');
+  'tout employé demande ; sa demande attend d''abord son responsable, quoi que dise l''écran');
+select essai.egal((select profil_id from public.rh_depenses where id = :'depense'), :'p_mkt'::uuid,
+  'dans le profil du demandeur, pas celui que l''écran propose');
+update public.rh_depenses set montant = 55000 where id = :'depense';
+select essai.egal((select montant from public.rh_depenses where id = :'depense'), 55000::bigint,
+  'il la corrige tant que personne ne l''a validée');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_decider_depense(%L, true)$$, :'depense'),
+  'le CEO attend la validation du responsable');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_valider_depense(%L, true)$$, :'depense'),
+  'l''administration ne valide pas à la place du responsable');
+reset role; select essai.personne();
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_valider_depense(%L, false, '')$$, :'depense'),
+  'un refus sans motif est refusé');
+select public.rh_valider_depense(:'depense', true);
+reset role; select essai.personne();
+select essai.egal((select statut || '/' || (responsable_par = :'e_resp'::uuid) from public.rh_depenses where id = :'depense'),
+  'validee_responsable/true', 'validée par le responsable, qui est noté ; elle part chez le CEO');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse(format($$update public.rh_depenses set montant = 90000 where id = %L$$, :'depense'),
+  'validée, son montant ne change plus');
 reset role; select essai.personne();
 select essai.devenir(:CAISSE::uuid); set role authenticated;
 select essai.egal((select count(*)::int from public.rh_depenses), 0, 'l''habilité ne voit pas une demande non approuvée');
@@ -386,16 +406,45 @@ select essai.refuse(format($$select public.rh_decaisser_depense(%L, 'especes')$$
   'le CEO lui-même ne décaisse pas sans habilitation');
 select public.rh_decider_depense(:'depense', true);
 reset role; select essai.personne();
-select essai.devenir(:RESP::uuid); set role authenticated;
-select essai.refuse(format($$update public.rh_depenses set montant = 90000 where id = %L$$, :'depense'),
-  'approuvée, son montant ne change plus');
-reset role; select essai.personne();
 select essai.devenir(:CAISSE::uuid); set role authenticated;
 select public.rh_decaisser_depense(:'depense', 'mobile_money', 'MM-123');
-select essai.egal((select statut from public.rh_depenses where id = :'depense'), 'decaissee',
-  'approuvée par le CEO, décaissée par l''habilité');
+select essai.egal((select statut || '/' || (decaisse_par = :'e_caisse'::uuid) from public.rh_depenses where id = :'depense'),
+  'decaissee/true', 'approuvée par le CEO, décaissée par l''habilité, qui est noté');
 select essai.refuse(format($$select public.rh_decaisser_depense(%L, 'especes')$$, :'depense'),
   'on ne décaisse pas deux fois');
+insert into public.rh_depenses (objet, montant) values ('Carburant du groupe', 10000) returning id as depense_caisse \gset
+reset role; select essai.personne();
+select set_config('rh.decision', 'oui', false);
+update public.rh_depenses set statut = 'approuvee' where id = :'depense_caisse';
+select set_config('rh.decision', '', false);
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_decaisser_depense(%L, 'especes')$$, :'depense_caisse'),
+  'l''habilité ne décaisse jamais sa propre demande');
+reset role; select essai.personne();
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+insert into public.rh_depenses (objet, montant) values ('Stylos', 5000) returning id as depense_resp \gset
+reset role; select essai.personne();
+select essai.egal((select statut from public.rh_depenses where id = :'depense_resp'), 'validee_responsable',
+  'le responsable qui demande va droit au CEO');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+insert into public.rh_depenses (objet, montant) values ('Taxi', 3000) returning id as depense_taxi \gset
+insert into public.rh_depenses (objet, montant) values ('Eau', 2000) returning id as depense_eau \gset
+select public.rh_annuler_depense(:'depense_eau');
+reset role; select essai.personne();
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_valider_depense(:'depense_taxi', false, 'Pas prévu ce mois');
+select essai.egal((public.rh_tableau_de_bord() #>> '{compteurs,depenses_a_valider}')::int, 0,
+  'le tableau de bord du responsable ne compte plus rien à valider');
+reset role; select essai.personne();
+select essai.egal((select statut || '/' || motif_responsable from public.rh_depenses where id = :'depense_taxi'),
+  'refusee/Pas prévu ce mois', 'le responsable refuse, avec son motif');
+select essai.egal((select statut from public.rh_depenses where id = :'depense_eau'), 'annulee',
+  'le demandeur annule tant que rien n''est tranché');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal((public.rh_tableau_de_bord() #>> '{compteurs,depenses_a_approuver}')::int, 1,
+  'le CEO voit une demande à approuver : celle du responsable');
+select public.rh_decider_depense(:'depense_resp', false, 'Budget fournitures épuisé');
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
@@ -693,14 +742,14 @@ reset role;
 select essai.titre('14. Les paramètres : les accès aux menus, profil par profil');
 select essai.egal((select string_agg(menu || '=' || qui, ',' order by menu) from public.rh_acces_menus
                     where profil_id = :'p_log'),
-  'depenses=responsable,discussions=membres,mails=membres,missions=membres,rapports=membres',
+  'depenses=membres,discussions=membres,mails=membres,missions=membres,rapports=membres',
   'un profil reçoit à sa naissance les accès d''avant');
 select (select count(*) from public.rh_missions where profil_id = :'p_mkt') as nb_missions_mkt \gset
 select essai.verifie(:'nb_missions_mkt'::int > 0, 'le Marketing a des missions');
 
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
-select essai.egal(public.rh_mes_menus(), array['mails', 'discussions', 'missions', 'rapports'],
-  'un membre : mails, discussions, missions, rapports');
+select essai.egal(public.rh_mes_menus(), array['mails', 'discussions', 'missions', 'rapports', 'depenses'],
+  'un membre : mails, discussions, missions, rapports, dépenses');
 select essai.egal(public.rh_suivi_acces(), null::text, 'le suivi, ouvert au seul responsable, lui reste fermé');
 select essai.refuse(format($$select public.rh_regler_acces(%L, '{"suivi":"membres"}')$$, :'p_mkt'),
   'un membre ne s''ouvre pas un menu');
@@ -719,8 +768,6 @@ reset role; select essai.personne();
 select essai.devenir(:ADMRH::uuid); set role authenticated;
 select public.rh_regler_acces(:'p_mkt',
   '{"missions":"responsable","discussions":"ferme","stats_livraisons":"ferme","employes":"membres"}');
-select essai.refuse(format($$select public.rh_regler_acces(%L, '{"depenses":"membres"}')$$, :'p_mkt'),
-  'les dépenses ne s''ouvrent pas à tous les membres : le responsable les demande');
 select essai.refuse(format($$select public.rh_regler_acces(%L, '{"paie":"membres"}')$$, :'p_mkt'),
   'la paie ne s''ouvre à aucun profil');
 select essai.refuse(format($$select public.rh_regler_acces(%L, '{"mails":"tous"}')$$, :'p_mkt'),
@@ -732,8 +779,8 @@ select essai.verifie((select count(*) from public.rh_messages where profil_id = 
 reset role; select essai.personne();
 
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
-select essai.egal(public.rh_mes_menus(), array['mails', 'rapports', 'employes'],
-  'le membre n''a plus que mails, rapports et l''annuaire');
+select essai.egal(public.rh_mes_menus(), array['mails', 'rapports', 'depenses', 'employes'],
+  'le membre n''a plus que mails, rapports, dépenses et l''annuaire');
 select essai.egal((select count(*)::int from public.rh_missions where profil_id = :'p_mkt'), 0,
   'missions fermées aux membres : il ne les voit plus');
 select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_mkt'), 0,

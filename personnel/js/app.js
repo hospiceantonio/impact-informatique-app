@@ -70,7 +70,7 @@ const App = (() => {
         pastille: c.rapports_a_valider },
       { route: "depenses", libelle: "Dépenses", icone: "argent",
         pour: () => ouvert("depenses") || peutDecaisser(),
-        pastille: (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
+        pastille: (c.depenses_a_valider || 0) + (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
