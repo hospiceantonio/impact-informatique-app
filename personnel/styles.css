@@ -259,6 +259,17 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
 .saisie{position:sticky;bottom:calc(var(--barre-h) + var(--safe-b) + 6px);display:flex;gap:8px;background:var(--fond);padding:8px 0}
 .saisie textarea{flex:1;min-height:44px;max-height:140px;padding:10px 12px;border:1px solid var(--trait);border-radius:14px;resize:none}
 @media (min-width:900px){.saisie{bottom:8px}}
+.saisie .outil{flex:none;width:44px;height:44px;border-radius:50%;border:1px solid var(--trait);background:var(--blanc);color:var(--encre-douce);display:inline-flex;align-items:center;justify-content:center}
+.saisie .outil.enregistre{background:var(--rouge);border-color:var(--rouge);color:#fff}
+.saisie-bloc{position:sticky;bottom:calc(var(--barre-h) + var(--safe-b) + 6px);background:var(--fond)}
+.saisie-bloc .saisie{position:static}
+@media (min-width:900px){.saisie-bloc{bottom:8px}}
+.piece-attente{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px dashed var(--trait);border-radius:12px;background:var(--blanc);font-size:13px}
+.piece-attente audio,.piece-attente img,.piece-attente video{max-height:60px;max-width:120px;border-radius:8px}
+.bulle .piece{margin:2px 0 4px}
+.bulle .piece img,.bulle .piece video{display:block;max-width:min(280px,100%);max-height:320px;border-radius:10px;background:#0001;cursor:pointer}
+.bulle .piece audio{width:min(260px,70vw);max-width:100%}
+.ephemere{font-size:12px;color:var(--encre-douce);text-align:center;margin:4px 0 0}
 
 /* ---------- Fiche de paie imprimable ---------- */
 .fiche-paie{background:#fff;border:1px solid var(--trait);border-radius:var(--r);padding:22px;font-size:13.5px}

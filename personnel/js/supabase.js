@@ -7,7 +7,10 @@
    - données : tables « rh_… », sous les règles de la base ;
    - décisions : fonctions « rh_… » (rpc), qui vérifient
      elles-mêmes qui appelle ;
-   - messagerie : la fonction Edge « rh-messagerie ».
+   - messagerie : la fonction Edge « rh-messagerie » ;
+   - pièces jointes des discussions : le seau PRIVÉ « rh-pieces »,
+     lu par des liens signés que la base n'accorde qu'à qui voit
+     le message.
 
    L'écran ne décide d'aucun droit : il cache ce qui ne sert
    pas, la base refuse ce qui n'est pas permis.
@@ -229,8 +232,74 @@ const Supabase = (() => {
     return d;
   }
 
+  /* ---------- Les pièces jointes (seau privé « rh-pieces ») ---------- */
+
+  const SEAU = "rh-pieces";
+
+  async function entetesStockage() {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) {
+      const err = new Error("Session expirée : reconnectez-vous.");
+      err.deconnecte = true;
+      throw err;
+    }
+    return { c, entetes: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token } };
+  }
+
+  /** Dépose un fichier dans le dossier de l'employé ; le chemin revient. */
+  async function deposer(chemin, fichier, type) {
+    const { c, entetes } = await entetesStockage();
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/storage/v1/object/" + SEAU + "/" + chemin, {
+        method: "POST", headers: { ...entetes, "Content-Type": type || "application/octet-stream" }, body: fichier,
+      });
+    } catch (_) {
+      throw new Error("Envoi du fichier impossible. Vérifiez votre connexion internet.");
+    }
+    if (!reponse.ok) {
+      const d = await reponse.json().catch(() => ({}));
+      const m = String(d.message || d.error || "");
+      if (reponse.status === 413 || /too large|maximum allowed size/i.test(m)) throw new Error("Fichier trop lourd : 50 Mo au plus.");
+      if (/mime type/i.test(m)) throw new Error("Ce type de fichier ne s'envoie pas : photos, vidéos et audio seulement.");
+      if (/bucket not found/i.test(m)) throw new Error("La base n'a pas encore les pièces jointes : exécutez supabase/personnel-pieces.sql.");
+      if (reponse.status === 403 || /row-level security|unauthorized/i.test(m)) throw new Error("La base refuse : votre compte n'envoie pas de fichier ici.");
+      throw new Error("Envoi du fichier refusé (" + reponse.status + ")" + (m ? " — " + m : "") + ".");
+    }
+    return chemin;
+  }
+
+  /** Des liens de lecture, valables « secondes » ; seuls ceux que la base accorde. */
+  async function signer(chemins, secondes) {
+    if (!chemins.length) return {};
+    const { c, entetes } = await entetesStockage();
+    const reponse = await fetch(c.url + "/storage/v1/object/sign/" + SEAU, {
+      method: "POST", headers: { ...entetes, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: secondes || 3600, paths: chemins }),
+    });
+    const d = await reponse.json().catch(() => []);
+    const liens = {};
+    for (const x of Array.isArray(d) ? d : []) {
+      if (x && x.signedURL && !x.error) liens[x.path] = c.url + "/storage/v1" + x.signedURL;
+    }
+    return liens;
+  }
+
+  /** Retire un fichier qu'aucun message ne cite (envoi raté) ; en silence. */
+  async function retirer(chemin) {
+    try {
+      const { c, entetes } = await entetesStockage();
+      await fetch(c.url + "/storage/v1/object/" + SEAU, {
+        method: "DELETE", headers: { ...entetes, "Content-Type": "application/json" },
+        body: JSON.stringify({ prefixes: [chemin] }),
+      });
+    } catch (_) { /* le ménage de l'heure le fera */ }
+  }
+
   return {
     configuration, sessionPresente, utilisateur, connexion, deconnexion, assurerSession,
     changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie,
+    deposer, signer, retirer,
   };
 })();

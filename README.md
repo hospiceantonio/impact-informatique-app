@@ -4898,6 +4898,14 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
 - **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
+### Photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours
+
+`supabase/personnel-pieces.sql`, fonction Edge `supabase/functions/rh-menage`.
+
+- **Joindre** : le trombone choisit une photo, une vidéo ou un fichier audio ; le micro enregistre un message vocal (5 minutes au plus). Une pièce par message, texte facultatif ; 50 Mo au plus. Une photo plus grande que 1 600 px est réduite en JPEG avant l'envoi.
+- **Le seau `rh-pieces` est privé.** Chacun dépose dans SON dossier (`<id de l'employé>/…`) et seulement s'il a les discussions ; le message ne peut citer qu'un fichier de son auteur, présent, jamais déjà cité, et dont le type (lu dans le stockage, pas dans la requête) est image, vidéo ou audio. On lit un fichier par un lien signé d'une heure, que la base n'accorde qu'à qui voit le message : la note vocale d'un message privé reste privée, même pour l'administration.
+- **Tout message s'efface 7 jours après son envoi**, texte et pièce : pg_cron appelle `rh_purger_messages` chaque heure (`rh-messages-7-jours`), puis la fonction `rh-menage` (`rh-pieces-menage`, par pg_net), qui efface du stockage les fichiers qu'aucun message ne cite plus (ceux des messages partis, et les envois abandonnés depuis plus d'une heure). Le stockage ne s'efface que par son API : d'où la fonction. Elle ne lit rien dans la requête et n'efface que ce que la règle efface de toute façon : déployée **sans** vérification du jeton (`--no-verify-jwt`).
+
 ### Bloquer, supprimer un employé
 
 `supabase/personnel-gestion.sql`. Sur la fiche d'un employé, le CEO et le superadministrateur de BIZZOO (`est_super()`, même s'il n'est pas le CEO) ont trois boutons ; l'administration ne les a pas. Le CEO ne se bloque ni ne se supprime, personne n'agit sur sa propre fiche, et chaque geste demande un motif.
@@ -4923,7 +4931,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql` (après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

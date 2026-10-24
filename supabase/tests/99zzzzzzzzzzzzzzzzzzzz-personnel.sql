@@ -25,7 +25,8 @@
 --  14. le menu Paramètres : les accès aux menus, que la base applique
 --      elle-même, et l'en-tête de l'entreprise ;
 --  15. bloquer, débloquer, supprimer : le CEO et le superadministrateur ;
---  16. les statistiques internes : salaires, dépenses, effectifs, revenus.
+--  16. les statistiques internes : salaires, dépenses, effectifs, revenus ;
+--  17. photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -891,6 +892,78 @@ select essai.egal((:'ce_mois'::jsonb ->> 'revenus')::bigint,
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.verifie(public.rh_finances() -> 'revenus' <> 'null'::jsonb, 'le CEO les voit aussi');
 reset role; select essai.personne();
+
+-- ---------------------------------------------------------
+select essai.titre('17. Les pièces jointes des discussions, et l''effacement à 7 jours');
+-- Comme dans Supabase, les comptes connectés atteignent la table du
+-- stockage ; ce sont ses règles qui trient.
+grant select, insert, delete on storage.objects to authenticated;
+alter table storage.objects enable row level security;
+select essai.verifie((select not public from storage.buckets where id = 'rh-pieces'), 'le seau des pièces est privé');
+insert into storage.objects (bucket_id, name, metadata) values
+  ('rh-pieces', :'e_membre' || '/photo-1.jpg', '{"mimetype": "image/jpeg", "size": 120000}'),
+  ('rh-pieces', :'e_membre' || '/note.webm', '{"mimetype": "audio/webm", "size": 30000}'),
+  ('rh-pieces', :'e_membre' || '/contrat.pdf', '{"mimetype": "application/pdf", "size": 9000}'),
+  ('rh-pieces', :'e_resp' || '/video.mp4', '{"mimetype": "video/mp4", "size": 4000000}');
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+insert into public.rh_messages (profil_id, texte, piece, piece_nom)
+values (:'p_mkt', '', :'e_membre' || '/photo-1.jpg', 'Affiche.jpg');
+select essai.egal((select piece_type || '/' || piece_taille || '/' || piece_nom from public.rh_messages
+                    where piece = :'e_membre' || '/photo-1.jpg'), 'image/120000/Affiche.jpg',
+  'une photo s''envoie sans texte ; type et poids viennent du stockage');
+insert into public.rh_messages (destinataire_id, texte, piece, piece_type, piece_taille)
+values (:'e_resp', 'Écoute ça', :'e_membre' || '/note.webm', 'image', 1);
+select essai.egal((select piece_type || '/' || piece_taille from public.rh_messages where piece = :'e_membre' || '/note.webm'),
+  'audio/30000', 'un message vocal ; le type et le poids annoncés par l''écran ne comptent pas');
+select essai.refuse(format($$insert into public.rh_messages (profil_id, texte, piece) values (%L, '', %L)$$, :'p_mkt', :'e_resp' || '/video.mp4'),
+  'on n''envoie pas le fichier d''un autre');
+select essai.refuse(format($$insert into public.rh_messages (profil_id, texte, piece) values (%L, '', %L)$$, :'p_mkt', :'e_membre' || '/photo-1.jpg'),
+  'ni deux fois le même');
+select essai.refuse(format($$insert into public.rh_messages (profil_id, texte, piece) values (%L, '', %L)$$, :'p_mkt', :'e_membre' || '/absent.jpg'),
+  'ni un fichier qui n''existe pas');
+select essai.refuse(format($$insert into public.rh_messages (profil_id, texte, piece) values (%L, '', %L)$$, :'p_mkt', :'e_membre' || '/contrat.pdf'),
+  'ni autre chose qu''une photo, une vidéo ou un audio');
+select essai.refuse(format($$insert into public.rh_messages (profil_id, texte) values (%L, '  ')$$, :'p_mkt'),
+  'un message vide, sans pièce, reste refusé');
+select essai.refuse(format($$insert into storage.objects (bucket_id, name) values ('rh-pieces', %L)$$, :'e_resp' || '/intrus.jpg'),
+  'personne ne dépose dans le dossier d''un autre');
+insert into storage.objects (bucket_id, name, metadata) values ('rh-pieces', :'e_membre' || '/la-mienne.jpg', '{"mimetype": "image/jpeg"}');
+select essai.verifie(true, 'chacun dépose dans son dossier');
+reset role; select essai.personne();
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.egal((select count(*)::int from storage.objects where bucket_id = 'rh-pieces' and name like :'e_membre' || '/%'), 2,
+  'le responsable voit la photo du profil et la note qui lui est adressée — pas le reste');
+reset role; select essai.personne();
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.egal((select count(*)::int from storage.objects where bucket_id = 'rh-pieces' and name like :'e_membre' || '/%'), 0,
+  'hors du profil, on ne voit aucun fichier');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.egal((select count(*)::int from storage.objects where bucket_id = 'rh-pieces' and name like :'e_membre' || '/%'), 1,
+  'l''administration voit la photo du profil, pas la note privée');
+reset role; select essai.personne();
+
+update public.rh_messages set cree_le = now() - interval '8 days' where piece = :'e_membre' || '/photo-1.jpg';
+update storage.objects set created_at = now() - interval '8 days' where name = :'e_membre' || '/photo-1.jpg';
+update storage.objects set created_at = now() - interval '2 hours' where name = :'e_membre' || '/contrat.pdf';
+select (select count(*) from public.rh_messages) as nb_messages \gset
+select essai.verifie(public.rh_purger_messages() >= 1, 'au bout de 7 jours, le message s''efface');
+select essai.verifie(not exists (select 1 from public.rh_messages where piece = :'e_membre' || '/photo-1.jpg'),
+  'avec sa pièce');
+select essai.verifie(exists (select 1 from public.rh_messages where piece = :'e_membre' || '/note.webm'),
+  'le message récent, lui, reste');
+select essai.egal(public.rh_pieces_perimees(), array[:'e_membre' || '/photo-1.jpg', :'e_membre' || '/contrat.pdf'],
+  'à effacer du stockage : la photo du message parti, et le fichier abandonné ; rien de récent ni de cité');
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_purger_messages()$$, 'personne ne déclenche l''effacement à la main');
+select essai.refuse($$select public.rh_pieces_perimees()$$, 'ni ne liste les fichiers à effacer');
+reset role; select essai.personne();
+delete from storage.objects where bucket_id = 'rh-pieces';
+alter table storage.objects disable row level security;
+revoke select, insert, delete on storage.objects from authenticated;
+delete from public.rh_messages where piece is not null;
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');
