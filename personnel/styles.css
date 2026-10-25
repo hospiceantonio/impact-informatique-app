@@ -205,8 +205,10 @@ p{margin:0}
 .tableau-suivi th,.tableau-suivi td{border-right:1px solid var(--trait)}
 .tableau-suivi th:last-child,.tableau-suivi td:last-child{border-right:0}
 .tableau-suivi .tableau.colonnes-fixes{table-layout:fixed;min-width:0}
-.tableau-suivi .colonnes-fixes td,.tableau-suivi .colonnes-fixes th{min-width:0;overflow-wrap:anywhere}
+.tableau-suivi .colonnes-fixes td,.tableau-suivi .colonnes-fixes th{min-width:0;overflow-wrap:break-word}
 .tableau-suivi .colonnes-fixes th{white-space:normal}
+.tableau-suivi .tableau.colonnes-fixes td{white-space:normal}
+.tableau-suivi .tableau.colonnes-fixes .etiquette{white-space:normal;max-width:100%;text-align:left}
 .poignee-colonne{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:4;touch-action:none}
 .poignee-colonne::after{content:"";position:absolute;top:20%;bottom:20%;left:4px;width:1px;background:transparent}
 .poignee-colonne:hover::after,.poignee-colonne.active::after{background:var(--bleu-400);width:3px;left:3px}
