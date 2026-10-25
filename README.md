@@ -4898,6 +4898,15 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
 - **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
+### Se connecter par son numéro ; la fiche complète
+
+`supabase/personnel-fiches.sql`.
+
+- **Connexion** : chaque employé entre avec **son numéro** (01 + 8 chiffres) et le **code reçu par SMS** (Supabase Auth, hook `hook-sms-auth`). L'application demande d'abord à la base si ce numéro est celui d'un employé en poste (`rh_telephone_employe`) : pas de SMS ni de compte pour un autre numéro. Le compte rejoint alors la fiche qui porte ce numéro (`rh_rattacher_par_telephone`) ; une fiche déjà reliée à un autre compte ne change pas de main. **Appareil de confiance** : coché, la session se garde 7 jours (puis un nouveau code) ; sinon elle ne vit que le temps de l'onglet, et un code est redemandé à chaque connexion. L'e-mail et le mot de passe restent possibles (« Se connecter avec une adresse e-mail »).
+- **La fiche** gagne téléphone pro, équipement confié, langue, « marié(e) », moto ; le sexe peut rester vide. **Ethnie et religion** sont dans `rh_employes_sensibles`, lisibles et modifiables par le CEO et le superadministrateur seuls.
+- **Qui modifie** : le superadministrateur comme le CEO (droits, salaire). L'employé complète lui-même, dans « Mon compte », son e-mail, son sexe, sa date de naissance, son lieu de résidence, sa langue, « marié(e) » et sa moto ; **pas son numéro** (c'est son identifiant), que l'administration change.
+- **Le personnel de BIZZOO** a été importé le 25/10/2026 depuis son fichier (feuille « FICHIER DG »), hors du dépôt : 24 employés, 7 responsables, 6 profils ajoutés aux 5 existants.
+
 ### La caisse
 
 `supabase/personnel-caisse.sql` ; écran `personnel/js/vues/caisse.js`.
@@ -4950,7 +4959,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

@@ -109,7 +109,8 @@ const VueEmployes = (() => {
 
   async function formulaire(zone, e) {
     App.titre(e ? "Modifier " + UI.nomComplet(e) : "Nouvel employé");
-    const ceo = App.estCeo();
+    /* Le superadministrateur modifie une fiche comme le CEO (droits, salaire). */
+    const ceo = App.estCeo() || App.estSuper();
     const salaireFige = e && e.etat === "actif" && !ceo;
     const champs = {};
     const champ = (nom, libelle, entree, aide, large) => {
@@ -127,16 +128,18 @@ const VueEmployes = (() => {
       h("div", { class: "formulaire" },
         champ("nom", "Nom *", h("input", { required: true, value: val("nom") })),
         champ("prenoms", "Prénoms", h("input", { value: val("prenoms") })),
-        champ("sexe", "Sexe *", choix("sexe", [["M", "Homme"], ["F", "Femme"]], val("sexe", "M"))),
+        champ("sexe", "Sexe", choix("sexe", [["", "À préciser"], ["M", "Homme"], ["F", "Femme"]], val("sexe", ""))),
         champ("date_naissance", "Date de naissance", h("input", { type: "date", value: val("date_naissance") }), "L'âge se calcule tout seul."),
         champ("niveau_etude", "Niveau d'étude", h("input", { list: "niveaux-etude", value: val("niveau_etude") }))),
       h("h2", {}, "Contact"),
       h("div", { class: "formulaire" },
-        champ("telephone", "Téléphone", h("input", { type: "tel", value: val("telephone") })),
+        champ("telephone", "Téléphone (sert à se connecter)", h("input", { type: "tel", value: val("telephone"), placeholder: "01 + 8 chiffres" }),
+          "Il se connecte avec ce numéro et un code reçu par SMS."),
+        champ("telephone_pro", "Téléphone pro", h("input", { type: "tel", value: val("telephone_pro") })),
         champ("email_pro", "E-mail professionnel", h("input", { type: "email", value: val("email_pro"), placeholder: "prenom.nom" + DOMAINE }),
           "Son adresse " + DOMAINE + " : elle sert de connexion et de boîte mail."),
         champ("email_perso", "E-mail personnel", h("input", { type: "email", value: val("email_perso") })),
-        champ("adresse", "Adresse", h("input", { value: val("adresse") }))),
+        champ("adresse", "Lieu de résidence", h("input", { value: val("adresse") }))),
       h("h2", {}, "Poste"),
       h("div", { class: "formulaire" },
         champ("date_embauche", "Date d'embauche *", h("input", { type: "date", required: true, value: val("date_embauche", UI.aujourdhui()) })),
@@ -151,6 +154,11 @@ const VueEmployes = (() => {
         champ("compte_paiement", "N° de compte ou de Mobile Money", h("input", { value: val("compte_paiement") })),
         champ("numero_cnss", "N° CNSS", h("input", { value: val("numero_cnss") }))),
       h("h2", {}, "Autres informations"),
+      h("div", { class: "formulaire" },
+        champ("equipement", "Équipement confié", h("input", { value: val("equipement"), placeholder: "Téléphone, ordinateur, tablette…" })),
+        champ("langue", "Langue", h("input", { value: val("langue") })),
+        champ("marie", "Marié(e)", h("input", { value: val("marie"), placeholder: "Oui / Non" })),
+        champ("moto", "Moto", choix("moto", [["", "À préciser"], ["true", "Oui"], ["false", "Non"]], val("moto", "")))),
       champ("infos", "Informations complémentaires", h("textarea", {}), null, true),
       ceo ? h("div", { class: "pile" },
         h("h2", {}, "Droits (CEO)"),
@@ -175,7 +183,13 @@ const VueEmployes = (() => {
         v.salaire_base = Math.round(Number(v.salaire_base || 0));
         if (!(v.salaire_base >= 0)) return UI.echec("Le salaire doit être un nombre de francs.");
       }
-      for (const n of ["date_naissance", "profil_id", "email_pro"]) if (v[n] === "") v[n] = null;
+      for (const n of ["date_naissance", "profil_id", "email_pro", "sexe"]) if (v[n] === "") v[n] = null;
+      if ("moto" in v) v.moto = v.moto === "" ? null : v.moto === "true";
+      if (v.telephone) {
+        const t = v.telephone.replace(/[^0-9]/g, "").replace(/^229(?=01)/, "");
+        v.telephone = t.length === 8 ? "01" + t : t;
+        if (!/^01[0-9]{8}$/.test(v.telephone)) return UI.echec("Téléphone : 01 suivi de 8 chiffres.");
+      }
       if (v.email_pro) {
         v.email_pro = v.email_pro.toLowerCase();
         if (!v.email_pro.endsWith(DOMAINE) &&
@@ -205,7 +219,14 @@ const VueEmployes = (() => {
     if (!e) return UI.vider(zone, UI.vide("Employé introuvable."));
     App.titre(UI.nomComplet(e));
     const ceo = App.estCeo();
+    /* Modifier une fiche : aussi le superadministrateur, comme le CEO. */
+    const modifieur = ceo || App.estSuper();
     const recharger = () => App.rafraichir().then(() => fiche(zone, id));
+    /* Ethnie et religion : à part, pour le CEO et le superadministrateur. */
+    const sensibles = modifieur
+      ? (await Supabase.lire("rh_employes_sensibles?select=*&employe_id=eq." + encodeURIComponent(id)).catch(() => []))[0] || null
+      : null;
+    if (!zone.isConnected) return;
     const age = UI.age(e.date_naissance);
     const ligne = (libelle, valeur) => h("div", {}, h("div", { class: "doux tres-petit" }, libelle), h("div", { class: "gras" }, valeur || "—"));
     const responsableDe = profils.filter((p) => p.responsable_id === e.id).map((p) => p.nom);
@@ -223,7 +244,7 @@ const VueEmployes = (() => {
         recharger();
       } }, "Refuser"));
     }
-    if (!e.ceo || ceo) {
+    if (!e.ceo || modifieur) {
       if (!["sorti", "supprime"].includes(e.etat)) actions.push(h("button", { class: "btn btn-second", onclick: () => formulaire(zone, e) }, UI.icone("crayon", "ic-sm"), "Modifier"));
     }
     if (e.etat === "actif" && !e.compte_id && (!e.ceo || ceo)) {
@@ -297,19 +318,39 @@ const VueEmployes = (() => {
         actions.length ? h("div", { class: "actions" }, actions) : null),
       h("div", { class: "carte" }, h("h2", {}, "Informations"),
         h("div", { class: "formulaire" },
-          ligne("Sexe", e.sexe === "F" ? "Femme" : "Homme"),
+          ligne("Sexe", e.sexe === "F" ? "Femme" : e.sexe === "M" ? "Homme" : "À préciser"),
           ligne("Date de naissance", e.date_naissance ? UI.date(e.date_naissance) + (age !== null ? " (" + age + " ans)" : "") : null),
           ligne("Niveau d'étude", e.niveau_etude),
-          ligne("Téléphone", e.telephone),
+          ligne("Téléphone (connexion)", e.telephone),
+          ligne("Téléphone pro", e.telephone_pro),
           ligne("E-mail professionnel", e.email_pro),
           ligne("E-mail personnel", e.email_perso),
-          ligne("Adresse", e.adresse),
+          ligne("Lieu de résidence", e.adresse),
           ligne("Profil", nomProfil(e.profil_id)),
           ligne("Date d'embauche", UI.date(e.date_embauche)),
           ligne("Salaire de base", UI.fcfa(e.salaire_base)),
           ligne("Paiement", MODES[e.mode_paiement] + (e.compte_paiement ? " · " + e.compte_paiement : "")),
-          ligne("N° CNSS", e.numero_cnss)),
+          ligne("N° CNSS", e.numero_cnss),
+          ligne("Équipement", e.equipement),
+          ligne("Langue", e.langue),
+          ligne("Marié(e)", e.marie),
+          ligne("Moto", e.moto === true ? "Oui" : e.moto === false ? "Non" : null)),
         e.infos ? h("div", { class: "pre", style: { marginTop: "12px" } }, e.infos) : null),
+      modifieur ? h("div", { class: "carte pile" },
+        h("h2", {}, "Données sensibles"),
+        h("p", { class: "doux tres-petit" }, "Visibles du CEO et du superadministrateur seulement : jamais de l'administration, ni de l'annuaire."),
+        h("div", { class: "formulaire" },
+          ligne("Ethnie", sensibles && sensibles.ethnie), ligne("Religion", sensibles && sensibles.religion)),
+        h("div", { class: "actions" }, h("button", { class: "btn btn-second", onclick: async (ev) => {
+          const v = await UI.formulaire({ titre: "Données sensibles", valider: "Enregistrer", champs: [
+            { nom: "ethnie", libelle: "Ethnie", valeur: sensibles ? sensibles.ethnie : "" },
+            { nom: "religion", libelle: "Religion", valeur: sensibles ? sensibles.religion : "" }] });
+          if (!v) return;
+          await UI.agir(ev.currentTarget, () => sensibles
+            ? Supabase.modifier("rh_employes_sensibles", "employe_id=eq." + e.id, v)
+            : Supabase.ajouter("rh_employes_sensibles", { employe_id: e.id, ...v }), "Enregistré.");
+          recharger();
+        } }, UI.icone("crayon", "ic-sm"), "Modifier"))) : null,
       journal.length ? h("div", { class: "carte" }, h("h2", {}, "Historique de l'accès"),
         h("div", { class: "liste" }, journal.map((j) => h("div", { class: "element" },
           h("div", { class: "etire" },

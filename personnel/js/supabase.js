@@ -3,7 +3,8 @@
 
    Même base que la place de marché et BIZZOO Admin, mêmes
    appels REST que « admin/js/supabase.js », sans bibliothèque :
-   - compte : e-mail professionnel + mot de passe ;
+   - compte : le numéro de téléphone et un code reçu par SMS (chaque
+     employé), ou l'e-mail et le mot de passe (l'administration) ;
    - données : tables « rh_… », sous les règles de la base ;
    - décisions : fonctions « rh_… » (rpc), qui vérifient
      elles-mêmes qui appelle ;
@@ -36,19 +37,73 @@ const Supabase = (() => {
 
   /* ---------- Session ---------- */
 
+  /* LA CONFIANCE DANS L'APPAREIL. Entré par son numéro, l'employé
+     redonne un code à chaque connexion : sa session ne vit que le temps
+     de l'onglet (sessionStorage). S'il fait confiance à cet appareil,
+     elle se garde 7 jours (localStorage), puis un nouveau code est
+     demandé. L'entrée par e-mail et mot de passe se garde comme avant. */
+  const CONFIANCE = 7 * 24 * 3600 * 1000;
   let session = null;
-  try { session = JSON.parse(localStorage.getItem(CLE_SESSION) || "null"); } catch (_) { session = null; }
+  try {
+    session = JSON.parse(sessionStorage.getItem(CLE_SESSION) || localStorage.getItem(CLE_SESSION) || "null");
+  } catch (_) { session = null; }
+  if (session && session.confiance_jusqu && Date.now() > session.confiance_jusqu) {
+    session = null;
+    try { localStorage.removeItem(CLE_SESSION); } catch (_) { /* vide */ }
+  }
 
   function garderSession(s) {
     session = s;
     try {
-      if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
-      else localStorage.removeItem(CLE_SESSION);
+      localStorage.removeItem(CLE_SESSION);
+      sessionStorage.removeItem(CLE_SESSION);
+      if (s) (s.telephone && !s.confiance_jusqu ? sessionStorage : localStorage).setItem(CLE_SESSION, JSON.stringify(s));
     } catch (_) { /* stockage indisponible : la session vit le temps de l'onglet */ }
   }
 
   const sessionPresente = () => !!session;
-  const utilisateur = () => (session ? session.email : null);
+  const utilisateur = () => (session ? session.email || (session.telephone ? "+" + session.telephone : null) : null);
+  const parTelephone = () => !!(session && session.telephone);
+
+  /** « 59 04 56 04 », « 0159045604 », « +229 01 59 04 56 04 » : le même
+      numéro, au format international de Supabase (229 + 01 + 8 chiffres). */
+  function numeroInternational(tel) {
+    let n = String(tel || "").replace(/[^0-9]/g, "");
+    if (n.startsWith("229") && n.length >= 11) n = n.slice(3);
+    if (n.length === 8) n = "01" + n;
+    if (!/^01[0-9]{8}$/.test(n)) throw new Error("Numéro incomplet : 01 suivi de 8 chiffres (ex. 01 59 04 56 04).");
+    return "229" + n;
+  }
+
+  /** Porte 1 : le code par SMS — seulement pour un numéro d'employé en poste. */
+  async function demanderCode(tel) {
+    const numero = numeroInternational(tel);
+    const c = config();
+    let connu = false;
+    try {
+      const r = await fetch(c.url + "/rest/v1/rpc/rh_telephone_employe", {
+        method: "POST", headers: { "apikey": c.cle, "Content-Type": "application/json" },
+        body: JSON.stringify({ tel: numero }),
+      });
+      connu = (await r.json()) === true;
+    } catch (_) {
+      throw new Error("Impossible de joindre la base. Vérifiez votre connexion internet.");
+    }
+    if (!connu) throw new Error("Ce numéro n'est celui d'aucun employé de BIZZOO. Vérifiez-le, ou demandez à l'administration.");
+    /* « compte: personnel » : un compte qui naît ici n'est ni un client ni
+       un compte de boutique. */
+    await appelAuth("otp", { phone: numero, create_user: true, data: { compte: "personnel" } });
+    return numero;
+  }
+
+  /** Porte 2 : le code reçu, et la confiance dans cet appareil (7 jours). */
+  async function confirmerCode(tel, code, confiance) {
+    const numero = numeroInternational(tel);
+    const d = await appelAuth("verify", { type: "sms", phone: numero, token: String(code || "").trim() });
+    if (!d.access_token) throw new Error("Code incorrect ou expiré.");
+    garderSession({ ...sessionDepuis(d, ""), telephone: numero, confiance_jusqu: confiance ? Date.now() + CONFIANCE : null });
+    return numero;
+  }
 
   async function appelAuth(chemin, corps, avecSession, methode) {
     const c = config();
@@ -78,6 +133,9 @@ const Supabase = (() => {
         throw new Error("Adresse pas encore confirmée : ouvrez le lien reçu dans votre boîte mail professionnelle.");
       }
       if (code === "weak_password") throw new Error("Mot de passe trop faible : 8 caractères au moins.");
+      if (code === "otp_expired" || /token has expired|invalid.*otp/i.test(d.msg || "")) throw new Error("Code incorrect ou expiré.");
+      if (code === "over_sms_send_rate_limit" || reponse.status === 429) throw new Error("Trop de codes demandés : attendez une minute avant de réessayer.");
+      if (code === "sms_send_failed") throw new Error("Le SMS n'a pas pu partir. Réessayez dans un instant.");
       throw new Error(d.msg || d.error_description || d.message || "La connexion a échoué (" + reponse.status + ").");
     }
     return d;
@@ -108,7 +166,8 @@ const Supabase = (() => {
     if (session.expire_a - Date.now() > 60000) return session;
     try {
       const d = await appelAuth("token?grant_type=refresh_token", { refresh_token: session.refresh_token });
-      garderSession({ ...sessionDepuis(d, session.email), refresh_token: d.refresh_token || session.refresh_token });
+      /* La confiance et le numéro suivent la session renouvelée. */
+      garderSession({ ...session, ...sessionDepuis(d, session.email), refresh_token: d.refresh_token || session.refresh_token });
       return session;
     } catch (err) {
       if (/connexion internet/.test(err.message || "")) return session;
@@ -298,7 +357,8 @@ const Supabase = (() => {
   }
 
   return {
-    configuration, sessionPresente, utilisateur, connexion, deconnexion, assurerSession,
+    configuration, sessionPresente, utilisateur, parTelephone, connexion, deconnexion, assurerSession,
+    demanderCode, confirmerCode,
     changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie,
     deposer, signer, retirer,
   };

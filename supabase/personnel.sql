@@ -42,7 +42,8 @@ create table if not exists public.rh_employes (
   compte_id       uuid unique references auth.users(id) on delete set null,
   nom             text not null check (length(btrim(nom)) > 0),
   prenoms         text not null default '',
-  sexe            text not null check (sexe in ('M', 'F')),
+  -- Vide tant que l'employé ne l'a pas dit (fiches importées d'un fichier).
+  sexe            text check (sexe in ('M', 'F')),
   -- L'âge se calcule : une date de naissance ne vieillit pas de travers.
   date_naissance  date check (date_naissance > date '1930-01-01'),
   telephone       text not null default '',
@@ -72,6 +73,13 @@ create table if not exists public.rh_employes (
   valide_par      uuid,
   valide_le       timestamptz
 );
+-- Ce que la fiche du personnel de BIZZOO donne en plus (2026-10-25).
+alter table public.rh_employes alter column sexe drop not null;
+alter table public.rh_employes add column if not exists telephone_pro text not null default '';
+alter table public.rh_employes add column if not exists equipement text not null default '';
+alter table public.rh_employes add column if not exists langue text not null default '';
+alter table public.rh_employes add column if not exists marie text not null default '';
+alter table public.rh_employes add column if not exists moto boolean;
 -- Une adresse professionnelle ne sert qu'à un employé : c'est par elle
 -- qu'on rattache le compte et qu'on ouvre la boîte mail.
 create unique index if not exists rh_employes_email_pro
@@ -217,8 +225,9 @@ create or replace function public.rh_employe_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   decision boolean := coalesce(current_setting('rh.decision', true), '') = 'oui';
-  ceo_connecte boolean := public.rh_est_ceo();
-  admin_connecte boolean := public.rh_est_admin();
+  -- Le superadministrateur de BIZZOO modifie une fiche comme le CEO.
+  ceo_connecte boolean := public.rh_est_ceo() or public.est_super();
+  admin_connecte boolean := public.rh_est_admin() or public.est_super();
   libres text[];
 begin
   if tg_op = 'INSERT' then
@@ -262,9 +271,11 @@ begin
 
   if not admin_connecte then
     /* L'employé lui-même : ses coordonnées, rien d'autre. */
-    libres := array['telephone', 'adresse', 'email_perso'];
+    /* Il complète ce qui le regarde. Son téléphone, non : c'est par lui
+       qu'il se connecte ; l'administration le change. */
+    libres := array['adresse', 'email_perso', 'sexe', 'date_naissance', 'langue', 'marie', 'moto'];
     if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres) then
-      raise exception 'Vous ne pouvez modifier que votre téléphone, votre adresse et votre e-mail personnel';
+      raise exception 'Vous ne pouvez modifier que votre adresse, votre e-mail, votre sexe, votre date de naissance, votre langue, votre situation et votre moto : le reste passe par l''administration';
     end if;
     return new;
   end if;
@@ -1751,13 +1762,13 @@ drop policy if exists "rh employes suppression" on public.rh_employes;
 -- La fiche complète (salaire compris) : l'administration, et l'employé
 -- lui-même. Les autres passent par l'annuaire.
 create policy "rh employes lecture" on public.rh_employes
-  for select to authenticated using (public.rh_est_admin() or compte_id = auth.uid());
+  for select to authenticated using (public.rh_est_admin() or public.est_super() or compte_id = auth.uid());
 create policy "rh employes ajout" on public.rh_employes
-  for insert to authenticated with check (public.rh_est_admin());
+  for insert to authenticated with check (public.rh_est_admin() or public.est_super());
 create policy "rh employes modification" on public.rh_employes
   for update to authenticated
-  using (public.rh_est_admin() or (compte_id = auth.uid() and etat = 'actif'))
-  with check (public.rh_est_admin() or (compte_id = auth.uid() and etat = 'actif'));
+  using (public.rh_est_admin() or public.est_super() or (compte_id = auth.uid() and etat = 'actif'))
+  with check (public.rh_est_admin() or public.est_super() or (compte_id = auth.uid() and etat = 'actif'));
 create policy "rh employes suppression" on public.rh_employes
   for delete to authenticated
   using (public.rh_est_ceo() and etat in ('en_attente', 'refuse'));

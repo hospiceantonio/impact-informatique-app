@@ -1,7 +1,9 @@
 /* =========================================================
-   Connexion — l'e-mail professionnel et le mot de passe de
-   l'application. Puis, pour un compte qui n'est pas (encore)
-   un employé en poste : pourquoi, et quoi faire.
+   Connexion — chaque employé entre avec son numéro de téléphone
+   et le code reçu par SMS ; il peut faire confiance à son appareil
+   pendant 7 jours. L'administration garde, au choix, son e-mail et
+   son mot de passe. Puis, pour un compte qui n'est pas (encore) un
+   employé en poste : pourquoi, et quoi faire.
    ========================================================= */
 const VueConnexion = (() => {
   const { h } = UI;
@@ -15,7 +17,100 @@ const VueConnexion = (() => {
         ...contenu));
   }
 
+  /** Le numéro, puis le code. */
   function afficher(zone, suite) {
+    const erreur = h("div", { class: "erreur", hidden: true });
+    const montrer = (err) => { erreur.textContent = err.message || String(err); erreur.hidden = false; };
+    const tel = h("input", { type: "tel", name: "tel", autocomplete: "tel", inputmode: "tel", required: true,
+      placeholder: "01 59 04 56 04" });
+    const bouton = h("button", { class: "btn btn-plein", type: "submit" }, "Recevoir mon code par SMS");
+    const form = h("form", { class: "pile" },
+      h("label", { class: "champ" }, h("span", {}, "Votre numéro de téléphone"), tel,
+        h("small", {}, "Le numéro donné à BIZZOO, avec 01 devant (01 + 8 chiffres).")),
+      erreur, bouton,
+      h("button", { class: "btn btn-second btn-plein", type: "button", onclick: () => parEmail(zone, suite) },
+        "Se connecter avec une adresse e-mail"));
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      erreur.hidden = true;
+      bouton.disabled = true;
+      try {
+        const numero = await Supabase.demanderCode(tel.value);
+        code(zone, suite, numero);
+      } catch (err) {
+        montrer(err);
+      } finally {
+        bouton.disabled = false;
+      }
+    });
+    UI.vider(zone, cadre(form));
+    tel.focus();
+  }
+
+  function code(zone, suite, numero) {
+    const erreur = h("div", { class: "erreur", hidden: true });
+    const saisie = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", required: true,
+      maxlength: 8, placeholder: "123456", style: { letterSpacing: "4px", fontSize: "20px", textAlign: "center" } });
+    const confiance = h("input", { type: "checkbox" });
+    const bouton = h("button", { class: "btn btn-plein", type: "submit" }, "Se connecter");
+    const renvoyer = h("button", { class: "btn btn-second", type: "button", disabled: true }, "Renvoyer le code");
+    let attente = 60;
+    const minuterie = setInterval(() => {
+      if (!renvoyer.isConnected || --attente <= 0) {
+        clearInterval(minuterie);
+        renvoyer.disabled = false;
+        renvoyer.textContent = "Renvoyer le code";
+        return;
+      }
+      renvoyer.textContent = "Renvoyer le code (" + attente + " s)";
+    }, 1000);
+    renvoyer.addEventListener("click", async () => {
+      renvoyer.disabled = true;
+      try {
+        await Supabase.demanderCode(numero);
+        UI.succes("Nouveau code envoyé.");
+      } catch (err) {
+        erreur.textContent = err.message;
+        erreur.hidden = false;
+      }
+      setTimeout(() => { renvoyer.disabled = false; }, 60000);
+    });
+    const form = h("form", { class: "pile" },
+      h("p", { class: "doux petit" }, "Un code vient de partir par SMS au +" + numero.slice(0, 3) + " " +
+        numero.slice(3).replace(/(\d{2})(?=\d)/g, "$1 ") + "."),
+      h("label", { class: "champ" }, h("span", {}, "Le code reçu"), saisie),
+      h("label", { class: "case" }, confiance, "Faire confiance à cet appareil pendant 7 jours"),
+      h("p", { class: "doux tres-petit" }, "Sans cela, un nouveau code vous sera demandé à chaque connexion. Ne cochez pas sur un téléphone ou un ordinateur partagé."),
+      erreur, bouton,
+      h("div", { class: "ligne" }, renvoyer,
+        h("button", { class: "btn btn-second", type: "button", onclick: () => afficher(zone, suite) }, "Changer de numéro")));
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      erreur.hidden = true;
+      bouton.disabled = true;
+      try {
+        await Supabase.confirmerCode(numero, saisie.value, confiance.checked);
+        /* Le compte rejoint la fiche qui porte ce numéro. */
+        try {
+          await Supabase.rpc("rh_rattacher_par_telephone");
+        } catch (err) {
+          await Supabase.deconnexion();
+          throw err;
+        }
+        suite();
+      } catch (err) {
+        erreur.textContent = err.message;
+        erreur.hidden = false;
+      } finally {
+        bouton.disabled = false;
+      }
+    });
+    UI.vider(zone, cadre(form));
+    saisie.focus();
+  }
+
+  /** L'e-mail et le mot de passe : l'administration, et qui en a un. */
+  function parEmail(zone, suite) {
     const erreur = h("div", { class: "erreur", hidden: true });
     const email = h("input", { type: "email", name: "email", autocomplete: "username", required: true,
       placeholder: "prenom.nom@bizzoomarket.com" });
@@ -26,7 +121,9 @@ const VueConnexion = (() => {
       h("label", { class: "champ" }, h("span", {}, "Mot de passe"), mdp),
       erreur, bouton,
       h("p", { class: "doux tres-petit" },
-        "Mot de passe oublié ? Demandez à l'administration de BIZZOO de vous en donner un nouveau."));
+        "Mot de passe oublié ? Demandez à l'administration de BIZZOO de vous en donner un nouveau."),
+      h("button", { class: "btn btn-second btn-plein", type: "button", onclick: () => afficher(zone, suite) },
+        "Se connecter avec mon numéro de téléphone"));
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       erreur.hidden = true;

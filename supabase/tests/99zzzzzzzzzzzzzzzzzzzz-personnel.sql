@@ -30,7 +30,10 @@
 --  18. localiser un livreur : son téléphone envoie sa position pendant ses
 --      courses, par un jeton qui ne sert qu'à cela ; Personnel la lit ;
 --  19. la caisse : quatre compartiments, un gestionnaire, des mouvements
---      qu'on n'efface pas, un solde qui ne passe jamais sous zéro.
+--      qu'on n'efface pas, un solde qui ne passe jamais sous zéro ;
+--  20. la fiche complète : le superadministrateur la modifie comme le CEO,
+--      l'employé complète ce qui le regarde, les données sensibles restent
+--      au CEO ; on se connecte par son numéro.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -212,9 +215,11 @@ reset role; select essai.personne();
 -- ---------------------------------------------------------
 select essai.titre('3. Un employé ne touche qu''à ses coordonnées');
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
-update public.rh_employes set telephone = '0197000001', adresse = 'Cadjèhoun' where compte_id = auth.uid();
-select essai.egal((select telephone from public.rh_employes where compte_id = auth.uid()), '0197000001',
-  'il change son téléphone');
+update public.rh_employes set adresse = 'Cadjèhoun' where compte_id = auth.uid();
+select essai.egal((select adresse from public.rh_employes where compte_id = auth.uid()), 'Cadjèhoun',
+  'il change son adresse');
+select essai.refuse($$update public.rh_employes set telephone = '0197000001' where compte_id = auth.uid()$$,
+  'pas son téléphone : c''est par lui qu''il se connecte');
 select essai.refuse($$update public.rh_employes set salaire_base = 900000 where compte_id = auth.uid()$$,
   'pas son salaire');
 select essai.refuse($$update public.rh_employes set administration = true where compte_id = auth.uid()$$,
@@ -1197,6 +1202,77 @@ reset role; select essai.personne();
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select public.rh_designer_gestionnaire_caisse(:'e_caisse');
 reset role; select essai.personne();
+
+-- ---------------------------------------------------------
+select essai.titre('20. La fiche complète et la connexion par numéro');
+select essai.devenir(:SUPER2::uuid); set role authenticated;
+update public.rh_employes set salaire_base = 123000, poste = 'Chargée de communication' where id = :'e_membre';
+reset role; select essai.personne();
+select essai.egal((select salaire_base || '/' || poste from public.rh_employes where id = :'e_membre'),
+  '123000/Chargée de communication', 'le superadministrateur modifie la fiche, salaire compris, comme le CEO');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+update public.rh_employes set telephone = '0140000001' where id = :'e_membre';
+select essai.refuse(format($$update public.rh_employes set telephone = '0140000001' where id = %L$$, :'e_resp'),
+  'un numéro ne sert qu''à un employé en poste');
+select essai.refuse(format($$insert into public.rh_employes_sensibles (employe_id, ethnie) values (%L, 'X')$$, :'e_membre'),
+  'l''administration n''écrit pas les données sensibles');
+reset role; select essai.personne();
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+update public.rh_employes set sexe = 'F', langue = 'Fon', marie = 'Non', moto = false, adresse = 'Cadjèhoun',
+       email_perso = 'membre@exemple.bj' where id = :'e_membre';
+select essai.refuse(format($$update public.rh_employes set telephone = '0149999999' where id = %L$$, :'e_membre'),
+  'l''employé ne change pas son numéro : c''est par lui qu''il se connecte');
+select essai.refuse(format($$update public.rh_employes set poste = 'Directrice' where id = %L$$, :'e_membre'),
+  'ni son poste');
+select essai.egal((select count(*)::int from public.rh_employes_sensibles), 0, 'il ne lit pas les données sensibles');
+reset role; select essai.personne();
+select essai.egal((select sexe || '/' || langue || '/' || marie || '/' || moto || '/' || adresse from public.rh_employes where id = :'e_membre'),
+  'F/Fon/Non/false/Cadjèhoun', 'l''employé complète ce qui le regarde');
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+insert into public.rh_employes_sensibles (employe_id, ethnie, religion) values (:'e_membre', 'Fon', 'Catholique');
+reset role; select essai.personne();
+select essai.devenir(:SUPER2::uuid); set role authenticated;
+select essai.egal((select ethnie || '/' || religion from public.rh_employes_sensibles where employe_id = :'e_membre'),
+  'Fon/Catholique', 'le CEO les écrit, le superadministrateur les lit');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.egal((select count(*)::int from public.rh_employes_sensibles), 0, 'l''administration ne les voit pas');
+reset role; select essai.personne();
+
+set role anon;
+select essai.egal(public.rh_telephone_employe('+229 01 40 00 00 01'), true, 'un numéro d''employé, écrit n''importe comment, est reconnu');
+select essai.egal(public.rh_telephone_employe('0199999999'), false, 'un numéro inconnu ne reçoit pas de code');
+reset role;
+
+-- Une fiche sans compte ni sexe, avec un numéro : elle se relie à la connexion.
+\set TEL_RH '''a0a0a0a0-0011-4000-8000-000000000011'''
+\set TEL_AUTRE '''a0a0a0a0-0012-4000-8000-000000000012'''
+select set_config('rh.decision', 'oui', false);
+insert into public.rh_employes (nom, prenoms, telephone, date_embauche, etat, statut, salaire_base, profil_id)
+values ('SEMONDJI', 'Essai', '0140000002', '2026-10-01', 'actif', 'employe', 65000, :'p_mkt')
+returning id as e_tel \gset
+select set_config('rh.decision', '', false);
+select essai.verifie((select sexe is null from public.rh_employes where id = :'e_tel'), 'le sexe peut rester vide');
+insert into auth.users (id, phone, raw_user_meta_data) values
+  (:TEL_RH::uuid, '2290140000002', '{"compte":"personnel"}'),
+  (:TEL_AUTRE::uuid, '2290140000001', '{"compte":"personnel"}') on conflict do nothing;
+select essai.devenir(:TEL_RH::uuid); set role authenticated;
+select essai.egal(public.rh_rattacher_par_telephone(), :'e_tel'::uuid, 'connecté par son numéro, il rejoint sa fiche');
+select essai.verifie(public.rh_tableau_de_bord() -> 'moi' <> 'null'::jsonb, 'et il entre');
+select essai.egal(public.rh_rattacher_par_telephone(), :'e_tel'::uuid, 'se reconnecter ne change rien');
+reset role; select essai.personne();
+select essai.devenir(:TEL_AUTRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_rattacher_par_telephone()$$,
+  'une fiche déjà reliée à un autre compte ne change pas de main');
+reset role; select essai.personne();
+select set_config('rh.decision', 'oui', false);
+delete from auth.users where id in (:TEL_RH::uuid, :TEL_AUTRE::uuid);
+update public.rh_employes set etat = 'supprime', telephone = '' where id = :'e_tel';
+update public.rh_employes set telephone = '' where id = :'e_membre';
+select set_config('rh.decision', '', false);
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

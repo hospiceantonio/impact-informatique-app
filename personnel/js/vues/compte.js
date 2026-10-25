@@ -16,23 +16,42 @@ const VueCompte = (() => {
     if (!zone.isConnected) return;
     const age = UI.age(fiche.date_naissance);
 
-    const tel = h("input", { type: "tel", value: fiche.telephone });
-    const adresse = h("input", { value: fiche.adresse });
-    const emailPerso = h("input", { type: "email", value: fiche.email_perso });
-    const boutonCoord = h("button", { class: "btn", type: "submit" }, "Enregistrer mes coordonnées");
+    /* Ce que l'employé complète lui-même. Son numéro, non : c'est par lui
+       qu'il se connecte, l'administration le change. */
+    const adresse = h("input", { value: fiche.adresse, placeholder: "Quartier, ville" });
+    const emailPerso = h("input", { type: "email", value: fiche.email_perso, placeholder: "votre.adresse@exemple.com" });
+    const choix = (valeur, options) => h("select", {}, options.map(([v, l]) => h("option", { value: v, selected: String(valeur ?? "") === v }, l)));
+    const sexe = choix(fiche.sexe, [["", "À préciser"], ["F", "Femme"], ["M", "Homme"]]);
+    const naissance = h("input", { type: "date", value: fiche.date_naissance || "" });
+    const langue = h("input", { value: fiche.langue, placeholder: "Fon, Mina, Goun…" });
+    const marie = h("input", { value: fiche.marie, placeholder: "Oui / Non" });
+    const moto = choix(fiche.moto === null || fiche.moto === undefined ? "" : String(fiche.moto), [["", "À préciser"], ["true", "Oui"], ["false", "Non"]]);
+    const boutonCoord = h("button", { class: "btn", type: "submit" }, "Enregistrer ma fiche");
+    const manque = [!fiche.sexe && "votre sexe", !fiche.email_perso && "votre e-mail", !fiche.date_naissance && "votre date de naissance"].filter(Boolean);
     const coord = h("form", { class: "carte pile" },
-      h("h2", {}, "Mes coordonnées"),
+      h("h2", {}, "Ma fiche"),
+      manque.length ? h("div", { class: "avertissement" }, "À compléter : " + manque.join(", ") + ".") : null,
       h("div", { class: "formulaire" },
-        h("label", { class: "champ" }, h("span", {}, "Téléphone"), tel),
-        h("label", { class: "champ" }, h("span", {}, "E-mail personnel"), emailPerso),
-        h("label", { class: "champ" }, h("span", {}, "Adresse"), adresse)),
+        h("label", { class: "champ" }, h("span", {}, "Téléphone (pour me connecter)"), h("input", { value: fiche.telephone, disabled: true }),
+          h("small", {}, "Pour le changer, adressez-vous à l'administration.")),
+        h("label", { class: "champ" }, h("span", {}, "E-mail"), emailPerso),
+        h("label", { class: "champ" }, h("span", {}, "Sexe"), sexe),
+        h("label", { class: "champ" }, h("span", {}, "Date de naissance"), naissance),
+        h("label", { class: "champ" }, h("span", {}, "Lieu de résidence"), adresse),
+        h("label", { class: "champ" }, h("span", {}, "Langue"), langue),
+        h("label", { class: "champ" }, h("span", {}, "Marié(e)"), marie),
+        h("label", { class: "champ" }, h("span", {}, "Moto"), moto)),
       h("div", { class: "actions" }, boutonCoord));
     coord.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      await UI.agir(boutonCoord, () => Supabase.modifier("rh_employes", "id=eq." + moi.id,
-        { telephone: tel.value.trim(), adresse: adresse.value.trim(), email_perso: emailPerso.value.trim() }), "Coordonnées enregistrées.");
+      await UI.agir(boutonCoord, () => Supabase.modifier("rh_employes", "id=eq." + moi.id, {
+        adresse: adresse.value.trim(), email_perso: emailPerso.value.trim(), sexe: sexe.value || null,
+        date_naissance: naissance.value || null, langue: langue.value.trim(), marie: marie.value.trim(),
+        moto: moto.value === "" ? null : moto.value === "true" }), "Fiche enregistrée.");
+      afficher(zone);
     });
 
+    const sansMotDePasse = Supabase.parTelephone();
     const mdp = h("input", { type: "password", autocomplete: "new-password", minlength: 8, required: true });
     const mdp2 = h("input", { type: "password", autocomplete: "new-password", required: true });
     const boutonMdp = h("button", { class: "btn", type: "submit" }, "Changer mon mot de passe");
@@ -85,7 +104,7 @@ const VueCompte = (() => {
             h("span", { class: "etire gras" }, UI.mois(f.mois)), h("b", {}, UI.fcfa(f.net)),
             UI.etiquette(...(STATUTS[f.statut] || [f.statut, ""])))))
           : UI.vide("Aucune fiche validée pour l'instant.")),
-      coord, boite, formMdp,
+      coord, boite, sansMotDePasse ? null : formMdp,
       h("button", { class: "btn btn-danger btn-plein", onclick: () => App.deconnecte() }, UI.icone("sortie", "ic-sm"), "Se déconnecter"));
   }
 
