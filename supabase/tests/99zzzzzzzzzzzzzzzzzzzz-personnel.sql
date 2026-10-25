@@ -1252,7 +1252,7 @@ reset role;
 \set TEL_AUTRE '''a0a0a0a0-0012-4000-8000-000000000012'''
 select set_config('rh.decision', 'oui', false);
 insert into public.rh_employes (nom, prenoms, telephone, date_embauche, etat, statut, salaire_base, profil_id)
-values ('SEMONDJI', 'Essai', '0140000002', '2026-10-01', 'actif', 'employe', 65000, :'p_mkt')
+values ('ESSAI', 'Téléphone', '0140000002', '2026-10-01', 'actif', 'employe', 65000, :'p_mkt')
 returning id as e_tel \gset
 select set_config('rh.decision', '', false);
 select essai.verifie((select sexe is null from public.rh_employes where id = :'e_tel'), 'le sexe peut rester vide');

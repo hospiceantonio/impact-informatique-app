@@ -65,13 +65,13 @@ const Supabase = (() => {
   const utilisateur = () => (session ? session.email || (session.telephone ? "+" + session.telephone : null) : null);
   const parTelephone = () => !!(session && session.telephone);
 
-  /** « 59 04 56 04 », « 0159045604 », « +229 01 59 04 56 04 » : le même
+  /** « XX XX XX XX », « 01XXXXXXXX », « +229 01 XX XX XX XX » : le même
       numéro, au format international de Supabase (229 + 01 + 8 chiffres). */
   function numeroInternational(tel) {
     let n = String(tel || "").replace(/[^0-9]/g, "");
     if (n.startsWith("229") && n.length >= 11) n = n.slice(3);
     if (n.length === 8) n = "01" + n;
-    if (!/^01[0-9]{8}$/.test(n)) throw new Error("Numéro incomplet : 01 suivi de 8 chiffres (ex. 01 59 04 56 04).");
+    if (!/^01[0-9]{8}$/.test(n)) throw new Error("Numéro incomplet : 01 suivi de 8 chiffres (01 XX XX XX XX).");
     return "229" + n;
   }
 

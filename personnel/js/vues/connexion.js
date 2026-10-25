@@ -22,7 +22,7 @@ const VueConnexion = (() => {
     const erreur = h("div", { class: "erreur", hidden: true });
     const montrer = (err) => { erreur.textContent = err.message || String(err); erreur.hidden = false; };
     const tel = h("input", { type: "tel", name: "tel", autocomplete: "tel", inputmode: "tel", required: true,
-      placeholder: "01 59 04 56 04" });
+      placeholder: "01 XX XX XX XX" });
     const bouton = h("button", { class: "btn btn-plein", type: "submit" }, "Recevoir mon code par SMS");
     const form = h("form", { class: "pile" },
       h("label", { class: "champ" }, h("span", {}, "Votre numéro de téléphone"), tel,
