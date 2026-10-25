@@ -133,6 +133,8 @@ const VueSuivi = (() => {
     const avecAlertes = h("input", { type: "checkbox" });
     const corps = h("div", {});
     const compte = h("p", { class: "doux petit" });
+    /* Les chiffres du tableau tel qu'il est filtré : ce qu'on voit, on le compte. */
+    const resume = h("div", { class: "pile" });
 
     const filtrees = () => {
       const q = recherche.value.trim().toLowerCase();
@@ -175,9 +177,35 @@ const VueSuivi = (() => {
       const d = typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb), "fr", { numeric: true });
       return d * tri.sens;
     };
+    const dessinerResume = (liste) => {
+      const somme = (cle) => liste.reduce((t, c) => t + Number(c[cle] || 0), 0);
+      const tuile = (valeur, libelle, classe) => h("div", { class: "tuile" + (classe ? " " + classe : "") },
+        h("b", { style: { fontSize: "19px" } }, valeur), h("span", {}, libelle));
+      /* Les statuts dans l'ordre du parcours d'une commande ; un clic filtre le tableau. */
+      const parStatut = new Map();
+      for (const c of liste) {
+        const x = parStatut.get(c.statut) || { statut: c.statut, rang: c.rang, n: 0 };
+        x.n += 1;
+        parStatut.set(c.statut, x);
+      }
+      UI.vider(resume,
+        h("div", { class: "tuiles" },
+          tuile(UI.entier(liste.length), "commande(s)"),
+          r.montants ? tuile(UI.fcfa(somme("total")), "coût total des commandes") : null,
+          r.montants ? tuile(UI.fcfa(somme("frais")), "coût total de la livraison") : null,
+          r.montants ? tuile(UI.fcfa(somme("reste")), "restant à encaisser", somme("reste") > 0 ? "alerte" : "") : null,
+          tuile(UI.entier(liste.filter((c) => c.alertes.length).length), "en alerte", liste.some((c) => c.alertes.length) ? "alerte" : "")),
+        parStatut.size ? h("div", { class: "carte pile" },
+          h("div", { class: "gras petit" }, "Par statut"),
+          h("div", { class: "actions" }, [...parStatut.values()].sort((a, b) => a.rang - b.rang).map((x) =>
+            h("button", { class: "btn-statut", type: "button", title: "N'afficher que ce statut",
+                          onclick: () => { choixStatut.value = choixStatut.value === x.statut ? "" : x.statut; dessiner(); } },
+              UI.etiquette(x.statut, COULEUR_STATUT[x.rang] || ""), h("b", {}, " " + x.n))))) : null);
+    };
     const dessiner = () => {
       const liste = filtrees().sort(comparer);
       compte.textContent = liste.length + " commande(s) sur " + toutes.length;
+      dessinerResume(liste);
       if (!liste.length) return UI.vider(corps, UI.vide("Aucune commande ne correspond."));
       const ouvrir = (c) => { location.hash = "#/suivi/commande/" + encodeURIComponent(c.id); };
       UI.vider(corps, h("div", { class: "carte defile tableau-suivi" },
@@ -208,7 +236,7 @@ const VueSuivi = (() => {
           h("label", { class: "case etire" }, avecAlertes, "Seulement les commandes en alerte"),
           h("button", { class: "btn btn-vert", type: "button", onclick: () => exporter(filtrees(), r, periode) },
             UI.icone("telecharger", "ic-sm"), "Exporter vers Excel"))),
-      compte, corps);
+      resume, compte, corps);
     dessiner();
   }
 
