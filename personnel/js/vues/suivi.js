@@ -172,6 +172,56 @@ const VueSuivi = (() => {
           !c.observations && !c.alertes.length && !c.incidents_ouverts ? "—" : null], classe: "large" },
     ];
     let tri = { col: 1, sens: -1 };
+    /* Les largeurs choisies à la souris (ou au doigt), par titre de colonne,
+       gardées dans ce navigateur. Tant qu'aucune n'est choisie, le tableau
+       se dispose seul. */
+    const CLE_LARGEURS = "bizzoo-suivi-colonnes";
+    let largeurs = {};
+    try { largeurs = JSON.parse(localStorage.getItem(CLE_LARGEURS) || "{}") || {}; } catch (_) { largeurs = {}; }
+    const garderLargeurs = () => { try { localStorage.setItem(CLE_LARGEURS, JSON.stringify(largeurs)); } catch (_) { /* navigation privée */ } };
+    const fixe = () => colonnes.some((col) => largeurs[col.titre]);
+    /** La poignée au bord droit d'un en-tête : on la tire pour élargir ;
+        un double clic rend à toutes les colonnes leur largeur d'origine. */
+    const poignee = (i) => h("span", { class: "poignee-colonne", title: "Tirer pour changer la largeur (double clic : largeurs d'origine)",
+      onclick: (ev) => ev.stopPropagation(),
+      ondblclick: (ev) => { ev.stopPropagation(); largeurs = {}; garderLargeurs(); dessiner(); },
+      onpointerdown: (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const table = ev.currentTarget.closest("table");
+        const cols = table.querySelectorAll("col");
+        /* Premier redimensionnement : on fige toutes les colonnes à leur
+           largeur du moment, pour que seule celle-ci bouge. */
+        if (!fixe()) {
+          table.querySelectorAll("thead th").forEach((th, k) => { largeurs[colonnes[k].titre] = Math.round(th.getBoundingClientRect().width); });
+          appliquer(table);
+        }
+        const depart = ev.clientX;
+        const initiale = largeurs[colonnes[i].titre];
+        const poigne = ev.currentTarget;
+        poigne.setPointerCapture(ev.pointerId);
+        poigne.classList.add("active");
+        const bouger = (e) => {
+          largeurs[colonnes[i].titre] = Math.max(60, Math.round(initiale + e.clientX - depart));
+          cols[i].style.width = largeurs[colonnes[i].titre] + "px";
+          table.style.width = colonnes.reduce((t, col) => t + (largeurs[col.titre] || 120), 0) + "px";
+        };
+        const lacher = () => {
+          poigne.classList.remove("active");
+          poigne.removeEventListener("pointermove", bouger);
+          garderLargeurs();
+        };
+        poigne.addEventListener("pointermove", bouger);
+        poigne.addEventListener("pointerup", lacher, { once: true });
+        poigne.addEventListener("pointercancel", lacher, { once: true });
+      } });
+    /** Les largeurs choisies, posées sur le tableau. */
+    const appliquer = (table) => {
+      const avec = fixe();
+      table.classList.toggle("colonnes-fixes", avec);
+      table.querySelectorAll("col").forEach((c, k) => { c.style.width = avec ? (largeurs[colonnes[k].titre] || 120) + "px" : ""; });
+      table.style.width = avec ? colonnes.reduce((t, col) => t + (largeurs[col.titre] || 120), 0) + "px" : "";
+    };
     const comparer = (a, b) => {
       const ka = colonnes[tri.col].cle(a), kb = colonnes[tri.col].cle(b);
       const d = typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb), "fr", { numeric: true });
@@ -208,16 +258,18 @@ const VueSuivi = (() => {
       dessinerResume(liste);
       if (!liste.length) return UI.vider(corps, UI.vide("Aucune commande ne correspond."));
       const ouvrir = (c) => { location.hash = "#/suivi/commande/" + encodeURIComponent(c.id); };
-      UI.vider(corps, h("div", { class: "carte defile tableau-suivi" },
-        h("table", { class: "tableau" },
-          h("thead", {}, h("tr", {}, colonnes.map((col, i) =>
-            h("th", { class: (col.classe || "") + " triable", title: "Trier",
-                      onclick: () => { tri = { col: i, sens: tri.col === i ? -tri.sens : 1 }; dessiner(); } },
-              col.titre, tri.col === i ? (tri.sens > 0 ? " ▲" : " ▼") : "")))),
-          h("tbody", {}, liste.map((c) =>
-            h("tr", { class: c.alertes.length ? "en-alerte" : "", tabindex: "0", title: "Ouvrir la fiche",
-                      onclick: () => ouvrir(c), onkeydown: (ev) => { if (ev.key === "Enter") ouvrir(c); } },
-              colonnes.map((col) => h("td", { class: col.classe || "" }, col.cellule(c)))))))));
+      const table = h("table", { class: "tableau" },
+        h("colgroup", {}, colonnes.map(() => h("col"))),
+        h("thead", {}, h("tr", {}, colonnes.map((col, i) =>
+          h("th", { class: (col.classe || "") + " triable", title: "Trier",
+                    onclick: () => { tri = { col: i, sens: tri.col === i ? -tri.sens : 1 }; dessiner(); } },
+            col.titre, tri.col === i ? (tri.sens > 0 ? " ▲" : " ▼") : "", poignee(i))))),
+        h("tbody", {}, liste.map((c) =>
+          h("tr", { class: c.alertes.length ? "en-alerte" : "", tabindex: "0", title: "Ouvrir la fiche",
+                    onclick: () => ouvrir(c), onkeydown: (ev) => { if (ev.key === "Enter") ouvrir(c); } },
+            colonnes.map((col) => h("td", { class: col.classe || "" }, col.cellule(c)))))));
+      appliquer(table);
+      UI.vider(corps, h("div", { class: "carte defile tableau-suivi" }, table));
     };
     for (const e of [recherche]) e.addEventListener("input", dessiner);
     for (const e of [choixStatut, choixZone, avecAlertes]) e.addEventListener("change", dessiner);
