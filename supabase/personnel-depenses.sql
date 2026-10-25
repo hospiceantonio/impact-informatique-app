@@ -155,6 +155,28 @@ begin
        and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)));
 end $$;
 
+-- Le fil général, « Tout le monde » : un message n'a alors ni profil ni
+-- destinataire. Une et une seule cible : un profil, une personne, ou tous.
+alter table public.rh_messages add column if not exists general boolean not null default false;
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'rh_messages_une_cible'
+               and pg_get_constraintdef(oid) not like '%general%') then
+    alter table public.rh_messages drop constraint rh_messages_une_cible;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_messages_une_cible') then
+    alter table public.rh_messages add constraint rh_messages_une_cible
+      check (num_nonnulls(profil_id, destinataire_id) + case when general then 1 else 0 end = 1);
+  end if;
+end $$;
+create index if not exists rh_messages_general on public.rh_messages (id) where general;
+
+create or replace function public.rh_a_ecrit_dans(cible uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.rh_moi() is not null and exists (
+    select 1 from public.rh_messages m where m.profil_id = cible and m.auteur_id = public.rh_moi());
+$$;
+
 create or replace function public.rh_conversations()
 returns table (cle text, genre text, cible uuid, titre text, dernier_texte text,
                dernier_le timestamptz, non_lus int)
@@ -163,7 +185,14 @@ language sql stable security definer set search_path = public as $$
   groupes as (
     select 'p:' || p.id as cle, 'profil'::text as genre, p.id as cible, p.nom as titre
       from public.rh_profils p, moi
-     where moi.id is not null and (moi.admin or public.rh_acces(p.id, 'discussions'))
+     where moi.id is not null
+       and (moi.admin or public.rh_acces(p.id, 'discussions')
+            or (public.rh_menu_ouvert('discussions') and public.rh_a_ecrit_dans(p.id)))
+  ),
+  -- « Tout le monde » : tous les employés qui ont les discussions.
+  general as (
+    select 'g:tous' as cle, 'general'::text as genre, null::uuid as cible, 'Tout le monde' as titre
+      from moi where moi.id is not null and public.rh_menu_ouvert('discussions')
   ),
   personnes as (
     select distinct case when m.auteur_id = moi.id then m.destinataire_id else m.auteur_id end as autre
@@ -176,7 +205,7 @@ language sql stable security definer set search_path = public as $$
            btrim(e.prenoms || ' ' || e.nom) as titre
       from personnes x join public.rh_employes e on e.id = x.autre
   ),
-  toutes as (select * from groupes union all select * from prives)
+  toutes as (select * from general union all select * from groupes union all select * from prives)
   select t.cle, t.genre, t.cible, t.titre, d.texte, d.cree_le,
          (select count(*)::int from public.rh_messages m, moi
            where m.auteur_id <> moi.id
@@ -184,28 +213,23 @@ language sql stable security definer set search_path = public as $$
                                         where l.employe_id = moi.id and l.conversation = t.cle),
                                       '-infinity')
              and ((t.genre = 'profil' and m.profil_id = t.cible)
+               or (t.genre = 'general' and m.general)
                or (t.genre = 'personne' and m.auteur_id = t.cible and m.destinataire_id = moi.id)))
     from toutes t
     left join lateral (
       select m.texte, m.cree_le from public.rh_messages m, moi
        where (t.genre = 'profil' and m.profil_id = t.cible)
+          or (t.genre = 'general' and m.general)
           or (t.genre = 'personne' and ((m.auteur_id = t.cible and m.destinataire_id = moi.id)
                                      or (m.auteur_id = moi.id and m.destinataire_id = t.cible)))
        order by m.id desc limit 1) d on true
-   order by d.cree_le desc nulls last, t.titre;
+   order by t.genre = 'general' desc, d.cree_le desc nulls last, t.titre;
 $$;
 
 create or replace function public.rh_peut_ecrire_a(cible uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.rh_moi() is not null and cible <> public.rh_moi() and exists (
-    select 1 from public.rh_employes c
-     where c.id = cible and c.etat = 'actif'
-       and (public.rh_est_admin()
-            or c.administration or c.ceo
-            or (c.profil_id is not null and c.profil_id = public.rh_mon_profil())
-            or public.rh_responsable_de(c.profil_id)
-            or exists (select 1 from public.rh_profils p
-                        where p.id = public.rh_mon_profil() and p.responsable_id = c.id)));
+    select 1 from public.rh_employes c where c.id = cible and c.etat = 'actif');
 $$;
 
 -- ---------- Ce qui change (copies de schema.sql) ----------

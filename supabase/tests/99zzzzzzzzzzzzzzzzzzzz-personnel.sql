@@ -7,8 +7,8 @@
 --      droits (administration, décaissement, salaire en poste) sont au CEO ;
 --   3. un employé ne touche qu'à ses coordonnées ;
 --   4. un profil a un responsable qui en est membre ;
---   5. les messages restent dans leur profil, les messages privés entre
---      leurs deux personnes ;
+--   5. les messages : à tout le monde, à un profil (le sien ou un autre),
+--      à une personne ; un message privé reste entre ses deux personnes ;
 --   6. le circuit d'une mission : créée par l'administration, acceptée
 --      et rapportée par le responsable, clôturée par l'administration ;
 --   7. les rapports d'activité : publiés par le responsable, validés par
@@ -257,10 +257,18 @@ select essai.devenir(:MEMBRE::uuid); set role authenticated;
 insert into public.rh_messages (profil_id, texte, auteur_id) values (:'p_mkt', 'Bonjour l''équipe', :'e_autre');
 select essai.egal((select auteur_id from public.rh_messages order by id desc limit 1), :'e_membre'::uuid,
   'l''auteur est celui qui écrit, pas celui qu''il prétend être');
-select essai.refuse(format($$insert into public.rh_messages (profil_id, texte) values (%L, 'intrus')$$, :'p_log'),
-  'il n''écrit pas dans la discussion de la Logistique');
-select essai.refuse(format($$insert into public.rh_messages (destinataire_id, texte) values (%L, 'salut')$$, :'e_autre'),
-  'ni en privé à un logisticien qu''il ne connaît pas par son profil');
+-- Trois façons d'écrire : à un profil (le sien ou un autre), à une
+-- personne (n'importe quel employé), à tout le monde.
+insert into public.rh_messages (profil_id, texte) values (:'p_log', 'Une question du Marketing à la Logistique');
+select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_log'), 1,
+  'il écrit dans le fil d''un autre profil, et le lit ensuite pour en voir les réponses');
+insert into public.rh_messages (destinataire_id, texte) values (:'e_autre', 'Un message privé au logisticien');
+select essai.refuse(format($$insert into public.rh_messages (destinataire_id, texte) values (%L, 'moi')$$, :'e_membre'),
+  'pas de message privé à soi-même');
+insert into public.rh_messages (general, texte) values (true, 'Bonne semaine à tous');
+select essai.refuse(format($$insert into public.rh_messages (general, profil_id, texte) values (true, %L, 'double')$$, :'p_mkt'),
+  'un message n''a qu''une cible : tout le monde, un profil ou une personne');
+select essai.refuse($$insert into public.rh_messages (texte) values ('nulle part')$$, 'ni aucune');
 insert into public.rh_messages (destinataire_id, texte) values (:'e_resp', 'Chef, une question privée');
 insert into public.rh_messages (destinataire_id, texte) values (:'e_admrh', 'Question à l''administration');
 reset role; select essai.personne();
@@ -268,6 +276,15 @@ reset role; select essai.personne();
 select essai.devenir(:AUTRE::uuid); set role authenticated;
 select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_mkt'), 0,
   'la Logistique ne lit pas la discussion du Marketing');
+select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_log'), 1,
+  'mais elle lit le message que le Marketing a posté dans son fil');
+select essai.egal((select count(*)::int from public.rh_messages where general), 1, 'tout le monde lit le fil général');
+select essai.egal((select count(*)::int from public.rh_messages where destinataire_id = :'e_autre'), 1,
+  'et le logisticien reçoit le message privé');
+select essai.egal((select non_lus from public.rh_conversations() where cle = 'g:tous'), 1,
+  'le fil général est dans ses discussions, non lu');
+select public.rh_marquer_lu('g:tous');
+select essai.egal((select non_lus from public.rh_conversations() where cle = 'g:tous'), 0, 'lu, il ne compte plus');
 reset role; select essai.personne();
 
 select essai.devenir(:ADMRH::uuid); set role authenticated;
@@ -286,6 +303,13 @@ select essai.egal((select non_lus from public.rh_conversations() where cle = 'p:
   'lu, il ne compte plus');
 select essai.egal((select non_lus from public.rh_conversations() where cle = 'd:' || :'e_membre'), 1,
   'le message privé du membre est là, non lu');
+select essai.egal((select count(*)::int from public.rh_messages where profil_id = :'p_log'), 0,
+  'un responsable ne lit pas le fil d''un autre profil où il n''a pas écrit');
+select essai.verifie(exists (select 1 from public.rh_conversations() where cle = 'g:tous'), 'il a lui aussi le fil général');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(exists (select 1 from public.rh_conversations() where cle = 'p:' || :'p_log'),
+  'le profil où il a écrit apparaît dans ses discussions');
 reset role; select essai.personne();
 
 -- ---------------------------------------------------------
