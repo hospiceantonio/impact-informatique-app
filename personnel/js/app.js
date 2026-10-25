@@ -32,8 +32,17 @@ const App = (() => {
   /** Ce menu m'est-il ouvert ? L'administration a tout ; la base refuse le reste. */
   const ouvert = (cle) => estAdmin() || menus.includes(cle);
   const voitSuivi = () => ouvert("suivi");
-  /* Les commandes en alerte : la pastille du suivi. */
+  /* Les commandes en alerte : la pastille du suivi. Hors du suivi, celles
+     des 60 derniers jours (rh_suivi_alertes_nb) ; dans le suivi, celles du
+     tableau affiché, période et filtres compris (alertesAffichees). */
   let alertesSuivi = 0;
+  let alertesVue = null;
+  /** Le suivi dit combien de commandes en alerte il affiche. */
+  function alertesAffichees(n) {
+    if (alertesVue === n) return;
+    alertesVue = n;
+    dessinerMenus();
+  }
   /** Les sous-menus des statistiques ouverts à ce compte (leurs clés) :
       ceux de la place de marché selon Paramètres ; les internes à
       l'administration ; revenus et résultat au CEO et au superadministrateur. */
@@ -82,7 +91,8 @@ const App = (() => {
       { route: "prets", libelle: "Prêts et retraits", icone: "argent", pour: () => !!compteursSolde.menu,
         pastille: (compteursSolde.prets_a_valider || 0) + (compteursSolde.prets_a_decaisser || 0)
           + (compteursSolde.retraits_a_servir || 0) + (compteursSolde.retraits_incertains || 0) },
-      { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
+      { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi,
+        pastille: alertesVue !== null ? alertesVue : alertesSuivi },
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
@@ -173,6 +183,11 @@ const App = (() => {
     if (!tableau || !moi()) return;
     const { route, morceaux, params } = lireRoute();
     routeCourante = route || "accueil";
+    /* Hors du tableau du suivi, la pastille revient au compte de la base. */
+    if (alertesVue !== null && !(route === "suivi" && !morceaux.length)) {
+      alertesVue = null;
+      dessinerMenus();
+    }
     const vue = route === "plus" ? VuePlus : VUES[route];
     const zone = document.getElementById("contenu");
     /* Une zone neuve à chaque navigation : une vue quittée pendant son
@@ -308,6 +323,6 @@ const App = (() => {
 
   return {
     moi, compteurs, compteursSolde: () => compteursSolde, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
-    rafraichir, naviguer, titre, deconnecte, demarrer,
+    rafraichir, naviguer, titre, deconnecte, demarrer, alertesAffichees,
   };
 })();

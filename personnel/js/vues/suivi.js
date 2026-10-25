@@ -125,7 +125,7 @@ const VueSuivi = (() => {
       return toutes.filter((c) =>
         (!choixStatut.value || c.statut === choixStatut.value) &&
         (!choixZone.value || (c.client.zone || "Non reconnue") === choixZone.value) &&
-        (!avecAlertes.checked || c.alertes.length) &&
+        (!avecAlertes.checked || enAlerte(c)) &&
         (!q || [c.numero, c.client.nom, c.client.tel, c.client.adresse, c.marchands, c.livreurs, c.articles]
           .join(" ").toLowerCase().includes(q)));
     };
@@ -211,6 +211,9 @@ const VueSuivi = (() => {
       const d = typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb), "fr", { numeric: true });
       return d * tri.sens;
     };
+    /* En alerte : la même règle que la pastille du menu — une course
+       refusée seule n'est pas une alerte qui attend quelqu'un. */
+    const enAlerte = (c) => c.alertes.some((a) => a !== "refus_course");
     const dessinerResume = (liste) => {
       const somme = (cle) => liste.reduce((t, c) => t + Number(c[cle] || 0), 0);
       const tuile = (valeur, libelle, classe) => h("div", { class: "tuile" + (classe ? " " + classe : "") },
@@ -228,7 +231,7 @@ const VueSuivi = (() => {
           r.montants ? tuile(UI.fcfa(somme("total")), "coût total des commandes") : null,
           r.montants ? tuile(UI.fcfa(somme("frais")), "coût total de la livraison") : null,
           r.montants ? tuile(UI.fcfa(somme("reste")), "restant à encaisser", somme("reste") > 0 ? "alerte" : "") : null,
-          tuile(UI.entier(liste.filter((c) => c.alertes.length).length), "en alerte", liste.some((c) => c.alertes.length) ? "alerte" : "")),
+          tuile(UI.entier(liste.filter(enAlerte).length), "en alerte", liste.some(enAlerte) ? "alerte" : "")),
         parStatut.size ? h("div", { class: "barre-compacte" },
           h("span", { class: "gras petit" }, "Par statut :"),
           [...parStatut.values()].sort((a, b) => a.rang - b.rang).map((x) =>
@@ -240,6 +243,8 @@ const VueSuivi = (() => {
       const liste = filtrees().sort(comparer);
       compte.textContent = liste.length + " commande(s) sur " + toutes.length;
       dessinerResume(liste);
+      /* La pastille du menu suit le tableau affiché. */
+      App.alertesAffichees(liste.filter(enAlerte).length);
       if (!liste.length) return UI.vider(corps, UI.vide("Aucune commande ne correspond."));
       const ouvrir = (c) => { location.hash = "#/suivi/commande/" + encodeURIComponent(c.id); };
       const table = h("table", { class: "tableau" },
