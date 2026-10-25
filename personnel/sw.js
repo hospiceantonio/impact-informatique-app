@@ -5,7 +5,7 @@
    mails : rien de cela ne doit rester dans un téléphone).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "bizzoo-personnel-v14";
+const VERSION = "bizzoo-personnel-v15";
 
 const FICHIERS = [
   "./",
