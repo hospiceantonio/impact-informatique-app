@@ -291,6 +291,60 @@ const Supabase = (() => {
     return d;
   }
 
+  /* ---------- Le code SMS du superadministrateur ----------
+     Quand l'enseigne l'exige, un compte superadministrateur n'a ses droits
+     que si sa session a rendu un code reçu par SMS : la même porte que
+     BIZZOO Admin (etat_connexion, code-connexion, confirmer_code_connexion),
+     et le même appareil de confiance (un mois), partagé avec Admin. */
+
+  async function etatConnexion() {
+    try {
+      return await rpc("etat_connexion", {});
+    } catch (err) {
+      if (err && err.deconnecte) throw err;
+      return null;   // base d'avant : rien n'est exigé
+    }
+  }
+
+  async function demanderCodeEquipe() {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) throw new Error("Session expirée : reconnectez-vous.");
+    let r;
+    try {
+      r = await fetch(c.url + "/functions/v1/code-connexion", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token, "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch (_) {
+      throw new Error("Serveur injoignable. Vérifiez votre connexion internet.");
+    }
+    const d = await r.json().catch(() => null);
+    if (!d) throw new Error("L'envoi du code n'a pas répondu (" + r.status + ").");
+    return d;
+  }
+
+  const confirmerCodeEquipe = (code) => rpc("confirmer_code_connexion", { code: String(code || "") });
+
+  const CLE_APPAREIL = "bizzoo-appareil-confiance";
+  const lireJetonAppareil = () => { try { return localStorage.getItem(CLE_APPAREIL) || ""; } catch (_) { return ""; } };
+  async function reconnaitreAppareil() {
+    const j = lireJetonAppareil();
+    if (j.length < 32) return false;
+    try { return (await rpc("reconnaitre_appareil", { jeton: j })) === true; } catch (_) { return false; }
+  }
+  function confierAppareil() {
+    let j = lireJetonAppareil();
+    if (j.length < 32) {
+      const octets = new Uint8Array(32);
+      crypto.getRandomValues(octets);
+      j = Array.from(octets, (o) => o.toString(16).padStart(2, "0")).join("");
+      try { localStorage.setItem(CLE_APPAREIL, j); } catch (_) { /* navigation privée */ }
+    }
+    return rpc("confier_appareil", { jeton: j, appareil: String(navigator.userAgent || "").slice(0, 120) });
+  }
+
   /* ---------- Les pièces jointes (seau privé « rh-pieces ») ---------- */
 
   const SEAU = "rh-pieces";
@@ -361,5 +415,6 @@ const Supabase = (() => {
     demanderCode, confirmerCode,
     changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie,
     deposer, signer, retirer,
+    etatConnexion, demanderCodeEquipe, confirmerCodeEquipe, reconnaitreAppareil, confierAppareil,
   };
 })();

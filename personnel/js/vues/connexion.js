@@ -109,6 +109,76 @@ const VueConnexion = (() => {
     saisie.focus();
   }
 
+  /** Le superadministrateur confirme sa connexion par un code SMS. */
+  function codeEquipe(zone, etat, suite, plusTard, deconnexion) {
+    const erreur = h("div", { class: "erreur", hidden: true });
+    const info = h("p", { class: "doux petit" });
+    const saisie = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: 9,
+      placeholder: "6 chiffres", style: { letterSpacing: "4px", fontSize: "20px", textAlign: "center" } });
+    const confiance = h("input", { type: "checkbox" });
+    const demander = h("button", { class: "btn btn-plein", type: "button" }, "Recevoir le code");
+    const valider = h("button", { class: "btn btn-plein", type: "submit" }, "Valider le code");
+    const etape2 = h("div", { class: "pile", hidden: true },
+      h("label", { class: "champ" }, h("span", {}, "Le code reçu par SMS"), saisie),
+      h("label", { class: "case" }, confiance, "Faire confiance à cet appareil pendant 1 mois"),
+      valider);
+    const dire = (texte, ko) => { erreur.hidden = !ko; erreur.textContent = ko ? texte : ""; info.textContent = ko ? info.textContent : texte; };
+    demander.addEventListener("click", async () => {
+      demander.disabled = true;
+      try {
+        const r = await Supabase.demanderCodeEquipe();
+        if (r && r.ok && r.deja) return suite();
+        if (!r || !r.ok) {
+          dire((r && r.message) || "Le code n'a pas pu partir.", true);
+          if (r && r.raison === "trop_tot") etape2.hidden = false;
+          demander.disabled = false;
+          return;
+        }
+        etape2.hidden = false;
+        demander.textContent = "Renvoyer un code";
+        dire("Code envoyé au numéro qui finit par " + (r.fin_numero || "…") + ". Il expire dans 10 minutes.");
+        saisie.focus();
+        setTimeout(() => { demander.disabled = false; }, 30000);
+      } catch (err) {
+        dire(err.message, true);
+        demander.disabled = false;
+      }
+    });
+    const form = h("form", { class: "pile" },
+      h("h2", { style: { fontSize: "18px", textAlign: "center" } }, "Confirmez votre connexion"),
+      etat.numero
+        ? h("p", { class: "doux petit" }, "Compte superadministrateur : BIZZOO demande un code reçu par SMS au numéro de votre compte, qui finit par " + (etat.fin_numero || "…") + ". Sans lui, vous entrez sans vos droits de superadministrateur (la caisse, notamment).")
+        : h("p", { class: "avertissement" }, "Votre compte n'a pas de numéro enregistré : le code ne peut partir nulle part. Ajoutez-le dans BIZZOO Admin (Comptes)."),
+      info, erreur,
+      etat.numero ? demander : null, etape2,
+      h("button", { class: "btn btn-second btn-plein", type: "button", onclick: plusTard }, "Plus tard (sans mes droits de superadministrateur)"),
+      h("button", { class: "btn btn-second btn-plein", type: "button", onclick: deconnexion }, "Se déconnecter"));
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const code = saisie.value.replace(/\D/g, "");
+      if (code.length !== 6) return dire("Le code a six chiffres.", true);
+      valider.disabled = true;
+      try {
+        const r = await Supabase.confirmerCodeEquipe(code);
+        if (r && r.ok) {
+          if (confiance.checked) await Supabase.confierAppareil().catch(() => UI.echec("Connexion confirmée, mais l'appareil n'a pas pu être gardé."));
+          return suite();
+        }
+        const raison = (r && r.raison) || "";
+        dire(raison === "code_faux"
+          ? (Number(r.restants) > 0 ? "Code incorrect. Il vous reste " + r.restants + " essai(s)." : "Code incorrect, plus d'essai : demandez un nouveau code.")
+          : raison === "expire" || raison === "sans_code" ? "Ce code ne vaut plus : demandez-en un nouveau."
+          : raison === "sans_session" ? "Votre session a expiré : déconnectez-vous et reconnectez-vous."
+          : "Le code n'a pas été accepté.", true);
+      } catch (err) {
+        dire(err.message, true);
+      } finally {
+        valider.disabled = false;
+      }
+    });
+    UI.vider(zone, cadre(form));
+  }
+
   /** L'e-mail et le mot de passe : l'administration, et qui en a un. */
   function parEmail(zone, suite) {
     const erreur = h("div", { class: "erreur", hidden: true });
@@ -280,5 +350,5 @@ const VueConnexion = (() => {
     designer();
   }
 
-  return { afficher, sansFiche };
+  return { afficher, sansFiche, codeEquipe };
 })();

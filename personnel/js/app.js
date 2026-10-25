@@ -230,6 +230,9 @@ const App = (() => {
     demarrer();
   }
 
+  /* « Plus tard » : le superadministrateur entre sans ses droits, pour cette visite. */
+  let sansCodeEquipe = false;
+
   async function demarrer() {
     const zone = document.getElementById("contenu");
     const connecte = Supabase.sessionPresente() && await Supabase.assurerSession();
@@ -240,6 +243,17 @@ const App = (() => {
       return;
     }
     UI.vider(zone, UI.chargement());
+    /* Le superadministrateur rend d'abord son code SMS, comme dans BIZZOO
+       Admin : sans lui, la base ne lui reconnaît pas ses droits. */
+    if (!sansCodeEquipe) {
+      let etat = null;
+      try { etat = await Supabase.etatConnexion(); } catch (err) { if (err && err.deconnecte) return deconnecte(); }
+      if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee && !(await Supabase.reconnaitreAppareil())) {
+        for (const id of ["entete", "onglets", "menu-lateral"]) document.getElementById(id).hidden = true;
+        VueConnexion.codeEquipe(zone, etat, demarrer, () => { sansCodeEquipe = true; demarrer(); }, deconnecte);
+        return;
+      }
+    }
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
     } catch (err) {
