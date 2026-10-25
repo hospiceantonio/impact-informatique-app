@@ -227,6 +227,11 @@ begin
   if new.statut <> 'payee' or old.statut = 'payee' then
     return null;
   end if;
+  /* Versée sur le solde de l'employé : rien ne sort encore de la caisse.
+     L'argent en sortira au retrait, s'il le retire à la caisse. */
+  if new.mode_paiement = 'solde' then
+    return null;
+  end if;
   rep := nullif(current_setting('rh.repartition', true), '')::jsonb;
   if rep is null then
     if new.mode_paiement not in ('especes', 'mtn', 'moov', 'celtiis') then
@@ -269,20 +274,8 @@ end $$;
 create or replace function public.rh_payer(fiche uuid, repartition jsonb, reference text default '')
 returns void
 language plpgsql security definer set search_path = public as $$
-declare
-  f public.rh_fiches_paie;
-  rep jsonb;
 begin
-  select * into f from public.rh_fiches_paie where id = fiche;
-  if not found then
-    raise exception 'Fiche introuvable';
-  end if;
-  rep := public.rh_caisse_repartition(repartition, f.net);
-  perform set_config('rh.repartition', rep::text, true);
-  perform public.rh_payer_fiche(fiche,
-    case when (select count(*) from jsonb_object_keys(rep)) = 1 then (select k from jsonb_object_keys(rep) k) else 'mixte' end,
-    reference);
-  perform set_config('rh.repartition', '', true);
+  raise exception 'Un salaire ne se paie plus ici : la fiche validée est versée le 10 sur le solde de l''employé, qui le retire depuis son compte (Mobile Money ou caisse)';
 end $$;
 
 -- ---------- Ce qui entre, ce qui se déplace, ce qui se corrige ----------
@@ -411,9 +404,11 @@ begin
       from unnest(array['especes', 'mtn', 'moov', 'celtiis']) with ordinality as k(compte, n)),
     'mouvements', (select coalesce(jsonb_agg(jsonb_build_object(
         'id', m.id, 'le', m.le, 'compte', m.compte, 'sens', m.sens, 'nature', m.nature, 'montant', m.montant,
-        'libelle', case when m.nature = 'salaire' and acces <> 'consultation'
-                        then m.libelle || ' · ' || coalesce((select f.employe ->> 'prenoms' || ' ' || (f.employe ->> 'nom')
-                                                               from public.rh_fiches_paie f where f.id = m.fiche_id), '')
+        'libelle', case when acces = 'consultation' and m.nature in ('salaire', 'pret')
+                          then split_part(m.libelle, ' · ', 1)
+                        when m.nature = 'salaire' and m.fiche_id is not null
+                          then m.libelle || coalesce(' · ' || (select f.employe ->> 'prenoms' || ' ' || (f.employe ->> 'nom')
+                                                                 from public.rh_fiches_paie f where f.id = m.fiche_id), '')
                         else m.libelle end,
         'reference', m.reference, 'depense_id', m.depense_id,
         'par', (select btrim(e.prenoms || ' ' || e.nom) from public.rh_employes e where e.id = m.par),
@@ -515,19 +510,7 @@ create or replace function public.rh_payer_fiche(fiche uuid, mode text, referenc
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not public.rh_peut_decaisser() then
-    raise exception 'Votre compte n''est pas habilité à payer';
-  end if;
-  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
-    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
-  end if;
-  update public.rh_fiches_paie
-     set statut = 'payee', paye_par = public.rh_moi(), paye_le = now(),
-         mode_paiement = mode, reference = btrim(coalesce(rh_payer_fiche.reference, ''))
-   where id = fiche and statut = 'validee';
-  if not found then
-    raise exception 'Seule une fiche validée par le CEO se paie';
-  end if;
+  raise exception 'Un salaire ne se paie plus ici : la fiche validée est versée le 10 sur le solde de l''employé, qui le retire depuis son compte (Mobile Money ou caisse)';
 end $$;
 
 create or replace function public.rh_acces(cible uuid, cle text) returns boolean

@@ -1470,17 +1470,13 @@ create or replace function public.rh_generer_paie_auto() returns int
 language plpgsql security definer set search_path = public as $$
 declare
   aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
-  courant date := date_trunc('month', aujourdhui)::date;
   precedent date := (date_trunc('month', aujourdhui) - interval '1 month')::date;
-  combien int := 0;
 begin
-  if not exists (select 1 from public.rh_fiches_paie where mois = precedent) then
-    combien := combien + public.rh_generer_paie_interne(precedent);
+  if extract(day from aujourdhui) >= 5
+     and not exists (select 1 from public.rh_fiches_paie where mois = precedent) then
+    return public.rh_generer_paie_interne(precedent);
   end if;
-  if extract(day from aujourdhui + 1) = 1 then
-    combien := combien + public.rh_generer_paie_interne(courant);
-  end if;
-  return combien;
+  return 0;
 end $$;
 
 /** Ce que l'application appelle à l'ouverture, pour l'administration. */
@@ -1622,19 +1618,7 @@ create or replace function public.rh_payer_fiche(fiche uuid, mode text, referenc
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not public.rh_peut_decaisser() then
-    raise exception 'Votre compte n''est pas habilité à payer';
-  end if;
-  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
-    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
-  end if;
-  update public.rh_fiches_paie
-     set statut = 'payee', paye_par = public.rh_moi(), paye_le = now(),
-         mode_paiement = mode, reference = btrim(coalesce(rh_payer_fiche.reference, ''))
-   where id = fiche and statut = 'validee';
-  if not found then
-    raise exception 'Seule une fiche validée par le CEO se paie';
-  end if;
+  raise exception 'Un salaire ne se paie plus ici : la fiche validée est versée le 10 sur le solde de l''employé, qui le retire depuis son compte (Mobile Money ou caisse)';
 end $$;
 
 -- ---------- La boîte mail professionnelle ----------

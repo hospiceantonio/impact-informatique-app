@@ -1,12 +1,14 @@
 /* =========================================================
    Paie — les fiches de paie de chaque mois.
 
-   Le dernier jour du mois, la base calcule toute seule les
-   fiches de tous les employés en poste (et l'application
+   Le 5 du mois, la base calcule toute seule les fiches du mois
+   écoulé, pour tous les employés en poste (et l'application
    rattrape à l'ouverture un mois oublié). L'administration y
    ajoute primes, indemnités, retenues et avances ; chaque ajout
    recalcule la fiche. Le CEO valide le mois : les fiches sont
-   alors figées, l'employé les voit, l'habilité les paie.
+   alors figées et l'employé les voit. Le 10, chaque fiche validée
+   se verse sur le solde de son employé (menu Mon solde), qui le
+   retire par Mobile Money ou à la caisse.
 
    AUCUN TAUX N'EST FOURNI. CNSS, impôt et autres cotisations
    se saisissent dans « Barèmes » et ne comptent qu'une fois
@@ -15,11 +17,13 @@
 const VuePaie = (() => {
   const { h } = UI;
 
-  const STATUTS = { calculee: ["À valider", "orange"], validee: ["Validée", "bleu"], payee: ["Payée", "vert"] };
+  const STATUTS = { calculee: ["À valider", "orange"], validee: ["Validée, versée le 10", "bleu"], payee: ["Versée", "vert"] };
   /* Le mode préféré de l'employé (sa fiche), et les compartiments de la caisse d'où sort le salaire. */
-  const MODES = { especes: "Espèces", mtn: "MTN Mobile Money", moov: "Moov Money", celtiis: "Celtiis Cash", mixte: "Plusieurs compartiments", virement: "Virement", mobile_money: "Mobile Money", cheque: "Chèque" };
+  const MODES = { solde: "versement sur le solde de l'employé", especes: "Espèces", mtn: "MTN Mobile Money", moov: "Moov Money", celtiis: "Celtiis Cash", mixte: "Plusieurs compartiments", virement: "Virement", mobile_money: "Mobile Money", cheque: "Chèque" };
   const NATURES = { prime: "Prime", indemnite: "Indemnité", retenue: "Retenue" };
   const etiquette = (s) => UI.etiquette(...(STATUTS[s] || [s, ""]));
+  /** Le jour où la paie d'un mois se verse : le 10 du mois suivant. */
+  const dixDuMoisSuivant = (mois) => decaler(mois, 1).slice(0, 8) + "10";
 
   /** « 2026-09-01 » du mois précédent si l'on est en début de mois, sinon du mois en cours. */
   function moisParDefaut() {
@@ -109,22 +113,13 @@ const VuePaie = (() => {
           h("td", { class: "nombre" }, UI.entier(Number(l.cotisations_salariales) + Number(l.impot) + Number(l.avances) + Number(l.retenues))),
           h("td", { class: "nombre gras" }, UI.entier(l.net)),
           h("td", {}, etiquette(l.statut)),
-          h("td", {}, l.statut === "validee" && App.peutDecaisser()
-            ? h("button", { class: "btn btn-orange btn-petit", onclick: (ev) => payer(ev.currentTarget, l, recharger) }, "Payer") : null)))),
+          h("td", { class: "petit doux" }, l.statut === "validee" ? "versée le " + UI.date(dixDuMoisSuivant(mois)) : "")))),
         h("tfoot", {}, h("tr", {}, h("th", {}, "Total"), h("th", { class: "nombre" }, UI.entier(somme("brut"))),
           h("th", { class: "nombre" }, UI.entier(somme("cotisations_salariales") + somme("impot") + somme("avances") + somme("retenues"))),
           h("th", { class: "nombre" }, UI.entier(somme("net"))), h("th", {}), h("th", {})))))
         : UI.vide(App.estAdmin()
-          ? "Aucune fiche pour ce mois. Elles se calculent seules le dernier jour du mois, ou tout de suite avec « Calculer la paie »."
+          ? "Aucune fiche pour ce mois. Elles se calculent seules le 5 du mois suivant, ou tout de suite avec « Calculer la paie »."
           : "Aucune fiche validée pour ce mois."));
-  }
-
-  async function payer(bouton, l, suite) {
-    /* Le salaire sort de la caisse : espèces seules, ou réparti avec le Mobile Money. */
-    const v = await VueCaisse.repartir({ titre: "Payer " + UI.nomComplet(l.employe) + " : " + UI.fcfa(l.net), montant: Number(l.net), valider: "Confirmer le paiement" });
-    if (!v) return;
-    await UI.agir(bouton, () => Supabase.rpc("rh_payer", { fiche: l.id, repartition: v.repartition, reference: v.reference }), "Paiement enregistré : il sort de la caisse.");
-    suite();
   }
 
   /* ---------- Une fiche, imprimable ---------- */
@@ -156,13 +151,11 @@ const VuePaie = (() => {
         recharger();
       } }, "Rouvrir"));
     }
-    if (App.peutDecaisser() && f.statut === "validee") {
-      actions.push(h("button", { class: "btn btn-orange", onclick: (ev) => payer(ev.currentTarget, f, recharger) }, "Payer"));
-    }
 
     UI.vider(zone,
       h("div", { class: "actions non-imprime" }, actions),
       f.statut === "calculee" ? h("div", { class: "avertissement non-imprime" }, "Fiche provisoire : elle attend la validation du CEO.") : null,
+      f.statut === "validee" ? h("div", { class: "info non-imprime" }, "Validée : elle se versera sur le solde de l'employé le " + UI.date(dixDuMoisSuivant(f.mois)) + ".") : null,
       h("div", { class: "fiche-paie" },
         h("div", { class: "en-tete" },
           h("div", { class: "ligne" }, h("img", { src: "icons/icon-192.png", alt: "" }),
@@ -299,8 +292,7 @@ const VuePaie = (() => {
             h("div", { class: "ligne" }, h("span", { class: "gras etire" }, nom(a.employe_id)), h("b", {}, UI.fcfa(a.montant))),
             h("div", { class: "petit doux" }, "Versée le " + UI.date(a.date_avance) + " · " + a.mensualites + " mensualité(s) à partir de " +
               UI.mois(a.premier_mois).toLowerCase() + (a.motif ? " · " + a.motif : ""))),
-          UI.etiquette(a.statut === "active" ? "En cours" : a.statut === "soldee" ? "Soldée" : "Annulée",
-            a.statut === "active" ? "orange" : a.statut === "soldee" ? "vert" : ""),
+          UI.etiquette(...(VueSolde.STATUTS_PRET[a.statut] || [a.statut, ""])),
           a.statut === "active" ? h("button", { class: "btn-ic", "aria-label": "Supprimer", onclick: async (ev) => {
             if (!await UI.confirmer("Supprimer cette avance ? Impossible si elle a déjà été retenue sur une paie validée.", { danger: true, valider: "Supprimer" })) return;
             await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_avances", "id=eq." + a.id), "Avance supprimée.");

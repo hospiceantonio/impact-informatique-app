@@ -5,7 +5,7 @@
    Celtiis Cash. Leur somme fait le solde. Le gestionnaire, désigné
    par le CEO, la tient : il enregistre les apports, déplace l'argent
    d'un compartiment à l'autre, et c'est d'ici que sortent les
-   dépenses décaissées et les salaires payés — au besoin répartis
+   dépenses décaissées, les salaires retirés et les prêts — au besoin répartis
    entre compartiments. Le CEO ajuste (un écart, une erreur), avec un
    motif : aucun mouvement ne se modifie ni ne s'efface.
 
@@ -16,7 +16,7 @@ const VueCaisse = (() => {
   const { h } = UI;
   const COMPTES = [["especes", "Espèces"], ["mtn", "MTN Mobile Money"], ["moov", "Moov Money"], ["celtiis", "Celtiis Cash"]];
   const NOM_COMPTE = Object.fromEntries(COMPTES);
-  const NATURES = { apport_ceo: "Apport du CEO", apport_autre: "Apport", depense: "Dépense", salaire: "Salaire",
+  const NATURES = { apport_ceo: "Apport du CEO", apport_autre: "Apport", depense: "Dépense", salaire: "Salaire", pret: "Prêt",
     transfert: "Transfert", frais: "Frais d'opérateur", ajustement: "Ajustement" };
 
   const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");

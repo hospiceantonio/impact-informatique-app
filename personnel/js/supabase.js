@@ -261,6 +261,35 @@ const Supabase = (() => {
   const supprimer = (table, filtre) => requete("DELETE", table + "?" + filtre);
   const rpc = (nom, parametres) => requete("POST", "rpc/" + nom, parametres || {});
 
+  /* ---------- Le reversement FeexPay d'un retrait ----------
+     La fonction Edge « rh-reversement » détient seule le jeton FeexPay ;
+     l'envoi n'y passe qu'avec la session du gestionnaire, que la base
+     vérifie. */
+  async function reverser(action, corps) {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) {
+      const err = new Error("Session expirée : reconnectez-vous.");
+      err.deconnecte = true;
+      throw err;
+    }
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/functions/v1/rh-reversement", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token, "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...(corps || {}) }),
+      });
+    } catch (_) {
+      /* La demande est peut-être partie : on ne conclut rien, la base dira. */
+      throw new Error("Serveur injoignable. Rechargez la page pour voir où en est le retrait avant de réessayer.");
+    }
+    const d = await reponse.json().catch(() => null);
+    if (!d) throw new Error("Le reversement n'a pas répondu (" + reponse.status + "). Est-il déployé ?");
+    if (d.erreur) throw new Error(d.erreur);
+    return d;
+  }
+
   /* ---------- La fonction de messagerie ---------- */
 
   async function messagerie(action, corps) {
@@ -413,7 +442,7 @@ const Supabase = (() => {
   return {
     configuration, sessionPresente, utilisateur, parTelephone, connexion, deconnexion, assurerSession,
     demanderCode, confirmerCode,
-    changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie,
+    changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie, reverser,
     deposer, signer, retirer,
     etatConnexion, demanderCodeEquipe, confirmerCodeEquipe, reconnaitreAppareil, confierAppareil,
   };

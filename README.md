@@ -4839,8 +4839,8 @@ Une troisième application, `personnel/`, pour les employés de BIZZOO eux-même
 | CEO | un seul (`rh_employes.ceo`) | valide les employés, les rapports d'activité, les dépenses, les barèmes et la paie ; donne les droits |
 | Administration | `administration` | droits sur tous les profils : crée les employés (validés par le CEO), les profils, les missions ; prépare la paie |
 | Responsable | `rh_profils.responsable_id` | accepte les missions de son profil, rend leurs rapports, publie les rapports d'activité, demande les dépenses |
-| Habilité | `peut_decaisser` | décaisse les dépenses approuvées, paie les fiches validées |
-| Employé | tout employé en poste | ses mails, la discussion de son profil, ses fiches de paie, ses coordonnées |
+| Gestionnaire de la caisse | `rh_caisse.gestionnaire_id` | décaisse les dépenses approuvées et les prêts validés, sert les retraits (FeexPay ou caisse) |
+| Employé | tout employé en poste | ses mails, la discussion de son profil, ses fiches de paie, son solde, ses coordonnées |
 
 Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une fiche en attente, refusée ou sortie n'a aucun droit.
 
@@ -4856,10 +4856,10 @@ Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une f
 
 ### La paie
 
-- Le dernier jour du mois à 18 h (heure du Bénin), `pg_cron` calcule les fiches de tous les employés en poste ; s'il manque, l'application rattrape à l'ouverture (`rh_paie_a_jour`), et l'administration peut « Calculer / Recalculer » à tout moment.
+- **Le 5 du mois**, à 7 h (heure du Bénin), `pg_cron` calcule les fiches **du mois écoulé** pour tous les employés en poste ; elles attendent la validation du CEO. Si le 5 est manqué, le passage suivant rattrape, et l'application aussi à l'ouverture (`rh_paie_a_jour`) ; l'administration peut « Calculer / Recalculer » à tout moment. (Jusqu'à la 3.66, c'était le dernier jour du mois.)
 - Une fiche : salaire de base au prorata des jours (embauche ou sortie en cours de mois), primes et indemnités (imposables ou non), cotisations validées, impôt par tranches validé, retenues, puis les avances — une mensualité par paie, jamais au-delà de ce qui reste : la fiche ne descend pas sous zéro.
 - **Aucun taux n'est fourni**, par décision du propriétaire : CNSS, impôt et autres cotisations se saisissent dans Paie → Barèmes, et ne comptent qu'une fois validés par le CEO. Toute modification les renvoie à sa validation.
-- Le CEO valide le mois : les fiches sont figées (rien ne les recalcule plus), l'employé voit la sienne, l'habilité la paie. Une fiche validée mais pas encore payée peut être rouverte par le CEO.
+- Le CEO valide le mois : les fiches sont figées (rien ne les recalcule plus) et l'employé voit la sienne. **Le 10 du mois suivant**, chaque fiche validée se **verse sur le solde** de son employé (voir plus bas) ; validée après le 10, elle s'y verse aussitôt. Une fiche validée mais pas encore versée peut être rouverte par le CEO. Une fiche ne se paie plus « de la main à la main » : `rh_payer` et `rh_payer_fiche` répondent qu'il faut passer par le solde.
 - Chaque fiche garde une copie de ce qu'était l'employé (poste, profil, matricule) : un changement de poste ne réécrit pas le passé.
 
 ### Les mails
@@ -4912,10 +4912,25 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 `supabase/personnel-caisse.sql` ; écran `personnel/js/vues/caisse.js`.
 
 - **Quatre compartiments** : espèces, MTN Mobile Money, Moov Money, Celtiis Cash ; leur somme fait le solde. Le menu Caisse montre le solde à l'instant (total et par compartiment) et, pour une période, le solde de début, les entrées, les sorties, le solde de fin et la liste des mouvements (exportable en Excel).
-- **Le gestionnaire**, désigné par le CEO (`rh_designer_gestionnaire_caisse`), tient la caisse : **lui seul décaisse les dépenses approuvées et paie les salaires** (`rh_peut_decaisser()` = être ce gestionnaire ; la case « habilité à décaisser » de la fiche employé a disparu). Chaque décaissement ou paiement se **répartit** entre compartiments (« 20 000 en espèces + 30 000 sur MTN », `rh_decaisser` / `rh_payer`) : la somme doit tomber juste, et aucun compartiment ne passe sous zéro (la base refuse). Des déclencheurs font sortir de la caisse TOUT décaissement et TOUT salaire payé, quel que soit le chemin.
+- **Le gestionnaire**, désigné par le CEO (`rh_designer_gestionnaire_caisse`), tient la caisse : **lui seul décaisse les dépenses approuvées, les prêts, et remet les salaires retirés à la caisse** (`rh_peut_decaisser()` = être ce gestionnaire ; la case « habilité à décaisser » de la fiche employé a disparu). Chaque décaissement ou paiement se **répartit** entre compartiments (« 20 000 en espèces + 30 000 sur MTN », `rh_decaisser` / `rh_payer`) : la somme doit tomber juste, et aucun compartiment ne passe sous zéro (la base refuse). Des déclencheurs font sortir de la caisse TOUT décaissement et TOUT salaire payé, quel que soit le chemin.
 - **Les entrées** : apports du CEO ou d'une autre source nommée (`rh_caisse_apport`, par le gestionnaire ou le CEO). Le gestionnaire **déplace** l'argent entre compartiments (retrait Mobile Money en espèces…), frais de l'opérateur compris (`rh_caisse_transfert`).
 - **Rien ne s'efface** : `rh_caisse_mouvements` est figée (ni modification, ni suppression) et fermée à la lecture directe ; chaque mouvement garde le solde qu'il laisse et qui l'a fait. Une erreur ou un écart de comptage se corrige par un **ajustement** du CEO, avec motif (`rh_caisse_ajustement`).
 - **Qui la voit** (`rh_caisse_acces`) : le CEO, le gestionnaire, le superadministrateur, et les profils à qui Paramètres ouvre « Caisse (consultation) » ; l'administration n'y entre pas d'office. En consultation, on ne fait rien, et un salaire ne dit pas de qui il est.
+
+### Le solde, les prêts et les retraits
+
+`supabase/personnel-solde.sql` ; écrans `personnel/js/vues/solde.js` (« Mon solde », tout employé, le CEO compris) et `personnel/js/vues/prets.js` (« Prêts et retraits », le CEO et le gestionnaire de la caisse) ; fonction Edge `supabase/functions/rh-reversement`.
+
+- **Le solde** de chaque employé est la somme de mouvements figés (`rh_solde_mouvements` : ni modification, ni suppression, chacun garde le solde qu'il laisse). Il reçoit le 10 le net de la paie validée : **salaire + primes − retenues − prêt** (cotisations et impôt validés déduits). Une fiche négative laisse une dette, reprise sur les versements suivants. Le CEO voit le solde de chacun, et le total dû aux employés.
+- **Primes et retenues du CEO** (ou du superadministrateur), depuis la fiche de l'employé : `rh_octroyer` les inscrit sur sa **prochaine paie** (`rh_prochain_mois_paie` : le mois écoulé tant que sa fiche n'est pas validée, sinon le mois en cours ; jamais avant l'embauche). Une prime est imposable. On la retire tant que la paie n'est pas validée.
+- **Le prêt** : l'employé le demande (montant, motif ; un seul en attente à la fois) → le **CEO** le valide ou le refuse (motif) → le **gestionnaire de la caisse** le décaisse, réparti entre compartiments (nature « pret » dans la caisse), jamais le sien → la **prochaine paie le reprend en une fois** (une avance d'une mensualité ; si le salaire ne suffit pas, le reste attend la paie suivante, comme toute avance).
+- **Le retrait** : l'employé retire **tout ou partie** de son solde, quand il veut, et le montant quitte aussitôt son solde (deux demandes ne passent pas sur le même argent). Deux moyens :
+  - **Mobile Money** (MTN, Moov, Celtiis ; 50 FCFA au moins) : le gestionnaire clique « Envoyer par FeexPay ». La fonction `rh-reversement` fait vérifier son droit par la base, avec SA session (`rh_retrait_preparer`, qui fait passer le retrait d'un coup à « envoi » : deux clics, un seul virement), prend montant et numéro dans la base, appelle le **payout V2** de FeexPay (`/api/payouts/public/transfer/global` pour MTN et Moov, `/api/payouts/public/celtiis_bj` pour Celtiis ; numéro 229 + 10 chiffres ; motif de 30 caractères sans ponctuation), puis lit le statut (`/api/payouts/status/public/<référence>`). **« Payé » ne s'écrit que sur cette lecture, au montant exact** ; pg_cron fait revérifier toutes les 10 minutes ce qui est en cours (`rh-reversements-verifier`). Un refus (4xx) est sûr : l'argent revient sur le solde. Une panne, un délai dépassé ou une réponse sans référence rendent le retrait **« incertain »** : il ne repart jamais seul (on paierait deux fois) ; le CEO tranche après avoir regardé le tableau de bord FeexPay (`rh_retrait_trancher`, constat à l'appui). L'argent part du compte marchand FeexPay de BIZZOO, pas de la caisse.
+  - **La caisse** : le gestionnaire remet l'argent et le répartit entre compartiments (`rh_servir_retrait`, nature « salaire »). Il peut ainsi servir un retrait demandé en Mobile Money (en l'envoyant lui-même depuis le compartiment MTN).
+  - Le gestionnaire ou le CEO peut refuser un retrait (motif), l'employé l'annuler tant qu'il attend : le montant revient sur le solde. Le gestionnaire ne sert jamais son propre retrait.
+- **Le calendrier**, une seule tâche `pg_cron` chaque matin à 7 h (`rh-paie-quotidienne`) : la paie du mois écoulé à partir du 5, puis le versement des fiches validées dont le 10 est passé (`rh_crediter_salaires`). Elle remplace `rh-paie-fin-de-mois`.
+- **Secrets** : ceux du paiement des commandes (`FEEXPAY_TOKEN`, `FEEXPAY_SHOP`) ; facultatif `RH_REVERSEMENT_RESEAUX='mtn,moov'` pour fermer un réseau sans redéploiement. **FeexPay peut n'accepter les reversements que depuis des adresses IP déclarées** (tableau de bord FeexPay, onglet « IP List ») : les fonctions de Supabase n'ont pas d'adresse fixe. Un refus pour cette raison rend l'argent sans dommage, mais aucun reversement ne passera tant que FeexPay ne l'autorise pas. Le premier essai se fait avec un petit montant réel, sur chaque réseau : il n'y a pas de bac à sable.
+- **Banc** : `tools/eprouver-reversement.sh` (FeexPay et la base en doublures, aucun appel ne sort) ; les essais de la base, section 21.
 
 ### Localiser un livreur
 
@@ -4959,7 +4974,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql` (puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

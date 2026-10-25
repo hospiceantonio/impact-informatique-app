@@ -15,6 +15,8 @@ const App = (() => {
   let menus = [];
   /* Le droit sur la caisse (rh_caisse_acces) : la caisse ne suit pas les autres menus. */
   let caisseAcces = null;
+  /* Les pastilles des prêts et retraits (rh_compteurs_solde). */
+  let compteursSolde = {};
   let routeCourante = "";
   let minuterie = null;
 
@@ -49,6 +51,8 @@ const App = (() => {
     rapports: VueRapports,
     depenses: VueDepenses,
     caisse: VueCaisse,
+    prets: VuePrets,
+    solde: VueSolde,
     employes: VueEmployes,
     profils: VueProfils,
     paie: VuePaie,
@@ -75,6 +79,9 @@ const App = (() => {
         pour: () => ouvert("depenses") || peutDecaisser(),
         pastille: (c.depenses_a_valider || 0) + (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
       { route: "caisse", libelle: "Caisse", icone: "caisse", pour: () => !!caisseAcces },
+      { route: "prets", libelle: "Prêts et retraits", icone: "argent", pour: () => !!compteursSolde.menu,
+        pastille: (compteursSolde.prets_a_valider || 0) + (compteursSolde.prets_a_decaisser || 0)
+          + (compteursSolde.retraits_a_servir || 0) + (compteursSolde.retraits_incertains || 0) },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
@@ -82,9 +89,11 @@ const App = (() => {
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
         pastille: c.employes_a_valider, groupe: estAdmin() ? "Administration" : undefined },
       { route: "profils", libelle: "Profils", icone: "profils", pour: estAdmin },
-      { route: "paie", libelle: "Paie", icone: "paie", pour: () => estAdmin() || peutDecaisser(),
-        pastille: (c.fiches_a_valider || 0) + (c.baremes_a_valider || 0) + (c.fiches_a_payer || 0) },
+      /* La paie se verse sur le solde le 10 : plus rien n'y est « à payer ». */
+      { route: "paie", libelle: "Paie", icone: "paie", pour: estAdmin,
+        pastille: (c.fiches_a_valider || 0) + (c.baremes_a_valider || 0) },
       { route: "parametres", libelle: "Paramètres", icone: "reglages", pour: estAdmin },
+      { route: "solde", libelle: "Mon solde", icone: "paie", groupe: "Moi" },
       { route: "compte", libelle: "Mon compte", icone: "personne", groupe: "Moi" },
     ].filter((m) => !m.pour || m.pour());
   }
@@ -214,6 +223,7 @@ const App = (() => {
       les menus d'avant, sans suivi ni statistiques. */
   async function chargerMenus() {
     caisseAcces = await Supabase.rpc("rh_caisse_acces").catch(() => null);
+    compteursSolde = await Supabase.rpc("rh_compteurs_solde").catch(() => ({})) || {};
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];

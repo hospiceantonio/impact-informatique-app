@@ -33,7 +33,11 @@
 --      qu'on n'efface pas, un solde qui ne passe jamais sous zéro ;
 --  20. la fiche complète : le superadministrateur la modifie comme le CEO,
 --      l'employé complète ce qui le regarde, les données sensibles restent
---      au CEO ; on se connecte par son numéro.
+--      au CEO ; on se connecte par son numéro ;
+--  21. le solde de chaque employé : la paie validée s'y verse le 10, les
+--      primes et retenues du CEO vont sur la prochaine paie, le prêt passe
+--      par le CEO puis la caisse et revient sur la paie, un retrait ne
+--      dépasse pas le solde et personne ne s'écrit « payé ».
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -547,20 +551,32 @@ reset role; select essai.personne();
 
 select (select id from public.rh_fiches_paie where employe_id = :'e_resp' and mois = '2026-09-01') as fiche_sept \gset
 select (select id from public.rh_fiches_paie where employe_id = :'e_resp' and mois = '2026-10-01') as fiche_oct \gset
+-- Septembre se versait le 10 octobre : validée après, la fiche est
+-- versée aussitôt sur le solde de l'employé.
+select essai.egal((select statut || '/' || mode_paiement from public.rh_fiches_paie where id = :'fiche_sept'),
+  'payee/solde', 'validée après son 10, la fiche est versée aussitôt sur le solde');
+select essai.egal(public.rh_solde_de(:'e_resp'), 187580::bigint, 'le net de septembre est sur le solde de l''employé');
+select essai.egal((select count(*)::int from public.rh_caisse_mouvements where fiche_id = :'fiche_sept'), 0,
+  'versée sur le solde, elle ne sort pas encore de la caisse');
 select essai.devenir(:CAISSE::uuid); set role authenticated;
-select essai.refuse(format($$select public.rh_payer_fiche(%L, 'especes')$$, :'fiche_oct'),
-  'une fiche pas encore validée ne se paie pas');
+select essai.refuse(format($$select public.rh_payer_fiche(%L, 'mtn', 'MTN-09')$$, :'fiche_sept'),
+  'un salaire ne se paie plus de la main à la main');
+select essai.refuse(format($$select public.rh_payer(%L, '{"mtn": 187580}', 'MTN-09')$$, :'fiche_oct'),
+  'ni réparti entre les compartiments');
+reset role; select essai.personne();
+-- L'employé retire son salaire à la caisse ; le gestionnaire le sert sur MTN.
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_demander_retrait(187580, 'caisse') as retrait_sept \gset
 reset role; select essai.personne();
 select essai.devenir(:CAISSE::uuid); set role authenticated;
-select essai.refuse(format($$select public.rh_payer_fiche(%L, 'virement', 'VIR-09')$$, :'fiche_sept'),
-  'un salaire sort de la caisse : pas de virement bancaire');
-select public.rh_payer_fiche(:'fiche_sept', 'mtn', 'MTN-09');
+select public.rh_servir_retrait(:'retrait_sept', '{"mtn": 187580}', 'MTN-09');
 select essai.egal((select (x ->> 'montant')::bigint from jsonb_array_elements(public.rh_caisse() -> 'mouvements') x
                     where x ->> 'nature' = 'salaire' and x ->> 'compte' = 'mtn' limit 1),
-  (select net from public.rh_fiches_paie where id = :'fiche_sept'), 'le net payé sort du compartiment MTN');
+  187580::bigint, 'le retrait sort du compartiment MTN');
 reset role; select essai.personne();
-select essai.egal((select statut from public.rh_fiches_paie where id = :'fiche_sept'), 'payee',
-  'validée par le CEO, payée par l''habilité');
+select essai.egal(public.rh_solde_de(:'e_resp'), 0::bigint, 'retiré, le solde est vide');
+select (select 'Retrait de salaire R-' || lpad(numero::text, 4, '0') from public.rh_retraits
+         where id = :'retrait_sept') as libelle_sept \gset
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.refuse(format($$select public.rh_rouvrir_fiche(%L)$$, :'fiche_sept'),
   'une fiche payée ne se rouvre pas');
@@ -1180,12 +1196,12 @@ select public.rh_caisse('2026-01-01', current_date) as vue_resp \gset
 select essai.refuse($$select public.rh_caisse_apport('especes', 1000, 'ceo')$$, 'il consulte seulement');
 reset role; select essai.personne();
 select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(:'vue_resp'::jsonb -> 'mouvements') x
-                    where x ->> 'nature' = 'salaire'), 'Salaire de 09/2026',
+                    where x ->> 'nature' = 'salaire'), :'libelle_sept',
   'en consultation, un salaire ne dit pas de qui il est');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(public.rh_caisse('2026-01-01', current_date) -> 'mouvements') x
                     where x ->> 'nature' = 'salaire'),
-  'Salaire de 09/2026 · ' || (select btrim(prenoms || ' ' || nom) from public.rh_employes where id = :'e_resp'),
+  :'libelle_sept' || ' · ' || (select btrim(prenoms || ' ' || nom) from public.rh_employes where id = :'e_resp'),
   'le CEO, lui, voit de qui');
 reset role; select essai.personne();
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
@@ -1273,6 +1289,200 @@ delete from auth.users where id in (:TEL_RH::uuid, :TEL_AUTRE::uuid);
 update public.rh_employes set etat = 'supprime', telephone = '' where id = :'e_tel';
 update public.rh_employes set telephone = '' where id = :'e_membre';
 select set_config('rh.decision', '', false);
+
+-- ---------------------------------------------------------
+select essai.titre('21. Le solde, les primes du CEO, les prêts et les retraits');
+-- Les dates réelles du banc changent d'un jour à l'autre : on compare
+-- des écarts de solde, et ce qui dépend du 10 se lit sur le calendrier.
+select essai.egal(public.rh_date_versement('2026-09-01'), '2026-10-10'::date, 'la paie de septembre se verse le 10 octobre');
+select essai.egal(public.rh_date_versement('2026-12-01'), '2027-01-10'::date, 'celle de décembre, le 10 janvier');
+select essai.egal(public.rh_numero_national('97 00 00 01'), '0197000001', 'un numéro à huit chiffres reçoit son 01');
+select essai.egal(public.rh_numero_national('+229 01 97 00 00 01'), '0197000001', 'un numéro international perd son 229');
+select essai.refuse($$select public.rh_numero_national('12345')$$, 'un numéro trop court est refusé');
+
+-- Les primes et retenues du CEO
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_octroyer(%L, 'prime', 1000, 'Bravo')$$, :'e_membre'),
+  'l''administration n''accorde pas de prime ainsi : le CEO seul');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_octroyer(:'e_admrh', 'prime', 15000, 'Prime d''assiduité') as mois_prime \gset
+select public.rh_octroyer(:'e_admrh', 'retenue', 4000, 'Casse d''un casque') as mois_retenue \gset
+select essai.refuse(format($$select public.rh_octroyer(%L, 'prime', 0, 'Rien')$$, :'e_admrh'), 'un montant positif');
+select essai.refuse(format($$select public.rh_octroyer(%L, 'bonus', 100, 'Autre chose')$$, :'e_admrh'), 'une prime ou une retenue, rien d''autre');
+select essai.refuse(format($$select public.rh_octroyer(%L, 'prime', 100, '')$$, :'e_admrh'), 'avec son libellé');
+select public.rh_compte_employe(:'e_admrh') as compte_autre \gset
+reset role; select essai.personne();
+select essai.egal(:'mois_prime'::date, public.rh_prochain_mois_paie(:'e_admrh'), 'la prime va sur la prochaine paie');
+select essai.egal(:'mois_retenue'::date, :'mois_prime'::date, 'la retenue aussi');
+select essai.verifie(not exists (select 1 from public.rh_fiches_paie where employe_id = :'e_admrh'
+                                    and mois = :'mois_prime'::date and statut <> 'calculee'),
+  'jamais sur une paie déjà validée');
+select essai.egal((select imposable from public.rh_elements_paie where employe_id = :'e_admrh' and libelle = 'Prime d''assiduité'),
+  true, 'une prime du CEO est imposable');
+select essai.egal(jsonb_array_length(:'compte_autre'::jsonb -> 'elements'), 2, 'le CEO les voit sur le compte de l''employé');
+
+-- Le prêt : l'employé le demande, le CEO le valide, la caisse le décaisse
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_demander_pret(0, 'Rien')$$, 'un prêt a un montant');
+select essai.refuse($$select public.rh_demander_pret(20000, '')$$, 'et un motif');
+select public.rh_demander_pret(20000, 'Frais de scolarité') as pret \gset
+select essai.refuse($$select public.rh_demander_pret(5000, 'Encore un')$$, 'un seul prêt en attente à la fois');
+select essai.refuse(format($$select public.rh_decider_pret(%L, true)$$, :'pret'), 'il ne valide pas son prêt');
+select essai.refuse($$select public.rh_prets_retraits()$$, 'ni ne lit la liste des prêts et retraits');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_generer_paie(:'mois_prime'::date);
+reset role; select essai.personne();
+select essai.egal((select primes || '/' || retenues || '/' || avances from public.rh_fiches_paie
+                    where employe_id = :'e_admrh' and mois = :'mois_prime'::date), '15000/4000/0',
+  'la fiche porte la prime et la retenue ; un prêt demandé ne retient rien');
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_decaisser_pret(%L, '{"especes": 20000}')$$, :'pret'),
+  'la caisse ne décaisse pas un prêt que le CEO n''a pas validé');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal((public.rh_compteurs_solde() ->> 'prets_a_valider')::int, 1, 'le CEO a un prêt à valider');
+select essai.refuse(format($$select public.rh_decider_pret(%L, false, '')$$, :'pret'), 'un refus se motive');
+select public.rh_decider_pret(:'pret', true);
+reset role; select essai.personne();
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.egal((public.rh_compteurs_solde() ->> 'prets_a_decaisser')::int, 1, 'le gestionnaire a un prêt à décaisser');
+select essai.refuse(format($$select public.rh_decaisser_pret(%L, '{"especes": 15000}')$$, :'pret'),
+  'la répartition doit tomber juste');
+select public.rh_decaisser_pret(:'pret', '{"especes": 20000}', 'REC-PRET-1');
+select essai.egal((select x ->> 'nature' || '/' || (x ->> 'montant') from (select public.rh_caisse() -> 'mouvements' -> 0 as x) y),
+  'pret/20000', 'le prêt sort de la caisse');
+reset role; select essai.personne();
+select essai.egal((select statut || '/' || premier_mois from public.rh_avances where id = :'pret'),
+  'active/' || public.rh_prochain_mois_paie(:'e_admrh'), 'décaissé, le prêt s''inscrit sur la prochaine paie');
+select essai.egal((select avances from public.rh_fiches_paie where employe_id = :'e_admrh' and mois = :'mois_prime'::date),
+  20000::bigint, 'et la paie le reprend en une fois');
+select essai.egal((select net from public.rh_fiches_paie where employe_id = :'e_admrh' and mois = :'mois_prime'::date),
+  (select brut - cotisations_salariales - impot - 4000 - 20000 from public.rh_fiches_paie
+    where employe_id = :'e_admrh' and mois = :'mois_prime'::date),
+  'à verser : salaire + prime − retenue − prêt (cotisations et impôt déduits)');
+
+-- Un refus ; le gestionnaire ne décaisse pas son propre prêt
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_demander_pret(500000, 'Achat d''une moto') as pret_membre \gset
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_decider_pret(:'pret_membre', false, 'Montant trop élevé');
+reset role; select essai.personne();
+select essai.egal((select statut from public.rh_avances where id = :'pret_membre'), 'refusee', 'le CEO refuse, motif à l''appui');
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select public.rh_demander_pret(10000, 'Dépannage') as pret_caisse \gset
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_decider_pret(:'pret_caisse', true);
+reset role; select essai.personne();
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_decaisser_pret(%L, '{"especes": 10000}')$$, :'pret_caisse'),
+  'le gestionnaire ne décaisse pas son propre prêt');
+select essai.egal((public.rh_compteurs_solde() ->> 'prets_a_decaisser')::int, 0, 'et ne le compte pas parmi ses tâches');
+reset role; select essai.personne();
+
+-- Les retraits
+select public.rh_solde_de(:'e_membre') as solde_membre \gset
+select essai.verifie(:'solde_membre'::bigint >= 75000, 'la stagiaire a son salaire de septembre sur son solde');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal((public.rh_compte_employe() ->> 'solde')::bigint, :'solde_membre'::bigint, 'elle lit son solde');
+select essai.refuse(format($$select public.rh_compte_employe(%L)$$, :'e_admrh'), 'pas celui d''un autre');
+select essai.refuse($$select * from public.rh_solde_mouvements$$, 'ni la table des mouvements');
+select essai.refuse($$select * from public.rh_retraits$$, 'ni celle des retraits');
+select essai.refuse(format($$select public.rh_demander_retrait(%s, 'caisse')$$, :'solde_membre'::bigint + 1),
+  'pas plus que son solde');
+select essai.refuse($$select public.rh_demander_retrait(1000, 'feexpay', 'orange', '0197000001')$$, 'MTN, Moov ou Celtiis');
+select essai.refuse($$select public.rh_demander_retrait(30, 'feexpay', 'mtn', '0197000001')$$, 'au moins 50 francs par Mobile Money');
+select essai.refuse($$select public.rh_demander_retrait(1000, 'feexpay', 'mtn', '12345')$$, 'un vrai numéro');
+select public.rh_demander_retrait(30000, 'feexpay', 'mtn', '97 00 00 01') as r1 \gset
+select public.rh_demander_retrait(10000, 'caisse') as r2 \gset
+select essai.egal((public.rh_compte_employe() ->> 'solde')::bigint, :'solde_membre'::bigint - 40000,
+  'demandés, les retraits quittent aussitôt le solde');
+select public.rh_annuler_retrait(:'r2');
+select essai.egal((public.rh_compte_employe() ->> 'solde')::bigint, :'solde_membre'::bigint - 30000,
+  'annulé, le retrait revient sur le solde');
+select essai.refuse(format($$select public.rh_annuler_retrait(%L)$$, :'r2'), 'une seule fois');
+select essai.refuse(format($$select public.rh_retrait_preparer(%L)$$, :'r1'), 'elle ne lance pas elle-même le reversement');
+select essai.refuse(format($$select public.rh_retrait_resultat(%L, 'paye')$$, :'r1'), 'ni ne s''écrit « payé »');
+reset role; select essai.personne();
+select essai.egal((select telephone || '/' || reseau from public.rh_retraits where id = :'r1'), '0197000001/mtn',
+  'le numéro est rangé sous sa forme nationale');
+
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.verifie((public.rh_compteurs_solde() ->> 'retraits_a_servir')::int >= 1, 'le gestionnaire a un retrait à servir');
+select public.rh_retrait_preparer(:'r1') as prep \gset
+select essai.egal((:'prep'::jsonb ->> 'montant')::bigint, 30000::bigint, 'le montant envoyé vient de la base');
+select essai.refuse(format($$select public.rh_retrait_preparer(%L)$$, :'r1'), 'deux clics ne font pas deux virements');
+select essai.refuse(format($$select public.rh_servir_retrait(%L, '{"mtn": 30000}')$$, :'r1'),
+  'ni un virement et un paiement à la caisse');
+reset role; select essai.personne();
+-- Ce que la fonction Edge constate chez FeexPay (droits du service)
+select essai.egal(public.rh_retrait_resultat(:'r1', 'paye', 'X'), 'envoi', 'pas « payé » avant d''avoir été accepté par FeexPay');
+select public.rh_retrait_resultat(:'r1', 'envoye', 'FEEX-REF-1', '{"statut": 200}');
+select essai.verifie(public.rh_retraits_a_verifier() @> jsonb_build_array(jsonb_build_object('id', :'r1'::uuid)),
+  'un reversement accepté reste à revérifier');
+select public.rh_retrait_resultat(:'r1', 'echoue', '', '{"status": "FAILED"}');
+select essai.egal(public.rh_retrait_resultat(:'r1', 'paye', '', '{}'), 'echoue', 'un reversement échoué ne devient pas payé');
+select essai.egal(public.rh_solde_de(:'e_membre'), :'solde_membre'::bigint, 'échoué, le montant est revenu sur le solde');
+select essai.egal((select reference from public.rh_retraits where id = :'r1'), 'FEEX-REF-1', 'la référence FeexPay reste notée');
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_demander_retrait(20000, 'feexpay', 'moov', '0195000002') as r3 \gset
+select public.rh_demander_retrait(5000, 'caisse') as r4 \gset
+reset role; select essai.personne();
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select public.rh_retrait_preparer(:'r3');
+select essai.refuse(format($$select public.rh_refuser_retrait(%L, '')$$, :'r4'), 'un refus se motive');
+select public.rh_refuser_retrait(:'r4', 'Caisse vide ce jour');
+reset role; select essai.personne();
+select public.rh_retrait_resultat(:'r3', 'incertain', '', '{"erreur": "délai dépassé"}');
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_retrait_trancher(%L, true, 'Vu chez FeexPay')$$, :'r3'),
+  'le gestionnaire ne tranche pas un reversement incertain');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal((public.rh_compteurs_solde() ->> 'retraits_incertains')::int, 1, 'le CEO voit le reversement incertain');
+select public.rh_retrait_trancher(:'r3', true, 'Vu SUCCESSFUL dans le tableau de bord FeexPay');
+select public.rh_prets_retraits() as liste_ceo \gset
+reset role; select essai.personne();
+select essai.egal((select statut from public.rh_retraits where id = :'r3'), 'paye', 'le CEO le déclare payé, constat à l''appui');
+select essai.egal(public.rh_solde_de(:'e_membre'), :'solde_membre'::bigint - 20000, 'payé 20 000, refusé 5 000 : rendu');
+select essai.verifie(jsonb_array_length(:'liste_ceo'::jsonb -> 'soldes') >= 5, 'le CEO voit le solde de chacun');
+
+-- Le gestionnaire ne se sert pas lui-même
+select essai.devenir(:CAISSE::uuid); set role authenticated;
+select public.rh_demander_retrait(1000, 'caisse') as r_caisse \gset
+select essai.refuse(format($$select public.rh_servir_retrait(%L, '{"especes": 1000}')$$, :'r_caisse'),
+  'le gestionnaire ne sert pas son propre retrait');
+select public.rh_annuler_retrait(:'r_caisse');
+reset role; select essai.personne();
+
+-- La fiche du mois de la prime : validée, versée le 10 suivant
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_valider_paie(:'mois_prime'::date);
+reset role; select essai.personne();
+select essai.egal((select statut from public.rh_fiches_paie where employe_id = :'e_admrh' and mois = :'mois_prime'::date),
+  case when public.rh_aujourdhui() >= public.rh_date_versement(:'mois_prime'::date) then 'payee' else 'validee' end,
+  'validée, la fiche attend le 10 du mois suivant pour se verser');
+select essai.egal(public.rh_crediter_salaires(), 0, 'le passage du matin ne verse rien avant le 10');
+
+-- Rien ne s'efface, et chaque solde tombe juste
+select essai.refuse($$update public.rh_solde_mouvements set montant = 1$$, 'un mouvement du solde ne se modifie pas');
+select essai.refuse($$delete from public.rh_solde_mouvements$$, 'ni ne s''efface');
+select essai.egal((select count(*)::int from public.rh_solde_mouvements m
+                    where m.solde <> (select sum(case when x.sens = 'credit' then x.montant else -x.montant end)
+                                        from public.rh_solde_mouvements x
+                                       where x.employe_id = m.employe_id and x.id <= m.id)), 0,
+  'chaque mouvement garde le solde qu''il laisse');
+select essai.egal((select count(*)::int from public.rh_solde_mouvements where nature = 'retrait' and solde < 0), 0,
+  'aucun retrait n''a fait passer un solde sous zéro');
+select essai.egal((select count(*)::int from public.rh_retraits r
+                    where r.statut in ('echoue', 'refuse', 'annule')
+                      and not exists (select 1 from public.rh_solde_mouvements m
+                                       where m.retrait_id = r.id and m.nature = 'retour' and m.montant = r.montant)), 0,
+  'tout retrait qui n''a pas abouti est revenu sur le solde');
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

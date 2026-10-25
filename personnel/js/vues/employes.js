@@ -226,8 +226,31 @@ const VueEmployes = (() => {
     const sensibles = modifieur
       ? (await Supabase.lire("rh_employes_sensibles?select=*&employe_id=eq." + encodeURIComponent(id)).catch(() => []))[0] || null
       : null;
+    /* Son solde et sa prochaine paie : le CEO y accorde primes et retenues. */
+    const compte = modifieur && ["actif", "bloque"].includes(e.etat)
+      ? await Supabase.rpc("rh_compte_employe", { qui: e.id }).catch(() => null)
+      : null;
     if (!zone.isConnected) return;
     const age = UI.age(e.date_naissance);
+    const octroyer = (nature) => async (ev) => {
+      const bouton = ev.currentTarget;
+      const v = await UI.formulaire({
+        titre: (nature === "prime" ? "Accorder une prime à " : "Retenue sur le salaire de ") + UI.nomComplet(e),
+        valider: nature === "prime" ? "Accorder" : "Retenir", danger: nature === "retenue",
+        texte: "Elle s'inscrit sur sa prochaine paie (" + UI.mois(compte.prochain_mois) + ", versée le " + UI.date(compte.prochain_versement) + ").",
+        champs: [
+          { nom: "montant", libelle: "Montant (FCFA)", type: "number", min: 1, pas: 1, requis: true },
+          { nom: "libelle", libelle: "Libellé (il figure sur la fiche de paie)", requis: true,
+            indice: nature === "prime" ? "Prime de rendement" : "Casse de matériel" },
+        ],
+        verifier: (x) => (!(Number.isInteger(Number(x.montant)) && Number(x.montant) > 0) ? "Un montant en francs entiers, positif."
+          : x.libelle.length < 3 ? "Un libellé de trois lettres au moins." : null),
+      });
+      if (!v) return;
+      await UI.agir(bouton, () => Supabase.rpc("rh_octroyer", { qui: e.id, nature, montant: Number(v.montant), libelle: v.libelle }),
+        nature === "prime" ? "Prime accordée." : "Retenue enregistrée.");
+      recharger();
+    };
     const ligne = (libelle, valeur) => h("div", {}, h("div", { class: "doux tres-petit" }, libelle), h("div", { class: "gras" }, valeur || "—"));
     const responsableDe = profils.filter((p) => p.responsable_id === e.id).map((p) => p.nom);
 
@@ -336,6 +359,24 @@ const VueEmployes = (() => {
           ligne("Marié(e)", e.marie),
           ligne("Moto", e.moto === true ? "Oui" : e.moto === false ? "Non" : null)),
         e.infos ? h("div", { class: "pre", style: { marginTop: "12px" } }, e.infos) : null),
+      compte ? h("div", { class: "carte pile" },
+        h("h2", {}, "Solde et prochaine paie"),
+        h("div", { class: "formulaire" },
+          ligne("Solde", UI.fcfa(compte.solde)),
+          ligne("Prochaine paie", UI.mois(compte.prochain_mois) + ", versée le " + UI.date(compte.prochain_versement))),
+        (compte.elements || []).length ? h("div", { class: "liste" }, compte.elements.map((x) => h("div", { class: "element" },
+          h("div", { class: "etire" }, h("div", { class: "gras" }, x.libelle), h("div", { class: "petit doux" }, (x.nature === "retenue" ? "Retenue" : x.nature === "prime" ? "Prime" : "Indemnité") + " · " + UI.mois(x.mois))),
+          h("b", {}, (x.nature === "retenue" ? "− " : "+ ") + UI.fcfa(x.montant)),
+          h("button", { class: "btn-ic", "aria-label": "Retirer", onclick: async (ev) => {
+            if (!await UI.confirmer("Retirer « " + x.libelle + " » de sa prochaine paie ?", { danger: true, valider: "Retirer" })) return;
+            await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_retirer_element", { element: x.id }), "Retiré.");
+            recharger();
+          } }, UI.icone("poubelle", "ic-sm"))))) : h("p", { class: "doux petit" }, "Aucune prime ni retenue sur sa prochaine paie."),
+        (compte.prets || []).filter((p) => p.statut === "active").map((p) =>
+          h("div", { class: "info petit" }, "Prêt de " + UI.fcfa(p.montant) + " : reste " + UI.fcfa(p.reste) + ", repris sur la paie (" + UI.mois(p.premier_mois) + ").")),
+        h("div", { class: "actions" },
+          h("button", { class: "btn btn-second", onclick: octroyer("prime") }, UI.icone("plus", "ic-sm"), "Accorder une prime"),
+          h("button", { class: "btn btn-second", onclick: octroyer("retenue") }, "Retenue sur salaire"))) : null,
       modifieur ? h("div", { class: "carte pile" },
         h("h2", {}, "Données sensibles"),
         h("p", { class: "doux tres-petit" }, "Visibles du CEO et du superadministrateur seulement : jamais de l'administration, ni de l'annuaire."),
