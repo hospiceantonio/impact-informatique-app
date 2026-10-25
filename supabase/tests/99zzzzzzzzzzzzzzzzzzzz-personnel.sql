@@ -1272,6 +1272,10 @@ values ('ESSAI', 'Téléphone', '0140000002', '2026-10-01', 'actif', 'employe', 
 returning id as e_tel \gset
 select set_config('rh.decision', '', false);
 select essai.verifie((select sexe is null from public.rh_employes where id = :'e_tel'), 'le sexe peut rester vide');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.verifie((public.rh_finances() #>> '{effectifs,par_sexe,NR}')::int >= 1,
+  'un sexe vide ne casse pas les statistiques internes : il compte « non renseigné »');
+reset role; select essai.personne();
 insert into auth.users (id, phone, raw_user_meta_data) values
   (:TEL_RH::uuid, '2290140000002', '{"compte":"personnel"}'),
   (:TEL_AUTRE::uuid, '2290140000001', '{"compte":"personnel"}') on conflict do nothing;

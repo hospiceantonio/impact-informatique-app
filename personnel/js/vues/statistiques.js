@@ -413,7 +413,7 @@ const VueStatistiques = (() => {
         [["Profil", "texte", 24], ["Personnes", "nombre", 10], ["Salaires de base", "fcfa"]],
         e.par_profil.map((p) => [p.profil, p.effectif, p.masse_base])) : null,
       repartition("Statut", e.par_statut, { employe: "Employés", stagiaire: "Stagiaires" }),
-      repartition("Sexe", e.par_sexe, { M: "Hommes", F: "Femmes" }),
+      repartition("Sexe", e.par_sexe, { M: "Hommes", F: "Femmes", NR: "Non renseigné" }),
       repartition("Niveau d'étude", e.par_niveau),
       repartition("Toutes les fiches, par état", e.par_etat, ETATS_EMPLOYE),
       tableau("Embauches et sorties par mois", ["Mois", "Embauches", "Sorties"],

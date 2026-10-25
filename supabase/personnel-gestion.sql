@@ -299,7 +299,7 @@ begin
     'en_poste', (select count(*) from en_poste),
     'par_statut', (select coalesce(jsonb_object_agg(statut, n), '{}')
                      from (select statut, count(*) as n from en_poste group by statut) x),
-    'par_sexe', (select coalesce(jsonb_object_agg(sexe, n), '{}')
+    'par_sexe', (select coalesce(jsonb_object_agg(coalesce(sexe, 'NR'), n), '{}')
                    from (select sexe, count(*) as n from en_poste group by sexe) x),
     'par_profil', (select coalesce(jsonb_agg(jsonb_build_object('profil', x.profil, 'effectif', x.n,
                        'masse_base', x.masse) order by x.n desc), '[]')
