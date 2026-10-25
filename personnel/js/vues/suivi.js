@@ -80,26 +80,8 @@ const VueSuivi = (() => {
     return { liste, choix,
       depuis: choix ? choix[2] : params.du, jusqu: choix ? choix[3] : (params.au || iso(new Date())) };
   }
-  /** La période sur une seule ligne : les raccourcis, puis « du … au … »
-      et « Afficher ». Rend la ligne, à poser dans un cadre. */
-  function lignePeriode(route, periode, extra) {
-    const du = h("input", { type: "date", value: periode.depuis, "aria-label": "Du" });
-    const au = h("input", { type: "date", value: periode.jusqu, "aria-label": "Au" });
-    const form = h("form", { class: "barre-compacte" },
-      h("span", { class: "doux texte-long" }, "du"), du, h("span", { class: "doux texte-long" }, "au"), au,
-      h("button", { class: "btn btn-second", type: "submit" }, h("span", { class: "texte-long" }, "Afficher"), h("span", { class: "texte-court" }, "OK")));
-    form.addEventListener("submit", (ev) => {
-      ev.preventDefault();
-      if (au.value < du.value) return UI.echec("La fin de la période précède son début.");
-      location.hash = route + "?du=" + du.value + "&au=" + au.value + (extra || "");
-    });
-    return h("div", { class: "barre-compacte" },
-      h("div", { class: "filtres" }, periode.liste.map(([cle, libelle]) =>
-        h("button", { class: periode.choix && periode.choix[0] === cle ? "actif" : "",
-                      onclick: () => { location.hash = route + "?p=" + cle + (extra || ""); } }, libelle))),
-      form);
-  }
-  const barrePeriode = (route, periode, extra) => h("div", { class: "carte compacte" }, lignePeriode(route, periode, extra));
+  const lignePeriode = (route, periode, extra) => UI.lignePeriode(periode, route, extra);
+  const barrePeriode = (route, periode, extra) => UI.barrePeriode(periode, route, extra);
 
   function onglets(actif) {
     const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"]];

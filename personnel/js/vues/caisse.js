@@ -145,17 +145,6 @@ const VueCaisse = (() => {
     }
 
     /* ---------- La période ---------- */
-    const du = h("input", { type: "date", value: depuis });
-    const au = h("input", { type: "date", value: jusqu });
-    const formPeriode = h("form", { class: "ligne" },
-      h("label", { class: "champ" }, h("span", {}, "Du"), du),
-      h("label", { class: "champ" }, h("span", {}, "Au"), au),
-      h("button", { class: "btn btn-second", type: "submit", style: { alignSelf: "flex-end" } }, "Afficher"));
-    formPeriode.addEventListener("submit", (ev) => {
-      ev.preventDefault();
-      if (au.value < du.value) return UI.echec("La fin de la période précède son début.");
-      location.hash = "#/caisse?du=" + du.value + "&au=" + au.value;
-    });
 
     const exporter = () => Xlsx.telecharger("BIZZOO_caisse_" + depuis + "_au_" + jusqu + ".xlsx", [{
       nom: "Mouvements de caisse",
@@ -178,10 +167,7 @@ const VueCaisse = (() => {
         h("div", { class: "petit doux" }, "Gestionnaire : " + (c.gestionnaire ? c.gestionnaire.nom : "aucun pour l'instant") +
           (c.gestionnaire ? "" : (ceo ? " — désignez-le pour pouvoir décaisser." : " — le CEO doit le désigner."))),
         actions.length ? h("div", { class: "actions" }, actions) : null),
-      h("div", { class: "carte pile" },
-        h("div", { class: "filtres" }, liste.map(([cle, libelle]) =>
-          h("button", { class: choix && choix[0] === cle ? "actif" : "", onclick: () => { location.hash = "#/caisse?p=" + cle; } }, libelle))),
-        formPeriode),
+      UI.barrePeriode({ liste, choix, depuis, jusqu }, "#/caisse"),
       h("div", { class: "tuiles" },
         h("div", { class: "tuile" }, h("b", { style: { fontSize: "17px" } }, UI.fcfa(somme("debut"))), h("span", {}, "solde au " + UI.date(depuis))),
         h("div", { class: "tuile" }, h("b", { style: { fontSize: "17px", color: "var(--vert-fonce)" } }, "+ " + UI.fcfa(somme("entrees"))), h("span", {}, "entrées de la période")),

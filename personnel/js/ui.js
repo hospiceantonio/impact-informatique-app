@@ -223,6 +223,32 @@ const UI = (() => {
   const nomComplet = (e) => (e ? ((e.prenoms || "") + " " + (e.nom || "")).trim() : "—");
 
   /** Une étiquette de statut, couleur comprise. */
+  /**
+   * La période sur une seule ligne : les raccourcis (« 7 jours »…), puis
+   * « du … au … » et « Afficher ». periode = { liste: [[cle, libelle, du, au]…],
+   * choix, depuis, jusqu } ; route : l'adresse de la page, extra : ce qui
+   * suit (« &pas=mois »). Rend la ligne, à poser dans un cadre.
+   */
+  function lignePeriode(periode, route, extra) {
+    const du = h("input", { type: "date", value: periode.depuis, "aria-label": "Du" });
+    const au = h("input", { type: "date", value: periode.jusqu, "aria-label": "Au" });
+    const form = h("form", { class: "barre-compacte" },
+      h("span", { class: "doux texte-long" }, "du"), du, h("span", { class: "doux texte-long" }, "au"), au,
+      h("button", { class: "btn btn-second", type: "submit" }, h("span", { class: "texte-long" }, "Afficher"), h("span", { class: "texte-court" }, "OK")));
+    form.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      if (au.value < du.value) return echec("La fin de la période précède son début.");
+      location.hash = route + "?du=" + du.value + "&au=" + au.value + (extra || "");
+    });
+    return h("div", { class: "barre-compacte" },
+      h("div", { class: "filtres" }, periode.liste.map(([cle, libelle]) =>
+        h("button", { class: periode.choix && periode.choix[0] === cle ? "actif" : "",
+                      onclick: () => { location.hash = route + "?p=" + cle + (extra || ""); } }, libelle))),
+      form);
+  }
+  /** La même, seule dans son cadre. */
+  const barrePeriode = (periode, route, extra) => h("div", { class: "carte compacte" }, lignePeriode(periode, route, extra));
+
   function etiquette(texte, couleur) {
     return h("span", { class: "etiquette " + (couleur || "") }, texte);
   }
@@ -231,6 +257,6 @@ const UI = (() => {
     h, ajouter, icone, vider, toast, succes, echec, chargement, vide, erreur,
     formulaire, confirmer, motif, agir,
     fcfa, entier, date, dateLongue, dateHeure, mois, quand, age, aujourdhui, premierDuMois,
-    initiales, nomComplet, etiquette, enDate,
+    initiales, nomComplet, etiquette, enDate, lignePeriode, barrePeriode,
   };
 })();

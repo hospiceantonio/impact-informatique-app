@@ -4918,6 +4918,22 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Rien ne s'efface** : `rh_caisse_mouvements` est figée (ni modification, ni suppression) et fermée à la lecture directe ; chaque mouvement garde le solde qu'il laisse et qui l'a fait. Une erreur ou un écart de comptage se corrige par un **ajustement** du CEO, avec motif (`rh_caisse_ajustement`).
 - **Qui la voit** (`rh_caisse_acces`) : le CEO, le gestionnaire, le superadministrateur, et les profils à qui Paramètres ouvre « Caisse (consultation) » ; l'administration n'y entre pas d'office. En consultation, on ne fait rien, et un salaire ne dit pas de qui il est.
 
+### L'accueil : la place de marché d'un coup d'œil
+
+`supabase/personnel-accueil.sql` (`rh_accueil_chiffres`) ; écran `personnel/js/vues/accueil.js`.
+
+Sous les tâches de la personne connectée (validations, prêts et retraits, messages…), l'accueil montre « BIZZOO en <mois> », le mois en cours et aujourd'hui (heure du Bénin), en cinq rubriques ; chaque tuile mène à l'écran qui détaille :
+
+- **Commandes** : payées ce mois et aujourd'hui, reçues, en attente de paiement, annulées ou échouées, articles vendus, commandes de revendeurs ; ventes du mois et du jour, panier moyen, frais de livraison encaissés, remises ; marge de BIZZOO.
+- **Livraisons** : confirmées par le client ce mois ; articles à préparer, prêts, en cours de livraison, livrés sans confirmation ; livreurs inscrits et en course.
+- **Clients** : inscrits, nouveaux ce mois et aujourd'hui, ayant acheté ce mois, numéros vérifiés, revendeurs et demandes en attente.
+- **Boutiques et produits** : boutiques enregistrées, ouvertes, nouvelles, ayant vendu ce mois ; produits en ligne, disponibles, en rupture, nouveaux, masqués.
+- **Avis et SAV** : avis du mois, note moyenne, réclamations à traiter et du mois.
+
+Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'administration, le superadministrateur et les profils à qui Paramètres ouvre les statistiques des commandes ; les montants pour l'administration et le superadministrateur ; la marge pour le CEO et le superadministrateur. Les autres ne voient que leurs tâches.
+
+**Les écrans resserrés** : la barre de période (raccourcis, « du … au … », Afficher) tient sur une ligne et est commune au suivi, aux statistiques et à la caisse (`UI.lignePeriode` / `UI.barrePeriode`) ; tuiles et espaces entre les blocs réduits partout.
+
 ### Le solde, les prêts et les retraits
 
 `supabase/personnel-solde.sql` ; écrans `personnel/js/vues/solde.js` (« Mon solde », tout employé, le CEO compris) et `personnel/js/vues/prets.js` (« Prêts et retraits », le CEO et le gestionnaire de la caisse) ; fonction Edge `supabase/functions/rh-reversement`.
@@ -4975,7 +4991,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql`, `personnel-sexe-statistiques.sql` (puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql`, `personnel-sexe-statistiques.sql`, `personnel-accueil.sql` (puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 

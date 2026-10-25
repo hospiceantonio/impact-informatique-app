@@ -76,7 +76,7 @@ p{margin:0}
 .btn-ic:active{transform:scale(.94)}
 
 .vue{padding:16px 16px calc(var(--barre-h) + var(--safe-b) + 24px);max-width:900px;margin:0 auto}
-.vue > * + *{margin-top:14px}
+.vue > * + *{margin-top:10px}
 
 .onglets{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
@@ -115,7 +115,7 @@ p{margin:0}
 }
 
 /* ---------- Les éléments ---------- */
-.carte{background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:16px}
+.carte{background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:14px}
 .carte h2{font-size:16px;font-weight:700;margin-bottom:10px}
 .carte h3{font-size:14.5px;font-weight:600}
 .titre-section{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -171,12 +171,14 @@ p{margin:0}
 .element.non-lu .titre{font-weight:700}
 .avatar{width:38px;height:38px;border-radius:50%;background:var(--bleu-100);color:var(--bleu-800);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex:none}
 
-.tuiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
-.tuile{display:block;background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:14px;color:var(--encre)}
-.tuile b{display:block;font-size:24px;color:var(--bleu-900)}
+.tuiles{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.tuile{display:block;background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:9px 12px;color:var(--encre)}
+.tuile b{display:block;font-size:20px;color:var(--bleu-900)}
 .tuile span{font-size:13px;color:var(--encre-douce)}
 .tuile.alerte{border-color:var(--orange);background:var(--orange-clair)}
 .tuile.alerte b{color:var(--orange-fonce)}
+.rubrique-accueil h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce);margin-bottom:6px}
+.rubrique-accueil .tuile b{font-size:18px}
 .btn-statut{display:inline-flex;align-items:center;gap:4px;background:none;border:1px solid var(--trait);border-radius:999px;padding:3px 8px 3px 3px;cursor:pointer;font:inherit;color:var(--encre)}
 .btn-statut:hover{border-color:var(--bleu-400)}
 

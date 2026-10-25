@@ -38,6 +38,8 @@
 --      primes et retenues du CEO vont sur la prochaine paie, le prêt passe
 --      par le CEO puis la caisse et revient sur la paie, un retrait ne
 --      dépasse pas le solde et personne ne s'écrit « payé ».
+--  22. l'accueil : les chiffres de la place de marché, montants et marge
+--      seulement pour qui y a droit.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1487,6 +1489,33 @@ select essai.egal((select count(*)::int from public.rh_retraits r
                       and not exists (select 1 from public.rh_solde_mouvements m
                                        where m.retrait_id = r.id and m.nature = 'retour' and m.montant = r.montant)), 0,
   'tout retrait qui n''a pas abouti est revenu sur le solde');
+
+-- ---------------------------------------------------------
+select essai.titre('22. L''accueil : la place de marché d''un coup d''œil');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select coalesce(public.rh_accueil_chiffres(), 'null'::jsonb) as acc_ceo \gset
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select coalesce(public.rh_accueil_chiffres(), 'null'::jsonb) as acc_adm \gset
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select coalesce(public.rh_accueil_chiffres(), 'null'::jsonb) as acc_membre \gset
+reset role; select essai.personne();
+select essai.verifie((:'acc_ceo'::jsonb #> '{commandes,marge_mois}') <> 'null'::jsonb, 'le CEO voit la marge du mois');
+select essai.verifie((:'acc_adm'::jsonb #> '{commandes,ventes_mois}') <> 'null'::jsonb, 'l''administration voit les ventes');
+select essai.verifie((:'acc_adm'::jsonb #> '{commandes,marge_mois}') = 'null'::jsonb, 'mais pas la marge');
+select essai.verifie(:'acc_membre'::jsonb = 'null'::jsonb or (:'acc_membre'::jsonb #> '{commandes,ventes_mois}') = 'null'::jsonb,
+  'un employé ne voit aucun montant de la place de marché');
+select essai.egal((:'acc_ceo'::jsonb #>> '{boutiques,total}')::bigint, (select count(*) from public.boutiques), 'le nombre de boutiques enregistrées');
+select essai.egal((:'acc_ceo'::jsonb #>> '{clients,total}')::bigint, (select count(*) from public.clients), 'le nombre de clients');
+select essai.egal((:'acc_ceo'::jsonb #>> '{produits,total}')::bigint, (select count(*) from public.produits where not masque), 'le nombre de produits en ligne');
+select essai.egal((:'acc_ceo'::jsonb #>> '{commandes,payees_mois}')::bigint,
+  (select count(*) from public.commandes where etat = 'payee'
+     and paye_le >= date_trunc('month', (now() at time zone 'Africa/Porto-Novo'))::timestamp at time zone 'Africa/Porto-Novo'),
+  'les commandes payées ce mois, heure du Bénin');
+set role anon;
+select essai.refuse($$select public.rh_accueil_chiffres()$$, 'un visiteur n''y a pas accès');
+reset role;
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

@@ -307,7 +307,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, compteursSolde: () => compteursSolde, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer,
   };
 })();
