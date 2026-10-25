@@ -80,24 +80,26 @@ const VueSuivi = (() => {
     return { liste, choix,
       depuis: choix ? choix[2] : params.du, jusqu: choix ? choix[3] : (params.au || iso(new Date())) };
   }
-  function barrePeriode(route, periode, extra) {
-    const du = h("input", { type: "date", value: periode.depuis });
-    const au = h("input", { type: "date", value: periode.jusqu });
-    const form = h("form", { class: "ligne" },
-      h("label", { class: "champ" }, h("span", {}, "Du"), du),
-      h("label", { class: "champ" }, h("span", {}, "Au"), au),
-      h("button", { class: "btn btn-second", type: "submit", style: { alignSelf: "flex-end" } }, "Afficher"));
+  /** La période sur une seule ligne : les raccourcis, puis « du … au … »
+      et « Afficher ». Rend la ligne, à poser dans un cadre. */
+  function lignePeriode(route, periode, extra) {
+    const du = h("input", { type: "date", value: periode.depuis, "aria-label": "Du" });
+    const au = h("input", { type: "date", value: periode.jusqu, "aria-label": "Au" });
+    const form = h("form", { class: "barre-compacte" },
+      h("span", { class: "doux texte-long" }, "du"), du, h("span", { class: "doux texte-long" }, "au"), au,
+      h("button", { class: "btn btn-second", type: "submit" }, h("span", { class: "texte-long" }, "Afficher"), h("span", { class: "texte-court" }, "OK")));
     form.addEventListener("submit", (ev) => {
       ev.preventDefault();
       if (au.value < du.value) return UI.echec("La fin de la période précède son début.");
       location.hash = route + "?du=" + du.value + "&au=" + au.value + (extra || "");
     });
-    return h("div", { class: "carte pile" },
+    return h("div", { class: "barre-compacte" },
       h("div", { class: "filtres" }, periode.liste.map(([cle, libelle]) =>
         h("button", { class: periode.choix && periode.choix[0] === cle ? "actif" : "",
                       onclick: () => { location.hash = route + "?p=" + cle + (extra || ""); } }, libelle))),
       form);
   }
+  const barrePeriode = (route, periode, extra) => h("div", { class: "carte compacte" }, lignePeriode(route, periode, extra));
 
   function onglets(actif) {
     const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"]];
@@ -127,14 +129,14 @@ const VueSuivi = (() => {
     const statuts = [...new Set(toutes.map((c) => c.statut))].sort();
     const zones = [...new Set(toutes.map((c) => c.client.zone || "Non reconnue"))].sort((a, b) => a.localeCompare(b, "fr"));
 
-    const recherche = h("input", { type: "search", placeholder: "N°, client, téléphone, marchand, livreur…" });
-    const choixStatut = h("select", {}, h("option", { value: "" }, "Tous les statuts"), statuts.map((s) => h("option", { value: s }, s)));
-    const choixZone = h("select", {}, h("option", { value: "" }, "Toutes les zones"), zones.map((s) => h("option", { value: s }, s)));
+    const recherche = h("input", { type: "search", class: "recherche", placeholder: "Rechercher : n°, client, téléphone, marchand, livreur…", "aria-label": "Rechercher" });
+    const choixStatut = h("select", { "aria-label": "Statut" }, h("option", { value: "" }, "Tous les statuts"), statuts.map((s) => h("option", { value: s }, s)));
+    const choixZone = h("select", { "aria-label": "Zone" }, h("option", { value: "" }, "Toutes les zones"), zones.map((s) => h("option", { value: s }, s)));
     const avecAlertes = h("input", { type: "checkbox" });
     const corps = h("div", {});
     const compte = h("p", { class: "doux petit" });
     /* Les chiffres du tableau tel qu'il est filtré : ce qu'on voit, on le compte. */
-    const resume = h("div", { class: "pile" });
+    const resume = h("div", { class: "resume-suivi" });
 
     const filtrees = () => {
       const q = recherche.value.trim().toLowerCase();
@@ -239,18 +241,18 @@ const VueSuivi = (() => {
         parStatut.set(c.statut, x);
       }
       UI.vider(resume,
-        h("div", { class: "tuiles" },
+        h("div", { class: "tuiles compactes" },
           tuile(UI.entier(liste.length), "commande(s)"),
           r.montants ? tuile(UI.fcfa(somme("total")), "coût total des commandes") : null,
           r.montants ? tuile(UI.fcfa(somme("frais")), "coût total de la livraison") : null,
           r.montants ? tuile(UI.fcfa(somme("reste")), "restant à encaisser", somme("reste") > 0 ? "alerte" : "") : null,
           tuile(UI.entier(liste.filter((c) => c.alertes.length).length), "en alerte", liste.some((c) => c.alertes.length) ? "alerte" : "")),
-        parStatut.size ? h("div", { class: "carte pile" },
-          h("div", { class: "gras petit" }, "Par statut"),
-          h("div", { class: "actions" }, [...parStatut.values()].sort((a, b) => a.rang - b.rang).map((x) =>
+        parStatut.size ? h("div", { class: "barre-compacte" },
+          h("span", { class: "gras petit" }, "Par statut :"),
+          [...parStatut.values()].sort((a, b) => a.rang - b.rang).map((x) =>
             h("button", { class: "btn-statut", type: "button", title: "N'afficher que ce statut",
                           onclick: () => { choixStatut.value = choixStatut.value === x.statut ? "" : x.statut; dessiner(); } },
-              UI.etiquette(x.statut, COULEUR_STATUT[x.rang] || ""), h("b", {}, " " + x.n))))) : null);
+              UI.etiquette(x.statut, COULEUR_STATUT[x.rang] || ""), h("b", {}, " " + x.n)))) : null);
     };
     const dessiner = () => {
       const liste = filtrees().sort(comparer);
@@ -275,19 +277,18 @@ const VueSuivi = (() => {
     for (const e of [choixStatut, choixZone, avecAlertes]) e.addEventListener("change", dessiner);
 
     /* Le tableau prend toute la largeur de l’écran (zone neuve à chaque page). */
-    zone.classList.add("vue-large");
+    zone.classList.add("vue-large", "serre");
     UI.vider(zone,
       onglets(""),
-      barrePeriode("#/suivi", periode),
-      h("div", { class: "carte pile" },
-        h("div", { class: "formulaire" },
-          h("label", { class: "champ" }, h("span", {}, "Rechercher"), recherche),
-          h("label", { class: "champ" }, h("span", {}, "Statut"), choixStatut),
-          h("label", { class: "champ" }, h("span", {}, "Zone"), choixZone)),
-        h("div", { class: "ligne" },
-          h("label", { class: "case etire" }, avecAlertes, "Seulement les commandes en alerte"),
+      /* Tout ce qui règle le tableau, dans un seul cadre : la période sur
+         une ligne, les filtres et l'export sur la suivante. */
+      h("div", { class: "carte compacte" },
+        lignePeriode("#/suivi", periode),
+        h("div", { class: "barre-compacte" },
+          recherche, choixStatut, choixZone,
+          h("label", { class: "case" }, avecAlertes, "En alerte seulement"),
           h("button", { class: "btn btn-vert", type: "button", onclick: () => exporter(filtrees(), r, periode) },
-            UI.icone("telecharger", "ic-sm"), "Exporter vers Excel"))),
+            UI.icone("telecharger", "ic-sm"), "Excel"))),
       resume, compte, corps);
     dessiner();
   }

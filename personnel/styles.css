@@ -189,6 +189,37 @@ p{margin:0}
 .tableau th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce);font-weight:600}
 .tableau td.nombre,.tableau th.nombre{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .defile{overflow-x:auto}
+/* Le haut des pages du suivi, serré : la période, les filtres et les chiffres
+   tiennent en peu de lignes, et le tableau monte. */
+.vue.serre > * + *{margin-top:8px}
+.carte.compacte{padding:10px 12px}
+.carte.compacte > * + *{margin-top:8px}
+.barre-compacte{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.barre-compacte .filtres{flex:0 1 auto}
+.barre-compacte input,.barre-compacte select{min-height:34px;padding:4px 8px;border:1px solid var(--trait);border-radius:10px;background:var(--blanc);font-size:13.5px;max-width:100%}
+.barre-compacte input:focus,.barre-compacte select:focus{outline:2px solid var(--bleu-300);border-color:var(--bleu-300)}
+.barre-compacte .recherche{flex:1 1 220px}
+.barre-compacte .btn{min-height:34px;padding:0 12px;font-size:13.5px;border-radius:10px}
+.barre-compacte .case{font-size:13.5px;gap:6px}
+.barre-compacte .doux{font-size:13px}
+.resume-suivi > * + *{margin-top:6px}
+.tuiles.compactes{grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:6px}
+.tuiles.compactes .tuile{padding:7px 10px}
+.tuiles.compactes .tuile b{font-size:16px !important}
+.tuiles.compactes .tuile span{font-size:12px}
+.barre-compacte .texte-court{display:none}
+@media (max-width:700px){
+  .barre-compacte form.barre-compacte{flex-wrap:nowrap;width:100%}
+  .barre-compacte .texte-long{display:none}
+  .barre-compacte .texte-court{display:inline}
+  .barre-compacte form input[type=date]{padding:4px 6px;font-size:13px}
+  .barre-compacte form input[type=date]{flex:1 1 0;min-width:0}
+  .barre-compacte select{flex:1 1 140px;min-width:0}
+  .tuiles.compactes{display:flex;overflow-x:auto;padding-bottom:2px}
+  .tuiles.compactes .tuile{flex:0 0 auto;min-width:118px}
+  .resume-suivi > .barre-compacte{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
+  .resume-suivi .btn-statut,.resume-suivi > .barre-compacte > span{flex:none}
+}
 .tableau-suivi{padding:0;max-height:70vh;overflow:auto}
 .tableau-suivi .tableau{min-width:1250px;font-size:13px}
 .tableau-suivi th{position:sticky;top:0;z-index:2;background:var(--blanc);white-space:nowrap}
