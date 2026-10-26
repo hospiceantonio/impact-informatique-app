@@ -204,6 +204,20 @@ decor({ reponsePasserelle: () => ({ injoignable: true }) });
 r = await sms.envoyerSms("0197121596", "Bonjour");
 egal(r.code, "INJOIGNABLE", "une passerelle injoignable se distingue d'un refus");
 
+/* (26 octobre 2026) Treize refus « sans code » d'affilée, et rien pour
+   dire pourquoi. Sans code, le statut HTTP et un extrait parlent. */
+decor({ reponsePasserelle: () => ({ statut: 402, corps: "<html><body><h1>Payment Required</h1> solde insuffisant</body></html>" }) });
+r = await sms.envoyerSms("0197121596", "Bonjour");
+verifie(r.code === "REFUS_SANS_CODE" && /Crédit SMS épuisé/.test(r.message) && /HTTP 402/.test(r.message) &&
+  /solde insuffisant/.test(r.message) && !/<h1>/.test(r.message),
+  "une page HTML en 402 : « crédit épuisé », le statut, un extrait lisible (" + r.message.slice(0, 90) + "…)");
+decor({ reponsePasserelle: () => ({ statut: 200, corps: { status: false, description: "Compte en cours de validation" } }) });
+r = await sms.envoyerSms("0197121596", "Bonjour");
+verifie(/HTTP 200 — Compte en cours de validation/.test(r.message), "un refus sans code dit au moins ce que la passerelle a écrit");
+decor({ reponsePasserelle: () => ({ statut: 401, corps: { echo: SECRETS.SMS_CLE } }) });
+r = await sms.envoyerSms("0197121596", "Bonjour");
+verifie(/Clé API refusée/.test(r.message) && !r.message.includes(SECRETS.SMS_CLE), "un 401 : la clé refusée — et la clé n'apparaît jamais");
+
 /* =========================================================
    2. Le numéro, l'expéditeur
    ========================================================= */
