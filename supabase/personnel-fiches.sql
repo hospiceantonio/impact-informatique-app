@@ -81,6 +81,12 @@ declare
   numero text;
   e public.rh_employes;
 begin
+  /* Un compte ouvert par BIZZOO avec le mot de passe de départ n'est
+     relié à sa fiche qu'une fois ce mot de passe changé (rh_activer_compte). */
+  if to_regclass('public.rh_comptes_a_activer') is not null
+     and exists (select 1 from public.rh_comptes_a_activer a where a.compte_id = auth.uid()) then
+    raise exception 'Choisissez d''abord votre mot de passe' using errcode = 'P0001', hint = 'ACTIVATION';
+  end if;
   select right(regexp_replace(coalesce(u.phone, ''), '[^0-9]', '', 'g'), 10) into numero
     from auth.users u where u.id = auth.uid();
   if coalesce(numero, '') = '' then

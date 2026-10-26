@@ -96,6 +96,21 @@ const Supabase = (() => {
     return numero;
   }
 
+  /** Ou bien le numéro et un mot de passe : celui de départ donné par
+      BIZZOO (à changer aussitôt), ou celui que l'employé s'est choisi. */
+  async function connexionTelephone(tel, motDePasse, confiance) {
+    const numero = numeroInternational(tel);
+    let d;
+    try {
+      d = await appelAuth("token?grant_type=password", { phone: numero, password: motDePasse });
+    } catch (err) {
+      if (/mot de passe incorrect/.test(err.message || "")) throw new Error("Numéro ou mot de passe incorrect.");
+      throw err;
+    }
+    garderSession({ ...sessionDepuis(d, ""), telephone: numero, confiance_jusqu: confiance ? Date.now() + CONFIANCE : null });
+    return numero;
+  }
+
   /** Porte 2 : le code reçu, et la confiance dans cet appareil (7 jours). */
   async function confirmerCode(tel, code, confiance) {
     const numero = numeroInternational(tel);
@@ -133,6 +148,7 @@ const Supabase = (() => {
         throw new Error("Adresse pas encore confirmée : ouvrez le lien reçu dans votre boîte mail professionnelle.");
       }
       if (code === "weak_password") throw new Error("Mot de passe trop faible : 8 caractères au moins.");
+      if (code === "same_password") throw new Error("Choisissez un mot de passe différent de l'actuel.");
       if (code === "otp_expired" || /token has expired|invalid.*otp/i.test(d.msg || "")) throw new Error("Code incorrect ou expiré.");
       if (code === "over_sms_send_rate_limit" || reponse.status === 429) throw new Error("Trop de codes demandés : attendez une minute avant de réessayer.");
       if (code === "sms_send_failed") throw new Error("Le SMS n'a pas pu partir. Réessayez dans un instant.");
@@ -441,7 +457,7 @@ const Supabase = (() => {
 
   return {
     configuration, sessionPresente, utilisateur, parTelephone, connexion, deconnexion, assurerSession,
-    demanderCode, confirmerCode,
+    demanderCode, confirmerCode, connexionTelephone,
     changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie, reverser,
     deposer, signer, retirer,
     etatConnexion, demanderCodeEquipe, confirmerCodeEquipe, reconnaitreAppareil, confierAppareil,

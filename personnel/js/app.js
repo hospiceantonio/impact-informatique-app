@@ -289,6 +289,12 @@ const App = (() => {
     if (!tableau || !tableau.moi) {
       for (const id of ["entete", "onglets", "menu-lateral"]) document.getElementById(id).hidden = true;
       document.body.classList.remove("connecte");
+      /* Entré avec le mot de passe de départ : il choisit d'abord le sien. */
+      const activation = await Supabase.rpc("rh_activation").catch(() => null);
+      if (activation && activation.a_activer) {
+        VueConnexion.activation(zone, activation.prenoms, demarrer, deconnecte);
+        return;
+      }
       VueConnexion.sansFiche(zone, tableau || {}, demarrer, deconnecte);
       return;
     }

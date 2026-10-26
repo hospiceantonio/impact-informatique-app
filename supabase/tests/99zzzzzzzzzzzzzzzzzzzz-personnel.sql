@@ -41,7 +41,9 @@
 --  22. l'accueil : les chiffres de la place de marché, montants et marge
 --      seulement pour qui y a droit ;
 --  23. un employé ne voit pas les informations des autres : seulement le
---      nom, le poste, le profil et le contact professionnel de chacun.
+--      nom, le poste, le profil et le contact professionnel de chacun ;
+--  24. un compte ouvert avec le mot de passe de départ ne vaut rien tant
+--      que l'employé n'a pas choisi le sien.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1564,6 +1566,43 @@ select essai.verifie((select count(*) from public.rh_annuaire() where matricule 
   'l''administration, elle, voit les matricules');
 reset role; select essai.personne();
 
+-- ---------------------------------------------------------
+select essai.titre('24. La première connexion avec le mot de passe de départ');
+\set TEL_NEUF '''a0a0a0a0-0024-4000-8000-000000000024'''
+select set_config('rh.decision', 'oui', false);
+insert into public.rh_employes (nom, prenoms, telephone, date_embauche, etat, statut, salaire_base, profil_id)
+values ('PREMIERE', 'Connexion', '0140002424', '2026-10-01', 'actif', 'employe', 70000, :'p_mkt')
+returning id as e_neuf \gset
+select set_config('rh.decision', '', false);
+-- Le compte que BIZZOO ouvre : numéro + mot de passe de départ, en attente d'activation.
+insert into auth.users (id, phone, phone_confirmed_at, encrypted_password, raw_user_meta_data)
+values (:TEL_NEUF::uuid, '2290140002424', now(), crypt('depart-essai', gen_salt('bf')), '{"compte":"personnel"}');
+insert into public.rh_comptes_a_activer (compte_id, employe_id, empreinte)
+select :TEL_NEUF::uuid, :'e_neuf', encrypted_password from auth.users where id = :TEL_NEUF::uuid;
+
+select essai.devenir(:TEL_NEUF::uuid); set role authenticated;
+select essai.egal(public.rh_moi(), null::uuid, 'avec le mot de passe de départ, il n''est encore personne pour la base');
+select essai.egal((public.rh_tableau_de_bord() -> 'moi'), 'null'::jsonb, 'et n''ouvre rien');
+select essai.egal((public.rh_activation() ->> 'a_activer')::boolean, true, 'on lui demande de choisir son mot de passe');
+select essai.refuse($$select public.rh_rattacher_par_telephone()$$, 'il ne passe pas par le code SMS pour l''éviter');
+select essai.refuse($$select public.rh_activer_compte()$$, 'ni ne s''active en gardant le mot de passe de départ');
+select essai.refuse($$select * from public.rh_comptes_a_activer$$, 'ni ne lit la table des comptes à activer');
+reset role; select essai.personne();
+-- Il choisit son mot de passe (Supabase réécrit l'empreinte).
+update auth.users set encrypted_password = crypt('le-sien-essai', gen_salt('bf')) where id = :TEL_NEUF::uuid;
+select essai.devenir(:TEL_NEUF::uuid); set role authenticated;
+select essai.egal(public.rh_activer_compte(), :'e_neuf'::uuid, 'son mot de passe à lui choisi, le compte rejoint sa fiche');
+select essai.egal(public.rh_moi(), :'e_neuf'::uuid, 'et il entre');
+select essai.egal((public.rh_activation() ->> 'a_activer')::boolean, false, 'plus rien à activer');
+reset role; select essai.personne();
+select essai.egal((select count(*)::int from public.rh_comptes_a_activer), 0, 'l''empreinte du mot de passe de départ est oubliée');
+select set_config('rh.decision', 'oui', false);
+delete from auth.users where id = :TEL_NEUF::uuid;
+update public.rh_employes set etat = 'supprime', telephone = '' where id = :'e_neuf';
+select set_config('rh.decision', '', false);
+
+-- ---------------------------------------------------------
+select essai.titre('La sortie d''un employé');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.refuse(format($$select public.rh_sortie_employe(%L, current_date)$$, :'ceo'),
   'le CEO ne se fait pas sortir lui-même');
