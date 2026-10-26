@@ -4963,7 +4963,7 @@ Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'a
 - **D'où vient la position** : tant qu'il a une course en cours (ligne confiée, commande payée, pas encore remise), BIZZOO Admin demande un **jeton de suivi** (`ouvrir_suivi_livreur`, 64 caractères, gardé en empreinte sha256, 16 h) et le passe au service Android au premier plan (notification « Course en cours »), qui envoie la position toutes les 20 s (et toutes les 2 min s'il ne bouge pas) à `position_en_course` — **même application fermée**. Le jeton ne permet que d'écrire la position de ce livreur ; il ne tient pas sa session (deux renouvellements concurrents de session le déconnecteraient). Quand la base répond « plus de course », le service s'arrête de lui-même et le jeton disparaît. Dans un navigateur, c'est la page qui envoie, tant qu'elle est ouverte. Une écriture toutes les 5 secondes au plus ; une position impossible est ignorée.
 - **Limites** : il faut que le livreur ouvre l'écran de ses courses une fois après l'attribution (le service démarre là ; Android refuse de lancer un suivi de position depuis l'arrière-plan). Sans réseau ni GPS, la carte dit « pas de nouvelle position depuis plus de 5 min ». Le point du client n'est connu que s'il a touché « Utiliser ma position » en commandant ; sinon la carte affiche son adresse écrite.
 
-### Le menu Livreurs ; bloquer un livreur
+### Le menu Livreurs ; bloquer un livreur (3.67.0)
 
 `supabase/personnel-livreurs.sql` ; écran `personnel/js/vues/livreurs.js` (`#/liste-livreurs`).
 
