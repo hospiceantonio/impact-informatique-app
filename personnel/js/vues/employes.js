@@ -19,7 +19,8 @@ const VueEmployes = (() => {
     bloque: ["Bloqué", "rouge"],
     supprime: ["Archivé", ""],
   };
-  const ACTIONS_JOURNAL = { bloque: "Bloqué", debloque: "Débloqué", supprime: "Supprimé (fiche archivée)", efface: "Effacé" };
+  const ACTIONS_JOURNAL = { bloque: "Bloqué", debloque: "Débloqué", supprime: "Supprimé (fiche archivée)", efface: "Effacé",
+    mot_de_passe: "Mot de passe provisoire donné" };
   const MODES = { especes: "Espèces", virement: "Virement bancaire", mobile_money: "Mobile Money", cheque: "Chèque" };
   const NIVEAUX = ["Sans diplôme", "CEP", "BEPC", "CAP", "BAC", "BTS / DUT (Bac+2)", "Licence (Bac+3)", "Master (Bac+5)", "Doctorat"];
   const DOMAINE = "@bizzoomarket.com";
@@ -283,6 +284,30 @@ const VueEmployes = (() => {
         await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_sortie_employe", { employe: e.id, le: v.le, motif: v.motif }), "Sortie enregistrée.");
         recharger();
       } }, UI.icone("sortie", "ic-sm"), "Sortie"));
+    }
+    /* Un mot de passe provisoire : l'administration, pour un employé qui a
+       oublié le sien. Pas le sien (Mon compte), ni celui du CEO sauf par lui
+       ou le superadministrateur : la base le refuse de toute façon. */
+    const moiId = (App.moi() || {}).id;
+    if ((App.estAdmin() || App.estSuper()) && ["actif", "bloque"].includes(e.etat) && e.id !== moiId && (!e.ceo || modifieur)) {
+      actions.push(h("button", { class: "btn btn-second", onclick: async (ev) => {
+        const bouton = ev.currentTarget;
+        const v = await UI.formulaire({
+          titre: "Mot de passe provisoire pour " + UI.nomComplet(e), valider: "Donner ce mot de passe",
+          texte: "Donnez-le-lui de vive voix. À sa prochaine connexion (avec son numéro" + (e.email_pro ? " ou son e-mail" : "") +
+            "), il devra en choisir un à lui avant d'accéder à quoi que ce soit. Ses sessions ouvertes sont fermées. " +
+            "S'il a aussi un compte sur l'application BIZZOO avec ce numéro, c'est le même mot de passe.",
+          champs: [
+            { nom: "mdp", libelle: "Mot de passe provisoire (8 caractères au moins)", requis: true },
+            { nom: "motif", libelle: "Pourquoi ? (pour l'historique de la fiche)", indice: "Mot de passe oublié" },
+          ],
+          verifier: (x) => (x.mdp.length < 8 ? "8 caractères au moins." : null),
+        });
+        if (!v) return;
+        await UI.agir(bouton, () => Supabase.redonnerMotDePasse(e.id, v.mdp, v.motif || "Mot de passe oublié"),
+          "Mot de passe provisoire enregistré : donnez-le à " + (e.prenoms || UI.nomComplet(e)) + ".");
+        recharger();
+      } }, UI.icone("cle", "ic-sm"), "Mot de passe"));
     }
     /* Bloquer, débloquer, supprimer : le CEO et le superadministrateur. */
     const peutBloquer = (App.estCeo() || App.estSuper()) && !e.ceo && e.id !== (App.moi() || {}).id;

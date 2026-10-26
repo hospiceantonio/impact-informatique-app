@@ -43,7 +43,9 @@
 --  23. un employé ne voit pas les informations des autres : seulement le
 --      nom, le poste, le profil et le contact professionnel de chacun ;
 --  24. un compte ouvert avec le mot de passe de départ ne vaut rien tant
---      que l'employé n'a pas choisi le sien.
+--      que l'employé n'a pas choisi le sien ;
+--  25. l'administration redonne un mot de passe provisoire, à changer
+--      aussitôt de la même façon.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1600,6 +1602,38 @@ select set_config('rh.decision', 'oui', false);
 delete from auth.users where id = :TEL_NEUF::uuid;
 update public.rh_employes set etat = 'supprime', telephone = '' where id = :'e_neuf';
 select set_config('rh.decision', '', false);
+
+-- ---------------------------------------------------------
+select essai.titre('25. L''administration redonne un mot de passe');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_mdp_preparer(%L)$$, :'e_resp'), 'un employé ne touche pas au mot de passe d''un autre');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.egal(public.rh_mdp_preparer(:'e_membre'), :MEMBRE::uuid, 'l''administration obtient le compte à traiter');
+select essai.refuse(format($$select public.rh_mdp_preparer(%L)$$, :'ceo'), 'pas celui du CEO');
+select essai.refuse(format($$select public.rh_mdp_preparer(%L)$$, :'e_admrh'), 'ni le sien : c''est « Mon compte »');
+select essai.refuse(format($$select public.rh_mdp_conclure(%L, %L, %L)$$, :'e_membre', :MEMBRE::uuid, :ADMRH::uuid),
+  'la suite est réservée à la fonction Edge');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_mdp_preparer(%L)$$, :'ceo'), 'le CEO change le sien dans « Mon compte »');
+reset role; select essai.personne();
+-- La fonction Edge a posé le mot de passe provisoire, puis conclut.
+update auth.users set encrypted_password = crypt('provisoire-essai', gen_salt('bf')) where id = :MEMBRE::uuid;
+select public.rh_mdp_conclure(:'e_membre', :MEMBRE::uuid, :ADMRH::uuid, 'Mot de passe oublié');
+select essai.egal((select compte_id from public.rh_employes where id = :'e_membre'), null::uuid,
+  'avec le mot de passe provisoire, le compte est détaché de sa fiche');
+select essai.egal((select action || '/' || par_nom from public.rh_journal_employes where employe_id = :'e_membre' order by id desc limit 1),
+  'mot_de_passe/Rita HOUNKPE', 'le geste va au journal de la fiche, avec son auteur');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_moi(), null::uuid, 'l''employé n''ouvre rien avant d''avoir choisi le sien');
+select essai.refuse($$select public.rh_activer_compte()$$, 'ni ne garde le mot de passe provisoire');
+reset role; select essai.personne();
+update auth.users set encrypted_password = crypt('le-sien-encore', gen_salt('bf')) where id = :MEMBRE::uuid;
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_activer_compte();
+select essai.egal(public.rh_moi(), :'e_membre'::uuid, 'son mot de passe choisi, il retrouve sa fiche');
+reset role; select essai.personne();
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

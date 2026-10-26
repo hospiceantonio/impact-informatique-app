@@ -306,6 +306,33 @@ const Supabase = (() => {
     return d;
   }
 
+  /* ---------- Un mot de passe provisoire, donné par l'administration ----------
+     La fonction Edge « rh-mot-de-passe » détient seule la clé de service ;
+     la base vérifie le droit avec la session de l'administrateur. */
+  async function redonnerMotDePasse(employe, motDePasse, motif) {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) {
+      const err = new Error("Session expirée : reconnectez-vous.");
+      err.deconnecte = true;
+      throw err;
+    }
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/functions/v1/rh-mot-de-passe", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token, "Content-Type": "application/json" },
+        body: JSON.stringify({ employe, mot_de_passe: motDePasse, motif }),
+      });
+    } catch (_) {
+      throw new Error("Serveur injoignable. Vérifiez votre connexion internet.");
+    }
+    const d = await reponse.json().catch(() => null);
+    if (!d) throw new Error("Le service n'a pas répondu (" + reponse.status + "). Est-il déployé ?");
+    if (d.erreur) throw new Error(d.erreur);
+    return d;
+  }
+
   /* ---------- La fonction de messagerie ---------- */
 
   async function messagerie(action, corps) {
@@ -458,7 +485,7 @@ const Supabase = (() => {
   return {
     configuration, sessionPresente, utilisateur, parTelephone, connexion, deconnexion, assurerSession,
     demanderCode, confirmerCode, connexionTelephone,
-    changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie, reverser,
+    changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie, reverser, redonnerMotDePasse,
     deposer, signer, retirer,
     etatConnexion, demanderCodeEquipe, confirmerCodeEquipe, reconnaitreAppareil, confierAppareil,
   };
