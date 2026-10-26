@@ -68,6 +68,7 @@ const App = (() => {
     statistiques: VueStatistiques,
     suivi: VueSuivi,
     livreurs: VueLocaliser,
+    "liste-livreurs": VueLivreurs,
     parametres: VueParametres,
     compte: VueCompte,
   };
@@ -93,6 +94,9 @@ const App = (() => {
           + (compteursSolde.retraits_a_servir || 0) + (compteursSolde.retraits_incertains || 0) },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi,
         pastille: alertesVue !== null ? alertesVue : alertesSuivi },
+      /* Les livreurs et leur fiche : ceux qui localisent les livreurs ou voient leur classement. */
+      { route: "liste-livreurs", libelle: "Livreurs", icone: "equipe",
+        pour: () => ouvert("livreurs") || ouvert("stats_livreurs") || estSuper() },
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */

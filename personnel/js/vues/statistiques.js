@@ -459,5 +459,5 @@ const VueStatistiques = (() => {
 
   const INTERNES = { salaires, depenses, effectifs, activite, revenus };
 
-  return { titre: "Statistiques", afficher, SOUS_MENUS };
+  return { titre: "Statistiques", afficher, SOUS_MENUS, periodeDe };
 })();

@@ -45,7 +45,9 @@
 --  24. un compte ouvert avec le mot de passe de départ ne vaut rien tant
 --      que l'employé n'a pas choisi le sien ;
 --  25. l'administration redonne un mot de passe provisoire, à changer
---      aussitôt de la même façon.
+--      aussitôt de la même façon ;
+--  26. le menu Livreurs : la liste et la fiche de chacun ; bloqué par
+--      l'administration, un livreur ne reçoit plus aucune course.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1634,6 +1636,90 @@ select essai.devenir(:MEMBRE::uuid); set role authenticated;
 select public.rh_activer_compte();
 select essai.egal(public.rh_moi(), :'e_membre'::uuid, 'son mot de passe choisi, il retrouve sa fiche');
 reset role; select essai.personne();
+
+-- ---------------------------------------------------------
+select essai.titre('26. Les livreurs, et le blocage');
+\set LIV_BLOC '''a0a0a0a0-0011-4000-8000-000000000011'''
+insert into auth.users (id, email) values (:LIV_BLOC::uuid, 'livreur.bloc@essai.bj') on conflict do nothing;
+insert into public.profils (id, email, role, actif, nom, tel, boutique_id)
+values (:LIV_BLOC::uuid, 'livreur.bloc@essai.bj', 'livreur', true, 'Dossou', '0197000011', 'bou_informatique')
+on conflict (id) do update set role = 'livreur', actif = true, nom = 'Dossou', boutique_id = 'bou_informatique';
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+values (:LIV_BLOC::uuid, 6.36, 2.41, 'Akpakpa')
+on conflict (profil_id) do update set latitude = 6.36, longitude = 2.41;
+
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_bloc \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_bloc', 'TRX-RH-BLOC',
+  (select coalesce(acompte, total) from public.commandes where id = :'cmd_bloc'), 'feexpay') as p \gset
+select essai.verifie(:LIV_BLOC::uuid = any(public.candidats_course(:'cmd_bloc')), 'la course lui est proposée');
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select public.assigner_livreur(:'cmd_bloc', 'bou_informatique', :LIV_BLOC::uuid) as confiee \gset
+-- La boutique ne bloque ni ne débloque son livreur elle-même.
+select essai.refuse(format($$update public.profils set courses_bloquees = true where id = %L$$, :LIV_BLOC),
+  'une boutique ne pose pas le blocage à la main');
+reset role; select essai.personne();
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_livreurs()$$, 'menus fermés : un employé ne voit pas les livreurs');
+select essai.refuse(format($$select public.rh_bloquer_livreur(%L, true, 'essai')$$, :LIV_BLOC), 'ni ne bloque personne');
+reset role; select essai.personne();
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select x as liv_liste from jsonb_array_elements(public.rh_livreurs(current_date - 1, current_date + 1) -> 'livreurs') x
+ where x ->> 'id' = :LIV_BLOC \gset
+select essai.refuse(format($$select public.rh_bloquer_livreur(%L, true, '')$$, :LIV_BLOC), 'bloquer demande un motif');
+select public.rh_bloquer_livreur(:LIV_BLOC::uuid, true, 'Retards répétés') as bloc \gset
+select essai.refuse(format($$select public.rh_bloquer_livreur(%L, true, 'encore')$$, :LIV_BLOC), 'on ne bloque pas deux fois');
+select public.rh_livreur_fiche(:LIV_BLOC::uuid, current_date - 1, current_date + 1) as liv_fiche \gset
+reset role; select essai.personne();
+select essai.egal((:'liv_liste'::jsonb ->> 'courses')::int, 1, 'la liste compte sa course de la période');
+select essai.egal((:'liv_liste'::jsonb ->> 'gains') is not null, true, 'l''administration voit ses gains');
+select essai.egal((:'bloc'::jsonb ->> 'liberees')::int, 1, 'bloqué, sa course pas encore partie est retirée');
+select essai.egal((select count(*)::int from public.commande_lignes where commande_id = :'cmd_bloc' and livreur_id is not null), 0,
+  'et repart vers la boutique, sans livreur');
+select essai.egal((:'liv_fiche'::jsonb #>> '{livreur,bloque}')::boolean, true, 'sa fiche le dit bloqué');
+select essai.egal(:'liv_fiche'::jsonb #>> '{blocages,0,motif}', 'Retards répétés', 'avec le motif');
+select essai.egal(:'liv_fiche'::jsonb #>> '{blocages,0,par}', 'Rita HOUNKPE', 'et son auteur');
+select essai.verifie(not (:LIV_BLOC::uuid = any(public.candidats_course(:'cmd_bloc'))), 'aucune demande ne lui est plus proposée');
+select essai.verifie(exists (select 1 from public.notifications where destinataire = :LIV_BLOC::uuid and type = 'livreur_bloque'),
+  'il est prévenu');
+
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.refuse(format($$select public.assigner_livreur(%L, 'bou_informatique', %L)$$, :'cmd_bloc', :LIV_BLOC),
+  'la boutique ne peut plus lui confier de course');
+reset role; select essai.personne();
+select essai.devenir(:LIV_BLOC::uuid); set role authenticated;
+select essai.egal((select count(*)::int from public.courses_proposees()), 0, 'il ne voit plus aucune demande');
+select essai.refuse(format($$select public.prendre_course(%L)$$, :'cmd_bloc'), 'et n''en prend aucune');
+reset role; select essai.personne();
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_livreur_fiche(%L)$$, :LIV_BLOC), 'un employé sans accès ne lit pas sa fiche');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"livreurs":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_livreur_fiche(:LIV_BLOC::uuid) as fiche_membre \gset
+select essai.refuse(format($$select public.rh_bloquer_livreur(%L, false, '')$$, :LIV_BLOC), 'qui localise les livreurs ne les débloque pas');
+reset role; select essai.personne();
+select essai.egal(:'fiche_membre'::jsonb #> '{chiffres,gains}', 'null'::jsonb, 'ouvert à son profil, il lit la fiche sans les montants');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"livreurs":"ferme"}');
+select public.rh_bloquer_livreur(:LIV_BLOC::uuid, false, '');
+reset role; select essai.personne();
+select essai.verifie(:LIV_BLOC::uuid = any(public.candidats_course(:'cmd_bloc')), 'débloqué, les demandes lui reviennent');
+select essai.egal((select count(*)::int from public.livreurs_blocages where profil_id = :LIV_BLOC::uuid), 2,
+  'le blocage et le déblocage restent dans l''historique');
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.verifie(public.assigner_livreur(:'cmd_bloc', 'bou_informatique', :LIV_BLOC::uuid) > 0,
+  'et la boutique peut de nouveau lui confier la course');
+reset role; select essai.personne();
+delete from auth.users where id = :LIV_BLOC::uuid;
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

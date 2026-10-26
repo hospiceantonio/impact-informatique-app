@@ -1558,6 +1558,9 @@ begin
 end $$;
 revoke all on function public.texte_demande(jsonb) from public, anon, authenticated;
 
+-- (BIZZOO Personnel) Le livreur bloqué : lu par la fonction qui suit.
+alter table public.profils add column if not exists courses_bloquees boolean not null default false;
+
 create or replace function public.candidats_course(commande text)
 returns uuid[]
 language plpgsql stable security definer set search_path = public as $$
@@ -1580,7 +1583,7 @@ begin
     foreach v in array vs loop
       select array_agg(p.id order by p.id) into qui
         from public.profils p
-       where p.role = 'livreur' and p.actif and p.boutique_id = boutiques[1]
+       where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
          and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
       if qui is not null then return qui; end if;
@@ -1589,7 +1592,7 @@ begin
   foreach v in array vs loop
     select array_agg(p.id order by p.id) into qui
       from public.profils p
-     where p.role = 'livreur' and p.actif and p.boutique_id is null
+     where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
        and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
     if qui is not null then return qui; end if;
@@ -1613,6 +1616,7 @@ declare
   besoin   text;
   plusieurs boolean;
   au_km    boolean;
+  bloque   boolean;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -1631,7 +1635,8 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role, (p.boutique_id is null), p.vehicule into rang, bizzoo, son_vehicule from public.profils p
+    select p.role, (p.boutique_id is null), p.vehicule, p.courses_bloquees
+      into rang, bizzoo, son_vehicule, bloque from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -1640,6 +1645,11 @@ begin
             or p.boutique_id = public.boutique_du_compte());
     if rang is distinct from 'livreur' then
       raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
+    end if;
+    -- Bloqué par l'administration de BIZZOO : plus aucune course.
+    if bloque then
+      raise exception 'Ce livreur est bloqué par BIZZOO : il ne reçoit plus de course. Confiez-la à un autre.'
+        using errcode = 'P0001';
     end if;
     if coalesce(plusieurs, false) and not coalesce(bizzoo, false) then
       raise exception 'Cette commande traverse plusieurs boutiques : confiez-la à un livreur de BIZZOO, qui les livre toutes.'
