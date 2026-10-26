@@ -322,12 +322,17 @@ const VueLivraisons = (() => {
     let courses;
     let demandes = [];
     let caisse = null;
+    let solde = null;
     try {
-      [courses, demandes, caisse] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees(),
-        Store.maCaisse()]);
+      [courses, demandes, caisse, solde] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees(),
+        Store.maCaisse(),
+        /* Une base d'avant le solde des livreurs : pas de bandeau, rien de cassé. */
+        Store.soldeLivreur(null).catch(() => null)]);
       /* La sonnerie suit ce que l'écran montre (3.59.0) : « Commande
          reçue » touchée, l'écran se relit, et elle s'arrête. */
       Notifs.majAlerte(courses, demandes);
+      /* Sa position suit, tant qu'une course est en cours (Localiser un livreur). */
+      if (typeof SuiviPosition !== "undefined") SuiviPosition.mettreAJour(courses);
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +
@@ -349,13 +354,25 @@ const VueLivraisons = (() => {
         "</div>"
       : "";
 
+    /* (3.66.0) MON SOLDE, toujours en tête : ce que ses courses lui ont
+       rapporté — il ne le cherche plus derrière une icône. */
+    const monSolde = solde
+      ? '<a class="carte lv-solde" id="lv-solde" href="#/gains">' +
+          '<div class="lv-solde-titre">' + UI.icone("promo", "ic-sm") + "Mon solde : <strong id=\"lv-solde-dispo\">" +
+            Utils.echapper(montant(solde.disponible)) + "</strong></div>" +
+          '<div class="aide">Gagné : ' + Utils.echapper(montant(solde.gagne)) +
+            (solde.aVenir > 0 ? " · à venir : " + Utils.echapper(montant(solde.aVenir)) : "") +
+            " — voir mes gains ›</div>" +
+        "</a>"
+      : "";
+
     if (!courses.length && !demandes.length) {
       if (aRendre || htmlDejaPrises()) {
-        vue.innerHTML = aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
+        vue.innerHTML = monSolde + aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
           "Dès qu'une commande vous est proposée ou confiée, elle apparaît ici.");
         return;
       }
-      vue.innerHTML = UI.vide("voiture", "Aucune course pour l'instant",
+      vue.innerHTML = monSolde + UI.vide("voiture", "Aucune course pour l'instant",
         "Dès que la boutique vous confie une commande préparée, elle apparaît ici.");
       return;
     }
@@ -367,7 +384,7 @@ const VueLivraisons = (() => {
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
-    vue.innerHTML = aRendre + htmlDejaPrises() +
+    vue.innerHTML = monSolde + aRendre + htmlDejaPrises() +
       (demandes.length
         ? '<div class="titre-section" id="lv-demandes">' +
             (demandes.length > 1 ? demandes.length + " demandes de course" : "1 demande de course") +

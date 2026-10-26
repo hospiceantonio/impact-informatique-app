@@ -464,7 +464,10 @@ const VueSuivi = (() => {
           return h("tr", {},
             h("td", {}, l.quantite + " × " + l.nom, c.montants && l.prix !== undefined ? h("div", { class: "tres-petit doux" }, UI.fcfa(l.prix) + " l'unité") : null),
             h("td", {}, l.boutique, h("div", { class: "tres-petit doux" }, l.boutique_tel || "")),
-            h("td", {}, l.livreur || "—", h("div", { class: "tres-petit doux" }, l.livreur_tel || "")),
+            h("td", {}, l.livreur || "—", h("div", { class: "tres-petit doux" }, l.livreur_tel || ""),
+              /* La même carte que « Localiser un livreur », centrée sur lui. */
+              l.livreur_id && App.ouvert("livreurs") ? h("a", { class: "btn btn-petit btn-second", style: { marginTop: "4px" },
+                href: "#/livreurs/" + encodeURIComponent(l.livreur_id) }, UI.icone("carte", "ic-sm"), "Voir sa position") : null),
             h("td", {}, UI.etiquette(l.statut, COULEUR_STATUT[l.rang] || ""), l.terrain_motif ? h("div", { class: "tres-petit doux" }, l.terrain_motif) : null),
             h("td", {}, choix));
         }))));

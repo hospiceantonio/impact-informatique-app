@@ -3,11 +3,15 @@
 
    Même base que la place de marché et BIZZOO Admin, mêmes
    appels REST que « admin/js/supabase.js », sans bibliothèque :
-   - compte : e-mail professionnel + mot de passe ;
+   - compte : le numéro de téléphone et un code reçu par SMS (chaque
+     employé), ou l'e-mail et le mot de passe (l'administration) ;
    - données : tables « rh_… », sous les règles de la base ;
    - décisions : fonctions « rh_… » (rpc), qui vérifient
      elles-mêmes qui appelle ;
-   - messagerie : la fonction Edge « rh-messagerie ».
+   - messagerie : la fonction Edge « rh-messagerie » ;
+   - pièces jointes des discussions : le seau PRIVÉ « rh-pieces »,
+     lu par des liens signés que la base n'accorde qu'à qui voit
+     le message.
 
    L'écran ne décide d'aucun droit : il cache ce qui ne sert
    pas, la base refuse ce qui n'est pas permis.
@@ -33,19 +37,73 @@ const Supabase = (() => {
 
   /* ---------- Session ---------- */
 
+  /* LA CONFIANCE DANS L'APPAREIL. Entré par son numéro, l'employé
+     redonne un code à chaque connexion : sa session ne vit que le temps
+     de l'onglet (sessionStorage). S'il fait confiance à cet appareil,
+     elle se garde 7 jours (localStorage), puis un nouveau code est
+     demandé. L'entrée par e-mail et mot de passe se garde comme avant. */
+  const CONFIANCE = 7 * 24 * 3600 * 1000;
   let session = null;
-  try { session = JSON.parse(localStorage.getItem(CLE_SESSION) || "null"); } catch (_) { session = null; }
+  try {
+    session = JSON.parse(sessionStorage.getItem(CLE_SESSION) || localStorage.getItem(CLE_SESSION) || "null");
+  } catch (_) { session = null; }
+  if (session && session.confiance_jusqu && Date.now() > session.confiance_jusqu) {
+    session = null;
+    try { localStorage.removeItem(CLE_SESSION); } catch (_) { /* vide */ }
+  }
 
   function garderSession(s) {
     session = s;
     try {
-      if (s) localStorage.setItem(CLE_SESSION, JSON.stringify(s));
-      else localStorage.removeItem(CLE_SESSION);
+      localStorage.removeItem(CLE_SESSION);
+      sessionStorage.removeItem(CLE_SESSION);
+      if (s) (s.telephone && !s.confiance_jusqu ? sessionStorage : localStorage).setItem(CLE_SESSION, JSON.stringify(s));
     } catch (_) { /* stockage indisponible : la session vit le temps de l'onglet */ }
   }
 
   const sessionPresente = () => !!session;
-  const utilisateur = () => (session ? session.email : null);
+  const utilisateur = () => (session ? session.email || (session.telephone ? "+" + session.telephone : null) : null);
+  const parTelephone = () => !!(session && session.telephone);
+
+  /** « XX XX XX XX », « 01XXXXXXXX », « +229 01 XX XX XX XX » : le même
+      numéro, au format international de Supabase (229 + 01 + 8 chiffres). */
+  function numeroInternational(tel) {
+    let n = String(tel || "").replace(/[^0-9]/g, "");
+    if (n.startsWith("229") && n.length >= 11) n = n.slice(3);
+    if (n.length === 8) n = "01" + n;
+    if (!/^01[0-9]{8}$/.test(n)) throw new Error("Numéro incomplet : 01 suivi de 8 chiffres (01 XX XX XX XX).");
+    return "229" + n;
+  }
+
+  /** Porte 1 : le code par SMS — seulement pour un numéro d'employé en poste. */
+  async function demanderCode(tel) {
+    const numero = numeroInternational(tel);
+    const c = config();
+    let connu = false;
+    try {
+      const r = await fetch(c.url + "/rest/v1/rpc/rh_telephone_employe", {
+        method: "POST", headers: { "apikey": c.cle, "Content-Type": "application/json" },
+        body: JSON.stringify({ tel: numero }),
+      });
+      connu = (await r.json()) === true;
+    } catch (_) {
+      throw new Error("Impossible de joindre la base. Vérifiez votre connexion internet.");
+    }
+    if (!connu) throw new Error("Ce numéro n'est celui d'aucun employé de BIZZOO. Vérifiez-le, ou demandez à l'administration.");
+    /* « compte: personnel » : un compte qui naît ici n'est ni un client ni
+       un compte de boutique. */
+    await appelAuth("otp", { phone: numero, create_user: true, data: { compte: "personnel" } });
+    return numero;
+  }
+
+  /** Porte 2 : le code reçu, et la confiance dans cet appareil (7 jours). */
+  async function confirmerCode(tel, code, confiance) {
+    const numero = numeroInternational(tel);
+    const d = await appelAuth("verify", { type: "sms", phone: numero, token: String(code || "").trim() });
+    if (!d.access_token) throw new Error("Code incorrect ou expiré.");
+    garderSession({ ...sessionDepuis(d, ""), telephone: numero, confiance_jusqu: confiance ? Date.now() + CONFIANCE : null });
+    return numero;
+  }
 
   async function appelAuth(chemin, corps, avecSession, methode) {
     const c = config();
@@ -75,6 +133,9 @@ const Supabase = (() => {
         throw new Error("Adresse pas encore confirmée : ouvrez le lien reçu dans votre boîte mail professionnelle.");
       }
       if (code === "weak_password") throw new Error("Mot de passe trop faible : 8 caractères au moins.");
+      if (code === "otp_expired" || /token has expired|invalid.*otp/i.test(d.msg || "")) throw new Error("Code incorrect ou expiré.");
+      if (code === "over_sms_send_rate_limit" || reponse.status === 429) throw new Error("Trop de codes demandés : attendez une minute avant de réessayer.");
+      if (code === "sms_send_failed") throw new Error("Le SMS n'a pas pu partir. Réessayez dans un instant.");
       throw new Error(d.msg || d.error_description || d.message || "La connexion a échoué (" + reponse.status + ").");
     }
     return d;
@@ -105,7 +166,8 @@ const Supabase = (() => {
     if (session.expire_a - Date.now() > 60000) return session;
     try {
       const d = await appelAuth("token?grant_type=refresh_token", { refresh_token: session.refresh_token });
-      garderSession({ ...sessionDepuis(d, session.email), refresh_token: d.refresh_token || session.refresh_token });
+      /* La confiance et le numéro suivent la session renouvelée. */
+      garderSession({ ...session, ...sessionDepuis(d, session.email), refresh_token: d.refresh_token || session.refresh_token });
       return session;
     } catch (err) {
       if (/connexion internet/.test(err.message || "")) return session;
@@ -229,8 +291,130 @@ const Supabase = (() => {
     return d;
   }
 
+  /* ---------- Le code SMS du superadministrateur ----------
+     Quand l'enseigne l'exige, un compte superadministrateur n'a ses droits
+     que si sa session a rendu un code reçu par SMS : la même porte que
+     BIZZOO Admin (etat_connexion, code-connexion, confirmer_code_connexion),
+     et le même appareil de confiance (un mois), partagé avec Admin. */
+
+  async function etatConnexion() {
+    try {
+      return await rpc("etat_connexion", {});
+    } catch (err) {
+      if (err && err.deconnecte) throw err;
+      return null;   // base d'avant : rien n'est exigé
+    }
+  }
+
+  async function demanderCodeEquipe() {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) throw new Error("Session expirée : reconnectez-vous.");
+    let r;
+    try {
+      r = await fetch(c.url + "/functions/v1/code-connexion", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token, "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch (_) {
+      throw new Error("Serveur injoignable. Vérifiez votre connexion internet.");
+    }
+    const d = await r.json().catch(() => null);
+    if (!d) throw new Error("L'envoi du code n'a pas répondu (" + r.status + ").");
+    return d;
+  }
+
+  const confirmerCodeEquipe = (code) => rpc("confirmer_code_connexion", { code: String(code || "") });
+
+  const CLE_APPAREIL = "bizzoo-appareil-confiance";
+  const lireJetonAppareil = () => { try { return localStorage.getItem(CLE_APPAREIL) || ""; } catch (_) { return ""; } };
+  async function reconnaitreAppareil() {
+    const j = lireJetonAppareil();
+    if (j.length < 32) return false;
+    try { return (await rpc("reconnaitre_appareil", { jeton: j })) === true; } catch (_) { return false; }
+  }
+  function confierAppareil() {
+    let j = lireJetonAppareil();
+    if (j.length < 32) {
+      const octets = new Uint8Array(32);
+      crypto.getRandomValues(octets);
+      j = Array.from(octets, (o) => o.toString(16).padStart(2, "0")).join("");
+      try { localStorage.setItem(CLE_APPAREIL, j); } catch (_) { /* navigation privée */ }
+    }
+    return rpc("confier_appareil", { jeton: j, appareil: String(navigator.userAgent || "").slice(0, 120) });
+  }
+
+  /* ---------- Les pièces jointes (seau privé « rh-pieces ») ---------- */
+
+  const SEAU = "rh-pieces";
+
+  async function entetesStockage() {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) {
+      const err = new Error("Session expirée : reconnectez-vous.");
+      err.deconnecte = true;
+      throw err;
+    }
+    return { c, entetes: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token } };
+  }
+
+  /** Dépose un fichier dans le dossier de l'employé ; le chemin revient. */
+  async function deposer(chemin, fichier, type) {
+    const { c, entetes } = await entetesStockage();
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/storage/v1/object/" + SEAU + "/" + chemin, {
+        method: "POST", headers: { ...entetes, "Content-Type": type || "application/octet-stream" }, body: fichier,
+      });
+    } catch (_) {
+      throw new Error("Envoi du fichier impossible. Vérifiez votre connexion internet.");
+    }
+    if (!reponse.ok) {
+      const d = await reponse.json().catch(() => ({}));
+      const m = String(d.message || d.error || "");
+      if (reponse.status === 413 || /too large|maximum allowed size/i.test(m)) throw new Error("Fichier trop lourd : 50 Mo au plus.");
+      if (/mime type/i.test(m)) throw new Error("Ce type de fichier ne s'envoie pas : photos, vidéos et audio seulement.");
+      if (/bucket not found/i.test(m)) throw new Error("La base n'a pas encore les pièces jointes : exécutez supabase/personnel-pieces.sql.");
+      if (reponse.status === 403 || /row-level security|unauthorized/i.test(m)) throw new Error("La base refuse : votre compte n'envoie pas de fichier ici.");
+      throw new Error("Envoi du fichier refusé (" + reponse.status + ")" + (m ? " — " + m : "") + ".");
+    }
+    return chemin;
+  }
+
+  /** Des liens de lecture, valables « secondes » ; seuls ceux que la base accorde. */
+  async function signer(chemins, secondes) {
+    if (!chemins.length) return {};
+    const { c, entetes } = await entetesStockage();
+    const reponse = await fetch(c.url + "/storage/v1/object/sign/" + SEAU, {
+      method: "POST", headers: { ...entetes, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: secondes || 3600, paths: chemins }),
+    });
+    const d = await reponse.json().catch(() => []);
+    const liens = {};
+    for (const x of Array.isArray(d) ? d : []) {
+      if (x && x.signedURL && !x.error) liens[x.path] = c.url + "/storage/v1" + x.signedURL;
+    }
+    return liens;
+  }
+
+  /** Retire un fichier qu'aucun message ne cite (envoi raté) ; en silence. */
+  async function retirer(chemin) {
+    try {
+      const { c, entetes } = await entetesStockage();
+      await fetch(c.url + "/storage/v1/object/" + SEAU, {
+        method: "DELETE", headers: { ...entetes, "Content-Type": "application/json" },
+        body: JSON.stringify({ prefixes: [chemin] }),
+      });
+    } catch (_) { /* le ménage de l'heure le fera */ }
+  }
+
   return {
-    configuration, sessionPresente, utilisateur, connexion, deconnexion, assurerSession,
+    configuration, sessionPresente, utilisateur, parTelephone, connexion, deconnexion, assurerSession,
+    demanderCode, confirmerCode,
     changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie,
+    deposer, signer, retirer,
+    etatConnexion, demanderCodeEquipe, confirmerCodeEquipe, reconnaitreAppareil, confierAppareil,
   };
 })();

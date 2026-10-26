@@ -71,7 +71,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a
@@ -614,7 +614,7 @@ begin
                  'boutique_tel', x.boutique_tel, 'nom', x.nom, 'code', x.code, 'quantite', x.quantite,
                  'prix', x.prix, 'etat', x.etat, 'rang', x.rang, 'statut', public.rh_statut_libelle(x.rang),
                  'terrain', x.terrain, 'terrain_motif', coalesce(x.terrain_motif, ''),
-                 'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel,
+                 'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel, 'livreur_id', x.livreur_id,
                  'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le)
                order by x.boutique_nom, x.nom) from lig2 x where x.commande_id = c.id), '[]'),
     'articles', coalesce((select string_agg(x.quantite || ' × ' || x.nom

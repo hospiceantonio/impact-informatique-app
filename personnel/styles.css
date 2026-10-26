@@ -109,7 +109,9 @@ p{margin:0}
   .menu-lateral .pied{margin-top:auto;padding:12px;font-size:12.5px;opacity:.8}
   body.connecte .entete,body.connecte .vue{margin-left:var(--menu-l)}
   .entete .logo{display:none}
-  .vue{padding-bottom:40px}
+  /* Sur ordinateur, chaque page prend toute la largeur à droite du menu :
+     les formulaires et les tuiles s'y rangent en colonnes. */
+  .vue{padding:20px 28px 40px;max-width:none}
 }
 
 /* ---------- Les éléments ---------- */
@@ -198,6 +200,33 @@ p{margin:0}
 .tableau-suivi td.large{min-width:200px}
 .tableau-suivi td.moyen{min-width:170px}
 .vue.vue-large{max-width:none}
+/* Le circuit d'une dépense : quatre étapes. */
+.etapes-depense{list-style:none;margin:4px 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.etapes-depense li{position:relative;padding-left:30px}
+.etapes-depense li::before{content:"";position:absolute;left:4px;top:3px;width:16px;height:16px;border-radius:50%;border:2px solid var(--trait);background:var(--blanc)}
+.etapes-depense li.fait::before{background:var(--vert-fonce);border-color:var(--vert-fonce)}
+.etapes-depense li.refus::before{background:var(--rouge);border-color:var(--rouge)}
+/* Localiser un livreur : la carte prend tout l'écran disponible. */
+.vue.vue-carte{max-width:none;padding:0}
+.localiser{display:flex;height:calc(100dvh - 64px);background:var(--fond)}
+.localiser:fullscreen{height:100vh}
+.localiser-carte{flex:1;min-width:0;height:100%;z-index:0}
+.localiser-panneau{width:340px;max-width:40%;display:flex;flex-direction:column;gap:8px;padding:12px;overflow:auto;border-left:1px solid var(--trait);background:var(--blanc)}
+.localiser-liste{display:flex;flex-direction:column;gap:6px}
+.localiser-element{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;padding:10px;border:1px solid var(--trait);border-radius:12px;background:var(--blanc);color:var(--encre)}
+.localiser-element.actif{border-color:var(--orange);background:var(--orange-clair)}
+.pin-livreur{width:34px;height:34px;border-radius:50%;background:#64748B;color:#fff;font:700 12px/34px sans-serif;text-align:center;border:3px solid #fff;box-shadow:0 1px 4px #0006}
+.pin-livreur.en-course{background:var(--bleu)}
+.pin-livreur.ancien{opacity:.55}
+.pin-livreur.choisi{background:var(--orange-fonce);transform:scale(1.15)}
+.pin-livreur.petit-pin{flex:none;width:30px;height:30px;line-height:30px;font-size:11px;border-width:2px;box-shadow:none}
+.pin-client{width:22px;height:22px;border-radius:50%;background:var(--rouge);border:3px solid #fff;box-shadow:0 1px 4px #0006}
+@media (max-width:899px){
+  .localiser{flex-direction:column;height:auto}
+  .localiser-carte{height:62vh;flex:none}
+  .localiser:fullscreen .localiser-carte{height:70vh}
+  .localiser-panneau{width:auto;max-width:none;border-left:0;border-top:1px solid var(--trait);padding-bottom:calc(var(--barre-h) + var(--safe-b) + 16px)}
+}
 .tableau .centre{text-align:center}
 .tableau-acces td{vertical-align:middle}
 .tableau-acces th.centre{white-space:nowrap}
@@ -259,6 +288,17 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
 .saisie{position:sticky;bottom:calc(var(--barre-h) + var(--safe-b) + 6px);display:flex;gap:8px;background:var(--fond);padding:8px 0}
 .saisie textarea{flex:1;min-height:44px;max-height:140px;padding:10px 12px;border:1px solid var(--trait);border-radius:14px;resize:none}
 @media (min-width:900px){.saisie{bottom:8px}}
+.saisie .outil{flex:none;width:44px;height:44px;border-radius:50%;border:1px solid var(--trait);background:var(--blanc);color:var(--encre-douce);display:inline-flex;align-items:center;justify-content:center}
+.saisie .outil.enregistre{background:var(--rouge);border-color:var(--rouge);color:#fff}
+.saisie-bloc{position:sticky;bottom:calc(var(--barre-h) + var(--safe-b) + 6px);background:var(--fond)}
+.saisie-bloc .saisie{position:static}
+@media (min-width:900px){.saisie-bloc{bottom:8px}}
+.piece-attente{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px dashed var(--trait);border-radius:12px;background:var(--blanc);font-size:13px}
+.piece-attente audio,.piece-attente img,.piece-attente video{max-height:60px;max-width:120px;border-radius:8px}
+.bulle .piece{margin:2px 0 4px}
+.bulle .piece img,.bulle .piece video{display:block;max-width:min(280px,100%);max-height:320px;border-radius:10px;background:#0001;cursor:pointer}
+.bulle .piece audio{width:min(260px,70vw);max-width:100%}
+.ephemere{font-size:12px;color:var(--encre-douce);text-align:center;margin:4px 0 0}
 
 /* ---------- Fiche de paie imprimable ---------- */
 .fiche-paie{background:#fff;border:1px solid var(--trait);border-radius:var(--r);padding:22px;font-size:13.5px}

@@ -249,7 +249,7 @@ const VueReglages = (() => {
             " Pas encore en service : réglez le point BIZZOO pour l'ouvrir. D'ici là, chaque " +
             "boutique garde ses frais de livraison.</div>") +
       '<p class="aide" style="margin:0 0 12px">La distance se mesure à vol d\'oiseau du point BIZZOO ' +
-        "jusqu'au client, multipliée par le coefficient de la route ; chaque kilomètre entamé au-delà " +
+        "jusqu'au client, multipliée par le coefficient de la route (réglé plus bas) ; chaque kilomètre entamé au-delà " +
         "du rayon compte. Le tricycle s'applique dès qu'un produit de la commande l'exige. Les frais se " +
         "paient en ligne avec l'acompte ; le livreur en touche sa part une fois la commande remise.</p>" +
       '<div class="carte-titre" style="font-size:14px">Le point BIZZOO</div>' +
@@ -276,6 +276,13 @@ const VueReglages = (() => {
       "</div>" +
       '<div class="champ-duo">' +
         champ("km-rayon", "Le forfait couvre", l.rayon, "km") +
+        /* (3.66.0) Le détour de la route, réglable : 1,3 = 30 % de plus
+           que la ligne droite. La base le borne entre 1 et 3. */
+        champ("km-coef", "Coefficient de la route", String(isFinite(l.coef) && l.coef ? l.coef : 1.3).replace(".", ","), "×",
+          "La distance en ligne droite est multipliée par ce nombre pour suivre les routes. " +
+          "1,3 = 30 % de détour. Entre 1 et 3.") +
+      "</div>" +
+      '<div class="champ-duo">' +
         champ("km-taux", "Part du livreur", l.tauxLivreur, "%",
           "Sur les frais de chaque commande ; le reste revient à BIZZOO.") +
       "</div>" +
@@ -333,6 +340,7 @@ const VueReglages = (() => {
         point,
         adresse: UI.$("#km-adresse").value,
         rayon: UI.$("#km-rayon").value,
+        coef: UI.$("#km-coef").value,
         motoForfait: UI.$("#km-moto-forfait").value, motoPrixKm: UI.$("#km-moto-km").value,
         tricycleForfait: UI.$("#km-tri-forfait").value, tricyclePrixKm: UI.$("#km-tri-km").value,
         tauxLivreur: UI.$("#km-taux").value,

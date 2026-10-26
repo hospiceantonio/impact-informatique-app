@@ -42,7 +42,8 @@ create table if not exists public.rh_employes (
   compte_id       uuid unique references auth.users(id) on delete set null,
   nom             text not null check (length(btrim(nom)) > 0),
   prenoms         text not null default '',
-  sexe            text not null check (sexe in ('M', 'F')),
+  -- Vide tant que l'employé ne l'a pas dit (fiches importées d'un fichier).
+  sexe            text check (sexe in ('M', 'F')),
   -- L'âge se calcule : une date de naissance ne vieillit pas de travers.
   date_naissance  date check (date_naissance > date '1930-01-01'),
   telephone       text not null default '',
@@ -64,7 +65,7 @@ create table if not exists public.rh_employes (
   ceo             boolean not null default false,
   peut_decaisser  boolean not null default false,
   etat            text not null default 'en_attente'
-                  check (etat in ('en_attente', 'actif', 'refuse', 'sorti')),
+                  check (etat in ('en_attente', 'actif', 'refuse', 'sorti', 'bloque', 'supprime')),
   motif_refus     text not null default '',
   date_sortie     date,
   cree_par        uuid,
@@ -72,6 +73,13 @@ create table if not exists public.rh_employes (
   valide_par      uuid,
   valide_le       timestamptz
 );
+-- Ce que la fiche du personnel de BIZZOO donne en plus (2026-10-25).
+alter table public.rh_employes alter column sexe drop not null;
+alter table public.rh_employes add column if not exists telephone_pro text not null default '';
+alter table public.rh_employes add column if not exists equipement text not null default '';
+alter table public.rh_employes add column if not exists langue text not null default '';
+alter table public.rh_employes add column if not exists marie text not null default '';
+alter table public.rh_employes add column if not exists moto boolean;
 -- Une adresse professionnelle ne sert qu'à un employé : c'est par elle
 -- qu'on rattache le compte et qu'on ouvre la boîte mail.
 create unique index if not exists rh_employes_email_pro
@@ -122,11 +130,20 @@ language sql stable security definer set search_path = public as $$
                   where compte_id = auth.uid() and etat = 'actif' and (administration or ceo));
 $$;
 
+/** Décaisser (dépenses, salaires), c'est tenir la caisse : le seul
+    gestionnaire de caisse désigné par le CEO. Sans la table de la caisse
+    (fichier rejoué seul sur une base plus ancienne), l'ancien droit. */
 create or replace function public.rh_peut_decaisser() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.rh_employes
-                  where compte_id = auth.uid() and etat = 'actif' and peut_decaisser);
-$$;
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.rh_caisse') is null then
+    return exists (select 1 from public.rh_employes
+                    where compte_id = auth.uid() and etat = 'actif' and peut_decaisser);
+  end if;
+  return exists (select 1 from public.rh_caisse c
+                   join public.rh_employes e on e.id = c.gestionnaire_id
+                  where e.compte_id = auth.uid() and e.etat = 'actif');
+end $$;
 
 create or replace function public.rh_mon_profil() returns uuid
 language sql stable security definer set search_path = public as $$
@@ -191,7 +208,7 @@ begin
     return cle in ('mails', 'discussions', 'missions', 'rapports');
   end if;
   if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
-    return cle in ('mails', 'discussions');
+    return cle in ('mails', 'discussions', 'depenses');
   end if;
   return exists (
     select 1 from public.rh_acces_menus a
@@ -208,8 +225,9 @@ create or replace function public.rh_employe_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   decision boolean := coalesce(current_setting('rh.decision', true), '') = 'oui';
-  ceo_connecte boolean := public.rh_est_ceo();
-  admin_connecte boolean := public.rh_est_admin();
+  -- Le superadministrateur de BIZZOO modifie une fiche comme le CEO.
+  ceo_connecte boolean := public.rh_est_ceo() or public.est_super();
+  admin_connecte boolean := public.rh_est_admin() or public.est_super();
   libres text[];
 begin
   if tg_op = 'INSERT' then
@@ -253,9 +271,11 @@ begin
 
   if not admin_connecte then
     /* L'employé lui-même : ses coordonnées, rien d'autre. */
-    libres := array['telephone', 'adresse', 'email_perso'];
+    /* Il complète ce qui le regarde. Son téléphone, non : c'est par lui
+       qu'il se connecte ; l'administration le change. */
+    libres := array['adresse', 'email_perso', 'sexe', 'date_naissance', 'langue', 'marie', 'moto'];
     if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres) then
-      raise exception 'Vous ne pouvez modifier que votre téléphone, votre adresse et votre e-mail personnel';
+      raise exception 'Vous ne pouvez modifier que votre adresse, votre e-mail, votre sexe, votre date de naissance, votre langue, votre situation et votre moto : le reste passe par l''administration';
     end if;
     return new;
   end if;
@@ -301,10 +321,10 @@ create trigger rh_employes_verrous
 create or replace function public.rh_employe_apres() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if new.profil_id is distinct from old.profil_id or new.etat <> 'actif' then
+  if new.profil_id is distinct from old.profil_id or new.etat not in ('actif', 'bloque') then
     update public.rh_profils set responsable_id = null
      where responsable_id = new.id
-       and (new.etat <> 'actif' or id is distinct from new.profil_id);
+       and (new.etat not in ('actif', 'bloque') or id is distinct from new.profil_id);
   end if;
   return null;
 end $$;
@@ -389,7 +409,7 @@ begin
   update public.rh_employes
      set etat = 'sorti', date_sortie = coalesce(le, current_date),
          motif_refus = btrim(coalesce(motif, ''))
-   where id = employe and etat = 'actif';
+   where id = employe and etat in ('actif', 'bloque');
   if not found then
     raise exception 'Cet employé n''est pas en poste';
   end if;
@@ -885,22 +905,31 @@ end $$;
 create table if not exists public.rh_depenses (
   id                 uuid primary key default gen_random_uuid(),
   numero             bigint generated always as identity,
-  profil_id          uuid not null references public.rh_profils(id) on delete restrict,
+  -- Le profil du demandeur ; vide pour un employé rangé dans aucun profil.
+  profil_id          uuid references public.rh_profils(id) on delete restrict,
   demandeur_id       uuid references public.rh_employes(id) on delete set null,
   objet              text not null check (length(btrim(objet)) > 0),
   details            text not null default '',
   montant            bigint not null check (montant > 0),
   statut             text not null default 'demandee'
-                     check (statut in ('demandee', 'approuvee', 'refusee', 'decaissee', 'annulee')),
+                     check (statut in ('demandee', 'validee_responsable', 'approuvee', 'refusee',
+                                       'decaissee', 'annulee')),
   cree_le            timestamptz not null default now(),
   decision_par       uuid,
   decision_le        timestamptz,
   motif_decision     text not null default '',
   decaisse_par       uuid,
   decaisse_le        timestamptz,
-  mode_decaissement  text check (mode_decaissement in ('especes', 'virement', 'mobile_money', 'cheque')),
+  -- Le compartiment de la caisse d'où sort l'argent (« virement », « cheque »
+  -- et « mobile_money » : les décaissements d'avant la caisse).
+  mode_decaissement  text check (mode_decaissement in ('especes', 'mtn', 'moov', 'celtiis', 'mixte',
+                                                       'virement', 'mobile_money', 'cheque')),
   reference          text not null default ''
 );
+-- La validation du responsable du profil, avant le CEO.
+alter table public.rh_depenses add column if not exists responsable_par uuid;
+alter table public.rh_depenses add column if not exists responsable_le timestamptz;
+alter table public.rh_depenses add column if not exists motif_responsable text not null default '';
 
 create or replace function public.rh_depense_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -912,15 +941,27 @@ begin
   end if;
   if tg_op = 'INSERT' then
     new.demandeur_id := public.rh_moi();
-    new.statut := 'demandee';
+    -- Le profil du DEMANDEUR, jamais celui que l'écran propose.
+    new.profil_id := public.rh_mon_profil();
+    -- Son responsable valide d'abord. Sans responsable (pas de profil,
+    -- profil sans responsable), ou s'il est lui-même le responsable,
+    -- la demande va droit au CEO.
+    new.statut := case
+      when exists (select 1 from public.rh_profils p
+                    where p.id = new.profil_id and p.responsable_id is not null
+                      and p.responsable_id <> new.demandeur_id) then 'demandee'
+      else 'validee_responsable' end;
     new.cree_le := now();
+    new.responsable_par := null; new.responsable_le := null; new.motif_responsable := '';
     new.decision_par := null; new.decision_le := null; new.motif_decision := '';
     new.decaisse_par := null; new.decaisse_le := null; new.mode_decaissement := null;
     new.reference := '';
     return new;
   end if;
-  if old.statut <> 'demandee' then
-    raise exception 'Une demande déjà tranchée ne se modifie plus';
+  -- Modifiable tant que personne ne l'a validée.
+  if not (old.statut = 'demandee'
+          or (old.statut = 'validee_responsable' and old.responsable_par is null)) then
+    raise exception 'Une demande déjà validée ou tranchée ne se modifie plus';
   end if;
   if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres) then
     raise exception 'Seuls l''objet, le détail et le montant se modifient';
@@ -948,9 +989,9 @@ begin
      set statut = case when approuver then 'approuvee' else 'refusee' end,
          decision_par = public.rh_moi(), decision_le = now(),
          motif_decision = btrim(coalesce(motif, ''))
-   where id = depense and statut = 'demandee';
+   where id = depense and statut = 'validee_responsable';
   if not found then
-    raise exception 'Cette dépense n''attend pas de décision';
+    raise exception 'Cette dépense n''attend pas la décision du CEO : son responsable doit d''abord la valider';
   end if;
   perform set_config('rh.decision', '', true);
 end $$;
@@ -962,8 +1003,11 @@ begin
   if not public.rh_peut_decaisser() then
     raise exception 'Votre compte n''est pas habilité à décaisser';
   end if;
-  if mode not in ('especes', 'virement', 'mobile_money', 'cheque') then
-    raise exception 'Mode de décaissement inconnu';
+  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
+    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
+  end if;
+  if exists (select 1 from public.rh_depenses where id = depense and demandeur_id = public.rh_moi()) then
+    raise exception 'On ne décaisse pas sa propre demande : un autre habilité s''en charge';
   end if;
   perform set_config('rh.decision', 'oui', true);
   update public.rh_depenses
@@ -981,7 +1025,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   perform set_config('rh.decision', 'oui', true);
   update public.rh_depenses set statut = 'annulee'
-   where id = depense and statut = 'demandee' and demandeur_id = public.rh_moi();
+   where id = depense and statut in ('demandee', 'validee_responsable') and demandeur_id = public.rh_moi();
   if not found then
     raise exception 'Seul le demandeur annule une demande encore en attente';
   end if;
@@ -1268,7 +1312,7 @@ begin
      calendaires du mois. */
   d1 := greatest(debut, e.date_embauche);
   d2 := least(fin, coalesce(e.date_sortie, fin));
-  if e.etat not in ('actif', 'sorti') or d2 < d1 then
+  if e.etat not in ('actif', 'bloque', 'sorti') or d2 < d1 then
     delete from public.rh_fiches_paie f
      where f.employe_id = qui and f.mois = debut and f.statut = 'calculee';
     return null;
@@ -1388,7 +1432,7 @@ declare
   combien int := 0;
 begin
   for e in select id from public.rh_employes
-            where (etat = 'actif' or (etat = 'sorti' and date_sortie >= debut))
+            where (etat in ('actif', 'bloque') or (etat = 'sorti' and date_sortie >= debut))
               and date_embauche <= fin loop
     if public.rh_calculer_fiche(e.id, debut) is not null then
       combien := combien + 1;
@@ -1399,7 +1443,7 @@ begin
    where f.mois = debut and f.statut = 'calculee'
      and not exists (select 1 from public.rh_employes x
                       where x.id = f.employe_id
-                        and (x.etat = 'actif' or (x.etat = 'sorti' and x.date_sortie >= debut))
+                        and (x.etat in ('actif', 'bloque') or (x.etat = 'sorti' and x.date_sortie >= debut))
                         and x.date_embauche <= fin);
   return combien;
 end $$;
@@ -1581,8 +1625,8 @@ begin
   if not public.rh_peut_decaisser() then
     raise exception 'Votre compte n''est pas habilité à payer';
   end if;
-  if mode not in ('especes', 'virement', 'mobile_money', 'cheque') then
-    raise exception 'Mode de paiement inconnu';
+  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
+    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
   end if;
   update public.rh_fiches_paie
      set statut = 'payee', paye_par = public.rh_moi(), paye_le = now(),
@@ -1637,6 +1681,7 @@ begin
     return jsonb_build_object(
       'moi', null,
       'en_attente', exists (select 1 from public.rh_employes where compte_id = auth.uid()),
+      'bloque', exists (select 1 from public.rh_employes where compte_id = auth.uid() and etat = 'bloque'),
       'amorce_possible', not exists (select 1 from public.rh_employes where ceo)
                          and public.est_super());
   end if;
@@ -1648,7 +1693,8 @@ begin
     'moi', jsonb_build_object(
       'id', moi.id, 'matricule', moi.matricule, 'nom', moi.nom, 'prenoms', moi.prenoms,
       'sexe', moi.sexe, 'poste', moi.poste, 'email_pro', moi.email_pro,
-      'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', moi.peut_decaisser,
+      'ceo', v_ceo, 'administration', v_admin, 'peut_decaisser', public.rh_peut_decaisser(),
+      'super', public.est_super(),
       'profil_id', moi.profil_id,
       'profil', (select nom from public.rh_profils where id = moi.profil_id),
       'responsable_de', to_jsonb(mes_profils)),
@@ -1671,9 +1717,11 @@ begin
         (select count(*) from public.rh_missions where statut = 'rapport_remis') else 0 end,
       'rapports_a_valider', case when v_ceo then
         (select count(*) from public.rh_rapports where statut = 'publie') else 0 end,
+      'depenses_a_valider',
+        (select count(*) from public.rh_depenses where statut = 'demandee' and profil_id = any(mes_profils)),
       'depenses_a_approuver', case when v_ceo then
-        (select count(*) from public.rh_depenses where statut = 'demandee') else 0 end,
-      'depenses_a_decaisser', case when moi.peut_decaisser then
+        (select count(*) from public.rh_depenses where statut = 'validee_responsable') else 0 end,
+      'depenses_a_decaisser', case when public.rh_peut_decaisser() then
         (select count(*) from public.rh_depenses where statut = 'approuvee') else 0 end,
       'baremes_a_valider', case when v_ceo then
         (select count(*) from public.rh_cotisations where actif and not valide)
@@ -1683,7 +1731,7 @@ begin
         (select count(*) from public.rh_fiches_paie
           where statut = 'calculee'
             and mois < date_trunc('month', aujourdhui + 1)::date) else 0 end,
-      'fiches_a_payer', case when moi.peut_decaisser then
+      'fiches_a_payer', case when public.rh_peut_decaisser() then
         (select count(*) from public.rh_fiches_paie where statut = 'validee') else 0 end,
       'messages_non_lus', (select coalesce(sum(non_lus), 0) from public.rh_conversations())));
 end $$;
@@ -1714,13 +1762,13 @@ drop policy if exists "rh employes suppression" on public.rh_employes;
 -- La fiche complète (salaire compris) : l'administration, et l'employé
 -- lui-même. Les autres passent par l'annuaire.
 create policy "rh employes lecture" on public.rh_employes
-  for select to authenticated using (public.rh_est_admin() or compte_id = auth.uid());
+  for select to authenticated using (public.rh_est_admin() or public.est_super() or compte_id = auth.uid());
 create policy "rh employes ajout" on public.rh_employes
-  for insert to authenticated with check (public.rh_est_admin());
+  for insert to authenticated with check (public.rh_est_admin() or public.est_super());
 create policy "rh employes modification" on public.rh_employes
   for update to authenticated
-  using (public.rh_est_admin() or (compte_id = auth.uid() and etat = 'actif'))
-  with check (public.rh_est_admin() or (compte_id = auth.uid() and etat = 'actif'));
+  using (public.rh_est_admin() or public.est_super() or (compte_id = auth.uid() and etat = 'actif'))
+  with check (public.rh_est_admin() or public.est_super() or (compte_id = auth.uid() and etat = 'actif'));
 create policy "rh employes suppression" on public.rh_employes
   for delete to authenticated
   using (public.rh_est_ceo() and etat in ('en_attente', 'refuse'));
@@ -1788,11 +1836,11 @@ create policy "rh depenses lecture" on public.rh_depenses
   for select to authenticated using (
     public.rh_est_admin()
     or demandeur_id = public.rh_moi()
-    or public.rh_responsable_de(profil_id)
+    or (profil_id is not null and public.rh_responsable_de(profil_id))
     or (public.rh_peut_decaisser() and statut in ('approuvee', 'decaissee')));
 create policy "rh depenses demande" on public.rh_depenses
   for insert to authenticated
-  with check (public.rh_responsable_de(profil_id) and public.rh_acces(profil_id, 'depenses'));
+  with check (public.rh_moi() is not null and public.rh_menu_ouvert('depenses'));
 create policy "rh depenses modification" on public.rh_depenses
   for update to authenticated
   using (demandeur_id = public.rh_moi()) with check (demandeur_id = public.rh_moi());

@@ -346,13 +346,21 @@ titre("5. Le superadministrateur règle le point BIZZOO et les tarifs");
   await page.waitForTimeout(400);
   ok(!serveur.ecritures.some((e) => e.chemin.startsWith("paiement")), "une part du livreur à 120 % : refusée");
   await page.fill("#km-taux", "80");
+  /* (3.66.0) Le coefficient de la route se règle ici. */
+  ok((await page.inputValue("#km-coef").catch(() => "")) === "1,3", "le coefficient de la route s'affiche : 1,3");
+  await page.fill("#km-coef", "4");
+  await page.click("#km-enregistrer");
+  await page.waitForTimeout(400);
+  ok(!serveur.ecritures.some((e) => e.chemin.startsWith("paiement")) &&
+     /coefficient de la route va de 1 à 3/.test(await texte(page, "#toasts")), "un coefficient de 4 : refusé, et dit");
+  await page.fill("#km-coef", "1,25");
   await page.fill("#km-moto-km", "150");
   await page.click("#km-enregistrer");
   await page.waitForTimeout(800);
   const envoi = serveur.ecritures.find((e) => e.chemin.startsWith("paiement"));
   const c = (envoi && envoi.corps) || {};
   ok(c.livraison_latitude === POINT.latitude && c.livraison_longitude === POINT.longitude &&
-     c.moto_prix_km === 150 && c.taux_livreur === 80 && c.tricycle_forfait === 4000,
+     c.moto_prix_km === 150 && c.taux_livreur === 80 && c.tricycle_forfait === 4000 && c.livraison_coef === 1.25,
     "le point et les tarifs partent vers la base (" + JSON.stringify(c).slice(0, 160) + ")");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
@@ -395,6 +403,10 @@ titre("6. Le livreur : sa course, son gain ; « Mes gains »");
   ok(/Moto · 13,4 km depuis BIZZOO/.test(await texte(page, '[data-lv="trajet"]')), "sa course : « Moto · 13,4 km depuis BIZZOO »");
   ok(/Votre gain : 1 120 FCFA/.test(await texte(page, '[data-lv="gain"]')), "« Votre gain : 1 120 FCFA »");
   ok(await page.$('.lv-course a.lv-ou[href*="6.458099"]') !== null, "« Livrer à » ouvre la carte sur le point exact du client");
+  /* (3.66.0) Son solde, en tête de ses courses : il ne le cherche plus. */
+  ok(await texte(page, "#lv-solde-dispo") === F(1120) && /à venir : 1 120 FCFA/.test(await texte(page, "#lv-solde")),
+    "« Mon solde : 1 120 FCFA », et ce qui est à venir, en tête de ses courses");
+  ok(await page.$eval("#lv-solde", (a) => a.getAttribute("href")).catch(() => "") === "#/gains", "le bandeau mène à « Mes gains »");
 
   await page.click("#lv-gains");
   await page.waitForSelector("#gn-solde", { timeout: 6000 }).catch(() => {});

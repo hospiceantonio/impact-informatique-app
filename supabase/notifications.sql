@@ -41,6 +41,21 @@ create table if not exists public.gains_livreurs (
 create index if not exists gains_livreur on public.gains_livreurs(livreur_id, credite_le desc);
 alter table public.gains_livreurs enable row level security;
 revoke all on public.gains_livreurs from anon, authenticated;
+-- (3.66.0) UNE LIGNE PAR LIVREUR, et non plus par commande : une commande à
+-- l'ancien tarif (frais par boutique) a parfois un livreur par boutique,
+-- et chacun touche la part des boutiques qu'il a livrées.
+alter table public.gains_livreurs add column if not exists id bigserial;
+do $$
+begin
+  if exists (select 1 from pg_constraint
+              where conname = 'gains_livreurs_pkey' and conrelid = 'public.gains_livreurs'::regclass
+                and pg_get_constraintdef(oid) = 'PRIMARY KEY (commande_id)') then
+    alter table public.gains_livreurs drop constraint gains_livreurs_pkey;
+    alter table public.gains_livreurs add constraint gains_livreurs_pkey primary key (id);
+  end if;
+end $$;
+create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
+revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
 create or replace function public.livraison_active() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -101,17 +116,55 @@ end $$;
 revoke all on function public.devis_livraison(double precision, double precision, text) from public;
 grant execute on function public.devis_livraison(double precision, double precision, text) to anon, authenticated;
 
+create or replace function public.part_frais_livreur(cible text, qui uuid) returns numeric
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c          public.commandes%rowtype;
+  f          numeric;
+  siennes    int;
+  confiees   int;
+  part       numeric;
+  brut_moi   numeric;
+  brut_tout  numeric;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found then return 0; end if;
+  f := greatest(0, coalesce(c.frais_livraison, 0));
+  if f <= 0 then return 0; end if;
+  select count(*) filter (where l.livreur_id = qui), count(*) filter (where l.livreur_id is not null)
+    into siennes, confiees
+    from public.commande_lignes l where l.commande_id = cible and l.etat <> 'annulee';
+  if coalesce(siennes, 0) = 0 then
+    return case when coalesce(confiees, 0) = 0 then f else 0 end;
+  end if;
+  if c.livraison is not null then return f; end if;
+  if c.parts is not null and exists (select 1 from jsonb_each(c.parts) e(k, v)
+                                      where coalesce((v ->> 'frais')::numeric, 0) > 0) then
+    select coalesce(sum(coalesce((c.parts -> b.bou ->> 'frais')::numeric, 0)), 0) into part
+      from (select distinct l.boutique_id as bou from public.commande_lignes l
+             where l.commande_id = cible and l.livreur_id = qui and l.etat <> 'annulee') b;
+    return least(f, part);
+  end if;
+  select coalesce(sum(l.prix * l.quantite) filter (where l.livreur_id = qui), 0),
+         coalesce(sum(l.prix * l.quantite), 0)
+    into brut_moi, brut_tout
+    from public.commande_lignes l where l.commande_id = cible and l.etat <> 'annulee';
+  if brut_tout <= 0 then return 0; end if;
+  return round(f * brut_moi / brut_tout);
+end $$;
+revoke all on function public.part_frais_livreur(text, uuid) from public, anon, authenticated;
+
 create or replace function public.gain_livreur(cible text) returns bigint
 language plpgsql stable security definer set search_path = public as $$
-declare g bigint; f bigint; t int;
+declare g bigint; p numeric; t int;
 begin
-  select x.montant into g from public.gains_livreurs x where x.commande_id = cible;
-  if found then return g; end if;
-  select coalesce(c.frais_livraison, 0) into f from public.commandes c
-   where c.id = cible and c.livraison is not null;
-  if f is null then return null; end if;
-  select coalesce(p.taux_livreur, 80) into t from public.paiement p where p.id = 1;
-  return floor(f * coalesce(t, 80) / 100.0)::bigint;
+  select sum(x.montant)::bigint into g from public.gains_livreurs x
+   where x.commande_id = cible and x.livreur_id = auth.uid();
+  if g is not null then return g; end if;
+  p := public.part_frais_livreur(cible, auth.uid());
+  if coalesce(p, 0) <= 0 then return null; end if;
+  select coalesce(x.taux_livreur, 80) into t from public.paiement x where x.id = 1;
+  return floor(p * coalesce(t, 80) / 100.0)::bigint;
 end $$;
 revoke all on function public.gain_livreur(text) from public, anon, authenticated;
 
@@ -311,7 +364,8 @@ begin
     'trajet', case when c.livraison is null then null
                    else jsonb_build_object('vehicule', c.livraison ->> 'vehicule',
                                            'distance_km', c.livraison -> 'distance_km') end,
-    'gain', case when c.livraison is null then null else public.gain_livreur(c.id) end,
+    -- (3.66.0) Au kilomètre ou à l'ancien tarif : sa part des frais.
+    'gain', public.gain_livreur(c.id),
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
     'a_encaisser', coalesce(reste, 0),
     -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
@@ -671,6 +725,15 @@ begin
       'Course acceptée par ' || porteur.nom,
       'Commande ' || numero || ' — le livreur a accepté la course.',
       '#/commandes/' || new.commande_id, new.commande_id, new.boutique_id, true);
+    -- (3.66.0) BIZZOO AUSSI L'ENTEND : ses administrateurs qui suivent les
+    -- commandes et les superadministrateurs — une sonnerie par prise, pas
+    -- une par boutique quand le livreur prend toute la commande d'un coup.
+    perform public.notifier(enseigne || public.les_superadmins(), 'course_acceptee',
+      'Course prise par ' || porteur.nom,
+      'Commande ' || numero || ' — ' || porteur.nom || ' a pris la course.',
+      '#/commandes/' || new.commande_id, new.commande_id,
+      case when coalesce(current_setting('bizzoo.prise', true), '') = 'oui' then null
+           else new.boutique_id end, true);
   end if;
 
   -- ---- L'accusé de réception du client ----

@@ -13,6 +13,8 @@ const App = (() => {
   let tableau = null;          // la réponse de rh_tableau_de_bord()
   /* Les menus que le menu Paramètres ouvre à mes profils (rh_mes_menus). */
   let menus = [];
+  /* Le droit sur la caisse (rh_caisse_acces) : la caisse ne suit pas les autres menus. */
+  let caisseAcces = null;
   let routeCourante = "";
   let minuterie = null;
 
@@ -21,6 +23,8 @@ const App = (() => {
   const estCeo = () => !!(moi() && moi().ceo);
   const estAdmin = () => !!(moi() && moi().administration);
   const peutDecaisser = () => !!(moi() && moi().peut_decaisser);
+  /** Le superadministrateur de BIZZOO (rôle de la place de marché). */
+  const estSuper = () => !!(moi() && moi().super);
   const responsableDe = (profil) => !!(moi() && (moi().responsable_de || []).includes(profil));
   const estResponsable = () => !!(moi() && (moi().responsable_de || []).length);
   /** Ce menu m'est-il ouvert ? L'administration a tout ; la base refuse le reste. */
@@ -28,9 +32,12 @@ const App = (() => {
   const voitSuivi = () => ouvert("suivi");
   /* Les commandes en alerte : la pastille du suivi. */
   let alertesSuivi = 0;
-  /** Les sous-menus des statistiques ouverts à ce compte (leurs clés). */
-  const sousMenusStatistiques = () =>
-    VueStatistiques.SOUS_MENUS.map((s) => s.cle).filter((c) => ouvert("stats_" + c));
+  /** Les sous-menus des statistiques ouverts à ce compte (leurs clés) :
+      ceux de la place de marché selon Paramètres ; les internes à
+      l'administration ; revenus et résultat au CEO et au superadministrateur. */
+  const sousMenusStatistiques = () => VueStatistiques.SOUS_MENUS.filter((s) =>
+    s.interne === "revenus" ? estCeo() || estSuper() : s.interne ? estAdmin() || estSuper() : ouvert("stats_" + s.cle))
+    .map((s) => s.cle);
   const voitStatistiques = () => sousMenusStatistiques().length > 0;
 
   /* ---------- Les écrans ---------- */
@@ -41,11 +48,13 @@ const App = (() => {
     missions: VueMissions,
     rapports: VueRapports,
     depenses: VueDepenses,
+    caisse: VueCaisse,
     employes: VueEmployes,
     profils: VueProfils,
     paie: VuePaie,
     statistiques: VueStatistiques,
     suivi: VueSuivi,
+    livreurs: VueLocaliser,
     parametres: VueParametres,
     compte: VueCompte,
   };
@@ -64,8 +73,10 @@ const App = (() => {
         pastille: c.rapports_a_valider },
       { route: "depenses", libelle: "Dépenses", icone: "argent",
         pour: () => ouvert("depenses") || peutDecaisser(),
-        pastille: (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
+        pastille: (c.depenses_a_valider || 0) + (c.depenses_a_approuver || 0) + (c.depenses_a_decaisser || 0) },
+      { route: "caisse", libelle: "Caisse", icone: "caisse", pour: () => !!caisseAcces },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi, pastille: alertesSuivi },
+      { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
@@ -202,6 +213,7 @@ const App = (() => {
   /** Les menus ouverts par le menu Paramètres. Base pas encore à jour :
       les menus d'avant, sans suivi ni statistiques. */
   async function chargerMenus() {
+    caisseAcces = await Supabase.rpc("rh_caisse_acces").catch(() => null);
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];
@@ -218,6 +230,9 @@ const App = (() => {
     demarrer();
   }
 
+  /* « Plus tard » : le superadministrateur entre sans ses droits, pour cette visite. */
+  let sansCodeEquipe = false;
+
   async function demarrer() {
     const zone = document.getElementById("contenu");
     const connecte = Supabase.sessionPresente() && await Supabase.assurerSession();
@@ -228,6 +243,17 @@ const App = (() => {
       return;
     }
     UI.vider(zone, UI.chargement());
+    /* Le superadministrateur rend d'abord son code SMS, comme dans BIZZOO
+       Admin : sans lui, la base ne lui reconnaît pas ses droits. */
+    if (!sansCodeEquipe) {
+      let etat = null;
+      try { etat = await Supabase.etatConnexion(); } catch (err) { if (err && err.deconnecte) return deconnecte(); }
+      if (etat && etat.equipe && etat.sms_exige && !etat.session_confirmee && !(await Supabase.reconnaitreAppareil())) {
+        for (const id of ["entete", "onglets", "menu-lateral"]) document.getElementById(id).hidden = true;
+        VueConnexion.codeEquipe(zone, etat, demarrer, () => { sansCodeEquipe = true; demarrer(); }, deconnecte);
+        return;
+      }
+    }
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
     } catch (err) {
@@ -271,7 +297,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, estCeo, estAdmin, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer,
   };
 })();

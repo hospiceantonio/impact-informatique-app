@@ -10,13 +10,13 @@
         « Reçu » qui appelle « accepter_course » ;
      2. une course acceptée : plus de « Reçu », « Je l'ai prise » ;
      3. une base d'avant (sans fiche) : l'écran d'avant, sans « Reçu » ;
-     4. « Mes courses » de l'application client : la même fiche, le même
-        « Reçu » ;
+     4. (3.66.0) « Mes courses » de l'application client renvoie vers
+        BIZZOO Admin, sans rien lister ;
      5. les notifications s'affichent sur plusieurs lignes (admin et
         client), et « Votre livreur » a sa famille ;
-     6. LES DEMANDES envoyées à tous dès le paiement : en tête de
-        « Mes courses », groupée avec un lieu par boutique ; « Commande
-        reçue » appelle prendre_course ; « trop tard » se dit.
+     6. LES DEMANDES envoyées à tous dès le paiement (dans l'admin) : en
+        tête de « Mes courses », groupée avec un lieu par boutique ;
+        « Commande reçue » appelle prendre_course ; « trop tard » se dit.
    ========================================================= */
 let chromium;
 try {
@@ -279,38 +279,20 @@ async function ouvrirClient({ hash, courses = [], demandes = [] }) {
   return { page, ctx, erreurs, serveur };
 }
 
-titre("4. « Mes courses » dans l'application client");
+titre("4 et 6b. L'application client renvoie le livreur vers BIZZOO Admin (3.66.0)");
 {
-  const { page, ctx, erreurs, serveur } = await ouvrirClient({ hash: "#/mes-courses", courses: [course()] });
-  const t = plat(await page.evaluate(() => (document.querySelector(".cp-course") || {}).innerText || ""));
-  ok(/Récupérer le colis/i.test(t) && /Ganhi, rue du marché/.test(t), "où récupérer");
-  ok(/Livrer à/i.test(t) && /Fidjrossè, près de l'église/.test(t) && /97 66 60 05|97666005/.test(t),
-    "où livrer, et le numéro du destinataire");
-  ok(t.includes("À payer par MoMoPay : " + F(7000)) && t.includes("Déjà payé : " + F(3000)) &&
-     t.includes("Frais de livraison : " + F(1000)), "à payer par MoMoPay, déjà payé, frais");
-  ok(!t.includes(F(9000)), "pas le prix des articles");
-  await page.click(".cp-course-recu").catch(() => {});
-  await page.waitForTimeout(1500);
-  const appel = serveur.appels.find((a) => a.fn === "accepter_course");
-  ok(appel && appel.corps && appel.corps.commande === "cmd_p" && appel.corps.boutique === "bou_a",
-    "« Reçu » appelle accepter_course(cmd_p, bou_a)");
-  ok(await page.evaluate(() => !document.querySelector(".cp-course-recu")), "acceptée : le bouton s'en va");
-  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
-  await ctx.close();
-}
-
-titre("6b. Les demandes de course (client)");
-{
-  const { page, ctx, erreurs, serveur } = await ouvrirClient({ hash: "#/mes-courses", demandes: [DEMANDE] });
-  const t = plat(await page.evaluate(() => (document.querySelector(".cp-demande") || {}).innerText || ""));
-  ok(/Demandes de course \(1\)/.test(plat(await page.evaluate(() => document.getElementById("vue").innerText))),
-    "« Demandes de course (1) »");
-  ok(/Livraison groupée · 2 boutiques/.test(t) && /Alpha/.test(t) && /Bêta/.test(t), "groupée, deux boutiques");
-  ok(t.includes("À payer par MoMoPay : " + F(5000)), "ce qu'il y a à récupérer");
-  await page.click(".cp-course-prendre").catch(() => {});
-  await page.waitForTimeout(1500);
-  ok(serveur.appels.some((a) => a.fn === "prendre_course" && a.corps && a.corps.commande === "cmd_g"),
-    "« Commande reçue » appelle prendre_course(cmd_g)");
+  /* Ses courses, leurs demandes et leur sonnerie ne vivent plus que dans
+     BIZZOO Admin (sections 1, 2 et 6a) : l'application client n'en
+     montre plus aucune, et ne les touche pas. */
+  const { page, ctx, erreurs, serveur } = await ouvrirClient({ hash: "#/mes-courses", courses: [course()],
+    demandes: [DEMANDE] });
+  const t = plat(await page.evaluate(() => document.getElementById("vue").innerText));
+  ok(await page.evaluate(() => !!document.querySelector("#cp-espace-livreur")) && /BIZZOO Admin/.test(t),
+    "« Mes courses » : le renvoi vers BIZZOO Admin");
+  ok(await page.evaluate(() => !document.querySelector(".cp-course, .cp-demande")) && !/Demandes de course/.test(t),
+    "aucune course ni demande listée dans l'application client");
+  ok(!serveur.appels.some((a) => ["accepter_course", "prendre_course"].includes(a.fn)),
+    "elle n'accepte ni ne prend aucune course");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

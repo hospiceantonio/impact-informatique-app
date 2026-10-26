@@ -16,7 +16,10 @@ const VueEmployes = (() => {
     actif: ["En poste", "vert"],
     refuse: ["Refusé", "rouge"],
     sorti: ["Sorti", ""],
+    bloque: ["Bloqué", "rouge"],
+    supprime: ["Archivé", ""],
   };
+  const ACTIONS_JOURNAL = { bloque: "Bloqué", debloque: "Débloqué", supprime: "Supprimé (fiche archivée)", efface: "Effacé" };
   const MODES = { especes: "Espèces", virement: "Virement bancaire", mobile_money: "Mobile Money", cheque: "Chèque" };
   const NIVEAUX = ["Sans diplôme", "CEP", "BEPC", "CAP", "BAC", "BTS / DUT (Bac+2)", "Licence (Bac+3)", "Master (Bac+5)", "Doctorat"];
   const DOMAINE = "@bizzoomarket.com";
@@ -68,7 +71,8 @@ const VueEmployes = (() => {
 
   async function liste(zone, filtre, recherche) {
     let chemin = "rh_employes?select=id,matricule,nom,prenoms,poste,statut,etat,profil_id,administration,ceo,peut_decaisser,compte_id,date_embauche&order=nom,prenoms";
-    if (filtre !== "tous") chemin += "&etat=eq." + filtre;
+    /* « Tous » : sauf les fiches archivées, qui ont leur filtre. */
+    chemin += filtre === "tous" ? "&etat=neq.supprime" : "&etat=eq." + filtre;
     const employes = await Supabase.lire(chemin);
     if (!zone.isConnected) return;
     const champ = h("input", { type: "search", placeholder: "Rechercher un nom, un poste, un matricule", value: recherche });
@@ -93,7 +97,7 @@ const VueEmployes = (() => {
     UI.vider(zone,
       h("div", { class: "titre-section" }, h("h2", {}, "Employés"),
         h("a", { class: "btn btn-petit", href: "#/employes/nouveau" }, UI.icone("plus", "ic-sm"), "Nouvel employé")),
-      h("div", { class: "filtres" }, [["actif", "En poste"], ["en_attente", "À valider"], ["refuse", "Refusés"], ["sorti", "Sortis"], ["tous", "Tous"]]
+      h("div", { class: "filtres" }, [["actif", "En poste"], ["en_attente", "À valider"], ["bloque", "Bloqués"], ["refuse", "Refusés"], ["sorti", "Sortis"], ["supprime", "Archivés"], ["tous", "Tous"]]
         .map(([v, l]) => h("button", { class: v === filtre ? "actif" : "", onclick: () => { location.hash = "#/employes?filtre=" + v; } }, l))),
       h("label", { class: "champ" }, champ),
       h("p", { class: "doux petit" }, employes.length + " employé(s)"),
@@ -105,7 +109,8 @@ const VueEmployes = (() => {
 
   async function formulaire(zone, e) {
     App.titre(e ? "Modifier " + UI.nomComplet(e) : "Nouvel employé");
-    const ceo = App.estCeo();
+    /* Le superadministrateur modifie une fiche comme le CEO (droits, salaire). */
+    const ceo = App.estCeo() || App.estSuper();
     const salaireFige = e && e.etat === "actif" && !ceo;
     const champs = {};
     const champ = (nom, libelle, entree, aide, large) => {
@@ -123,16 +128,18 @@ const VueEmployes = (() => {
       h("div", { class: "formulaire" },
         champ("nom", "Nom *", h("input", { required: true, value: val("nom") })),
         champ("prenoms", "Prénoms", h("input", { value: val("prenoms") })),
-        champ("sexe", "Sexe *", choix("sexe", [["M", "Homme"], ["F", "Femme"]], val("sexe", "M"))),
+        champ("sexe", "Sexe", choix("sexe", [["", "À préciser"], ["M", "Homme"], ["F", "Femme"]], val("sexe", ""))),
         champ("date_naissance", "Date de naissance", h("input", { type: "date", value: val("date_naissance") }), "L'âge se calcule tout seul."),
         champ("niveau_etude", "Niveau d'étude", h("input", { list: "niveaux-etude", value: val("niveau_etude") }))),
       h("h2", {}, "Contact"),
       h("div", { class: "formulaire" },
-        champ("telephone", "Téléphone", h("input", { type: "tel", value: val("telephone") })),
+        champ("telephone", "Téléphone (sert à se connecter)", h("input", { type: "tel", value: val("telephone"), placeholder: "01 + 8 chiffres" }),
+          "Il se connecte avec ce numéro et un code reçu par SMS."),
+        champ("telephone_pro", "Téléphone pro", h("input", { type: "tel", value: val("telephone_pro") })),
         champ("email_pro", "E-mail professionnel", h("input", { type: "email", value: val("email_pro"), placeholder: "prenom.nom" + DOMAINE }),
           "Son adresse " + DOMAINE + " : elle sert de connexion et de boîte mail."),
         champ("email_perso", "E-mail personnel", h("input", { type: "email", value: val("email_perso") })),
-        champ("adresse", "Adresse", h("input", { value: val("adresse") }))),
+        champ("adresse", "Lieu de résidence", h("input", { value: val("adresse") }))),
       h("h2", {}, "Poste"),
       h("div", { class: "formulaire" },
         champ("date_embauche", "Date d'embauche *", h("input", { type: "date", required: true, value: val("date_embauche", UI.aujourdhui()) })),
@@ -147,13 +154,18 @@ const VueEmployes = (() => {
         champ("compte_paiement", "N° de compte ou de Mobile Money", h("input", { value: val("compte_paiement") })),
         champ("numero_cnss", "N° CNSS", h("input", { value: val("numero_cnss") }))),
       h("h2", {}, "Autres informations"),
+      h("div", { class: "formulaire" },
+        champ("equipement", "Équipement confié", h("input", { value: val("equipement"), placeholder: "Téléphone, ordinateur, tablette…" })),
+        champ("langue", "Langue", h("input", { value: val("langue") })),
+        champ("marie", "Marié(e)", h("input", { value: val("marie"), placeholder: "Oui / Non" })),
+        champ("moto", "Moto", choix("moto", [["", "À préciser"], ["true", "Oui"], ["false", "Non"]], val("moto", "")))),
       champ("infos", "Informations complémentaires", h("textarea", {}), null, true),
       ceo ? h("div", { class: "pile" },
         h("h2", {}, "Droits (CEO)"),
         h("label", { class: "case" }, champs.administration = h("input", { type: "checkbox", checked: !!val("administration", false) }),
           "Membre de l'administration (droits sur tous les profils)"),
-        h("label", { class: "case" }, champs.peut_decaisser = h("input", { type: "checkbox", checked: !!val("peut_decaisser", false) }),
-          "Habilité à décaisser (dépenses approuvées, salaires validés)")) : null,
+        /* Décaisser, c'est tenir la caisse : le gestionnaire se désigne dans Caisse. */
+        h("p", { class: "doux petit" }, "Le gestionnaire de la caisse, seul à décaisser les dépenses et à payer les salaires, se désigne dans le menu Caisse.")) : null,
       !e && !ceo ? h("div", { class: "info" }, "Cette fiche partira chez le CEO pour validation.") : null,
       h("div", { class: "actions" },
         h("button", { class: "btn", type: "submit" }, e ? "Enregistrer" : "Créer la fiche"),
@@ -171,7 +183,13 @@ const VueEmployes = (() => {
         v.salaire_base = Math.round(Number(v.salaire_base || 0));
         if (!(v.salaire_base >= 0)) return UI.echec("Le salaire doit être un nombre de francs.");
       }
-      for (const n of ["date_naissance", "profil_id", "email_pro"]) if (v[n] === "") v[n] = null;
+      for (const n of ["date_naissance", "profil_id", "email_pro", "sexe"]) if (v[n] === "") v[n] = null;
+      if ("moto" in v) v.moto = v.moto === "" ? null : v.moto === "true";
+      if (v.telephone) {
+        const t = v.telephone.replace(/[^0-9]/g, "").replace(/^229(?=01)/, "");
+        v.telephone = t.length === 8 ? "01" + t : t;
+        if (!/^01[0-9]{8}$/.test(v.telephone)) return UI.echec("Téléphone : 01 suivi de 8 chiffres.");
+      }
       if (v.email_pro) {
         v.email_pro = v.email_pro.toLowerCase();
         if (!v.email_pro.endsWith(DOMAINE) &&
@@ -193,12 +211,22 @@ const VueEmployes = (() => {
   /* ---------- La fiche ---------- */
 
   async function fiche(zone, id) {
-    const [e] = await Supabase.lire("rh_employes?select=*&id=eq." + encodeURIComponent(id));
+    const [[e], journal] = await Promise.all([
+      Supabase.lire("rh_employes?select=*&id=eq." + encodeURIComponent(id)),
+      Supabase.lire("rh_journal_employes?select=*&employe_id=eq." + encodeURIComponent(id) + "&order=id.desc").catch(() => []),
+    ]);
     if (!zone.isConnected) return;
     if (!e) return UI.vider(zone, UI.vide("Employé introuvable."));
     App.titre(UI.nomComplet(e));
     const ceo = App.estCeo();
+    /* Modifier une fiche : aussi le superadministrateur, comme le CEO. */
+    const modifieur = ceo || App.estSuper();
     const recharger = () => App.rafraichir().then(() => fiche(zone, id));
+    /* Ethnie et religion : à part, pour le CEO et le superadministrateur. */
+    const sensibles = modifieur
+      ? (await Supabase.lire("rh_employes_sensibles?select=*&employe_id=eq." + encodeURIComponent(id)).catch(() => []))[0] || null
+      : null;
+    if (!zone.isConnected) return;
     const age = UI.age(e.date_naissance);
     const ligne = (libelle, valeur) => h("div", {}, h("div", { class: "doux tres-petit" }, libelle), h("div", { class: "gras" }, valeur || "—"));
     const responsableDe = profils.filter((p) => p.responsable_id === e.id).map((p) => p.nom);
@@ -216,13 +244,13 @@ const VueEmployes = (() => {
         recharger();
       } }, "Refuser"));
     }
-    if (!e.ceo || ceo) {
-      if (e.etat !== "sorti") actions.push(h("button", { class: "btn btn-second", onclick: () => formulaire(zone, e) }, UI.icone("crayon", "ic-sm"), "Modifier"));
+    if (!e.ceo || modifieur) {
+      if (!["sorti", "supprime"].includes(e.etat)) actions.push(h("button", { class: "btn btn-second", onclick: () => formulaire(zone, e) }, UI.icone("crayon", "ic-sm"), "Modifier"));
     }
     if (e.etat === "actif" && !e.compte_id && (!e.ceo || ceo)) {
       actions.push(h("button", { class: "btn btn-orange", onclick: (ev) => creerAcces(ev.currentTarget, e, recharger) }, UI.icone("cle", "ic-sm"), "Créer l'accès"));
     }
-    if (ceo && e.etat === "actif" && !e.ceo) {
+    if (ceo && ["actif", "bloque"].includes(e.etat) && !e.ceo) {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
         const v = await UI.formulaire({ titre: "Sortie de " + UI.nomComplet(e), danger: true, valider: "Enregistrer la sortie",
           texte: "L'employé perd l'accès à l'application. Sa dernière paie est calculée jusqu'à la date de sortie.",
@@ -233,12 +261,38 @@ const VueEmployes = (() => {
         recharger();
       } }, UI.icone("sortie", "ic-sm"), "Sortie"));
     }
-    if (ceo && ["en_attente", "refuse"].includes(e.etat)) {
+    /* Bloquer, débloquer, supprimer : le CEO et le superadministrateur. */
+    const peutBloquer = (App.estCeo() || App.estSuper()) && !e.ceo && e.id !== (App.moi() || {}).id;
+    if (peutBloquer && e.etat === "actif") {
+      actions.push(h("button", { class: "btn btn-orange", onclick: async (ev) => {
+        const motif = await UI.motif("Bloquer " + UI.nomComplet(e),
+          "Pourquoi ? (Il ne pourra plus ouvrir l'application ; sa paie continue.)");
+        if (motif === null) return;
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_bloquer_employe", { qui: e.id, bloquer: true, motif }), "Accès bloqué.");
+        recharger();
+      } }, "Bloquer"));
+    }
+    if (peutBloquer && e.etat === "bloque") {
+      actions.push(h("button", { class: "btn btn-vert", onclick: async (ev) => {
+        if (!await UI.confirmer("Débloquer " + UI.nomComplet(e) + " ? Il retrouve l'accès à l'application.", { valider: "Débloquer" })) return;
+        await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_bloquer_employe", { qui: e.id, bloquer: false, motif: "" }), "Accès débloqué.");
+        recharger();
+      } }, UI.icone("check", "ic-sm"), "Débloquer"));
+    }
+    if (peutBloquer && e.etat !== "supprime") {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
-        if (!await UI.confirmer("Supprimer définitivement cette fiche ?", { danger: true, valider: "Supprimer" })) return;
-        await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_employes", "id=eq." + e.id), "Fiche supprimée.");
+        const v = await UI.formulaire({ titre: "Supprimer " + UI.nomComplet(e), danger: true, valider: "Supprimer",
+          texte: "Sans paie validée ni avance, la fiche est effacée entièrement. Sinon, elle est archivée : " +
+                 "nom, matricule, n° CNSS et paie restent pour la comptabilité ; accès, messages, boîte mail et coordonnées sont effacés. " +
+                 "On ne revient pas en arrière.",
+          champs: [{ nom: "motif", libelle: "Motif", type: "textarea", requis: true }],
+          verifier: (x) => (x.motif.trim() ? null : "Le motif est obligatoire.") });
+        if (!v) return;
+        const r = await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_supprimer_employe", { qui: e.id, motif: v.motif }));
+        UI.succes(r === "archive" ? "Employé supprimé : sa fiche est archivée avec sa paie." : "Employé supprimé.");
+        App.rafraichir();
         location.hash = "#/employes";
-      } }, UI.icone("poubelle", "ic-sm")));
+      } }, UI.icone("poubelle", "ic-sm"), "Supprimer"));
     }
 
     UI.vider(zone,
@@ -252,27 +306,56 @@ const VueEmployes = (() => {
         h("div", { class: "actions" },
           e.ceo ? UI.etiquette("CEO", "bleu") : null,
           e.administration && !e.ceo ? UI.etiquette("Administration", "bleu") : null,
-          e.peut_decaisser ? UI.etiquette("Habilité à décaisser", "orange") : null,
           responsableDe.length ? UI.etiquette("Responsable : " + responsableDe.join(", "), "vert") : null,
           e.compte_id ? UI.etiquette("Accès créé", "vert") : (e.etat === "actif" ? UI.etiquette("Pas encore d'accès", "orange") : null)),
         e.etat === "refuse" && e.motif_refus ? h("div", { class: "erreur" }, "Refusée par le CEO : " + e.motif_refus) : null,
         e.etat === "sorti" ? h("div", { class: "avertissement" }, "Sorti le " + UI.date(e.date_sortie) + (e.motif_refus ? " — " + e.motif_refus : "")) : null,
+        e.etat === "bloque" ? h("div", { class: "erreur" }, "Accès bloqué" +
+          (journal[0] && journal[0].action === "bloque" ? " le " + UI.dateHeure(journal[0].le) + (journal[0].motif ? " — " + journal[0].motif : "") : "") +
+          ". Sa paie continue.") : null,
+        e.etat === "supprime" ? h("div", { class: "avertissement" }, "Fiche archivée le " + UI.date(e.date_sortie) +
+          (e.motif_refus ? " — " + e.motif_refus : "") + ". Seules l'identité et la paie sont gardées.") : null,
         actions.length ? h("div", { class: "actions" }, actions) : null),
       h("div", { class: "carte" }, h("h2", {}, "Informations"),
         h("div", { class: "formulaire" },
-          ligne("Sexe", e.sexe === "F" ? "Femme" : "Homme"),
+          ligne("Sexe", e.sexe === "F" ? "Femme" : e.sexe === "M" ? "Homme" : "À préciser"),
           ligne("Date de naissance", e.date_naissance ? UI.date(e.date_naissance) + (age !== null ? " (" + age + " ans)" : "") : null),
           ligne("Niveau d'étude", e.niveau_etude),
-          ligne("Téléphone", e.telephone),
+          ligne("Téléphone (connexion)", e.telephone),
+          ligne("Téléphone pro", e.telephone_pro),
           ligne("E-mail professionnel", e.email_pro),
           ligne("E-mail personnel", e.email_perso),
-          ligne("Adresse", e.adresse),
+          ligne("Lieu de résidence", e.adresse),
           ligne("Profil", nomProfil(e.profil_id)),
           ligne("Date d'embauche", UI.date(e.date_embauche)),
           ligne("Salaire de base", UI.fcfa(e.salaire_base)),
           ligne("Paiement", MODES[e.mode_paiement] + (e.compte_paiement ? " · " + e.compte_paiement : "")),
-          ligne("N° CNSS", e.numero_cnss)),
+          ligne("N° CNSS", e.numero_cnss),
+          ligne("Équipement", e.equipement),
+          ligne("Langue", e.langue),
+          ligne("Marié(e)", e.marie),
+          ligne("Moto", e.moto === true ? "Oui" : e.moto === false ? "Non" : null)),
         e.infos ? h("div", { class: "pre", style: { marginTop: "12px" } }, e.infos) : null),
+      modifieur ? h("div", { class: "carte pile" },
+        h("h2", {}, "Données sensibles"),
+        h("p", { class: "doux tres-petit" }, "Visibles du CEO et du superadministrateur seulement : jamais de l'administration, ni de l'annuaire."),
+        h("div", { class: "formulaire" },
+          ligne("Ethnie", sensibles && sensibles.ethnie), ligne("Religion", sensibles && sensibles.religion)),
+        h("div", { class: "actions" }, h("button", { class: "btn btn-second", onclick: async (ev) => {
+          const v = await UI.formulaire({ titre: "Données sensibles", valider: "Enregistrer", champs: [
+            { nom: "ethnie", libelle: "Ethnie", valeur: sensibles ? sensibles.ethnie : "" },
+            { nom: "religion", libelle: "Religion", valeur: sensibles ? sensibles.religion : "" }] });
+          if (!v) return;
+          await UI.agir(ev.currentTarget, () => sensibles
+            ? Supabase.modifier("rh_employes_sensibles", "employe_id=eq." + e.id, v)
+            : Supabase.ajouter("rh_employes_sensibles", { employe_id: e.id, ...v }), "Enregistré.");
+          recharger();
+        } }, UI.icone("crayon", "ic-sm"), "Modifier"))) : null,
+      journal.length ? h("div", { class: "carte" }, h("h2", {}, "Historique de l'accès"),
+        h("div", { class: "liste" }, journal.map((j) => h("div", { class: "element" },
+          h("div", { class: "etire" },
+            h("div", { class: "gras" }, (ACTIONS_JOURNAL[j.action] || j.action) + " par " + (j.par_nom || "—")),
+            h("div", { class: "petit doux" }, UI.dateHeure(j.le) + (j.motif ? " — " + j.motif : ""))))))) : null,
       h("div", { class: "actions" },
         h("a", { class: "btn btn-second", href: "#/paie/employe/" + e.id }, UI.icone("paie", "ic-sm"), "Paie de cet employé")));
   }

@@ -20,10 +20,14 @@ const VueParametres = (() => {
       ["discussions", "Discussions", "La discussion du profil et les messages directs."],
       ["missions", "Missions", "Les missions du profil ; le responsable les accepte et rend le rapport."],
       ["rapports", "Rapports", "Le responsable publie ; les membres lisent les rapports validés."],
-      ["depenses", "Dépenses", "Demandées par le responsable du profil seulement.", true],
+      ["depenses", "Dépenses", "Demander une dépense ; le responsable valide, puis le CEO, puis l'habilité décaisse."],
     ]],
     ["Commandes", [
       ["suivi", "Suivi des commandes", "Statuts, alertes, incidents, export Excel : sans les montants."],
+      ["livreurs", "Localiser un livreur", "La carte des livreurs en course, et leur distance au client."],
+    ]],
+    ["Caisse", [
+      ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire. L'administration ne la voit pas d'office."],
     ]],
     ["Statistiques (sans les montants)", [
       ["stats_commandes", "Commandes", "Payées, passées, en attente, jour par jour."],

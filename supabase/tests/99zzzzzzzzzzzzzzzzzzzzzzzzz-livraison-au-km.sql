@@ -177,8 +177,11 @@ select essai.egal(public.assigner_livreur(:'g1'::jsonb ->> 'id', 'bou_essai_vois
 reset role; select essai.personne();
 select essai.egal((select count(distinct livreur_id)::int from public.commande_lignes where commande_id = :'g1'::jsonb ->> 'id'), 1,
   'un seul livreur sur la commande');
+-- (« gain_livreur » ne s'appelle que par « fiche_course » : on la lit au
+-- nom de Lamine, sans le rôle des applications.)
+select essai.devenir(:BZM::uuid);
 select essai.egal(public.gain_livreur(:'g1'::jsonb ->> 'id'), 1120::bigint, 'son gain annoncé : 80 % de 1 400');
-select essai.devenir(:BZM::uuid); set role authenticated;
+set role authenticated;
 select essai.egal((public.solde_livreur() ->> 'a_venir')::int, 1120, 'son solde : 1 120 à venir');
 reset role; select essai.personne();
 
@@ -225,8 +228,10 @@ select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :BZM::uuid and type = 'gain_livraison'
                       and commande_id = :'g1'::jsonb ->> 'id'), 1, 'il en est prévenu');
 update public.paiement set taux_livreur = 70 where id = 1;
+select essai.devenir(:BZM::uuid);
 select essai.egal(public.gain_livreur(:'g1'::jsonb ->> 'id'), 1120::bigint,
   'le taux change ensuite : le gain crédité reste figé');
+select essai.personne();
 update public.paiement set taux_livreur = 80 where id = 1;
 
 -- Annulée : rien au livreur, les frais reviennent au client.

@@ -1052,8 +1052,7 @@ const VueCompte = (() => {
          « À propos de BIZZOO », juste dessous. */
       '<div class="carte"><div class="liste-portes">' +
         (livreur
-          ? UI.porte({ href: "#/mes-courses", icone: "boite", titre: "Mes courses",
-              sous: "Les livraisons qui vous sont confiées", attrs: ' id="cp-mes-courses"' })
+          ? ""
           : UI.porte({ href: "#/mes-commandes", icone: "boite", titre: "Mes commandes",
               sous: "Où en est chaque colis, et confirmer sa réception" })) +
         (moi.tel_verifie && !livreur
@@ -1199,20 +1198,12 @@ const VueCompte = (() => {
 
   /* ---------- Mes courses (un livreur) ----------
 
-     Un livreur n'a pas de commandes : il a des courses. La liste vient de
-     la base (« mes_livraisons ») : celles à livrer, et celles livrées ces
-     deux derniers jours. (3.59.0) Pas de lien vers l'application admin
-     pour un livreur.
-
-     LA FICHE (3.59.0), la même que l'alerte : où récupérer le colis, où
-     le livrer, le numéro du destinataire, les frais, le déjà-payé, ce
-     qui reste à récupérer. Et « Commande reçue » : le livreur accepte la
-     course, et c'est à ce moment que le client reçoit son nom et son
-     numéro. Les DEMANDES ouvertes — proposées à plusieurs livreurs dès
-     le paiement — passent en tête : le premier qui touche la prend. */
-  const ETAT_COURSE = { nouvelle: "En préparation", vue: "En préparation",
-    preparee: "À récupérer", en_livraison: "En livraison", remise: "Livrée" };
-
+     (3.66.0) LE LIVREUR TRAVAILLE DANS BIZZOO ADMIN. C'est là que ses
+     courses SONNENT, application fermée ; là qu'il remet le colis et
+     saisit le paiement MoMoPay ; là que sont ses gains. L'application
+     client n'en montrait qu'une partie, et un livreur qui s'y croyait
+     installé ratait ses courses. Elle le renvoie donc vers BIZZOO Admin,
+     où il entre avec le même numéro et le même mot de passe. */
   async function mesCourses(vue) {
     UI.entete({ titre: "Mes courses", retour: true });
     if (!Compte.connecte()) { location.hash = "#/connexion"; return; }
@@ -1225,153 +1216,8 @@ const VueCompte = (() => {
       return;
     }
     if (!Compte.estLivreur()) { location.hash = "#/mes-commandes"; return; }
-    let courses = [];
-    let demandes = [];
-    try { [courses, demandes] = await Promise.all([Compte.mesCourses(), Compte.coursesProposees()]); }
-    catch (err) {
-      vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' +
-        Utils.echapper(err.message) + "</p></div>";
-      return;
-    }
-    const lienCarte = (adresse, lat, lng) =>
-      "https://www.google.com/maps/search/?api=1&query=" +
-      encodeURIComponent(lat != null && lng != null ? lat + "," + lng : adresse);
-    const lieu = (titre, nom, adresse, tel, indicatif, lat, lng) =>
-      '<div class="cp-course-lieu"><small>' + Utils.echapper(titre) + "</small>" +
-        "<strong>" + Utils.echapper(nom || "") + "</strong>" +
-        (adresse || (lat != null && lng != null)
-          ? '<a href="' + Utils.echapper(lienCarte(adresse, lat, lng)) + '" target="_blank" rel="noopener">' +
-            Utils.echapper(adresse || "Voir sur la carte") + "</a>"
-          : "") +
-        (tel ? '<a href="' + Utils.echapper(Utils.lienTel(tel, indicatif || "229")) + '">' +
-          Utils.echapper(Compte.telAffichage(tel, indicatif || "229")) + "</a>" : "") +
-      "</div>";
-    const carteFiche = (c) => {
-      const f = c.fiche;
-      const r = f.retrait || {};
-      const l = f.livraison || {};
-      const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
-      const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
-      const aAccepter = !c.recu_le && ["nouvelle", "vue", "preparee"].includes(c.etat);
-      return (
-        '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) +
-          '" data-boutique="' + Utils.echapper(c.boutique_id || "") + '">' +
-          '<div class="carte-titre">Commande ' + Utils.echapper(f.numero || c.numero || c.commande_id) +
-            ' <small class="cp-course-etat">' +
-            Utils.echapper(aAccepter ? "Nouvelle" : ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
-          (Number(f.a_encaisser) > 0
-            ? '<p class="cp-course-recuperer">' + (c.etat === "remise" ? "Payé" : "À payer par MoMoPay") +
-              " : <strong>" + m(f.a_encaisser) + "</strong></p>"
-            : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
-          '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
-            "</strong> · Frais de livraison : <strong>" +
-            (Number(f.frais) > 0 ? m(f.frais) : "aucun") + "</strong></p>" +
-          lieu("Récupérer le colis", r.boutique || c.nom_boutique, r.adresse, r.tel, r.indicatif,
-            r.latitude, r.longitude) +
-          lieu("Livrer à", l.nom, l.adresse, l.tel, l.indicatif, null, null) +
-          (l.note ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(l.note) + "</p>" : "") +
-          (articles ? '<p class="aide" style="margin:6px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
-          (aAccepter
-            ? '<button type="button" class="btn cp-course-recu" style="margin-top:10px">' +
-              UI.icone("check") + "Commande reçue</button>" +
-              '<p class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
-              "la course : le client reçoit votre nom et votre numéro.</p>"
-            : ["nouvelle", "vue"].includes(c.etat)
-              ? '<p class="aide" style="margin:6px 0 0">La boutique prépare le colis : vous pourrez ' +
-                "le prendre dès qu'il sera prêt.</p>"
-              : "") +
-        "</div>"
-      );
-    };
-    const carteDemande = (d) => {
-      const f = d.fiche;
-      const l = f.livraison || {};
-      const retraits = Array.isArray(f.retraits) ? f.retraits : [];
-      const m = (x) => Utils.echapper(Utils.fmtMontant(Number(x) || 0, f.devise || "FCFA"));
-      return (
-        '<div class="carte cp-course cp-demande" data-course="' + Utils.echapper(d.commande_id) + '">' +
-          '<div class="carte-titre">Commande ' + Utils.echapper(f.numero || d.numero || d.commande_id) +
-            ' <small class="cp-course-etat">' +
-            (f.groupee ? "Livraison groupée · " + retraits.length + " boutiques" : "Demande") +
-            "</small></div>" +
-          (Number(f.a_encaisser) > 0
-            ? '<p class="cp-course-recuperer">À payer par MoMoPay : <strong>' + m(f.a_encaisser) + "</strong></p>"
-            : '<p class="cp-course-recuperer cp-course-rien">Rien à récupérer : tout est payé.</p>') +
-          '<p class="aide" style="margin:4px 0 0">Déjà payé : <strong>' + m(f.deja_paye) +
-            "</strong> · Frais de livraison : <strong>" +
-            (Number(f.frais) > 0 ? m(f.frais) : "aucun") + "</strong></p>" +
-          retraits.map((r, i) => lieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
-            : "Récupérer le colis", r.boutique, r.adresse, r.tel, r.indicatif, r.latitude, r.longitude)).join("") +
-          lieu("Livrer à", l.nom, l.adresse, l.tel, l.indicatif, null, null) +
-          (l.note ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(l.note) + "</p>" : "") +
-          '<button type="button" class="btn cp-course-prendre" style="margin-top:10px">' +
-            UI.icone("check") + "Commande reçue</button>" +
-          '<p class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui touche ' +
-            "« Commande reçue » la prend.</p>" +
-        "</div>"
-      );
-    };
-    const carte = (c) => {
-      if (c.fiche && typeof c.fiche === "object") return carteFiche(c);
-      const articles = (c.articles || []).map((a) => (a.quantite || 1) + " × " + a.nom).join(", ");
-      return (
-        '<div class="carte cp-course" data-course="' + Utils.echapper(c.commande_id) + '">' +
-          '<div class="carte-titre">Commande ' + Utils.echapper(c.numero || c.commande_id) +
-            ' <small class="cp-course-etat">' + Utils.echapper(ETAT_COURSE[c.etat] || c.etat) + "</small></div>" +
-          '<p class="aide" style="margin:0">' + Utils.echapper(c.nom_boutique || "") + "</p>" +
-          '<p style="margin:6px 0 0"><strong>' + Utils.echapper(c.client_nom || "") + "</strong> — " +
-            Utils.echapper(c.client_adresse || "") + "</p>" +
-          (articles ? '<p class="aide" style="margin:4px 0 0">' + Utils.echapper(articles) + "</p>" : "") +
-          (Number(c.a_encaisser) > 0
-            ? '<p style="margin:4px 0 0">À payer par MoMoPay : <strong>' +
-                Utils.echapper(Utils.fmtMontant(Number(c.a_encaisser), "FCFA")) +
-              "</strong></p>"
-            : "") +
-        "</div>"
-      );
-    };
-    const aFaire = courses.filter((c) => c.etat !== "remise");
-    const faites = courses.filter((c) => c.etat === "remise");
-    vue.innerHTML =
-      (demandes.length
-        ? '<div class="carte-titre" id="cp-demandes" style="margin:4px 4px 8px">Demandes de course (' +
-            demandes.length + ")</div>" + demandes.map(carteDemande).join("")
-        : "") +
-      '<div class="carte-titre" style="margin:4px 4px 8px">À livrer (' + aFaire.length + ")</div>" +
-      (aFaire.length ? aFaire.map(carte).join("")
-        : '<div class="carte"><p class="aide" style="margin:0">Aucune course à livrer.</p></div>') +
-      '<div class="carte-titre" style="margin:16px 4px 8px">Livrées (' + faites.length + ")</div>" +
-      (faites.length ? faites.map(carte).join("")
-        : '<div class="carte"><p class="aide" style="margin:0">Aucune course livrée ces deux derniers jours.</p></div>') +
-      carteEspaceVendeur();
+    vue.innerHTML = carteEspaceLivreur();
     brancherEspaceVendeur(vue);
-    for (const b of UI.$$(".cp-course-prendre", vue)) {
-      b.onclick = async () => {
-        const c = b.closest(".cp-demande");
-        b.disabled = true;
-        try {
-          await Compte.prendreCourse(c.dataset.course);
-          UI.toast("La course est à vous : le client a reçu votre nom et votre numéro.");
-        } catch (err) {
-          UI.toast(err.message, "err");
-        }
-        mesCourses(vue);
-      };
-    }
-    for (const b of UI.$$(".cp-course-recu", vue)) {
-      b.onclick = async () => {
-        const c = b.closest(".cp-course");
-        b.disabled = true;
-        try {
-          await Compte.accepterCourse(c.dataset.course, c.dataset.boutique);
-          UI.toast("Course acceptée : le client a reçu votre nom et votre numéro.");
-          mesCourses(vue);
-        } catch (err) {
-          UI.toast(err.message, "err");
-          b.disabled = false;
-        }
-      };
-    }
   }
 
   /* ---------- Mes gains : le code d'un particulier ----------
@@ -1497,10 +1343,9 @@ const VueCompte = (() => {
 
   function carteEspaceVendeur() {
     if (typeof Compte === "undefined" || !Compte.estEquipe()) return "";
-    /* UN LIVREUR N'A PAS DE LIEN VERS L'APPLICATION ADMIN (3.59.0) : il
-       n'y a ni produits, ni commandes, ni réglages à gérer. Son compte
-       client mène à « Mes courses », et c'est tout. */
-    if (Compte.estLivreur()) return "";
+    /* (3.66.0) LE LIVREUR, LUI, EST RENVOYÉ VERS BIZZOO ADMIN : ses
+       courses, leur sonnerie et ses gains n'existent que là. */
+    if (Compte.estLivreur()) return carteEspaceLivreur();
     const pont = pontAndroid();
     /* Sur le téléphone, on sait si l'application est installée. Sur le
        web, il n'y a pas de pont : on ouvre la version en ligne à côté. */
@@ -1523,6 +1368,27 @@ const VueCompte = (() => {
           ? '<button type="button" class="btn" id="cp-vendeur-ouvrir">' +
               UI.icone("partager") + "Espace vendeur</button>"
           : "") +
+      "</div>"
+    );
+  }
+
+  function carteEspaceLivreur() {
+    const pont = pontAndroid();
+    const installee = pont && typeof pont.espaceVendeurPresent === "function"
+      ? (() => { try { return pont.espaceVendeurPresent(); } catch (_) { return false; } })()
+      : true;
+    return (
+      '<div class="carte cp-vendeur" id="cp-espace-livreur">' +
+        '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Vos courses sont dans BIZZOO Admin</div>" +
+        '<p class="aide" style="margin:0 0 12px">Ce compte est un compte <strong>livreur</strong>. ' +
+          "Vos courses, la sonnerie des nouvelles courses (même application fermée), la remise " +
+          "des colis et vos gains sont dans l'application <strong>BIZZOO Admin</strong>. " +
+          "Entrez-y avec ce même numéro et ce même mot de passe.</p>" +
+        (installee
+          ? '<button type="button" class="btn" id="cp-vendeur-ouvrir">' +
+              UI.icone("partager") + "Ouvrir BIZZOO Admin</button>"
+          : '<p class="aide" style="margin:0"><strong>BIZZOO Admin n\'est pas installée sur ce ' +
+              "téléphone.</strong> Demandez-la à BIZZOO, puis installez-la.</p>") +
       "</div>"
     );
   }

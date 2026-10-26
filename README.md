@@ -4851,7 +4851,7 @@ Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une f
 - **Employé** : créé par l'administration → « en attente » → validé ou refusé (avec motif) par le CEO. Ensuite, « Créer l'accès » : un compte de connexion à son adresse `@bizzoomarket.com` (inscription avec `compte: personnel`, puis `rh_rattacher_compte`, qui ne rattache que le compte de SA propre adresse). Un compte BIZZOO existant à cette adresse est simplement rattaché. Le salaire d'un employé en poste et les droits ne changent que par le CEO ; l'employé ne touche qu'à son téléphone, son adresse et son e-mail personnel.
 - **Mission** : créée par l'administration pour un profil, avec une échéance → acceptée (ou refusée, motif) par le responsable → rapport rendu → clôturée, ou renvoyée « à reprendre ». En retard : le tableau de bord le dit.
 - **Rapport d'activité** : brouillon du responsable → publié → validé ou rejeté (commentaire) par le CEO. Validé, tous les membres du profil le lisent.
-- **Dépense** : demandée par le responsable → approuvée ou refusée par le CEO → décaissée par l'habilité (mode, référence). Le CEO lui-même ne décaisse pas sans l'habilitation.
+- **Dépense** (`personnel-depenses.sql`) : demandée par **tout employé** (motif, montant, détails) → validée ou refusée (motif) par le **responsable de son profil** → approuvée ou refusée par le **CEO** → décaissée par l'**habilité** (mode, référence), jamais sa propre demande. Statuts : « En attente du responsable » (`demandee`), « En attente du CEO » (`validee_responsable`), « En attente de décaissement » (`approuvee`), « Décaissée », « Refusée », « Annulée ». Sans responsable au-dessus du demandeur (pas de profil, profil sans responsable, ou demandeur responsable lui-même), la base envoie la demande droit au CEO. Le profil de la dépense est celui du demandeur, posé par la base. Modifiable et annulable par le demandeur tant que personne ne l'a validée ; chaque étape garde qui et quand, et la fiche les montre en quatre étapes. Le menu Dépenses s'ouvre à tous les membres (Paramètres peut le restreindre).
 - **Discussions** : celle de chaque profil (membres, responsable, administration) et les messages privés. Un message privé reste privé : l'administration ne le lit pas.
 
 ### La paie
@@ -4898,6 +4898,60 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 - **Entreprise** : raison sociale, site, adresse, téléphone, e-mail, IFU, RCCM, n° employeur CNSS, imprimés en tête des bulletins de paie (`rh_entreprise`). Rien n'est inventé : seuls le nom et le site sont remplis d'avance.
 - **Autres réglages** : les liens vers les réglages qui vivent ailleurs (délais et zones du suivi, barèmes de paie, profils, droits des employés, boîte mail).
 
+### Se connecter par son numéro ; la fiche complète
+
+`supabase/personnel-fiches.sql`.
+
+- **Connexion** : chaque employé entre avec **son numéro** (01 + 8 chiffres) et le **code reçu par SMS** (Supabase Auth, hook `hook-sms-auth`). L'application demande d'abord à la base si ce numéro est celui d'un employé en poste (`rh_telephone_employe`) : pas de SMS ni de compte pour un autre numéro. Le compte rejoint alors la fiche qui porte ce numéro (`rh_rattacher_par_telephone`) ; une fiche déjà reliée à un autre compte ne change pas de main. **Appareil de confiance** : coché, la session se garde 7 jours (puis un nouveau code) ; sinon elle ne vit que le temps de l'onglet, et un code est redemandé à chaque connexion. L'e-mail et le mot de passe restent possibles (« Se connecter avec une adresse e-mail »).
+- **La fiche** gagne téléphone pro, équipement confié, langue, « marié(e) », moto ; le sexe peut rester vide. **Ethnie et religion** sont dans `rh_employes_sensibles`, lisibles et modifiables par le CEO et le superadministrateur seuls.
+- **Qui modifie** : le superadministrateur comme le CEO (droits, salaire). L'employé complète lui-même, dans « Mon compte », son e-mail, son sexe, sa date de naissance, son lieu de résidence, sa langue, « marié(e) » et sa moto ; **pas son numéro** (c'est son identifiant), que l'administration change.
+- **Le personnel de BIZZOO** a été importé le 25/10/2026 depuis son fichier (feuille « FICHIER DG »), hors du dépôt : 24 employés, 7 responsables, 6 profils ajoutés aux 5 existants.
+
+### La caisse
+
+`supabase/personnel-caisse.sql` ; écran `personnel/js/vues/caisse.js`.
+
+- **Quatre compartiments** : espèces, MTN Mobile Money, Moov Money, Celtiis Cash ; leur somme fait le solde. Le menu Caisse montre le solde à l'instant (total et par compartiment) et, pour une période, le solde de début, les entrées, les sorties, le solde de fin et la liste des mouvements (exportable en Excel).
+- **Le gestionnaire**, désigné par le CEO (`rh_designer_gestionnaire_caisse`), tient la caisse : **lui seul décaisse les dépenses approuvées et paie les salaires** (`rh_peut_decaisser()` = être ce gestionnaire ; la case « habilité à décaisser » de la fiche employé a disparu). Chaque décaissement ou paiement se **répartit** entre compartiments (« 20 000 en espèces + 30 000 sur MTN », `rh_decaisser` / `rh_payer`) : la somme doit tomber juste, et aucun compartiment ne passe sous zéro (la base refuse). Des déclencheurs font sortir de la caisse TOUT décaissement et TOUT salaire payé, quel que soit le chemin.
+- **Les entrées** : apports du CEO ou d'une autre source nommée (`rh_caisse_apport`, par le gestionnaire ou le CEO). Le gestionnaire **déplace** l'argent entre compartiments (retrait Mobile Money en espèces…), frais de l'opérateur compris (`rh_caisse_transfert`).
+- **Rien ne s'efface** : `rh_caisse_mouvements` est figée (ni modification, ni suppression) et fermée à la lecture directe ; chaque mouvement garde le solde qu'il laisse et qui l'a fait. Une erreur ou un écart de comptage se corrige par un **ajustement** du CEO, avec motif (`rh_caisse_ajustement`).
+- **Qui la voit** (`rh_caisse_acces`) : le CEO, le gestionnaire, le superadministrateur, et les profils à qui Paramètres ouvre « Caisse (consultation) » ; l'administration n'y entre pas d'office. En consultation, on ne fait rien, et un salaire ne dit pas de qui il est.
+
+### Localiser un livreur
+
+`supabase/localiser-livreurs.sql` ; écran `personnel/js/vues/localiser.js` ; côté livreur `admin/js/suivi-position.js` et le service Android `ServiceSuiviPosition`.
+
+- **La carte** (menu « Localiser un livreur », clé `livreurs` réglable dans Paramètres) : OpenStreetMap par Leaflet, embarqué dans `personnel/vendor/leaflet`, sur tout l'écran (bouton « Plein écran »), relue toutes les 10 secondes. Chaque livreur avec sa dernière position (« il y a 15 s »), et pour chaque course en cours le point du client — quand il l'a donné en commandant (livraison au kilomètre) — relié par un trait, avec la distance : à vol d'oiseau multipliée par le coefficient de route de la livraison au km, d'où « environ ». Aucun montant. `rh_localiser_livreurs()`.
+- **Depuis le suivi des commandes** : dans la fiche d'une commande, « Voir sa position » à côté du livreur ouvre la même carte centrée sur lui (`#/livreurs/<id>` ; `rh_suivi_donnees` donne `livreur_id`).
+- **D'où vient la position** : tant qu'il a une course en cours (ligne confiée, commande payée, pas encore remise), BIZZOO Admin demande un **jeton de suivi** (`ouvrir_suivi_livreur`, 64 caractères, gardé en empreinte sha256, 16 h) et le passe au service Android au premier plan (notification « Course en cours »), qui envoie la position toutes les 20 s (et toutes les 2 min s'il ne bouge pas) à `position_en_course` — **même application fermée**. Le jeton ne permet que d'écrire la position de ce livreur ; il ne tient pas sa session (deux renouvellements concurrents de session le déconnecteraient). Quand la base répond « plus de course », le service s'arrête de lui-même et le jeton disparaît. Dans un navigateur, c'est la page qui envoie, tant qu'elle est ouverte. Une écriture toutes les 5 secondes au plus ; une position impossible est ignorée.
+- **Limites** : il faut que le livreur ouvre l'écran de ses courses une fois après l'attribution (le service démarre là ; Android refuse de lancer un suivi de position depuis l'arrière-plan). Sans réseau ni GPS, la carte dit « pas de nouvelle position depuis plus de 5 min ». Le point du client n'est connu que s'il a touché « Utiliser ma position » en commandant ; sinon la carte affiche son adresse écrite.
+
+### Photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours
+
+`supabase/personnel-pieces.sql`, fonction Edge `supabase/functions/rh-menage`.
+
+- **Joindre** : le trombone choisit une photo, une vidéo ou un fichier audio ; le micro enregistre un message vocal (5 minutes au plus). Une pièce par message, texte facultatif ; 50 Mo au plus. Une photo plus grande que 1 600 px est réduite en JPEG avant l'envoi.
+- **Le seau `rh-pieces` est privé.** Chacun dépose dans SON dossier (`<id de l'employé>/…`) et seulement s'il a les discussions ; le message ne peut citer qu'un fichier de son auteur, présent, jamais déjà cité, et dont le type (lu dans le stockage, pas dans la requête) est image, vidéo ou audio. On lit un fichier par un lien signé d'une heure, que la base n'accorde qu'à qui voit le message : la note vocale d'un message privé reste privée, même pour l'administration.
+- **Tout message s'efface 7 jours après son envoi**, texte et pièce : pg_cron appelle `rh_purger_messages` chaque heure (`rh-messages-7-jours`), puis la fonction `rh-menage` (`rh-pieces-menage`, par pg_net), qui efface du stockage les fichiers qu'aucun message ne cite plus (ceux des messages partis, et les envois abandonnés depuis plus d'une heure). Le stockage ne s'efface que par son API : d'où la fonction. Elle ne lit rien dans la requête et n'efface que ce que la règle efface de toute façon : déployée **sans** vérification du jeton (`--no-verify-jwt`).
+
+### Bloquer, supprimer un employé
+
+`supabase/personnel-gestion.sql`. Sur la fiche d'un employé, le CEO et le superadministrateur de BIZZOO (`est_super()`, même s'il n'est pas le CEO) ont trois boutons ; l'administration ne les a pas. Le CEO ne se bloque ni ne se supprime, personne n'agit sur sa propre fiche, et chaque geste demande un motif.
+
+- **Bloquer** (`rh_bloquer_employe`) : état `bloque`. `rh_moi()` ne le reconnaît plus : il n'ouvre plus rien, et l'écran de connexion lui dit que son accès est bloqué. **Sa paie continue** (il reste employé), et il reste responsable de son profil. **Débloquer** le remet en poste.
+- **Supprimer** (`rh_supprimer_employe`) : sans paie validée ni avance, la fiche est effacée entièrement. Sinon, elle est **archivée** (état `supprime`, filtre « Archivés ») : nom, matricule, n° CNSS et paie validée restent pour la comptabilité et la CNSS ; accès, adresse pro, coordonnées, messages, boîte mail et brouillons de paie sont effacés. Sans retour.
+- **Le journal** (`rh_journal_employes`, lu par l'administration) garde qui a bloqué, débloqué ou supprimé, quand et pourquoi ; il s'affiche sur la fiche (« Historique de l'accès »).
+
+### Les statistiques internes
+
+Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par défaut), chacun avec ses tableaux exportables en Excel. `rh_finances` (`supabase/personnel-gestion.sql`).
+
+- **Salaires** (administration) : coût employeur, brut, net, charges patronales, cotisations et impôt, déjà payé, validé à payer, avances accordées et encore dues ; par mois, par profil, employés / stagiaires. Seules les fiches validées comptent ; les fiches à valider sont signalées à part.
+- **Dépenses** (administration) : demandé, approuvé, décaissé par mois ; par profil ; les plus grosses ; ce qui attend le CEO ou le décaissement ; délai moyen de décision.
+- **Effectifs** (administration) : en poste, masse et moyenne des salaires de base, âge et ancienneté moyens, répartition par profil, statut, sexe, niveau d'étude ; embauches et sorties par mois.
+- **Missions et rapports** (administration) : missions rendues à temps ou en retard, en retard aujourd'hui, délai de réponse des responsables, par profil ; rapports d'activité et délai de validation.
+- **Revenus et résultat** (CEO et superadministrateur seuls) : encaissé, reversé aux boutiques, marge, frais de livraison, remises, gains des livreurs. **Revenus = marge + frais de livraison − remises − gains des livreurs ; résultat = revenus − salaires (coût employeur des fiches validées) − dépenses décaissées.** Une estimation de gestion, pas une comptabilité : l'écran le dit.
+
 ### Mise en service
 
 1. **La base** : exécuter `supabase/personnel.sql` dans l'éditeur SQL de Supabase (il se suffit, et se rejoue sans rien casser). Il active `pg_cron` et programme `rh-paie-fin-de-mois`.
@@ -4905,7 +4959,7 @@ Réservé à l'administration (CEO compris). `supabase/personnel-parametres.sql`
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql` (puis redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql` (puis déployer `rh-menage` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 
@@ -5368,6 +5422,86 @@ Android seulement : l'application iOS n'a pas encore de notifications push
 - `tools/banc-push-equipe.mjs` (14 constats) : la déclaration à la
   connexion, le retrait à la déconnexion, le navigateur sans pont, une
   base d'avant.
+
+## Le coefficient de la route se règle à l'écran (3.66.0)
+
+Dans **BIZZOO Admin → Réglages → BIZZOO (l'enseigne) → Livraison au
+kilomètre**, le superadministrateur règle désormais le **coefficient de la
+route** à côté du rayon du forfait. La distance en ligne droite entre le
+point BIZZOO et le client est multipliée par ce nombre pour suivre les
+routes : 1,3 = 30 % de détour (valeur en service). Entre 1 et 3, deux
+décimales ; une valeur hors bornes est refusée, avec un message. Rien à
+changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
+Banc : `tools/banc-livraison-km.mjs`, section 5.
+
+## Qui entend quoi : commande payée, course prise (3.66.0)
+
+| Événement | Boutique (admin, modérateur) | Admins BIZZOO qui suivent les commandes | Superadministrateurs |
+|---|---|---|---|
+| Le client paie (commande confirmée) | sonne | sonne | sonne |
+| Un livreur prend / accepte la course | sonne | **sonne (nouveau)** | **sonne (nouveau)** |
+
+« Sonne » : trois bips quand BIZZOO Admin est ouverte ; une notification
+sonore quand elle est fermée ou en veille — à condition que le téléphone
+ait BIZZOO Admin **3.65.0 ou plus récente**, et que le compte s'y soit
+connecté une fois (le téléphone se déclare alors). Un livreur qui prend
+toute une commande de plusieurs boutiques fait sonner BIZZOO **une seule
+fois**. Les admins BIZZOO dont l'interrupteur « Commandes » est éteint ne
+sont pas dérangés.
+
+Fichier : `supabase/sonnerie-course-prise.sql` — **en ligne depuis le
+24/10/2026**. Essai : section 6 de `99zzz…-gains-toutes-courses.sql` ;
+`99m-circuit-complet.sql` attend désormais deux nouvelles pour le
+superadministrateur (le paiement, la course prise).
+
+## Le livreur touche sa part de toutes ses courses (3.66.0)
+
+Avant, seules les commandes **au kilomètre** créditaient le livreur : ses
+courses à l'ancien tarif (frais par boutique) ne lui rapportaient rien à
+l'écran, et son solde restait à zéro. Désormais **chaque course remise et
+payée** lui rapporte 80 % (« taux du livreur », Réglages) des frais :
+
+- **au kilomètre** : les frais entiers — un seul livreur porte la commande ;
+- **à l'ancien tarif** : les frais **des boutiques dont il a livré les
+  produits**. Deux boutiques, deux livreurs : chacun 80 % des frais de la
+  sienne, dès qu'il a remis sa part, sans attendre l'autre. Un livreur de
+  BIZZOO qui porte les deux touche les deux ;
+- **plus ancienne encore** (sans frais par boutique) : au prorata de ce
+  qu'il porte.
+
+Une part annulée ne compte pas. Le gain affiché sur la course, le « à
+venir » et le crédit disent la même chose : une seule règle,
+`part_frais_livreur()`, en base. `gains_livreurs` a désormais **une ligne
+par commande et par livreur** (jamais deux pour le même).
+
+**Le solde se voit** : un bandeau vert « Mon solde » en tête de « Mes
+courses » (BIZZOO Admin) mène à « Mes gains ».
+
+**Le livreur travaille dans BIZZOO Admin.** L'application client ne liste
+plus ses courses : « Mon compte » et l'ancien lien « Mes courses » le
+renvoient vers BIZZOO Admin (bouton « Ouvrir BIZZOO Admin », ou « pas
+installée : demandez-la à BIZZOO »), où il entre avec le même numéro et le
+même mot de passe — c'est là que les courses sonnent et que sont ses gains.
+
+### Le rattrapage
+
+`supabase/livreurs-gains-toutes-courses.sql` crédite une fois les courses
+remises des **30 derniers jours**, et envoie **une seule** notification par
+livreur avec le total (pas une par course). Relancé, il ne crédite rien deux
+fois.
+
+**En ligne depuis le 24/10/2026** : règles appliquées, rattrapage fait —
+9 courses, 6 560 F crédités à 4 livreurs, une notification chacun.
+
+### Les essais
+
+- `supabase/tests/99zzz…-gains-toutes-courses.sql` (22 constats) : deux
+  livreurs, deux parts ; un livreur pour deux boutiques ; le prorata ; une
+  part annulée ; un compte livreur supprimé depuis (sauté, sans priver
+  l'autre) ; le rattrapage silencieux et rejouable.
+- `tools/banc-livraison-km.mjs` : le bandeau « Mon solde ».
+- `tools/banc-livreur-compte-client.mjs`, `tools/banc-parcours-livraison.mjs` :
+  le renvoi vers BIZZOO Admin.
 
 ## Structure
 
