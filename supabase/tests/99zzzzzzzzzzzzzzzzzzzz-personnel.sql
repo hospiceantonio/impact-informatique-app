@@ -39,7 +39,9 @@
 --      par le CEO puis la caisse et revient sur la paie, un retrait ne
 --      dépasse pas le solde et personne ne s'écrit « payé ».
 --  22. l'accueil : les chiffres de la place de marché, montants et marge
---      seulement pour qui y a droit.
+--      seulement pour qui y a droit ;
+--  23. un employé ne voit pas les informations des autres : seulement le
+--      nom, le poste, le profil et le contact professionnel de chacun.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -559,8 +561,8 @@ select essai.devenir(:RESP::uuid); set role authenticated;
 select essai.egal((select count(*)::int from public.rh_fiches_paie), 1, 'validée, l''employé voit SA fiche, et elle seule');
 reset role; select essai.personne();
 select essai.devenir(:CAISSE::uuid); set role authenticated;
-select essai.verifie((select count(*) from public.rh_fiches_paie where mois = '2026-09-01') >= 5,
-  'validées, l''habilité voit toutes les fiches à payer');
+select essai.egal((select count(*)::int from public.rh_fiches_paie where employe_id <> :'e_caisse'), 0,
+  'validées, le gestionnaire de la caisse ne lit pas pour autant les fiches des autres');
 reset role; select essai.personne();
 
 select essai.devenir(:ADMRH::uuid); set role authenticated;
@@ -1542,7 +1544,26 @@ select essai.refuse($$select public.rh_accueil_chiffres()$$, 'un visiteur n''y a
 reset role;
 
 -- ---------------------------------------------------------
-select essai.titre('La sortie d''un employé');
+select essai.titre('23. Un employé ne voit pas les informations des autres');
+select set_config('rh.decision', 'oui', false);
+update public.rh_employes set telephone_pro = '0190000099' where id = :'e_resp';
+select set_config('rh.decision', '', false);
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal((select count(*)::int from public.rh_employes), 1, 'un employé ne lit que sa propre fiche');
+select essai.egal((select count(*)::int from public.rh_annuaire() where matricule is not null or sexe is not null), 0,
+  'l''annuaire ne lui donne ni matricule ni sexe');
+select array_agg(telephone order by id) as numeros_vus from public.rh_annuaire() where telephone is not null \gset
+select essai.egal((select telephone from public.rh_annuaire() where id = :'e_resp'), '0190000099',
+  'mais le téléphone PROFESSIONNEL d''un collègue, pour le joindre');
+reset role; select essai.personne();
+select essai.egal((select count(*)::int from public.rh_employes where etat = 'actif' and telephone <> ''
+                    and telephone = any(:'numeros_vus'::text[])), 0,
+  'jamais son numéro personnel, celui qui sert à se connecter');
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.verifie((select count(*) from public.rh_annuaire() where matricule is not null) >= 3,
+  'l''administration, elle, voit les matricules');
+reset role; select essai.personne();
+
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.refuse(format($$select public.rh_sortie_employe(%L, current_date)$$, :'ceo'),
   'le CEO ne se fait pas sortir lui-même');

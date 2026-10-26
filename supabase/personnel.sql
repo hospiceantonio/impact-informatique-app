@@ -555,8 +555,18 @@ returns table (id uuid, matricule text, nom text, prenoms text, sexe text, poste
                profil_id uuid, profil text, email_pro text, telephone text,
                administration boolean, ceo boolean, responsable boolean, a_un_compte boolean)
 language sql stable security definer set search_path = public as $$
-  select e.id, e.matricule, e.nom, e.prenoms, e.sexe, e.poste, e.profil_id, coalesce(p.nom, ''),
-         e.email_pro, e.telephone, e.administration, e.ceo,
+  /* Un employé ordinaire n'y lit que ce qui sert à joindre un collègue :
+     nom, poste, profil, e-mail et téléphone PROFESSIONNELS. Le matricule,
+     le sexe et le numéro personnel (celui qui sert à se connecter) ne
+     sortent que pour l'administration, le CEO et le superadministrateur. */
+  select e.id,
+         case when public.rh_est_admin() or public.est_super() then e.matricule end,
+         e.nom, e.prenoms,
+         case when public.rh_est_admin() or public.est_super() then e.sexe end,
+         e.poste, e.profil_id, coalesce(p.nom, ''),
+         e.email_pro,
+         case when public.rh_est_admin() or public.est_super() then e.telephone else nullif(e.telephone_pro, '') end,
+         e.administration, e.ceo,
          exists (select 1 from public.rh_profils r where r.responsable_id = e.id),
          e.compte_id is not null
     from public.rh_employes e
@@ -1887,7 +1897,7 @@ drop policy if exists "rh fiches lecture" on public.rh_fiches_paie;
 create policy "rh fiches lecture" on public.rh_fiches_paie
   for select to authenticated using (
     public.rh_est_admin()
-    or (statut <> 'calculee' and (employe_id = public.rh_moi() or public.rh_peut_decaisser())));
+    or (statut <> 'calculee' and employe_id = public.rh_moi()));
 
 -- ---------- Les droits ----------
 -- Supabase accorde d'office tout à « anon » sur ce qui naît dans

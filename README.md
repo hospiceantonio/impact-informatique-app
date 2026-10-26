@@ -4842,6 +4842,8 @@ Une troisième application, `personnel/`, pour les employés de BIZZOO eux-même
 | Gestionnaire de la caisse | `rh_caisse.gestionnaire_id` | décaisse les dépenses approuvées et les prêts validés, sert les retraits (FeexPay ou caisse) |
 | Employé | tout employé en poste | ses mails, la discussion de son profil, ses fiches de paie, son solde, ses coordonnées |
 
+**Ce qu'un employé voit des autres** (`personnel-confidentialite.sql`) : rien de sa fiche. L'annuaire, qui sert à choisir à qui écrire, ne lui donne que le nom, le poste, le profil, l'e-mail et le téléphone **professionnels** de chacun ; le matricule, le sexe et le numéro personnel (celui de la connexion) sont réservés à l'administration, au CEO et au superadministrateur. Une fiche de paie ne se lit que par son employé (une fois validée) et par l'administration ; le gestionnaire de la caisse ne les lit pas.
+
 Tout découle de `rh_moi()` : l'employé **en poste** du compte connecté. Une fiche en attente, refusée ou sortie n'a aucun droit.
 
 **Le premier CEO** s'installe une seule fois, par un superadministrateur de BIZZOO qui ouvre l'application alors qu'aucun CEO n'existe encore. Deux choix : « Je suis le CEO » (`rh_devenir_ceo`), ou « Désigner le CEO » (`rh_designer_ceo`) : nom et adresse professionnelle du CEO, premier mot de passe si cette adresse n'a pas encore de compte, et, en option, l'inscription du superadministrateur lui-même dans l'administration pour tout préparer en attendant. Dès qu'un CEO existe, la porte est fermée.
@@ -4992,7 +4994,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql`, `personnel-sexe-statistiques.sql`, `personnel-accueil.sql`, `personnel-messages.sql` (puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql`, `personnel-sexe-statistiques.sql`, `personnel-accueil.sql`, `personnel-messages.sql`, `personnel-confidentialite.sql` (puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 
