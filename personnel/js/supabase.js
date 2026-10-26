@@ -96,6 +96,21 @@ const Supabase = (() => {
     return numero;
   }
 
+  /** Ou bien le numéro et un mot de passe : celui de départ donné par
+      BIZZOO (à changer aussitôt), ou celui que l'employé s'est choisi. */
+  async function connexionTelephone(tel, motDePasse, confiance) {
+    const numero = numeroInternational(tel);
+    let d;
+    try {
+      d = await appelAuth("token?grant_type=password", { phone: numero, password: motDePasse });
+    } catch (err) {
+      if (/mot de passe incorrect/.test(err.message || "")) throw new Error("Numéro ou mot de passe incorrect.");
+      throw err;
+    }
+    garderSession({ ...sessionDepuis(d, ""), telephone: numero, confiance_jusqu: confiance ? Date.now() + CONFIANCE : null });
+    return numero;
+  }
+
   /** Porte 2 : le code reçu, et la confiance dans cet appareil (7 jours). */
   async function confirmerCode(tel, code, confiance) {
     const numero = numeroInternational(tel);
@@ -133,6 +148,7 @@ const Supabase = (() => {
         throw new Error("Adresse pas encore confirmée : ouvrez le lien reçu dans votre boîte mail professionnelle.");
       }
       if (code === "weak_password") throw new Error("Mot de passe trop faible : 8 caractères au moins.");
+      if (code === "same_password") throw new Error("Choisissez un mot de passe différent de l'actuel.");
       if (code === "otp_expired" || /token has expired|invalid.*otp/i.test(d.msg || "")) throw new Error("Code incorrect ou expiré.");
       if (code === "over_sms_send_rate_limit" || reponse.status === 429) throw new Error("Trop de codes demandés : attendez une minute avant de réessayer.");
       if (code === "sms_send_failed") throw new Error("Le SMS n'a pas pu partir. Réessayez dans un instant.");
@@ -260,6 +276,62 @@ const Supabase = (() => {
   const modifier = (table, filtre, valeurs) => requete("PATCH", table + "?" + filtre, valeurs).then((l) => (l || [])[0]);
   const supprimer = (table, filtre) => requete("DELETE", table + "?" + filtre);
   const rpc = (nom, parametres) => requete("POST", "rpc/" + nom, parametres || {});
+
+  /* ---------- Le reversement FeexPay d'un retrait ----------
+     La fonction Edge « rh-reversement » détient seule le jeton FeexPay ;
+     l'envoi n'y passe qu'avec la session du gestionnaire, que la base
+     vérifie. */
+  async function reverser(action, corps) {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) {
+      const err = new Error("Session expirée : reconnectez-vous.");
+      err.deconnecte = true;
+      throw err;
+    }
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/functions/v1/rh-reversement", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token, "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...(corps || {}) }),
+      });
+    } catch (_) {
+      /* La demande est peut-être partie : on ne conclut rien, la base dira. */
+      throw new Error("Serveur injoignable. Rechargez la page pour voir où en est le retrait avant de réessayer.");
+    }
+    const d = await reponse.json().catch(() => null);
+    if (!d) throw new Error("Le reversement n'a pas répondu (" + reponse.status + "). Est-il déployé ?");
+    if (d.erreur) throw new Error(d.erreur);
+    return d;
+  }
+
+  /* ---------- Un mot de passe provisoire, donné par l'administration ----------
+     La fonction Edge « rh-mot-de-passe » détient seule la clé de service ;
+     la base vérifie le droit avec la session de l'administrateur. */
+  async function redonnerMotDePasse(employe, motDePasse, motif) {
+    const c = config();
+    const s = await assurerSession();
+    if (!s) {
+      const err = new Error("Session expirée : reconnectez-vous.");
+      err.deconnecte = true;
+      throw err;
+    }
+    let reponse;
+    try {
+      reponse = await fetch(c.url + "/functions/v1/rh-mot-de-passe", {
+        method: "POST",
+        headers: { "apikey": c.cle, "Authorization": "Bearer " + s.access_token, "Content-Type": "application/json" },
+        body: JSON.stringify({ employe, mot_de_passe: motDePasse, motif }),
+      });
+    } catch (_) {
+      throw new Error("Serveur injoignable. Vérifiez votre connexion internet.");
+    }
+    const d = await reponse.json().catch(() => null);
+    if (!d) throw new Error("Le service n'a pas répondu (" + reponse.status + "). Est-il déployé ?");
+    if (d.erreur) throw new Error(d.erreur);
+    return d;
+  }
 
   /* ---------- La fonction de messagerie ---------- */
 
@@ -412,8 +484,8 @@ const Supabase = (() => {
 
   return {
     configuration, sessionPresente, utilisateur, parTelephone, connexion, deconnexion, assurerSession,
-    demanderCode, confirmerCode,
-    changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie,
+    demanderCode, confirmerCode, connexionTelephone,
+    changerMotDePasse, creerCompte, requete, lire, ajouter, modifier, supprimer, rpc, messagerie, reverser, redonnerMotDePasse,
     deposer, signer, retirer,
     etatConnexion, demanderCodeEquipe, confirmerCodeEquipe, reconnaitreAppareil, confierAppareil,
   };

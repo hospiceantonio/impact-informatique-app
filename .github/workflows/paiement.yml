@@ -12,6 +12,7 @@ on:
       - "supabase/functions/**"
       - "tools/eprouver-paiement.sh"
       - "tools/eprouver-sms.sh"
+      - "tools/eprouver-reversement.sh"
       - "tools/eprouver-live.sh"
       - ".github/workflows/paiement.yml"
   pull_request:
@@ -36,6 +37,11 @@ jobs:
 
       - name: Forcer les portes du paiement
         run: bash tools/eprouver-paiement.sh
+
+      # BIZZOO Personnel envoie les salaires par FeexPay : rien ne part sans
+      # le gestionnaire, et rien ne s'écrit « payé » sans leur API de statut.
+      - name: Forcer les portes du reversement des salaires
+        run: bash tools/eprouver-reversement.sh
 
       # Deux portes ici, et aucune ne se voit à la relecture : la
       # passerelle répond « 200 » en portant l'échec dans le corps, et le

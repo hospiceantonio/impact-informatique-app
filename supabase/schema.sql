@@ -675,6 +675,9 @@ alter table public.profils add column if not exists tel text not null default ''
 alter table public.profils add column if not exists vehicule text not null default 'moto';
 alter table public.profils drop constraint if exists profils_vehicule;
 alter table public.profils add constraint profils_vehicule check (vehicule in ('moto', 'tricycle'));
+-- Le livreur bloqué par l'administration de BIZZOO (BIZZOO Personnel) :
+-- il ne reçoit plus aucune course. Seul « rh_bloquer_livreur » le pose.
+alter table public.profils add column if not exists courses_bloquees boolean not null default false;
 -- (3.63.0) Qui l'a créé, et s'il attend sa validation : les règles de
 -- « profils », plus bas, les lisent. Posées ici, avant elles — la suite
 -- du fichier les répète là où elles sont expliquées.
@@ -3785,6 +3788,7 @@ declare
   besoin   text;
   plusieurs boolean;
   au_km    boolean;
+  bloque   boolean;
 begin
   if not public.peut_agir_sur(boutique) then
     raise exception 'Cette commande ne concerne pas votre boutique';
@@ -3803,7 +3807,8 @@ begin
   -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
   -- reprendre une course confiée par erreur.
   if livreur is not null then
-    select p.role, (p.boutique_id is null), p.vehicule into rang, bizzoo, son_vehicule from public.profils p
+    select p.role, (p.boutique_id is null), p.vehicule, p.courses_bloquees
+      into rang, bizzoo, son_vehicule, bloque from public.profils p
      where p.id = livreur and p.actif
        and (public.est_super()
             or public.est_compte_enseigne()
@@ -3812,6 +3817,11 @@ begin
             or p.boutique_id = public.boutique_du_compte());
     if rang is distinct from 'livreur' then
       raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
+    end if;
+    -- Bloqué par l'administration de BIZZOO : plus aucune course.
+    if bloque then
+      raise exception 'Ce livreur est bloqué par BIZZOO : il ne reçoit plus de course. Confiez-la à un autre.'
+        using errcode = 'P0001';
     end if;
     if coalesce(plusieurs, false) and not coalesce(bizzoo, false) then
       raise exception 'Cette commande traverse plusieurs boutiques : confiez-la à un livreur de BIZZOO, qui les livre toutes.'
@@ -4168,7 +4178,7 @@ begin
     foreach v in array vs loop
       select array_agg(p.id order by p.id) into qui
         from public.profils p
-       where p.role = 'livreur' and p.actif and p.boutique_id = boutiques[1]
+       where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
          and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
       if qui is not null then return qui; end if;
@@ -4177,7 +4187,7 @@ begin
   foreach v in array vs loop
     select array_agg(p.id order by p.id) into qui
       from public.profils p
-     where p.role = 'livreur' and p.actif and p.boutique_id is null
+     where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
        and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
     if qui is not null then return qui; end if;
@@ -11382,8 +11392,18 @@ returns table (id uuid, matricule text, nom text, prenoms text, sexe text, poste
                profil_id uuid, profil text, email_pro text, telephone text,
                administration boolean, ceo boolean, responsable boolean, a_un_compte boolean)
 language sql stable security definer set search_path = public as $$
-  select e.id, e.matricule, e.nom, e.prenoms, e.sexe, e.poste, e.profil_id, coalesce(p.nom, ''),
-         e.email_pro, e.telephone, e.administration, e.ceo,
+  /* Un employé ordinaire n'y lit que ce qui sert à joindre un collègue :
+     nom, poste, profil, e-mail et téléphone PROFESSIONNELS. Le matricule,
+     le sexe et le numéro personnel (celui qui sert à se connecter) ne
+     sortent que pour l'administration, le CEO et le superadministrateur. */
+  select e.id,
+         case when public.rh_est_admin() or public.est_super() then e.matricule end,
+         e.nom, e.prenoms,
+         case when public.rh_est_admin() or public.est_super() then e.sexe end,
+         e.poste, e.profil_id, coalesce(p.nom, ''),
+         e.email_pro,
+         case when public.rh_est_admin() or public.est_super() then e.telephone else nullif(e.telephone_pro, '') end,
+         e.administration, e.ceo,
          exists (select 1 from public.rh_profils r where r.responsable_id = e.id),
          e.compte_id is not null
     from public.rh_employes e
@@ -11405,21 +11425,39 @@ create table if not exists public.rh_messages (
 );
 create index if not exists rh_messages_profil on public.rh_messages (profil_id, id);
 create index if not exists rh_messages_prive on public.rh_messages (destinataire_id, auteur_id, id);
+-- Le fil général, « Tout le monde » : un message n'a alors ni profil ni
+-- destinataire. Une et une seule cible : un profil, une personne, ou tous.
+alter table public.rh_messages add column if not exists general boolean not null default false;
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'rh_messages_une_cible'
+               and pg_get_constraintdef(oid) not like '%general%') then
+    alter table public.rh_messages drop constraint rh_messages_une_cible;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_messages_une_cible') then
+    alter table public.rh_messages add constraint rh_messages_une_cible
+      check (num_nonnulls(profil_id, destinataire_id) + case when general then 1 else 0 end = 1);
+  end if;
+end $$;
+create index if not exists rh_messages_general on public.rh_messages (id) where general;
 
-/** Peut-on écrire à cette personne ? À son profil, à son responsable,
-    à l'administration ; l'administration écrit à tous. */
+/** Peut-on écrire à cette personne ? À tout employé en poste, autre
+    que soi : un message privé ne connaît pas les profils. */
 create or replace function public.rh_peut_ecrire_a(cible uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.rh_moi() is not null and cible <> public.rh_moi() and exists (
-    select 1 from public.rh_employes c
-     where c.id = cible and c.etat = 'actif'
-       and (public.rh_est_admin()
-            or c.administration or c.ceo
-            or (c.profil_id is not null and c.profil_id = public.rh_mon_profil())
-            or public.rh_responsable_de(c.profil_id)
-            or exists (select 1 from public.rh_profils p
-                        where p.id = public.rh_mon_profil() and p.responsable_id = c.id)));
+    select 1 from public.rh_employes c where c.id = cible and c.etat = 'actif');
 $$;
+
+/** A-t-on déjà écrit dans le fil de ce profil ? Qui écrit à un autre
+    service que le sien en lit ensuite le fil, pour voir les réponses. */
+create or replace function public.rh_a_ecrit_dans(cible uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.rh_moi() is not null and exists (
+    select 1 from public.rh_messages m where m.profil_id = cible and m.auteur_id = public.rh_moi());
+$$;
+revoke all on function public.rh_a_ecrit_dans(uuid) from public, anon;
+grant execute on function public.rh_a_ecrit_dans(uuid) to authenticated, service_role;
 
 create or replace function public.rh_message_verrous() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -11452,7 +11490,7 @@ begin
   if public.rh_moi() is null then
     raise exception 'Seul un employé en poste lit ses messages';
   end if;
-  if conversation !~ '^[pd]:[0-9a-f-]{36}\Z' then
+  if conversation !~ '^([pd]:[0-9a-f-]{36}|g:tous)\Z' then
     raise exception 'Discussion inconnue';
   end if;
   insert into public.rh_lectures (employe_id, conversation, lu_le)
@@ -11469,7 +11507,14 @@ language sql stable security definer set search_path = public as $$
   groupes as (
     select 'p:' || p.id as cle, 'profil'::text as genre, p.id as cible, p.nom as titre
       from public.rh_profils p, moi
-     where moi.id is not null and (moi.admin or public.rh_acces(p.id, 'discussions'))
+     where moi.id is not null
+       and (moi.admin or public.rh_acces(p.id, 'discussions')
+            or (public.rh_menu_ouvert('discussions') and public.rh_a_ecrit_dans(p.id)))
+  ),
+  -- « Tout le monde » : tous les employés qui ont les discussions.
+  general as (
+    select 'g:tous' as cle, 'general'::text as genre, null::uuid as cible, 'Tout le monde' as titre
+      from moi where moi.id is not null and public.rh_menu_ouvert('discussions')
   ),
   personnes as (
     select distinct case when m.auteur_id = moi.id then m.destinataire_id else m.auteur_id end as autre
@@ -11482,7 +11527,7 @@ language sql stable security definer set search_path = public as $$
            btrim(e.prenoms || ' ' || e.nom) as titre
       from personnes x join public.rh_employes e on e.id = x.autre
   ),
-  toutes as (select * from groupes union all select * from prives)
+  toutes as (select * from general union all select * from groupes union all select * from prives)
   select t.cle, t.genre, t.cible, t.titre, d.texte, d.cree_le,
          (select count(*)::int from public.rh_messages m, moi
            where m.auteur_id <> moi.id
@@ -11490,15 +11535,17 @@ language sql stable security definer set search_path = public as $$
                                         where l.employe_id = moi.id and l.conversation = t.cle),
                                       '-infinity')
              and ((t.genre = 'profil' and m.profil_id = t.cible)
+               or (t.genre = 'general' and m.general)
                or (t.genre = 'personne' and m.auteur_id = t.cible and m.destinataire_id = moi.id)))
     from toutes t
     left join lateral (
       select m.texte, m.cree_le from public.rh_messages m, moi
        where (t.genre = 'profil' and m.profil_id = t.cible)
+          or (t.genre = 'general' and m.general)
           or (t.genre = 'personne' and ((m.auteur_id = t.cible and m.destinataire_id = moi.id)
                                      or (m.auteur_id = moi.id and m.destinataire_id = t.cible)))
        order by m.id desc limit 1) d on true
-   order by d.cree_le desc nulls last, t.titre;
+   order by t.genre = 'general' desc, d.cree_le desc nulls last, t.titre;
 $$;
 
 -- ---------- Les missions ----------
@@ -12288,26 +12335,23 @@ begin
 end $$;
 
 /**
- * La paie de fin de mois, sans que personne n'y pense : le dernier jour
- * du mois (heure du Bénin), les fiches du mois sont calculées ; et le
- * mois précédent l'est aussi s'il a été oublié. Appelée par pg_cron
- * chaque soir du 28 au 31, et par l'application à l'ouverture.
+ * La paie, sans que personne n'y pense : le 5 du mois (heure du Bénin),
+ * les fiches du mois écoulé sont calculées, et attendent la validation
+ * du CEO ; elles se versent le 10. Si le 5 a été manqué, le premier
+ * passage d'après rattrape. Appelée par pg_cron chaque matin, et par
+ * l'application à l'ouverture.
  */
 create or replace function public.rh_generer_paie_auto() returns int
 language plpgsql security definer set search_path = public as $$
 declare
   aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
-  courant date := date_trunc('month', aujourdhui)::date;
   precedent date := (date_trunc('month', aujourdhui) - interval '1 month')::date;
-  combien int := 0;
 begin
-  if not exists (select 1 from public.rh_fiches_paie where mois = precedent) then
-    combien := combien + public.rh_generer_paie_interne(precedent);
+  if extract(day from aujourdhui) >= 5
+     and not exists (select 1 from public.rh_fiches_paie where mois = precedent) then
+    return public.rh_generer_paie_interne(precedent);
   end if;
-  if extract(day from aujourdhui + 1) = 1 then
-    combien := combien + public.rh_generer_paie_interne(courant);
-  end if;
-  return combien;
+  return 0;
 end $$;
 
 /** Ce que l'application appelle à l'ouverture, pour l'administration. */
@@ -12445,23 +12489,16 @@ begin
   perform public.rh_calculer_fiche(f.employe_id, f.mois);
 end $$;
 
+/* Une fiche ne se paie plus de la main à la main : validée, elle se
+   verse le 10 sur le solde de l'employé (personnel-solde.sql), qui le
+   retire ensuite par Mobile Money ou à la caisse. Les deux portes
+   d'avant restent, fermées, pour qu'un ancien écran reçoive une
+   phrase claire plutôt qu'une fonction inconnue. */
 create or replace function public.rh_payer_fiche(fiche uuid, mode text, reference text default '')
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not public.rh_peut_decaisser() then
-    raise exception 'Votre compte n''est pas habilité à payer';
-  end if;
-  if mode not in ('especes', 'mtn', 'moov', 'celtiis', 'mixte') then
-    raise exception 'Choisissez le compartiment de la caisse : espèces, MTN, Moov ou Celtiis';
-  end if;
-  update public.rh_fiches_paie
-     set statut = 'payee', paye_par = public.rh_moi(), paye_le = now(),
-         mode_paiement = mode, reference = btrim(coalesce(rh_payer_fiche.reference, ''))
-   where id = fiche and statut = 'validee';
-  if not found then
-    raise exception 'Seule une fiche validée par le CEO se paie';
-  end if;
+  raise exception 'Un salaire ne se paie plus ici : la fiche validée est versée le 10 sur le solde de l''employé, qui le retire depuis son compte (Mobile Money ou caisse)';
 end $$;
 
 -- ---------- La boîte mail professionnelle ----------
@@ -12613,13 +12650,16 @@ drop policy if exists "rh messages envoi" on public.rh_messages;
 -- de tous les profils, pas les messages entre deux personnes.
 create policy "rh messages lecture" on public.rh_messages
   for select to authenticated using (
-    (profil_id is not null and public.rh_acces(profil_id, 'discussions'))
+    (profil_id is not null and (public.rh_acces(profil_id, 'discussions')
+      or (public.rh_menu_ouvert('discussions') and public.rh_a_ecrit_dans(profil_id))))
+    or (general and public.rh_menu_ouvert('discussions'))
     or (destinataire_id is not null
         and (auteur_id = public.rh_moi() or destinataire_id = public.rh_moi())
         and public.rh_menu_ouvert('discussions')));
 create policy "rh messages envoi" on public.rh_messages
   for insert to authenticated with check (
-    (profil_id is not null and public.rh_acces(profil_id, 'discussions'))
+    (profil_id is not null and (public.rh_acces(profil_id, 'discussions') or public.rh_menu_ouvert('discussions')))
+    or (general and public.rh_menu_ouvert('discussions'))
     or (destinataire_id is not null and public.rh_peut_ecrire_a(destinataire_id)
         and public.rh_menu_ouvert('discussions')));
 
@@ -12698,12 +12738,13 @@ create policy "rh avances ecriture" on public.rh_avances
 
 drop policy if exists "rh fiches lecture" on public.rh_fiches_paie;
 -- L'employé voit ses fiches une fois validées : un brouillon de paie
--- n'est pas une promesse. L'habilité voit toutes les fiches validées :
--- c'est lui qui les paie.
+-- n'est pas une promesse. Personne d'autre que l'administration ne lit
+-- la fiche d'un autre : la paie se verse sur le solde, la caisse ne la
+-- paie plus.
 create policy "rh fiches lecture" on public.rh_fiches_paie
   for select to authenticated using (
     public.rh_est_admin()
-    or (statut <> 'calculee' and (employe_id = public.rh_moi() or public.rh_peut_decaisser())));
+    or (statut <> 'calculee' and employe_id = public.rh_moi()));
 
 -- ---------- Les droits ----------
 -- Supabase accorde d'office tout à « anon » sur ce qui naît dans
@@ -14577,7 +14618,7 @@ begin
     'en_poste', (select count(*) from en_poste),
     'par_statut', (select coalesce(jsonb_object_agg(statut, n), '{}')
                      from (select statut, count(*) as n from en_poste group by statut) x),
-    'par_sexe', (select coalesce(jsonb_object_agg(sexe, n), '{}')
+    'par_sexe', (select coalesce(jsonb_object_agg(coalesce(sexe, 'NR'), n), '{}')
                    from (select sexe, count(*) as n from en_poste group by sexe) x),
     'par_profil', (select coalesce(jsonb_agg(jsonb_build_object('profil', x.profil, 'effectif', x.n,
                        'masse_base', x.masse) order by x.n desc), '[]')
@@ -15319,6 +15360,11 @@ begin
   if new.statut <> 'payee' or old.statut = 'payee' then
     return null;
   end if;
+  /* Versée sur le solde de l'employé : rien ne sort encore de la caisse.
+     L'argent en sortira au retrait, s'il le retire à la caisse. */
+  if new.mode_paiement = 'solde' then
+    return null;
+  end if;
   rep := nullif(current_setting('rh.repartition', true), '')::jsonb;
   if rep is null then
     if new.mode_paiement not in ('especes', 'mtn', 'moov', 'celtiis') then
@@ -15361,20 +15407,8 @@ end $$;
 create or replace function public.rh_payer(fiche uuid, repartition jsonb, reference text default '')
 returns void
 language plpgsql security definer set search_path = public as $$
-declare
-  f public.rh_fiches_paie;
-  rep jsonb;
 begin
-  select * into f from public.rh_fiches_paie where id = fiche;
-  if not found then
-    raise exception 'Fiche introuvable';
-  end if;
-  rep := public.rh_caisse_repartition(repartition, f.net);
-  perform set_config('rh.repartition', rep::text, true);
-  perform public.rh_payer_fiche(fiche,
-    case when (select count(*) from jsonb_object_keys(rep)) = 1 then (select k from jsonb_object_keys(rep) k) else 'mixte' end,
-    reference);
-  perform set_config('rh.repartition', '', true);
+  raise exception 'Un salaire ne se paie plus ici : la fiche validée est versée le 10 sur le solde de l''employé, qui le retire depuis son compte (Mobile Money ou caisse)';
 end $$;
 
 -- ---------- Ce qui entre, ce qui se déplace, ce qui se corrige ----------
@@ -15503,9 +15537,11 @@ begin
       from unnest(array['especes', 'mtn', 'moov', 'celtiis']) with ordinality as k(compte, n)),
     'mouvements', (select coalesce(jsonb_agg(jsonb_build_object(
         'id', m.id, 'le', m.le, 'compte', m.compte, 'sens', m.sens, 'nature', m.nature, 'montant', m.montant,
-        'libelle', case when m.nature = 'salaire' and acces <> 'consultation'
-                        then m.libelle || ' · ' || coalesce((select f.employe ->> 'prenoms' || ' ' || (f.employe ->> 'nom')
-                                                               from public.rh_fiches_paie f where f.id = m.fiche_id), '')
+        'libelle', case when acces = 'consultation' and m.nature in ('salaire', 'pret')
+                          then split_part(m.libelle, ' · ', 1)
+                        when m.nature = 'salaire' and m.fiche_id is not null
+                          then m.libelle || coalesce(' · ' || (select f.employe ->> 'prenoms' || ' ' || (f.employe ->> 'nom')
+                                                                 from public.rh_fiches_paie f where f.id = m.fiche_id), '')
                         else m.libelle end,
         'reference', m.reference, 'depense_id', m.depense_id,
         'par', (select btrim(e.prenoms || ' ' || e.nom) from public.rh_employes e where e.id = m.par),
@@ -15630,6 +15666,12 @@ declare
   numero text;
   e public.rh_employes;
 begin
+  /* Un compte ouvert par BIZZOO avec le mot de passe de départ n'est
+     relié à sa fiche qu'une fois ce mot de passe changé (rh_activer_compte). */
+  if to_regclass('public.rh_comptes_a_activer') is not null
+     and exists (select 1 from public.rh_comptes_a_activer a where a.compte_id = auth.uid()) then
+    raise exception 'Choisissez d''abord votre mot de passe' using errcode = 'P0001', hint = 'ACTIVATION';
+  end if;
   select right(regexp_replace(coalesce(u.phone, ''), '[^0-9]', '', 'g'), 10) into numero
     from auth.users u where u.id = auth.uid();
   if coalesce(numero, '') = '' then
@@ -15660,3 +15702,1410 @@ revoke all on function public.rh_telephone_employe(text) from public;
 grant execute on function public.rh_telephone_employe(text) to anon, authenticated, service_role;
 revoke all on function public.rh_rattacher_par_telephone() from public, anon;
 grant execute on function public.rh_rattacher_par_telephone() to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : le solde de chaque employé, les prêts, les retraits
+--
+-- Le calendrier de la paie :
+--   - le 5, la base calcule seule les fiches du mois écoulé, qui
+--     attendent la validation du CEO ;
+--   - le 10, chaque fiche validée est versée sur le SOLDE de son
+--     employé (une fiche validée après le 10 l'est aussitôt) ;
+--   - l'employé retire ensuite son argent quand il veut, tout ou partie :
+--     par Mobile Money (FeexPay, reversement validé par le gestionnaire
+--     de la caisse) ou à la caisse.
+--
+-- Ce que verse la fiche : salaire + primes − retenues − prêt.
+-- Le CEO accorde une prime ou impose une retenue sur la prochaine paie
+-- d'un employé. L'employé demande un prêt : le CEO le valide, la caisse
+-- le décaisse, et la paie suivante le reprend en une fois.
+--
+-- Rien ne s'efface : le solde est la somme de mouvements figés, et un
+-- retrait refusé ou échoué revient sur le solde par un mouvement de
+-- retour. Le jeton FeexPay ne vit que dans les secrets de Supabase : la
+-- base ne fait que noter ce que la fonction Edge « rh-reversement » a
+-- constaté chez FeexPay.
+-- =========================================================
+
+-- ---------- Le solde : des mouvements, jamais corrigés ----------
+create table if not exists public.rh_solde_mouvements (
+  id          bigint generated always as identity primary key,
+  le          timestamptz not null default now(),
+  employe_id  uuid not null references public.rh_employes(id) on delete cascade,
+  sens        text not null check (sens in ('credit', 'debit')),
+  nature      text not null check (nature in ('salaire', 'retrait', 'retour')),
+  montant     bigint not null check (montant > 0),
+  libelle     text not null default '',
+  fiche_id    uuid references public.rh_fiches_paie(id) on delete set null,
+  retrait_id  uuid,
+  par         uuid,
+  solde       bigint not null   -- le solde de l'employé, après ce mouvement
+);
+create index if not exists rh_solde_mouvements_employe on public.rh_solde_mouvements (employe_id, id);
+-- Une fiche ne se verse qu'une fois.
+create unique index if not exists rh_solde_mouvements_fiche on public.rh_solde_mouvements (fiche_id)
+  where nature = 'salaire' and fiche_id is not null;
+
+create or replace function public.rh_solde_fige() returns trigger
+language plpgsql as $$
+begin
+  raise exception 'Un mouvement du solde ne se modifie ni ne s''efface';
+end $$;
+drop trigger if exists rh_solde_fige on public.rh_solde_mouvements;
+create trigger rh_solde_fige before update or delete on public.rh_solde_mouvements
+  for each row execute function public.rh_solde_fige();
+
+-- ---------- Les retraits ----------
+--   demande   : l'employé l'a demandé ; le montant a quitté son solde ;
+--   envoi     : le gestionnaire a lancé le reversement, FeexPay n'a pas encore répondu ;
+--   envoye    : FeexPay l'a accepté (référence notée), le versement est en cours ;
+--   incertain : on ne sait pas si l'argent est parti (coupure, panne) :
+--               le CEO tranche après avoir regardé le tableau de bord FeexPay ;
+--   paye      : versé (FeexPay l'a confirmé, ou la caisse l'a remis) ;
+--   echoue / refuse / annule : rien n'est parti, le montant est revenu sur le solde.
+create table if not exists public.rh_retraits (
+  id           uuid primary key default gen_random_uuid(),
+  numero       bigint generated always as identity,
+  employe_id   uuid not null references public.rh_employes(id) on delete cascade,
+  montant      bigint not null check (montant > 0),
+  moyen        text not null check (moyen in ('feexpay', 'caisse')),
+  reseau       text check (reseau in ('mtn', 'moov', 'celtiis')),
+  telephone    text not null default '',
+  statut       text not null default 'demande'
+               check (statut in ('demande', 'envoi', 'envoye', 'incertain', 'paye', 'echoue', 'refuse', 'annule')),
+  motif        text not null default '',
+  reference    text not null default '',
+  demande_le   timestamptz not null default now(),
+  traite_par   uuid,
+  traite_le    timestamptz,
+  conclu_le    timestamptz,
+  -- Ce qu'on a envoyé à FeexPay et ce qu'il a répondu, jeton retiré.
+  journal      jsonb not null default '[]'::jsonb
+);
+create index if not exists rh_retraits_employe on public.rh_retraits (employe_id, demande_le desc);
+create index if not exists rh_retraits_statut on public.rh_retraits (statut);
+
+-- ---------- Les prêts : les avances, demandées par l'employé ----------
+alter table public.rh_avances add column if not exists valide_par uuid;
+alter table public.rh_avances add column if not exists valide_le timestamptz;
+alter table public.rh_avances add column if not exists motif_refus text not null default '';
+alter table public.rh_avances add column if not exists decaisse_par uuid;
+alter table public.rh_avances add column if not exists decaisse_le timestamptz;
+alter table public.rh_avances add column if not exists reference_caisse text not null default '';
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'rh_avances_statut_check'
+               and pg_get_constraintdef(oid) not like '%demandee%') then
+    alter table public.rh_avances drop constraint rh_avances_statut_check;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_avances_statut_check') then
+    alter table public.rh_avances add constraint rh_avances_statut_check
+      check (statut in ('demandee', 'validee', 'active', 'soldee', 'annulee', 'refusee'));
+  end if;
+end $$;
+
+-- La caisse décaisse aussi les prêts.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'rh_caisse_mouvements_nature_check'
+               and pg_get_constraintdef(oid) not like '%pret%') then
+    alter table public.rh_caisse_mouvements drop constraint rh_caisse_mouvements_nature_check;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_caisse_mouvements_nature_check') then
+    alter table public.rh_caisse_mouvements add constraint rh_caisse_mouvements_nature_check
+      check (nature in ('apport_ceo', 'apport_autre', 'depense', 'salaire', 'pret',
+                        'transfert', 'frais', 'ajustement'));
+  end if;
+end $$;
+
+-- ---------- Le calendrier ----------
+/** Aujourd'hui, à l'heure du Bénin. */
+create or replace function public.rh_aujourdhui() returns date
+language sql stable as $$
+  select (now() at time zone 'Africa/Porto-Novo')::date;
+$$;
+
+/** Le jour où la paie d'un mois se verse : le 10 du mois suivant. */
+create or replace function public.rh_date_versement(mois date) returns date
+language sql immutable as $$
+  select (date_trunc('month', mois) + interval '1 month 9 days')::date;
+$$;
+
+/** Le mois de la prochaine paie d'un employé : celui qu'une prime, une
+    retenue ou un prêt accordé aujourd'hui touchera. C'est le mois écoulé
+    tant que sa fiche n'est pas validée, sinon le mois en cours — jamais
+    un mois d'avant son embauche. */
+create or replace function public.rh_prochain_mois_paie(qui uuid) returns date
+language plpgsql stable security definer set search_path = public as $$
+declare
+  depart date := (date_trunc('month', public.rh_aujourdhui()) - interval '1 month')::date;
+  embauche date;
+  m date;
+begin
+  select date_trunc('month', date_embauche)::date into embauche from public.rh_employes where id = qui;
+  m := greatest(depart, coalesce(embauche, depart));
+  while exists (select 1 from public.rh_fiches_paie f
+                 where f.employe_id = qui and f.mois = m and f.statut <> 'calculee') loop
+    m := (m + interval '1 month')::date;
+  end loop;
+  return m;
+end $$;
+
+-- ---------- Le solde ----------
+/** Le solde d'un employé : la somme de ses mouvements. */
+create or replace function public.rh_solde_de(qui uuid) returns bigint
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(case when sens = 'credit' then montant else -montant end), 0)::bigint
+    from public.rh_solde_mouvements where employe_id = qui;
+$$;
+
+/** Un mouvement sur le solde, l'employé verrouillé : deux retraits
+    simultanés ne passent pas sur le même argent. Un retrait ne fait
+    jamais passer le solde sous zéro. Interne. */
+create or replace function public.rh_solde_mouvoir(qui uuid, p_sens text, p_nature text, p_montant bigint,
+  p_libelle text, p_fiche uuid default null, p_retrait uuid default null)
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  dispo bigint;
+  ligne bigint;
+begin
+  if p_montant is null or p_montant <= 0 then
+    raise exception 'Le montant doit être positif';
+  end if;
+  perform 1 from public.rh_employes where id = qui for update;
+  dispo := public.rh_solde_de(qui);
+  if p_sens = 'debit' and p_nature = 'retrait' and dispo < p_montant then
+    raise exception 'Solde insuffisant : % FCFA disponibles, % FCFA demandés',
+      replace(to_char(dispo, 'FM999G999G999G990'), ',', ' '), replace(to_char(p_montant, 'FM999G999G999G990'), ',', ' ');
+  end if;
+  insert into public.rh_solde_mouvements (employe_id, sens, nature, montant, libelle, fiche_id, retrait_id, par, solde)
+  values (qui, p_sens, p_nature, p_montant, left(btrim(coalesce(p_libelle, '')), 300), p_fiche, p_retrait,
+          public.rh_moi(), dispo + case when p_sens = 'credit' then p_montant else -p_montant end)
+  returning id into ligne;
+  return ligne;
+end $$;
+
+-- ---------- Le versement du 10 ----------
+/** Verse une fiche validée sur le solde de son employé, si son jour est
+    venu. Rend vrai si elle a été versée. Interne. */
+create or replace function public.rh_crediter_fiche(fiche uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  f public.rh_fiches_paie;
+begin
+  select * into f from public.rh_fiches_paie where id = fiche for update;
+  if not found or f.statut <> 'validee' or public.rh_aujourdhui() < public.rh_date_versement(f.mois) then
+    return false;
+  end if;
+  update public.rh_fiches_paie
+     set statut = 'payee', paye_le = now(), paye_par = null, mode_paiement = 'solde', reference = ''
+   where id = fiche;
+  /* Une fiche négative (des retenues plus fortes que le salaire) laisse
+     une dette sur le solde : elle se reprend sur les versements suivants. */
+  if f.net <> 0 then
+    perform public.rh_solde_mouvoir(f.employe_id, case when f.net > 0 then 'credit' else 'debit' end,
+      'salaire', abs(f.net), 'Salaire de ' || to_char(f.mois, 'MM/YYYY'), f.id, null);
+  end if;
+  return true;
+end $$;
+
+/** Toutes les fiches validées dont le 10 est passé. pg_cron l'appelle
+    chaque matin ; c'est sans effet sur ce qui est déjà versé. */
+create or replace function public.rh_crediter_salaires() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  f record;
+  combien int := 0;
+begin
+  for f in select id from public.rh_fiches_paie
+            where statut = 'validee' and public.rh_date_versement(mois) <= public.rh_aujourdhui()
+            order by mois, id loop
+    if public.rh_crediter_fiche(f.id) then
+      combien := combien + 1;
+    end if;
+  end loop;
+  return combien;
+end $$;
+
+/* Une fiche validée après le 10 n'attend pas le mois suivant. */
+create or replace function public.rh_fiche_validee_versee() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.statut = 'validee' and old.statut is distinct from 'validee' then
+    perform public.rh_crediter_fiche(new.id);
+  end if;
+  return null;
+end $$;
+drop trigger if exists rh_fiche_validee_versee on public.rh_fiches_paie;
+create trigger rh_fiche_validee_versee after update of statut on public.rh_fiches_paie
+  for each row execute function public.rh_fiche_validee_versee();
+
+-- ---------- Primes et retenues du CEO ----------
+/** Le CEO (ou le superadministrateur) accorde une prime ou impose une
+    retenue : elle s'inscrit sur la prochaine paie de l'employé. Rend le
+    mois touché. */
+create or replace function public.rh_octroyer(qui uuid, nature text, montant bigint, libelle text)
+returns date
+language plpgsql security definer set search_path = public as $$
+declare
+  m date;
+begin
+  if not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Seul le CEO accorde une prime ou impose une retenue';
+  end if;
+  if nature not in ('prime', 'retenue') then
+    raise exception 'Une prime ou une retenue';
+  end if;
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Le montant doit être positif';
+  end if;
+  if length(btrim(coalesce(libelle, ''))) < 3 then
+    raise exception 'Dites pourquoi (le libellé figure sur la fiche de paie)';
+  end if;
+  if not exists (select 1 from public.rh_employes where id = qui and etat in ('actif', 'bloque')) then
+    raise exception 'Cet employé n''est pas en poste';
+  end if;
+  m := public.rh_prochain_mois_paie(qui);
+  insert into public.rh_elements_paie (employe_id, mois, nature, libelle, montant, imposable)
+  values (qui, m, nature, btrim(libelle), montant, nature = 'prime');
+  return m;
+end $$;
+
+/** Retirer une prime ou une retenue que la paie n'a pas encore validée. */
+create or replace function public.rh_retirer_element(element uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Seul le CEO retire une prime ou une retenue';
+  end if;
+  delete from public.rh_elements_paie where id = element;
+  if not found then
+    raise exception 'Élément introuvable';
+  end if;
+end $$;
+
+-- ---------- Les prêts ----------
+/** L'employé demande un prêt : le CEO le validera, la caisse le
+    décaissera, la paie suivante le reprendra en une fois. */
+create or replace function public.rh_demander_pret(montant bigint, motif text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  nouveau uuid;
+begin
+  if v_moi is null then
+    raise exception 'Seul un employé en poste demande un prêt';
+  end if;
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Le montant doit être positif';
+  end if;
+  if length(btrim(coalesce(motif, ''))) < 3 then
+    raise exception 'Dites pourquoi vous demandez ce prêt';
+  end if;
+  if exists (select 1 from public.rh_avances where employe_id = v_moi and statut in ('demandee', 'validee')) then
+    raise exception 'Vous avez déjà un prêt en attente : attendez qu''il soit décaissé ou refusé';
+  end if;
+  insert into public.rh_avances (employe_id, montant, mensualites, premier_mois, motif, statut)
+  values (v_moi, montant, 1, public.rh_prochain_mois_paie(v_moi), btrim(motif), 'demandee')
+  returning id into nouveau;
+  return nouveau;
+end $$;
+
+/** L'employé retire sa demande, tant que le CEO ne l'a pas tranchée. */
+create or replace function public.rh_annuler_pret(pret uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('rh.decision', 'oui', true);
+  update public.rh_avances set statut = 'annulee'
+   where id = pret and employe_id = public.rh_moi() and statut = 'demandee';
+  if not found then
+    raise exception 'Seule votre demande encore en attente du CEO s''annule';
+  end if;
+  perform set_config('rh.decision', '', true);
+end $$;
+
+/** Le CEO valide ou refuse une demande de prêt. */
+create or replace function public.rh_decider_pret(pret uuid, accepter boolean, raison text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Seul le CEO valide un prêt';
+  end if;
+  if not accepter and length(btrim(coalesce(raison, ''))) < 3 then
+    raise exception 'Dites pourquoi vous refusez ce prêt';
+  end if;
+  perform set_config('rh.decision', 'oui', true);
+  update public.rh_avances
+     set statut = case when accepter then 'validee' else 'refusee' end,
+         valide_par = public.rh_moi(), valide_le = now(),
+         motif_refus = case when accepter then '' else btrim(raison) end
+   where id = pret and statut = 'demandee';
+  if not found then
+    raise exception 'Seule une demande de prêt en attente se tranche';
+  end if;
+  perform set_config('rh.decision', '', true);
+end $$;
+
+/** Le gestionnaire de la caisse décaisse un prêt validé, réparti entre
+    les compartiments ; il ne décaisse pas son propre prêt. Le prêt
+    s'inscrit alors sur la prochaine paie de l'employé. */
+create or replace function public.rh_decaisser_pret(pret uuid, repartition jsonb, reference text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  a public.rh_avances;
+  rep jsonb;
+  k text;
+  v jsonb;
+  qui_nom text;
+begin
+  if public.rh_caisse_acces() is distinct from 'gestion' then
+    raise exception 'Seul le gestionnaire de la caisse décaisse un prêt';
+  end if;
+  select * into a from public.rh_avances where id = pret for update;
+  if not found or a.statut <> 'validee' then
+    raise exception 'Seul un prêt validé par le CEO se décaisse';
+  end if;
+  if a.employe_id = public.rh_moi() then
+    raise exception 'Vous ne décaissez pas votre propre prêt : le CEO désigne quelqu''un d''autre';
+  end if;
+  rep := public.rh_caisse_repartition(repartition, a.montant);
+  select btrim(e.prenoms || ' ' || e.nom) into qui_nom from public.rh_employes e where e.id = a.employe_id;
+  for k, v in select e.key, e.value from jsonb_each(rep) as e order by e.key loop
+    perform public.rh_caisse_mouvoir(k, 'sortie', 'pret', (v #>> '{}')::bigint,
+      'Prêt du ' || to_char(public.rh_aujourdhui(), 'DD/MM/YYYY') || ' · ' || qui_nom, reference);
+  end loop;
+  /* Le prêt devient une avance active : la prochaine fiche le reprend
+     (le déclencheur des avances la recalcule). */
+  update public.rh_avances
+     set statut = 'active', date_avance = public.rh_aujourdhui(),
+         premier_mois = public.rh_prochain_mois_paie(a.employe_id),
+         decaisse_par = public.rh_moi(), decaisse_le = now(),
+         reference_caisse = left(btrim(coalesce(rh_decaisser_pret.reference, '')), 120)
+   where id = pret;
+end $$;
+
+-- ---------- Les retraits ----------
+/** Le numéro national à dix chiffres (01 + 8), ou une erreur. */
+create or replace function public.rh_numero_national(tel text) returns text
+language plpgsql immutable as $$
+declare
+  n text := regexp_replace(coalesce(tel, ''), '[^0-9]', '', 'g');
+begin
+  if length(n) = 13 and n like '229%' then
+    n := right(n, 10);
+  end if;
+  if length(n) = 8 then
+    n := '01' || n;
+  end if;
+  if length(n) <> 10 or n !~ '^01[0-9]{8}' then
+    raise exception 'Numéro de téléphone : 01 suivi de 8 chiffres';
+  end if;
+  return n;
+end $$;
+
+/** L'employé demande un retrait de son solde : par Mobile Money
+    (FeexPay) ou à la caisse. Le montant quitte aussitôt son solde ; il
+    y revient si le retrait est refusé, annulé ou échoue. */
+create or replace function public.rh_demander_retrait(montant bigint, moyen text, reseau text default null,
+  telephone text default '')
+returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  nouveau uuid;
+  num bigint;
+  tel text := '';
+begin
+  if v_moi is null then
+    raise exception 'Seul un employé en poste retire de son solde';
+  end if;
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Le montant doit être positif';
+  end if;
+  if moyen not in ('feexpay', 'caisse') then
+    raise exception 'Choisissez : Mobile Money ou la caisse';
+  end if;
+  if moyen = 'feexpay' then
+    if reseau not in ('mtn', 'moov', 'celtiis') then
+      raise exception 'Choisissez le réseau : MTN, Moov ou Celtiis';
+    end if;
+    -- FeexPay ne reverse pas moins de 50 francs.
+    if montant < 50 then
+      raise exception 'Un retrait Mobile Money fait au moins 50 FCFA';
+    end if;
+    tel := public.rh_numero_national(telephone);
+  end if;
+  insert into public.rh_retraits (employe_id, montant, moyen, reseau, telephone)
+  values (v_moi, montant, moyen, case when moyen = 'feexpay' then reseau end, tel)
+  returning id, numero into nouveau, num;
+  perform public.rh_solde_mouvoir(v_moi, 'debit', 'retrait', montant,
+    'Retrait R-' || lpad(num::text, 4, '0') || case when moyen = 'feexpay' then ' (Mobile Money)' else ' (caisse)' end,
+    null, nouveau);
+  return nouveau;
+end $$;
+
+/** Le montant d'un retrait qui n'a pas abouti revient sur le solde. Interne. */
+create or replace function public.rh_retrait_rendre(r public.rh_retraits, pourquoi text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public.rh_solde_mouvoir(r.employe_id, 'credit', 'retour', r.montant,
+    'Retour du retrait R-' || lpad(r.numero::text, 4, '0') || ' · ' || pourquoi, null, r.id);
+end $$;
+
+/** L'employé annule son retrait tant que personne ne l'a traité. */
+create or replace function public.rh_annuler_retrait(retrait uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.rh_retraits;
+begin
+  update public.rh_retraits set statut = 'annule', conclu_le = now()
+   where id = retrait and employe_id = public.rh_moi() and statut = 'demande'
+  returning * into r;
+  if r.id is null then
+    raise exception 'Seul votre retrait encore en attente s''annule';
+  end if;
+  perform public.rh_retrait_rendre(r, 'annulé');
+end $$;
+
+/** Le gestionnaire de la caisse (ou le CEO) refuse un retrait, avec un motif. */
+create or replace function public.rh_refuser_retrait(retrait uuid, raison text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.rh_retraits;
+begin
+  if public.rh_caisse_acces() not in ('gestion', 'ceo', 'super') or public.rh_caisse_acces() is null then
+    raise exception 'Seuls le gestionnaire de la caisse et le CEO refusent un retrait';
+  end if;
+  if length(btrim(coalesce(raison, ''))) < 3 then
+    raise exception 'Dites pourquoi vous refusez ce retrait';
+  end if;
+  update public.rh_retraits
+     set statut = 'refuse', motif = btrim(raison), traite_par = public.rh_moi(), traite_le = now(), conclu_le = now()
+   where id = retrait and statut = 'demande'
+  returning * into r;
+  if r.id is null then
+    raise exception 'Seul un retrait en attente se refuse';
+  end if;
+  perform public.rh_retrait_rendre(r, 'refusé');
+end $$;
+
+/** Le gestionnaire remet l'argent à la caisse, réparti entre les
+    compartiments. Il peut servir ainsi un retrait demandé en Mobile
+    Money (en l'envoyant lui-même depuis le compartiment MTN, par
+    exemple). Il ne sert pas son propre retrait. */
+create or replace function public.rh_servir_retrait(retrait uuid, repartition jsonb, reference text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.rh_retraits;
+  rep jsonb;
+  k text;
+  v jsonb;
+  qui_nom text;
+begin
+  if public.rh_caisse_acces() is distinct from 'gestion' then
+    raise exception 'Seul le gestionnaire de la caisse sert un retrait';
+  end if;
+  select * into r from public.rh_retraits where id = retrait for update;
+  if not found or r.statut <> 'demande' then
+    raise exception 'Seul un retrait en attente se sert';
+  end if;
+  if r.employe_id = public.rh_moi() then
+    raise exception 'Vous ne servez pas votre propre retrait : le CEO désigne quelqu''un d''autre';
+  end if;
+  rep := public.rh_caisse_repartition(repartition, r.montant);
+  select btrim(e.prenoms || ' ' || e.nom) into qui_nom from public.rh_employes e where e.id = r.employe_id;
+  for k, v in select e.key, e.value from jsonb_each(rep) as e order by e.key loop
+    perform public.rh_caisse_mouvoir(k, 'sortie', 'salaire', (v #>> '{}')::bigint,
+      'Retrait de salaire R-' || lpad(r.numero::text, 4, '0') || ' · ' || qui_nom, reference);
+  end loop;
+  update public.rh_retraits
+     set statut = 'paye', moyen = 'caisse', reference = left(btrim(coalesce(rh_servir_retrait.reference, '')), 120),
+         traite_par = public.rh_moi(), traite_le = now(), conclu_le = now()
+   where id = retrait;
+end $$;
+
+/** Le gestionnaire lance le reversement FeexPay d'un retrait. Appelée
+    par la fonction Edge « rh-reversement » AVEC LE JETON DU
+    GESTIONNAIRE : c'est la base qui vérifie son droit. Le retrait passe
+    à « envoi » d'un coup : deux clics ne font pas deux virements. Rend
+    ce que la fonction envoie à FeexPay — le montant vient d'ici. */
+create or replace function public.rh_retrait_preparer(retrait uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.rh_retraits;
+begin
+  if public.rh_caisse_acces() is distinct from 'gestion' then
+    raise exception 'Seul le gestionnaire de la caisse lance un reversement';
+  end if;
+  select * into r from public.rh_retraits where id = retrait;
+  if found and r.employe_id = public.rh_moi() then
+    raise exception 'Vous ne servez pas votre propre retrait : le CEO désigne quelqu''un d''autre';
+  end if;
+  update public.rh_retraits
+     set statut = 'envoi', traite_par = public.rh_moi(), traite_le = now()
+   where id = retrait and statut = 'demande' and moyen = 'feexpay'
+  returning * into r;
+  if r.id is null then
+    raise exception 'Seul un retrait Mobile Money en attente se reverse';
+  end if;
+  return jsonb_build_object('id', r.id, 'numero', r.numero, 'montant', r.montant,
+    'reseau', r.reseau, 'telephone', r.telephone);
+end $$;
+
+/** Ce que la fonction Edge a constaté chez FeexPay. Service seulement :
+    aucun compte ne s'écrit « payé ». Les passages permis :
+      envoi → demande (rien n'est parti), envoye (référence), incertain, echoue ;
+      envoye / incertain → paye, echoue. */
+create or replace function public.rh_retrait_resultat(retrait uuid, issue text, reference text default '',
+  trace jsonb default '{}'::jsonb)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.rh_retraits;
+begin
+  select * into r from public.rh_retraits where id = retrait for update;
+  if not found then
+    raise exception 'Retrait introuvable';
+  end if;
+  if not ((r.statut = 'envoi' and issue in ('demande', 'envoye', 'incertain', 'echoue'))
+          or (r.statut in ('envoye', 'incertain') and issue in ('paye', 'echoue'))) then
+    -- Déjà conclu, ou passage interdit : on ne change rien.
+    update public.rh_retraits set journal = journal || jsonb_build_array(jsonb_build_object(
+        'le', now(), 'ignore', issue, 'trace', coalesce(trace, '{}'::jsonb)))
+     where id = retrait;
+    return r.statut;
+  end if;
+  update public.rh_retraits
+     set statut = issue,
+         reference = case when coalesce(btrim(rh_retrait_resultat.reference), '') <> ''
+                          then left(btrim(rh_retrait_resultat.reference), 120) else r.reference end,
+         traite_par = case when issue = 'demande' then null else r.traite_par end,
+         traite_le = case when issue = 'demande' then null else r.traite_le end,
+         conclu_le = case when issue in ('paye', 'echoue') then now() else null end,
+         journal = journal || jsonb_build_array(jsonb_build_object(
+           'le', now(), 'issue', issue, 'trace', coalesce(trace, '{}'::jsonb)))
+   where id = retrait;
+  if issue = 'echoue' then
+    perform public.rh_retrait_rendre(r, 'reversement échoué');
+  end if;
+  return issue;
+end $$;
+
+/** Les reversements à revérifier chez FeexPay. Service seulement. */
+create or replace function public.rh_retraits_a_verifier() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', id, 'reference', reference, 'montant', montant)), '[]')
+    from public.rh_retraits
+   where statut in ('envoye', 'incertain') and reference <> '';
+$$;
+
+/** Le CEO tranche un reversement incertain (ou bloqué en envoi depuis
+    plus de 10 minutes), après avoir regardé le tableau de bord FeexPay :
+    payé, ou rien n'est parti (le montant revient alors sur le solde). */
+create or replace function public.rh_retrait_trancher(retrait uuid, paye boolean, constat text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.rh_retraits;
+begin
+  if not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Seul le CEO tranche un reversement incertain';
+  end if;
+  if length(btrim(coalesce(constat, ''))) < 3 then
+    raise exception 'Dites ce que vous avez constaté chez FeexPay';
+  end if;
+  select * into r from public.rh_retraits where id = retrait for update;
+  if not found or not (r.statut = 'incertain' or (r.statut = 'envoi' and r.traite_le < now() - interval '10 minutes')) then
+    raise exception 'Seul un reversement incertain se tranche';
+  end if;
+  update public.rh_retraits
+     set statut = case when paye then 'paye' else 'echoue' end, motif = btrim(constat), conclu_le = now(),
+         journal = journal || jsonb_build_array(jsonb_build_object('le', now(), 'tranche_par', public.rh_moi(),
+           'paye', paye, 'motif', btrim(constat)))
+   where id = retrait;
+  if not paye then
+    perform public.rh_retrait_rendre(r, 'reversement non parti');
+  end if;
+end $$;
+
+-- ---------- Ce que chacun lit ----------
+/** Le compte d'un employé : son solde, ses mouvements, ses retraits, ses
+    prêts, et ce qui attend sa prochaine paie. L'employé lit le sien ;
+    le CEO et le superadministrateur, celui de chacun. */
+create or replace function public.rh_compte_employe(qui uuid default null) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  cible uuid := coalesce(qui, public.rh_moi());
+  prochain date;
+begin
+  if cible is null then
+    raise exception 'Seul un employé en poste a un solde';
+  end if;
+  if cible is distinct from public.rh_moi() and not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Vous ne lisez que votre propre solde';
+  end if;
+  prochain := public.rh_prochain_mois_paie(cible);
+  return jsonb_build_object(
+    'employe_id', cible,
+    'solde', public.rh_solde_de(cible),
+    'telephone', (select telephone from public.rh_employes where id = cible),
+    'prochain_mois', prochain,
+    'prochain_versement', public.rh_date_versement(prochain),
+    'mouvements', (select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'le', m.le, 'sens', m.sens,
+        'nature', m.nature, 'montant', m.montant, 'libelle', m.libelle, 'solde', m.solde) order by m.id desc), '[]')
+      from (select * from public.rh_solde_mouvements where employe_id = cible order by id desc limit 100) m),
+    'retraits', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'numero', r.numero, 'montant', r.montant,
+        'moyen', r.moyen, 'reseau', r.reseau, 'telephone', r.telephone, 'statut', r.statut, 'motif', r.motif,
+        'demande_le', r.demande_le, 'conclu_le', r.conclu_le) order by r.demande_le desc), '[]')
+      from (select * from public.rh_retraits where employe_id = cible order by demande_le desc limit 50) r),
+    'prets', (select coalesce(jsonb_agg(jsonb_build_object('id', a.id, 'montant', a.montant, 'motif', a.motif,
+        'statut', a.statut, 'motif_refus', a.motif_refus, 'cree_le', a.cree_le, 'premier_mois', a.premier_mois,
+        'decaisse_le', a.decaisse_le,
+        'reste', a.montant - coalesce((select sum(fa.montant) from public.rh_fiche_avances fa
+                                         join public.rh_fiches_paie f on f.id = fa.fiche_id
+                                        where fa.avance_id = a.id and f.statut <> 'calculee'), 0))
+        order by a.cree_le desc), '[]')
+      from (select * from public.rh_avances where employe_id = cible and statut <> 'annulee'
+             order by cree_le desc limit 50) a),
+    'elements', (select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'mois', x.mois, 'nature', x.nature,
+        'libelle', x.libelle, 'montant', x.montant) order by x.mois, x.cree_le), '[]')
+      from public.rh_elements_paie x where x.employe_id = cible and x.mois >= prochain));
+end $$;
+
+/** Les prêts et les retraits à traiter : le CEO valide les prêts et
+    tranche les reversements incertains ; le gestionnaire décaisse les
+    prêts et sert les retraits. Le CEO et le superadministrateur voient
+    aussi le solde de chacun. */
+create or replace function public.rh_prets_retraits() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_caisse_acces();
+  chef boolean := public.rh_est_ceo() or public.est_super();
+begin
+  if not chef and acces is distinct from 'gestion' then
+    raise exception 'Réservé au CEO et au gestionnaire de la caisse';
+  end if;
+  return jsonb_build_object(
+    'gestion', acces = 'gestion',
+    'chef', chef,
+    'moi', public.rh_moi(),
+    'prets', (select coalesce(jsonb_agg(jsonb_build_object('id', a.id, 'employe_id', a.employe_id,
+        'nom', btrim(e.prenoms || ' ' || e.nom), 'montant', a.montant, 'motif', a.motif, 'statut', a.statut,
+        'cree_le', a.cree_le, 'valide_le', a.valide_le) order by a.cree_le), '[]')
+      from public.rh_avances a join public.rh_employes e on e.id = a.employe_id
+     where a.statut in ('demandee', 'validee')),
+    'retraits', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'numero', r.numero,
+        'employe_id', r.employe_id, 'nom', btrim(e.prenoms || ' ' || e.nom), 'montant', r.montant,
+        'moyen', r.moyen, 'reseau', r.reseau, 'telephone', r.telephone,
+        'telephone_fiche', e.telephone, 'statut', r.statut, 'motif', r.motif, 'reference', r.reference,
+        'demande_le', r.demande_le, 'traite_le', r.traite_le, 'conclu_le', r.conclu_le) order by r.demande_le desc), '[]')
+      from (select * from public.rh_retraits
+             where statut in ('demande', 'envoi', 'envoye', 'incertain')
+                or conclu_le > now() - interval '30 days') r
+      join public.rh_employes e on e.id = r.employe_id),
+    'soldes', case when chef then (select coalesce(jsonb_agg(jsonb_build_object('employe_id', e.id,
+        'nom', btrim(e.prenoms || ' ' || e.nom), 'solde', public.rh_solde_de(e.id)) order by e.nom, e.prenoms), '[]')
+      from public.rh_employes e where e.etat in ('actif', 'bloque')
+         or exists (select 1 from public.rh_solde_mouvements m where m.employe_id = e.id)) end);
+end $$;
+
+/** Les pastilles du menu « Prêts et retraits ». */
+create or replace function public.rh_compteurs_solde() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_caisse_acces();
+  chef boolean := public.rh_est_ceo() or public.est_super();
+  v_moi uuid := public.rh_moi();
+begin
+  return jsonb_build_object(
+    'menu', chef or acces = 'gestion',
+    'prets_a_valider', case when chef then (select count(*) from public.rh_avances where statut = 'demandee') else 0 end,
+    'prets_a_decaisser', case when acces = 'gestion' then
+      (select count(*) from public.rh_avances where statut = 'validee' and employe_id is distinct from v_moi) else 0 end,
+    'retraits_a_servir', case when acces = 'gestion' then
+      (select count(*) from public.rh_retraits where statut = 'demande' and employe_id is distinct from v_moi) else 0 end,
+    'retraits_incertains', case when chef then
+      (select count(*) from public.rh_retraits where statut = 'incertain'
+          or (statut = 'envoi' and traite_le < now() - interval '10 minutes')) else 0 end);
+end $$;
+
+-- ---------- Les droits ----------
+alter table public.rh_solde_mouvements enable row level security;
+alter table public.rh_retraits enable row level security;
+-- Aucune règle : tout passe par les fonctions ci-dessus.
+revoke all on table public.rh_solde_mouvements, public.rh_retraits from public, anon, authenticated;
+grant all on table public.rh_solde_mouvements, public.rh_retraits to service_role;
+
+do $$
+declare f text;
+begin
+  foreach f in array array['rh_octroyer(uuid, text, bigint, text)', 'rh_retirer_element(uuid)',
+                           'rh_demander_pret(bigint, text)', 'rh_annuler_pret(uuid)',
+                           'rh_decider_pret(uuid, boolean, text)', 'rh_decaisser_pret(uuid, jsonb, text)',
+                           'rh_demander_retrait(bigint, text, text, text)', 'rh_annuler_retrait(uuid)',
+                           'rh_refuser_retrait(uuid, text)', 'rh_servir_retrait(uuid, jsonb, text)',
+                           'rh_retrait_preparer(uuid)', 'rh_retrait_trancher(uuid, boolean, text)',
+                           'rh_compte_employe(uuid)', 'rh_prets_retraits()', 'rh_compteurs_solde()'] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated, service_role', f);
+  end loop;
+  foreach f in array array['rh_retrait_resultat(uuid, text, text, jsonb)', 'rh_retraits_a_verifier()'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+    execute format('grant execute on function public.%s to service_role', f);
+  end loop;
+  foreach f in array array['rh_solde_mouvoir(uuid, text, text, bigint, text, uuid, uuid)',
+                           'rh_crediter_fiche(uuid)', 'rh_crediter_salaires()', 'rh_fiche_validee_versee()',
+                           'rh_retrait_rendre(public.rh_retraits, text)', 'rh_solde_fige()',
+                           'rh_solde_de(uuid)', 'rh_prochain_mois_paie(uuid)', 'rh_aujourdhui()',
+                           'rh_date_versement(date)', 'rh_numero_national(text)'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+  end loop;
+end $$;
+
+-- ---------- Le calendrier, tout seul ----------
+-- Chaque matin à 7 h (heure du Bénin, 6 h UTC) : les fiches du mois
+-- écoulé si l'on est le 5 ou après et qu'elles manquent, puis le
+-- versement des fiches validées dont le 10 est passé. Toutes les
+-- 10 minutes, s'il y a des reversements FeexPay en cours, la fonction
+-- Edge va voir où ils en sont. Sans pg_cron, l'application rattrape la
+-- paie à l'ouverture.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    begin
+      perform cron.unschedule('rh-paie-fin-de-mois');
+    exception when others then
+      null;
+    end;
+    perform cron.schedule('rh-paie-quotidienne', '0 6 * * *',
+      'select public.rh_generer_paie_auto(); select public.rh_crediter_salaires();');
+    if exists (select 1 from pg_extension where extname = 'pg_net') then
+      perform cron.schedule('rh-reversements-verifier', '*/10 * * * *',
+        'select net.http_post(''https://rrwzegmrmvvkmzfoiitb.supabase.co/functions/v1/rh-reversement'', ''{"action":"verifier_tout"}''::jsonb, ''{}''::jsonb, ''{"Content-Type": "application/json"}''::jsonb, 60000) where exists (select 1 from public.rh_retraits where statut in (''envoye'', ''incertain'') and reference <> '''')');
+    end if;
+  end if;
+exception when others then
+  raise notice 'Calendrier de la paie non programmé (%), l''application la rattrapera', sqlerrm;
+end $$;
+
+-- =========================================================
+-- BIZZOO Personnel : la place de marché d'un coup d'œil, sur l'accueil
+--
+-- Une seule lecture, rh_accueil_chiffres() : le mois en cours et
+-- aujourd'hui (heure du Bénin) pour les commandes, les livraisons, les
+-- clients, les boutiques, les produits, les livreurs, les avis et le SAV.
+-- Mêmes droits que les Statistiques :
+--   - les nombres : l'administration, le superadministrateur, et les
+--     profils à qui Paramètres ouvre les statistiques des commandes ;
+--   - les montants (ventes, frais de livraison, panier moyen) :
+--     l'administration et le superadministrateur ;
+--   - la marge de BIZZOO : le CEO et le superadministrateur.
+-- Les autres reçoivent null : leur accueil reste celui de leurs tâches.
+-- =========================================================
+
+create or replace function public.rh_accueil_chiffres() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  m1 timestamptz := date_trunc('month', aujourdhui)::timestamp at time zone 'Africa/Porto-Novo';
+  j1 timestamptz := aujourdhui::timestamp at time zone 'Africa/Porto-Novo';
+  argent boolean := public.rh_est_admin() or public.est_super();
+  marge boolean := public.rh_est_ceo() or public.est_super();
+begin
+  if not (argent or public.rh_menu_ouvert('stats_commandes')) then
+    return null;
+  end if;
+  return (
+    with payees_mois as (
+      select c.* from public.commandes c where c.etat = 'payee' and c.paye_le >= m1
+    ),
+    lignes_mois as (
+      select l.* from public.commande_lignes l join payees_mois c on c.id = l.commande_id
+       where l.etat <> 'annulee'
+    ),
+    -- Ce qui est en route aujourd'hui : les articles de commandes payées.
+    lignes_ouvertes as (
+      select l.* from public.commande_lignes l join public.commandes c on c.id = l.commande_id
+       where c.etat = 'payee' and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+    )
+    select jsonb_build_object(
+      'mois', date_trunc('month', aujourdhui)::date,
+      'droits', jsonb_build_object('argent', argent, 'marge', marge),
+      'commandes', jsonb_build_object(
+        'recues_mois', (select count(*) from public.commandes c where c.cree_le >= m1),
+        'payees_mois', (select count(*) from payees_mois),
+        'payees_jour', (select count(*) from payees_mois where paye_le >= j1),
+        'a_payer_mois', (select count(*) from public.commandes c where c.etat = 'a_payer' and c.cree_le >= m1),
+        'annulees_mois', (select count(*) from public.commandes c where c.etat in ('annulee', 'echouee') and c.cree_le >= m1),
+        'revendeurs_mois', (select count(*) from payees_mois where revendeur),
+        'articles_mois', (select coalesce(sum(quantite), 0) from lignes_mois),
+        'ventes_mois', case when argent then (select coalesce(sum(total), 0) from payees_mois) end,
+        'ventes_jour', case when argent then (select coalesce(sum(total), 0) from payees_mois where paye_le >= j1) end,
+        'panier_moyen', case when argent then (select coalesce(round(avg(total)), 0) from payees_mois) end,
+        'frais_livraison_mois', case when argent then (select coalesce(sum(frais_livraison), 0) from payees_mois) end,
+        'remises_mois', case when argent then (select coalesce(sum(remise), 0) from payees_mois) end,
+        'marge_mois', case when marge then
+          (select coalesce(sum(greatest(0, prix - prix_bizzoo) * quantite), 0) from lignes_mois) end),
+      'livraisons', jsonb_build_object(
+        'confirmees_mois', (select count(*) from public.commande_lignes l where l.confirme_le >= m1),
+        'a_preparer', (select count(*) from lignes_ouvertes where etat in ('nouvelle', 'vue')),
+        'pretes', (select count(*) from lignes_ouvertes where etat = 'preparee'),
+        'en_livraison', (select count(*) from lignes_ouvertes where etat = 'en_livraison'),
+        'livrees_sans_confirmation', (select count(*) from public.commande_lignes l join public.commandes c on c.id = l.commande_id
+                                        where c.etat = 'payee' and l.etat = 'remise' and l.confirme_le is null),
+        'livreurs', (select count(*) from public.profils p where p.role = 'livreur' and p.actif),
+        'livreurs_en_course', (select count(distinct livreur_id) from lignes_ouvertes where livreur_id is not null and etat = 'en_livraison')),
+      'clients', jsonb_build_object(
+        'total', (select count(*) from public.clients),
+        'nouveaux_mois', (select count(*) from public.clients k where k.cree_le >= m1),
+        'nouveaux_jour', (select count(*) from public.clients k where k.cree_le >= j1),
+        'verifies', (select count(*) from public.clients k where k.tel_verifie),
+        'acheteurs_mois', (select count(distinct client_id) from payees_mois where client_id is not null),
+        'revendeurs', (select count(*) from public.clients k where k.revendeur_etat = 'validee'),
+        'revendeurs_en_attente', (select count(*) from public.clients k where k.revendeur_etat = 'en_attente')),
+      'boutiques', jsonb_build_object(
+        'total', (select count(*) from public.boutiques),
+        'actives', (select count(*) from public.boutiques b where b.actif),
+        'nouvelles_mois', (select count(*) from public.boutiques b where b.cree_le >= m1),
+        'ayant_vendu_mois', (select count(distinct boutique_id) from lignes_mois)),
+      'produits', jsonb_build_object(
+        'total', (select count(*) from public.produits p where not p.masque),
+        'disponibles', (select count(*) from public.produits p where not p.masque and p.disponible),
+        'ruptures', (select count(*) from public.produits p where not p.masque and not p.sur_commande and p.stock = 0),
+        'nouveaux_mois', (select count(*) from public.produits p where p.cree_le >= m1),
+        'masques', (select count(*) from public.produits p where p.masque)),
+      'avis', jsonb_build_object(
+        'mois', (select count(*) from public.avis a where a.cree_le >= m1),
+        'note_moyenne', (select round(avg(note)::numeric, 2) from public.avis a where not a.masque)),
+      'sav', jsonb_build_object(
+        'ouvertes', (select count(*) from public.reclamations r where r.etat in ('ouverte', 'escaladee')),
+        'mois', (select count(*) from public.reclamations r where r.cree_le >= m1))
+    ));
+end $$;
+
+revoke all on function public.rh_accueil_chiffres() from public, anon;
+grant execute on function public.rh_accueil_chiffres() to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : la première connexion avec un mot de passe de départ
+--
+-- Les employés importés n'ont que leur numéro. BIZZOO leur ouvre un
+-- compte « numéro + mot de passe de départ », le même pour tous et donné
+-- de vive voix ; il n'est écrit nulle part dans ce dépôt public : le
+-- fichier qui crée les comptes reste hors du dépôt.
+--
+-- Un mot de passe que tout le monde connaît ne doit rien ouvrir : le
+-- compte n'est PAS relié à la fiche de l'employé tant que celui-ci n'a
+-- pas choisi le sien. Sans fiche reliée, rh_moi() est vide et la base
+-- ne lui accorde rien. rh_activer_compte() relie le compte, mais
+-- seulement si le mot de passe enregistré n'est plus celui de départ
+-- (on compare l'empreinte gardée à la création) ; ensuite, le mot de
+-- passe de départ ne vaut plus rien pour ce compte.
+-- =========================================================
+
+create table if not exists public.rh_comptes_a_activer (
+  compte_id   uuid primary key references auth.users(id) on delete cascade,
+  employe_id  uuid not null references public.rh_employes(id) on delete cascade,
+  -- L'empreinte du mot de passe de départ, telle que l'a rangée Supabase.
+  empreinte   text not null,
+  cree_le     timestamptz not null default now()
+);
+alter table public.rh_comptes_a_activer enable row level security;
+-- Aucune règle : seules les deux fonctions ci-dessous y touchent.
+revoke all on table public.rh_comptes_a_activer from public, anon, authenticated;
+grant all on table public.rh_comptes_a_activer to service_role;
+
+/** Ce compte doit-il encore choisir son mot de passe ? */
+create or replace function public.rh_activation() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'a_activer', a.compte_id is not null,
+    'prenoms', e.prenoms)
+    from (select auth.uid() as id) moi
+    left join public.rh_comptes_a_activer a on a.compte_id = moi.id
+    left join public.rh_employes e on e.id = a.employe_id;
+$$;
+
+/** Le mot de passe est choisi : le compte rejoint enfin sa fiche. */
+create or replace function public.rh_activer_compte() returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  a public.rh_comptes_a_activer;
+  actuelle text;
+  e public.rh_employes;
+begin
+  select * into a from public.rh_comptes_a_activer where compte_id = auth.uid() for update;
+  if not found then
+    raise exception 'Ce compte n''a rien à activer';
+  end if;
+  select encrypted_password into actuelle from auth.users where id = auth.uid();
+  if actuelle is not distinct from a.empreinte then
+    raise exception 'Choisissez un mot de passe à vous : celui donné par BIZZOO ne vaut que pour la première connexion';
+  end if;
+  select * into e from public.rh_employes where id = a.employe_id and etat = 'actif' for update;
+  if not found then
+    raise exception 'Votre fiche n''est pas (ou plus) celle d''un employé en poste : adressez-vous à l''administration';
+  end if;
+  if e.compte_id is not null and e.compte_id <> auth.uid() then
+    raise exception 'Votre fiche est déjà reliée à un autre compte : adressez-vous à l''administration';
+  end if;
+  perform set_config('rh.decision', 'oui', true);
+  update public.rh_employes set compte_id = auth.uid() where id = e.id;
+  perform set_config('rh.decision', '', true);
+  delete from public.rh_comptes_a_activer where compte_id = auth.uid();
+  -- Un compte né de cette connexion n'est pas un compte de boutique.
+  delete from public.profils p where p.id = auth.uid() and not p.actif and p.role = 'moderateur';
+  return e.id;
+end $$;
+
+revoke all on function public.rh_activation() from public, anon;
+grant execute on function public.rh_activation() to authenticated, service_role;
+revoke all on function public.rh_activer_compte() from public, anon;
+grant execute on function public.rh_activer_compte() to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : l'administration redonne un mot de passe
+--
+-- Un employé a oublié son mot de passe : l'administration (CEO compris)
+-- lui en donne un provisoire, depuis sa fiche. Changer le mot de passe
+-- d'un autre compte demande la clé de service : la fonction Edge
+-- « rh-mot-de-passe » le fait, la clé ne quitte jamais le serveur ; la
+-- base, elle, décide qui en a le droit (rh_mdp_preparer, appelée avec la
+-- session de l'administrateur).
+--
+-- Le mot de passe provisoire se traite comme le mot de passe de départ :
+-- le compte est détaché de sa fiche jusqu'à ce que l'employé choisisse
+-- le sien (rh_comptes_a_activer, rh_activer_compte) ; ses sessions
+-- ouvertes sont fermées ; le geste va au journal de la fiche.
+-- La fiche du CEO ne se traite que par le CEO ou le superadministrateur ;
+-- personne ne traite la sienne ici (« Mon compte » est fait pour ça).
+-- =========================================================
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'rh_journal_employes_action_check'
+               and pg_get_constraintdef(oid) not like '%mot_de_passe%') then
+    alter table public.rh_journal_employes drop constraint rh_journal_employes_action_check;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_journal_employes_action_check') then
+    alter table public.rh_journal_employes add constraint rh_journal_employes_action_check
+      check (action in ('bloque', 'debloque', 'supprime', 'efface', 'mot_de_passe'));
+  end if;
+end $$;
+
+/** Le compte de connexion d'un employé, si l'appelant a le droit de lui
+    donner un mot de passe provisoire. Appelée par la fonction Edge avec
+    la session de l'administrateur. */
+create or replace function public.rh_mdp_preparer(qui uuid) returns uuid
+language plpgsql stable security definer set search_path = public as $$
+declare
+  e public.rh_employes;
+  compte uuid;
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seule l''administration donne un mot de passe provisoire';
+  end if;
+  select * into e from public.rh_employes where id = qui and etat in ('actif', 'bloque');
+  if not found then
+    raise exception 'Seul un employé en poste reçoit un mot de passe';
+  end if;
+  if e.ceo and not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Le mot de passe du CEO ne se change que par lui ou le superadministrateur';
+  end if;
+  compte := coalesce(e.compte_id, (select a.compte_id from public.rh_comptes_a_activer a where a.employe_id = qui limit 1));
+  if compte is null then
+    raise exception 'Cet employé n''a pas encore de compte de connexion';
+  end if;
+  if compte = auth.uid() then
+    raise exception 'Votre propre mot de passe se change dans « Mon compte »';
+  end if;
+  return compte;
+end $$;
+
+/** Le mot de passe provisoire est posé : le compte attend que l'employé
+    choisisse le sien, ses sessions sont fermées, le geste est noté.
+    Service seulement : la fonction Edge l'appelle après avoir changé le
+    mot de passe. */
+create or replace function public.rh_mdp_conclure(qui uuid, compte uuid, par uuid, motif text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  e public.rh_employes;
+  auteur text;
+begin
+  select * into e from public.rh_employes where id = qui for update;
+  if not found then
+    raise exception 'Employé introuvable';
+  end if;
+  perform set_config('rh.decision', 'oui', true);
+  update public.rh_employes set compte_id = null where id = qui and compte_id = compte;
+  perform set_config('rh.decision', '', true);
+  insert into public.rh_comptes_a_activer (compte_id, employe_id, empreinte)
+  select compte, qui, u.encrypted_password from auth.users u where u.id = compte
+  on conflict (compte_id) do update set employe_id = excluded.employe_id, empreinte = excluded.empreinte, cree_le = now();
+  -- Qui était connecté avec l'ancien mot de passe ne l'est plus.
+  if to_regclass('auth.sessions') is not null then
+    execute format('delete from auth.sessions where user_id = %L', compte);
+  end if;
+  select coalesce(btrim(x.prenoms || ' ' || x.nom), '') into auteur from public.rh_employes x where x.compte_id = par;
+  insert into public.rh_journal_employes (employe_id, matricule, nom, action, motif, par_compte, par_nom)
+  values (e.id, coalesce(e.matricule, ''), btrim(e.prenoms || ' ' || e.nom), 'mot_de_passe',
+          btrim(coalesce(motif, '')), par, coalesce(nullif(auteur, ''), 'Superadministrateur'));
+end $$;
+
+revoke all on function public.rh_mdp_preparer(uuid) from public, anon;
+grant execute on function public.rh_mdp_preparer(uuid) to authenticated, service_role;
+revoke all on function public.rh_mdp_conclure(uuid, uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.rh_mdp_conclure(uuid, uuid, uuid, text) to service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : le menu Livreurs
+--
+-- La liste de tous les livreurs (de BIZZOO et des boutiques), avec ce
+-- que chacun a fait sur la période ; un clic ouvre sa fiche et ses
+-- statistiques (rh_livreurs, rh_livreur_fiche). Mêmes droits que la
+-- carte et le classement des livreurs : l'administration, le
+-- superadministrateur, et les profils à qui Paramètres ouvre
+-- « Localiser un livreur » ou les statistiques des livreurs. Les
+-- montants (gains, encaissements) : l'administration seulement.
+--
+-- BLOQUER UN LIVREUR (rh_bloquer_livreur) : l'administration seule, motif
+-- obligatoire. Il ne reçoit plus aucune course : aucune demande ne lui
+-- est proposée, il ne peut plus en prendre, et personne ne peut lui en
+-- confier. Ses courses pas encore parties sont retirées et repartent
+-- vers les boutiques, qui les confient à un autre ; celles qu'il a déjà
+-- en route, il les termine. Il garde son compte : il voit ses courses
+-- passées et rend ce qu'il a encaissé. Chaque blocage et chaque
+-- déblocage est gardé, avec son auteur et son motif.
+-- =========================================================
+
+-- Personne ne pose ce drapeau à la main : seulement rh_bloquer_livreur.
+-- Les comptes de boutique qui modifient leurs livreurs ne le peuvent pas.
+create or replace function public.profils_garde_blocage() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if coalesce(current_setting('bizzoo.blocage', true), '') = 'oui' then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.courses_bloquees := false;
+  elsif new.courses_bloquees is distinct from old.courses_bloquees then
+    raise exception 'Le blocage d''un livreur se décide dans BIZZOO Personnel, par l''administration';
+  end if;
+  return new;
+end $$;
+drop trigger if exists profils_garde_blocage on public.profils;
+create trigger profils_garde_blocage
+  before insert or update on public.profils
+  for each row execute function public.profils_garde_blocage();
+
+-- L'historique des blocages : on ne l'efface pas, personne n'y écrit
+-- directement.
+create table if not exists public.livreurs_blocages (
+  id          bigserial primary key,
+  profil_id   uuid not null references public.profils(id) on delete cascade,
+  bloque      boolean not null,
+  motif       text not null default '',
+  par_compte  uuid,
+  par_nom     text not null default '',
+  le          timestamptz not null default now()
+);
+create index if not exists livreurs_blocages_profil on public.livreurs_blocages(profil_id, le desc);
+alter table public.livreurs_blocages enable row level security;
+revoke all on public.livreurs_blocages from anon, authenticated;
+revoke all on sequence public.livreurs_blocages_id_seq from anon, authenticated;
+grant all on public.livreurs_blocages to service_role;
+grant usage, select on sequence public.livreurs_blocages_id_seq to service_role;
+
+/** Qui ouvre le menu Livreurs. */
+create or replace function public.rh_voit_livreurs() returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super() or public.rh_menu_ouvert('livreurs') or public.rh_menu_ouvert('stats_livreurs');
+$$;
+
+/** Tous les livreurs, et ce que chacun a fait sur la période. */
+create or replace function public.rh_livreurs(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  argent boolean := public.rh_est_admin() or public.est_super();
+begin
+  if not public.rh_voit_livreurs() then
+    raise exception 'Votre compte n''a pas accès aux livreurs';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 1100 then
+    raise exception 'Choisissez une période de trois ans au plus';
+  end if;
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'droits', jsonb_build_object('argent', argent, 'bloquer', argent),
+    'livreurs', (select coalesce(jsonb_agg(x.j order by x.bloque, x.courses desc, x.nom), '[]') from (
+      select p.courses_bloquees as bloque, k.courses,
+             coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur') as nom,
+             jsonb_build_object(
+               'id', p.id,
+               'nom', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur'),
+               'tel', coalesce(p.tel, ''),
+               'vehicule', coalesce(p.vehicule, 'moto'),
+               'boutique', (select b.nom from public.boutiques b where b.id = p.boutique_id),
+               'actif', p.actif,
+               'valide', exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id),
+               'bloque', p.courses_bloquees,
+               'en_course', public.livreur_en_course(p.id),
+               'courses', k.courses,
+               'livrees', k.livrees,
+               'refus', (select count(*) from public.refus_courses r
+                          where r.livreur_id = p.id and r.refuse_le >= t1 and r.refuse_le < t2),
+               'derniere', (select max(c.paye_le) from public.commande_lignes l
+                              join public.commandes c on c.id = l.commande_id
+                             where l.livreur_id = p.id and c.etat = 'payee'),
+               'gains', case when argent then
+                 (select coalesce(sum(g.montant), 0) from public.gains_livreurs g
+                   where g.livreur_id = p.id and g.credite_le >= t1 and g.credite_le < t2) end) as j
+        from public.profils p
+        cross join lateral (
+          select count(distinct l.commande_id) as courses,
+                 count(distinct l.commande_id) filter (where l.etat = 'remise') as livrees
+            from public.commande_lignes l
+            join public.commandes c on c.id = l.commande_id
+           where l.livreur_id = p.id and c.etat = 'payee' and c.paye_le >= t1 and c.paye_le < t2) k
+       where p.role = 'livreur') x));
+end $$;
+
+/** La fiche d'un livreur : qui il est, ses chiffres, ses courses, ses
+    refus, et l'historique de ses blocages. */
+create or replace function public.rh_livreur_fiche(livreur uuid, depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  argent boolean := public.rh_est_admin() or public.est_super();
+  p public.profils;
+  chiffres jsonb;
+  courses jsonb;
+begin
+  if not public.rh_voit_livreurs() then
+    raise exception 'Votre compte n''a pas accès aux livreurs';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 1100 then
+    raise exception 'Choisissez une période de trois ans au plus';
+  end if;
+  select * into p from public.profils x where x.id = livreur and x.role = 'livreur';
+  if not found then
+    raise exception 'Livreur introuvable';
+  end if;
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  -- Une course = une commande qu'il porte. Son étape : la moins avancée
+  -- de ses articles encore valables.
+  with k as (
+    select c.id, c.numero, c.paye_le,
+           min(l.recu_le) as recu_le, max(l.confirme_le) as confirme_le,
+           coalesce((array['nouvelle', 'vue', 'preparee', 'en_livraison', 'remise'])[
+             min(array_position(array['nouvelle', 'vue', 'preparee', 'en_livraison', 'remise'], l.etat))],
+             'annulee') as etat,
+           string_agg(distinct b.nom, ', ') as boutiques
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+      left join public.boutiques b on b.id = l.boutique_id
+     where l.livreur_id = livreur and c.etat = 'payee' and c.paye_le >= t1 and c.paye_le < t2
+     group by c.id, c.numero, c.paye_le
+  )
+  select jsonb_build_object(
+           'courses', count(*),
+           'livrees', count(*) filter (where etat = 'remise'),
+           'en_cours', count(*) filter (where etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')),
+           'annulees', count(*) filter (where etat = 'annulee'),
+           'confirmees', count(*) filter (where confirme_le is not null),
+           'delai_prise_minutes', round(avg(extract(epoch from (recu_le - paye_le)) / 60)
+                                         filter (where recu_le >= paye_le)),
+           'delai_livraison_heures', round((avg(extract(epoch from (confirme_le - paye_le)) / 3600)
+                                         filter (where confirme_le >= paye_le))::numeric, 1)),
+         coalesce(jsonb_agg(jsonb_build_object(
+           'commande', id, 'numero', numero, 'paye_le', paye_le, 'boutiques', boutiques,
+           'etat', etat, 'recu_le', recu_le, 'confirme_le', confirme_le,
+           'gain', case when argent then
+             (select sum(g.montant) from public.gains_livreurs g
+               where g.commande_id = k.id and g.livreur_id = livreur) end)
+           order by paye_le desc), '[]')
+    into chiffres, courses
+    from k;
+
+  chiffres := chiffres || jsonb_build_object(
+    'refus', (select count(*) from public.refus_courses r
+               where r.livreur_id = livreur and r.refuse_le >= t1 and r.refuse_le < t2),
+    'gains', case when argent then
+      (select coalesce(sum(g.montant), 0) from public.gains_livreurs g
+        where g.livreur_id = livreur and g.credite_le >= t1 and g.credite_le < t2) end,
+    'encaisse', case when argent then
+      (select coalesce(sum(e.montant), 0) from public.encaissements e
+        where e.livreur_id = livreur and e.encaisse_le >= t1 and e.encaisse_le < t2) end,
+    'contestes', (select count(*) from public.encaissements e
+                   where e.livreur_id = livreur and e.conteste_le is not null
+                     and e.encaisse_le >= t1 and e.encaisse_le < t2));
+
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'droits', jsonb_build_object('argent', argent, 'bloquer', argent),
+    'livreur', jsonb_build_object(
+      'id', p.id,
+      'nom', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur'),
+      'tel', coalesce(p.tel, ''),
+      'vehicule', coalesce(p.vehicule, 'moto'),
+      'boutique', (select b.nom from public.boutiques b where b.id = p.boutique_id),
+      'actif', p.actif,
+      'valide', exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id),
+      'bloque', p.courses_bloquees,
+      'cree_le', p.cree_le,
+      'en_course', public.livreur_en_course(p.id),
+      'position', (select jsonb_build_object('adresse', pl.adresse, 'le', pl.enregistre_le)
+                     from public.positions_livreurs pl where pl.profil_id = p.id)),
+    'chiffres', chiffres,
+    'courses', (select coalesce(jsonb_agg(x order by x ->> 'paye_le' desc), '[]')
+                  from (select x from jsonb_array_elements(courses) x limit 50) y),
+    'refus', (select coalesce(jsonb_agg(jsonb_build_object(
+                 'numero', c.numero, 'boutique', b.nom, 'motif', r.motif, 'le', r.refuse_le)
+                 order by r.refuse_le desc), '[]')
+                from (select * from public.refus_courses r0
+                       where r0.livreur_id = livreur and r0.refuse_le >= t1 and r0.refuse_le < t2
+                       order by r0.refuse_le desc limit 20) r
+                left join public.commandes c on c.id = r.commande_id
+                left join public.boutiques b on b.id = r.boutique_id),
+    'blocages', (select coalesce(jsonb_agg(jsonb_build_object(
+                   'bloque', x.bloque, 'motif', x.motif, 'par', x.par_nom, 'le', x.le)
+                   order by x.le desc, x.id desc), '[]')
+                  from public.livreurs_blocages x where x.profil_id = livreur));
+end $$;
+
+/** Bloquer ou débloquer un livreur : l'administration seule. Bloqué, il
+    ne reçoit plus de course ; ses courses pas encore parties retournent
+    aux boutiques. Rend le nombre de parts de commande retirées. */
+create or replace function public.rh_bloquer_livreur(livreur uuid, bloquer boolean, motif text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  pourquoi text := left(btrim(coalesce(motif, '')), 300);
+  p        public.profils;
+  auteur   text;
+  porteur  text;
+  c        record;
+  parts    record;
+  annonce  boolean;
+  liberees int := 0;
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seule l''administration bloque ou débloque un livreur';
+  end if;
+  if bloquer is null then
+    raise exception 'Bloquer ou débloquer ?';
+  end if;
+  select * into p from public.profils x where x.id = livreur and x.role = 'livreur' for update;
+  if not found then
+    raise exception 'Livreur introuvable';
+  end if;
+  if p.courses_bloquees = bloquer then
+    raise exception '%', case when bloquer then 'Ce livreur est déjà bloqué' else 'Ce livreur n''est pas bloqué' end;
+  end if;
+  if bloquer and length(pourquoi) < 3 then
+    raise exception 'Dites pourquoi vous bloquez ce livreur';
+  end if;
+  select nullif(btrim(e.prenoms || ' ' || e.nom), '') into auteur
+    from public.rh_employes e where e.id = public.rh_moi();
+  auteur := coalesce(auteur, (select nullif(btrim(x.nom), '') from public.profils x where x.id = auth.uid()),
+                     'Superadministrateur');
+  porteur := coalesce(nullif(btrim(p.nom), ''), 'Le livreur');
+
+  perform set_config('bizzoo.blocage', 'oui', true);
+  update public.profils set courses_bloquees = bloquer where id = livreur;
+  perform set_config('bizzoo.blocage', '', true);
+  insert into public.livreurs_blocages (profil_id, bloque, motif, par_compte, par_nom)
+  values (livreur, bloquer, pourquoi, auth.uid(), auteur);
+
+  if not bloquer then
+    perform public.notifier(array[livreur], 'livreur_debloque', 'Courses rétablies',
+      'BIZZOO vous propose de nouveau des courses.', '#/livraisons', null, null, true);
+    return jsonb_build_object('liberees', 0);
+  end if;
+
+  -- SES COURSES PAS ENCORE PARTIES retournent aux boutiques, comme s'il
+  -- les avait refusées (refuser_course) — sans les compter comme ses refus.
+  for c in
+    select distinct l.commande_id, cm.numero, cm.client_id
+      from public.commande_lignes l
+      join public.commandes cm on cm.id = l.commande_id
+     where l.livreur_id = livreur and l.etat in ('nouvelle', 'vue', 'preparee')
+  loop
+    select exists (select 1 from public.commande_lignes l
+                    where l.commande_id = c.commande_id and l.livreur_id = livreur and l.recu_le is not null)
+      into annonce;
+    -- Une nouvelle course, de nouvelles nouvelles (voir refuser_course).
+    update public.notifications n
+       set type = n.type || '_avant_' || n.id
+     where n.commande_id = c.commande_id
+       and n.type in ('course_confiee', 'course_acceptee', 'course_refusee');
+    perform set_config('bizzoo.livraison', 'oui', true);
+    perform set_config('bizzoo.refus', 'oui', true);
+    for parts in
+      with retirees as (
+        update public.commande_lignes l
+           set livreur_id = null, recu_le = null
+         where l.commande_id = c.commande_id and l.livreur_id = livreur
+           and l.etat in ('nouvelle', 'vue', 'preparee')
+        returning l.boutique_id
+      )
+      select distinct boutique_id from retirees
+    loop
+      liberees := liberees + 1;
+      perform public.notifier(public.equipe_de(parts.boutique_id), 'course_refusee',
+        'Course à confier de nouveau — ' || coalesce(c.numero, ''),
+        porteur || ' ne prend plus de course pour BIZZOO. Confiez-la à un autre livreur.',
+        '#/commandes/' || c.commande_id, c.commande_id, parts.boutique_id, true);
+    end loop;
+    perform set_config('bizzoo.refus', '', true);
+    perform set_config('bizzoo.livraison', '', true);
+    if annonce and c.client_id is not null then
+      perform public.notifier(array[c.client_id], 'course_refusee',
+        'Votre livreur a changé',
+        'Commande ' || coalesce(c.numero, '') || ' : ' || porteur ||
+          ' ne peut pas la livrer. Un autre livreur va la prendre ; vous recevrez son nom et son numéro.',
+        '#/commande/' || c.commande_id, c.commande_id, null, true);
+    end if;
+  end loop;
+
+  perform public.notifier(array[livreur], 'livreur_bloque', 'Courses suspendues',
+    'BIZZOO ne vous propose plus de course pour le moment. Rapprochez-vous de BIZZOO.' ||
+      case when liberees > 0 then ' Vos courses pas encore parties ont été retirées.' else '' end,
+    '#/livraisons', null, null, true);
+  return jsonb_build_object('liberees', liberees);
+end $$;
+
+revoke all on function public.profils_garde_blocage() from public, anon, authenticated;
+revoke all on function public.rh_voit_livreurs() from public, anon;
+grant execute on function public.rh_voit_livreurs() to authenticated, service_role;
+revoke all on function public.rh_livreurs(date, date) from public, anon;
+grant execute on function public.rh_livreurs(date, date) to authenticated, service_role;
+revoke all on function public.rh_livreur_fiche(uuid, date, date) from public, anon;
+grant execute on function public.rh_livreur_fiche(uuid, date, date) to authenticated, service_role;
+revoke all on function public.rh_bloquer_livreur(uuid, boolean, text) from public, anon;
+grant execute on function public.rh_bloquer_livreur(uuid, boolean, text) to authenticated, service_role;

@@ -1,7 +1,9 @@
 /* =========================================================
-   Connexion — chaque employé entre avec son numéro de téléphone
-   et le code reçu par SMS ; il peut faire confiance à son appareil
-   pendant 7 jours. L'administration garde, au choix, son e-mail et
+   Connexion — chaque employé entre avec son numéro de téléphone,
+   et son mot de passe ou un code reçu par SMS ; il peut faire
+   confiance à son appareil pendant 7 jours. À la première connexion
+   avec le mot de passe de départ donné par BIZZOO, il choisit le
+   sien (activation) : avant cela, la base ne lui ouvre rien. L'administration garde, au choix, son e-mail et
    son mot de passe. Puis, pour un compte qui n'est pas (encore) un
    employé en poste : pourquoi, et quoi faire.
    ========================================================= */
@@ -17,34 +19,105 @@ const VueConnexion = (() => {
         ...contenu));
   }
 
-  /** Le numéro, puis le code. */
+  /** Le numéro, puis le mot de passe ; ou, à défaut, un code par SMS. */
   function afficher(zone, suite) {
     const erreur = h("div", { class: "erreur", hidden: true });
     const montrer = (err) => { erreur.textContent = err.message || String(err); erreur.hidden = false; };
     const tel = h("input", { type: "tel", name: "tel", autocomplete: "tel", inputmode: "tel", required: true,
       placeholder: "01 XX XX XX XX" });
-    const bouton = h("button", { class: "btn btn-plein", type: "submit" }, "Recevoir mon code par SMS");
+    const mdp = h("input", { type: "password", name: "mdp", autocomplete: "current-password" });
+    const confiance = h("input", { type: "checkbox" });
+    const bouton = h("button", { class: "btn btn-plein", type: "submit" }, "Se connecter");
+    const sms = h("button", { class: "btn btn-second btn-plein", type: "button" }, "Recevoir plutôt un code par SMS");
     const form = h("form", { class: "pile" },
       h("label", { class: "champ" }, h("span", {}, "Votre numéro de téléphone"), tel,
         h("small", {}, "Le numéro donné à BIZZOO, avec 01 devant (01 + 8 chiffres).")),
-      erreur, bouton,
+      h("label", { class: "champ" }, h("span", {}, "Votre mot de passe"), mdp,
+        h("small", {}, "Première connexion : le mot de passe donné par BIZZOO. Vous choisirez ensuite le vôtre.")),
+      h("label", { class: "case" }, confiance, "Rester connecté sur cet appareil pendant 7 jours"),
+      erreur, bouton, sms,
       h("button", { class: "btn btn-second btn-plein", type: "button", onclick: () => parEmail(zone, suite) },
         "Se connecter avec une adresse e-mail"));
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       erreur.hidden = true;
+      if (!mdp.value) return montrer(new Error("Entrez votre mot de passe, ou demandez un code par SMS."));
       bouton.disabled = true;
       try {
-        const numero = await Supabase.demanderCode(tel.value);
-        code(zone, suite, numero);
+        await Supabase.connexionTelephone(tel.value, mdp.value, confiance.checked);
+        await rattacher();
+        suite();
       } catch (err) {
         montrer(err);
       } finally {
         bouton.disabled = false;
       }
     });
+    sms.addEventListener("click", async () => {
+      erreur.hidden = true;
+      if (!tel.reportValidity()) return;
+      sms.disabled = true;
+      try {
+        const numero = await Supabase.demanderCode(tel.value);
+        code(zone, suite, numero);
+      } catch (err) {
+        montrer(err);
+      } finally {
+        sms.disabled = false;
+      }
+    });
     UI.vider(zone, cadre(form));
     tel.focus();
+  }
+
+  /** Le compte rejoint la fiche qui porte ce numéro ; sauf s'il doit
+      d'abord choisir son mot de passe : l'accueil s'en chargera. */
+  async function rattacher() {
+    const activation = await Supabase.rpc("rh_activation").catch(() => null);
+    if (activation && activation.a_activer) return;
+    try {
+      await Supabase.rpc("rh_rattacher_par_telephone");
+    } catch (err) {
+      await Supabase.deconnexion();
+      throw err;
+    }
+  }
+
+  /** Première connexion avec le mot de passe de départ : l'employé choisit
+      le sien. Tant qu'il ne l'a pas fait, la base ne lui ouvre rien. */
+  function activation(zone, prenoms, suite, deconnexion) {
+    const erreur = h("div", { class: "erreur", hidden: true });
+    const mdp = h("input", { type: "password", autocomplete: "new-password", minlength: 8, required: true });
+    const mdp2 = h("input", { type: "password", autocomplete: "new-password", required: true });
+    const bouton = h("button", { class: "btn btn-plein", type: "submit" }, "Enregistrer mon mot de passe");
+    const form = h("form", { class: "pile" },
+      h("h2", { style: { fontSize: "18px", textAlign: "center" } }, "Bienvenue" + (prenoms ? ", " + prenoms : "")),
+      h("p", { class: "doux petit" }, "Vous êtes entré avec le mot de passe donné par BIZZOO. Choisissez maintenant le vôtre : " +
+        "c'est lui qui vous servira désormais, et celui de départ ne marchera plus pour votre compte. Ne le donnez à personne."),
+      h("label", { class: "champ" }, h("span", {}, "Votre nouveau mot de passe (8 caractères au moins)"), mdp),
+      h("label", { class: "champ" }, h("span", {}, "Le même, encore une fois"), mdp2),
+      erreur, bouton,
+      h("button", { class: "btn btn-second btn-plein", type: "button", onclick: deconnexion }, "Se déconnecter"));
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      erreur.hidden = true;
+      if (mdp.value.length < 8) { erreur.textContent = "8 caractères au moins."; erreur.hidden = false; return; }
+      if (mdp.value !== mdp2.value) { erreur.textContent = "Les deux mots de passe diffèrent."; erreur.hidden = false; return; }
+      bouton.disabled = true;
+      try {
+        await Supabase.changerMotDePasse(mdp.value);
+        await Supabase.rpc("rh_activer_compte");
+        UI.succes("Mot de passe enregistré. Bienvenue dans BIZZOO Personnel !");
+        suite();
+      } catch (err) {
+        erreur.textContent = err.message;
+        erreur.hidden = false;
+      } finally {
+        bouton.disabled = false;
+      }
+    });
+    UI.vider(zone, cadre(form));
+    mdp.focus();
   }
 
   function code(zone, suite, numero) {
@@ -90,13 +163,7 @@ const VueConnexion = (() => {
       bouton.disabled = true;
       try {
         await Supabase.confirmerCode(numero, saisie.value, confiance.checked);
-        /* Le compte rejoint la fiche qui porte ce numéro. */
-        try {
-          await Supabase.rpc("rh_rattacher_par_telephone");
-        } catch (err) {
-          await Supabase.deconnexion();
-          throw err;
-        }
+        await rattacher();
         suite();
       } catch (err) {
         erreur.textContent = err.message;
@@ -350,5 +417,5 @@ const VueConnexion = (() => {
     designer();
   }
 
-  return { afficher, sansFiche, codeEquipe };
+  return { afficher, sansFiche, codeEquipe, activation };
 })();

@@ -76,6 +76,18 @@ const EXPLICATIONS: Record<string, string> = {
   MISSING_PARAMETERS_CONTENT: "La passerelle n'a pas reçu le texte du message.",
 };
 
+/* Sans code dans la réponse, le statut HTTP est tout ce qu'on a. */
+const SANS_CODE: Record<number, string> = {
+  401: "Clé API refusée par la passerelle.",
+  402: "Crédit SMS épuisé. Plus aucune vérification n'aboutira tant qu'il n'est pas rechargé.",
+  403: "Compte CREATISINTER fermé ou restreint.",
+  404: "Adresse de la passerelle introuvable : CREATISINTER a peut-être changé d'adresse.",
+  429: "Trop d'envois d'affilée : la passerelle demande d'attendre un peu.",
+  500: "La passerelle CREATISINTER est en panne de son côté.",
+  502: "La passerelle CREATISINTER est injoignable de son côté.",
+  503: "La passerelle CREATISINTER est indisponible pour le moment.",
+};
+
 export type Envoi = {
   ok: boolean;
   code: string;          // le code rendu par la passerelle, ou le nôtre
@@ -204,9 +216,15 @@ export async function envoyerSms(numero: string, texte: string): Promise<Envoi> 
     };
   }
 
-  const brut = await reponse.json().catch(() => null) as
-    | { status?: boolean; code?: string; description?: string }
-    | null;
+  /* LE CORPS BRUT D'ABORD, puis le JSON. Une passerelle en panne, un
+     compte coupé ou un crédit épuisé répondent parfois une page HTML ou
+     un texte : le 26 octobre 2026, treize refus « sans code » d'affilée,
+     et rien dans le journal pour dire pourquoi. On garde donc de quoi le
+     savoir — le statut HTTP et un extrait de la réponse. */
+  const texteBrut = await reponse.text().catch(() => "");
+  const brut = (() => {
+    try { return JSON.parse(texteBrut); } catch (_) { return null; }
+  })() as { status?: boolean; code?: string; description?: string; message?: string } | null;
 
   const code = String(brut?.code ?? "").toUpperCase();
   /* LES DEUX conditions. « status » seul ne suffit pas, et le code HTTP
@@ -218,15 +236,20 @@ export async function envoyerSms(numero: string, texte: string): Promise<Envoi> 
              brut, message: "SMS accepté par la passerelle." };
   }
 
-  const explication = EXPLICATIONS[code];
+  const explication = EXPLICATIONS[code] ?? (code ? undefined : SANS_CODE[reponse.status]);
+  /* Un extrait lisible, jamais la clé : elle n'est pas dans la réponse,
+     et on l'efface quand même si la passerelle la renvoyait en écho. */
+  const extrait = (brut?.description || brut?.message || texteBrut || "")
+    .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+    .split(cle).join("…").slice(0, 160);
   return {
     ok: false,
     code: code || "REFUS_SANS_CODE",
     statutHttp: reponse.status,
     brut,
-    message: explication ??
-      ("La passerelle a refusé l'envoi" + (code ? " (" + code + ")" : "") +
-       (brut?.description ? " : " + brut.description : "") + "."),
+    message: (explication ??
+      ("La passerelle a refusé l'envoi" + (code ? " (" + code + ")" : "") + ".")) +
+      " [HTTP " + reponse.status + (extrait ? " — " + extrait : "") + "]",
   };
 }
 

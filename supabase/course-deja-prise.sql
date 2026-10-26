@@ -182,6 +182,9 @@ revoke all on function public.gain_livreur(text) from public, anon, authenticate
 -- À coller APRÈS admin-boutique-comptes.sql.
 -- =========================================================
 
+-- (BIZZOO Personnel) Le livreur bloqué : lu par la fonction qui suit.
+alter table public.profils add column if not exists courses_bloquees boolean not null default false;
+
 -- « Commande reçue » : le premier qui touche prend TOUTE la commande —
 -- toutes ses boutiques en livraison groupée. Le verrou sur la commande
 -- range les livreurs en file : le second trouve la course déjà prise.
@@ -208,7 +211,7 @@ begin
     foreach v in array vs loop
       select array_agg(p.id order by p.id) into qui
         from public.profils p
-       where p.role = 'livreur' and p.actif and p.boutique_id = boutiques[1]
+       where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
          and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
       if qui is not null then return qui; end if;
@@ -217,7 +220,7 @@ begin
   foreach v in array vs loop
     select array_agg(p.id order by p.id) into qui
       from public.profils p
-     where p.role = 'livreur' and p.actif and p.boutique_id is null
+     where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
        and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
     if qui is not null then return qui; end if;

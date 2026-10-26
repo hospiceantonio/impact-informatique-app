@@ -100,29 +100,13 @@ const VueStatistiques = (() => {
 
     App.titre(sous.libelle);
     const route = "#/statistiques/" + sous.cle;
-    const du = h("input", { type: "date", value: periode.depuis });
-    const au = h("input", { type: "date", value: periode.jusqu });
-    const formPeriode = h("form", { class: "ligne" },
-      h("label", { class: "champ" }, h("span", {}, "Du"), du),
-      h("label", { class: "champ" }, h("span", {}, "Au"), au),
-      h("button", { class: "btn btn-second", type: "submit", style: { alignSelf: "flex-end" } }, "Afficher"));
-    formPeriode.addEventListener("submit", (ev) => {
-      ev.preventDefault();
-      if (au.value < du.value) return UI.echec("La fin de la période précède son début.");
-      location.hash = route + "?du=" + du.value + "&au=" + au.value;
-    });
-
     const corps = h("div", { class: "pile" }, UI.chargement());
     UI.vider(zone,
       /* Les sous-menus : on passe de l'un à l'autre en gardant la période. */
       h("div", { class: "filtres" }, ouverts.map((s) =>
         h("button", { class: s.cle === sous.cle ? "actif" : "", onclick: () => { location.hash = "#/statistiques/" + s.cle + periode.suffixe; } },
           s.libelle))),
-      h("div", { class: "carte pile" },
-        h("div", { class: "filtres" }, periode.liste.map(([cle, libelle]) =>
-          h("button", { class: periode.choix && periode.choix[0] === cle ? "actif" : "",
-                        onclick: () => { location.hash = route + "?p=" + cle; } }, libelle))),
-        formPeriode),
+      UI.barrePeriode(periode, route),
       corps);
     /* Sur téléphone, la bande des sous-menus montre celui qu’on lit. */
     const actif = zone.querySelector(".filtres .actif");
@@ -413,7 +397,7 @@ const VueStatistiques = (() => {
         [["Profil", "texte", 24], ["Personnes", "nombre", 10], ["Salaires de base", "fcfa"]],
         e.par_profil.map((p) => [p.profil, p.effectif, p.masse_base])) : null,
       repartition("Statut", e.par_statut, { employe: "Employés", stagiaire: "Stagiaires" }),
-      repartition("Sexe", e.par_sexe, { M: "Hommes", F: "Femmes" }),
+      repartition("Sexe", e.par_sexe, { M: "Hommes", F: "Femmes", NR: "Non renseigné" }),
       repartition("Niveau d'étude", e.par_niveau),
       repartition("Toutes les fiches, par état", e.par_etat, ETATS_EMPLOYE),
       tableau("Embauches et sorties par mois", ["Mois", "Embauches", "Sorties"],
@@ -475,5 +459,5 @@ const VueStatistiques = (() => {
 
   const INTERNES = { salaires, depenses, effectifs, activite, revenus };
 
-  return { titre: "Statistiques", afficher, SOUS_MENUS };
+  return { titre: "Statistiques", afficher, SOUS_MENUS, periodeDe };
 })();

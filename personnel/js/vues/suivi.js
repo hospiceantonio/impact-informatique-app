@@ -80,24 +80,8 @@ const VueSuivi = (() => {
     return { liste, choix,
       depuis: choix ? choix[2] : params.du, jusqu: choix ? choix[3] : (params.au || iso(new Date())) };
   }
-  function barrePeriode(route, periode, extra) {
-    const du = h("input", { type: "date", value: periode.depuis });
-    const au = h("input", { type: "date", value: periode.jusqu });
-    const form = h("form", { class: "ligne" },
-      h("label", { class: "champ" }, h("span", {}, "Du"), du),
-      h("label", { class: "champ" }, h("span", {}, "Au"), au),
-      h("button", { class: "btn btn-second", type: "submit", style: { alignSelf: "flex-end" } }, "Afficher"));
-    form.addEventListener("submit", (ev) => {
-      ev.preventDefault();
-      if (au.value < du.value) return UI.echec("La fin de la période précède son début.");
-      location.hash = route + "?du=" + du.value + "&au=" + au.value + (extra || "");
-    });
-    return h("div", { class: "carte pile" },
-      h("div", { class: "filtres" }, periode.liste.map(([cle, libelle]) =>
-        h("button", { class: periode.choix && periode.choix[0] === cle ? "actif" : "",
-                      onclick: () => { location.hash = route + "?p=" + cle + (extra || ""); } }, libelle))),
-      form);
-  }
+  const lignePeriode = (route, periode, extra) => UI.lignePeriode(periode, route, extra);
+  const barrePeriode = (route, periode, extra) => UI.barrePeriode(periode, route, extra);
 
   function onglets(actif) {
     const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"]];
@@ -127,19 +111,21 @@ const VueSuivi = (() => {
     const statuts = [...new Set(toutes.map((c) => c.statut))].sort();
     const zones = [...new Set(toutes.map((c) => c.client.zone || "Non reconnue"))].sort((a, b) => a.localeCompare(b, "fr"));
 
-    const recherche = h("input", { type: "search", placeholder: "N°, client, téléphone, marchand, livreur…" });
-    const choixStatut = h("select", {}, h("option", { value: "" }, "Tous les statuts"), statuts.map((s) => h("option", { value: s }, s)));
-    const choixZone = h("select", {}, h("option", { value: "" }, "Toutes les zones"), zones.map((s) => h("option", { value: s }, s)));
+    const recherche = h("input", { type: "search", class: "recherche", placeholder: "Rechercher : n°, client, téléphone, marchand, livreur…", "aria-label": "Rechercher" });
+    const choixStatut = h("select", { "aria-label": "Statut" }, h("option", { value: "" }, "Tous les statuts"), statuts.map((s) => h("option", { value: s }, s)));
+    const choixZone = h("select", { "aria-label": "Zone" }, h("option", { value: "" }, "Toutes les zones"), zones.map((s) => h("option", { value: s }, s)));
     const avecAlertes = h("input", { type: "checkbox" });
     const corps = h("div", {});
     const compte = h("p", { class: "doux petit" });
+    /* Les chiffres du tableau tel qu'il est filtré : ce qu'on voit, on le compte. */
+    const resume = h("div", { class: "resume-suivi" });
 
     const filtrees = () => {
       const q = recherche.value.trim().toLowerCase();
       return toutes.filter((c) =>
         (!choixStatut.value || c.statut === choixStatut.value) &&
         (!choixZone.value || (c.client.zone || "Non reconnue") === choixZone.value) &&
-        (!avecAlertes.checked || c.alertes.length) &&
+        (!avecAlertes.checked || enAlerte(c)) &&
         (!q || [c.numero, c.client.nom, c.client.tel, c.client.adresse, c.marchands, c.livreurs, c.articles]
           .join(" ").toLowerCase().includes(q)));
     };
@@ -170,45 +156,127 @@ const VueSuivi = (() => {
           !c.observations && !c.alertes.length && !c.incidents_ouverts ? "—" : null], classe: "large" },
     ];
     let tri = { col: 1, sens: -1 };
+    /* Les largeurs choisies à la souris (ou au doigt), par titre de colonne,
+       gardées dans ce navigateur. Tant qu'aucune n'est choisie, le tableau
+       se dispose seul. */
+    const CLE_LARGEURS = "bizzoo-suivi-colonnes";
+    let largeurs = {};
+    try { largeurs = JSON.parse(localStorage.getItem(CLE_LARGEURS) || "{}") || {}; } catch (_) { largeurs = {}; }
+    const garderLargeurs = () => { try { localStorage.setItem(CLE_LARGEURS, JSON.stringify(largeurs)); } catch (_) { /* navigation privée */ } };
+    const fixe = () => colonnes.some((col) => largeurs[col.titre]);
+    /** La poignée au bord droit d'un en-tête : on la tire pour élargir ;
+        un double clic rend à toutes les colonnes leur largeur d'origine. */
+    const poignee = (i) => h("span", { class: "poignee-colonne", title: "Tirer pour changer la largeur (double clic : largeurs d'origine)",
+      onclick: (ev) => ev.stopPropagation(),
+      ondblclick: (ev) => { ev.stopPropagation(); largeurs = {}; garderLargeurs(); dessiner(); },
+      onpointerdown: (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const table = ev.currentTarget.closest("table");
+        const cols = table.querySelectorAll("col");
+        /* Premier redimensionnement : on fige toutes les colonnes à leur
+           largeur du moment, pour que seule celle-ci bouge. */
+        if (!fixe()) {
+          table.querySelectorAll("thead th").forEach((th, k) => { largeurs[colonnes[k].titre] = Math.round(th.getBoundingClientRect().width); });
+          appliquer(table);
+        }
+        const depart = ev.clientX;
+        const initiale = largeurs[colonnes[i].titre];
+        const poigne = ev.currentTarget;
+        poigne.setPointerCapture(ev.pointerId);
+        poigne.classList.add("active");
+        const bouger = (e) => {
+          largeurs[colonnes[i].titre] = Math.max(60, Math.round(initiale + e.clientX - depart));
+          cols[i].style.width = largeurs[colonnes[i].titre] + "px";
+          table.style.width = colonnes.reduce((t, col) => t + (largeurs[col.titre] || 120), 0) + "px";
+        };
+        const lacher = () => {
+          poigne.classList.remove("active");
+          poigne.removeEventListener("pointermove", bouger);
+          garderLargeurs();
+        };
+        poigne.addEventListener("pointermove", bouger);
+        poigne.addEventListener("pointerup", lacher, { once: true });
+        poigne.addEventListener("pointercancel", lacher, { once: true });
+      } });
+    /** Les largeurs choisies, posées sur le tableau. */
+    const appliquer = (table) => {
+      const avec = fixe();
+      table.classList.toggle("colonnes-fixes", avec);
+      table.querySelectorAll("col").forEach((c, k) => { c.style.width = avec ? (largeurs[colonnes[k].titre] || 120) + "px" : ""; });
+      table.style.width = avec ? colonnes.reduce((t, col) => t + (largeurs[col.titre] || 120), 0) + "px" : "";
+    };
     const comparer = (a, b) => {
       const ka = colonnes[tri.col].cle(a), kb = colonnes[tri.col].cle(b);
       const d = typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb), "fr", { numeric: true });
       return d * tri.sens;
     };
+    /* En alerte : la même règle que la pastille du menu — une course
+       refusée seule n'est pas une alerte qui attend quelqu'un. */
+    const enAlerte = (c) => c.alertes.some((a) => a !== "refus_course");
+    const dessinerResume = (liste) => {
+      const somme = (cle) => liste.reduce((t, c) => t + Number(c[cle] || 0), 0);
+      const tuile = (valeur, libelle, classe) => h("div", { class: "tuile" + (classe ? " " + classe : "") },
+        h("b", { style: { fontSize: "19px" } }, valeur), h("span", {}, libelle));
+      /* Les statuts dans l'ordre du parcours d'une commande ; un clic filtre le tableau. */
+      const parStatut = new Map();
+      for (const c of liste) {
+        const x = parStatut.get(c.statut) || { statut: c.statut, rang: c.rang, n: 0 };
+        x.n += 1;
+        parStatut.set(c.statut, x);
+      }
+      UI.vider(resume,
+        h("div", { class: "tuiles compactes" },
+          tuile(UI.entier(liste.length), "commande(s)"),
+          r.montants ? tuile(UI.fcfa(somme("total")), "coût total des commandes") : null,
+          r.montants ? tuile(UI.fcfa(somme("frais")), "coût total de la livraison") : null,
+          r.montants ? tuile(UI.fcfa(somme("reste")), "restant à encaisser", somme("reste") > 0 ? "alerte" : "") : null,
+          tuile(UI.entier(liste.filter(enAlerte).length), "en alerte", liste.some(enAlerte) ? "alerte" : "")),
+        parStatut.size ? h("div", { class: "barre-compacte" },
+          h("span", { class: "gras petit" }, "Par statut :"),
+          [...parStatut.values()].sort((a, b) => a.rang - b.rang).map((x) =>
+            h("button", { class: "btn-statut", type: "button", title: "N'afficher que ce statut",
+                          onclick: () => { choixStatut.value = choixStatut.value === x.statut ? "" : x.statut; dessiner(); } },
+              UI.etiquette(x.statut, COULEUR_STATUT[x.rang] || ""), h("b", {}, " " + x.n)))) : null);
+    };
     const dessiner = () => {
       const liste = filtrees().sort(comparer);
       compte.textContent = liste.length + " commande(s) sur " + toutes.length;
+      dessinerResume(liste);
+      /* La pastille du menu suit le tableau affiché. */
+      App.alertesAffichees(liste.filter(enAlerte).length);
       if (!liste.length) return UI.vider(corps, UI.vide("Aucune commande ne correspond."));
       const ouvrir = (c) => { location.hash = "#/suivi/commande/" + encodeURIComponent(c.id); };
-      UI.vider(corps, h("div", { class: "carte defile tableau-suivi" },
-        h("table", { class: "tableau" },
-          h("thead", {}, h("tr", {}, colonnes.map((col, i) =>
-            h("th", { class: (col.classe || "") + " triable", title: "Trier",
-                      onclick: () => { tri = { col: i, sens: tri.col === i ? -tri.sens : 1 }; dessiner(); } },
-              col.titre, tri.col === i ? (tri.sens > 0 ? " ▲" : " ▼") : "")))),
-          h("tbody", {}, liste.map((c) =>
-            h("tr", { class: c.alertes.length ? "en-alerte" : "", tabindex: "0", title: "Ouvrir la fiche",
-                      onclick: () => ouvrir(c), onkeydown: (ev) => { if (ev.key === "Enter") ouvrir(c); } },
-              colonnes.map((col) => h("td", { class: col.classe || "" }, col.cellule(c)))))))));
+      const table = h("table", { class: "tableau" },
+        h("colgroup", {}, colonnes.map(() => h("col"))),
+        h("thead", {}, h("tr", {}, colonnes.map((col, i) =>
+          h("th", { class: (col.classe || "") + " triable", title: "Trier",
+                    onclick: () => { tri = { col: i, sens: tri.col === i ? -tri.sens : 1 }; dessiner(); } },
+            col.titre, tri.col === i ? (tri.sens > 0 ? " ▲" : " ▼") : "", poignee(i))))),
+        h("tbody", {}, liste.map((c) =>
+          h("tr", { class: c.alertes.length ? "en-alerte" : "", tabindex: "0", title: "Ouvrir la fiche",
+                    onclick: () => ouvrir(c), onkeydown: (ev) => { if (ev.key === "Enter") ouvrir(c); } },
+            colonnes.map((col) => h("td", { class: col.classe || "" }, col.cellule(c)))))));
+      appliquer(table);
+      UI.vider(corps, h("div", { class: "carte defile tableau-suivi" }, table));
     };
     for (const e of [recherche]) e.addEventListener("input", dessiner);
     for (const e of [choixStatut, choixZone, avecAlertes]) e.addEventListener("change", dessiner);
 
     /* Le tableau prend toute la largeur de l’écran (zone neuve à chaque page). */
-    zone.classList.add("vue-large");
+    zone.classList.add("vue-large", "serre");
     UI.vider(zone,
       onglets(""),
-      barrePeriode("#/suivi", periode),
-      h("div", { class: "carte pile" },
-        h("div", { class: "formulaire" },
-          h("label", { class: "champ" }, h("span", {}, "Rechercher"), recherche),
-          h("label", { class: "champ" }, h("span", {}, "Statut"), choixStatut),
-          h("label", { class: "champ" }, h("span", {}, "Zone"), choixZone)),
-        h("div", { class: "ligne" },
-          h("label", { class: "case etire" }, avecAlertes, "Seulement les commandes en alerte"),
+      /* Tout ce qui règle le tableau, dans un seul cadre : la période sur
+         une ligne, les filtres et l'export sur la suivante. */
+      h("div", { class: "carte compacte" },
+        lignePeriode("#/suivi", periode),
+        h("div", { class: "barre-compacte" },
+          recherche, choixStatut, choixZone,
+          h("label", { class: "case" }, avecAlertes, "En alerte seulement"),
           h("button", { class: "btn btn-vert", type: "button", onclick: () => exporter(filtrees(), r, periode) },
-            UI.icone("telecharger", "ic-sm"), "Exporter vers Excel"))),
-      compte, corps);
+            UI.icone("telecharger", "ic-sm"), "Excel"))),
+      resume, compte, corps);
     dessiner();
   }
 

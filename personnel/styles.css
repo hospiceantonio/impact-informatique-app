@@ -76,7 +76,7 @@ p{margin:0}
 .btn-ic:active{transform:scale(.94)}
 
 .vue{padding:16px 16px calc(var(--barre-h) + var(--safe-b) + 24px);max-width:900px;margin:0 auto}
-.vue > * + *{margin-top:14px}
+.vue > * + *{margin-top:10px}
 
 .onglets{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
@@ -115,7 +115,7 @@ p{margin:0}
 }
 
 /* ---------- Les éléments ---------- */
-.carte{background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:16px}
+.carte{background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:14px}
 .carte h2{font-size:16px;font-weight:700;margin-bottom:10px}
 .carte h3{font-size:14.5px;font-weight:600}
 .titre-section{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -171,12 +171,16 @@ p{margin:0}
 .element.non-lu .titre{font-weight:700}
 .avatar{width:38px;height:38px;border-radius:50%;background:var(--bleu-100);color:var(--bleu-800);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex:none}
 
-.tuiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
-.tuile{display:block;background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:14px;color:var(--encre)}
-.tuile b{display:block;font-size:24px;color:var(--bleu-900)}
+.tuiles{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.tuile{display:block;background:var(--blanc);border:1px solid var(--trait);border-radius:var(--r);padding:9px 12px;color:var(--encre)}
+.tuile b{display:block;font-size:20px;color:var(--bleu-900)}
 .tuile span{font-size:13px;color:var(--encre-douce)}
 .tuile.alerte{border-color:var(--orange);background:var(--orange-clair)}
 .tuile.alerte b{color:var(--orange-fonce)}
+.rubrique-accueil h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce);margin-bottom:6px}
+.rubrique-accueil .tuile b{font-size:18px}
+.btn-statut{display:inline-flex;align-items:center;gap:4px;background:none;border:1px solid var(--trait);border-radius:999px;padding:3px 8px 3px 3px;cursor:pointer;font:inherit;color:var(--encre)}
+.btn-statut:hover{border-color:var(--bleu-400)}
 
 .filtres{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
 .filtres button{flex:none;border:1px solid var(--trait);background:var(--blanc);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;color:var(--encre-douce)}
@@ -187,6 +191,37 @@ p{margin:0}
 .tableau th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce);font-weight:600}
 .tableau td.nombre,.tableau th.nombre{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .defile{overflow-x:auto}
+/* Le haut des pages du suivi, serré : la période, les filtres et les chiffres
+   tiennent en peu de lignes, et le tableau monte. */
+.vue.serre > * + *{margin-top:8px}
+.carte.compacte{padding:10px 12px}
+.carte.compacte > * + *{margin-top:8px}
+.barre-compacte{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.barre-compacte .filtres{flex:0 1 auto}
+.barre-compacte input,.barre-compacte select{min-height:34px;padding:4px 8px;border:1px solid var(--trait);border-radius:10px;background:var(--blanc);font-size:13.5px;max-width:100%}
+.barre-compacte input:focus,.barre-compacte select:focus{outline:2px solid var(--bleu-300);border-color:var(--bleu-300)}
+.barre-compacte .recherche{flex:1 1 220px}
+.barre-compacte .btn{min-height:34px;padding:0 12px;font-size:13.5px;border-radius:10px}
+.barre-compacte .case{font-size:13.5px;gap:6px}
+.barre-compacte .doux{font-size:13px}
+.resume-suivi > * + *{margin-top:6px}
+.tuiles.compactes{grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:6px}
+.tuiles.compactes .tuile{padding:7px 10px}
+.tuiles.compactes .tuile b{font-size:16px !important}
+.tuiles.compactes .tuile span{font-size:12px}
+.barre-compacte .texte-court{display:none}
+@media (max-width:700px){
+  .barre-compacte form.barre-compacte{flex-wrap:nowrap;width:100%}
+  .barre-compacte .texte-long{display:none}
+  .barre-compacte .texte-court{display:inline}
+  .barre-compacte form input[type=date]{padding:4px 6px;font-size:13px}
+  .barre-compacte form input[type=date]{flex:1 1 0;min-width:0}
+  .barre-compacte select{flex:1 1 140px;min-width:0}
+  .tuiles.compactes{display:flex;overflow-x:auto;padding-bottom:2px}
+  .tuiles.compactes .tuile{flex:0 0 auto;min-width:118px}
+  .resume-suivi > .barre-compacte{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
+  .resume-suivi .btn-statut,.resume-suivi > .barre-compacte > span{flex:none}
+}
 .tableau-suivi{padding:0;max-height:70vh;overflow:auto}
 .tableau-suivi .tableau{min-width:1250px;font-size:13px}
 .tableau-suivi th{position:sticky;top:0;z-index:2;background:var(--blanc);white-space:nowrap}
@@ -199,6 +234,17 @@ p{margin:0}
 .tableau-suivi td.sans-retour{white-space:nowrap}
 .tableau-suivi td.large{min-width:200px}
 .tableau-suivi td.moyen{min-width:170px}
+/* Les lignes verticales, et les colonnes qu'on élargit en tirant le bord de l'en-tête. */
+.tableau-suivi th,.tableau-suivi td{border-right:1px solid var(--trait)}
+.tableau-suivi th:last-child,.tableau-suivi td:last-child{border-right:0}
+.tableau-suivi .tableau.colonnes-fixes{table-layout:fixed;min-width:0}
+.tableau-suivi .colonnes-fixes td,.tableau-suivi .colonnes-fixes th{min-width:0;overflow-wrap:break-word}
+.tableau-suivi .colonnes-fixes th{white-space:normal}
+.tableau-suivi .tableau.colonnes-fixes td{white-space:normal}
+.tableau-suivi .tableau.colonnes-fixes .etiquette{white-space:normal;max-width:100%;text-align:left}
+.poignee-colonne{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:4;touch-action:none}
+.poignee-colonne::after{content:"";position:absolute;top:20%;bottom:20%;left:4px;width:1px;background:transparent}
+.poignee-colonne:hover::after,.poignee-colonne.active::after{background:var(--bleu-400);width:3px;left:3px}
 .vue.vue-large{max-width:none}
 /* Le circuit d'une dépense : quatre étapes. */
 .etapes-depense{list-style:none;margin:4px 0;padding:0;display:flex;flex-direction:column;gap:10px}

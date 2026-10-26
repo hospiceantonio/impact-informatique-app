@@ -51,7 +51,7 @@ const VueCompte = (() => {
       afficher(zone);
     });
 
-    const sansMotDePasse = Supabase.parTelephone();
+    /* Entré par numéro ou par e-mail, chacun peut changer son mot de passe. */
     const mdp = h("input", { type: "password", autocomplete: "new-password", minlength: 8, required: true });
     const mdp2 = h("input", { type: "password", autocomplete: "new-password", required: true });
     const boutonMdp = h("button", { class: "btn", type: "submit" }, "Changer mon mot de passe");
@@ -104,7 +104,7 @@ const VueCompte = (() => {
             h("span", { class: "etire gras" }, UI.mois(f.mois)), h("b", {}, UI.fcfa(f.net)),
             UI.etiquette(...(STATUTS[f.statut] || [f.statut, ""])))))
           : UI.vide("Aucune fiche validée pour l'instant.")),
-      coord, boite, sansMotDePasse ? null : formMdp,
+      coord, boite, formMdp,
       h("button", { class: "btn btn-danger btn-plein", onclick: () => App.deconnecte() }, UI.icone("sortie", "ic-sm"), "Se déconnecter"));
   }
 
