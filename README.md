@@ -5545,7 +5545,7 @@ WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
 
 Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
-`supabase/tests/99zzz…-commande-whatsapp.sql` (42 constats),
+`supabase/tests/99zzz…-commande-whatsapp.sql` (41 constats),
 `tools/banc-faire-livrer.mjs` (31 constats ; `CAPTURES=<dossier>` pour des
 images de chaque étape).
 
