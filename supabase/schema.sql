@@ -5425,7 +5425,17 @@ declare
   taux     int;
   les_parts jsonb;
   manquant  bigint;
+  -- (3.68.0) Les frais SAISIS par l'équipe pour une commande prise sur
+  -- WhatsApp (« faire_livrer ») : ils remplacent le calcul à la distance.
+  -- Les deux drapeaux ne s'attrapent pas depuis PostgREST.
+  saisis   bigint := case when coalesce(current_setting('bizzoo.hors_appli', true), '') = 'oui'
+                          then nullif(current_setting('bizzoo.frais_saisis', true), '')::bigint end;
+  vehic    text;
 begin
+  -- Des frais saisis valent une livraison « au kilomètre » sans kilomètre :
+  -- un seul frais pour la commande, un seul livreur, payé en ligne — et le
+  -- livreur en touche sa part comme d'habitude.
+  if saisis is not null then au_km := true; end if;
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
     raise exception 'Votre panier est vide.';
@@ -5439,7 +5449,7 @@ begin
   -- (3.64.0) LA POSITION DU CLIENT EST OBLIGATOIRE quand la livraison se
   -- compte au kilomètre : sans elle, pas de distance, donc pas de frais.
   -- Une application d'avant ne l'envoie pas — on lui dit quoi faire.
-  if au_km then
+  if au_km and saisis is null then
     if destination is null or jsonb_typeof(destination) <> 'object'
        or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
       if coalesce(avec_frais, false) and destination is null then
@@ -5661,13 +5671,26 @@ begin
   -- l'acompte : c'est BIZZOO qui les détient, et qui en doit sa part au
   -- livreur (« gains_livreurs »).
   if au_km then
-    devis := public.devis_livraison(
-      (destination ->> 'latitude')::double precision,
-      (destination ->> 'longitude')::double precision,
-      case when exists (select 1 from public.commande_lignes l
-                          join public.produits pr on pr.id = l.produit_id
-                         where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
-           then 'tricycle' else 'moto' end);
+    vehic := case when exists (select 1 from public.commande_lignes l
+                                 join public.produits pr on pr.id = l.produit_id
+                                where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
+                  then 'tricycle' else 'moto' end;
+    if saisis is not null then
+      -- (3.68.0) Les frais décidés par qui a pris la commande ; la position,
+      -- si on l'a, pour que le livreur trouve le client.
+      devis := jsonb_build_object('vehicule', vehic, 'distance_km', null, 'frais', greatest(0, saisis),
+                 'saisie', true) ||
+               case when destination is not null and jsonb_typeof(destination) = 'object'
+                         and (destination ->> 'latitude') is not null and (destination ->> 'longitude') is not null
+                    then jsonb_build_object('destination', jsonb_build_object(
+                           'latitude', round((destination ->> 'latitude')::numeric, 6),
+                           'longitude', round((destination ->> 'longitude')::numeric, 6)))
+                    else '{}'::jsonb end;
+    else
+      devis := public.devis_livraison(
+        (destination ->> 'latitude')::double precision,
+        (destination ->> 'longitude')::double precision, vehic);
+    end if;
     frais_km := coalesce((devis ->> 'frais')::bigint, 0);
     perform set_config('bizzoo.interne', 'oui', true);
     update public.commandes set frais_livraison = frais_km, livraison = devis where id = nouvelle;
@@ -6348,8 +6371,10 @@ grant execute on function public.confirmer_paiement(text) to authenticated;
 --
 -- « faire_livrer » la fait entrer par la MÊME PORTE que les autres :
 --   1. « creer_commande » relit les prix, le stock, la boutique ouverte,
---      la monnaie, et calcule les frais (au kilomètre, ou ceux des
---      boutiques) — rien n'est saisi à la main ;
+--      la monnaie ; les FRAIS DE LIVRAISON, eux, sont ceux que l'équipe a
+--      convenus avec le client (décision de BIZZOO pour ces commandes) —
+--      un seul frais, un seul livreur, qui en touche sa part comme
+--      d'habitude ; la position du client est facultative ;
 --   2. le client a DÉJÀ TOUT PAYÉ : pas d'acompte, rien à encaisser à la
 --      porte — le livreur ne prend rien chez lui ;
 --   3. elle est marquée payée avec la référence de la transaction
@@ -6403,8 +6428,13 @@ create trigger profils_faire_livrer_verrou
   before insert or update of peut_faire_livrer on public.profils
   for each row execute function public.profil_faire_livrer_verrou();
 
+-- (3.68.0) Les frais de livraison sont SAISIS par qui a pris la commande
+-- (BIZZOO l'a décidé pour ces commandes-là) ; la position du client est
+-- facultative. « drop » : la signature a gagné « frais » — l'ancienne,
+-- à côté, rendrait l'appel ambigu.
+drop function if exists public.faire_livrer(jsonb, jsonb, jsonb, text, bigint, text);
 create or replace function public.faire_livrer(
-  articles jsonb, client jsonb, destination jsonb, transaction text,
+  articles jsonb, client jsonb, destination jsonb, frais bigint, transaction text,
   montant bigint, reseau text default '')
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -6438,6 +6468,10 @@ begin
   if coalesce(montant, 0) <= 0 then
     raise exception 'Indiquez le montant que le client a payé.' using errcode = 'P0001';
   end if;
+  if frais is null or frais < 0 or frais > 1000000 then
+    raise exception 'Indiquez les frais de livraison convenus avec le client (0 s''il n''y en a pas).'
+      using errcode = 'P0001';
+  end if;
   -- UNE TRANSACTION NE PAIE QU'UNE COMMANDE : ni une autre commande, ni un
   -- reste payé à la livraison. Comparées sans ponctuation ni casse : un
   -- reçu se recopie de plusieurs façons.
@@ -6450,27 +6484,24 @@ begin
       using errcode = 'P0001';
   end if;
 
-  if public.livraison_active() and (destination is null or jsonb_typeof(destination) <> 'object'
-     or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null) then
-    raise exception 'Indiquez la position du client : collez le lien de carte qu''il vous a envoyé sur WhatsApp, ou touchez la carte.'
-      using errcode = 'P0001';
-  end if;
-
   -- LE MONTANT D'ABORD, avant d'écrire quoi que ce soit : une commande
   -- refusée après coup aurait déjà pris un numéro « BZ- », et un trou
   -- dans les numéros fait croire au point qu'une commande manque.
-  g := public.devis_faire_livrer(articles, destination);
-  if (g ->> 'total') is not null and montant < (g ->> 'total')::bigint then
+  g := public.devis_faire_livrer(articles, null);
+  if montant < (g ->> 'sous_total')::bigint + frais then
     raise exception 'Le client a payé %, mais la commande coûte % (dont % de livraison). Vérifiez le montant ou les articles.',
-      public.montant_lisible(montant, g ->> 'devise'), public.montant_lisible((g ->> 'total')::bigint, g ->> 'devise'),
-      public.montant_lisible(coalesce((g ->> 'frais_livraison')::bigint, 0), g ->> 'devise')
+      public.montant_lisible(montant, g ->> 'devise'),
+      public.montant_lisible((g ->> 'sous_total')::bigint + frais, g ->> 'devise'),
+      public.montant_lisible(frais, g ->> 'devise')
       using errcode = 'P0001';
   end if;
 
   -- La commande, par le chemin de toutes les commandes : prix, stock,
   -- boutique ouverte, frais. Tout se paie d'un coup (pas d'acompte).
   perform set_config('bizzoo.hors_appli', 'oui', true);
-  g := public.creer_commande(client, articles, '', false, true, destination);
+  perform set_config('bizzoo.frais_saisis', frais::text, true);
+  g := public.creer_commande(client, articles, '', false, false, destination);
+  perform set_config('bizzoo.frais_saisis', '', true);
   perform set_config('bizzoo.hors_appli', '', true);
   select * into c from public.commandes where id = g ->> 'id';
 
@@ -6515,15 +6546,15 @@ begin
     'frais_livraison', c.frais_livraison, 'livraison', c.livraison,
     'verse', c.verse, 'client_relie', c.client_id is not null);
 end $$;
-revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, text, bigint, text) from public, anon;
-grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, text, bigint, text) to authenticated;
+revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) from public, anon;
+grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) to authenticated;
 
--- Le devis de l'écran « Faire livrer » : les articles, les frais et le
--- total AVANT de valider, par les règles de « creer_commande » — le prix
--- du produit, les frais au kilomètre (tricycle dès qu'un produit l'exige)
--- ou ceux des boutiques. Rien n'est écrit : pas de commande d'essai, donc
--- pas de numéro « BZ- » perdu, qui ferait croire au point qu'une commande
--- manque.
+-- Le devis de l'écran « Faire livrer » : ce que valent les articles, au
+-- prix du catalogue, et le véhicule (le tricycle dès qu'un produit
+-- l'exige). Les frais, eux, sont saisis par l'équipe. Rien n'est écrit :
+-- pas de commande d'essai, donc pas de numéro « BZ- » perdu, qui ferait
+-- croire au point qu'une commande manque. (« destination » n'est plus
+-- lue ; elle reste dans la signature pour ne pas en changer.)
 create or replace function public.devis_faire_livrer(articles jsonb, destination jsonb default null)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -6531,14 +6562,12 @@ declare
   sous   bigint;
   devise text;
   tri    boolean;
-  d      jsonb;
-  frais  bigint;
 begin
   if auth.uid() is null or not public.peut_faire_livrer() then
     raise exception 'Réservé aux comptes qui ont le droit « Faire livrer ».' using errcode = 'P0001';
   end if;
   if articles is null or jsonb_typeof(articles) <> 'array' or jsonb_array_length(articles) = 0 then
-    return jsonb_build_object('sous_total', 0, 'frais_livraison', 0, 'total', 0, 'devise', 'FCFA');
+    return jsonb_build_object('sous_total', 0, 'devise', 'FCFA', 'vehicule', 'moto');
   end if;
   with a as (
     select x ->> 'produit_id' as id,
@@ -6551,23 +6580,8 @@ begin
     into sous, devise, tri
     from a join public.produits p on p.id = a.id
     left join public.boutiques b on b.id = p.boutique_id;
-  if public.livraison_active() then
-    if destination is null or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
-      return jsonb_build_object('sous_total', sous, 'frais_livraison', null, 'total', null,
-        'devise', coalesce(devise, 'FCFA'), 'position_requise', true);
-    end if;
-    d := public.devis_livraison((destination ->> 'latitude')::double precision,
-           (destination ->> 'longitude')::double precision,
-           case when coalesce(tri, false) then 'tricycle' else 'moto' end);
-    frais := coalesce((d ->> 'frais')::bigint, 0);
-  else
-    select coalesce(sum(greatest(0, b.frais_livraison)), 0)::bigint into frais
-      from public.boutiques b
-     where b.id in (select p.boutique_id from public.produits p
-                     where p.id in (select x ->> 'produit_id' from jsonb_array_elements(articles) x));
-  end if;
-  return jsonb_build_object('sous_total', sous, 'frais_livraison', frais, 'total', sous + frais,
-    'devise', coalesce(devise, 'FCFA'), 'livraison', d);
+  return jsonb_build_object('sous_total', sous, 'devise', coalesce(devise, 'FCFA'),
+    'vehicule', case when coalesce(tri, false) then 'tricycle' else 'moto' end);
 end $$;
 revoke all on function public.devis_faire_livrer(jsonb, jsonb) from public, anon;
 grant execute on function public.devis_faire_livrer(jsonb, jsonb) to authenticated;

@@ -2419,20 +2419,16 @@ const Store = (() => {
 
   /* ---------- Faire livrer : une commande prise sur WhatsApp (3.68.0) ----------
      L'équipe saisit pour le client ce qu'il a commandé et payé sur
-     WhatsApp. La BASE fait tout le reste — prix, stock, frais, paiement,
-     course aux livreurs — exactement comme pour une commande passée dans
-     l'application. L'écran ne calcule rien qu'il ne redemande à la base. */
+     WhatsApp. Les frais de livraison sont ceux convenus avec le client
+     (saisis) ; la BASE fait tout le reste — prix, stock, paiement, course
+     aux livreurs — comme pour une commande passée dans l'application. */
   const articlesPour = (panier) => panier.map((a) => ({ produit_id: a.produitId, quantite: a.quantite }));
-  async function devisFaireLivrer(panier, destination) {
-    const d = await Supabase.rpc("devis_faire_livrer", {
-      articles: articlesPour(panier), destination: destination || null });
+  async function devisFaireLivrer(panier) {
+    const d = await Supabase.rpc("devis_faire_livrer", { articles: articlesPour(panier), destination: null });
     return {
       sousTotal: Number(d && d.sous_total) || 0,
-      frais: d && d.frais_livraison != null ? Number(d.frais_livraison) : null,
-      total: d && d.total != null ? Number(d.total) : null,
       devise: (d && d.devise) || "FCFA",
-      livraison: d && d.livraison && typeof d.livraison === "object" ? d.livraison : null,
-      positionRequise: !!(d && d.position_requise),
+      vehicule: d && d.vehicule === "tricycle" ? "tricycle" : "moto",
     };
   }
   async function faireLivrer(m) {
@@ -2440,6 +2436,8 @@ const Store = (() => {
       articles: articlesPour(m.panier),
       client: { nom: m.nom, tel: m.tel, indicatif: m.indicatif || "229", adresse: m.adresse, note: m.note || "" },
       destination: m.destination || null,
+      /* (3.68.0) Les frais convenus avec le client : saisis, pas calculés. */
+      frais: m.frais,
       transaction: m.transaction, montant: m.montant, reseau: m.reseau || "",
     });
     journaliser("commande", "creation",

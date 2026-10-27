@@ -8,8 +8,9 @@
      1. « Commandes » propose « Faire livrer une commande WhatsApp » à
         l'équipe de BIZZOO qui suit les commandes — pas à une boutique ;
      2. on choisit les produits ; « Faire livrer » montre le compte ;
-     3. le client, sa position (lien de carte collé), le total demandé à
-        la base, le montant prérempli ;
+     3. le client ; la position, facultative ; les FRAIS saisis (BIZZOO
+        les décide pour ces commandes) ; le total = articles (de la base)
+        + frais ; le montant prérempli ;
      4. ce qui manque, ou un montant trop court, se dit sans rien envoyer ;
      5. validé : « faire_livrer » part avec tout, et l'écran ouvre la
         commande ;
@@ -98,11 +99,7 @@ async function ouvrir({ moi, hash }) {
       if (fn === "devis_faire_livrer") {
         const sous = (corps.articles || []).reduce((s, a) =>
           s + (PRODUITS.find((p) => p.id === a.produit_id) || { prix: 0 }).prix * a.quantite, 0);
-        if (!corps.destination) {
-          return d({ sous_total: sous, frais_livraison: null, total: null, devise: "FCFA", position_requise: true });
-        }
-        return d({ sous_total: sous, frais_livraison: 1400, total: sous + 1400, devise: "FCFA",
-          livraison: { vehicule: "moto", distance_km: 13.4, frais: 1400 } });
+        return d({ sous_total: sous, devise: "FCFA", vehicule: "moto" });
       }
       if (fn === "faire_livrer") return d({ id: "cmd_wa", numero: "BZ-000201", total: 21400, client_relie: false });
       return d(null);
@@ -185,7 +182,8 @@ titre("1 bis. Le superadministrateur accorde le droit, et lui seul");
   await page.waitForTimeout(600);
   ok(await page.$("#cp-d-faire-livrer") !== null && !(await page.$eval("#cp-d-faire-livrer", (b) => b.checked).catch(() => true)),
     "dans la fiche de Bio : l'interrupteur « Faire livrer », éteint");
-  await capture(page, "4-droit-faire-livrer", ".feuille, #feuille, body");
+  await page.$eval("#cp-zone-enseigne", (z) => z.scrollIntoView()).catch(() => {});
+  await capture(page, "4-droit-faire-livrer", "#cp-zone-enseigne");
   await page.click('label[for="cp-d-faire-livrer"]');
   await page.click("#cp-enregistrer");
   await page.waitForTimeout(900);
@@ -218,28 +216,34 @@ await capture(page, "2-produits");
 await page.click("#fl-suivant");
 await page.waitForSelector("#fl-client", { timeout: 4000 }).catch(() => {});
 
-titre("3. Le client, sa position, le total demandé à la base");
+titre("3. Le client, les frais saisis, le total");
 const recap = await texte(page, "#fl-recap");
 ok(/1 × Casque/.test(recap) && /2 × Chargeur/.test(recap) && /Bêta/.test(recap), "le récapitulatif, boutique par boutique");
-ok(/selon la position/.test(await texte(page, "#fl-devis")), "sans position : les frais attendent la position");
+await page.waitForSelector("#fl-total", { timeout: 4000 }).catch(() => {});
+const serre = (s) => s.replace(/\s+/g, "");
+ok(/Articles20000FCFA/.test(serre(await texte(page, "#fl-devis"))) && /àsaisir/.test(serre(await texte(page, "#fl-devis"))) &&
+   (await texte(page, "#fl-total")) === "—", "les articles (20 000, de la base) ; les frais restent à saisir");
+ok(/Où livrer \(facultatif\)/.test(await texte(page, "#fl-position")) &&
+   /Aucune position/.test(await texte(page, "#fl-position-etat")), "la position est facultative");
+ok(/touchera 80 %/.test(await texte(page, "#fl-livraison")), "« le livreur en touchera 80 % » est dit à la saisie des frais");
 await page.fill("#fl-nom", "Koffi");
 await page.fill("#fl-tel", "01 96 70 00 99");
 await page.fill("#fl-adresse", "Fidjrossè, près du marché");
-await page.fill("#fl-lien", "https://www.google.com/maps/place/6.458099,2.4183");
-await page.dispatchEvent("#fl-lien", "change");
-await page.waitForTimeout(900);
-ok(/6\.45810, 2\.41830/.test(await texte(page, "#fl-position-etat")), "le lien collé donne la position");
-const devis = serveur.appels.filter((a) => a.fn === "devis_faire_livrer").pop();
-ok(devis && devis.corps.destination && devis.corps.destination.latitude === 6.458099 &&
-   devis.corps.articles.length === 2, "le devis est redemandé à la base, avec la position");
-ok(/moto · 13,4 km/.test(await texte(page, "#fl-devis")) && (await texte(page, "#fl-total")) === F(21400),
-  "« Livraison à moto · 13,4 km », total 21 400 FCFA");
-ok((await page.inputValue("#fl-montant")).replace(/\s/g, "") === "21400", "le montant payé est prérempli avec le total");
+await page.fill("#fl-frais", "1500");
+await page.waitForTimeout(200);
+ok((await texte(page, "#fl-total")) === F(21500) && /Livraisonàmoto1500FCFA/.test(serre(await texte(page, "#fl-devis"))),
+  "1 500 de frais saisis : total 21 500 FCFA");
+ok((await page.inputValue("#fl-montant")).replace(/\s/g, "") === "21500", "le montant payé suit le total");
 
 await page.fill("#fl-transaction", "MP241027.1530.A12345");
 await capture(page, "3-client-et-paiement", "#vue");
 await page.fill("#fl-transaction", "");
 titre("4. Ce qui manque se dit, sans rien envoyer");
+await page.fill("#fl-frais", "");
+await page.click("#fl-valider");
+await page.waitForTimeout(300);
+ok(/frais de livraison convenus/.test(await texte(page, "#fl-erreur")), "sans frais : « Indiquez les frais de livraison… »");
+await page.fill("#fl-frais", "1500");
 await page.click("#fl-valider");
 await page.waitForTimeout(300);
 ok(/référence de la transaction/.test(await texte(page, "#fl-erreur")), "sans référence : « Saisissez la référence… »");
@@ -247,25 +251,26 @@ await page.fill("#fl-transaction", "MP241027.1530.A12345");
 await page.fill("#fl-montant", "20000");
 await page.click("#fl-valider");
 await page.waitForTimeout(300);
-ok(/a payé 20 000 FCFA, mais la commande coûte 21 400 FCFA/.test(await texte(page, "#fl-erreur")),
+ok(/a payé 20 000 FCFA, mais la commande coûte 21 500 FCFA/.test(await texte(page, "#fl-erreur")),
   "un montant trop court : refusé à l'écran");
 ok(!serveur.appels.some((a) => a.fn === "faire_livrer"), "et rien n'est parti vers la base");
 
 titre("5. Validé : la commande part, l'écran l'ouvre");
-await page.fill("#fl-montant", "21400");
+await page.fill("#fl-montant", "21500");
 await page.selectOption("#fl-reseau", "MOOV");
 await page.click("#fl-valider");
 await page.waitForSelector("[data-role=ok]", { timeout: 3000 }).catch(() => {});
-ok(/Koffi/.test(await texte(page, ".feuille, [role=dialog], body")), "une confirmation reprend le client et le montant");
+ok(/Koffi/.test(await texte(page, ".feuille, [role=dialog], body")) && /1 500 FCFA de livraison/.test(await texte(page, "body")),
+  "une confirmation reprend le client, les frais et le montant");
 await page.click("[data-role=ok]");
 await page.waitForFunction(() => location.hash === "#/commandes/cmd_wa", null, { timeout: 6000 }).catch(() => {});
 const envoi = serveur.appels.find((a) => a.fn === "faire_livrer");
 const cps = (envoi && envoi.corps) || {};
-ok(cps.transaction === "MP241027.1530.A12345" && cps.montant === 21400 && cps.reseau === "MOOV",
-  "la référence, le montant et le réseau partent (" + JSON.stringify(cps).slice(0, 120) + "…)");
+ok(cps.transaction === "MP241027.1530.A12345" && cps.montant === 21500 && cps.reseau === "MOOV" && cps.frais === 1500,
+  "les frais saisis, la référence, le montant et le réseau partent (" + JSON.stringify(cps).slice(0, 120) + "…)");
 ok(cps.client && cps.client.nom === "Koffi" && cps.client.adresse === "Fidjrossè, près du marché" &&
    cps.client.tel === "01 96 70 00 99", "le client part tel que saisi");
-ok(cps.destination && cps.destination.longitude === 2.4183, "avec la position");
+ok(cps.destination === null, "sans position : elle n'est pas exigée");
 ok(JSON.stringify(cps.articles) === JSON.stringify([{ produit_id: "prod_casque", quantite: 1 },
   { produit_id: "prod_chargeur", quantite: 2 }]), "et les articles, avec leurs quantités");
 ok(await page.evaluate(() => location.hash) === "#/commandes/cmd_wa", "l'écran ouvre la commande créée");

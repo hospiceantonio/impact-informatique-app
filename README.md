@@ -5501,17 +5501,24 @@ WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 1. choisir les produits (toutes boutiques, recherche par nom, code ou
    boutique ; les produits masqués n'y sont pas) et leurs quantités ;
 2. **Faire livrer** : le nom, le téléphone et l'adresse du client ; sa
-   **position** (collez le lien de localisation qu'il a envoyé sur
-   WhatsApp, ou touchez la carte) — obligatoire quand la livraison se
-   compte au kilomètre ;
-3. le **total** s'affiche, calculé par la base (articles + livraison) ;
-4. le **montant payé** (prérempli), le réseau, la **référence de la
+   **position** est **facultative** (collez le lien de localisation qu'il a
+   envoyé sur WhatsApp, ou touchez la carte) : elle sert seulement à guider
+   le livreur ;
+3. les **frais de livraison**, **saisis** : ceux convenus avec le client
+   (BIZZOO l'a décidé ainsi pour ces commandes — pas de calcul à la
+   distance ; 0 s'il n'y en a pas). Le livreur qui prendra la course en
+   touche 80 % (« taux du livreur ») à la remise ;
+4. le **total** = articles (prix du catalogue, lus en base) + frais saisis ;
+5. le **montant payé** (prérempli), le réseau, la **référence de la
    transaction** ;
-5. **Valider et faire livrer**.
+6. **Valider et faire livrer**.
 
 **Ce que fait la base (`faire_livrer`)**, comme pour toute commande :
 - la commande naît par `creer_commande` : prix du catalogue, stock,
-  boutique ouverte, frais (au kilomètre, ou ceux des boutiques) ;
+  boutique ouverte ; ses frais sont les **frais saisis** (drapeau
+  `bizzoo.frais_saisis`, posé par `faire_livrer` seule) — un seul frais,
+  un seul livreur, comme une livraison au kilomètre sans kilomètre
+  (`livraison.saisie = true`, la position gardée si elle est donnée) ;
 - le montant payé doit couvrir le total — vérifié **avant** d'écrire, pour
   ne perdre aucun numéro « BZ- » ;
 - elle est **payée en entier** : pas d'acompte, **rien à encaisser à la
@@ -5530,7 +5537,7 @@ WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 - elle compte dans les statistiques comme toute commande payée ;
 - le « compte obligatoire » des clients ne l'empêche pas.
 
-`devis_faire_livrer` donne le total à l'écran sans rien écrire.
+`devis_faire_livrer` donne le prix des articles à l'écran sans rien écrire.
 
 **En ligne depuis le 27/10/2026** : colonnes, droit et verrou, fonctions
 `faire_livrer` et `devis_faire_livrer`, et la retouche de `creer_commande`
@@ -5538,8 +5545,8 @@ WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
 
 Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
-`supabase/tests/99zzz…-commande-whatsapp.sql` (39 constats),
-`tools/banc-faire-livrer.mjs` (30 constats ; `CAPTURES=<dossier>` pour des
+`supabase/tests/99zzz…-commande-whatsapp.sql` (42 constats),
+`tools/banc-faire-livrer.mjs` (31 constats ; `CAPTURES=<dossier>` pour des
 images de chaque étape).
 
 ## Qui entend quoi : commande payée, course prise (3.66.0)

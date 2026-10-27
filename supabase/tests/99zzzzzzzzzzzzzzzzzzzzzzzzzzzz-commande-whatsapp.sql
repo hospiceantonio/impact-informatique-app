@@ -4,15 +4,16 @@
 -- Ce qu'on prouve :
 --   1. seuls l'enseigne qui suit les commandes et le superadministrateur
 --      font livrer — ni une boutique, ni un client, ni un visiteur ;
---   2. le devis dit, sans rien écrire, ce que la commande coûtera ;
---   3. un montant payé trop court est refusé AVANT d'écrire : aucun
---      numéro « BZ- » perdu ;
+--   2. le devis dit, sans rien écrire, ce que valent les articles ;
+--   3. les FRAIS sont saisis par l'équipe (obligatoires, 0 permis) ; un
+--      montant payé trop court est refusé AVANT d'écrire : aucun numéro
+--      « BZ- » perdu ;
 --   4. la commande naît payée en entier, « whatsapp », au nom de qui l'a
 --      saisie, au journal des versements ; rien à encaisser à la porte ;
 --      elle va au compte du client quand il en a un à ce numéro ;
 --   5. une transaction ne paie qu'une commande ;
---   6. au kilomètre : la position est obligatoire, les frais suivent la
---      distance, et la course est proposée aux livreurs de BIZZOO ;
+--   6. la position est facultative, même au kilomètre ; donnée, elle
+--      guide le livreur ; le livreur touche 80 % des frais saisis ;
 --   7. le compte obligatoire n'empêche pas l'équipe de la saisir.
 -- =========================================================
 
@@ -63,13 +64,13 @@ insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id, stoc
 on conflict (id) do update set stock = 10, disponible = true, masque = false, prix = excluded.prix;
 
 -- Au nom d'un compte, avec le rôle des applications.
-create function pg_temp.faire(qui uuid, art jsonb, cli jsonb, dest jsonb, trans text, montant bigint)
+create function pg_temp.faire(qui uuid, art jsonb, cli jsonb, dest jsonb, frais bigint, trans text, montant bigint)
 returns jsonb language plpgsql as $$
 declare g jsonb;
 begin
   perform essai.devenir(qui);
   set local role authenticated;
-  g := public.faire_livrer(art, cli, dest, trans, montant, 'MTN');
+  g := public.faire_livrer(art, cli, dest, frais, trans, montant, 'MTN');
   reset role;
   perform essai.personne();
   return g;
@@ -90,20 +91,20 @@ end $$;
 
 select essai.titre('1. Qui peut faire livrer');
 select essai.devenir(:CHEF::uuid); set role authenticated;
-select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
+select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 1500, 'MP0001', 50000)$$, :ART, :CLI),
   'l''administrateur d''une boutique : refusé');
 select essai.refuse(format($$select public.devis_faire_livrer(%L::jsonb, null)$$, :ART), 'ni son devis');
 reset role; select essai.personne();
 select essai.devenir(:ACHETEUR::uuid); set role authenticated;
-select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
+select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 1500, 'MP0001', 50000)$$, :ART, :CLI),
   'un client : refusé');
 reset role; select essai.personne();
 select essai.devenir(:MODBZ::uuid); set role authenticated;
-select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
+select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 1500, 'MP0001', 50000)$$, :ART, :CLI),
   'un modérateur de BIZZOO sans le droit « Faire livrer » : refusé');
 reset role; select essai.personne();
 select essai.devenir(:ADM2::uuid); set role authenticated;
-select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
+select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 1500, 'MP0001', 50000)$$, :ART, :CLI),
   'un administrateur de BIZZOO qui suit les commandes, mais sans le droit : refusé');
 select essai.verifie(not public.peut_faire_livrer(), 'et l''écran le sait : « peut_faire_livrer() » est faux');
 -- Un modérateur qu'il crée : la règle de « profils » le laisse faire — et
@@ -135,33 +136,41 @@ select essai.egal((select peut_faire_livrer from public.profils where id = :MODB
 update public.profils set peut_faire_livrer = false where id = :MODBZ::uuid;
 reset role; select essai.personne();
 set role anon;
-select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
+select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 1500, 'MP0001', 50000)$$, :ART, :CLI),
   'un visiteur : refusé');
 reset role;
 
 select essai.titre('2. Le devis, sans rien écrire');
 select (select last_value from public.commandes_numero) as numero_avant \gset
-select essai.egal((select (d ->> 'sous_total') || '/' || (d ->> 'frais_livraison') || '/' || (d ->> 'total')
+select essai.egal((select (d ->> 'sous_total') || '/' || (d ->> 'vehicule')
                      from (select pg_temp.devis(:ADMBZ::uuid, :ART::jsonb, null) d) x),
-  '20000/2000/22000', '12 000 + 2 × 4 000, et 1 000 de frais par boutique : 22 000');
+  '20000/moto', 'les articles : 12 000 + 2 × 4 000 = 20 000, à moto');
 select essai.egal((select last_value from public.commandes_numero), :numero_avant::bigint,
   'aucun numéro de commande consommé');
 
-select essai.titre('3. Un montant trop court : refusé avant d''écrire');
-select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 'MP-COURT-1', 21000)$$,
-  :ADMBZ, :ART, :CLI), 'payé 21 000 pour 22 000 : refusé');
+select essai.titre('3. Les frais saisis ; un montant trop court : refusé avant d''écrire');
+select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, null, 'MP-SANS-FRAIS', 21500)$$,
+  :ADMBZ, :ART, :CLI), 'sans frais de livraison : refusé (0 s''il n''y en a pas)');
+select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, -100, 'MP-FRAIS-NEG', 21500)$$,
+  :ADMBZ, :ART, :CLI), 'des frais négatifs : refusés');
+select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 1500, 'MP-COURT-1', 21000)$$,
+  :ADMBZ, :ART, :CLI), 'payé 21 000 pour 20 000 + 1 500 de frais : refusé');
 select essai.egal((select last_value from public.commandes_numero), :numero_avant::bigint,
   'et aucun numéro « BZ- » perdu');
-select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 'MP', 22000)$$,
+select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 1500, 'MP', 21500)$$,
   :ADMBZ, :ART, :CLI), 'une référence de transaction trop courte : refusée');
-select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, '{"nom":"Koffi","tel":"0196700099"}'::jsonb, null, 'MP-SANS-ADR', 22000)$$,
+select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, '{"nom":"Koffi","tel":"0196700099"}'::jsonb, null, 1500, 'MP-SANS-ADR', 21500)$$,
   :ADMBZ, :ART), 'sans adresse de livraison : refusé');
 
-select essai.titre('4. La commande WhatsApp : payée en entier, tracée');
-select pg_temp.faire(:ADMBZ::uuid, :ART::jsonb, :CLI::jsonb, null, 'mp241027.1530.a12345', 22000) as w1 \gset
+select essai.titre('4. La commande WhatsApp, sans position : payée en entier, tracée');
+select pg_temp.faire(:ADMBZ::uuid, :ART::jsonb, :CLI::jsonb, null, 1500, 'mp241027.1530.a12345', 21500) as w1 \gset
 select essai.egal((select etat || '/' || origine || '/' || (saisie_par = :ADMBZ::uuid) || '/' || total || '/' || verse
                      from public.commandes where id = :'w1'::jsonb ->> 'id'),
-  'payee/whatsapp/true/22000/22000', 'payée, « whatsapp », saisie par Awa, 22 000 versés');
+  'payee/whatsapp/true/21500/21500', 'payée, « whatsapp », saisie par Awa, 21 500 versés');
+select essai.egal((select frais_livraison || '/' || (livraison ->> 'saisie') || '/' || (livraison ->> 'vehicule') || '/' ||
+                          coalesce(livraison ->> 'destination', 'sans position')
+                     from public.commandes where id = :'w1'::jsonb ->> 'id'),
+  '1500/true/moto/sans position', 'les frais saisis (1 500), à moto, sans position');
 select essai.egal((select transaction_id from public.commandes where id = :'w1'::jsonb ->> 'id'), 'MP241027.1530.A12345',
   'la référence de la transaction, en majuscules');
 select essai.egal((select coalesce(sum(r.a_encaisser), 0)::int from public.restes_par_boutique(:'w1'::jsonb ->> 'id') r), 0,
@@ -170,7 +179,7 @@ select essai.egal((select confirme_par from public.commandes where id = :'w1'::j
   'la commande porte le nom de qui l''a saisie');
 select essai.egal((select fournisseur || '/' || reseau || '/' || verdict || '/' || recu
                      from public.versements where commande_id = :'w1'::jsonb ->> 'id'),
-  'whatsapp/MTN/payee/22000', 'au journal des versements : « whatsapp », MTN, 22 000');
+  'whatsapp/MTN/payee/21500', 'au journal des versements : « whatsapp », MTN, 21 500');
 select essai.egal((select client_id is null from public.commandes where id = :'w1'::jsonb ->> 'id'), true,
   'pas de compte à ce numéro : une commande sans compte, comme une commande d''invité');
 select essai.egal((select stock from public.produits where id = 'prod_wa_b'), 8, 'le stock est décompté (10 − 2)');
@@ -182,60 +191,57 @@ select essai.verifie((select count(*) > 0 from public.notifications
                        where commande_id = :'w1'::jsonb ->> 'id' and type = 'commande_payee'
                          and destinataire = :SUPER::uuid),
   'le superadministrateur aussi');
+select essai.verifie((select count(*) > 0 from public.notifications
+                       where commande_id = :'w1'::jsonb ->> 'id' and type = 'course_proposee'
+                         and destinataire = :LIVBZ::uuid and sonne),
+  'la course sonne chez les livreurs de BIZZOO, comme d''habitude');
+-- Yao la prend et la remet : 80 % des frais saisis.
+select set_config('bizzoo.livraison', 'oui', false) as r \gset
+update public.commande_lignes set livreur_id = :LIVBZ::uuid, etat = 'en_livraison' where commande_id = :'w1'::jsonb ->> 'id';
+update public.commande_lignes set etat = 'remise' where commande_id = :'w1'::jsonb ->> 'id';
+select set_config('bizzoo.livraison', '', false) as r \gset
+select essai.egal((select frais || '/' || montant from public.gains_livreurs
+                    where commande_id = :'w1'::jsonb ->> 'id' and livreur_id = :LIVBZ::uuid),
+  '1500/1200', 'remise : Yao touche 80 % des 1 500 saisis, 1 200');
 
 select essai.titre('5. Une transaction ne paie qu''une commande');
-select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 'MP241027-1530-A12345', 22000)$$,
+select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 1500, 'MP241027-1530-A12345', 21500)$$,
   :ADMBZ, :ART, :CLI), 'la même référence, autrement ponctuée : refusée');
 
 select essai.titre('Le client qui a un compte la retrouve dans son application');
 select pg_temp.faire(:SUPER::uuid, '[{"produit_id":"prod_wa_a","quantite":1}]'::jsonb,
-  '{"nom":"Fidèle","tel":"01 96 70 00 03","indicatif":"229","adresse":"Akpakpa"}'::jsonb, null, 'MP-FIDELE-1', 15000) as w2 \gset
+  '{"nom":"Fidèle","tel":"01 96 70 00 03","indicatif":"229","adresse":"Akpakpa"}'::jsonb, null, 0, 'MP-FIDELE-1', 15000) as w2 \gset
 select essai.egal((select client_id = :FIDELE::uuid from public.commandes where id = :'w2'::jsonb ->> 'id'), true,
   'son numéro a un compte : la commande est la sienne');
-select essai.egal((select verse::int from public.commandes where id = :'w2'::jsonb ->> 'id'), 15000,
-  'payé plus que le total (13 000) : le versement réel est gardé');
+select essai.egal((select verse || '/' || total || '/' || frais_livraison from public.commandes where id = :'w2'::jsonb ->> 'id'),
+  '15000/12000/0', 'livraison offerte (0) ; payé plus que le total : le versement réel est gardé');
 select essai.verifie((select count(*) > 0 from public.notifications
                        where commande_id = :'w2'::jsonb ->> 'id' and destinataire = :FIDELE::uuid
                          and type = 'commande_payee'),
   'et il en est prévenu dans son application');
 
-select essai.titre('6. Au kilomètre : la position, les frais, la course aux livreurs');
+select essai.titre('6. La position, facultative même au kilomètre : elle guide le livreur');
 update public.paiement set livraison_latitude = 6.3654, livraison_longitude = 2.4183,
        moto_forfait = 1000, moto_prix_km = 100, livraison_rayon_km = 10, livraison_coef = 1.3 where id = 1;
-select essai.egal((select (d ->> 'position_requise') from (select pg_temp.devis(:ADMBZ::uuid, :ART::jsonb, null) d) x),
-  'true', 'sans position, le devis la réclame');
-select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 'MP-KM-0', 50000)$$,
-  :ADMBZ, :ART, :CLI), 'sans position : refusé');
-create function pg_temp.message(requete text) returns text language plpgsql as $$
-begin
-  execute requete;
-  return '(aucune erreur)';
-exception when others then
-  return sqlerrm;
-end $$;
-select essai.verifie(pg_temp.message(format($$select pg_temp.faire(%L::uuid, %L::jsonb, %L::jsonb, null, 'MP-KM-0', 50000)$$,
-  :ADMBZ, :ART, :CLI)) like 'Indiquez la position du client%', 'et l''équipe lit quoi faire, pas « mettez à jour »');
-select essai.egal((select (d ->> 'frais_livraison') || '/' || (d ->> 'total')
-                     from (select pg_temp.devis(:ADMBZ::uuid, :ART::jsonb,
-                             '{"latitude":6.458099,"longitude":2.4183}'::jsonb) d) x),
-  '1400/21400', '13,4 km à moto : 1 400 de frais, 21 400 en tout');
-select pg_temp.faire(:ADMBZ::uuid, :ART::jsonb, :CLI::jsonb, '{"latitude":6.458099,"longitude":2.4183}'::jsonb,
-  'MP-KM-1', 21400) as w3 \gset
-select essai.egal((select frais_livraison || '/' || (livraison ->> 'vehicule') || '/' || total
-                     from public.commandes where id = :'w3'::jsonb ->> 'id'),
-  '1400/moto/21400', 'les frais au kilomètre, figés sur la commande');
-select essai.egal((select coalesce(sum(r.a_encaisser), 0)::int from public.restes_par_boutique(:'w3'::jsonb ->> 'id') r), 0,
-  'toujours rien à encaisser à la porte');
-select essai.verifie((select count(*) > 0 from public.notifications
-                       where commande_id = :'w3'::jsonb ->> 'id' and type = 'course_proposee'
-                         and destinataire = :LIVBZ::uuid and sonne),
-  'la course sonne chez les livreurs de BIZZOO, comme d''habitude');
+select pg_temp.faire(:ADMBZ::uuid, '[{"produit_id":"prod_wa_b","quantite":1}]'::jsonb, :CLI::jsonb, null, 2000,
+  'MP-KM-0', 6000) as w3 \gset
+select essai.egal((select frais_livraison || '/' || total from public.commandes where id = :'w3'::jsonb ->> 'id'),
+  '2000/6000', 'livraison au kilomètre en service : sans position, ce sont les frais saisis (2 000), pas la distance');
+select pg_temp.faire(:ADMBZ::uuid, '[{"produit_id":"prod_wa_b","quantite":1}]'::jsonb, :CLI::jsonb,
+  '{"latitude":6.458099,"longitude":2.4183}'::jsonb, 2500, 'MP-KM-1', 6500) as w4 \gset
+select essai.egal((select frais_livraison || '/' || (livraison -> 'destination' ->> 'latitude')
+                     from public.commandes where id = :'w4'::jsonb ->> 'id'),
+  '2500/6.458099', 'avec position : toujours les frais saisis (2 500), et le point du client gardé');
+select essai.egal((public.fiche_course(:'w4'::jsonb ->> 'id', 'bou_essai_voisine') -> 'livraison' ->> 'latitude'), '6.458099',
+  'la fiche du livreur montre où livrer');
+select essai.egal((public.fiche_course(:'w4'::jsonb ->> 'id', 'bou_essai_voisine') ->> 'a_encaisser')::int, 0,
+  'et rien à récupérer');
 
 select essai.titre('7. Le compte obligatoire n''arrête pas l''équipe');
 update public.reglages set compte_obligatoire = true where id = 1;
 select pg_temp.faire(:ADMBZ::uuid, '[{"produit_id":"prod_wa_b","quantite":1}]'::jsonb, :CLI::jsonb,
-  '{"latitude":6.413825,"longitude":2.4183}'::jsonb, 'MP-OBLIG-1', 5000) as w4 \gset
-select essai.egal((select etat from public.commandes where id = :'w4'::jsonb ->> 'id'), 'payee',
+  null, 1000, 'MP-OBLIG-1', 5000) as w5 \gset
+select essai.egal((select etat from public.commandes where id = :'w5'::jsonb ->> 'id'), 'payee',
   'compte exigé des clients : la commande WhatsApp passe quand même');
 update public.reglages set compte_obligatoire = false where id = 1;
 

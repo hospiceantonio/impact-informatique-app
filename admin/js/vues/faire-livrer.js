@@ -9,15 +9,18 @@
    BIZZOO à qui il a accordé le droit « Faire livrer » :
      1. choisit les produits que le client a commandés ;
      2. touche « Faire livrer » ;
-     3. donne le nom, le téléphone, l'adresse et la position du client,
-        le montant payé et la référence de la transaction ;
+     3. donne le nom, le téléphone et l'adresse du client (sa position si
+        on l'a : elle est facultative), les FRAIS DE LIVRAISON convenus avec
+        lui — BIZZOO l'a décidé ainsi pour ces commandes —, le montant payé
+        et la référence de la transaction ;
      4. valide.
 
-   LA BASE FAIT LE RESTE (« faire_livrer ») : prix, stock, frais de
-   livraison, paiement au journal, boutiques prévenues, course proposée
-   aux livreurs — comme pour toute commande. Le client a tout payé : le
-   livreur ne prend rien chez lui. L'écran ne calcule rien lui-même : le
-   total affiché vient de la base (« devis_faire_livrer »).
+   LA BASE FAIT LE RESTE (« faire_livrer ») : prix, stock, paiement au
+   journal, boutiques prévenues, course proposée aux livreurs — comme pour
+   toute commande ; le livreur touche sa part des frais saisis. Le client a
+   tout payé : le livreur ne prend rien chez lui. Le prix des articles
+   vient de la base (« devis_faire_livrer ») ; le total, c'est lui plus les
+   frais saisis.
    ========================================================= */
 const VueFaireLivrer = (() => {
   const e = (s) => Utils.echapper(s);
@@ -31,10 +34,10 @@ const VueFaireLivrer = (() => {
     recherche: "",
     client: { nom: "", tel: "", adresse: "", note: "" },
     destination: null,
-    paiement: { montant: "", reseau: "MTN", transaction: "" },
+    paiement: { montant: "", reseau: "MTN", transaction: "", frais: "" },
   };
   let produits = [];
-  let auKm = false;
+  let tauxLivreur = 80;
   let carte = null;
 
   const quantite = (id) => (etat.panier.find((a) => a.produitId === id) || {}).quantite || 0;
@@ -80,8 +83,9 @@ const VueFaireLivrer = (() => {
       ]);
       /* Un produit masqué ne se commande plus : la base le refuserait. */
       produits = (liste || []).filter((p) => !p.masque);
+      /* La part du livreur, pour la dire au moment de saisir les frais. */
       const l = paiement && paiement.livraison;
-      auKm = !!(l && l.latitude !== null && l.longitude !== null);
+      tauxLivreur = l && Number(l.tauxLivreur) >= 0 ? Number(l.tauxLivreur) : 80;
     } catch (err) {
       vue.innerHTML = '<div class="carte"><div class="carte-titre">Catalogue indisponible</div>' +
         '<p class="aide" style="margin:0">' + e(err.message) + "</p></div>";
@@ -192,20 +196,30 @@ const VueFaireLivrer = (() => {
         UI.champTexte({ id: "fl-note", label: "Note pour le livreur (facultatif)", valeur: c.note }) +
       "</div>" +
 
-      (auKm
-        ? '<div class="carte" id="fl-position">' +
-            '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Où livrer</div>" +
-            '<p class="aide" style="margin:0 0 8px">Les frais se comptent selon la distance : la position du ' +
-              "client est obligatoire. Collez le lien de localisation qu'il vous a envoyé sur WhatsApp, ou " +
-              "touchez la carte.</p>" +
-            UI.champTexte({ id: "fl-lien", label: "Lien de carte ou coordonnées",
-              placeholder: "https://maps.google.com/… ou 6.3702, 2.4289" }) +
-            '<button type="button" class="btn btn-clair btn-petit" id="fl-sur-carte">' + UI.icone("carte", "ic-sm") +
-              "Choisir sur la carte</button>" +
-            '<div class="km-carte" id="fl-carte" hidden></div>' +
-            '<div class="aide" id="fl-position-etat" style="margin-top:8px"></div>' +
-          "</div>"
-        : "") +
+      /* (3.68.0) LA POSITION EST FACULTATIVE : les frais de ces commandes
+         ne se comptent pas à la distance. Donnée, elle montre au livreur
+         où aller. */
+      '<div class="carte" id="fl-position">' +
+        '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Où livrer (facultatif)</div>" +
+        '<p class="aide" style="margin:0 0 8px">Pour aider le livreur à trouver le client : collez le lien de ' +
+          "localisation qu'il vous a envoyé sur WhatsApp, ou touchez la carte.</p>" +
+        UI.champTexte({ id: "fl-lien", label: "Lien de carte ou coordonnées",
+          placeholder: "https://maps.google.com/… ou 6.3702, 2.4289" }) +
+        '<button type="button" class="btn btn-clair btn-petit" id="fl-sur-carte">' + UI.icone("carte", "ic-sm") +
+          "Choisir sur la carte</button>" +
+        '<div class="km-carte" id="fl-carte" hidden></div>' +
+        '<div class="aide" id="fl-position-etat" style="margin-top:8px"></div>' +
+      "</div>" +
+
+      /* LES FRAIS SONT SAISIS par qui a pris la commande : BIZZOO l'a
+         décidé pour ces commandes-là. Le livreur en touchera sa part. */
+      '<div class="carte" id="fl-livraison">' +
+        '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Les frais de livraison</div>" +
+        UI.champMontant({ id: "fl-frais", label: "Frais de livraison", obligatoire: true,
+          valeur: pay.frais === "" || pay.frais == null ? "" : Number(String(pay.frais).replace(/\D/g, "")) || 0,
+          aide: "Ceux convenus avec le client (0 s'il n'y en a pas). Le livreur qui prendra la course en touchera " +
+            tauxLivreur + " %." }) +
+      "</div>" +
 
       '<div class="carte" id="fl-devis"><p class="aide" style="margin:0">Calcul du total…</p></div>' +
 
@@ -226,67 +240,75 @@ const VueFaireLivrer = (() => {
         '<div id="fl-erreur"></div>' +
       "</div>";
 
+    const nombre = (v) => Number(String(v == null ? "" : v).replace(/\s|fcfa/gi, "").replace(",", "."));
+    /* Les frais tels que saisis : null tant que le champ est vide. */
+    const fraisSaisis = () => {
+      const brut = String(UI.$("#fl-frais", vue).value || "").trim();
+      const n = nombre(brut);
+      return brut === "" || !isFinite(n) || n < 0 ? null : Math.round(n);
+    };
+    /* Le montant suit le total tant qu'on ne l'a pas tapé soi-même. */
+    let montantTouche = !!String(pay.montant || "").trim();
     const garder = () => {
       etat.client = {
         nom: UI.$("#fl-nom", vue).value, tel: UI.$("#fl-tel", vue).value,
         adresse: UI.$("#fl-adresse", vue).value, note: UI.$("#fl-note", vue).value,
       };
       etat.paiement = {
-        montant: UI.$("#fl-montant", vue).value, reseau: UI.$("#fl-reseau", vue).value,
+        montant: montantTouche ? UI.$("#fl-montant", vue).value : "",
+        reseau: UI.$("#fl-reseau", vue).value,
         transaction: UI.$("#fl-transaction", vue).value,
+        frais: UI.$("#fl-frais", vue).value,
       };
     };
     for (const champ of UI.$$("input, select", vue)) champ.addEventListener("change", garder);
+    UI.$("#fl-montant", vue).addEventListener("input", () => { montantTouche = true; });
     UI.$("#fl-modifier", vue).onclick = () => { garder(); afficherProduits(vue); };
 
-    /* Le total, demandé à la base, à chaque changement de position. */
-    let dernier = 0;
+    /* Ce que valent les articles vient de la base ; le total, c'est eux
+       plus les frais saisis. */
     let devis = null;
-    const majDevis = async () => {
-      const n = ++dernier;
+    const total = () => (devis && fraisSaisis() != null ? devis.sousTotal + fraisSaisis() : null);
+    const peindreTotal = () => {
+      const zone = UI.$("#fl-devis", vue);
+      if (!devis || !zone) return;
+      const f = fraisSaisis();
+      const tot = total();
+      zone.innerHTML =
+        '<div class="carte-titre">' + UI.icone("check", "ic-sm") + " Le total</div>" +
+        '<div class="fl-recap-ligne"><span>Articles</span><strong>' + e(m(devis.sousTotal, devis.devise)) + "</strong></div>" +
+        '<div class="fl-recap-ligne"><span>Livraison ' + (devis.vehicule === "tricycle" ? "en tricycle" : "à moto") +
+          "</span><strong>" + (f == null ? "à saisir" : e(m(f, devis.devise))) + "</strong></div>" +
+        '<div class="fl-recap-ligne fl-total"><span>Total à avoir reçu</span><strong id="fl-total">' +
+          (tot == null ? "—" : e(m(tot, devis.devise))) + "</strong></div>" +
+        '<p class="aide" style="margin:6px 0 0">Les articles au prix du catalogue, plus les frais saisis. Le ' +
+          "client a tout payé : rien n'est à encaisser à la livraison.</p>";
+      const montant = UI.$("#fl-montant", vue);
+      if (tot != null && montant && !montantTouche) montant.value = Utils.fmtNombre(tot);
+    };
+    UI.$("#fl-frais", vue).addEventListener("input", peindreTotal);
+    (async () => {
       const zone = UI.$("#fl-devis", vue);
       try {
-        const d = await Store.devisFaireLivrer(etat.panier, etat.destination);
-        if (n !== dernier || !zone.isConnected) return;
-        devis = d;
-        const l = d.livraison;
-        zone.innerHTML =
-          '<div class="carte-titre">' + UI.icone("check", "ic-sm") + " Le total</div>" +
-          '<div class="fl-recap-ligne"><span>Articles</span><strong>' + e(m(d.sousTotal, d.devise)) + "</strong></div>" +
-          '<div class="fl-recap-ligne"><span>Livraison' +
-            (l ? " " + (l.vehicule === "tricycle" ? "en tricycle" : "à moto") + " · " +
-                 e(String(l.distance_km).replace(".", ",")) + " km" : "") + "</span><strong>" +
-            (d.frais == null ? "selon la position" : e(m(d.frais, d.devise))) + "</strong></div>" +
-          '<div class="fl-recap-ligne fl-total"><span>Total à avoir reçu</span><strong id="fl-total">' +
-            (d.total == null ? "—" : e(m(d.total, d.devise))) + "</strong></div>" +
-          (d.positionRequise
-            ? '<p class="aide" style="margin:6px 0 0">Indiquez la position du client pour connaître les frais.</p>'
-            : '<p class="aide" style="margin:6px 0 0">Calculé par BIZZOO, comme pour une commande passée dans ' +
-              "l'application. Le client a tout payé : rien n'est à encaisser à la livraison.</p>");
-        const montant = UI.$("#fl-montant", vue);
-        if (d.total != null && montant && !String(etat.paiement.montant || "").trim()) {
-          montant.value = Utils.fmtNombre(d.total);
-        }
+        devis = await Store.devisFaireLivrer(etat.panier);
+        peindreTotal();
       } catch (err) {
-        if (n === dernier && zone.isConnected) {
-          zone.innerHTML = '<p class="aide" style="margin:0;color:var(--rouge)">' + e(err.message) + "</p>";
-        }
+        if (zone.isConnected) zone.innerHTML = '<p class="aide" style="margin:0;color:var(--rouge)">' + e(err.message) + "</p>";
       }
-    };
+    })();
 
-    if (auKm) {
+    {
       const etatPos = UI.$("#fl-position-etat", vue);
       const dire = () => {
         etatPos.innerHTML = etat.destination
           ? UI.icone("check", "ic-sm") + " Position : " + e(etat.destination.latitude.toFixed(5)) + ", " +
             e(etat.destination.longitude.toFixed(5))
-          : "Aucune position pour l'instant.";
+          : "Aucune position : le livreur s'aidera de l'adresse et du téléphone.";
       };
       const poser = (p, recentrer) => {
         etat.destination = { latitude: p.latitude, longitude: p.longitude };
         if (carte) carte.placer(etat.destination, recentrer);
         dire();
-        majDevis();
       };
       const ouvrirCarte = async () => {
         const zone = UI.$("#fl-carte", vue);
@@ -310,14 +332,14 @@ const VueFaireLivrer = (() => {
       dire();
       if (etat.destination) ouvrirCarte();
     }
-    majDevis();
 
     const bouton = UI.$("#fl-valider", vue);
     bouton.onclick = async () => {
       garder();
       const erreur = UI.$("#fl-erreur", vue);
       erreur.innerHTML = "";
-      const montant = Number(String(etat.paiement.montant).replace(/\s|fcfa/gi, "")) || 0;
+      const montant = Math.round(nombre(UI.$("#fl-montant", vue).value)) || 0;
+      const frais = fraisSaisis();
       const dit = (texte) => {
         erreur.innerHTML = '<p class="aide" style="color:var(--rouge);margin:10px 0 0">' + e(texte) + "</p>";
       };
@@ -325,18 +347,20 @@ const VueFaireLivrer = (() => {
         dit("Le nom, le téléphone et l'adresse du client sont nécessaires.");
         return;
       }
-      if (auKm && !etat.destination) { dit("Indiquez la position du client : collez son lien de carte, ou touchez la carte."); return; }
+      if (frais == null) { dit("Indiquez les frais de livraison convenus avec le client (0 s'il n'y en a pas)."); return; }
       if (!etat.paiement.transaction.trim()) { dit("Saisissez la référence de la transaction du client."); return; }
       if (!montant) { dit("Indiquez le montant que le client a payé."); return; }
-      if (devis && devis.total != null && montant < devis.total) {
+      const tot = total();
+      if (tot != null && montant < tot) {
         dit("Le client a payé " + m(montant, devis.devise) + ", mais la commande coûte " +
-          m(devis.total, devis.devise) + ". Vérifiez le montant ou les articles.");
+          m(tot, devis.devise) + ". Vérifiez le montant, les frais ou les articles.");
         return;
       }
       const ok = await UI.confirmer({
         titre: "Faire livrer cette commande ?",
         texte: nbArticles() + " article" + (nbArticles() > 1 ? "s" : "") + " pour " + etat.client.nom.trim() +
-          ", payés " + m(montant) + " (référence " + etat.paiement.transaction.trim() + "). " +
+          ", " + m(frais) + " de livraison, payés " + m(montant) + " (référence " +
+          etat.paiement.transaction.trim() + "). " +
           "La commande sera enregistrée comme payée et la course partira aux livreurs.",
         bouton: "Faire livrer" });
       if (!ok) return;
@@ -346,7 +370,7 @@ const VueFaireLivrer = (() => {
         const r = await Store.faireLivrer({
           panier: etat.panier, nom: etat.client.nom.trim(), tel: etat.client.tel.trim(),
           adresse: etat.client.adresse.trim(), note: etat.client.note.trim(),
-          destination: etat.destination, transaction: etat.paiement.transaction.trim(),
+          destination: etat.destination, frais, transaction: etat.paiement.transaction.trim(),
           montant, reseau: etat.paiement.reseau,
         });
         UI.toast("Commande " + ((r && r.numero) || "") + " enregistrée : la course part aux livreurs" +
@@ -354,7 +378,7 @@ const VueFaireLivrer = (() => {
         /* La saisie suivante repart de zéro. */
         etat.panier = []; etat.recherche = ""; etat.destination = null; etat.etape = "produits";
         etat.client = { nom: "", tel: "", adresse: "", note: "" };
-        etat.paiement = { montant: "", reseau: "MTN", transaction: "" };
+        etat.paiement = { montant: "", reseau: "MTN", transaction: "", frais: "" };
         /* Ouvrir la commande, si ce compte voit les commandes ; sinon une
            nouvelle saisie. */
         if (Supabase.peutVoirCommandes()) location.hash = "#/commandes/" + encodeURIComponent((r && r.id) || "");
