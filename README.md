@@ -5532,6 +5532,11 @@ WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 
 `devis_faire_livrer` donne le total à l'écran sans rien écrire.
 
+**En ligne depuis le 27/10/2026** : colonnes, droit et verrou, fonctions
+`faire_livrer` et `devis_faire_livrer`, et la retouche de `creer_commande`
+(vérifiées identiques au dépôt). Aucun compte n'a encore le droit : le
+superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
+
 Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
 `supabase/tests/99zzz…-commande-whatsapp.sql` (39 constats),
 `tools/banc-faire-livrer.mjs` (30 constats ; `CAPTURES=<dossier>` pour des
