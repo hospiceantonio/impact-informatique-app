@@ -5500,7 +5500,12 @@ begin
   -- a un — mais c'est un compte de l'équipe, et on vient de le ramener à
   -- « personne » deux lignes plus haut. Lui répondre « connectez-vous »
   -- alors qu'il EST connecté lui ferait chercher longtemps.
-  if moi is null and public.compte_exige() then
+  -- (3.68.0) Une commande prise sur WhatsApp, que l'équipe saisit pour le
+  -- client (« faire_livrer ») : le client n'est pas là pour se connecter.
+  -- Le drapeau ne s'attrape pas depuis PostgREST — seule « faire_livrer »,
+  -- qui vérifie qui l'appelle, le pose.
+  if moi is null and public.compte_exige()
+     and coalesce(current_setting('bizzoo.hors_appli', true), '') <> 'oui' then
     if equipe then
       raise exception 'Ce compte est un compte de l''équipe BIZZOO, pas un compte client. Pour commander, ouvrez un compte client et connectez-vous avec.';
     end if;
@@ -6335,6 +6340,200 @@ begin
 end $$;
 revoke all on function public.confirmer_paiement(text) from public, anon;
 grant execute on function public.confirmer_paiement(text) to authenticated;
+
+-- ---------- Une commande prise sur WhatsApp (3.68.0) ----------
+-- CERTAINS CLIENTS COMMANDENT PAR WHATSAPP au lieu de valider leur panier :
+-- ils discutent avec l'équipe, paient, et la commande se passait hors de
+-- l'application — sans trace, donc sans point possible.
+--
+-- « faire_livrer » la fait entrer par la MÊME PORTE que les autres :
+--   1. « creer_commande » relit les prix, le stock, la boutique ouverte,
+--      la monnaie, et calcule les frais (au kilomètre, ou ceux des
+--      boutiques) — rien n'est saisi à la main ;
+--   2. le client a DÉJÀ TOUT PAYÉ : pas d'acompte, rien à encaisser à la
+--      porte — le livreur ne prend rien chez lui ;
+--   3. elle est marquée payée avec la référence de la transaction
+--      (jamais deux fois la même), au journal des versements sous
+--      « whatsapp », au nom de qui l'a saisie ;
+--   4. le paiement déclenche ce qu'il déclenche toujours : le stock
+--      décompté, les boutiques prévenues, la course proposée aux livreurs.
+--
+-- Réservée aux comptes de BIZZOO qui suivent les commandes (droit
+-- « commandes ») et au superadministrateur.
+alter table public.commandes add column if not exists origine text not null default 'application';
+alter table public.commandes drop constraint if exists commandes_origine;
+alter table public.commandes add constraint commandes_origine check (origine in ('application', 'whatsapp'));
+alter table public.commandes add column if not exists saisie_par uuid references public.profils(id) on delete set null;
+
+create or replace function public.faire_livrer(
+  articles jsonb, client jsonb, destination jsonb, transaction text,
+  montant bigint, reseau text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi    uuid := auth.uid();
+  qui    text;
+  net    text := upper(left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9._-]', '', 'g'), 64));
+  cle    text;
+  res    text := upper(trim(coalesce(reseau, '')));
+  g      jsonb;
+  c      public.commandes%rowtype;
+  compte uuid;
+begin
+  if moi is null or not (public.est_super() or public.droit_enseigne('commandes')) then
+    raise exception 'Seuls les administrateurs et modérateurs de BIZZOO qui suivent les commandes font livrer une commande prise sur WhatsApp.'
+      using errcode = 'P0001';
+  end if;
+  if coalesce(trim(client ->> 'nom'), '') = '' then
+    raise exception 'Indiquez le nom du client.' using errcode = 'P0001';
+  end if;
+  if coalesce(trim(client ->> 'adresse'), '') = '' then
+    raise exception 'Indiquez l''adresse de livraison du client.' using errcode = 'P0001';
+  end if;
+  if length(net) < 4 then
+    raise exception 'Saisissez la référence de la transaction du client, lue sur son reçu de paiement.'
+      using errcode = 'P0001';
+  end if;
+  if res not in ('', 'MTN', 'MOOV', 'CELTIIS') then
+    raise exception 'Le réseau du paiement : MTN, Moov ou Celtiis.' using errcode = 'P0001';
+  end if;
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Indiquez le montant que le client a payé.' using errcode = 'P0001';
+  end if;
+  -- UNE TRANSACTION NE PAIE QU'UNE COMMANDE : ni une autre commande, ni un
+  -- reste payé à la livraison. Comparées sans ponctuation ni casse : un
+  -- reçu se recopie de plusieurs façons.
+  cle := regexp_replace(net, '[^A-Z0-9]', '', 'g');
+  if exists (select 1 from public.commandes x
+              where regexp_replace(upper(x.transaction_id), '[^A-Z0-9]', '', 'g') = cle)
+     or exists (select 1 from public.encaissements e
+                 where regexp_replace(upper(e.transaction_id), '[^A-Z0-9]', '', 'g') = cle) then
+    raise exception 'Cette transaction a déjà servi pour une autre commande : vérifiez la référence.'
+      using errcode = 'P0001';
+  end if;
+
+  if public.livraison_active() and (destination is null or jsonb_typeof(destination) <> 'object'
+     or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null) then
+    raise exception 'Indiquez la position du client : collez le lien de carte qu''il vous a envoyé sur WhatsApp, ou touchez la carte.'
+      using errcode = 'P0001';
+  end if;
+
+  -- LE MONTANT D'ABORD, avant d'écrire quoi que ce soit : une commande
+  -- refusée après coup aurait déjà pris un numéro « BZ- », et un trou
+  -- dans les numéros fait croire au point qu'une commande manque.
+  g := public.devis_faire_livrer(articles, destination);
+  if (g ->> 'total') is not null and montant < (g ->> 'total')::bigint then
+    raise exception 'Le client a payé %, mais la commande coûte % (dont % de livraison). Vérifiez le montant ou les articles.',
+      public.montant_lisible(montant, g ->> 'devise'), public.montant_lisible((g ->> 'total')::bigint, g ->> 'devise'),
+      public.montant_lisible(coalesce((g ->> 'frais_livraison')::bigint, 0), g ->> 'devise')
+      using errcode = 'P0001';
+  end if;
+
+  -- La commande, par le chemin de toutes les commandes : prix, stock,
+  -- boutique ouverte, frais. Tout se paie d'un coup (pas d'acompte).
+  perform set_config('bizzoo.hors_appli', 'oui', true);
+  g := public.creer_commande(client, articles, '', false, true, destination);
+  perform set_config('bizzoo.hors_appli', '', true);
+  select * into c from public.commandes where id = g ->> 'id';
+
+  if montant < c.total then
+    raise exception 'Le client a payé %, mais la commande coûte % (dont % de livraison). Vérifiez le montant ou les articles.',
+      public.montant_lisible(montant, c.devise), public.montant_lisible(c.total, c.devise),
+      public.montant_lisible(coalesce(c.frais_livraison, 0), c.devise)
+      using errcode = 'P0001';
+  end if;
+
+  -- LE COMPTE DU CLIENT, s'il en a un à ce numéro (et un seul) : la
+  -- commande apparaît dans son application, avec le suivi et « J'ai bien
+  -- reçu », comme s'il l'avait passée lui-même.
+  select min(k.id::text)::uuid into compte
+    from public.clients k
+   where regexp_replace(coalesce(k.tel, ''), '\D', '', 'g') = c.client_tel
+     and coalesce(nullif(k.indicatif, ''), '229') = coalesce(nullif(c.client_indicatif, ''), '229')
+  having count(*) = 1;
+
+  select coalesce(nullif(trim(p.nom), ''), nullif(p.email, ''), 'l''équipe') into qui
+    from public.profils p where p.id = moi;
+
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes
+     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte)
+   where id = c.id;
+  perform set_config('bizzoo.interne', '', true);
+
+  -- Payée : le client a TOUT réglé, rien ne reste à encaisser à la porte.
+  perform set_config('bizzoo.paiement', 'oui', true);
+  update public.commandes
+     set etat = 'payee', paye_le = now(), transaction_id = net,
+         confirme_par = coalesce(qui, 'l''équipe'), remarque = '', verse = montant
+   where id = c.id;
+  perform set_config('bizzoo.paiement', '', true);
+  perform public.noter_versement(c.id, 'payee', 'whatsapp', res, '', net, c.total, montant,
+    'Commande WhatsApp saisie par ' || coalesce(qui, 'l''équipe') || '.');
+
+  select * into c from public.commandes where id = c.id;
+  return jsonb_build_object(
+    'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
+    'frais_livraison', c.frais_livraison, 'livraison', c.livraison,
+    'verse', c.verse, 'client_relie', c.client_id is not null);
+end $$;
+revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, text, bigint, text) from public, anon;
+grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, text, bigint, text) to authenticated;
+
+-- Le devis de l'écran « Faire livrer » : les articles, les frais et le
+-- total AVANT de valider, par les règles de « creer_commande » — le prix
+-- du produit, les frais au kilomètre (tricycle dès qu'un produit l'exige)
+-- ou ceux des boutiques. Rien n'est écrit : pas de commande d'essai, donc
+-- pas de numéro « BZ- » perdu, qui ferait croire au point qu'une commande
+-- manque.
+create or replace function public.devis_faire_livrer(articles jsonb, destination jsonb default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  sous   bigint;
+  devise text;
+  tri    boolean;
+  d      jsonb;
+  frais  bigint;
+begin
+  if auth.uid() is null or not (public.est_super() or public.droit_enseigne('commandes')) then
+    raise exception 'Réservé aux administrateurs et modérateurs de BIZZOO qui suivent les commandes.'
+      using errcode = 'P0001';
+  end if;
+  if articles is null or jsonb_typeof(articles) <> 'array' or jsonb_array_length(articles) = 0 then
+    return jsonb_build_object('sous_total', 0, 'frais_livraison', 0, 'total', 0, 'devise', 'FCFA');
+  end if;
+  with a as (
+    select x ->> 'produit_id' as id,
+           greatest(1, least(99, coalesce((x ->> 'quantite')::int, 1))) as q
+      from jsonb_array_elements(articles) x
+  )
+  select coalesce(sum(coalesce(p.prix, 0) * a.q), 0)::bigint,
+         min(coalesce(nullif(b.devise, ''), 'FCFA')),
+         bool_or(p.vehicule = 'tricycle')
+    into sous, devise, tri
+    from a join public.produits p on p.id = a.id
+    left join public.boutiques b on b.id = p.boutique_id;
+  if public.livraison_active() then
+    if destination is null or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
+      return jsonb_build_object('sous_total', sous, 'frais_livraison', null, 'total', null,
+        'devise', coalesce(devise, 'FCFA'), 'position_requise', true);
+    end if;
+    d := public.devis_livraison((destination ->> 'latitude')::double precision,
+           (destination ->> 'longitude')::double precision,
+           case when coalesce(tri, false) then 'tricycle' else 'moto' end);
+    frais := coalesce((d ->> 'frais')::bigint, 0);
+  else
+    select coalesce(sum(greatest(0, b.frais_livraison)), 0)::bigint into frais
+      from public.boutiques b
+     where b.id in (select p.boutique_id from public.produits p
+                     where p.id in (select x ->> 'produit_id' from jsonb_array_elements(articles) x));
+  end if;
+  return jsonb_build_object('sous_total', sous, 'frais_livraison', frais, 'total', sous + frais,
+    'devise', coalesce(devise, 'FCFA'), 'livraison', d);
+end $$;
+revoke all on function public.devis_faire_livrer(jsonb, jsonb) from public, anon;
+grant execute on function public.devis_faire_livrer(jsonb, jsonb) to authenticated;
 
 -- ---------- Ce que chaque boutique rapporte ----------
 -- Les ventes RÉELLEMENT encaissées, produit par produit. Rien d'autre

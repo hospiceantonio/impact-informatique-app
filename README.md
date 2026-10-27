@@ -5480,6 +5480,56 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## « Faire livrer » : une commande prise sur WhatsApp (3.68.0)
+
+Certains clients commandent et paient sur WhatsApp au lieu de valider leur
+panier : la commande se passait hors de l'application, et le point ne la
+voyait pas. Désormais l'équipe la fait entrer dans BIZZOO.
+
+**Qui :** les administrateurs et modérateurs de BIZZOO dont l'interrupteur
+« Commandes » est allumé, et le superadministrateur. Pas une boutique.
+
+**Comment (BIZZOO Admin) :** Commandes → **Faire livrer une commande
+WhatsApp** →
+1. choisir les produits (toutes boutiques, recherche par nom, code ou
+   boutique ; les produits masqués n'y sont pas) et leurs quantités ;
+2. **Faire livrer** : le nom, le téléphone et l'adresse du client ; sa
+   **position** (collez le lien de localisation qu'il a envoyé sur
+   WhatsApp, ou touchez la carte) — obligatoire quand la livraison se
+   compte au kilomètre ;
+3. le **total** s'affiche, calculé par la base (articles + livraison) ;
+4. le **montant payé** (prérempli), le réseau, la **référence de la
+   transaction** ;
+5. **Valider et faire livrer**.
+
+**Ce que fait la base (`faire_livrer`)**, comme pour toute commande :
+- la commande naît par `creer_commande` : prix du catalogue, stock,
+  boutique ouverte, frais (au kilomètre, ou ceux des boutiques) ;
+- le montant payé doit couvrir le total — vérifié **avant** d'écrire, pour
+  ne perdre aucun numéro « BZ- » ;
+- elle est **payée en entier** : pas d'acompte, **rien à encaisser à la
+  livraison** — le livreur ne prend rien chez le client ;
+- elle porte `origine = 'whatsapp'`, qui l'a saisie (`saisie_par`,
+  « saisie par … » à l'écran), la référence de la transaction (une
+  référence ne sert qu'une fois, ponctuation et casse ignorées) ; elle est
+  au journal des versements sous « whatsapp » ;
+- si le numéro du client a un compte BIZZOO (un seul), la commande est la
+  sienne : il la retrouve dans son application, avec le suivi ;
+- le paiement déclenche ce qu'il déclenche toujours : stock décompté,
+  boutiques, admins BIZZOO et superadministrateurs prévenus (sonnerie),
+  **course proposée aux livreurs** selon les règles habituelles (au
+  kilomètre : les livreurs de BIZZOO ; une seule boutique hors kilomètre :
+  ses livreurs d'abord) ; le livreur touche sa part des frais à la remise ;
+- elle compte dans les statistiques comme toute commande payée ;
+- le « compte obligatoire » des clients ne l'empêche pas.
+
+`devis_faire_livrer` donne le total à l'écran sans rien écrire.
+
+Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
+`supabase/tests/99zzz…-commande-whatsapp.sql` (32 constats),
+`tools/banc-faire-livrer.mjs` (24 constats ; `CAPTURES=<dossier>` pour des
+images de chaque étape).
+
 ## Qui entend quoi : commande payée, course prise (3.66.0)
 
 | Événement | Boutique (admin, modérateur) | Admins BIZZOO qui suivent les commandes | Superadministrateurs |
