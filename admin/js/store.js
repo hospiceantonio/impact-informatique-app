@@ -1161,6 +1161,8 @@ const Store = (() => {
       peutCommandes: l.peut_commandes !== false,
       peutBoutiques: l.peut_boutiques === true,
       peutFinances: l.peut_finances === true,
+      /* (3.68.0) Le droit « Faire livrer », accordé par le superadministrateur. */
+      faireLivrer: l.peut_faire_livrer === true,
       creeLe: versMs(l.cree_le),
       /* Qui l'a créé, et son numéro vérifié par un code reçu. Écrits par
          la base, jamais par cet écran ; une base d'avant ne les a pas, et
@@ -1366,7 +1368,8 @@ const Store = (() => {
     }
     for (const [ici, enBase] of [["peutCommandes", "peut_commandes"],
                                  ["peutBoutiques", "peut_boutiques"],
-                                 ["peutFinances", "peut_finances"]]) {
+                                 ["peutFinances", "peut_finances"],
+                                 ["faireLivrer", "peut_faire_livrer"]]) {
       if (maj[ici] !== undefined) {
         ligne[enBase] = !!maj[ici];
         delete ligne[ici];

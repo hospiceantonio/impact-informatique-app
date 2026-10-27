@@ -851,6 +851,44 @@ alter table public.commandes drop constraint if exists commandes_origine;
 alter table public.commandes add constraint commandes_origine check (origine in ('application', 'whatsapp'));
 alter table public.commandes add column if not exists saisie_par uuid references public.profils(id) on delete set null;
 
+-- LE DROIT DE FAIRE LIVRER, que le superadministrateur SEUL accorde à un
+-- administrateur ou un modérateur de BIZZOO (un compte d'enseigne). Éteint
+-- par défaut : un compte qui ne l'a pas ne voit pas l'option, et la base
+-- la lui refuse. Le droit « commandes » ne le donne pas.
+alter table public.profils add column if not exists peut_faire_livrer boolean not null default false;
+
+create or replace function public.peut_faire_livrer() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.est_super() or (public.est_compte_enseigne() and exists (
+    select 1 from public.profils p where p.id = auth.uid() and p.actif and p.peut_faire_livrer));
+end $$;
+revoke all on function public.peut_faire_livrer() from public, anon;
+grant execute on function public.peut_faire_livrer() to authenticated;
+
+-- Le verrou : la règle de « profils » laisse un administrateur toucher
+-- certains comptes (les modérateurs de sa boutique, ceux qu'il a créés…).
+-- Aucun d'eux ne doit pouvoir y glisser ce droit — ni se le donner.
+-- (SANS « security definer », exprès : « current_user » doit rester celui
+-- de l'appel — « authenticated » depuis une application. Les fonctions de
+-- confiance, qui écrivent pour elles-mêmes, passent sous leur propriétaire.)
+create or replace function public.profil_faire_livrer_verrou() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('anon', 'authenticated')
+     and coalesce(new.peut_faire_livrer, false) is distinct from
+         (case when tg_op = 'INSERT' then false else coalesce(old.peut_faire_livrer, false) end)
+     and not public.est_super() then
+    raise exception 'Seul le superadministrateur accorde ou retire le droit « Faire livrer ».'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists profils_faire_livrer_verrou on public.profils;
+create trigger profils_faire_livrer_verrou
+  before insert or update of peut_faire_livrer on public.profils
+  for each row execute function public.profil_faire_livrer_verrou();
+
 create or replace function public.faire_livrer(
   articles jsonb, client jsonb, destination jsonb, transaction text,
   montant bigint, reseau text default '')
@@ -866,8 +904,8 @@ declare
   c      public.commandes%rowtype;
   compte uuid;
 begin
-  if moi is null or not (public.est_super() or public.droit_enseigne('commandes')) then
-    raise exception 'Seuls les administrateurs et modérateurs de BIZZOO qui suivent les commandes font livrer une commande prise sur WhatsApp.'
+  if moi is null or not public.peut_faire_livrer() then
+    raise exception 'Faire livrer une commande prise sur WhatsApp demande le droit « Faire livrer », que le superadministrateur accorde.'
       using errcode = 'P0001';
   end if;
   if coalesce(trim(client ->> 'nom'), '') = '' then
@@ -982,9 +1020,8 @@ declare
   d      jsonb;
   frais  bigint;
 begin
-  if auth.uid() is null or not (public.est_super() or public.droit_enseigne('commandes')) then
-    raise exception 'Réservé aux administrateurs et modérateurs de BIZZOO qui suivent les commandes.'
-      using errcode = 'P0001';
+  if auth.uid() is null or not public.peut_faire_livrer() then
+    raise exception 'Réservé aux comptes qui ont le droit « Faire livrer ».' using errcode = 'P0001';
   end if;
   if articles is null or jsonb_typeof(articles) <> 'array' or jsonb_array_length(articles) = 0 then
     return jsonb_build_object('sous_total', 0, 'frais_livraison', 0, 'total', 0, 'devise', 'FCFA');

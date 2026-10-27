@@ -5,8 +5,8 @@
    leur panier. La commande se passait alors hors de l'application, et
    le point ne la voyait pas.
 
-   Ici, un administrateur ou un modérateur de BIZZOO (droit
-   « commandes »), ou le superadministrateur :
+   Ici, le superadministrateur, ou un administrateur ou modérateur de
+   BIZZOO à qui il a accordé le droit « Faire livrer » :
      1. choisit les produits que le client a commandés ;
      2. touche « Faire livrer » ;
      3. donne le nom, le téléphone, l'adresse et la position du client,
@@ -67,9 +67,9 @@ const VueFaireLivrer = (() => {
   async function afficher(vue) {
     UI.entete({ titre: "Faire livrer", sous: "Une commande prise sur WhatsApp", retour: true });
     if (!Supabase.peutFaireLivrer()) {
-      vue.innerHTML = UI.vide("alerte", "Réservé à l'équipe de BIZZOO",
-        "Seuls les administrateurs et modérateurs de BIZZOO qui suivent les commandes, " +
-        "et le superadministrateur, font livrer une commande prise sur WhatsApp.");
+      vue.innerHTML = UI.vide("alerte", "Droit « Faire livrer » nécessaire",
+        "« Faire livrer » est un droit que le superadministrateur accorde à un administrateur " +
+        "ou un modérateur de BIZZOO. Demandez-le-lui si vous en avez besoin.");
       return;
     }
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture du catalogue…</div>';
@@ -355,7 +355,10 @@ const VueFaireLivrer = (() => {
         etat.panier = []; etat.recherche = ""; etat.destination = null; etat.etape = "produits";
         etat.client = { nom: "", tel: "", adresse: "", note: "" };
         etat.paiement = { montant: "", reseau: "MTN", transaction: "" };
-        location.hash = "#/commandes/" + encodeURIComponent((r && r.id) || "");
+        /* Ouvrir la commande, si ce compte voit les commandes ; sinon une
+           nouvelle saisie. */
+        if (Supabase.peutVoirCommandes()) location.hash = "#/commandes/" + encodeURIComponent((r && r.id) || "");
+        else afficherProduits(vue);
       } catch (err) {
         dit(err.message);
         bouton.disabled = false;

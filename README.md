@@ -5486,11 +5486,18 @@ Certains clients commandent et paient sur WhatsApp au lieu de valider leur
 panier : la commande se passait hors de l'application, et le point ne la
 voyait pas. Désormais l'équipe la fait entrer dans BIZZOO.
 
-**Qui :** les administrateurs et modérateurs de BIZZOO dont l'interrupteur
-« Commandes » est allumé, et le superadministrateur. Pas une boutique.
+**Qui : un DROIT que le superadministrateur accorde lui-même.** Dans la
+fiche d'un administrateur ou d'un modérateur de BIZZOO (Comptes → crayon),
+l'interrupteur **« Faire livrer »**, éteint par défaut. Seul le
+superadministrateur le voit ; la base refuse que quiconque d'autre le
+change — même un administrateur de BIZZOO sur un modérateur qu'il a créé,
+ou sur lui-même (`profils_faire_livrer_verrou`). Le droit « Commandes » ne
+le donne pas. Un compte sans ce droit ne voit pas l'option, et l'écran
+comme la base (`peut_faire_livrer()`) le lui ferment. Le superadministrateur
+l'a toujours.
 
 **Comment (BIZZOO Admin) :** Commandes → **Faire livrer une commande
-WhatsApp** →
+WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 1. choisir les produits (toutes boutiques, recherche par nom, code ou
    boutique ; les produits masqués n'y sont pas) et leurs quantités ;
 2. **Faire livrer** : le nom, le téléphone et l'adresse du client ; sa
@@ -5526,8 +5533,8 @@ WhatsApp** →
 `devis_faire_livrer` donne le total à l'écran sans rien écrire.
 
 Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
-`supabase/tests/99zzz…-commande-whatsapp.sql` (32 constats),
-`tools/banc-faire-livrer.mjs` (24 constats ; `CAPTURES=<dossier>` pour des
+`supabase/tests/99zzz…-commande-whatsapp.sql` (39 constats),
+`tools/banc-faire-livrer.mjs` (30 constats ; `CAPTURES=<dossier>` pour des
 images de chaque étape).
 
 ## Qui entend quoi : commande payée, course prise (3.66.0)

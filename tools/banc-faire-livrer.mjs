@@ -37,8 +37,15 @@ const TUILE = Buffer.from(
 
 const ADMBZ = "d7d7d7d7-0000-0000-0000-000000000001";
 const CHEF = "22222222-2222-2222-2222-222222222222";
+const BIO = "d7d7d7d7-0000-0000-0000-000000000005";
+const SUPER = "11111111-1111-1111-1111-111111111111";
 const PROFILS = {
   [ADMBZ]: { id: ADMBZ, email: "awa@bizzoo.bj", nom: "Awa", role: "administrateur", actif: true,
+    boutique_id: null, peut_commandes: true, peut_modifier_produits: true, peut_faire_livrer: true },
+  /* Bio suit les commandes, mais n'a pas reçu « Faire livrer ». */
+  [BIO]: { id: BIO, email: "bio@bizzoo.bj", nom: "Bio", role: "administrateur", actif: true,
+    boutique_id: null, peut_commandes: true, peut_modifier_produits: true, peut_faire_livrer: false },
+  [SUPER]: { id: SUPER, email: "chef@bizzoo.bj", nom: "Super", role: "superadministrateur", actif: true,
     boutique_id: null, peut_commandes: true, peut_modifier_produits: true },
   [CHEF]: { id: CHEF, email: "chef@alpha.bj", nom: "Chef", role: "administrateur", actif: true,
     boutique_id: "bou_a", peut_commandes: true, peut_modifier_produits: true },
@@ -100,7 +107,12 @@ async function ouvrir({ moi, hash }) {
       if (fn === "faire_livrer") return d({ id: "cmd_wa", numero: "BZ-000201", total: 21400, client_relie: false });
       return d(null);
     }
-    if (req.method() !== "GET") return route.fulfill({ status: 204, body: "" });
+    if (req.method() !== "GET") {
+      serveur.appels.push({ fn: req.method() + " " + c, corps, chemin: c + u.search });
+      const id = (u.searchParams.get("id") || "").replace(/^eq\./, "");
+      if (req.method() === "PATCH" && PROFILS[id]) return d([{ ...PROFILS[id], ...corps }]);
+      return route.fulfill({ status: 204, body: "" });
+    }
     if (c.startsWith("profils")) {
       const id = (u.searchParams.get("id") || "").replace(/^eq\./, "");
       return d(id ? [PROFILS[id]].filter(Boolean) : Object.values(PROFILS));
@@ -147,7 +159,41 @@ titre("1. « Faire livrer » s'ouvre depuis les commandes — pour l'équipe de 
   ok(await page.$("#cmd-faire-livrer") === null, "l'administrateur d'une boutique ne l'a pas");
   await page.evaluate(() => { location.hash = "#/faire-livrer"; });
   await page.waitForTimeout(1200);
-  ok(/Réservé à l'équipe de BIZZOO/.test(await texte(page, "#vue")), "et l'écran le lui dit s'il y va quand même");
+  ok(await page.evaluate(() => location.hash) !== "#/faire-livrer", "et l'écran lui est fermé s'il y va quand même");
+  await ctx.close();
+}
+
+{
+  /* Bio suit les commandes, mais n'a pas le droit « Faire livrer ». */
+  const { page, ctx } = await ouvrir({ moi: BIO, hash: "#/commandes" });
+  ok(await page.$("#cmd-faire-livrer") === null, "un administrateur de BIZZOO SANS le droit ne voit pas l'option");
+  await page.evaluate(() => { location.hash = "#/faire-livrer"; });
+  await page.waitForTimeout(1200);
+  ok(await page.evaluate(() => location.hash) !== "#/faire-livrer", "et l'écran lui est fermé s'il tape l'adresse");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrir({ moi: ADMBZ, hash: "#/" });
+  ok(await page.$('a[href="#/faire-livrer"]') !== null, "Awa, qui a le droit, l'a aussi depuis l'accueil");
+  await ctx.close();
+}
+
+titre("1 bis. Le superadministrateur accorde le droit, et lui seul");
+{
+  const { page, ctx, serveur } = await ouvrir({ moi: SUPER, hash: "#/comptes" });
+  await page.click(`[data-compte="${BIO}"]`).catch(() => {});
+  await page.waitForTimeout(600);
+  ok(await page.$("#cp-d-faire-livrer") !== null && !(await page.$eval("#cp-d-faire-livrer", (b) => b.checked).catch(() => true)),
+    "dans la fiche de Bio : l'interrupteur « Faire livrer », éteint");
+  await capture(page, "4-droit-faire-livrer", ".feuille, #feuille, body");
+  await page.click('label[for="cp-d-faire-livrer"]');
+  await page.click("#cp-enregistrer");
+  await page.waitForTimeout(900);
+  const ecrit = serveur.appels.find((a) => /^PATCH profils/.test(a.fn) && a.corps && "peut_faire_livrer" in a.corps);
+  if (!ecrit) console.log("    (appels : " + JSON.stringify(serveur.appels.filter((a) => !/^rpc|GET/.test(a.fn))).slice(0, 400) +
+    " ; coché : " + await page.$eval("#cp-d-faire-livrer", (b) => b.checked).catch(() => "?") +
+    " ; toasts : " + plat(await page.evaluate(() => (document.querySelector("#toasts") || {}).textContent || "")) + ")");
+  ok(ecrit && ecrit.corps.peut_faire_livrer === true && ecrit.chemin.includes(BIO), "allumé et enregistré : le droit part vers la base");
   await ctx.close();
 }
 

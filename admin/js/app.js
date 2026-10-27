@@ -21,7 +21,7 @@
        ne montre à chacun que les lignes de sa boutique. */
     { motif: /^\/commandes$/, vue: (v) => VueCommandes.afficher(v), commandes: true },
     /* (3.68.0) Une commande prise sur WhatsApp, saisie par l'équipe. */
-    { motif: /^\/faire-livrer$/, vue: (v) => VueFaireLivrer.afficher(v), commandes: true, onglet: "/commandes" },
+    { motif: /^\/faire-livrer$/, vue: (v) => VueFaireLivrer.afficher(v), faireLivrer: true },
     /* LA MÊME LISTE, OUVERTE SUR UNE COMMANDE. C'est là que mène une
        notification : « la commande BZ-000123 est payée » doit poser le
        doigt sur BZ-000123, et non sur une liste de quarante où il
@@ -299,6 +299,11 @@
       UI.toast(Supabase.estCompteEnseigne()
         ? "Il faut l'interrupteur « Les boutiques » pour ouvrir cet écran."
         : "Cet écran est réservé à l'administrateur.", "err");
+      location.hash = "#/";
+      return;
+    }
+    if (route.faireLivrer && !Supabase.peutFaireLivrer()) {
+      UI.toast("« Faire livrer » est un droit que le superadministrateur accorde.", "err");
       location.hash = "#/";
       return;
     }

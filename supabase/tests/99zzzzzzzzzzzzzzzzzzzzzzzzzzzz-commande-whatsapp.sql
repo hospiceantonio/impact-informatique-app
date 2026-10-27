@@ -29,16 +29,23 @@ set client_min_messages = notice;
 \set MODBZ    '''d7d7d7d7-0000-0000-0000-000000000002'''
 \set FIDELE   '''d7d7d7d7-0000-0000-0000-000000000003'''
 \set LIVBZ    '''d7d7d7d7-0000-0000-0000-000000000004'''
+\set ADM2     '''d7d7d7d7-0000-0000-0000-000000000005'''
+\set MOD3     '''d7d7d7d7-0000-0000-0000-000000000006'''
 
 select essai.titre('Le décor : un administrateur et un modérateur de BIZZOO, un client fidèle, un livreur');
 insert into auth.users (id, email) values
   (:ADMBZ::uuid, 'adm.wa@essai.bj'), (:MODBZ::uuid, 'mod.wa@essai.bj'),
-  (:FIDELE::uuid, 'fidele.wa@essai.bj'), (:LIVBZ::uuid, 'liv.wa@essai.bj')
+  (:FIDELE::uuid, 'fidele.wa@essai.bj'), (:LIVBZ::uuid, 'liv.wa@essai.bj'), (:ADM2::uuid, 'adm2.wa@essai.bj'),
+  (:MOD3::uuid, 'mod3.wa@essai.bj')
 on conflict do nothing;
-update public.profils p set role = v.r, actif = true, boutique_id = null, nom = v.n, peut_commandes = v.c
-  from (values (:ADMBZ::uuid, 'administrateur', 'Awa', true),
-               (:MODBZ::uuid, 'moderateur', 'Rémi', false),
-               (:LIVBZ::uuid, 'livreur', 'Yao', true)) as v(i, r, n, c)
+-- Awa a reçu le droit « Faire livrer » ; Rémi et Bio ne l'ont pas — Bio
+-- suit pourtant les commandes : ce droit-là ne donne pas l'autre.
+update public.profils p set role = v.r, actif = true, boutique_id = null, nom = v.n, peut_commandes = v.c,
+       peut_faire_livrer = v.f
+  from (values (:ADMBZ::uuid, 'administrateur', 'Awa', true, true),
+               (:MODBZ::uuid, 'moderateur', 'Rémi', true, false),
+               (:ADM2::uuid, 'administrateur', 'Bio', true, false),
+               (:LIVBZ::uuid, 'livreur', 'Yao', true, false)) as v(i, r, n, c, f)
  where p.id = v.i;
 update public.profils set vehicule = 'moto', tel = '0196700004' where id = :LIVBZ::uuid;
 insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
@@ -93,7 +100,39 @@ select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, nu
 reset role; select essai.personne();
 select essai.devenir(:MODBZ::uuid); set role authenticated;
 select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
-  'un modérateur de BIZZOO sans le droit « commandes » : refusé');
+  'un modérateur de BIZZOO sans le droit « Faire livrer » : refusé');
+reset role; select essai.personne();
+select essai.devenir(:ADM2::uuid); set role authenticated;
+select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
+  'un administrateur de BIZZOO qui suit les commandes, mais sans le droit : refusé');
+select essai.verifie(not public.peut_faire_livrer(), 'et l''écran le sait : « peut_faire_livrer() » est faux');
+-- Un modérateur qu'il crée : la règle de « profils » le laisse faire — et
+-- le retoucher tant qu'il attend sa validation. C'est par là qu'on
+-- glisserait le droit.
+select essai.refuse(format($$insert into public.profils (id, email, role, actif, boutique_id, nom, peut_faire_livrer)
+  values (%L::uuid, 'mod3.wa@essai.bj', 'moderateur', true, null, 'Ola', true)
+  on conflict (id) do update set role = excluded.role, actif = excluded.actif, boutique_id = excluded.boutique_id,
+    nom = excluded.nom, peut_faire_livrer = excluded.peut_faire_livrer$$, :MOD3),
+  'il ne peut pas créer un modérateur avec ce droit');
+insert into public.profils (id, email, role, actif, boutique_id, nom)
+values (:MOD3::uuid, 'mod3.wa@essai.bj', 'moderateur', true, null, 'Ola')
+on conflict (id) do update set role = excluded.role, actif = excluded.actif,
+  boutique_id = excluded.boutique_id, nom = excluded.nom;
+select essai.refuse(format($$update public.profils set peut_faire_livrer = true where id = %L::uuid$$, :MOD3),
+  'ni le lui glisser ensuite');
+update public.profils set peut_faire_livrer = true where id = :ADM2::uuid;
+reset role; select essai.personne();
+select essai.egal((select peut_faire_livrer from public.profils where id = :ADM2::uuid), false,
+  'ni se le donner lui-même');
+select essai.devenir(:ADMBZ::uuid); set role authenticated;
+select essai.sans_effet(format($$update public.profils set peut_faire_livrer = true where id = %L::uuid$$, :MODBZ),
+  'Awa, qui l''a, ne peut pas le transmettre non plus');
+reset role; select essai.personne();
+select essai.devenir(:SUPER::uuid); set role authenticated;
+update public.profils set peut_faire_livrer = true where id = :MODBZ::uuid;
+select essai.egal((select peut_faire_livrer from public.profils where id = :MODBZ::uuid), true,
+  'le superadministrateur, lui, l''accorde');
+update public.profils set peut_faire_livrer = false where id = :MODBZ::uuid;
 reset role; select essai.personne();
 set role anon;
 select essai.refuse(format($$select public.faire_livrer(%L::jsonb, %L::jsonb, null, 'MP0001', 50000)$$, :ART, :CLI),
