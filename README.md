@@ -5480,6 +5480,24 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## « Le paiement en ligne n'est pas encore ouvert » à tort (3.70.0)
+
+Un client a vu ce message, et « Envoyer sur WhatsApp », alors que le
+paiement en ligne était ouvert. L'application lisait le réglage UNE fois,
+à l'ouverture : une lecture ratée (réseau faible) ou faite pendant une
+coupure le croyait fermé, et l'écran de commande ne le revérifiait que
+s'il était déjà ouvert — la commande partait sur WhatsApp, sans payer.
+
+- Une lecture ratée ne ferme plus le paiement : on garde le dernier
+  réglage connu, de cette ouverture ou de la précédente (`paiement.js`,
+  « bizzoo-paiement-reglages »).
+- L'écran de commande relit TOUJOURS le réglage, et se redessine s'il a
+  changé (ouvert ou fermé).
+- « Envoyer sur WhatsApp » revérifie d'abord : ouvert, le client paie ici.
+
+Banc : `tools/banc-paiement-ferme.mjs` (11 constats ; l'ancien code en
+rate 5).
+
 ## Le client prévenu à chaque étape : notification et SMS (3.70.0)
 
 **Avant**, le client n'apprenait où en était sa commande qu'en ouvrant

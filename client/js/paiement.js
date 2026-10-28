@@ -122,6 +122,9 @@ const Paiement = (() => {
    * a pu le changer depuis le démarrage —, et un réseau capricieux à cet
    * instant-là ne doit pas fermer un paiement qui était ouvert.
    */
+  /** (3.70.0) Le dernier réglage lu, gardé pour une ouverture sans réseau. */
+  const CLE_REGLAGES = "bizzoo-paiement-reglages";
+
   async function charger(options) {
     const c = Catalogue.configuration();
     if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true, tauxAcompte: 100,
@@ -149,8 +152,22 @@ const Paiement = (() => {
            ne la connaît pas : null, et rien ne change. */
         livraison: lireLivraison(ligne),
       };
+      try { localStorage.setItem(CLE_REGLAGES, JSON.stringify(reglages)); } catch (_) { /* vide */ }
     } catch (_) {
-      if (options && options.garder && reglages) return reglages;
+      /* (3.70.0) UNE LECTURE RATÉE NE FERME PAS LE PAIEMENT. Un réseau
+         faible à l'ouverture faisait croire le paiement « pas encore
+         ouvert » : la commande partait sur WhatsApp, sans payer, et
+         l'écran ne revérifiait plus jamais. On garde ce qu'on savait — de
+         cette ouverture, ou de la précédente. */
+      if (reglages) return reglages;
+      try {
+        const garde = JSON.parse(localStorage.getItem(CLE_REGLAGES) || "null");
+        if (garde && typeof garde === "object" && "actif" in garde) {
+          reglages = garde;
+          document.dispatchEvent(new CustomEvent("paiement:charge"));
+          return reglages;
+        }
+      } catch (_) { /* vide */ }
       /* Base d'avant le paiement, ou hors connexion : la boutique
          fonctionne comme avant, commande par WhatsApp. */
       reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true,
