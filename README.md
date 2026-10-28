@@ -5561,6 +5561,11 @@ plafond, jour par jour et par étape ; les échecs avec leur commande ;
 `update public.sms_reglages set url = 'https://<projet>.supabase.co/functions/v1/envoyer-sms-commande';`
 Enfin, le superadministrateur allume les SMS dans les Réglages.
 
+**En ligne depuis le 28/10/2026** : `envoyer-push` (version 2) et
+`envoyer-sms-commande` déployées, `supabase/sms-clients.sql` appliqué,
+l'adresse posée ; les 15 fonctions vérifiées identiques au dépôt. Les SMS
+sont COUPÉS jusqu'à ce que le superadministrateur les allume.
+
 Essais : `supabase/tests/99zzz…-sms-clients.sql` (55 constats),
 `tools/eprouver-sms.sh` et `tools/eprouver-push.sh` (fonctions Edge),
 `tools/banc-sms-clients.mjs` (19), `tools/banc-push-client.mjs` (13).
