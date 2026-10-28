@@ -13512,6 +13512,10 @@ create table if not exists public.rh_reglages_suivi (
   confirmation_h  int not null default 24 check (confirmation_h between 1 and 720)
 );
 insert into public.rh_reglages_suivi (id) values (true) on conflict (id) do nothing;
+-- (3.69.0) La clôture automatique : tant d'heures après le dernier « Je
+-- l'ai reçu » du client. Vide : la clôture reste manuelle.
+alter table public.rh_reglages_suivi add column if not exists cloture_auto_h int default 24
+  check (cloture_auto_h is null or cloture_auto_h between 0 and 720);
 
 -- ---------- Les zones ----------
 -- Communes (toutes) et quartiers ou arrondissements connus du
@@ -14255,18 +14259,26 @@ returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
   nouveau bigint;
+  cible   text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
   end if;
-  if not exists (select 1 from public.commandes c where c.id = commande) then
-    raise exception 'Commande introuvable';
+  -- (3.69.0) La commande, par son identifiant ou par son numéro (« BZ-… »),
+  -- comme on le lit au client : le menu Incidents n'a que lui.
+  select c.id into cible from public.commandes c where c.id = commande;
+  if cible is null then
+    select min(c.id) into cible from public.commandes c
+     where upper(c.numero) = upper(btrim(coalesce(commande, '')));
+  end if;
+  if cible is null then
+    raise exception 'Commande introuvable : vérifiez son numéro';
   end if;
   if length(btrim(coalesce(description, ''))) = 0 then
     raise exception 'Décrivez l''incident';
   end if;
   insert into public.rh_incidents (commande_id, boutique_id, livreur_id, type, description, cree_par)
-  values (commande, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
+  values (cible, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
   returning id into nouveau;
   return nouveau;
 end $$;
@@ -14290,14 +14302,93 @@ begin
 end $$;
 
 /**
+ * (3.69.0) LE MENU INCIDENTS : tous les incidents encore ouverts, quelle
+ * que soit leur date, et ceux signalés sur la période. Pour qui suit les
+ * commandes.
+ */
+create or replace function public.rh_incidents_liste(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+begin
+  if public.rh_suivi_acces() is null then
+    raise exception 'Votre compte n''a pas accès au suivi des commandes';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'incidents', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', i.id, 'type', i.type, 'description', i.description, 'cree_le', i.cree_le,
+        'commande_id', i.commande_id, 'numero', c.numero, 'client', c.client_nom,
+        'boutique', coalesce(b.nom, i.boutique_id), 'livreur', coalesce(nullif(p.nom, ''), p.email),
+        'auteur', btrim(coalesce(ea.prenoms, '') || ' ' || coalesce(ea.nom, '')),
+        'resolu_le', i.resolu_le, 'resolution', i.resolution,
+        'resolu_par', btrim(coalesce(er.prenoms, '') || ' ' || coalesce(er.nom, '')),
+        'cloturee', sc.cloturee_le is not null)
+      order by (i.resolu_le is null) desc, i.cree_le desc)
+      from public.rh_incidents i
+      left join public.commandes c on c.id = i.commande_id
+      left join public.boutiques b on b.id = i.boutique_id
+      left join public.profils p on p.id = i.livreur_id
+      left join public.rh_employes ea on ea.id = i.cree_par
+      left join public.rh_employes er on er.id = i.resolu_par
+      left join public.rh_suivi_commandes sc on sc.commande_id = i.commande_id
+     where i.resolu_le is null
+        or (i.cree_le >= debut::timestamp at time zone 'Africa/Porto-Novo'
+            and i.cree_le < (fin + 1)::timestamp at time zone 'Africa/Porto-Novo')), '[]'));
+end $$;
+
+/** (3.69.0) Les incidents ouverts : la pastille du menu Incidents. */
+create or replace function public.rh_incidents_ouverts_nb() returns int
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if public.rh_suivi_acces() is null then
+    return 0;
+  end if;
+  return (select count(*) from public.rh_incidents where resolu_le is null);
+end $$;
+
+/**
+ * Ce qui empêche de clôturer une commande, ou rien (null) : un incident
+ * ouvert, un client qui conteste, un article qui n'a pas fini son
+ * parcours (confirmé, annulé, échoué ou retourné), un reste à encaisser.
+ * La même règle pour la clôture à la main et pour la clôture automatique.
+ */
+create or replace function public.rh_suivi_cloturable(d jsonb) returns text
+language sql stable set search_path = public as $$
+  select case
+    when d ->> 'cloturee_le' is not null then 'Cette commande est déjà clôturée'
+    when (d ->> 'incidents_ouverts')::int > 0 then 'Un incident reste ouvert : résolvez-le avant de clôturer'
+    when exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10)
+      then 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer'
+    when d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
+                                             where (l ->> 'rang')::int not in (8, 9, 11, 13))
+      then 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)'
+    -- (3.69.0) L'argent d'abord : un reste dû à la livraison doit être encaissé.
+    when coalesce((d ->> 'reste')::bigint, 0) > 0
+      then 'Un reste à encaisser n''est pas réglé : encaissez-le avant de clôturer'
+  end;
+$$;
+
+/**
  * Clôturer : le suivi est terminé. REFUSÉ tant qu'un incident reste
- * ouvert, qu'un client conteste encore, ou qu'un article n'a pas fini
- * son parcours (confirmé, annulé, échoué ou retourné).
+ * ouvert, qu'un client conteste encore, qu'un article n'a pas fini
+ * son parcours (confirmé, annulé, échoué ou retourné) ou qu'un reste
+ * n'est pas encaissé.
  */
 create or replace function public.rh_suivi_cloturer(commande text) returns void
 language plpgsql security definer set search_path = public as $$
 declare
   d jsonb;
+  refus text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
@@ -14306,18 +14397,9 @@ begin
   if d is null then
     raise exception 'Commande introuvable';
   end if;
-  if d ->> 'cloturee_le' is not null then
-    raise exception 'Cette commande est déjà clôturée';
-  end if;
-  if (d ->> 'incidents_ouverts')::int > 0 then
-    raise exception 'Un incident reste ouvert : résolvez-le avant de clôturer';
-  end if;
-  if exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10) then
-    raise exception 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer';
-  end if;
-  if d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
-                                         where (l ->> 'rang')::int not in (8, 9, 11, 13)) then
-    raise exception 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)';
+  refus := public.rh_suivi_cloturable(d);
+  if refus is not null then
+    raise exception '%', refus;
   end if;
   insert into public.rh_suivi_commandes as s (commande_id, cloturee_le, cloturee_par, maj_par, maj_le)
   values (commande, now(), public.rh_moi(), public.rh_moi(), now())
@@ -14353,6 +14435,71 @@ begin
    where id;
 end $$;
 
+/** (3.69.0) Le délai de la clôture automatique, en heures ; vide : manuelle. */
+create or replace function public.rh_suivi_regler_cloture(heures int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_admin() then
+    raise exception 'Seule l''administration règle la clôture automatique';
+  end if;
+  if heures is not null and (heures < 0 or heures > 720) then
+    raise exception 'Le délai de clôture : de 0 à 720 heures (30 jours), ou vide pour clôturer à la main';
+  end if;
+  update public.rh_reglages_suivi set cloture_auto_h = heures where id;
+end $$;
+
+/**
+ * (3.69.0) LA CLÔTURE AUTOMATIQUE. Une commande payée dont TOUS les
+ * articles sont livrés et confirmés par le client (ou annulés) se
+ * clôture d'elle-même, le délai réglé passé après le dernier « Je l'ai
+ * reçu » — le temps qu'un client signale un problème. Elle passe la même
+ * règle que la clôture à la main (rh_suivi_cloturable). Ce qui demande
+ * un regard reste à l'équipe : un échec, un retour, une contestation, un
+ * encaissement contesté, et une commande que l'administration a
+ * rouverte. Appelée par pg_cron chaque heure ; rend le nombre clôturé.
+ */
+create or replace function public.rh_suivi_cloturer_auto() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  heures int;
+  cible record;
+  d jsonb;
+  n int := 0;
+begin
+  select r.cloture_auto_h into heures from public.rh_reglages_suivi r where r.id;
+  if heures is null then
+    return 0;
+  end if;
+  for cible in
+    select c.id from public.commandes c
+     where c.etat = 'payee'
+       and not exists (select 1 from public.rh_suivi_commandes s
+                        where s.commande_id = c.id and s.cloturee_le is not null)
+       and not exists (select 1 from public.rh_journal_lignes j
+                        where j.commande_id = c.id and j.quoi = 'suivi' and j.valeur = 'rouverte')
+       and exists (select 1 from public.commande_lignes l where l.commande_id = c.id and l.etat <> 'annulee')
+       and not exists (select 1 from public.commande_lignes l
+                        where l.commande_id = c.id and l.etat <> 'annulee' and l.confirme_le is null)
+       and (select max(l.confirme_le) from public.commande_lignes l where l.commande_id = c.id)
+             <= now() - make_interval(hours => heures)
+     order by c.cree_le
+     limit 500
+  loop
+    select x into d from public.rh_suivi_donnees(null, null, cible.id) x;
+    continue when d is null or public.rh_suivi_cloturable(d) is not null;
+    continue when exists (select 1 from jsonb_array_elements(d -> 'lignes') l
+                           where (l ->> 'rang')::int not in (8, 11));
+    continue when coalesce(d -> 'alertes', '[]'::jsonb) ? 'encaissement_conteste';
+    insert into public.rh_suivi_commandes as s (commande_id, cloturee_le, cloturee_par, maj_par, maj_le)
+    values (cible.id, now(), null, null, now())
+    on conflict on constraint rh_suivi_commandes_pkey do update
+       set cloturee_le = now(), cloturee_par = null, maj_le = now();
+    insert into public.rh_journal_lignes (commande_id, quoi, valeur) values (cible.id, 'suivi', 'cloturee_auto');
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
 create or replace function public.rh_zone_ajouter(nom_zone text, commune_zone text default '') returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -14386,16 +14533,29 @@ begin
     'rh_suivi_bilan(date, date, text)', 'rh_suivi_terrain(text, text, text)', 'rh_suivi_noter(text, text, text)',
     'rh_incident_ouvrir(text, text, text, text, uuid)', 'rh_incident_resoudre(bigint, text)',
     'rh_suivi_cloturer(text)', 'rh_suivi_rouvrir(text)', 'rh_suivi_regler(int, int, int, int)',
-    'rh_zone_ajouter(text, text)'] loop
+    'rh_zone_ajouter(text, text)', 'rh_suivi_regler_cloture(int)', 'rh_incidents_liste(date, date)',
+    'rh_incidents_ouverts_nb()'] loop
     execute format('revoke all on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated, service_role', f);
   end loop;
   foreach f in array array[
     'rh_journaliser_ligne()', 'rh_journaliser_commande()', 'rh_suivi_donnees(timestamptz, timestamptz, text)',
     'rh_suivi_sans_montants(jsonb)', 'rh_zone_de(text)', 'rh_statut_ligne(text, timestamptz, text, boolean)',
-    'rh_statut_libelle(int)', 'rh_cle(text)'] loop
+    'rh_statut_libelle(int)', 'rh_cle(text)', 'rh_suivi_cloturable(jsonb)', 'rh_suivi_cloturer_auto()'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
   end loop;
+end $$;
+
+-- (3.69.0) La clôture automatique passe chaque heure. Sans pg_cron, rien
+-- ne casse : les commandes se clôturent à la main, comme avant.
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('rh-suivi-cloture-auto', '23 * * * *', 'select public.rh_suivi_cloturer_auto()');
+  end if;
+exception when others then
+  raise notice 'Clôture automatique non programmée (%) : les commandes se clôturent à la main', sqlerrm;
 end $$;
 
 -- =========================================================

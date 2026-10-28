@@ -5480,6 +5480,50 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## La clôture automatique des commandes, et le menu Incidents (3.69.0)
+
+**Avant**, une commande « Livré et confirmé » restait ouverte tant que
+personne ne cliquait sur « Clôturer » dans BIZZOO Personnel (Suivi →
+fiche de la commande).
+
+**Désormais**, une commande payée dont **tous** les articles sont livrés et
+confirmés par le client (ou annulés) se clôture d'elle-même **24 heures
+après le dernier « Je l'ai reçu »** — le temps qu'un client signale un
+problème. Elle passe la même règle que la clôture à la main
+(`rh_suivi_cloturable`) et reste ouverte, à l'équipe de juger, si :
+
+- un reste à encaisser n'est pas réglé (**nouveau** : la clôture à la main
+  le refuse aussi) ;
+- un incident est ouvert, ou le client conteste la livraison ;
+- un article a échoué, est en retour ou retourné, ou un encaissement est
+  contesté ;
+- l'administration a **rouverte** la commande : la base ne la referme
+  jamais d'elle-même, l'administration la referme à la main.
+
+La chronologie note « Clôturée automatiquement », la fiche aussi ; la
+clôture n'a pas d'auteur (`cloturee_par` vide). Le délai se règle dans
+**Suivi → Réglages → Clôture automatique** (`rh_reglages_suivi.cloture_auto_h`,
+`rh_suivi_regler_cloture`) : 24 par défaut, 0 = tout de suite, vide = à la
+main seulement. `rh_suivi_cloturer_auto()` passe **chaque heure à la
+minute 23 (pg_cron, « rh-suivi-cloture-auto »)** ; personne ne
+l'appelle depuis une application.
+
+**Le menu Incidents** (BIZZOO Personnel, sous « Suivi commandes », pour
+qui suit les commandes) : tous les incidents **ouverts**, quelle que soit
+leur date, et ceux **signalés sur la période** ; filtres (ouverts, résolus,
+tous ; type), recherche, « Signaler un incident » par le **numéro de la
+commande** (`rh_incident_ouvrir` accepte désormais « BZ-… »), « Résoudre »,
+lien vers la fiche. La pastille compte les incidents ouverts
+(`rh_incidents_ouverts_nb`). Liste : `rh_incidents_liste(depuis, jusqu)`.
+
+Fichier à coller : `supabase/cloture-incidents.sql`. Essais :
+`supabase/tests/99zzz…-cloture-incidents.sql` (36 constats),
+`tools/banc-incidents.mjs` (21 constats ; `CAPTURES=<dossier>`).
+
+`tools/fichiers-autonomes.sh` signalait parfois, au hasard, un emprunt
+qui n'existait pas (« printf | grep -q » sous « pipefail » : SIGPIPE) ;
+corrigé.
+
 ## « Faire livrer » : une commande prise sur WhatsApp (3.68.0)
 
 Certains clients commandent et paient sur WhatsApp au lieu de valider leur

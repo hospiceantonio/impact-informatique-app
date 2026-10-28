@@ -40,7 +40,7 @@ const VueSuivi = (() => {
   const ETAPES = { nouvelle: "Nouvelle", vue: "Vue par le marchand", preparee: "Préparée", en_livraison: "En livraison",
     remise: "Déclarée livrée", annulee: "Annulée", payee: "Payée", a_payer: "À payer", echouee: "Paiement échoué",
     recupere: "Colis récupéré", retour_en_cours: "Retour en cours", retournee: "Retourné au marchand",
-    cloturee: "Clôturée", rouverte: "Rouverte" };
+    cloturee: "Clôturée", rouverte: "Rouverte", cloturee_auto: "Clôturée automatiquement" };
 
   const etiquetteStatut = (c) => UI.etiquette(c.statut || "—", COULEUR_STATUT[c.rang] || "");
   const etiquettesAlertes = (liste) => (liste || []).map((a) => UI.etiquette(...(ALERTES[a] || [a, ""])));
@@ -496,7 +496,27 @@ const VueSuivi = (() => {
         "Zone ajoutée : elle sera reconnue dans les adresses.");
       nom.value = commune.value = "";
     });
-    UI.vider(zone, onglets("reglages"), form, formZone);
+    /* (3.69.0) La clôture automatique : vide, à la main. Une base d'avant
+       ne connaît pas ce réglage : le cadre n'apparaît pas. */
+    let formCloture = null;
+    if ("cloture_auto_h" in g) {
+      const heures = h("input", { type: "number", min: 0, max: 720, placeholder: "Vide : à la main" });
+      heures.value = g.cloture_auto_h === null ? "" : g.cloture_auto_h;
+      formCloture = h("form", { class: "carte pile" },
+        h("h2", {}, "Clôture automatique"),
+        h("p", { class: "doux petit" }, "Une commande dont tous les articles sont livrés et confirmés par le client se clôture d'elle-même, ce délai passé après le dernier « Je l'ai reçu ». Elle reste ouverte s'il reste de l'argent à encaisser, un incident ouvert, une contestation, un échec ou un retour, ou si l'administration l'a rouverte."),
+        h("div", { class: "formulaire" },
+          h("label", { class: "champ" }, h("span", {}, "Délai (en heures)"), heures,
+            h("small", {}, "24 : le lendemain. 0 : tout de suite. Vide : clôture à la main seulement."))),
+        h("div", { class: "actions" }, h("button", { class: "btn", type: "submit" }, "Enregistrer")));
+      formCloture.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const v = heures.value.trim();
+        await UI.agir(ev.submitter, () => Supabase.rpc("rh_suivi_regler_cloture", { heures: v === "" ? null : Number(v) }),
+          v === "" ? "Clôture à la main seulement." : "Clôture automatique : " + v + " h après la confirmation du client.");
+      });
+    }
+    UI.vider(zone, onglets("reglages"), form, formCloture, formZone);
   }
 
   /* ---------- La fiche d'une commande ---------- */
@@ -507,6 +527,8 @@ const VueSuivi = (() => {
     App.titre("Commande " + (c.numero || c.id));
     const recharger = () => App.rafraichir().then(() => fiche(zone, id));
     const close = !!c.cloturee_le;
+    /* La dernière clôture, d'après la chronologie : la base, ou l'équipe. */
+    const clotureAuto = close && ((c.journal || []).filter((j) => j.quoi === "suivi").pop() || {}).valeur === "cloturee_auto";
 
     const zoneChamp = h("input", { value: c.client.zone || "", placeholder: "Quartier (Commune)" });
     const obs = h("textarea", { placeholder: "Observations sur cette commande" });
@@ -627,10 +649,10 @@ const VueSuivi = (() => {
           c.montants ? h("div", {}, h("div", { class: "doux" }, "Total"), h("b", {}, montant(c.total)),
             h("div", { class: "tres-petit doux" }, "dont livraison " + montant(c.frais))) : null,
           c.montants ? h("div", {}, h("div", { class: "doux" }, "Reste à encaisser"), h("b", {}, montant(c.reste))) : null),
-        close ? h("div", { class: "info" }, "Clôturée le " + dateSuivi(c.cloturee_le) + ".") : null,
+        close ? h("div", { class: "info" }, "Clôturée" + (clotureAuto ? " automatiquement" : "") + " le " + dateSuivi(c.cloturee_le) + ".") : null,
         actions.length ? h("div", { class: "actions" }, actions) : null),
       lignes, incidents, formNotes, ...autres, journal);
   }
 
-  return { titre: "Suivi des commandes", afficher };
+  return { titre: "Suivi des commandes", afficher, TYPES_INCIDENT, dateSuivi, periodeDe };
 })();
