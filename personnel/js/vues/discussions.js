@@ -227,7 +227,9 @@ const VueDiscussions = (() => {
         dernier = Math.max(dernier, m.id);
       }
       if (premiere || enBas) window.scrollTo(0, document.body.scrollHeight);
-      Supabase.rpc("rh_marquer_lu", { conversation: cle }).catch(() => {});
+      /* Le compteur du menu se relit aussitôt la lecture notée, et non à la
+         relecture de la minute : sans cela, la pastille restait affichée. */
+      Supabase.rpc("rh_marquer_lu", { conversation: cle }).then(() => App.rafraichir()).catch(() => {});
       return true;
     }
 
