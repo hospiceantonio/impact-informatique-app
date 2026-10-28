@@ -136,7 +136,24 @@ const VueAccueil = (() => {
     }
     raccourcis.push(h("a", { class: "btn btn-second", href: "#/mails/ecrire" }, UI.icone("mail", "ic-sm"), "Écrire un mail"));
 
+    /* UN RÉGLAGE SENSIBLE CHANGÉ (code MoMoPay, mode essai…) reste en
+       rouge ici tant que le CEO ou le superadministrateur ne l'a pas
+       approuvé dans Contrôles. */
+    const k = App.controles() || {};
+    const alerteReglage = k.reglages_a_approuver > 0 && k.dernier ? h("a", { class: "alerte-rouge", href: "#/controles/reglages" },
+      UI.icone("alerte"),
+      h("div", { class: "etire" },
+        h("b", {}, k.dernier.libelle),
+        h("div", { class: "petit" }, "Par " + (k.dernier.par || "inconnu") + ", le " + UI.dateHeure(k.dernier.le) +
+          (k.reglages_a_approuver > 1 ? " · " + k.reglages_a_approuver + " changements à vérifier" : "") +
+          (k.approuver ? " · touchez pour vérifier et approuver" : " · en attente du CEO"))),
+      UI.icone("chevron", "ic-sm")) : null;
+    if (k.encaissements_anciens > 0) {
+      aFaire.push(tuile(k.encaissements_anciens, "encaissement(s) à la livraison en attente depuis trop longtemps", "#/controles/encaissements", true));
+    }
+
     UI.vider(zone,
+      alerteReglage,
       h("div", {},
         h("h2", { style: { fontSize: "21px" } }, salut + ", " + (moi.prenoms || moi.nom)),
         h("p", { class: "doux" }, [rang, moi.profil ? "Profil " + moi.profil : ""].filter(Boolean).join(" · "))),

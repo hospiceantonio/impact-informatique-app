@@ -25,6 +25,7 @@ const VueParametres = (() => {
     ["Commandes", [
       ["suivi", "Suivi des commandes", "Statuts, alertes, incidents, export Excel : sans les montants."],
       ["livreurs", "Localiser un livreur", "La carte des livreurs en course, et leur distance au client."],
+      ["controles", "Contrôles des encaissements", "MoMoPay à vérifier, espèces pas rendues, écarts, par livreur : nombres et ancienneté, sans les montants."],
     ]],
     ["Caisse", [
       ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire. L'administration ne la voit pas d'office."],

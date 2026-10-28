@@ -48,6 +48,11 @@
 --      aussitôt de la même façon ;
 --  26. le menu Livreurs : la liste et la fiche de chacun ; bloqué par
 --      l'administration, un livreur ne reçoit plus aucune course.
+--  27. les contrôles : chaque changement d'un réglage sensible (paiement,
+--      code MoMoPay, numéros de réception) est gardé et attend l'approbation
+--      du CEO, sans jamais bloquer le réglage ; les encaissements qui
+--      attendent, par livreur, montants à l'administration seulement ; la
+--      veille des livreurs (course sans livreur, livreur muet).
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1720,6 +1725,221 @@ select essai.verifie(public.assigner_livreur(:'cmd_bloc', 'bou_informatique', :L
   'et la boutique peut de nouveau lui confier la course');
 reset role; select essai.personne();
 delete from auth.users where id = :LIV_BLOC::uuid;
+
+-- ---------------------------------------------------------
+select essai.titre('27. Les contrôles : réglages sensibles, encaissements, veille des livreurs');
+-- Tout le décor de cette section s'annule à la fin : le paiement, les
+-- réglages et les commandes d'essai redeviennent ce qu'ils étaient.
+begin;
+\set LIV_CTRL '''a0a0a0a0-0013-4000-8000-000000000013'''
+insert into auth.users (id, email) values (:LIV_CTRL::uuid, 'livreur.ctrl@essai.bj') on conflict do nothing;
+insert into public.profils (id, email, role, actif, nom, tel, boutique_id)
+values (:LIV_CTRL::uuid, 'livreur.ctrl@essai.bj', 'livreur', true, 'Kpodo', '0197000013', 'bou_informatique')
+on conflict (id) do update set role = 'livreur', actif = true, nom = 'Kpodo', boutique_id = 'bou_informatique';
+-- Son numéro, posé comme le ferait sa fiche (déclencheurs coupés le temps de cette écriture du décor).
+set session_replication_role = replica;
+update public.profils set tel = '0197000013' where id = :LIV_CTRL::uuid;
+set session_replication_role = origin;
+
+-- Les droits : un employé sans accès, un compte de boutique.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_controles_compteurs() -> 'acces', 'null'::jsonb, 'menu fermé : un employé n''a pas les contrôles');
+select essai.refuse($$select public.rh_audit_reglages_liste()$$, 'ni l''historique des réglages');
+select essai.refuse($$select public.rh_encaissements()$$, 'ni les encaissements');
+select essai.refuse($$select public.rh_audit_approuver(array[1::bigint])$$, 'ni n''approuve');
+select essai.refuse($$select public.rh_controles_regler(1, 1, 1)$$, 'ni ne règle les seuils');
+select essai.refuse($$select public.rh_suivi_regler_veille(30, 15)$$, 'ni la veille des livreurs');
+select essai.refuse($$select * from public.rh_audit_reglages$$, 'la table de l''historique ne se lit pas');
+reset role; select essai.personne();
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.refuse($$select public.rh_encaissements()$$, 'un compte de boutique non plus');
+select essai.refuse($$insert into public.rh_audit_reglages (table_nom, champ) values ('paiement', 'faux')$$,
+  'personne n''écrit dans l''historique à la main');
+reset role; select essai.personne();
+
+-- 1. Un réglage sensible change : le superadministrateur passe le paiement
+--    en mode essai et change le code MoMoPay.
+update public.rh_audit_reglages set approuve_le = now() where approuve_le is null;
+select essai.devenir(:ENSEIGNE::uuid);
+update public.paiement set bac_a_sable = not bac_a_sable, momopay_code = '0161234567', maj_le = now() where id = 1;
+select essai.personne();
+update public.reglages set compte_obligatoire = not compte_obligatoire, maj_le = now() where id = 1;
+insert into public.boutiques_reception (boutique_id, tel, reseau, titulaire)
+values ('bou_informatique', '0197123456', 'MTN', 'Essai Chef')
+on conflict (boutique_id) do update set tel = '0197123456', reseau = 'MTN', titulaire = 'Essai Chef';
+select essai.egal((select count(*)::int from public.rh_audit_reglages
+                    where approuve_le is null and table_nom = 'paiement' and champ in ('bac_a_sable', 'momopay_code')
+                      and par_compte = :ENSEIGNE::uuid and par_nom <> '' and par_nom not like 'Système%'), 2,
+  'chaque champ changé est gardé, avec son auteur');
+select essai.verifie(not exists (select 1 from public.rh_audit_reglages where champ = 'maj_le'),
+  'la date de mise à jour seule ne compte pas');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'paiement' and champ = 'momopay_code'
+                              and apres = '0161234567' and critique), 'le code MoMoPay : valeur d''avant et d''après, critique');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'reglages' and champ = 'compte_obligatoire'
+                              and par_compte is null and par_nom like 'Système%'), 'un changement sans compte : « Système »');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'boutiques_reception'
+                              and cible = 'bou_informatique' and champ = 'tel'), 'le numéro de réception d''une boutique aussi');
+
+-- Le déclencheur avale ses erreurs : un historique impossible n'empêche
+-- pas le réglage.
+select taux_livreur as tl_avant from public.paiement where id = 1 \gset
+alter table public.rh_audit_reglages add constraint essai_historique_impossible check (false) not valid;
+update public.paiement set taux_livreur = taux_livreur + 1 where id = 1;
+alter table public.rh_audit_reglages drop constraint essai_historique_impossible;
+select essai.verifie(not exists (select 1 from public.rh_audit_reglages where champ = 'taux_livreur'),
+  'l''historique a échoué en silence…');
+select essai.egal((select taux_livreur from public.paiement where id = 1), :'tl_avant'::int + 1,
+  '… et le réglage est passé quand même');
+
+-- La table est figée.
+select essai.refuse($$delete from public.rh_audit_reglages$$, 'l''historique ne s''efface pas');
+select essai.refuse($$update public.rh_audit_reglages set apres = 'autre' where champ = 'momopay_code'$$,
+  'ni ne se réécrit');
+
+-- L'administration lit ; le CEO et le superadministrateur approuvent.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_audit_reglages_liste(true) as audit_adm \gset
+select public.rh_controles_compteurs() as compteurs_adm \gset
+select (select array_agg((x ->> 'id')::bigint) from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x) as ids_audit \gset
+select essai.refuse(format($$select public.rh_audit_approuver(%L::bigint[])$$, :'ids_audit'),
+  'l''administration n''approuve pas : elle lit');
+reset role; select essai.personne();
+select essai.egal((:'audit_adm'::jsonb ->> 'approuver')::boolean, false, 'l''écran le lui dit');
+select essai.verifie((:'audit_adm'::jsonb ->> 'a_approuver')::int >= 6, 'les changements attendent leur approbation');
+select essai.egal((select x ->> 'apres' from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x
+                    where x ->> 'champ' = 'momopay_code'), '016…67', 'le code MoMoPay sort tronqué');
+select essai.egal((select x ->> 'apres' from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x
+                    where x ->> 'champ' = 'tel'), '019…56', 'le numéro de réception aussi');
+select essai.verifie(not (:'audit_adm'::jsonb::text like '%0161234567%') and not (:'audit_adm'::jsonb::text like '%0197123456%'),
+  'aucune valeur entière ne sort');
+select essai.verifie((select x ->> 'libelle' from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x
+                       where x ->> 'champ' = 'bac_a_sable') like 'Paiement passé en %', 'chaque changement dit ce qu''il veut dire');
+select essai.verifie((:'compteurs_adm'::jsonb ->> 'reglages_a_approuver')::int >= 6
+  and (:'compteurs_adm'::jsonb #>> '{dernier,critique}')::boolean, 'l''alerte rouge de l''accueil et du menu');
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_audit_approuver(:'ids_audit'::bigint[]) as approuves \gset
+select essai.refuse(format($$select public.rh_audit_approuver(%L::bigint[])$$, :'ids_audit'), 'on n''approuve pas deux fois');
+select public.rh_controles_compteurs() as compteurs_ceo \gset
+reset role; select essai.personne();
+select essai.verifie(:'approuves'::int >= 6, 'le CEO dit « vu et approuvé »');
+select essai.egal((:'compteurs_ceo'::jsonb ->> 'reglages_a_approuver')::int, 0, 'l''alerte s''éteint');
+select essai.verifie(not exists (select 1 from public.rh_audit_reglages where id = any(:'ids_audit'::bigint[]) and approuve_nom = ''),
+  'chaque approbation garde son auteur');
+select essai.refuse($$update public.rh_audit_reglages set approuve_le = null where champ = 'momopay_code'$$,
+  'une approbation ne se retire pas');
+
+-- 2. Les encaissements à la livraison : un MoMoPay pas vérifié depuis
+--    60 h, des espèces pas rendues depuis 30 h avec un écart.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_enc1 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_enc2 \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_enc1', 'TRX-RH-CTRL1', (select coalesce(acompte, total) from public.commandes where id = :'cmd_enc1'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_enc2', 'TRX-RH-CTRL2', (select coalesce(acompte, total) from public.commandes where id = :'cmd_enc2'), 'feexpay') as p \gset
+insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id, encaisse_le)
+values (:'cmd_enc1', 'bou_informatique', :LIV_CTRL::uuid, 5000, 5000, 'mobile_money', 'MoMoPay — transaction CTRL1', 'CTRL1', now() - interval '60 hours'),
+       (:'cmd_enc2', 'bou_informatique', :LIV_CTRL::uuid, 3000, 2000, 'especes', 'Le client n''avait pas tout', '', now() - interval '30 hours');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_controles_regler(48, 24, 2);
+select essai.refuse($$select public.rh_controles_regler(0, 24, 2)$$, 'un délai hors bornes est refusé');
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_adm \gset
+select x as enc_liv_adm from jsonb_array_elements(:'enc_adm'::jsonb -> 'livreurs') x where x ->> 'id' = :LIV_CTRL \gset
+select public.rh_suivi_commande(:'cmd_enc1') as suivi_enc1 \gset
+select public.rh_suivi_commande(:'cmd_enc2') as suivi_enc2 \gset
+reset role; select essai.personne();
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'en_attente')::int, 2, 'par livreur : ses deux encaissements en attente');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'anciens')::int, 2, 'tous deux au-delà des seuils (48 h MoMoPay, 24 h espèces)');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'ecarts')::int, 1, 'et son écart entre le dû et le déclaré');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'au_plafond')::boolean, true, 'le plafond (2) est atteint : il est signalé');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'montant')::int, 7000, 'l''administration voit le montant en attente');
+select essai.verifie((:'enc_adm'::jsonb #>> '{totaux,momopay_anciens}')::int >= 1
+  and (:'enc_adm'::jsonb #>> '{totaux,especes_anciennes}')::int >= 1, 'les totaux comptent les anciens');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'enc_adm'::jsonb -> 'lignes') x
+                              where x ->> 'commande' = :'cmd_enc1' and x ->> 'statut' = 'momopay_a_verifier'
+                                and (x ->> 'heures')::int >= 59 and x ->> 'transaction' = 'CTRL1'),
+  'ligne par ligne : MoMoPay à vérifier, son ancienneté et sa transaction');
+select essai.verifie((:'suivi_enc1'::jsonb -> 'alertes') ? 'momopay_non_verifie', 'le suivi lève « MoMoPay pas vérifié »');
+select essai.verifie((:'suivi_enc2'::jsonb -> 'alertes') ? 'encaissement_ecart', 'et « écart d''encaissement »');
+
+-- La logistique : Paramètres ouvre « controles » au profil, sans montants.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"controles":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_controles_compteurs() as compteurs_log \gset
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_log \gset
+select essai.verifie('controles' = any(public.rh_mes_menus()), 'le menu lui est ouvert');
+select essai.refuse($$select public.rh_audit_reglages_liste()$$, 'mais pas l''historique des réglages');
+select essai.refuse($$select public.rh_controles_regler(48, 24, 3)$$, 'ni les seuils');
+reset role; select essai.personne();
+select essai.egal(:'compteurs_log'::jsonb ->> 'acces', 'logistique', 'il entre dans la version sans montants');
+select essai.verifie(:'compteurs_log'::jsonb -> 'reglages_a_approuver' = 'null'::jsonb
+  and :'compteurs_log'::jsonb -> 'dernier' = 'null'::jsonb, 'sans rien des réglages sensibles');
+select essai.verifie((:'compteurs_log'::jsonb ->> 'encaissements_anciens')::int >= 2, 'il voit combien attendent trop');
+select essai.egal((:'enc_log'::jsonb ->> 'montants')::boolean, false, 'l''écran sait qu''il n''a pas les montants');
+select essai.verifie(not (:'enc_log'::jsonb::text ~ '"(du|montant|transaction|montant_a_verifier|montant_especes|montant_non_declare|ecart_total)"'),
+  'aucun montant ni numéro de transaction');
+select essai.egal((select (x ->> 'anciens')::int from jsonb_array_elements(:'enc_log'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 2, 'mais les nombres et l''ancienneté, oui');
+
+-- 3. La veille des livreurs : une course payée que personne ne prend, un
+--    livreur en route qui ne donne plus de position.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_veille1 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_veille2 \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_veille1', 'TRX-RH-VEILLE1', (select coalesce(acompte, total) from public.commandes where id = :'cmd_veille1'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_veille2', 'TRX-RH-VEILLE2', (select coalesce(acompte, total) from public.commandes where id = :'cmd_veille2'), 'feexpay') as p \gset
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+values (:LIV_CTRL::uuid, 6.36, 2.41, 'Akpakpa')
+on conflict (profil_id) do update set latitude = 6.36, longitude = 2.41;
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select public.assigner_livreur(:'cmd_veille2', 'bou_informatique', :LIV_CTRL::uuid) as confiee \gset
+reset role; select essai.personne();
+-- Le décor daté, déclencheurs coupés le temps de ces écritures : payées
+-- il y a 2 h ; la seconde en route depuis 1 h, dernière position il y a 40 min.
+set session_replication_role = replica;
+update public.commandes set paye_le = now() - interval '2 hours' where id in (:'cmd_veille1', :'cmd_veille2');
+update public.commande_lignes set etat = 'en_livraison', recu_le = now() - interval '1 hour' where commande_id = :'cmd_veille2';
+set session_replication_role = origin;
+update public.positions_livreurs set enregistre_le = now() - interval '40 minutes' where profil_id = :LIV_CTRL::uuid;
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.refuse($$select public.rh_suivi_regler_veille(30, 15)$$, 'le responsable du suivi ne règle pas la veille');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_suivi_regler_veille(2, 15)$$, 'une veille hors bornes est refusée');
+select public.rh_suivi_regler_veille(30, 15);
+select public.rh_suivi(current_date, current_date) -> 'reglages' as reglages_veille \gset
+select public.rh_suivi_commande(:'cmd_veille1') as veille1 \gset
+select public.rh_suivi_commande(:'cmd_veille2') as veille2 \gset
+select public.rh_suivi_alertes_nb() as nb_muet \gset
+select x as carte_muet from jsonb_array_elements(public.rh_localiser_livreurs() -> 'livreurs') x where x ->> 'id' = :LIV_CTRL \gset
+reset role; select essai.personne();
+select essai.egal((:'reglages_veille'::jsonb ->> 'prise_course_min')::int, 30, 'les seuils de la veille vivent avec ceux du suivi');
+select essai.verifie((:'veille1'::jsonb -> 'alertes') ? 'course_sans_livreur', 'payée depuis 2 h, sans livreur : « course sans livreur »');
+select essai.egal(:'veille2'::jsonb -> 'alertes', '["livreur_muet"]'::jsonb, 'en route, sans position depuis 40 min : « livreur muet »');
+select essai.egal((:'carte_muet'::jsonb ->> 'muet')::boolean, true, 'sur la carte, il est muet (en orange)');
+select essai.egal(:'carte_muet'::jsonb ->> 'tel', '0197000013', 'avec son numéro, pour l''appeler');
+
+-- Il redonne signe de vie : l'alerte tombe, la pastille du suivi aussi.
+update public.positions_livreurs set enregistre_le = now() where profil_id = :LIV_CTRL::uuid;
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_suivi_commande(:'cmd_veille2') as veille2b \gset
+select public.rh_suivi_alertes_nb() as nb_parle \gset
+select x as carte_parle from jsonb_array_elements(public.rh_localiser_livreurs() -> 'livreurs') x where x ->> 'id' = :LIV_CTRL \gset
+reset role; select essai.personne();
+select essai.egal(:'veille2b'::jsonb -> 'alertes', '[]'::jsonb, 'une position fraîche : plus d''alerte');
+select essai.egal(:'nb_muet'::int - :'nb_parle'::int, 1, 'la pastille du suivi la comptait');
+select essai.egal((:'carte_parle'::jsonb ->> 'muet')::boolean, false, 'et la carte ne le dit plus muet');
+select essai.verifie(not (:'carte_muet'::jsonb::text ~ '"(total|prix|montant|frais)"'), 'la carte reste sans montant');
+rollback;
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

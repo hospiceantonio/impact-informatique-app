@@ -264,6 +264,8 @@ p{margin:0}
 .pin-livreur{width:34px;height:34px;border-radius:50%;background:#64748B;color:#fff;font:700 12px/34px sans-serif;text-align:center;border:3px solid #fff;box-shadow:0 1px 4px #0006}
 .pin-livreur.en-course{background:var(--bleu)}
 .pin-livreur.ancien{opacity:.55}
+/* En route et sans position depuis le seuil : il faut l'appeler. */
+.pin-livreur.muet{background:var(--orange);opacity:1}
 .pin-livreur.choisi{background:var(--orange-fonce);transform:scale(1.15)}
 .pin-livreur.petit-pin{flex:none;width:30px;height:30px;line-height:30px;font-size:11px;border-width:2px;box-shadow:none}
 .pin-client{width:22px;height:22px;border-radius:50%;background:var(--rouge);border:3px solid #fff;box-shadow:0 1px 4px #0006}
@@ -295,6 +297,9 @@ p{margin:0}
 @keyframes tourne{to{transform:rotate(360deg)}}
 .erreur{background:var(--rouge-clair);color:var(--rouge-fonce);padding:12px 14px;border-radius:var(--r-sm);font-size:14px}
 .info{background:var(--bleu-50);color:var(--bleu-800);padding:12px 14px;border-radius:var(--r-sm);font-size:14px}
+/* Un réglage sensible changé, pas encore approuvé : en tête de l'accueil. */
+.alerte-rouge{display:flex;align-items:center;gap:12px;background:var(--rouge-clair);color:var(--rouge-fonce);border:1px solid var(--rouge);padding:12px 14px;border-radius:var(--r-sm);margin-bottom:12px}
+.alerte-rouge b{display:block}
 .avertissement{background:var(--ambre-clair);color:var(--orange-fonce);padding:12px 14px;border-radius:var(--r-sm);font-size:14px}
 
 /* ---------- Fenêtres et messages ---------- */

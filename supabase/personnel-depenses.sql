@@ -428,7 +428,7 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;

@@ -13588,8 +13588,17 @@ language plpgsql stable security definer set search_path = public as $$
 declare
   r public.rh_reglages_suivi;
   maintenant timestamptz := now();
+  -- Les seuils de la veille et des encaissements (personnel-controles.sql)
+  -- se lisent par to_jsonb : sur une base où leurs colonnes manquent
+  -- encore, la valeur de départ vaut, au lieu d'une erreur.
+  v_prise_min int;
+  v_position_min int;
+  v_momopay_h int;
 begin
   select * into r from public.rh_reglages_suivi where id;
+  v_prise_min := coalesce((to_jsonb(r) ->> 'prise_course_min')::int, 30);
+  v_position_min := coalesce((to_jsonb(r) ->> 'position_min')::int, 15);
+  v_momopay_h := coalesce((to_jsonb(r) ->> 'momopay_h')::int, 48);
   return query
   with cmd as (
     select c.* from public.commandes c
@@ -13690,6 +13699,27 @@ begin
         union all
         select 'encaissement_conteste' where exists (select 1 from public.encaissements e
                                                      where e.commande_id = c.id and e.conteste_le is not null)
+        union all
+        -- Payée (ou préparée) et personne n'a pris la course : la demande
+        -- part à tous les livreurs au paiement, elle devrait trouver preneur.
+        select 'course_sans_livreur' where exists (select 1 from lig2 x where x.commande_id = c.id
+                                 and x.etat in ('nouvelle', 'vue', 'preparee') and x.livreur_id is null
+                                 and maintenant - coalesce(x.preparee_le, c.paye_le) > make_interval(mins => v_prise_min))
+        union all
+        -- En route, et son téléphone n'envoie plus rien : compté depuis sa
+        -- dernière position, ou depuis qu'il a accepté la course.
+        select 'livreur_muet' where exists (select 1 from lig2 x
+                                 left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
+                                 where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
+                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
+                                       > make_interval(mins => v_position_min))
+        union all
+        select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null
+                                   and maintenant - e.encaisse_le > make_interval(hours => v_momopay_h))
+        union all
+        select 'encaissement_ecart' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.montant <> e.du)
       ) al)
     end)
   from cmd c
@@ -14176,7 +14206,7 @@ create table if not exists public.rh_acces_menus (
   modifie_le   timestamptz not null default now(),
   primary key (profil_id, menu),
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
-    'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'depenses', 'suivi', 'livreurs', 'controles', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
   constraint rh_acces_menus_qui check (qui in ('responsable', 'membres'))
 );
@@ -14240,7 +14270,7 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
@@ -14263,7 +14293,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'caisse',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -15037,7 +15067,7 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
     alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
-      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'stats_commandes',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'stats_commandes',
       'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
   end if;
 end $$;
@@ -15051,13 +15081,23 @@ create or replace function public.rh_localiser_livreurs() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+  seuil int;
 begin
   if not public.rh_menu_ouvert('livreurs') then
     raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
   end if;
+  -- Le seuil du « livreur muet » vit dans les réglages du suivi : sans
+  -- eux (fichier rejoué seul sur une base plus ancienne), 15 minutes.
+  begin
+    select (to_jsonb(r) ->> 'position_min')::int into seuil from public.rh_reglages_suivi r where r.id;
+  exception when others then
+    seuil := null;
+  end;
+  seuil := coalesce(seuil, 15);
   return jsonb_build_object(
     'coef', coef,
     'maintenant', now(),
+    'seuil_muet_min', seuil,
     'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
       from (
         select jsonb_build_object(
@@ -15072,6 +15112,12 @@ begin
           'en_course', public.livreur_en_course(p.id),
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
                                   where s.profil_id = p.id and s.expire_le > now()),
+          -- En route vers un client, et rien reçu de son téléphone depuis
+          -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
+          'muet', exists (select 1 from public.commande_lignes l
+                            join public.commandes c on c.id = l.commande_id
+                           where l.livreur_id = p.id and c.etat = 'payee' and l.etat = 'en_livraison'
+                             and now() - greatest(pl.enregistre_le, l.recu_le, c.paye_le) > make_interval(mins => seuil)),
           'courses', (select coalesce(jsonb_agg(jsonb_build_object(
               'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
               'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
@@ -15585,7 +15631,7 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
     alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
-      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'caisse', 'stats_commandes',
       'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
   end if;
 end $$;
@@ -17109,3 +17155,540 @@ revoke all on function public.rh_livreur_fiche(uuid, date, date) from public, an
 grant execute on function public.rh_livreur_fiche(uuid, date, date) to authenticated, service_role;
 revoke all on function public.rh_bloquer_livreur(uuid, boolean, text) from public, anon;
 grant execute on function public.rh_bloquer_livreur(uuid, boolean, text) to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : les contrôles (réglages sensibles, encaissements,
+-- veille des livreurs)
+--
+-- 1. L'HISTORIQUE DES RÉGLAGES SENSIBLES. Chaque changement de
+--    « paiement » (bac à sable, paiement fermé, agrégateur, code
+--    MoMoPay, tarifs), de « reglages » (compte obligatoire) et des
+--    numéros de réception des boutiques est gardé, champ par champ, avec
+--    son auteur, l'ancienne et la nouvelle valeur. Il reste en alerte
+--    rouge (accueil, menu Contrôles) tant que le CEO ou le
+--    superadministrateur ne l'a pas dit « vu et approuvé ».
+--    L'administration le lit ; les codes et numéros sont tronqués.
+-- 2. LE CONTRÔLE DES ENCAISSEMENTS À LA LIVRAISON : MoMoPay pas encore
+--    vérifié, espèces pas encore rendues, livraisons sans déclaration,
+--    écarts et contestations, par livreur et avec leur ancienneté.
+--    Montants : l'administration et le superadministrateur ; la clé
+--    « controles » de Paramètres ouvre la version sans montants.
+-- 3. LA VEILLE DES LIVREURS dans le suivi des commandes : « course sans
+--    livreur » et « livreur muet » (en route, sans position), et le
+--    livreur muet en orange sur la carte Localiser.
+-- =========================================================
+
+-- ---------- La clé « controles » dans Paramètres ----------
+-- Elle ouvre le contrôle des encaissements SANS montants (nombres et
+-- ancienneté) aux profils choisis, la logistique par exemple.
+do $$
+begin
+  if to_regclass('public.rh_acces_menus') is null then
+    return;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu'
+               and pg_get_constraintdef(oid) not like '%''controles''%') then
+    alter table public.rh_acces_menus drop constraint rh_acces_menus_menu;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
+    alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'caisse', 'stats_commandes',
+      'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
+  end if;
+end $$;
+
+-- ---------- Les seuils, avec ceux du suivi ----------
+-- Veille des livreurs, en minutes : une course payée que personne ne
+-- prend, un livreur en route dont le téléphone se tait. Encaissements :
+-- au-delà de combien d'heures un MoMoPay non vérifié ou des espèces non
+-- rendues deviennent « anciens », et à combien d'anciens un livreur est
+-- signalé (sa fiche propose alors le blocage, qui existe déjà).
+alter table public.rh_reglages_suivi add column if not exists prise_course_min int not null default 30
+  check (prise_course_min between 5 and 1440);
+alter table public.rh_reglages_suivi add column if not exists position_min int not null default 15
+  check (position_min between 2 and 720);
+alter table public.rh_reglages_suivi add column if not exists momopay_h int not null default 48
+  check (momopay_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists especes_h int not null default 24
+  check (especes_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists plafond_nb int not null default 3
+  check (plafond_nb between 1 and 100);
+
+-- ---------- L'historique des réglages sensibles ----------
+-- Un code MoMoPay changé envoie tous les restes payés à la livraison sur
+-- un autre compte ; un « bac à sable » coché par erreur arrête toutes
+-- les ventes réelles. Jusqu'ici seul « maj_le » bougeait, sans auteur ni
+-- valeur d'avant. Chaque changement de « paiement », « reglages » et
+-- « boutiques_reception » s'écrit ici, champ par champ, et attend que le
+-- CEO ou le superadministrateur le dise « vu et approuvé ».
+--
+-- Table FIGÉE : on n'efface rien, on ne réécrit rien ; seule
+-- l'approbation se pose, une fois. Personne ne la lit directement : les
+-- valeurs entières (code MoMoPay, numéros) n'en sortent que tronquées,
+-- par rh_audit_reglages_liste.
+create table if not exists public.rh_audit_reglages (
+  id            bigint generated always as identity primary key,
+  le            timestamptz not null default now(),
+  table_nom     text not null,
+  cible         text not null default '',
+  champ         text not null,
+  avant         text,
+  apres         text,
+  par_compte    uuid,
+  par_nom       text not null default '',
+  critique      boolean not null default false,
+  approuve_le   timestamptz,
+  approuve_par  uuid,
+  approuve_nom  text not null default ''
+);
+create index if not exists rh_audit_reglages_attente on public.rh_audit_reglages (le desc) where approuve_le is null;
+alter table public.rh_audit_reglages enable row level security;
+revoke all on table public.rh_audit_reglages from public, anon, authenticated;
+revoke all on sequence public.rh_audit_reglages_id_seq from public, anon, authenticated;
+grant all on table public.rh_audit_reglages to service_role;
+grant usage, select on sequence public.rh_audit_reglages_id_seq to service_role;
+
+create or replace function public.rh_audit_reglages_fige() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'L''historique des réglages ne s''efface pas';
+  end if;
+  if old.approuve_le is not null
+     or (to_jsonb(new) - 'approuve_le' - 'approuve_par' - 'approuve_nom')
+        is distinct from (to_jsonb(old) - 'approuve_le' - 'approuve_par' - 'approuve_nom') then
+    raise exception 'L''historique des réglages ne se réécrit pas : un changement s''approuve, une fois';
+  end if;
+  return new;
+end $$;
+drop trigger if exists rh_audit_reglages_fige on public.rh_audit_reglages;
+create trigger rh_audit_reglages_fige
+  before update or delete on public.rh_audit_reglages
+  for each row execute function public.rh_audit_reglages_fige();
+
+/** Le nom de qui a fait le changement : l'employé, sinon le compte de la place de marché. */
+create or replace function public.rh_audit_qui(compte uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select nullif(btrim(coalesce(e.prenoms, '') || ' ' || coalesce(e.nom, '')), '')
+       from public.rh_employes e where e.compte_id = compte
+      order by (e.etat = 'actif') desc limit 1),
+    (select coalesce(nullif(btrim(p.nom), ''), p.email) from public.profils p where p.id = compte),
+    'Compte ' || left(compte::text, 8));
+$$;
+
+/** Ce qui ouvre l'argent ou le ferme : l'alerte la plus haute. */
+create or replace function public.rh_audit_critique(t text, c text) returns boolean
+language sql immutable set search_path = public as $$
+  select (t = 'paiement' and c in ('actif', 'bac_a_sable', 'fournisseur', 'cle_publique', 'momopay_code', 'momopay_nom'))
+      or t in ('reglages', 'boutiques_reception');
+$$;
+
+/** Une valeur montrable : les codes, clés et numéros tronqués. */
+create or replace function public.rh_audit_affiche(t text, c text, v text) returns text
+language sql immutable set search_path = public as $$
+  select case
+    when v is null or v = '' then '(vide)'
+    when c in ('momopay_code', 'cle_publique', 'tel') then
+      case when length(v) <= 4 then left(v, 1) || '…' else left(v, 3) || '…' || right(v, 2) end
+    when v = 'true' then 'oui'
+    when v = 'false' then 'non'
+    else v end;
+$$;
+
+/** Ce que le changement veut dire, en une phrase. */
+create or replace function public.rh_audit_libelle(t text, c text, av text, ap text) returns text
+language sql immutable set search_path = public as $$
+  select case
+    when t = 'paiement' and c = 'bac_a_sable' then
+      case when ap = 'true' then 'Paiement passé en mode essai (bac à sable) : plus aucune vente réelle ne passe'
+           else 'Paiement passé en production (argent réel)' end
+    when t = 'paiement' and c = 'actif' then
+      case when ap = 'true' then 'Paiement en ligne ouvert' else 'Paiement en ligne fermé' end
+    when t = 'paiement' and c = 'fournisseur' then 'Agrégateur de paiement changé'
+    when t = 'paiement' and c = 'momopay_code' then 'Code MoMoPay changé : les restes payés à la livraison partent sur ce compte'
+    when t = 'paiement' and c = 'momopay_nom' then 'Nom du compte MoMoPay changé'
+    when t = 'paiement' and c = 'cle_publique' then 'Clé publique de paiement changée'
+    when t = 'paiement' and c = 'taux_acompte' then 'Acompte à la commande changé (en %)'
+    when t = 'paiement' and c = 'taux_livreur' then 'Part du livreur changée (en %)'
+    when t = 'paiement' and c = 'frais_livraison' then 'Frais de livraison changés'
+    when t = 'paiement' and c = 'moto_forfait' then 'Tarif de livraison changé : forfait moto'
+    when t = 'paiement' and c = 'moto_prix_km' then 'Tarif de livraison changé : prix au km en moto'
+    when t = 'paiement' and c = 'tricycle_forfait' then 'Tarif de livraison changé : forfait tricycle'
+    when t = 'paiement' and c = 'tricycle_prix_km' then 'Tarif de livraison changé : prix au km en tricycle'
+    when t = 'paiement' and c = 'livraison_coef' then 'Coefficient de la route changé'
+    when t = 'paiement' and c = 'livraison_rayon_km' then 'Rayon de livraison changé (km)'
+    when t = 'paiement' and c in ('livraison_latitude', 'livraison_longitude', 'livraison_adresse') then 'Point de départ des livraisons changé'
+    when t = 'reglages' and c = 'compte_obligatoire' then
+      case when ap = 'true' then 'Compte obligatoire pour commander' else 'Commande sans compte de nouveau permise' end
+    when t = 'boutiques_reception' and c = 'tel' then 'Numéro de réception des reversements changé'
+    when t = 'boutiques_reception' and c = 'reseau' then 'Réseau de réception des reversements changé'
+    when t = 'boutiques_reception' and c = 'titulaire' then 'Titulaire du numéro de réception changé'
+    else 'Réglage « ' || c || ' » changé' end;
+$$;
+
+/* JAMAIS D'ERREUR VERS ADMIN NI CLIENT : ce déclencheur vit sur des
+   tables de la place de marché. Tout est dans un bloc qui avale ses
+   propres échecs. Un historique manqué se regrette ; un réglage refusé
+   à cause de lui, jamais. On compare la ligne entière, champ par champ :
+   une colonne ajoutée demain sera suivie sans rien changer ici. */
+create or replace function public.rh_audit_reglages_noter() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  avant jsonb;
+  apres jsonb;
+  v_cible text := '';
+  v_qui uuid;
+  v_nom text;
+  k text;
+begin
+  begin
+    avant := case when tg_op in ('UPDATE', 'DELETE') then to_jsonb(old) else '{}'::jsonb end;
+    apres := case when tg_op in ('UPDATE', 'INSERT') then to_jsonb(new) else '{}'::jsonb end;
+    v_qui := auth.uid();
+    v_nom := case when v_qui is null then 'Système (aucun compte connecté)' else public.rh_audit_qui(v_qui) end;
+    if tg_table_name = 'boutiques_reception' then
+      v_cible := coalesce(apres ->> 'boutique_id', avant ->> 'boutique_id', '');
+    end if;
+    for k in select x.cle from (select jsonb_object_keys(avant) as cle
+                                union select jsonb_object_keys(apres)) x order by 1 loop
+      continue when k in ('id', 'boutique_id', 'maj_le', 'maj_par');
+      if coalesce(avant ->> k, '') is distinct from coalesce(apres ->> k, '') then
+        insert into public.rh_audit_reglages (table_nom, cible, champ, avant, apres, par_compte, par_nom, critique)
+        values (tg_table_name, v_cible, k, avant ->> k, apres ->> k, v_qui, coalesce(v_nom, ''),
+                public.rh_audit_critique(tg_table_name, k));
+      end if;
+    end loop;
+  exception when others then
+    raise warning 'rh_audit_reglages_noter : % (%)', sqlerrm, sqlstate;
+  end;
+  return null;
+end $$;
+
+drop trigger if exists rh_audit_paiement on public.paiement;
+create trigger rh_audit_paiement
+  after update on public.paiement
+  for each row execute function public.rh_audit_reglages_noter();
+drop trigger if exists rh_audit_reglages on public.reglages;
+create trigger rh_audit_reglages
+  after update on public.reglages
+  for each row execute function public.rh_audit_reglages_noter();
+drop trigger if exists rh_audit_boutiques_reception on public.boutiques_reception;
+create trigger rh_audit_boutiques_reception
+  after insert or update or delete on public.boutiques_reception
+  for each row execute function public.rh_audit_reglages_noter();
+
+/** Qui ouvre le menu Contrôles : « admin » (l'administration et le
+    superadministrateur : réglages sensibles et montants), « logistique »
+    (un profil à qui Paramètres ouvre « controles » : les encaissements
+    en nombres et en ancienneté), ou rien. */
+create or replace function public.rh_controles_acces() returns text
+language sql stable security definer set search_path = public as $$
+  select case
+    when public.rh_est_admin() or public.est_super() then 'admin'
+    when public.rh_menu_ouvert('controles') then 'logistique'
+  end;
+$$;
+
+/** Les seuils de la veille et des encaissements, valeurs de départ comprises. */
+create or replace function public.rh_controles_seuils() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'prise_course_min', coalesce((x.j ->> 'prise_course_min')::int, 30),
+    'position_min', coalesce((x.j ->> 'position_min')::int, 15),
+    'momopay_h', coalesce((x.j ->> 'momopay_h')::int, 48),
+    'especes_h', coalesce((x.j ->> 'especes_h')::int, 24),
+    'plafond_nb', coalesce((x.j ->> 'plafond_nb')::int, 3))
+    from (select coalesce((select to_jsonb(r) from public.rh_reglages_suivi r where r.id), '{}'::jsonb) as j) x;
+$$;
+
+/** L'historique des réglages sensibles : l'administration le lit, le CEO
+    et le superadministrateur l'approuvent. */
+create or replace function public.rh_audit_reglages_liste(seulement_a_approuver boolean default false)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'L''historique des réglages est réservé à l''administration et au superadministrateur';
+  end if;
+  return jsonb_build_object(
+    'approuver', public.rh_est_ceo() or public.est_super(),
+    'a_approuver', (select count(*) from public.rh_audit_reglages a where a.approuve_le is null),
+    'changements', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', a.id, 'le', a.le, 'table', a.table_nom,
+        'boutique', case when a.table_nom = 'boutiques_reception' then coalesce(b.nom, a.cible) end,
+        'champ', a.champ,
+        'libelle', public.rh_audit_libelle(a.table_nom, a.champ, a.avant, a.apres),
+        'avant', public.rh_audit_affiche(a.table_nom, a.champ, a.avant),
+        'apres', public.rh_audit_affiche(a.table_nom, a.champ, a.apres),
+        'par', a.par_nom, 'critique', a.critique,
+        'approuve_le', a.approuve_le, 'approuve_par', nullif(a.approuve_nom, ''))
+        order by a.le desc, a.id desc), '[]')
+      from (select * from public.rh_audit_reglages x
+             where not coalesce(seulement_a_approuver, false) or x.approuve_le is null
+             order by x.le desc, x.id desc limit 300) a
+      left join public.boutiques b on b.id = a.cible));
+end $$;
+
+/** « Vu et approuvé » : le CEO ou le superadministrateur, une fois par changement. */
+create or replace function public.rh_audit_approuver(ids bigint[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  n int;
+begin
+  if not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Seuls le CEO et le superadministrateur approuvent un changement de réglage';
+  end if;
+  if ids is null or cardinality(ids) = 0 then
+    raise exception 'Choisissez au moins un changement';
+  end if;
+  update public.rh_audit_reglages a
+     set approuve_le = now(), approuve_par = auth.uid(), approuve_nom = coalesce(public.rh_audit_qui(auth.uid()), '')
+   where a.id = any(ids) and a.approuve_le is null;
+  get diagnostics n = row_count;
+  if n = 0 then
+    raise exception 'Rien à approuver : ces changements le sont déjà';
+  end if;
+  return n;
+end $$;
+
+/** Régler les seuils des encaissements : l'administration et le superadministrateur. */
+create or replace function public.rh_controles_regler(v_momopay_h int, v_especes_h int, v_plafond_nb int)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seuls l''administration et le superadministrateur règlent les seuils des contrôles';
+  end if;
+  if coalesce(v_momopay_h, 0) not between 1 and 720 or coalesce(v_especes_h, 0) not between 1 and 720 then
+    raise exception 'Les délais se comptent en heures, de 1 à 720';
+  end if;
+  if coalesce(v_plafond_nb, 0) not between 1 and 100 then
+    raise exception 'Le plafond se compte en encaissements, de 1 à 100';
+  end if;
+  update public.rh_reglages_suivi
+     set momopay_h = v_momopay_h, especes_h = v_especes_h, plafond_nb = v_plafond_nb
+   where id;
+end $$;
+
+/** Régler la veille des livreurs, avec les autres délais du suivi : l'administration. */
+create or replace function public.rh_suivi_regler_veille(v_prise_course_min int, v_position_min int)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_admin() then
+    raise exception 'Seule l''administration règle les délais';
+  end if;
+  if coalesce(v_prise_course_min, 0) not between 5 and 1440 then
+    raise exception 'Une course sans livreur se signale entre 5 et 1 440 minutes';
+  end if;
+  if coalesce(v_position_min, 0) not between 2 and 720 then
+    raise exception 'Un livreur muet se signale entre 2 et 720 minutes';
+  end if;
+  update public.rh_reglages_suivi
+     set prise_course_min = v_prise_course_min, position_min = v_position_min
+   where id;
+end $$;
+
+/**
+ * Le contrôle des encaissements à la livraison. Ce qui attend (MoMoPay
+ * pas encore retrouvé dans le compte de BIZZOO, espèces pas encore
+ * rendues, livraisons sans déclaration alors qu'un reste était dû) quelle
+ * que soit la période, et ce qui s'est mal passé sur la période (écarts
+ * entre le dû et le déclaré, contestations). Par livreur et ligne par
+ * ligne. Les montants et le numéro de transaction : l'administration et
+ * le superadministrateur seulement ; la logistique a les nombres et
+ * l'ancienneté. Rien ne s'écrit ici : « Vérifié » se touche dans BIZZOO
+ * Admin, menu Caisse.
+ */
+create or replace function public.rh_encaissements(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_controles_acces();
+  argent boolean;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  s jsonb;
+  h_momo int;
+  h_esp int;
+  plafond int;
+  resultat jsonb;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès au contrôle des encaissements';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  argent := acces = 'admin';
+  s := public.rh_controles_seuils();
+  h_momo := (s ->> 'momopay_h')::int;
+  h_esp := (s ->> 'especes_h')::int;
+  plafond := (s ->> 'plafond_nb')::int;
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with e as (
+    select x.id, x.commande_id, c.numero, x.boutique_id, x.livreur_id, x.du, x.montant, x.mode,
+           x.transaction_id, x.encaisse_le as le, x.remis_le, x.conteste_le,
+           case when x.mode = 'mobile_money' and x.remis_le is null then 'momopay_a_verifier'
+                when x.mode <> 'mobile_money' and x.remis_le is null and x.montant > 0 then 'especes_non_remises'
+                when x.conteste_le is not null then 'conteste'
+                when x.montant <> x.du then 'ecart'
+                else 'regle' end as statut,
+           x.montant <> x.du as ecart
+      from public.encaissements x
+      join public.commandes c on c.id = x.commande_id
+     where (x.remis_le is null and x.montant > 0)
+        or (x.encaisse_le >= t1 and x.encaisse_le < t2)
+    union all
+    -- Livré alors qu'un reste était dû, sans rien déclarer (application
+    -- d'avant 3.59.0) : la même règle que la caisse de BIZZOO Admin.
+    select null::bigint, l.commande_id, c.numero, l.boutique_id, l.livreur_id, r.a_encaisser, 0::bigint, 'aucun'::text,
+           ''::text, max(c.paye_le), null::timestamptz, null::timestamptz, 'non_declare'::text, false
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+      join lateral (select rr.a_encaisser from public.restes_par_boutique(l.commande_id) rr
+                     where rr.boutique_id = l.boutique_id) r on true
+     where l.etat = 'remise'
+       and c.paye_le >= least(t1, now() - interval '60 days') and c.paye_le < t2
+       and r.a_encaisser > 0
+       and not exists (select 1 from public.encaissements x
+                        where x.commande_id = l.commande_id and x.boutique_id = l.boutique_id)
+     group by l.commande_id, c.numero, l.boutique_id, l.livreur_id, r.a_encaisser
+  ),
+  f as (
+    select e.*,
+           greatest(0, floor(extract(epoch from (now() - e.le)) / 3600))::int as heures,
+           case e.statut when 'momopay_a_verifier' then now() - e.le > make_interval(hours => h_momo)
+                         when 'especes_non_remises' then now() - e.le > make_interval(hours => h_esp)
+                         when 'non_declare' then true
+                         else false end as ancien,
+           e.statut in ('momopay_a_verifier', 'especes_non_remises', 'non_declare') as en_attente
+      from e
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'montants', argent,
+    'seuils', s,
+    'totaux', (select jsonb_build_object(
+        'momopay_a_verifier', count(*) filter (where f.statut = 'momopay_a_verifier'),
+        'momopay_anciens', count(*) filter (where f.statut = 'momopay_a_verifier' and f.ancien),
+        'especes_non_remises', count(*) filter (where f.statut = 'especes_non_remises'),
+        'especes_anciennes', count(*) filter (where f.statut = 'especes_non_remises' and f.ancien),
+        'non_declares', count(*) filter (where f.statut = 'non_declare'),
+        'ecarts', count(*) filter (where f.ecart),
+        'contestes', count(*) filter (where f.conteste_le is not null),
+        'verifies', count(*) filter (where f.mode = 'mobile_money' and f.remis_le is not null),
+        'plus_ancien', min(f.le) filter (where f.en_attente))
+      || case when argent then jsonb_build_object(
+        'montant_a_verifier', coalesce(sum(f.montant) filter (where f.statut = 'momopay_a_verifier'), 0),
+        'montant_especes', coalesce(sum(f.montant) filter (where f.statut = 'especes_non_remises'), 0),
+        'montant_non_declare', coalesce(sum(f.du) filter (where f.statut = 'non_declare'), 0),
+        'ecart_total', coalesce(sum(f.du - f.montant) filter (where f.ecart), 0))
+        else '{}'::jsonb end
+      from f),
+    'livreurs', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', g.livreur_id,
+        'nom', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur inconnu'),
+        'tel', coalesce(p.tel, ''),
+        'boutique', (select b.nom from public.boutiques b where b.id = p.boutique_id),
+        'bloque', coalesce(p.courses_bloquees, false),
+        'en_attente', g.en_attente, 'anciens', g.anciens, 'plus_ancien', g.plus_ancien,
+        'ecarts', g.ecarts, 'contestes', g.contestes, 'au_plafond', g.anciens >= plafond)
+        || case when argent then jsonb_build_object('montant', g.montant) else '{}'::jsonb end
+        order by g.anciens desc, g.en_attente desc, p.nom), '[]')
+      from (select f.livreur_id,
+                   count(*) filter (where f.en_attente) as en_attente,
+                   count(*) filter (where f.en_attente and f.ancien) as anciens,
+                   min(f.le) filter (where f.en_attente) as plus_ancien,
+                   count(*) filter (where f.ecart) as ecarts,
+                   count(*) filter (where f.conteste_le is not null) as contestes,
+                   coalesce(sum(case when f.statut = 'non_declare' then f.du else f.montant end)
+                              filter (where f.en_attente), 0) as montant
+              from f
+             group by f.livreur_id
+            having count(*) filter (where f.en_attente or f.ecart or f.conteste_le is not null) > 0) g
+      left join public.profils p on p.id = g.livreur_id),
+    'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', k.id, 'commande', k.commande_id, 'numero', k.numero,
+        'boutique', coalesce(b.nom, k.boutique_id),
+        'livreur_id', k.livreur_id, 'livreur', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur inconnu'),
+        'mode', k.mode, 'statut', k.statut, 'le', k.le, 'heures', k.heures, 'ancien', k.ancien,
+        'ecart', k.ecart, 'conteste', k.conteste_le is not null, 'remis_le', k.remis_le)
+        || case when argent then jsonb_build_object('du', k.du, 'montant', k.montant,
+                                                   'transaction', k.transaction_id) else '{}'::jsonb end
+        order by k.ancien desc, k.le), '[]')
+      from (select * from f where f.en_attente or f.ecart or f.conteste_le is not null
+             order by f.ancien desc, f.le limit 500) k
+      left join public.boutiques b on b.id = k.boutique_id
+      left join public.profils p on p.id = k.livreur_id))
+    into resultat;
+  return resultat;
+end $$;
+
+/** Les pastilles et l'alerte de l'accueil : un seul appel, à chaque relecture. */
+create or replace function public.rh_controles_compteurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_controles_acces();
+  s jsonb;
+begin
+  if acces is null then
+    return jsonb_build_object('acces', null);
+  end if;
+  s := public.rh_controles_seuils();
+  return jsonb_build_object(
+    'acces', acces,
+    'approuver', public.rh_est_ceo() or public.est_super(),
+    'reglages_a_approuver', case when acces = 'admin' then
+      (select count(*) from public.rh_audit_reglages a where a.approuve_le is null) end,
+    'dernier', case when acces = 'admin' then
+      (select jsonb_build_object(
+          'libelle', public.rh_audit_libelle(a.table_nom, a.champ, a.avant, a.apres)
+                     || coalesce(' — ' || nullif(b.nom, ''), ''),
+          'le', a.le, 'par', a.par_nom, 'critique', a.critique)
+         from public.rh_audit_reglages a
+         left join public.boutiques b on a.table_nom = 'boutiques_reception' and b.id = a.cible
+        where a.approuve_le is null
+        order by a.critique desc, a.le desc, a.id desc limit 1) end,
+    'encaissements_anciens', (select count(*) from public.encaissements x
+       where x.remis_le is null and x.montant > 0
+         and now() - x.encaisse_le > make_interval(hours => case when x.mode = 'mobile_money'
+                                                                 then (s ->> 'momopay_h')::int
+                                                                 else (s ->> 'especes_h')::int end)));
+end $$;
+
+revoke all on function public.rh_audit_reglages_fige() from public, anon, authenticated;
+revoke all on function public.rh_audit_reglages_noter() from public, anon, authenticated;
+revoke all on function public.rh_audit_qui(uuid) from public, anon, authenticated;
+grant execute on function public.rh_audit_qui(uuid) to service_role;
+revoke all on function public.rh_audit_critique(text, text) from public, anon;
+grant execute on function public.rh_audit_critique(text, text) to authenticated, service_role;
+revoke all on function public.rh_audit_affiche(text, text, text) from public, anon;
+grant execute on function public.rh_audit_affiche(text, text, text) to authenticated, service_role;
+revoke all on function public.rh_audit_libelle(text, text, text, text) from public, anon;
+grant execute on function public.rh_audit_libelle(text, text, text, text) to authenticated, service_role;
+revoke all on function public.rh_controles_acces() from public, anon;
+grant execute on function public.rh_controles_acces() to authenticated, service_role;
+revoke all on function public.rh_controles_seuils() from public, anon;
+grant execute on function public.rh_controles_seuils() to authenticated, service_role;
+revoke all on function public.rh_audit_reglages_liste(boolean) from public, anon;
+grant execute on function public.rh_audit_reglages_liste(boolean) to authenticated, service_role;
+revoke all on function public.rh_audit_approuver(bigint[]) from public, anon;
+grant execute on function public.rh_audit_approuver(bigint[]) to authenticated, service_role;
+revoke all on function public.rh_controles_regler(int, int, int) from public, anon;
+grant execute on function public.rh_controles_regler(int, int, int) to authenticated, service_role;
+revoke all on function public.rh_suivi_regler_veille(int, int) from public, anon;
+grant execute on function public.rh_suivi_regler_veille(int, int) to authenticated, service_role;
+revoke all on function public.rh_encaissements(date, date) from public, anon;
+grant execute on function public.rh_encaissements(date, date) to authenticated, service_role;
+revoke all on function public.rh_controles_compteurs() from public, anon;
+grant execute on function public.rh_controles_compteurs() to authenticated, service_role;
