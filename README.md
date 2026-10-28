@@ -5541,7 +5541,9 @@ WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
 
 **En ligne depuis le 27/10/2026** : colonnes, droit et verrou, fonctions
 `faire_livrer` et `devis_faire_livrer`, et la retouche de `creer_commande`
-(vérifiées identiques au dépôt). Aucun compte n'a encore le droit : le
+(vérifiées identiques au dépôt). **28/10/2026** : les frais saisis et la
+position facultative en ligne ; l'ancienne signature de `faire_livrer`
+(sans « frais ») retirée. Aucun compte n'a encore le droit : le
 superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
 
 Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
