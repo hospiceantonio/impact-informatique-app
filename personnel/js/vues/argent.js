@@ -164,7 +164,8 @@ const VueArgent = (() => {
       h("td", {}, x.plus_ancienne ? UI.dateHeure(x.plus_ancienne) : "—"),
       argent ? h("td", { class: "nombre" }, UI.entier(x.attente)) : null,
       argent ? h("td", { class: "nombre" }, UI.entier(x.disponible)) : null,
-      argent ? h("td", { class: "nombre" }, UI.entier(x.a_venir)) : null))) : null;
+      /* Un parrain n'a rien « à venir » : sa commission tombe au paiement. */
+      argent ? h("td", { class: "nombre" }, x.type === "parrain" ? "—" : UI.entier(x.a_venir)) : null))) : null;
 
     UI.vider(zone, barre,
       UI.barrePeriode(periode, ROUTE + "/dettes"),
@@ -180,11 +181,13 @@ const VueArgent = (() => {
         tuile(t.plus_ancienne ? UI.quand(t.plus_ancienne) : "—", "la plus ancienne"),
         argent ? tuile(UI.fcfa(t.attente_boutiques + t.attente_livreurs + t.attente_parrains), "demandé, en attente") : null,
         argent ? tuile(UI.fcfa(t.disponible_boutiques + t.disponible_livreurs + t.disponible_parrains), "dû sans demande") : null,
-        argent ? tuile(UI.fcfa(t.a_venir_boutiques), "à venir (articles pas encore livrés)") : null,
+        argent ? tuile(UI.fcfa(t.a_venir_boutiques), "à venir aux boutiques (articles pas encore livrés)") : null,
+        argent ? tuile(UI.fcfa(t.a_venir_livreurs || 0), "à venir aux livreurs (courses pas encore livrées)") : null,
         argent ? tuile(UI.fcfa(t.theorique_periode), "théorique de la période (prix BIZZOO des articles payés)") : null,
         argent ? tuile(UI.fcfa(t.verse_periode), "réellement versé sur la période") : null),
       argent ? h("p", { class: "doux petit" }, "Boutiques : livré au prix BIZZOO, moins les espèces qu'elles ont déjà touchées, moins leurs reversements. " +
-        "Livreurs : gains crédités, moins leurs reversements. Parrains : commissions, moins leurs retraits.") : null,
+        "Livreurs : gains crédités, moins leurs reversements ; à venir, leur part des frais des courses payées qu'ils ont en main. " +
+        "Parrains : commissions, moins leurs retraits.") : null,
       demandes, comptes);
   }
 
@@ -306,8 +309,10 @@ const VueArgent = (() => {
       h("div", { class: "carte compacte" }, h("p", { class: "petit" },
         h("b", {}, "Ce journal est écrit par l'écran de BIZZOO Admin. "),
         "Une modification faite ailleurs (éditeur SQL de Supabase, fonctions du serveur, accès direct à la base) n'y figure pas. " +
-        "Sensible : une suppression, un compte, un prix, une marge ou un paiement, un geste la nuit (22 h – 6 h), un geste annulé ensuite, " +
-        "ou dix gestes ou plus du même compte dans la même heure." + (d.tout_voir ? "" : " L'état d'avant chaque geste est réservé au CEO."))),
+        "Sensible : une suppression, un changement de compte (pas une simple connexion), un prix, un montant, un paiement ou un numéro de réception, " +
+        "un geste la nuit (22 h – 6 h), un geste annulé ensuite, ou dix gestes ou plus du même compte dans la même heure. " +
+        "Admin ne note pas les changements de marge : ils n'y figurent pas." +
+        (d.tout_voir ? "" : " Les chiffres (montants, numéros, codes) sont masqués (•••) et l'état d'avant chaque geste est réservé au CEO."))),
       h("div", { class: "tuiles compactes" },
         tuile(nb(t.gestes), "gestes"),
         tuile(nb(t.sensibles), "sensibles", t.sensibles > 0),

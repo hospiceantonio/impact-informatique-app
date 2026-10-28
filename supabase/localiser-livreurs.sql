@@ -267,6 +267,12 @@ revoke all on function public.rh_localiser_livreurs() from public, anon;
 grant execute on function public.rh_localiser_livreurs() to authenticated, service_role;
 
 -- ---------- Les menus réglables, « livreurs » compris (copies de schema.sql) ----------
+create or replace function public.rh_est_ceo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.rh_employes
+                  where compte_id = auth.uid() and etat = 'actif' and ceo);
+$$;
+
 create or replace function public.rh_regler_acces(cible uuid, choix jsonb) returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -287,6 +293,14 @@ begin
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
+    end if;
+    -- Le journal des gestes regarde l'administration : elle ne choisit pas
+    -- qui la regarde. L'écran renvoie toutes les clés à chaque
+    -- enregistrement : seule une clé « audit » qui CHANGE est refusée.
+    if k = 'audit' and not (public.rh_est_ceo() or public.est_super())
+       and coalesce(nullif(v, 'ferme'), '') is distinct from
+           coalesce((select a.qui from public.rh_acces_menus a where a.profil_id = cible and a.menu = 'audit'), '') then
+      raise exception 'Seul le CEO ouvre ou ferme le journal des gestes : c''est l''administration qu''il regarde';
     end if;
     if v is null or v = 'ferme' then
       delete from public.rh_acces_menus where profil_id = cible and menu = k;

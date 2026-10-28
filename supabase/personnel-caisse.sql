@@ -724,6 +724,14 @@ begin
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
     end if;
+    -- Le journal des gestes regarde l'administration : elle ne choisit pas
+    -- qui la regarde. L'écran renvoie toutes les clés à chaque
+    -- enregistrement : seule une clé « audit » qui CHANGE est refusée.
+    if k = 'audit' and not (public.rh_est_ceo() or public.est_super())
+       and coalesce(nullif(v, 'ferme'), '') is distinct from
+           coalesce((select a.qui from public.rh_acces_menus a where a.profil_id = cible and a.menu = 'audit'), '') then
+      raise exception 'Seul le CEO ouvre ou ferme le journal des gestes : c''est l''administration qu''il regarde';
+    end if;
     if v is null or v = 'ferme' then
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
     elsif v not in ('membres', 'responsable') then

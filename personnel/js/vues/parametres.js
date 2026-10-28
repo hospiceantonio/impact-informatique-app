@@ -32,7 +32,7 @@ const VueParametres = (() => {
       ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire, et ce que BIZZOO doit payer (nombres et ancienneté). L'administration ne la voit pas d'office."],
     ]],
     ["Contrôle interne", [
-      ["audit", "Journal des gestes de BIZZOO Admin", "Qui a fait quoi dans Admin (prix, marges, suppressions, comptes), gestes sensibles en avant. Le CEO le lit toujours ; l'administration n'y entre pas d'office."],
+      ["audit", "Journal des gestes de BIZZOO Admin", "Qui a fait quoi dans Admin (prix, suppressions, comptes, réglages de paiement), gestes sensibles en avant, chiffres masqués. Le CEO le lit toujours et règle seul cet accès ; l'administration n'y entre jamais."],
       ["promos", "Codes promo et parrainage", "Usages de chaque code et abus probables, sans les montants ; numéros masqués."],
     ]],
     ["Statistiques (sans les montants)", [
@@ -90,8 +90,11 @@ const VueParametres = (() => {
     const choix = {};
     const ligneMenu = ([cle, libelle, texte, responsableSeul]) => {
       const nom = "acces-" + cle;
+      /* « audit » regarde l'administration : elle ne choisit pas qui la
+         regarde. La base le refuse ; l'écran le montre d'avance. */
+      const reserveCeo = cle === "audit" && !(App.estCeo() || App.estSuper());
       choix[cle] = CHOIX.map(([v]) => h("input", { type: "radio", name: nom, value: v,
-        checked: etat(p.id, cle) === v, disabled: responsableSeul && v === "membres" }));
+        checked: etat(p.id, cle) === v, disabled: reserveCeo || (responsableSeul && v === "membres") }));
       return h("tr", {},
         h("td", {}, h("div", { class: "gras" }, libelle), h("div", { class: "doux tres-petit" }, texte)),
         choix[cle].map((radio, i) => h("td", { class: "centre" },

@@ -14275,6 +14275,14 @@ begin
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
     end if;
+    -- Le journal des gestes regarde l'administration : elle ne choisit pas
+    -- qui la regarde. L'écran renvoie toutes les clés à chaque
+    -- enregistrement : seule une clé « audit » qui CHANGE est refusée.
+    if k = 'audit' and not (public.rh_est_ceo() or public.est_super())
+       and coalesce(nullif(v, 'ferme'), '') is distinct from
+           coalesce((select a.qui from public.rh_acces_menus a where a.profil_id = cible and a.menu = 'audit'), '') then
+      raise exception 'Seul le CEO ouvre ou ferme le journal des gestes : c''est l''administration qu''il regarde';
+    end if;
     if v is null or v = 'ferme' then
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
     elsif v not in ('membres', 'responsable') then
@@ -17881,7 +17889,9 @@ $$;
  *   codes  : la clé « promos » (marketing) ;
  *   gestes : le CEO, le superadministrateur et les profils à qui
  *            Paramètres ouvre EXPRESSÉMENT « audit » — l'administration
- *            n'y entre pas d'office : c'est elle que ce journal regarde.
+ *            n'y entre pas, même si son propre profil a la clé : c'est
+ *            elle que ce journal regarde (et seul le CEO règle la clé,
+ *            voir rh_regler_acces).
  */
 create or replace function public.rh_argent_acces() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -17903,7 +17913,7 @@ begin
     'remboursements', case when admin then 'admin' when public.rh_menu_ouvert('paiements') then 'equipe' end,
     'dettes', case when admin then 'admin' when public.rh_menu_ouvert('caisse') then 'equipe' end,
     'codes', case when admin then 'admin' when public.rh_menu_ouvert('promos') then 'equipe' end,
-    'gestes', public.rh_est_ceo() or public.est_super() or audit,
+    'gestes', public.rh_est_ceo() or public.est_super() or (audit and not public.rh_est_admin()),
     'seuils', admin);
 end $$;
 
@@ -17991,13 +18001,18 @@ begin
     select c.id, c.numero, c.etat, c.cree_le, c.annonce_le, c.paye_le, c.total, c.confirme_par, c.remarque,
            c.client_nom, c.client_tel, v.tentatives, v.verdict, v.fournisseur, v.reseau, v.detail,
            v.attendu, v.recu, v.transactions, v.dernier,
+           -- paye_le reste posé quand une commande payée est annulée : sans lui,
+           -- chaque annulation après paiement (son versement dit « payée »)
+           -- reviendrait ici en « client débité », alors qu'elle est déjà
+           -- dans les remboursements. Et « inconnu » ne regarde que la
+           -- DERNIÈRE réponse : un refus venu ensuite tranche la question.
            case
-             when c.etat <> 'payee' and coalesce(v.payee_chez, false) then 'debite_non_paye'
-             when c.etat <> 'payee' and coalesce(v.conflit, false) then 'conflit'
-             when c.etat <> 'payee' and coalesce(v.incomplete, false) then 'incomplet'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.payee_chez, false) then 'debite_non_paye'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.conflit, false) then 'conflit'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.incomplete, false) then 'incomplet'
              when c.etat = 'a_payer' and c.annonce_le is not null
                   and c.annonce_le < now() - make_interval(mins => annonce) then 'annonce_sans_preuve'
-             when c.etat <> 'payee' and coalesce(v.inconnue, false) then 'inconnu'
+             when c.paye_le is null and c.etat <> 'payee' and v.verdict = 'inconnue' then 'inconnu'
              when c.etat = 'payee' and c.confirme_par <> '' then 'manuel'
            end as motif
       from public.commandes c
@@ -18365,17 +18380,32 @@ begin
            count(*) filter (where v.etat = 'en_attente' and v.demande_le < now() - seuil) as anciennes,
            min(v.demande_le) filter (where v.etat = 'en_attente') as plus_ancienne
       from public.reversements_livreurs v where v.livreur_id is not null group by v.livreur_id
+  ), avl as (
+    -- La même règle que solde_livreur : sa part des frais (au taux du jour)
+    -- des courses payées qu'il a en main et pas encore livrées.
+    select x.livreur_id as id,
+           coalesce(sum(floor(public.part_frais_livreur(x.commande_id, x.livreur_id)
+                              * coalesce((select p.taux_livreur from public.paiement p where p.id = 1), 80) / 100.0)), 0)::bigint as a_venir
+      from (select distinct c.id as commande_id, l.livreur_id
+              from public.commandes c
+              join public.commande_lignes l on l.commande_id = c.id
+             where c.etat = 'payee' and coalesce(c.frais_livraison, 0) > 0
+               and l.livreur_id is not null and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+               and not exists (select 1 from public.gains_livreurs g
+                                where g.commande_id = c.id and g.livreur_id = l.livreur_id)) x
+     group by x.livreur_id
   ), liv as (
     select 'livreur'::text as type, q.id::text as id,
            coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur') as nom,
            coalesce(rl.attente, 0) as attente,
            greatest(0, coalesce((select sum(g.montant) from public.gains_livreurs g where g.livreur_id = q.id), 0)
                        - coalesce(rl.verse, 0) - coalesce(rl.attente, 0)) as disponible,
-           0::bigint as a_venir,
+           coalesce(avl.a_venir, 0) as a_venir,
            coalesce(rl.demandes, 0) as demandes, coalesce(rl.anciennes, 0) as anciennes, rl.plus_ancienne
       from (select g.livreur_id as id from public.gains_livreurs g where g.livreur_id is not null
-            union select rl.id from rl) q
+            union select rl.id from rl union select avl.id from avl) q
       left join rl on rl.id = q.id
+      left join avl on avl.id = q.id
       left join public.profils p on p.id = q.id
   ), rp as (
     select v.parrain as id,
@@ -18433,7 +18463,8 @@ begin
         'disponible_livreurs', coalesce(sum(t.disponible) filter (where t.type = 'livreur'), 0),
         'disponible_parrains', coalesce(sum(t.disponible) filter (where t.type = 'parrain'), 0),
         'reel', coalesce(sum(t.attente + t.disponible), 0),
-        'a_venir_boutiques', coalesce(sum(t.a_venir), 0),
+        'a_venir_boutiques', coalesce(sum(t.a_venir) filter (where t.type = 'boutique'), 0),
+        'a_venir_livreurs', coalesce(sum(t.a_venir) filter (where t.type = 'livreur'), 0),
         -- Le « théorique » des statistiques : ce que valent au prix BIZZOO
         -- les articles payés sur la période, livrés ou non.
         'theorique_periode', (select coalesce(sum(l.prix_bizzoo::bigint * l.quantite), 0)
@@ -18474,8 +18505,12 @@ returns text[]
 language sql stable set search_path = public as $$
   select array_remove(array[
     case when j_action in ('suppression', 'desactivation') then 'suppression' end,
-    case when j_famille = 'compte' then 'compte' end,
-    case when coalesce(j_libelle, '') ~* '(marge|prix|taux|commission|remise|reversement|paiement|momopay)' then 'argent' end,
+    -- Se connecter n'est pas un geste sensible : chaque ouverture d'Admin
+    -- noierait le filtre « sensibles ».
+    case when j_famille = 'compte' and coalesce(j_action, '') not in ('connexion', 'deconnexion') then 'compte' end,
+    -- Admin écrit « Produit modifié : X — 10 000 FCFA » sans le mot « prix » :
+    -- la devise suffit à dire qu'un montant a changé.
+    case when coalesce(j_libelle, '') ~* '(marge|prix|taux|commission|remise|reversement|paiement|momopay|r[eé]ception|f ?cfa|xof)' then 'argent' end,
     case when extract(hour from j_le at time zone 'Africa/Porto-Novo') >= 22
            or extract(hour from j_le at time zone 'Africa/Porto-Novo') < 6 then 'nuit' end,
     case when j_annule is not null then 'annule' end], null);
@@ -18487,6 +18522,10 @@ $$;
  * boutique. Les gestes sensibles portent leurs raisons (suppression,
  * compte, argent, nuit, annulé, rafale de 10 gestes ou plus dans l'heure).
  * L'état d'avant (« retour ») : le CEO et le superadministrateur seuls.
+ * Les chiffres des libellés et des cibles aussi : Admin y écrit des
+ * montants (« Reversement demandé : 20000 », « … — 10 000 FCFA »), des
+ * numéros de réception et des codes MoMoPay ; un profil ouvert par
+ * « audit » les lit masqués (•••).
  * Ce qui s'écrit hors de l'écran d'Admin (éditeur SQL, fonctions du
  * serveur) n'y figure pas : l'écran le dit.
  */
@@ -18496,6 +18535,8 @@ returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   tout_voir boolean := public.rh_est_ceo() or public.est_super();
+  -- Un nombre, avec ses séparateurs de milliers (espace, insécable, point, virgule).
+  chiffre_re text := '[0-9]([0-9 .,' || chr(160) || chr(8239) || ']*[0-9])?';
   aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
   d1 date := coalesce(depuis, aujourdhui - 6);
   d2 date := coalesce(jusqu, aujourdhui);
@@ -18534,6 +18575,7 @@ begin
   select jsonb_build_object(
     'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
     'tout_voir', tout_voir,
+    'chiffres_masques', not tout_voir,
     'totaux', (select jsonb_build_object(
         'gestes', count(*),
         'sensibles', count(*) filter (where cardinality(r.raisons) > 0),
@@ -18553,7 +18595,9 @@ begin
               from r group by 1 order by 3 desc, 2 desc limit 30) x),
     'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
         'id', x.id, 'le', x.fait_le, 'qui', nullif(x.utilisateur, ''), 'famille', x.famille, 'action', x.action,
-        'libelle', x.libelle, 'cible', nullif(x.cible, ''), 'boutique', x.boutique,
+        'libelle', case when tout_voir then x.libelle else regexp_replace(x.libelle, chiffre_re, '•••', 'g') end,
+        'cible', nullif(case when tout_voir then x.cible else regexp_replace(coalesce(x.cible, ''), chiffre_re, '•••', 'g') end, ''),
+        'boutique', x.boutique,
         'annule_le', x.annule_le, 'annule_par', nullif(x.annule_par, ''), 'raisons', to_jsonb(x.raisons))
         || case when tout_voir and x.retour is not null then jsonb_build_object('retour', left(x.retour::text, 2000))
                 else '{}'::jsonb end
