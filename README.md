@@ -5516,7 +5516,9 @@ commande** (`rh_incident_ouvrir` accepte désormais « BZ-… »), « Résoudre 
 lien vers la fiche. La pastille compte les incidents ouverts
 (`rh_incidents_ouverts_nb`). Liste : `rh_incidents_liste(depuis, jusqu)`.
 
-Fichier à coller : `supabase/cloture-incidents.sql`. Essais :
+Fichier à coller : `supabase/cloture-incidents.sql` — **en ligne depuis le
+28/10/2026** (vérifié identique au dépôt ; premier passage : 14 commandes
+clôturées, 4 gardées ouvertes pour un reste à encaisser). Essais :
 `supabase/tests/99zzz…-cloture-incidents.sql` (36 constats),
 `tools/banc-incidents.mjs` (21 constats ; `CAPTURES=<dossier>`).
 
