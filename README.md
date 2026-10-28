@@ -5480,6 +5480,20 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## Huit boutiques à la une, tirées au sort (3.70.0)
+
+L'accueil de l'application client affichait TOUTES les boutiques
+partenaires, toujours dans le même ordre. Désormais :
+- **huit au plus** — « Tout voir » ouvre la liste entière ;
+- **tirées au sort, dans un ordre au hasard, à chaque arrivée sur
+  l'accueil** : chaque boutique a sa chance d'être vue en premier ;
+- le tirage **tient tant que le client reste sur l'accueil** : une mise à
+  jour du catalogue, qui redessine l'écran, ne rebat pas les cartes sous
+  ses yeux ; une boutique fermée entre-temps est remplacée.
+
+`client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
+par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
+
 ## « Le paiement en ligne n'est pas encore ouvert » à tort (3.70.0)
 
 Un client a vu ce message, et « Envoyer sur WhatsApp », alors que le

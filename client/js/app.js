@@ -162,6 +162,9 @@ const App = { evenementInstallation: null };
     }
     UI.fermerVisionneuse();
     VueAccueil.arreterSlider();
+    /* (3.70.0) Une vraie arrivée (pas un redessin) : les boutiques de
+       l'accueil seront tirées au sort de nouveau. */
+    if (!conserverPosition) VueAccueil.nouvelleVisite();
     VueProduits.arreter();
 
     const route = ROUTES.find((r) => r.motif.test(chemin));
