@@ -283,6 +283,8 @@ begin
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
@@ -347,7 +349,10 @@ begin
       perform public.notifier(array[new.livreur_id], 'course_confiee',
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
-          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') ||
+          -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+          coalesce(' — Tél. boutique : +' || coalesce(nullif(fiche -> 'retrait' ->> 'indicatif', ''), '229') || ' ' ||
+                   nullif(fiche -> 'retrait' ->> 'tel', ''), '') || E'\n' ||
         -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
         coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||

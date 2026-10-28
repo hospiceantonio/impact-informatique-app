@@ -1226,14 +1226,14 @@ reset role; select essai.personne();
 
 select essai.devenir(:RESP::uuid); set role authenticated;
 select essai.egal(public.rh_caisse_acces(), 'consultation', 'le responsable du Marketing consulte, droit reçu');
-select public.rh_caisse('2026-01-01', current_date) as vue_resp \gset
+select public.rh_caisse('2026-01-01', current_date + 1) as vue_resp \gset
 select essai.refuse($$select public.rh_caisse_apport('especes', 1000, 'ceo')$$, 'il consulte seulement');
 reset role; select essai.personne();
 select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(:'vue_resp'::jsonb -> 'mouvements') x
                     where x ->> 'nature' = 'salaire'), :'libelle_sept',
   'en consultation, un salaire ne dit pas de qui il est');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
-select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(public.rh_caisse('2026-01-01', current_date) -> 'mouvements') x
+select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(public.rh_caisse('2026-01-01', current_date + 1) -> 'mouvements') x
                     where x ->> 'nature' = 'salaire'),
   :'libelle_sept' || ' · ' || (select btrim(prenoms || ' ' || nom) from public.rh_employes where id = :'e_resp'),
   'le CEO, lui, voit de qui');

@@ -37,7 +37,7 @@ const plat = (s) => s.replace(/[  ]/g, " ").replace(/\s+/g, " ");
 
 const FICHE = {
   numero: "BZ-000077",
-  retrait: { boutique: "Alpha", adresse: "Ganhi, rue du marché", tel: "0197111222", indicatif: "229",
+  retrait: { boutique: "Alpha", adresse: "Ganhi, rue du marché", tel: "0197111222", whatsapp: "0197999888", indicatif: "229",
     latitude: null, longitude: null },
   livraison: { nom: "Afi", adresse: "Fidjrossè, près de l'église", note: "Sonner deux fois",
     tel: "97666005", indicatif: "229" },
@@ -133,6 +133,13 @@ titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
   const t = plat(await page.evaluate(() => (document.querySelector(".lv-course") || {}).innerText || ""));
   ok(/Récupérer le colis/i.test(t) && /Alpha/.test(t) && /Ganhi, rue du marché/.test(t),
     "où récupérer : la boutique et son adresse");
+  /* (3.70.0) Perdu en route : il appelle la boutique, ou lui écrit. */
+  ok(/Appeler la boutique : \+229 0197111222/.test(t) &&
+     await page.evaluate(() => !!document.querySelector('.lv-course a.lv-tel[href="tel:+2290197111222"]')),
+    "« Appeler la boutique : +229 0197111222 », appelable");
+  ok(await page.evaluate(() => /^https:\/\/wa\.me\/2290197999888\?text=/.test(
+       (document.querySelector(".lv-course a.lv-wa") || {}).href || "")),
+    "et « Écrire à la boutique sur WhatsApp », à son numéro WhatsApp");
   ok(/Livrer à/i.test(t) && /Afi/.test(t) && /Fidjrossè, près de l'église/.test(t), "où livrer : le nom et l'adresse");
   ok(await page.evaluate(() => !!document.querySelector('.lv-course a[href="tel:+22997666005"]')),
     "le numéro du destinataire, appelable");
@@ -210,6 +217,8 @@ titre("6a. Les demandes de course (admin)");
   ok(t.includes("À payer par MoMoPay : " + F(5000)) && t.includes("Frais de livraison : " + F(2000)) &&
      t.includes("Déjà payé par le client : " + F(5000)), "les montants de toute la commande");
   ok(/Koffi/.test(t) && /Akpakpa/.test(t), "où livrer");
+  ok(/Appeler la boutique : \+229 0197111222/.test(t) && /Appeler la boutique : \+229 0197333444/.test(t),
+    "(3.70.0) le numéro de chaque boutique où récupérer");
   /* (3.70.0) Une commande WhatsApp : où récupérer, tel que l'équipe l'a saisi. */
   const saisi = await page.evaluate(() => (document.querySelector(".lv-demande .lv-lieu-saisi") || {}).innerText || "");
   ok(/Où récupérer \(précisé par BIZZOO\)/i.test(saisi) && /marché Dantokpa, porte 3\s*\n\s*Appeler Rémi/.test(saisi),

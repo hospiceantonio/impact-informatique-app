@@ -5494,6 +5494,49 @@ partenaires, toujours dans le même ordre. Désormais :
 `client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
 par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
 
+## Le livreur annule sa course : BIZZOO l'entend, la course repart (3.70.0)
+
+Un livreur qui a pris une course peut l'annuler (« Refuser la course »)
+**tant que le colis n'est pas parti avec lui** — après « Je l'ai prise »,
+la base refuse toujours : le colis est entre ses mains. Désormais :
+- **la course est aussitôt reproposée**, avec la sonnerie insistante des
+  courses, aux livreurs qui pouvaient la prendre (`candidats_course` :
+  ceux de la boutique, ou ceux de BIZZOO), **sauf ceux qui l'ont déjà
+  refusée**. Si **tous** les livreurs de la boutique l'ont refusée, elle
+  passe aux tricycles puis **aux livreurs de BIZZOO** (les refus sont
+  retirés avant de juger un groupe vide). Titre : « Course à reprendre —
+  BZ-… » ; les anciennes demandes passent « lues ». Elle ne repart que si
+  plus personne ne la porte et qu'elle est payée depuis moins de 7 jours,
+  comme l'écran des demandes (`reproposer_course`) ;
+- **le superadministrateur, les administrateurs et les modérateurs de
+  BIZZOO** (comptes sans boutique, quel que soit leur droit « Commandes »)
+  reçoivent une notification **qui sonne, même BIZZOO Admin fermé** :
+  « Course annulée par <livreur> — BZ-… », le motif, puis « reproposée à
+  N livreur(s) », « Aucun autre livreur disponible : confiez-la à la
+  main », ou — une partie déjà en route ou portée par un autre livreur —
+  « confiez à la main la part libérée ». Elle ouvre la commande ; un compte
+  sans le droit « Commandes » l'ouvre dans ses notifications. Une par
+  annulation ; une seconde annulation sonne de nouveau ; un double appui du
+  livreur ne sonne qu'une fois (la commande est verrouillée) ;
+- la boutique reçoit toujours « Commande refusée par le livreur », et le
+  client qui connaissait son livreur, « Votre livreur a changé ».
+
+Même reproposition quand BIZZOO **suspend** un livreur (BIZZOO Personnel →
+Livreurs) : ses courses pas encore parties repartent aux autres.
+
+**Le numéro de la boutique, pour le livreur qui se perd :** les alertes de
+course (proposée, confiée) disent « Tél. boutique : +229 … » après la
+boutique ; sur la fiche de la course, « Appeler la boutique : +229 … » et
+« Écrire à la boutique sur WhatsApp ». L'appel prend le téléphone de la
+boutique (à défaut son WhatsApp) ; WhatsApp prend son numéro WhatsApp (à
+défaut son téléphone) — `fiche_course` rend les deux.
+
+Rien à redéployer côté fonctions Edge : `envoyer-push` envoie déjà toute
+notification qui sonne. Fichier à coller : `supabase/course-annulee.sql`
+(relançable, autonome : il pose aussi `lieu_retrait` et `refus_courses`,
+dans n'importe quel ordre avec `lieu-retrait.sql`). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
+2 bis et 4), `tools/banc-parcours-livraison.mjs`.
+
 ## « Faire livrer » : où le livreur récupère la commande (3.70.0)
 
 L'écran **« Faire livrer »** (BIZZOO Admin, commande prise sur WhatsApp)

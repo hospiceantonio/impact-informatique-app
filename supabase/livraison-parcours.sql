@@ -57,6 +57,20 @@ end $$;
 create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
 revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
+-- (3.70.0) Lue par « candidats_course » plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
 create or replace function public.livraison_active() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select p.livraison_latitude is not null and p.livraison_longitude is not null
@@ -652,6 +666,8 @@ begin
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
@@ -863,7 +879,10 @@ begin
       perform public.notifier(array[new.livreur_id], 'course_confiee',
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
-          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') ||
+          -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+          coalesce(' — Tél. boutique : +' || coalesce(nullif(fiche -> 'retrait' ->> 'indicatif', ''), '229') || ' ' ||
+                   nullif(fiche -> 'retrait' ->> 'tel', ''), '') || E'\n' ||
         -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
         coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
@@ -1029,7 +1048,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -1038,7 +1061,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';
@@ -1100,7 +1125,10 @@ begin
   end if;
   for r in select * from jsonb_array_elements(f -> 'retraits') loop
     texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
-      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') || E'\n';
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') ||
+      -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+      coalesce(' — Tél. boutique : +' || coalesce(nullif(r ->> 'indicatif', ''), '229') || ' ' ||
+               nullif(r ->> 'tel', ''), '') || E'\n';
   end loop;
   -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
   if coalesce(f ->> 'lieu_retrait', '') <> '' then

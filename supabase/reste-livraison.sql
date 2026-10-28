@@ -791,6 +791,8 @@ begin
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),

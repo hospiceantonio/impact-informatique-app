@@ -4060,6 +4060,8 @@ begin
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
@@ -4183,7 +4185,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -4192,7 +4198,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';
@@ -4258,7 +4266,10 @@ begin
   end if;
   for r in select * from jsonb_array_elements(f -> 'retraits') loop
     texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
-      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') || E'\n';
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') ||
+      -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+      coalesce(' — Tél. boutique : +' || coalesce(nullif(r ->> 'indicatif', ''), '229') || ' ' ||
+               nullif(r ->> 'tel', ''), '') || E'\n';
   end loop;
   -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
   if coalesce(f ->> 'lieu_retrait', '') <> '' then
@@ -4788,6 +4799,53 @@ alter table public.refus_courses enable row level security;
 revoke all on public.refus_courses from anon, authenticated;
 revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
 
+-- (3.70.0) LA COURSE REPART TOUTE SEULE. Quand le livreur la lâche — il
+-- l'annule, ou BIZZOO le suspend —, elle est REPROPOSÉE aussitôt, avec
+-- sonnerie, aux livreurs qui pouvaient la prendre (« candidats_course »),
+-- sauf ceux qui l'ont déjà refusée. Elle ne repart que si plus personne ne
+-- la porte : payée depuis moins de 7 jours (comme « courses_proposees »),
+-- aucun livreur sur ses lignes, rien parti en livraison.
+-- Rend le nombre de livreurs prévenus ; -1 quand une partie est encore
+-- portée ou déjà en route (elle se confie alors à la main).
+-- Réservée aux fonctions de la base.
+create or replace function public.reproposer_course(commande text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  f   jsonb;
+  qui uuid[];
+  c   record;
+begin
+  select c0.numero, c0.etat, c0.paye_le into c from public.commandes c0 where c0.id = commande;
+  if not found or c.etat <> 'payee' then return 0; end if;
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.etat <> 'annulee'
+                and (l.livreur_id is not null or l.etat in ('en_livraison', 'remise'))) then
+    return -1;
+  end if;
+  -- Plus vieille, elle n'apparaîtrait sur l'écran d'aucun livreur.
+  if c.paye_le is null or c.paye_le <= now() - interval '7 days' then return 0; end if;
+  select coalesce(array_agg(x), '{}') into qui
+    from unnest(public.candidats_course(commande)) as x
+   where not exists (select 1 from public.refus_courses r
+                      where r.commande_id = commande and r.livreur_id = x);
+  if array_length(qui, 1) is null then return 0; end if;
+  f := public.fiche_demande(commande);
+  if f is null then return 0; end if;
+  -- Une demande ne part qu'une fois par livreur et par commande : les
+  -- anciennes sont mises de côté (« …_avant_<n> »), comme au refus.
+  update public.notifications n
+     set type = n.type || '_avant_' || n.id, lue_le = coalesce(n.lue_le, now())
+   where n.commande_id = commande
+     and n.type in ('course_proposee', 'course_prise')
+     and n.destinataire = any(qui);
+  return public.notifier(qui, 'course_proposee',
+    'Course à reprendre — ' || coalesce(c.numero, ''),
+    public.texte_demande(f),
+    '#/livraisons', commande, null, true);
+end $$;
+revoke all on function public.reproposer_course(text) from public, anon, authenticated;
+
 create or replace function public.refuser_course(commande text, motif text default '')
 returns int
 language plpgsql security definer set search_path = public as $$
@@ -4799,10 +4857,15 @@ declare
   porteur  text;
   c        record;
   annonce  boolean;
+  relances int := 0;
+  texte    text;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul le livreur de la course la refuse';
   end if;
+  -- (3.70.0) Un appel à la fois par commande, comme « prendre_course » :
+  -- un double appui ne fait pas sonner deux fois les autres livreurs.
+  perform 1 from public.commandes c0 where c0.id = commande for update;
   if not exists (select 1 from public.commande_lignes l
                   where l.commande_id = commande and l.livreur_id = moi
                     and l.etat in ('nouvelle', 'vue', 'preparee')) then
@@ -4828,7 +4891,7 @@ begin
   update public.notifications n
      set type = n.type || '_avant_' || n.id
    where n.commande_id = commande
-     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee');
+     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee', 'course_annulee_livreur');
 
   perform set_config('bizzoo.livraison', 'oui', true);
   perform set_config('bizzoo.refus', 'oui', true);
@@ -4854,6 +4917,33 @@ begin
   end loop;
   perform set_config('bizzoo.refus', '', true);
   perform set_config('bizzoo.livraison', '', true);
+
+  if combien = 0 then return 0; end if;
+
+  -- (3.70.0) LA COURSE REPART aux autres livreurs, avec sonnerie…
+  relances := public.reproposer_course(commande);
+  -- … ET BIZZOO L'ENTEND, même application fermée : le superadministrateur,
+  -- les administrateurs et les modérateurs de BIZZOO (comptes sans
+  -- boutique). Une sonnerie par annulation, pas une par boutique. Ceux
+  -- qui n'ont pas l'écran des commandes l'ouvrent dans leurs notifications.
+  texte := porteur || ' a annulé la course' ||
+      case when pourquoi <> '' then ' : « ' || pourquoi || ' »' else '' end || '.' || E'\n' ||
+      case when relances > 0
+           then 'Elle a été reproposée à ' || relances || ' autre' || case when relances > 1 then 's' else '' end ||
+                ' livreur' || case when relances > 1 then 's' else '' end || '.'
+           when relances < 0
+           then 'Une partie de la commande est déjà en route ou portée par un autre livreur : ' ||
+                'confiez à la main la part libérée.'
+           else 'Aucun autre livreur disponible : confiez-la à la main.' end;
+  perform public.notifier(public.enseigne_des_commandes() || public.les_superadmins(),
+    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    texte, '#/commandes/' || commande, commande, null, true);
+  perform public.notifier(
+    coalesce((select array_agg(p.id) from public.profils p
+               where p.actif and p.boutique_id is null and not p.peut_commandes
+                 and p.role in ('administrateur', 'moderateur')), '{}'::uuid[]),
+    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    texte, '#/notifications', commande, null, true);
 
   if annonce and c.client_id is not null then
     perform public.notifier(array[c.client_id], 'course_refusee',
@@ -7007,7 +7097,10 @@ begin
       perform public.notifier(array[new.livreur_id], 'course_confiee',
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
-          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') ||
+          -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+          coalesce(' — Tél. boutique : +' || coalesce(nullif(fiche -> 'retrait' ->> 'indicatif', ''), '229') || ' ' ||
+                   nullif(fiche -> 'retrait' ->> 'tel', ''), '') || E'\n' ||
         -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
         coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
@@ -18096,6 +18189,8 @@ begin
     end loop;
     perform set_config('bizzoo.refus', '', true);
     perform set_config('bizzoo.livraison', '', true);
+    -- (3.70.0) Et la course repart aux autres livreurs, avec sonnerie.
+    perform public.reproposer_course(c.commande_id);
     if annonce and c.client_id is not null then
       perform public.notifier(array[c.client_id], 'course_refusee',
         'Votre livreur a changé',

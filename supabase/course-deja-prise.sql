@@ -57,6 +57,20 @@ end $$;
 create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
 revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
+-- (3.70.0) Lue par « candidats_course » plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
 create or replace function public.livraison_active() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select p.livraison_latitude is not null and p.livraison_longitude is not null
@@ -213,7 +227,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -222,7 +240,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';

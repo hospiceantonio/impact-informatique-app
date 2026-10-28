@@ -8,6 +8,354 @@
 
 alter table public.profils add column if not exists courses_bloquees boolean not null default false;
 
+-- (3.70.0) Lue par « fiche_course » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
+-- (3.70.0) Lue par « candidats_course » plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.part_frais_livreur(cible text, qui uuid) returns numeric
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c          public.commandes%rowtype;
+  f          numeric;
+  siennes    int;
+  confiees   int;
+  part       numeric;
+  brut_moi   numeric;
+  brut_tout  numeric;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found then return 0; end if;
+  f := greatest(0, coalesce(c.frais_livraison, 0));
+  if f <= 0 then return 0; end if;
+  select count(*) filter (where l.livreur_id = qui), count(*) filter (where l.livreur_id is not null)
+    into siennes, confiees
+    from public.commande_lignes l where l.commande_id = cible and l.etat <> 'annulee';
+  if coalesce(siennes, 0) = 0 then
+    return case when coalesce(confiees, 0) = 0 then f else 0 end;
+  end if;
+  if c.livraison is not null then return f; end if;
+  if c.parts is not null and exists (select 1 from jsonb_each(c.parts) e(k, v)
+                                      where coalesce((v ->> 'frais')::numeric, 0) > 0) then
+    select coalesce(sum(coalesce((c.parts -> b.bou ->> 'frais')::numeric, 0)), 0) into part
+      from (select distinct l.boutique_id as bou from public.commande_lignes l
+             where l.commande_id = cible and l.livreur_id = qui and l.etat <> 'annulee') b;
+    return least(f, part);
+  end if;
+  select coalesce(sum(l.prix * l.quantite) filter (where l.livreur_id = qui), 0),
+         coalesce(sum(l.prix * l.quantite), 0)
+    into brut_moi, brut_tout
+    from public.commande_lignes l where l.commande_id = cible and l.etat <> 'annulee';
+  if brut_tout <= 0 then return 0; end if;
+  return round(f * brut_moi / brut_tout);
+end $$;
+revoke all on function public.part_frais_livreur(text, uuid) from public, anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.gain_livreur(cible text) returns bigint
+language plpgsql stable security definer set search_path = public as $$
+declare g bigint; p numeric; t int;
+begin
+  select sum(x.montant)::bigint into g from public.gains_livreurs x
+   where x.commande_id = cible and x.livreur_id = auth.uid();
+  if g is not null then return g; end if;
+  p := public.part_frais_livreur(cible, auth.uid());
+  if coalesce(p, 0) <= 0 then return null; end if;
+  select coalesce(x.taux_livreur, 80) into t from public.paiement x where x.id = 1;
+  return floor(p * coalesce(t, 80) / 100.0)::bigint;
+end $$;
+revoke all on function public.gain_livreur(text) from public, anon, authenticated;
+
+create or replace function public.restes_par_boutique(cible text)
+returns table (boutique_id text, a_encaisser bigint)
+language plpgsql stable security definer set search_path = public as $$
+declare lp jsonb;
+begin
+  select c.parts into lp from public.commandes c where c.id = cible;
+  -- UNE COMMANDE D'AVANT LES CONDITIONS PAR BOUTIQUE (« parts » vide) :
+  -- l'ancienne règle, celle d'un acompte unique réparti au prorata.
+  if lp is null then
+    return query
+  with commande as (
+    select c.total::numeric as total,
+           greatest(0, coalesce(c.frais_livraison, 0))::numeric as frais,
+           coalesce(c.verse, c.acompte, c.total)::numeric as deja
+      from public.commandes c
+     where c.id = cible
+  ), parts as (
+    select l.boutique_id as boutique,
+           sum(l.prix * l.quantite)::numeric as brut,
+           coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+      from public.commande_lignes l
+     where l.commande_id = cible
+     group by l.boutique_id
+  ), reste as (
+    -- Ce que vaut ce qui sera livré, remise déduite au prorata, moins ce
+    -- qui est déjà versé.
+    -- LES FRAIS DE LIVRAISON ne se réduisent pas au prorata : tant qu'il
+    -- reste quelque chose à livrer, la course a lieu et coûte son prix.
+    -- Tout annulé, il n'y a pas de course, donc pas de frais.
+    select greatest(0, coalesce(round((c.total - c.frais) * sum(p.servi) / nullif(sum(p.brut), 0)), 0)
+                       + case when sum(p.servi) > 0 then c.frais else 0 end
+                       - c.deja) as du,
+           sum(p.servi) as servi
+      from commande c, parts p
+     group by c.total, c.frais, c.deja
+  ), repartie as (
+    select p.boutique,
+           coalesce(floor(r.du * p.servi / nullif(r.servi, 0)), 0) as part,
+           row_number() over (order by p.servi desc, p.boutique) as rang,
+           r.du
+      from parts p, reste r
+  )
+  select x.boutique,
+         (x.part + case when x.rang = 1 then x.du - sum(x.part) over () else 0 end)::bigint
+    from repartie x;
+    return;
+  end if;
+  -- (3.59.0) CHAQUE BOUTIQUE ENCAISSE SA PART, moins SON acompte : ce
+  -- que valent ses articles servis, remise déduite au prorata, plus ses
+  -- frais tant qu'il y a quelque chose à livrer.
+  --
+  -- CE QUE LE CLIENT A VERSÉ N'EST JAMAIS PERDU POUR LUI. Chaque boutique
+  -- déduit d'abord son propre acompte ; ce qui a été versé en plus — un
+  -- surplus, ou l'acompte d'une part annulée — diminue les autres parts
+  -- au prorata, l'arrondi à la plus grosse.
+  return query
+    with commande as (
+      select greatest(0, coalesce(c.remise, 0))::numeric as remise,
+             -- (3.64.0) Au kilomètre, les frais de livraison se paient en ligne
+             -- avec l'acompte, hors des parts des boutiques : ce versement-là
+             -- n'allège le reste d'aucune d'elles.
+             greatest(0, coalesce(c.verse, c.acompte, c.total)
+                         - case when c.livraison is not null
+                                then coalesce(c.frais_livraison, 0) else 0 end)::numeric as paye
+        from public.commandes c where c.id = cible
+    ), lignes as (
+      select l.boutique_id as bou,
+             sum(l.prix * l.quantite)::numeric as brut,
+             coalesce(sum(l.prix * l.quantite) filter (where l.etat <> 'annulee'), 0)::numeric as servi
+        from public.commande_lignes l
+       where l.commande_id = cible
+       group by l.boutique_id
+    ), tout as (
+      select sum(x.brut) as s from lignes x
+    ), brutes as (
+      select x.bou,
+             greatest(0, round(x.servi - k.remise * x.servi / nullif(t.s, 0))
+                         + case when x.servi > 0 then coalesce((lp -> x.bou ->> 'frais')::numeric, 0) else 0 end) as du
+        from lignes x, tout t, commande k
+    ), propres as (
+      select b.bou, b.du,
+             least(b.du, coalesce((lp -> b.bou ->> 'acompte')::numeric, 0)) as sien
+        from brutes b
+    ), credit as (
+      select greatest(0, k.paye - coalesce(sum(p.sien), 0)) as reste_credit,
+             coalesce(sum(p.du - p.sien), 0) as a_couvrir
+        from propres p, commande k
+       group by k.paye
+    ), allege as (
+      select p.bou, p.du - p.sien as du,
+             case when c.a_couvrir > 0
+                  then floor(least(c.reste_credit, c.a_couvrir) * (p.du - p.sien) / c.a_couvrir)
+                  else 0 end as moins,
+             least(c.reste_credit, c.a_couvrir) as credit,
+             row_number() over (order by p.du - p.sien desc, p.bou) as rang
+        from propres p, credit c
+    )
+    select a.bou,
+           greatest(0, a.du - a.moins
+                       - case when a.rang = 1 then a.credit - sum(a.moins) over () else 0 end)::bigint
+      from allege a;
+end $$;
+revoke all on function public.restes_par_boutique(text) from public, anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.fiche_course(commande text, boutique text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c   public.commandes%rowtype;
+  b   public.boutiques%rowtype;
+  pos record;
+  brut numeric;
+  tout numeric;
+  part numeric;
+  frais numeric;
+  reste numeric;
+begin
+  select * into c from public.commandes where id = commande;
+  if not found then return null; end if;
+  select * into b from public.boutiques where id = boutique;
+  select sum(l.prix * l.quantite) filter (where l.boutique_id = boutique),
+         sum(l.prix * l.quantite)
+    into brut, tout
+    from public.commande_lignes l where l.commande_id = commande;
+  select coalesce(r.a_encaisser, 0) into reste
+    from public.restes_par_boutique(commande) r where r.boutique_id = boutique;
+  if c.livraison is not null then
+    -- (3.64.0) AU KILOMÈTRE, un seul livreur porte toute la commande : ses
+    -- frais sont ceux de la commande entière.
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := coalesce(c.frais_livraison, 0);
+  elsif c.parts is not null and c.parts ? boutique then
+    part  := (c.parts -> boutique ->> 'du')::numeric;
+    frais := (c.parts -> boutique ->> 'frais')::numeric;
+  else
+    -- Une commande d'avant les conditions par boutique : sa part au
+    -- prorata, frais compris.
+    part  := round(c.total * coalesce(brut, 0) / nullif(tout, 0));
+    frais := case when coalesce(brut, 0) = coalesce(tout, 0) then coalesce(c.frais_livraison, 0)
+                  else round(coalesce(c.frais_livraison, 0) * coalesce(brut, 0) / nullif(tout, 0)) end;
+  end if;
+  return jsonb_build_object(
+    'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
+    'retrait', jsonb_build_object(
+      'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
+      'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
+      'latitude', b.latitude, 'longitude', b.longitude),
+    'livraison', jsonb_build_object(
+      'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
+      'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
+      'indicatif', coalesce(nullif(c.client_indicatif, ''), '229'),
+      -- (3.64.0) Le point exact où livrer, quand le client l'a donné.
+      'latitude', c.livraison -> 'destination' -> 'latitude',
+      'longitude', c.livraison -> 'destination' -> 'longitude'),
+    'devise', coalesce(c.devise, 'FCFA'),
+    'frais', coalesce(frais, 0),
+    -- (3.64.0) Le véhicule, la distance, et ce que le livreur y gagne.
+    'trajet', case when c.livraison is null then null
+                   else jsonb_build_object('vehicule', c.livraison ->> 'vehicule',
+                                           'distance_km', c.livraison -> 'distance_km') end,
+    -- (3.66.0) Au kilomètre ou à l'ancien tarif : sa part des frais.
+    'gain', public.gain_livreur(c.id),
+    'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
+    'a_encaisser', coalesce(reste, 0),
+    -- Ce que le livreur a déclaré en remettant le colis (3.59.0).
+    'encaisse', (select jsonb_build_object('montant', x.montant, 'mode', x.mode,
+                         'encaisse_le', x.encaisse_le, 'remis_le', x.remis_le,
+                         'transaction', x.transaction_id)
+                   from public.encaissements x
+                  where x.commande_id = commande and x.boutique_id = boutique),
+    -- Le code MoMoPay de BIZZOO, à montrer au client (3.59.0).
+    'momopay', (select jsonb_build_object('code', p.momopay_code, 'nom', p.momopay_nom)
+                  from public.paiement p where p.id = 1));
+end $$;
+revoke all on function public.fiche_course(text, text) from public, anon, authenticated;
+
+create or replace function public.montant_lisible(n numeric, devise text default 'FCFA')
+returns text
+language sql immutable set search_path = public as $$
+  select replace(to_char(coalesce(n, 0), 'FM999,999,999,990'), ',', ' ') || ' ' || coalesce(nullif(devise, ''), 'FCFA');
+$$;
+revoke all on function public.montant_lisible(numeric, text) from public, anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.fiche_demande(commande text)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  f        jsonb;
+  b        text;
+  retraits jsonb := '[]';
+  premiere jsonb;
+  frais    numeric := 0;
+  paye     numeric := 0;
+  reste    numeric := 0;
+begin
+  for b in select distinct l.boutique_id from public.commande_lignes l
+            where l.commande_id = commande and l.etat <> 'annulee' and l.boutique_id is not null
+            order by 1 loop
+    f := public.fiche_course(commande, b);
+    if f is null then continue; end if;
+    premiere := coalesce(premiere, f);
+    retraits := retraits || jsonb_build_array((f -> 'retrait') ||
+      jsonb_build_object('boutique_id', b, 'a_encaisser', f -> 'a_encaisser'));
+    frais := frais + coalesce((f ->> 'frais')::numeric, 0);
+    paye  := paye  + coalesce((f ->> 'deja_paye')::numeric, 0);
+    reste := reste + coalesce((f ->> 'a_encaisser')::numeric, 0);
+  end loop;
+  if premiere is null then return null; end if;
+  -- (3.64.0) Au kilomètre, les frais sont ceux de la commande, pas la
+  -- somme de chaque boutique : chaque fiche les porte déjà en entier.
+  if premiere -> 'trajet' is not null and jsonb_typeof(premiere -> 'trajet') = 'object' then
+    frais := coalesce((premiere ->> 'frais')::numeric, 0);
+  end if;
+  return jsonb_build_object(
+    'numero', premiere -> 'numero',
+    'groupee', jsonb_array_length(retraits) > 1,
+    'retraits', retraits,
+    'lieu_retrait', coalesce(premiere -> 'lieu_retrait', '""'::jsonb),
+    'livraison', premiere -> 'livraison',
+    'devise', premiere -> 'devise',
+    'trajet', premiere -> 'trajet',
+    'gain', premiere -> 'gain',
+    'frais', frais, 'deja_paye', paye, 'a_encaisser', reste);
+end $$;
+revoke all on function public.fiche_demande(text) from public, anon, authenticated;
+
+create or replace function public.texte_demande(f jsonb)
+returns text
+language plpgsql stable set search_path = public as $$
+declare
+  r     jsonb;
+  texte text := '';
+begin
+  if coalesce((f ->> 'groupee')::boolean, false) then
+    texte := 'Livraison groupée : ' || jsonb_array_length(f -> 'retraits') || ' boutiques.' || E'\n';
+  end if;
+  for r in select * from jsonb_array_elements(f -> 'retraits') loop
+    texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') ||
+      -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+      coalesce(' — Tél. boutique : +' || coalesce(nullif(r ->> 'indicatif', ''), '229') || ' ' ||
+               nullif(r ->> 'tel', ''), '') || E'\n';
+  end loop;
+  -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+  if coalesce(f ->> 'lieu_retrait', '') <> '' then
+    texte := texte || 'Où récupérer : ' || (f ->> 'lieu_retrait') || E'\n';
+  end if;
+  return texte ||
+    'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
+      coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
+    'Destinataire : +' || (f -> 'livraison' ->> 'indicatif') || ' ' || (f -> 'livraison' ->> 'tel') || E'\n' ||
+    -- (3.64.0) Le véhicule et la distance, puis ce qu'il y gagne.
+    case when jsonb_typeof(f -> 'trajet') = 'object'
+         then 'Véhicule : ' || case when f -> 'trajet' ->> 'vehicule' = 'tricycle' then 'tricycle' else 'moto' end ||
+              -- (3.70.0) Sans distance (« Faire livrer » : frais saisis), pas
+              -- de « — … km » : un NULL ici vidait TOUTE l'alerte.
+              coalesce(' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km', '') || E'\n'
+         else '' end ||
+    'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
+    case when (f ->> 'gain') is not null
+         then 'Votre gain : ' || public.montant_lisible((f ->> 'gain')::numeric, f ->> 'devise') || E'\n'
+         else '' end ||
+    'Déjà payé : ' || public.montant_lisible((f ->> 'deja_paye')::numeric, f ->> 'devise') || E'\n' ||
+    case when (f ->> 'a_encaisser')::numeric > 0
+         then 'À récupérer : ' || public.montant_lisible((f ->> 'a_encaisser')::numeric, f ->> 'devise')
+         else 'Rien à récupérer : tout est payé.' end || E'\n' ||
+    'Le premier qui touche « Commande reçue » prend la course.';
+end $$;
+revoke all on function public.texte_demande(jsonb) from public, anon, authenticated;
+
 -- ---------- Ce qui change (copies de schema.sql) ----------
 create or replace function public.boutique_du_compte() returns text
 language sql stable security definer set search_path = public as $$
@@ -139,7 +487,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -148,7 +500,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';
@@ -507,6 +861,45 @@ begin
                   from public.livreurs_blocages x where x.profil_id = livreur));
 end $$;
 
+-- (3.70.0) Empruntée plus bas, recopiée telle quelle.
+create or replace function public.reproposer_course(commande text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  f   jsonb;
+  qui uuid[];
+  c   record;
+begin
+  select c0.numero, c0.etat, c0.paye_le into c from public.commandes c0 where c0.id = commande;
+  if not found or c.etat <> 'payee' then return 0; end if;
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.etat <> 'annulee'
+                and (l.livreur_id is not null or l.etat in ('en_livraison', 'remise'))) then
+    return -1;
+  end if;
+  -- Plus vieille, elle n'apparaîtrait sur l'écran d'aucun livreur.
+  if c.paye_le is null or c.paye_le <= now() - interval '7 days' then return 0; end if;
+  select coalesce(array_agg(x), '{}') into qui
+    from unnest(public.candidats_course(commande)) as x
+   where not exists (select 1 from public.refus_courses r
+                      where r.commande_id = commande and r.livreur_id = x);
+  if array_length(qui, 1) is null then return 0; end if;
+  f := public.fiche_demande(commande);
+  if f is null then return 0; end if;
+  -- Une demande ne part qu'une fois par livreur et par commande : les
+  -- anciennes sont mises de côté (« …_avant_<n> »), comme au refus.
+  update public.notifications n
+     set type = n.type || '_avant_' || n.id, lue_le = coalesce(n.lue_le, now())
+   where n.commande_id = commande
+     and n.type in ('course_proposee', 'course_prise')
+     and n.destinataire = any(qui);
+  return public.notifier(qui, 'course_proposee',
+    'Course à reprendre — ' || coalesce(c.numero, ''),
+    public.texte_demande(f),
+    '#/livraisons', commande, null, true);
+end $$;
+revoke all on function public.reproposer_course(text) from public, anon, authenticated;
+
 /** Bloquer ou débloquer un livreur : l'administration seule. Bloqué, il
     ne reçoit plus de course ; ses courses pas encore parties retournent
     aux boutiques. Rend le nombre de parts de commande retirées. */
@@ -593,6 +986,8 @@ begin
     end loop;
     perform set_config('bizzoo.refus', '', true);
     perform set_config('bizzoo.livraison', '', true);
+    -- (3.70.0) Et la course repart aux autres livreurs, avec sonnerie.
+    perform public.reproposer_course(c.commande_id);
     if annonce and c.client_id is not null then
       perform public.notifier(array[c.client_id], 'course_refusee',
         'Votre livreur a changé',

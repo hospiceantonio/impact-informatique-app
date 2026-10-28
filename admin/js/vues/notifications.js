@@ -36,6 +36,8 @@ const VueNotifications = (() => {
     encaissement_conteste: { nom: "Paiements contestés", icone: "alerte" },
     caisse_remise:         { nom: "Argent rendu", icone: "check" },
     course_refusee:        { nom: "Courses refusées", icone: "alerte" },
+    /* (3.70.0) Un livreur a annulé sa course : BIZZOO l'entend. */
+    course_annulee_livreur: { nom: "Courses annulées par un livreur", icone: "alerte" },
     /* Le stock, que chaque vente payée décompte toute seule. */
     stock_epuise:          { nom: "Ruptures de stock",  icone: "boite" },
     stock_insuffisant:     { nom: "Stock insuffisant",  icone: "alerte" },
