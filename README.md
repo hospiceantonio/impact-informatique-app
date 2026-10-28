@@ -5562,7 +5562,8 @@ et les deux feuilles de l'export Excel la portent aussi.
 C'est `rh_suivi_donnees` qui la calcule, d'après `commandes.origine`. Une
 base qui ne la rend pas encore : l'écran lit « Depuis APP ». Fichier à
 coller : `supabase/suivi-source.sql` (la seule fonction interne du suivi,
-aucune table ni donnée). Banc : `tools/banc-suivi-source.mjs` (12 constats ;
+aucune table ni donnée) — **en ligne depuis le 28/10/2026**, vérifiée identique
+au dépôt. Banc : `tools/banc-suivi-source.mjs` (12 constats ;
 `CAPTURES=<dossier>` pour une image du tableau).
 
 ## Qui entend quoi : commande payée, course prise (3.66.0)
