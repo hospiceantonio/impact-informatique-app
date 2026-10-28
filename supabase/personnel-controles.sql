@@ -650,7 +650,13 @@ begin
                          when 'especes_non_remises' then now() - e.le > make_interval(hours => h_esp)
                          when 'non_declare' then true
                          else false end as ancien,
-           e.statut in ('momopay_a_verifier', 'especes_non_remises', 'non_declare') as en_attente
+           e.statut in ('momopay_a_verifier', 'especes_non_remises', 'non_declare') as en_attente,
+           -- Ce qui attend s'affiche quelle que soit sa date ; un écart ou
+           -- une contestation, seulement dans la période choisie (l'écran le
+           -- dit). Sans cela, des espèces non rendues d'il y a trois mois
+           -- gonflaient les écarts des « 7 derniers jours ».
+           (e.ecart and e.le >= t1 and e.le < t2) as ecart_p,
+           (e.conteste_le is not null and e.le >= t1 and e.le < t2) as conteste_p
       from e
   )
   select jsonb_build_object(
@@ -663,15 +669,15 @@ begin
         'especes_non_remises', count(*) filter (where f.statut = 'especes_non_remises'),
         'especes_anciennes', count(*) filter (where f.statut = 'especes_non_remises' and f.ancien),
         'non_declares', count(*) filter (where f.statut = 'non_declare'),
-        'ecarts', count(*) filter (where f.ecart),
-        'contestes', count(*) filter (where f.conteste_le is not null),
+        'ecarts', count(*) filter (where f.ecart_p),
+        'contestes', count(*) filter (where f.conteste_p),
         'verifies', count(*) filter (where f.mode = 'mobile_money' and f.remis_le is not null),
         'plus_ancien', min(f.le) filter (where f.en_attente))
       || case when argent then jsonb_build_object(
         'montant_a_verifier', coalesce(sum(f.montant) filter (where f.statut = 'momopay_a_verifier'), 0),
         'montant_especes', coalesce(sum(f.montant) filter (where f.statut = 'especes_non_remises'), 0),
         'montant_non_declare', coalesce(sum(f.du) filter (where f.statut = 'non_declare'), 0),
-        'ecart_total', coalesce(sum(f.du - f.montant) filter (where f.ecart), 0))
+        'ecart_total', coalesce(sum(f.du - f.montant) filter (where f.ecart_p), 0))
         else '{}'::jsonb end
       from f),
     'livreurs', (select coalesce(jsonb_agg(jsonb_build_object(
@@ -688,13 +694,13 @@ begin
                    count(*) filter (where f.en_attente) as en_attente,
                    count(*) filter (where f.en_attente and f.ancien) as anciens,
                    min(f.le) filter (where f.en_attente) as plus_ancien,
-                   count(*) filter (where f.ecart) as ecarts,
-                   count(*) filter (where f.conteste_le is not null) as contestes,
+                   count(*) filter (where f.ecart_p) as ecarts,
+                   count(*) filter (where f.conteste_p) as contestes,
                    coalesce(sum(case when f.statut = 'non_declare' then f.du else f.montant end)
                               filter (where f.en_attente), 0) as montant
               from f
              group by f.livreur_id
-            having count(*) filter (where f.en_attente or f.ecart or f.conteste_le is not null) > 0) g
+            having count(*) filter (where f.en_attente or f.ecart_p or f.conteste_p) > 0) g
       left join public.profils p on p.id = g.livreur_id),
     'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
         'id', k.id, 'commande', k.commande_id, 'numero', k.numero,
@@ -705,7 +711,7 @@ begin
         || case when argent then jsonb_build_object('du', k.du, 'montant', k.montant,
                                                    'transaction', k.transaction_id) else '{}'::jsonb end
         order by k.ancien desc, k.le), '[]')
-      from (select * from f where f.en_attente or f.ecart or f.conteste_le is not null
+      from (select * from f where f.en_attente or f.ecart_p or f.conteste_p
              order by f.ancien desc, f.le limit 500) k
       left join public.boutiques b on b.id = k.boutique_id
       left join public.profils p on p.id = k.livreur_id))
@@ -738,11 +744,24 @@ begin
          left join public.boutiques b on a.table_nom = 'boutiques_reception' and b.id = a.cible
         where a.approuve_le is null
         order by a.critique desc, a.le desc, a.id desc limit 1) end,
+    -- Les « anciens » : la même règle que rh_encaissements, livrés sans
+    -- déclaration compris (toujours anciens, sur 60 jours). Sans eux, un
+    -- livreur s'affichait « Plafond atteint » pendant que la pastille et
+    -- l'accueil disaient 0.
     'encaissements_anciens', (select count(*) from public.encaissements x
        where x.remis_le is null and x.montant > 0
          and now() - x.encaisse_le > make_interval(hours => case when x.mode = 'mobile_money'
                                                                  then (s ->> 'momopay_h')::int
-                                                                 else (s ->> 'especes_h')::int end)));
+                                                                 else (s ->> 'especes_h')::int end))
+      + (select count(*) from (select distinct l.commande_id, l.boutique_id
+                                 from public.commande_lignes l
+                                 join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+                                where l.etat = 'remise' and c.paye_le >= now() - interval '60 days'
+                                  and not exists (select 1 from public.encaissements x
+                                                   where x.commande_id = l.commande_id
+                                                     and x.boutique_id = l.boutique_id)) d
+          where exists (select 1 from public.restes_par_boutique(d.commande_id) rr
+                         where rr.boutique_id = d.boutique_id and rr.a_encaisser > 0)));
 end $$;
 
 revoke all on function public.rh_audit_reglages_fige() from public, anon, authenticated;

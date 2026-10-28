@@ -52,7 +52,9 @@
 --      code MoMoPay, numéros de réception) est gardé et attend l'approbation
 --      du CEO, sans jamais bloquer le réglage ; les encaissements qui
 --      attendent, par livreur, montants à l'administration seulement ; la
---      veille des livreurs (course sans livreur, livreur muet).
+--      veille des livreurs (course sans livreur, livreur muet) ; l'historique
+--      s'écrit sur le vrai chemin (rôle authenticated), la pastille compte
+--      les livrés sans déclaration, les écarts sont ceux de la période.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1759,18 +1761,33 @@ reset role; select essai.personne();
 
 -- 1. Un réglage sensible change : le superadministrateur passe le paiement
 --    en mode essai et change le code MoMoPay.
+--    COMME EN PRODUCTION : BIZZOO Admin écrit « paiement » en rôle
+--    authenticated (PATCH paiement?id=eq.1), et une boutique règle son
+--    numéro par regler_reception. L'historique est fermé à authenticated :
+--    seul le mode SECURITY DEFINER du déclencheur permet d'y écrire. En
+--    superutilisateur, l'essai passerait même si ce mode se perdait, et le
+--    déclencheur avalerait l'erreur sans bruit.
+update public.boutiques_reception set tel = '0100000000' where boutique_id = 'bou_informatique';
 update public.rh_audit_reglages set approuve_le = now() where approuve_le is null;
-select essai.devenir(:ENSEIGNE::uuid);
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 update public.paiement set bac_a_sable = not bac_a_sable, momopay_code = '0161234567', maj_le = now() where id = 1;
-select essai.personne();
+reset role; select essai.personne();
 update public.reglages set compte_obligatoire = not compte_obligatoire, maj_le = now() where id = 1;
-insert into public.boutiques_reception (boutique_id, tel, reseau, titulaire)
-values ('bou_informatique', '0197123456', 'MTN', 'Essai Chef')
-on conflict (boutique_id) do update set tel = '0197123456', reseau = 'MTN', titulaire = 'Essai Chef';
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select public.regler_reception('bou_informatique', '0197123456', 'MTN', 'Essai Chef') as reception \gset
+reset role; select essai.personne();
+select essai.egal((select momopay_code from public.paiement where id = 1), '0161234567',
+  'le superadministrateur a bien changé le paiement, en rôle authenticated');
 select essai.egal((select count(*)::int from public.rh_audit_reglages
                     where approuve_le is null and table_nom = 'paiement' and champ in ('bac_a_sable', 'momopay_code')
                       and par_compte = :ENSEIGNE::uuid and par_nom <> '' and par_nom not like 'Système%'), 2,
-  'chaque champ changé est gardé, avec son auteur');
+  'chaque champ changé est gardé, avec son auteur (écrit en rôle authenticated)');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'boutiques_reception'
+                              and cible = 'bou_informatique' and champ = 'tel' and apres = '0197123456'
+                              and par_compte = :CHEF::uuid and approuve_le is null),
+  'le numéro réglé par l''administrateur de la boutique est gardé, à son nom');
+select essai.verifie((select p.prosecdef from pg_proc p where p.oid = 'public.rh_audit_reglages_noter()'::regprocedure),
+  'le déclencheur reste SECURITY DEFINER');
 select essai.verifie(not exists (select 1 from public.rh_audit_reglages where champ = 'maj_le'),
   'la date de mise à jour seule ne compte pas');
 select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'paiement' and champ = 'momopay_code'
@@ -1885,6 +1902,52 @@ select essai.verifie(not (:'enc_log'::jsonb::text ~ '"(du|montant|transaction|mo
   'aucun montant ni numéro de transaction');
 select essai.egal((select (x ->> 'anciens')::int from jsonb_array_elements(:'enc_log'::jsonb -> 'livreurs') x
                     where x ->> 'id' = :LIV_CTRL), 2, 'mais les nombres et l''ancienneté, oui');
+
+-- Les écarts sont ceux de la période : des espèces pas rendues d'il y a
+-- 10 jours, avec un écart, attendent toujours (elles comptent dans ce qui
+-- attend) mais ne gonflent pas les écarts de ces deux jours-ci.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_enc3 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_nd \gset
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_base \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_enc3', 'TRX-RH-CTRL3', (select coalesce(acompte, total) from public.commandes where id = :'cmd_enc3'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_nd', 'TRX-RH-CTRLND', (select coalesce(acompte, total) from public.commandes where id = :'cmd_nd'), 'feexpay') as p \gset
+insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id, encaisse_le)
+values (:'cmd_enc3', 'bou_informatique', :LIV_CTRL::uuid, 4000, 1000, 'especes', 'Ancien écart', '', now() - interval '10 days');
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_controles_compteurs() as cpt_avant_nd \gset
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_per \gset
+select public.rh_encaissements(current_date - 15, current_date + 1) as enc_15j \gset
+reset role; select essai.personne();
+select essai.egal((:'enc_per'::jsonb #>> '{totaux,ecarts}')::int, (:'enc_base'::jsonb #>> '{totaux,ecarts}')::int, 'un écart d''il y a 10 jours n''entre pas dans les écarts des 2 derniers jours');
+select essai.egal((select (x ->> 'ecarts')::int from jsonb_array_elements(:'enc_per'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 1, 'ni dans ceux du livreur');
+select essai.egal((select (x ->> 'en_attente')::int from jsonb_array_elements(:'enc_per'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 3, 'mais il attend toujours : il reste dans ce qui attend');
+select essai.egal((:'enc_per'::jsonb #>> '{totaux,ecart_total}')::int, (:'enc_base'::jsonb #>> '{totaux,ecart_total}')::int, 'le total des écarts reste celui de la période');
+select essai.egal((select (x ->> 'ecarts')::int from jsonb_array_elements(:'enc_15j'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 2, 'sur 15 jours, il y entre');
+
+-- La pastille compte aussi les livrés sans déclaration, comme l'écran :
+-- une livraison remise alors qu'un reste était dû, sans rien déclarer.
+set session_replication_role = replica;
+update public.commandes set verse = 0, parts = null where id = :'cmd_nd';
+update public.commande_lignes set etat = 'remise', livreur_id = :LIV_CTRL::uuid where commande_id = :'cmd_nd';
+set session_replication_role = origin;
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_controles_compteurs() as cpt_apres_nd \gset
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_nd \gset
+reset role; select essai.personne();
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'enc_nd'::jsonb -> 'lignes') x
+                              where x ->> 'commande' = :'cmd_nd' and x ->> 'statut' = 'non_declare' and (x ->> 'ancien')::boolean),
+  'l''écran la classe « livré sans déclaration », ancienne');
+select essai.egal((:'cpt_apres_nd'::jsonb ->> 'encaissements_anciens')::int - (:'cpt_avant_nd'::jsonb ->> 'encaissements_anciens')::int, 1,
+  'la pastille et l''accueil la comptent aussi');
 
 -- 3. La veille des livreurs : une course payée que personne ne prend, un
 --    livreur en route qui ne donne plus de position.

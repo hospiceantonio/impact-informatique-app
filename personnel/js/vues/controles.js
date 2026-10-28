@@ -75,7 +75,9 @@ const VueControles = (() => {
         { titre: "Vu et approuvé", valider: "Approuver" }))) return;
       await UI.agir(bouton, () => Supabase.rpc("rh_audit_approuver", { ids: [...choisis] }), "Changement(s) approuvé(s).");
       App.rafraichir();
-      reglages(zone, c, params);
+      // Les compteurs relus : la pastille de l’onglet garderait sinon
+      // l’ancien nombre, alors que tout vient d’être approuvé.
+      afficher(zone, ["reglages"], params);
     } }, UI.icone("check", "ic-sm"), "Vu et approuvé");
     const majBouton = () => {
       approuver.disabled = choisis.size === 0;

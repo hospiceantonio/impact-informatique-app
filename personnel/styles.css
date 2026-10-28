@@ -231,6 +231,7 @@ p{margin:0}
 .tableau-suivi tbody tr{cursor:pointer}
 .tableau-suivi tbody tr:hover td{background:var(--bleu-50)}
 .tableau-suivi tr.en-alerte td:first-child{box-shadow:inset 3px 0 0 var(--orange)}
+.tableau tr.en-alerte td:first-child{box-shadow:inset 3px 0 0 var(--orange)}
 .tableau-suivi td.sans-retour{white-space:nowrap}
 .tableau-suivi td.large{min-width:200px}
 .tableau-suivi td.moyen{min-width:170px}
