@@ -28,6 +28,9 @@ const VueParametres = (() => {
       ["controles", "Contrôles des encaissements", "MoMoPay à vérifier, espèces pas rendues, écarts, par livreur : nombres et ancienneté, sans les montants."],
       ["paiements", "Paiements et remboursements à suivre", "Clients peut-être débités, paiements en litige, remboursements dus : pour rappeler le client. Sans montants, numéros masqués."],
     ]],
+    ["Qualité", [
+      ["qualite", "Qualité du service", "SAV et satisfaction, fiche qualité des boutiques (délais, jamais les ventes), santé du catalogue, files d'attente d'Admin, service par zone, fidélité des clients en taux. Sans montants, sans noms de clients."],
+    ]],
     ["Caisse", [
       ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire, et ce que BIZZOO doit payer (nombres et ancienneté). L'administration ne la voit pas d'office."],
     ]],

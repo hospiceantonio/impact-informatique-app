@@ -23,6 +23,9 @@ const App = (() => {
   /* Les onglets d'argent du même menu (rh_argent_compteurs) : paiements à
      rapprocher, remboursements en retard, demandes d'argent anciennes. */
   let argent = {};
+  /* Le menu Qualité et ses alertes (rh_qualite_compteurs) : réclamations sans
+     réponse, appels à BIZZOO pas tranchés, ruptures à appeler, files en retard. */
+  let qualite = {};
   let routeCourante = "";
   let minuterie = null;
   let relu = 0;                 // quand les compteurs ont été relus (Date.now())
@@ -77,6 +80,7 @@ const App = (() => {
     livreurs: VueLocaliser,
     controles: VueControles,
     "liste-livreurs": VueLivreurs,
+    qualite: VueQualite,
     parametres: VueParametres,
     compte: VueCompte,
   };
@@ -112,6 +116,10 @@ const App = (() => {
         pour: () => !!controles.acces || Object.values(argent.onglets || {}).some(Boolean),
         pastille: (controles.reglages_a_approuver || 0) + (controles.encaissements_anciens || 0)
           + (argent.paiements_a_traiter || 0) + (argent.remboursements_en_retard || 0) + (argent.dettes_anciennes || 0) },
+      /* L'administration, le superadministrateur, et la clé « qualite » (sans montants). */
+      { route: "qualite", libelle: "Qualité", icone: "etoile", pour: () => !!qualite.acces,
+        pastille: (qualite.sav_sans_reponse || 0) + (qualite.sav_escalades || 0) + (qualite.ruptures_a_appeler || 0)
+          + (qualite.files_en_retard || 0) },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
@@ -264,6 +272,7 @@ const App = (() => {
     compteursSolde = await Supabase.rpc("rh_compteurs_solde").catch(() => ({})) || {};
     controles = await Supabase.rpc("rh_controles_compteurs").catch(() => ({})) || {};
     argent = await Supabase.rpc("rh_argent_compteurs").catch(() => ({})) || {};
+    qualite = await Supabase.rpc("rh_qualite_compteurs").catch(() => ({})) || {};
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];
