@@ -60,6 +60,11 @@ const VueSuivi = (() => {
       String(d.getHours()).padStart(2, "0") + " h " + String(d.getMinutes()).padStart(2, "0");
   };
 
+  /* (3.68.0) La source d'une commande. Une base d'avant ne la rend pas :
+     c'était forcément une commande de l'application. */
+  const SOURCES = ["Depuis APP", "Par whatsapp"];
+  const sourceDe = (c) => (c && c.source === "Par whatsapp" ? "Par whatsapp" : "Depuis APP");
+
   /* ---------- La période ---------- */
 
   const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -114,6 +119,9 @@ const VueSuivi = (() => {
     const recherche = h("input", { type: "search", class: "recherche", placeholder: "Rechercher : n°, client, téléphone, marchand, livreur…", "aria-label": "Rechercher" });
     const choixStatut = h("select", { "aria-label": "Statut" }, h("option", { value: "" }, "Tous les statuts"), statuts.map((s) => h("option", { value: s }, s)));
     const choixZone = h("select", { "aria-label": "Zone" }, h("option", { value: "" }, "Toutes les zones"), zones.map((s) => h("option", { value: s }, s)));
+    /* (3.68.0) La source : passée dans l'application, ou prise sur WhatsApp. */
+    const choixSource = h("select", { "aria-label": "Source" }, h("option", { value: "" }, "Toutes les sources"),
+      SOURCES.map((s) => h("option", { value: s }, s)));
     const avecAlertes = h("input", { type: "checkbox" });
     const corps = h("div", {});
     const compte = h("p", { class: "doux petit" });
@@ -125,6 +133,7 @@ const VueSuivi = (() => {
       return toutes.filter((c) =>
         (!choixStatut.value || c.statut === choixStatut.value) &&
         (!choixZone.value || (c.client.zone || "Non reconnue") === choixZone.value) &&
+        (!choixSource.value || sourceDe(c) === choixSource.value) &&
         (!avecAlertes.checked || enAlerte(c)) &&
         (!q || [c.numero, c.client.nom, c.client.tel, c.client.adresse, c.marchands, c.livreurs, c.articles]
           .join(" ").toLowerCase().includes(q)));
@@ -134,6 +143,8 @@ const VueSuivi = (() => {
     const colonnes = [
       { titre: "N° commande", cle: (c) => c.numero || c.id, cellule: (c) => h("span", { class: "gras" }, c.numero || c.id) },
       { titre: "Date / heure", cle: (c) => c.cree_le || "", cellule: (c) => dateSuivi(c.cree_le), classe: "sans-retour" },
+      { titre: "Source", cle: sourceDe, classe: "sans-retour",
+        cellule: (c) => sourceDe(c) === "Par whatsapp" ? h("span", { class: "source-whatsapp" }, "Par whatsapp") : "Depuis APP" },
       { titre: "Client / téléphone / zone", cle: (c) => c.client.nom || "", classe: "moyen",
         cellule: (c) => [h("div", {}, c.client.nom || "—"), h("div", { class: "doux tres-petit" }, [c.client.tel, zoneDe(c)].filter(Boolean).join(" · "))] },
       { titre: "Articles commandés", cle: (c) => c.articles || "", cellule: (c) => c.articles || "—", classe: "large" },
@@ -261,7 +272,7 @@ const VueSuivi = (() => {
       UI.vider(corps, h("div", { class: "carte defile tableau-suivi" }, table));
     };
     for (const e of [recherche]) e.addEventListener("input", dessiner);
-    for (const e of [choixStatut, choixZone, avecAlertes]) e.addEventListener("change", dessiner);
+    for (const e of [choixStatut, choixZone, choixSource, avecAlertes]) e.addEventListener("change", dessiner);
 
     /* Le tableau prend toute la largeur de l’écran (zone neuve à chaque page). */
     zone.classList.add("vue-large", "serre");
@@ -272,7 +283,7 @@ const VueSuivi = (() => {
       h("div", { class: "carte compacte" },
         lignePeriode("#/suivi", periode),
         h("div", { class: "barre-compacte" },
-          recherche, choixStatut, choixZone,
+          recherche, choixStatut, choixZone, choixSource,
           h("label", { class: "case" }, avecAlertes, "En alerte seulement"),
           h("button", { class: "btn btn-vert", type: "button", onclick: () => exporter(filtrees(), r, periode) },
             UI.icone("telecharger", "ic-sm"), "Excel"))),
@@ -293,6 +304,7 @@ const VueSuivi = (() => {
       nom: "Suivi commandes",
       colonnes: [
         { titre: "N° commande", largeur: 13 }, { titre: "Date / heure de passation", largeur: 20 },
+        { titre: "Source", largeur: 13 },
         { titre: "Client / téléphone / zone", largeur: 34 }, { titre: "Articles commandés", largeur: 34 },
         { titre: "Marchand / numéro", largeur: 28 }, { titre: "Frais de livraison (FCFA)", largeur: 14, type: "fcfa" },
         { titre: "Total commande (FCFA)", largeur: 14, type: "fcfa" }, { titre: "Reste à encaisser (FCFA)", largeur: 14, type: "fcfa" },
@@ -300,7 +312,7 @@ const VueSuivi = (() => {
         { titre: "Confirmation client", largeur: 12 }, { titre: "Délai de livraison", largeur: 12 },
         { titre: "Observations / incidents", largeur: 40 }],
       lignes: commandes.map((c) => [
-        c.numero || c.id, dateSuivi(c.cree_le),
+        c.numero || c.id, dateSuivi(c.cree_le), sourceDe(c),
         [c.client.nom, c.client.tel, zone(c)].filter(Boolean).join(" / "),
         c.articles, c.marchands,
         m ? Number(c.frais) : "", m ? Number(c.total) : "", m ? Number(c.reste) : "",
@@ -311,6 +323,7 @@ const VueSuivi = (() => {
       nom: "Détail par marchand",
       colonnes: [
         { titre: "N° commande", largeur: 13 }, { titre: "Date de passation", largeur: 18 }, { titre: "Payée le", largeur: 18 },
+        { titre: "Source", largeur: 13 },
         { titre: "Client", largeur: 20 }, { titre: "Téléphone", largeur: 15 }, { titre: "Zone", largeur: 22 },
         { titre: "Adresse", largeur: 30 }, { titre: "Marchand", largeur: 22 }, { titre: "Numéro du marchand", largeur: 15 },
         { titre: "Article", largeur: 26 }, { titre: "Code", largeur: 10 }, { titre: "Quantité", largeur: 9, type: "nombre" },
@@ -321,7 +334,7 @@ const VueSuivi = (() => {
         { titre: "Alertes", largeur: 30 }],
       lignes: commandes.flatMap((c) => c.lignes.map((l) => {
         const dh = l.confirme_le && l.vue_le ? Math.round((new Date(l.confirme_le) - new Date(l.vue_le)) / 360000) / 10 : "";
-        return [c.numero || c.id, dateSuivi(c.cree_le), c.paye_le ? dateSuivi(c.paye_le) : "", c.client.nom, c.client.tel,
+        return [c.numero || c.id, dateSuivi(c.cree_le), c.paye_le ? dateSuivi(c.paye_le) : "", sourceDe(c), c.client.nom, c.client.tel,
           c.client.zone || "", c.client.adresse, l.boutique, l.boutique_tel, l.nom, l.code || "", Number(l.quantite),
           ...(m ? [Number(l.prix), Number(l.prix) * Number(l.quantite)] : []),
           l.statut, l.livreur || "", l.livreur_tel || "", l.vue_le ? dateSuivi(l.vue_le) : "",
@@ -606,6 +619,7 @@ const VueSuivi = (() => {
         h("div", { class: "formulaire petit" },
           h("div", {}, h("div", { class: "doux" }, "Passée le"), h("b", {}, dateSuivi(c.cree_le))),
           h("div", {}, h("div", { class: "doux" }, "Payée le"), h("b", {}, c.paye_le ? dateSuivi(c.paye_le) : "—")),
+          h("div", {}, h("div", { class: "doux" }, "Source"), h("b", { class: sourceDe(c) === "Par whatsapp" ? "source-whatsapp" : "" }, sourceDe(c))),
           h("div", {}, h("div", { class: "doux" }, "Client"), h("b", {}, c.client.nom || "—"), h("div", {}, c.client.tel || "")),
           h("div", {}, h("div", { class: "doux" }, "Zone"), h("b", {}, c.client.zone || "Non reconnue")),
           h("div", {}, h("div", { class: "doux" }, "Confirmation client"), h("b", {}, c.confirmation)),

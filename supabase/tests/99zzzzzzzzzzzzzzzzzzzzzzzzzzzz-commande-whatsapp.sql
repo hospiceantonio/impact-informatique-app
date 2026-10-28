@@ -245,5 +245,12 @@ select essai.egal((select etat from public.commandes where id = :'w5'::jsonb ->>
   'compte exigé des clients : la commande WhatsApp passe quand même');
 update public.reglages set compte_obligatoire = false where id = 1;
 
+select essai.titre('8. La colonne « Source » du suivi des commandes');
+select essai.egal((select x ->> 'source' from public.rh_suivi_donnees(null, null, :'w1'::jsonb ->> 'id') x),
+  'Par whatsapp', 'une commande prise sur WhatsApp : « Par whatsapp »');
+select essai.egal((select x ->> 'source' from public.rh_suivi_donnees(null, null,
+                     (select id from public.commandes where origine = 'application' order by cree_le desc limit 1)) x),
+  'Depuis APP', 'une commande passée dans l''application : « Depuis APP »');
+
 -- Le décor rendu.
 update public.paiement set livraison_latitude = null, livraison_longitude = null where id = 1;

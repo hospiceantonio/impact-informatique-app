@@ -5547,9 +5547,23 @@ position facultative en ligne ; l'ancienne signature de `faire_livrer`
 superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
 
 Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
-`supabase/tests/99zzz…-commande-whatsapp.sql` (41 constats),
+`supabase/tests/99zzz…-commande-whatsapp.sql` (43 constats),
 `tools/banc-faire-livrer.mjs` (31 constats ; `CAPTURES=<dossier>` pour des
 images de chaque étape).
+
+### La colonne « Source » du suivi des commandes (BIZZOO Personnel)
+
+Le tableau « Suivi des commandes » dit d'où vient chaque commande :
+**Depuis APP** (passée par le client dans l'application) ou **Par
+whatsapp** (saisie par l'équipe avec « Faire livrer »). La colonne suit la
+date ; un filtre « Toutes les sources » la trie ; la fiche de la commande
+et les deux feuilles de l'export Excel la portent aussi.
+
+C'est `rh_suivi_donnees` qui la calcule, d'après `commandes.origine`. Une
+base qui ne la rend pas encore : l'écran lit « Depuis APP ». Fichier à
+coller : `supabase/suivi-source.sql` (la seule fonction interne du suivi,
+aucune table ni donnée). Banc : `tools/banc-suivi-source.mjs` (12 constats ;
+`CAPTURES=<dossier>` pour une image du tableau).
 
 ## Qui entend quoi : commande payée, course prise (3.66.0)
 
