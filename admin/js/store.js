@@ -2359,6 +2359,9 @@ const Store = (() => {
       /* (3.68.0) Une commande prise sur WhatsApp et saisie par l'équipe
          (« Faire livrer ») : elle le dit, et qui l'a saisie. */
       origine: l.origine === "whatsapp" ? "whatsapp" : "application",
+      /* (3.70.0) Où le livreur récupère une commande WhatsApp, tel que
+         l'équipe l'a saisi. Vide pour les autres. */
+      lieuRetrait: l.lieu_retrait || "",
       remarque: l.remarque || "",
       annonceLe: l.annonce_le ? Date.parse(l.annonce_le) || 0 : 0,
       payeLe: l.paye_le ? Date.parse(l.paye_le) || 0 : 0,
@@ -2434,7 +2437,9 @@ const Store = (() => {
   async function faireLivrer(m) {
     const r = await Supabase.rpc("faire_livrer", {
       articles: articlesPour(m.panier),
-      client: { nom: m.nom, tel: m.tel, indicatif: m.indicatif || "229", adresse: m.adresse, note: m.note || "" },
+      /* (3.70.0) « retrait » : où le livreur récupère la commande. */
+      client: { nom: m.nom, tel: m.tel, indicatif: m.indicatif || "229", adresse: m.adresse, note: m.note || "",
+        retrait: m.retrait || "" },
       destination: m.destination || null,
       /* (3.68.0) Les frais convenus avec le client : saisis, pas calculés. */
       frais: m.frais,

@@ -409,6 +409,9 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 
+-- (3.70.0) Lue par « fiche_course » / « faire_livrer » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
 create or replace function public.fiche_course(commande text, boutique text)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -448,6 +451,9 @@ begin
   end if;
   return jsonb_build_object(
     'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
@@ -515,6 +521,7 @@ begin
     'numero', premiere -> 'numero',
     'groupee', jsonb_array_length(retraits) > 1,
     'retraits', retraits,
+    'lieu_retrait', coalesce(premiere -> 'lieu_retrait', '""'::jsonb),
     'livraison', premiere -> 'livraison',
     'devise', premiere -> 'devise',
     'trajet', premiere -> 'trajet',
@@ -816,6 +823,8 @@ begin
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
           coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+        -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+        coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
           coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
         'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||

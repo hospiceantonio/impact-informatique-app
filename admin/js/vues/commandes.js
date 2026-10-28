@@ -436,6 +436,16 @@ const VueCommandes = (() => {
             (c.note
               ? '<div class="cmd-note">« ' + Utils.echapper(c.note) + " »</div>"
               : "") +
+            /* (3.70.0) Une commande WhatsApp : où le livreur la récupère,
+               tel que l'équipe l'a saisi dans « Faire livrer ». */
+            /* Pour qui voit toute la commande seulement (le superadministrateur,
+               l'enseigne) : le texte nomme TOUTES les boutiques, et une boutique
+               ne voit que sa part d'une commande partagée. */
+            (c.lieuRetrait && (Supabase.estSuper() || Supabase.estCompteEnseigne())
+              ? '<div class="cmd-client-adresse cmd-retrait">' + UI.icone("magasin", "ic-sm") +
+                '<span style="white-space:pre-line"><strong>À récupérer :</strong> ' +
+                Utils.echapper(c.lieuRetrait) + "</span></div>"
+              : "") +
           "</div>" +
           '<div class="cmd-lignes">' +
             c.lignes.map((l) => htmlLigne(l, c.devise, !c.clientId)).join("") + "</div>" +

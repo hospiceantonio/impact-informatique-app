@@ -912,6 +912,9 @@ create trigger profils_faire_livrer_verrou
   before insert or update of peut_faire_livrer on public.profils
   for each row execute function public.profil_faire_livrer_verrou();
 
+-- (3.70.0) Lue par « fiche_course » / « faire_livrer » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
 -- (3.68.0) Les frais de livraison sont SAISIS par qui a pris la commande
 -- (BIZZOO l'a décidé pour ces commandes-là) ; la position du client est
 -- facultative. « drop » : la signature a gagné « frais » — l'ancienne,
@@ -954,6 +957,12 @@ begin
   end if;
   if frais is null or frais < 0 or frais > 1000000 then
     raise exception 'Indiquez les frais de livraison convenus avec le client (0 s''il n''y en a pas).'
+      using errcode = 'P0001';
+  end if;
+  -- (3.70.0) Où récupérer : refusé plutôt que coupé en silence — la fin
+  -- coupée, c'est souvent la dernière boutique ou le numéro à appeler.
+  if length(btrim(coalesce(client ->> 'retrait', ''))) > 500 then
+    raise exception 'Où récupérer la commande : 500 caractères au plus. Raccourcissez-le.'
       using errcode = 'P0001';
   end if;
   -- UNE TRANSACTION NE PAIE QU'UNE COMMANDE : ni une autre commande, ni un
@@ -1010,7 +1019,10 @@ begin
 
   perform set_config('bizzoo.interne', 'oui', true);
   update public.commandes
-     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte)
+     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte),
+         -- (3.70.0) Où le livreur récupère la commande, saisi par l'équipe.
+         -- Facultatif ici : l'écran d'avant la 3.70.0 ne l'envoie pas.
+         lieu_retrait = btrim(coalesce(client ->> 'retrait', ''))
    where id = c.id;
   perform set_config('bizzoo.interne', '', true);
 
@@ -1028,7 +1040,9 @@ begin
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'frais_livraison', c.frais_livraison, 'livraison', c.livraison,
-    'verse', c.verse, 'client_relie', c.client_id is not null);
+    'verse', c.verse, 'client_relie', c.client_id is not null,
+    -- (3.70.0) Ce qui a été gardé : l'écran sait ainsi que la base est à jour.
+    'lieu_retrait', c.lieu_retrait);
 end $$;
 revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) from public, anon;
 grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) to authenticated;

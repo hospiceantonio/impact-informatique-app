@@ -50,7 +50,7 @@ const course = (o) => ({ commande_id: "cmd_p", numero: "BZ-000077", boutique_id:
   a_encaisser: 7000, fiche: FICHE, recu_le: null, ...o });
 
 const DEMANDE = { commande_id: "cmd_g", numero: "BZ-000088", paye_le: "2026-10-19T08:00:00Z",
-  fiche: { numero: "BZ-000088", groupee: true,
+  fiche: { numero: "BZ-000088", groupee: true, lieu_retrait: "Bêta : marché Dantokpa, porte 3\nAppeler Rémi",
     retraits: [
       { boutique_id: "bou_a", boutique: "Alpha", adresse: "Ganhi", tel: "0197111222", indicatif: "229", a_encaisser: 3000 },
       { boutique_id: "bou_b", boutique: "Bêta", adresse: "Dantokpa", tel: "0197333444", indicatif: "229", a_encaisser: 2000 }],
@@ -141,6 +141,8 @@ titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
   ok(t.includes("À payer par MoMoPay : " + F(7000)), "ce qu'il reste à récupérer");
   ok(!t.includes(F(9000)), "pas le prix des articles");
   ok(/Sonner deux fois/.test(t), "la note du client");
+  ok(await page.evaluate(() => !document.querySelector(".lv-lieu-saisi")),
+    "une commande de l'application : pas de « Où récupérer (précisé par BIZZOO) »");
   ok(await page.evaluate(() => !!document.querySelector(".lv-recu") && !document.querySelector(".lv-avancer")),
     "« Reçu » d'abord, pas encore « Je l'ai prise »");
 
@@ -208,6 +210,10 @@ titre("6a. Les demandes de course (admin)");
   ok(t.includes("À payer par MoMoPay : " + F(5000)) && t.includes("Frais de livraison : " + F(2000)) &&
      t.includes("Déjà payé par le client : " + F(5000)), "les montants de toute la commande");
   ok(/Koffi/.test(t) && /Akpakpa/.test(t), "où livrer");
+  /* (3.70.0) Une commande WhatsApp : où récupérer, tel que l'équipe l'a saisi. */
+  const saisi = await page.evaluate(() => (document.querySelector(".lv-demande .lv-lieu-saisi") || {}).innerText || "");
+  ok(/Où récupérer \(précisé par BIZZOO\)/i.test(saisi) && /marché Dantokpa, porte 3\s*\n\s*Appeler Rémi/.test(saisi),
+    "le lieu saisi dans « Faire livrer », ligne à ligne (" + JSON.stringify(saisi) + ")");
   await page.click(".lv-prendre");
   await page.waitForTimeout(1500);
   const appel = serveur.appels.find((a) => a.fn === "prendre_course");

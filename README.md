@@ -5494,6 +5494,52 @@ partenaires, toujours dans le même ordre. Désormais :
 `client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
 par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
 
+## « Faire livrer » : où le livreur récupère la commande (3.70.0)
+
+L'écran **« Faire livrer »** (BIZZOO Admin, commande prise sur WhatsApp)
+a une case de plus, **obligatoire** : **« Où le livreur récupère la
+commande »** — la boutique, son adresse ou un repère, le numéro à appeler.
+- Elle est **proposée** d'après les boutiques des produits choisis (une
+  ligne par boutique : nom — adresse — téléphone, lus sur la fiche de la
+  boutique) ; l'équipe corrige ou complète. Tant qu'on n'y a pas touché,
+  elle suit les produits (« Modifier les produits ») ; vidée, elle les suit
+  de nouveau.
+- Sans elle, ou au-delà de **500 caractères**, l'écran le dit et rien ne
+  part (la base refuse aussi : un texte coupé en silence perdrait la
+  dernière boutique ou le numéro à appeler). La confirmation la reprend.
+
+**Où le livreur la lit :**
+- dans l'alerte de la **course proposée** (`texte_demande`) et de la
+  **course confiée** (`notifier_ligne`) : une ligne « Où récupérer : … »,
+  après celle de la boutique ;
+- sur la fiche de la course, BIZZOO Admin → Livraisons : un bloc
+  **« Où récupérer (précisé par BIZZOO) »**, sous « Récupérer le colis »
+  (la fiche de la boutique reste affichée) ;
+- dans Commandes, la carte d'une commande WhatsApp dit « À récupérer : … »
+  — pour le superadministrateur et les comptes de BIZZOO seulement : le
+  texte nomme toutes les boutiques, et une boutique ne voit que sa part
+  d'une commande partagée.
+
+**Corrigé au passage : l'alerte vide.** Depuis la 3.68.0, la course
+proposée pour une commande « Faire livrer » partait aux livreurs avec un
+texte **vide** : sans distance (frais saisis), la ligne « Véhicule … km »
+valait NULL dans `texte_demande`, et tout le message avec. Elle dit
+désormais « Véhicule : moto », sans kilomètres.
+
+**En base :** colonne `commandes.lieu_retrait` (texte, vide par défaut).
+`faire_livrer` la remplit depuis `client.retrait` (espaces autour retirés,
+500 caractères au plus) **sans changer de signature**, et la rend dans sa
+réponse : si elle y manque (base pas encore mise à jour), l'écran prévient
+que le lieu n'a pas été gardé ; `fiche_course` et
+`fiche_demande` la rendent (`lieu_retrait`). Pour la base, elle reste
+**facultative** : BIZZOO Admin 3.68.0, déjà installé, ne l'envoie pas, et
+sa commande passe comme avant, sans la ligne.
+
+Fichier à coller : `supabase/lieu-retrait.sql` (relançable ; il recopie les
+fonctions qu'il emprunte). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
+(section 9), `tools/banc-faire-livrer.mjs`, `tools/banc-parcours-livraison.mjs`
+(section 6a).
+
 ## « Le paiement en ligne n'est pas encore ouvert » à tort (3.70.0)
 
 Un client a vu ce message, et « Envoyer sur WhatsApp », alors que le

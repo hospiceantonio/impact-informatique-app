@@ -83,6 +83,21 @@ const VueLivraisons = (() => {
     );
   }
 
+  /* (3.70.0) OÙ RÉCUPÉRER LA COMMANDE, tel que l'équipe l'a saisi dans
+     « Faire livrer » : la commande a été prise sur WhatsApp, et c'est
+     là qu'on a dit au livreur où passer. Il s'ajoute à la fiche de la
+     boutique ; rien pour une commande passée dans l'application. */
+  function htmlLieuSaisi(f) {
+    const texte = String((f && f.lieu_retrait) || "").trim();
+    if (!texte) return "";
+    return (
+      '<div class="lv-lieu lv-lieu-saisi">' +
+        '<div class="lv-lieu-titre">' + UI.icone("magasin", "ic-sm") + "Où récupérer (précisé par BIZZOO)</div>" +
+        '<div class="lv-note" style="white-space:pre-line">' + Utils.echapper(texte) + "</div>" +
+      "</div>"
+    );
+  }
+
   /* Les trois montants de la course. « À récupérer » en tête, c'est ce
      qu'il réclame avant de remettre le colis. */
   const MODES = { especes: "espèces", mobile_money: "MoMoPay" };
@@ -220,6 +235,7 @@ const VueLivraisons = (() => {
         htmlLieu("Récupérer le colis", "magasin", r.boutique || c.nomBoutique, r.adresse,
           r.tel, r.indicatif || "229", r.latitude, r.longitude,
           "Adresse non renseignée : appelez la boutique.") +
+        htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
@@ -272,6 +288,7 @@ const VueLivraisons = (() => {
                                        : "Récupérer le colis",
             "magasin", r.boutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
             "Adresse non renseignée : appelez la boutique.")).join("") +
+        htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +

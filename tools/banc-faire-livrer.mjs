@@ -52,7 +52,8 @@ const PROFILS = {
     boutique_id: "bou_a", peut_commandes: true, peut_modifier_produits: true },
 };
 const BOUTIQUES = [
-  { id: "bou_a", nom: "Alpha", devise: "FCFA", indicatif: "229", actif: true, ordre: 1 },
+  { id: "bou_a", nom: "Alpha", devise: "FCFA", indicatif: "229", actif: true, ordre: 1,
+    adresse: "Ganhi, rue du port", tel: "0196000011" },
   { id: "bou_b", nom: "Bêta", devise: "FCFA", indicatif: "229", actif: true, ordre: 2 },
 ];
 const PRODUITS = [
@@ -66,6 +67,7 @@ const PRODUITS = [
 const WHATSAPP = { id: "cmd_wa", numero: "BZ-000201", etat: "payee", origine: "whatsapp", confirme_par: "Awa",
   client_nom: "Koffi", client_tel: "0196700099", client_indicatif: "229", client_adresse: "Fidjrossè",
   total: 21400, acompte: 21400, verse: 21400, frais_livraison: 1400, devise: "FCFA",
+  lieu_retrait: "Alpha, Ganhi — demander Rémi",
   transaction_id: "MP241027.1530.A12345", cree_le: "2026-10-27T09:00:00Z", paye_le: "2026-10-27T09:00:00Z",
   restes: { reste: 0 },
   commande_lignes: [{ id: "l1", boutique_id: "bou_a", produit_id: "prod_casque", nom: "Casque", code: "0001",
@@ -101,7 +103,8 @@ async function ouvrir({ moi, hash }) {
           s + (PRODUITS.find((p) => p.id === a.produit_id) || { prix: 0 }).prix * a.quantite, 0);
         return d({ sous_total: sous, devise: "FCFA", vehicule: "moto" });
       }
-      if (fn === "faire_livrer") return d({ id: "cmd_wa", numero: "BZ-000201", total: 21400, client_relie: false });
+      if (fn === "faire_livrer") return d({ id: "cmd_wa", numero: "BZ-000201", total: 21400, client_relie: false,
+        lieu_retrait: ((corps.client || {}).retrait || "").trim() });
       return d(null);
     }
     if (req.method() !== "GET") {
@@ -226,6 +229,13 @@ ok(/Articles20000FCFA/.test(serre(await texte(page, "#fl-devis"))) && /àsaisir/
 ok(/Où livrer \(facultatif\)/.test(await texte(page, "#fl-position")) &&
    /Aucune position/.test(await texte(page, "#fl-position-etat")), "la position est facultative");
 ok(/touchera 80 %/.test(await texte(page, "#fl-livraison")), "« le livreur en touchera 80 % » est dit à la saisie des frais");
+/* (3.70.0) Où le livreur récupère la commande : proposé d'après les
+   boutiques des produits, une ligne par boutique. */
+const propose = await page.inputValue("#fl-retrait");
+ok(propose === "Alpha — Ganhi, rue du port — Tél. +229 0196000011\nBêta",
+  "« Où récupérer » est proposé d'après les boutiques des produits (" + JSON.stringify(propose) + ")");
+ok(/Où le livreur récupère la commande/.test(await texte(page, "#fl-retrait-carte")), "la case a son titre");
+ok(await page.getAttribute("#fl-retrait", "maxlength") === "500", "500 caractères au plus, comme en base");
 await page.fill("#fl-nom", "Koffi");
 await page.fill("#fl-tel", "01 96 70 00 99");
 await page.fill("#fl-adresse", "Fidjrossè, près du marché");
@@ -239,6 +249,12 @@ await page.fill("#fl-transaction", "MP241027.1530.A12345");
 await capture(page, "3-client-et-paiement", "#vue");
 await page.fill("#fl-transaction", "");
 titre("4. Ce qui manque se dit, sans rien envoyer");
+await page.fill("#fl-retrait", "");
+await page.click("#fl-valider");
+await page.waitForTimeout(300);
+ok(/où le livreur récupère la commande/.test(await texte(page, "#fl-erreur")),
+  "sans lieu de retrait : « Indiquez où le livreur récupère la commande… »");
+await page.fill("#fl-retrait", "Alpha, Ganhi — demander Rémi\nBêta : marché Dantokpa, porte 3");
 await page.fill("#fl-frais", "");
 await page.click("#fl-valider");
 await page.waitForTimeout(300);
@@ -262,6 +278,8 @@ await page.click("#fl-valider");
 await page.waitForSelector("[data-role=ok]", { timeout: 3000 }).catch(() => {});
 ok(/Koffi/.test(await texte(page, ".feuille, [role=dialog], body")) && /1 500 FCFA de livraison/.test(await texte(page, "body")),
   "une confirmation reprend le client, les frais et le montant");
+ok(/À récupérer : Alpha, Ganhi — demander Rémi ; Bêta : marché Dantokpa, porte 3/.test(await texte(page, "body")),
+  "et où le livreur récupère la commande");
 await page.click("[data-role=ok]");
 await page.waitForFunction(() => location.hash === "#/commandes/cmd_wa", null, { timeout: 6000 }).catch(() => {});
 const envoi = serveur.appels.find((a) => a.fn === "faire_livrer");
@@ -271,9 +289,14 @@ ok(cps.transaction === "MP241027.1530.A12345" && cps.montant === 21500 && cps.re
 ok(cps.client && cps.client.nom === "Koffi" && cps.client.adresse === "Fidjrossè, près du marché" &&
    cps.client.tel === "01 96 70 00 99", "le client part tel que saisi");
 ok(cps.destination === null, "sans position : elle n'est pas exigée");
+ok(cps.client && cps.client.retrait === "Alpha, Ganhi — demander Rémi\nBêta : marché Dantokpa, porte 3",
+  "le lieu de retrait part avec la commande, tel que saisi");
 ok(JSON.stringify(cps.articles) === JSON.stringify([{ produit_id: "prod_casque", quantite: 1 },
   { produit_id: "prod_chargeur", quantite: 2 }]), "et les articles, avec leurs quantités");
 ok(await page.evaluate(() => location.hash) === "#/commandes/cmd_wa", "l'écran ouvre la commande créée");
+await page.waitForSelector(".cmd-retrait", { timeout: 4000 }).catch(() => {});
+ok(/À récupérer : Alpha, Ganhi — demander Rémi/.test(await texte(page, ".cmd-retrait")),
+  "la commande dit où le livreur la récupère");
 ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
 await ctx.close();
 

@@ -4054,6 +4054,9 @@ begin
   end if;
   return jsonb_build_object(
     'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
@@ -4232,6 +4235,7 @@ begin
     'numero', premiere -> 'numero',
     'groupee', jsonb_array_length(retraits) > 1,
     'retraits', retraits,
+    'lieu_retrait', coalesce(premiere -> 'lieu_retrait', '""'::jsonb),
     'livraison', premiere -> 'livraison',
     'devise', premiere -> 'devise',
     'trajet', premiere -> 'trajet',
@@ -4256,6 +4260,10 @@ begin
     texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
       coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') || E'\n';
   end loop;
+  -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+  if coalesce(f ->> 'lieu_retrait', '') <> '' then
+    texte := texte || 'Où récupérer : ' || (f ->> 'lieu_retrait') || E'\n';
+  end if;
   return texte ||
     'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
       coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
@@ -4263,7 +4271,9 @@ begin
     -- (3.64.0) Le véhicule et la distance, puis ce qu'il y gagne.
     case when jsonb_typeof(f -> 'trajet') = 'object'
          then 'Véhicule : ' || case when f -> 'trajet' ->> 'vehicule' = 'tricycle' then 'tricycle' else 'moto' end ||
-              ' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km' || E'\n'
+              -- (3.70.0) Sans distance (« Faire livrer » : frais saisis), pas
+              -- de « — … km » : un NULL ici vidait TOUTE l'alerte.
+              coalesce(' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km', '') || E'\n'
          else '' end ||
     'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
     case when (f ->> 'gain') is not null
@@ -6389,6 +6399,11 @@ alter table public.commandes add column if not exists origine text not null defa
 alter table public.commandes drop constraint if exists commandes_origine;
 alter table public.commandes add constraint commandes_origine check (origine in ('application', 'whatsapp'));
 alter table public.commandes add column if not exists saisie_par uuid references public.profils(id) on delete set null;
+-- (3.70.0) OÙ LE LIVREUR RÉCUPÈRE LA COMMANDE, tel que l'équipe l'a saisi
+-- dans « Faire livrer » : la boutique, son adresse, qui appeler. Il
+-- s'ajoute à la fiche de la boutique, qui reste affichée. Vide pour une
+-- commande passée dans l'application.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
 
 -- LE DROIT DE FAIRE LIVRER, que le superadministrateur SEUL accorde à un
 -- administrateur ou un modérateur de BIZZOO (un compte d'enseigne). Éteint
@@ -6472,6 +6487,12 @@ begin
     raise exception 'Indiquez les frais de livraison convenus avec le client (0 s''il n''y en a pas).'
       using errcode = 'P0001';
   end if;
+  -- (3.70.0) Où récupérer : refusé plutôt que coupé en silence — la fin
+  -- coupée, c'est souvent la dernière boutique ou le numéro à appeler.
+  if length(btrim(coalesce(client ->> 'retrait', ''))) > 500 then
+    raise exception 'Où récupérer la commande : 500 caractères au plus. Raccourcissez-le.'
+      using errcode = 'P0001';
+  end if;
   -- UNE TRANSACTION NE PAIE QU'UNE COMMANDE : ni une autre commande, ni un
   -- reste payé à la livraison. Comparées sans ponctuation ni casse : un
   -- reçu se recopie de plusieurs façons.
@@ -6526,7 +6547,10 @@ begin
 
   perform set_config('bizzoo.interne', 'oui', true);
   update public.commandes
-     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte)
+     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte),
+         -- (3.70.0) Où le livreur récupère la commande, saisi par l'équipe.
+         -- Facultatif ici : l'écran d'avant la 3.70.0 ne l'envoie pas.
+         lieu_retrait = btrim(coalesce(client ->> 'retrait', ''))
    where id = c.id;
   perform set_config('bizzoo.interne', '', true);
 
@@ -6544,7 +6568,9 @@ begin
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'frais_livraison', c.frais_livraison, 'livraison', c.livraison,
-    'verse', c.verse, 'client_relie', c.client_id is not null);
+    'verse', c.verse, 'client_relie', c.client_id is not null,
+    -- (3.70.0) Ce qui a été gardé : l'écran sait ainsi que la base est à jour.
+    'lieu_retrait', c.lieu_retrait);
 end $$;
 revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) from public, anon;
 grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) to authenticated;
@@ -6982,6 +7008,8 @@ begin
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
           coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+        -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+        coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
           coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
         'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||
