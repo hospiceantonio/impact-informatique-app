@@ -603,6 +603,10 @@ begin
   )
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'cree_le', c.cree_le, 'paye_le', c.paye_le, 'etat', c.etat,
+    -- (3.68.0) D'où vient la commande : passée dans l'application, ou prise
+    -- sur WhatsApp et saisie par l'équipe (« Faire livrer »). Lue par
+    -- « to_jsonb » : une base sans la colonne répond « Depuis APP ».
+    'source', case when to_jsonb(c) ->> 'origine' = 'whatsapp' then 'Par whatsapp' else 'Depuis APP' end,
     'client', jsonb_build_object('nom', c.client_nom,
                                  'tel', btrim(case when coalesce(c.client_indicatif, '') <> '' and c.client_indicatif <> '229'
                                                    then '+' || c.client_indicatif || ' ' else '' end || coalesce(c.client_tel, '')),

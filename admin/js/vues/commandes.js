@@ -339,9 +339,16 @@ const VueCommandes = (() => {
         '<div class="cmd-meta"><span class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</span> " +
           (payee
             ? '<span class="cmd-paye">' + UI.icone("check", "ic-sm") +
-              (c.confirmePar
+              /* (3.68.0) Prise sur WhatsApp : payée au client avant d'être
+                 saisie — par qui, c'est ce qui compte pour le point. */
+              (c.origine === "whatsapp"
+                ? "payée sur WhatsApp, saisie par " + Utils.echapper(c.confirmePar || "l'équipe")
+                : c.confirmePar
                 ? "payée, confirmée à la main par " + Utils.echapper(c.confirmePar)
                 : "payée par " + Utils.echapper(c.agregateur)) + "</span>"
+            : "") +
+          (c.origine === "whatsapp"
+            ? '<span class="cmd-whatsapp">' + UI.icone("whatsapp", "ic-sm") + "WhatsApp</span>"
             : "") +
           /* Une commande partie au prix revendeur le dit : c'est ce qui
              explique un montant plus bas que d'habitude pour la même
@@ -508,14 +515,21 @@ const VueCommandes = (() => {
           && (c.transactionAnnoncee || c.remarque))
       : [];
 
+    /* (3.68.0) UNE COMMANDE PRISE SUR WHATSAPP se saisit d'ici, pour
+       qu'elle rejoigne les autres — et le point. */
+    const faireLivrer = Supabase.peutFaireLivrer()
+      ? '<a class="btn btn-clair cmd-faire-livrer" id="cmd-faire-livrer" href="#/faire-livrer">' +
+          UI.icone("whatsapp") + "Faire livrer une commande WhatsApp</a>"
+      : "";
+
     if (!commandes.length) {
-      vue.innerHTML = UI.vide("boite", "Aucune commande pour le moment",
+      vue.innerHTML = faireLivrer + UI.vide("boite", "Aucune commande pour le moment",
         "Les commandes payées par les clients dans l'application BIZZOO " +
         "s'afficheront ici, avec leurs coordonnées.");
       return;
     }
 
-    vue.innerHTML =
+    vue.innerHTML = faireLivrer +
       '<div class="carte carte-publier cmd-resume">' +
         '<div class="carte-titre">' + UI.icone("boite", "ic-sm") + " " +
           (aFaire.length

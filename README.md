@@ -5480,6 +5480,92 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## « Faire livrer » : une commande prise sur WhatsApp (3.68.0)
+
+Certains clients commandent et paient sur WhatsApp au lieu de valider leur
+panier : la commande se passait hors de l'application, et le point ne la
+voyait pas. Désormais l'équipe la fait entrer dans BIZZOO.
+
+**Qui : un DROIT que le superadministrateur accorde lui-même.** Dans la
+fiche d'un administrateur ou d'un modérateur de BIZZOO (Comptes → crayon),
+l'interrupteur **« Faire livrer »**, éteint par défaut. Seul le
+superadministrateur le voit ; la base refuse que quiconque d'autre le
+change — même un administrateur de BIZZOO sur un modérateur qu'il a créé,
+ou sur lui-même (`profils_faire_livrer_verrou`). Le droit « Commandes » ne
+le donne pas. Un compte sans ce droit ne voit pas l'option, et l'écran
+comme la base (`peut_faire_livrer()`) le lui ferment. Le superadministrateur
+l'a toujours.
+
+**Comment (BIZZOO Admin) :** Commandes → **Faire livrer une commande
+WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
+1. choisir les produits (toutes boutiques, recherche par nom, code ou
+   boutique ; les produits masqués n'y sont pas) et leurs quantités ;
+2. **Faire livrer** : le nom, le téléphone et l'adresse du client ; sa
+   **position** est **facultative** (collez le lien de localisation qu'il a
+   envoyé sur WhatsApp, ou touchez la carte) : elle sert seulement à guider
+   le livreur ;
+3. les **frais de livraison**, **saisis** : ceux convenus avec le client
+   (BIZZOO l'a décidé ainsi pour ces commandes — pas de calcul à la
+   distance ; 0 s'il n'y en a pas). Le livreur qui prendra la course en
+   touche 80 % (« taux du livreur ») à la remise ;
+4. le **total** = articles (prix du catalogue, lus en base) + frais saisis ;
+5. le **montant payé** (prérempli), le réseau, la **référence de la
+   transaction** ;
+6. **Valider et faire livrer**.
+
+**Ce que fait la base (`faire_livrer`)**, comme pour toute commande :
+- la commande naît par `creer_commande` : prix du catalogue, stock,
+  boutique ouverte ; ses frais sont les **frais saisis** (drapeau
+  `bizzoo.frais_saisis`, posé par `faire_livrer` seule) — un seul frais,
+  un seul livreur, comme une livraison au kilomètre sans kilomètre
+  (`livraison.saisie = true`, la position gardée si elle est donnée) ;
+- le montant payé doit couvrir le total — vérifié **avant** d'écrire, pour
+  ne perdre aucun numéro « BZ- » ;
+- elle est **payée en entier** : pas d'acompte, **rien à encaisser à la
+  livraison** — le livreur ne prend rien chez le client ;
+- elle porte `origine = 'whatsapp'`, qui l'a saisie (`saisie_par`,
+  « saisie par … » à l'écran), la référence de la transaction (une
+  référence ne sert qu'une fois, ponctuation et casse ignorées) ; elle est
+  au journal des versements sous « whatsapp » ;
+- si le numéro du client a un compte BIZZOO (un seul), la commande est la
+  sienne : il la retrouve dans son application, avec le suivi ;
+- le paiement déclenche ce qu'il déclenche toujours : stock décompté,
+  boutiques, admins BIZZOO et superadministrateurs prévenus (sonnerie),
+  **course proposée aux livreurs** selon les règles habituelles (au
+  kilomètre : les livreurs de BIZZOO ; une seule boutique hors kilomètre :
+  ses livreurs d'abord) ; le livreur touche sa part des frais à la remise ;
+- elle compte dans les statistiques comme toute commande payée ;
+- le « compte obligatoire » des clients ne l'empêche pas.
+
+`devis_faire_livrer` donne le prix des articles à l'écran sans rien écrire.
+
+**En ligne depuis le 27/10/2026** : colonnes, droit et verrou, fonctions
+`faire_livrer` et `devis_faire_livrer`, et la retouche de `creer_commande`
+(vérifiées identiques au dépôt). **28/10/2026** : les frais saisis et la
+position facultative en ligne ; l'ancienne signature de `faire_livrer`
+(sans « frais ») retirée. Aucun compte n'a encore le droit : le
+superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
+
+Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
+`supabase/tests/99zzz…-commande-whatsapp.sql` (43 constats),
+`tools/banc-faire-livrer.mjs` (31 constats ; `CAPTURES=<dossier>` pour des
+images de chaque étape).
+
+### La colonne « Source » du suivi des commandes (BIZZOO Personnel)
+
+Le tableau « Suivi des commandes » dit d'où vient chaque commande :
+**Depuis APP** (passée par le client dans l'application) ou **Par
+whatsapp** (saisie par l'équipe avec « Faire livrer »). La colonne suit la
+date ; un filtre « Toutes les sources » la trie ; la fiche de la commande
+et les deux feuilles de l'export Excel la portent aussi.
+
+C'est `rh_suivi_donnees` qui la calcule, d'après `commandes.origine`. Une
+base qui ne la rend pas encore : l'écran lit « Depuis APP ». Fichier à
+coller : `supabase/suivi-source.sql` (la seule fonction interne du suivi,
+aucune table ni donnée) — **en ligne depuis le 28/10/2026**, vérifiée identique
+au dépôt. Banc : `tools/banc-suivi-source.mjs` (12 constats ;
+`CAPTURES=<dossier>` pour une image du tableau).
+
 ## Qui entend quoi : commande payée, course prise (3.66.0)
 
 | Événement | Boutique (admin, modérateur) | Admins BIZZOO qui suivent les commandes | Superadministrateurs |

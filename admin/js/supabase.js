@@ -303,6 +303,9 @@ const Supabase = (() => {
         peutCommandes: l.peut_commandes !== false,
         peutBoutiques: l.peut_boutiques === true,
         peutFinances: l.peut_finances === true,
+        /* (3.68.0) « Faire livrer » : accordé par le superadministrateur
+           seul, éteint par défaut. */
+        faireLivrer: l.peut_faire_livrer === true,
       };
     }
     return profil;
@@ -331,6 +334,11 @@ const Supabase = (() => {
     if (lequel === "produits") return profil.peutModifier !== false;
     return false;
   };
+  /** (3.68.0) « Faire livrer » une commande prise sur WhatsApp : le
+      superadministrateur, et les comptes de BIZZOO à qui il a accordé ce
+      droit. Le miroir de « peut_faire_livrer() » en base — qui tranche. */
+  const peutFaireLivrer = () => estSuper() ||
+    (estCompteEnseigne() && profil.actif !== false && profil.faireLivrer === true);
   /** L'administrateur de BIZZOO (3.59.0) : un administrateur sans
       boutique. Il crée et gère les livreurs, crée les revendeurs et
       valide leurs demandes. Le miroir de « est_admin_bizzoo() ». */
@@ -793,7 +801,7 @@ const Supabase = (() => {
     configuration, estConfigure, majConfiguration, configurationSaisie,
     connexion, deconnexion, assurerSession, sessionPresente, utilisateur, identifiant,
     chargerProfil, compte, role, estSuper, estAdmin, peutModifierProduits, boutiqueDuCompte,
-    estCompteEnseigne, estAdminBizzoo, droitEnseigne, peutVoirCommandes, peutVoirFinances,
+    estCompteEnseigne, estAdminBizzoo, droitEnseigne, peutFaireLivrer, peutVoirCommandes, peutVoirFinances,
     tientLaCaisse,
     peutChangerDeBoutique, compteActif, rolesActifs,
     creerCompte, creerCompteTelephone, changerMotDePasse,

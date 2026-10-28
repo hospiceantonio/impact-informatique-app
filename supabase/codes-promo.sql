@@ -870,7 +870,17 @@ declare
   taux     int;
   les_parts jsonb;
   manquant  bigint;
+  -- (3.68.0) Les frais SAISIS par l'équipe pour une commande prise sur
+  -- WhatsApp (« faire_livrer ») : ils remplacent le calcul à la distance.
+  -- Les deux drapeaux ne s'attrapent pas depuis PostgREST.
+  saisis   bigint := case when coalesce(current_setting('bizzoo.hors_appli', true), '') = 'oui'
+                          then nullif(current_setting('bizzoo.frais_saisis', true), '')::bigint end;
+  vehic    text;
 begin
+  -- Des frais saisis valent une livraison « au kilomètre » sans kilomètre :
+  -- un seul frais pour la commande, un seul livreur, payé en ligne — et le
+  -- livreur en touche sa part comme d'habitude.
+  if saisis is not null then au_km := true; end if;
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
     raise exception 'Votre panier est vide.';
@@ -884,7 +894,7 @@ begin
   -- (3.64.0) LA POSITION DU CLIENT EST OBLIGATOIRE quand la livraison se
   -- compte au kilomètre : sans elle, pas de distance, donc pas de frais.
   -- Une application d'avant ne l'envoie pas — on lui dit quoi faire.
-  if au_km then
+  if au_km and saisis is null then
     if destination is null or jsonb_typeof(destination) <> 'object'
        or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
       if coalesce(avec_frais, false) and destination is null then
@@ -945,7 +955,12 @@ begin
   -- a un — mais c'est un compte de l'équipe, et on vient de le ramener à
   -- « personne » deux lignes plus haut. Lui répondre « connectez-vous »
   -- alors qu'il EST connecté lui ferait chercher longtemps.
-  if moi is null and public.compte_exige() then
+  -- (3.68.0) Une commande prise sur WhatsApp, que l'équipe saisit pour le
+  -- client (« faire_livrer ») : le client n'est pas là pour se connecter.
+  -- Le drapeau ne s'attrape pas depuis PostgREST — seule « faire_livrer »,
+  -- qui vérifie qui l'appelle, le pose.
+  if moi is null and public.compte_exige()
+     and coalesce(current_setting('bizzoo.hors_appli', true), '') <> 'oui' then
     if equipe then
       raise exception 'Ce compte est un compte de l''équipe BIZZOO, pas un compte client. Pour commander, ouvrez un compte client et connectez-vous avec.';
     end if;
@@ -1101,13 +1116,26 @@ begin
   -- l'acompte : c'est BIZZOO qui les détient, et qui en doit sa part au
   -- livreur (« gains_livreurs »).
   if au_km then
-    devis := public.devis_livraison(
-      (destination ->> 'latitude')::double precision,
-      (destination ->> 'longitude')::double precision,
-      case when exists (select 1 from public.commande_lignes l
-                          join public.produits pr on pr.id = l.produit_id
-                         where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
-           then 'tricycle' else 'moto' end);
+    vehic := case when exists (select 1 from public.commande_lignes l
+                                 join public.produits pr on pr.id = l.produit_id
+                                where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
+                  then 'tricycle' else 'moto' end;
+    if saisis is not null then
+      -- (3.68.0) Les frais décidés par qui a pris la commande ; la position,
+      -- si on l'a, pour que le livreur trouve le client.
+      devis := jsonb_build_object('vehicule', vehic, 'distance_km', null, 'frais', greatest(0, saisis),
+                 'saisie', true) ||
+               case when destination is not null and jsonb_typeof(destination) = 'object'
+                         and (destination ->> 'latitude') is not null and (destination ->> 'longitude') is not null
+                    then jsonb_build_object('destination', jsonb_build_object(
+                           'latitude', round((destination ->> 'latitude')::numeric, 6),
+                           'longitude', round((destination ->> 'longitude')::numeric, 6)))
+                    else '{}'::jsonb end;
+    else
+      devis := public.devis_livraison(
+        (destination ->> 'latitude')::double precision,
+        (destination ->> 'longitude')::double precision, vehic);
+    end if;
     frais_km := coalesce((devis ->> 'frais')::bigint, 0);
     perform set_config('bizzoo.interne', 'oui', true);
     update public.commandes set frais_livraison = frais_km, livraison = devis where id = nouvelle;

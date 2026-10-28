@@ -2005,3 +2005,24 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   border:1px solid var(--trait);background:var(--bleu-50, #ECF2FE)}
 .km-carte .leaflet-control-attribution{font-size:9px}
 .lv-gain strong{color:var(--vert, #0F9D58)}
+
+/* ---------- Faire livrer : une commande prise sur WhatsApp (3.68.0) ---------- */
+.btn-petit{padding:6px 12px;min-height:34px;font-size:13px;width:auto}
+.fl-liste{padding:6px 12px}
+.fl-produit{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--trait)}
+.fl-produit:last-child{border-bottom:0}
+.fl-produit.fl-choisi{background:var(--bleu-50);margin:0 -12px;padding:10px 12px}
+.fl-produit-texte{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.fl-produit-texte strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-quantite{display:flex;align-items:center;gap:8px}
+.fl-quantite .btn-ic{width:34px;height:34px;font-size:18px;font-weight:700}
+.fl-barre{position:sticky;bottom:calc(var(--barre-h) + var(--safe-b, 0px) + 8px);display:flex;align-items:center;gap:12px;
+  justify-content:space-between;background:var(--blanc);border-radius:14px;padding:10px 12px;
+  box-shadow:0 6px 24px rgba(16,24,40,.14);margin-top:12px;z-index:5}
+.fl-barre .btn{width:auto}
+.fl-barre-texte{display:flex;flex-direction:column}
+.fl-recap-ligne{display:flex;justify-content:space-between;gap:10px;padding:6px 0;font-size:14px}
+.fl-recap-ligne small{display:block}
+.fl-total{border-top:1px solid var(--trait);margin-top:4px;padding-top:10px;font-size:15.5px}
+.cmd-faire-livrer{margin-bottom:12px}
+.cmd-whatsapp{display:inline-flex;align-items:center;gap:4px;color:var(--wa);font-weight:600}

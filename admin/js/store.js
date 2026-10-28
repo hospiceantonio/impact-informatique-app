@@ -337,6 +337,9 @@ const Store = (() => {
     return {
       id: l.id,
       nom: l.nom,
+      /* (3.68.0) La boutique du produit : « Faire livrer » mélange les
+         boutiques, et doit dire de laquelle vient chaque article. */
+      boutiqueId: l.boutique_id || "",
       /* Le code vient de la base et n'y retourne jamais : « ligneDepuisProduit »
          ne l'envoie pas. Même transmis, la base l'ignorerait. */
       code: l.code || "",
@@ -1158,6 +1161,8 @@ const Store = (() => {
       peutCommandes: l.peut_commandes !== false,
       peutBoutiques: l.peut_boutiques === true,
       peutFinances: l.peut_finances === true,
+      /* (3.68.0) Le droit « Faire livrer », accordé par le superadministrateur. */
+      faireLivrer: l.peut_faire_livrer === true,
       creeLe: versMs(l.cree_le),
       /* Qui l'a créé, et son numéro vérifié par un code reçu. Écrits par
          la base, jamais par cet écran ; une base d'avant ne les a pas, et
@@ -1363,7 +1368,8 @@ const Store = (() => {
     }
     for (const [ici, enBase] of [["peutCommandes", "peut_commandes"],
                                  ["peutBoutiques", "peut_boutiques"],
-                                 ["peutFinances", "peut_finances"]]) {
+                                 ["peutFinances", "peut_finances"],
+                                 ["faireLivrer", "peut_faire_livrer"]]) {
       if (maj[ici] !== undefined) {
         ligne[enBase] = !!maj[ici];
         delete ligne[ici];
@@ -2350,6 +2356,9 @@ const Store = (() => {
          quand l'enseigne encaisse par FeexPay. */
       agregateur: l.fournisseur_ref ? "FeexPay" : "KkiaPay",
       confirmePar: l.confirme_par || "",
+      /* (3.68.0) Une commande prise sur WhatsApp et saisie par l'équipe
+         (« Faire livrer ») : elle le dit, et qui l'a saisie. */
+      origine: l.origine === "whatsapp" ? "whatsapp" : "application",
       remarque: l.remarque || "",
       annonceLe: l.annonce_le ? Date.parse(l.annonce_le) || 0 : 0,
       payeLe: l.paye_le ? Date.parse(l.paye_le) || 0 : 0,
@@ -2407,6 +2416,34 @@ const Store = (() => {
   }
 
   let avecRestes = true;
+
+  /* ---------- Faire livrer : une commande prise sur WhatsApp (3.68.0) ----------
+     L'équipe saisit pour le client ce qu'il a commandé et payé sur
+     WhatsApp. Les frais de livraison sont ceux convenus avec le client
+     (saisis) ; la BASE fait tout le reste — prix, stock, paiement, course
+     aux livreurs — comme pour une commande passée dans l'application. */
+  const articlesPour = (panier) => panier.map((a) => ({ produit_id: a.produitId, quantite: a.quantite }));
+  async function devisFaireLivrer(panier) {
+    const d = await Supabase.rpc("devis_faire_livrer", { articles: articlesPour(panier), destination: null });
+    return {
+      sousTotal: Number(d && d.sous_total) || 0,
+      devise: (d && d.devise) || "FCFA",
+      vehicule: d && d.vehicule === "tricycle" ? "tricycle" : "moto",
+    };
+  }
+  async function faireLivrer(m) {
+    const r = await Supabase.rpc("faire_livrer", {
+      articles: articlesPour(m.panier),
+      client: { nom: m.nom, tel: m.tel, indicatif: m.indicatif || "229", adresse: m.adresse, note: m.note || "" },
+      destination: m.destination || null,
+      /* (3.68.0) Les frais convenus avec le client : saisis, pas calculés. */
+      frais: m.frais,
+      transaction: m.transaction, montant: m.montant, reseau: m.reseau || "",
+    });
+    journaliser("commande", "creation",
+      "Commande WhatsApp " + ((r && r.numero) || "") + " saisie (« Faire livrer »)", (r && r.id) || "");
+    return r;
+  }
 
   /** Combien de lignes payées attendent encore d'être préparées. */
   async function commandesEnAttente() {
@@ -3979,7 +4016,7 @@ const Store = (() => {
     statutCommande,
     statistiquesVentes,
     statistiquesBoutique,
-    ETATS_LIGNE, SUITE_LIGNE, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
+    ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,
     annulerAction,
