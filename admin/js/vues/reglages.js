@@ -472,6 +472,20 @@ const VueReglages = (() => {
               "n'apparaît dans aucune sauvegarde.</p>" +
           "</div>" +
 
+          /* ---------- (3.70.0) Les SMS aux clients ----------
+             Ceux que la notification de l'application ne touche pas —
+             sans compte, venus de WhatsApp, iPhone ou navigateur —
+             reçoivent un SMS aux étapes cochées. Un SMS coûte : coupé
+             tant qu'on ne l'allume pas, et plafonné. */
+          '<div class="carte" id="section-sms-clients">' +
+            '<div class="carte-titre">' + UI.icone("tel", "ic-sm") + " SMS aux clients</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">Un client qui n\'a pas l\'application Android ' +
+              "n'apprend où en est sa commande qu'en ouvrant son reçu : il est absent quand le livreur " +
+              "arrive. Allumé, il reçoit un SMS court aux étapes cochées ci-dessous — avec le nom et le " +
+              "numéro de son livreur. Les clients qui ont l'application reçoivent une notification, gratuite.</p>" +
+            '<div id="sms-clients-zone"><span class="chargement-rond"></span> Lecture du réglage…</div>' +
+          "</div>" +
+
           /* ---------- La connexion de l'équipe par SMS ----------
              Allumé, chaque compte de l'équipe rend un code reçu par SMS à
              chaque connexion. Il ne s'allume qu'après avoir soi-même reçu
@@ -1663,6 +1677,91 @@ const VueReglages = (() => {
         }
         await dessinerSmsEquipe();
       };
+    }
+
+    /* ---------- (3.70.0) Les SMS aux clients ---------- */
+    const zoneSmsClients = UI.$("#sms-clients-zone", vue);
+    if (zoneSmsClients) {
+      const ETAPES_SMS = [
+        ["commande_payee", "Commande payée", "« Votre commande BZ-… est confirmée. Nous la préparons. »"],
+        ["course_acceptee", "Livreur trouvé", "Son nom et son numéro : le plus utile."],
+        ["commande_en_livraison", "Colis en route", "« Gardez votre téléphone à portée. »"],
+        ["commande_remise", "Colis livré", "« Merci de votre confiance ! »"],
+        ["commande_annulee", "Article annulé", "Un ou plusieurs articles annulés."],
+      ];
+      const dessinerSmsClients = async () => {
+        let r;
+        try {
+          r = await Supabase.rpc("sms_commandes_reglages", {});
+        } catch (err) {
+          if (moi !== generation || !zoneSmsClients.isConnected) return;
+          zoneSmsClients.innerHTML = /sms_commandes_reglages|schema cache|does not exist/i.test(err.message || "")
+            ? "Cette nouveauté demande la mise à jour de la base : exécutez <strong>supabase/sms-clients.sql</strong> " +
+              "dans Supabase (SQL Editor)."
+            : Utils.echapper(err.message || "Lecture impossible.");
+          return;
+        }
+        if (moi !== generation || !zoneSmsClients.isConnected) return;
+        if (!r || typeof r !== "object") {
+          zoneSmsClients.innerHTML = "Cette nouveauté demande la mise à jour de la base : exécutez " +
+            "<strong>supabase/sms-clients.sql</strong> dans Supabase (SQL Editor).";
+          return;
+        }
+        const etapes = r.etapes || [];
+        const a = r.aujourdhui || {};
+        zoneSmsClients.innerHTML =
+          '<div class="aide" style="margin:0 0 10px"><strong>' +
+            (r.actif ? "Allumés" + (r.actif_depuis ? " depuis le " + Utils.echapper(UI.dateHeure ? UI.dateHeure(r.actif_depuis) : new Date(r.actif_depuis).toLocaleString("fr-FR")) : "") + "."
+                     : "Coupés : aucun SMS ne part.") + "</strong>" +
+            " Aujourd'hui : " + (a.envoyes || 0) + " envoyé(s), " + (a.en_attente || 0) + " en attente, " +
+            (a.refuses || 0) + " refusé(s)." +
+            (r.dernier_refus ? '<span class="sms-equipe-manque">Dernier refus : ' +
+              Utils.echapper(r.dernier_refus.code || "") + " — " + Utils.echapper(r.dernier_refus.message || "") + "</span>" : "") +
+            (r.branche ? "" : '<span class="sms-equipe-manque">La fonction d\'envoi n\'est pas encore branchée ' +
+              "(adresse de « envoyer-sms-commande » à poser dans la base) : rien ne partira.</span>") +
+          "</div>" +
+          UI.interrupteur({ id: "smsc-actif", label: "Envoyer des SMS aux clients", actif: !!r.actif,
+            aide: "Seules les commandes payées APRÈS l'allumage sont concernées." }) +
+          '<div class="carte-titre" style="margin-top:12px;font-size:14px">Aux étapes</div>' +
+          ETAPES_SMS.map(([cle, libelle, aide]) =>
+            UI.interrupteur({ id: "smsc-" + cle, label: libelle, actif: etapes.includes(cle), aide })).join("") +
+          '<div class="carte-titre" style="margin-top:12px;font-size:14px">À qui</div>' +
+          UI.interrupteur({ id: "smsc-sans-compte", label: "Clients sans compte", actif: r.sans_compte !== false,
+            aide: "Commande passée sans se connecter : personne d'autre ne peut les prévenir." }) +
+          UI.interrupteur({ id: "smsc-whatsapp", label: "Commandes prises sur WhatsApp", actif: r.whatsapp !== false,
+            aide: "Saisies par l'équipe avec « Faire livrer »." }) +
+          UI.interrupteur({ id: "smsc-sans-appareil", label: "Clients avec compte, sans l'application Android",
+            actif: r.sans_appareil !== false, aide: "iPhone ou navigateur : la notification ne les réveille pas." }) +
+          '<div class="champ-ligne" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">' +
+            '<div class="champ"><label for="smsc-plafond">Au plus, par commande</label>' +
+              '<input id="smsc-plafond" type="number" min="0" max="10" value="' + Number(r.plafond ?? 3) + '"></div>' +
+            '<div class="champ"><label for="smsc-plafond-jour">Au plus, par jour</label>' +
+              '<input id="smsc-plafond-jour" type="number" min="0" max="5000" value="' + Number(r.plafond_jour ?? 300) + '"></div>' +
+          "</div>" +
+          '<button type="button" class="btn" id="smsc-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
+          '<p class="aide" style="margin:12px 0 0">Le compte des SMS, jour par jour, est dans BIZZOO Personnel ' +
+            "(Suivi des commandes → SMS). Un crédit SMS épuisé y apparaît aussitôt.</p>";
+        UI.$("#smsc-enregistrer", vue).onclick = async (ev) => {
+          const coche = (id) => !!(UI.$("#" + id, vue) || {}).checked;
+          const bouton = ev.currentTarget;
+          bouton.disabled = true;
+          try {
+            await Supabase.rpc("regler_sms_commandes", {
+              actif: coche("smsc-actif"),
+              plafond: Number(UI.$("#smsc-plafond", vue).value),
+              plafond_jour: Number(UI.$("#smsc-plafond-jour", vue).value),
+              etapes: ETAPES_SMS.map(([cle]) => cle).filter((cle) => coche("smsc-" + cle)),
+              sans_compte: coche("smsc-sans-compte"), whatsapp: coche("smsc-whatsapp"),
+              sans_appareil: coche("smsc-sans-appareil"),
+            });
+            UI.toast(coche("smsc-actif") ? "SMS aux clients enregistrés" : "SMS aux clients coupés", "ok");
+          } catch (err) {
+            UI.toast(err.message, "err");
+          }
+          await dessinerSmsClients();
+        };
+      };
+      dessinerSmsClients();
     }
 
     /* ---------- Slider ----------

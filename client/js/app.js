@@ -550,6 +550,12 @@ const App = { evenementInstallation: null };
         if (Compte.connecte()) Notifs.demarrer();
         else Notifs.arreter();
         UI.majCloche();
+        /* (3.70.0) Ce téléphone sonne pour ce compte, application fermée ;
+           sans compte, un retrait resté en suspens est rattrapé. */
+        if (typeof Push !== "undefined") {
+          if (Compte.connecte()) Push.declarer();
+          else Push.demarrer();
+        }
       };
       /* La cloche vit dans la barre du haut, redessinée à chaque écran :
          on passe par un événement plutôt que d'aller la chercher. */

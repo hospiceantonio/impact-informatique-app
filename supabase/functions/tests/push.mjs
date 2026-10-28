@@ -127,6 +127,13 @@ r = await appeler({ id: 502 });
 const m2 = (monde.fcm[0] || {}).corps?.message || {};
 verifie(m2.data && m2.data.canal === "commandes" && m2.data.lien === "#/commandes/cmd_x" && m2.android.ttl === "3600s",
   "une commande payée : canal « commandes », une heure de vie");
+/* (3.70.0) L'acheteur, dans l'application client : son canal à lui. */
+decor({ notification: () => reponse({ ...COURSE, id: 503, type: "course_acceptee", titre: "Votre livreur : Yao",
+  lien: "#/commande/cmd_x", application: "client", jetons: ["jeton-client-eeeeeeeeeeeeee"] }) });
+r = await appeler({ id: 503 });
+const m3 = (monde.fcm[0] || {}).corps?.message || {};
+verifie(m3.data && m3.data.canal === "client" && m3.data.lien === "#/commande/cmd_x" && m3.token === "jeton-client-eeeeeeeeeeeeee",
+  "une notification d'acheteur : au téléphone du client, sur le canal « client » (pas la sonnerie des courses)");
 
 titre("4. Un téléphone désinstallé est oublié, les autres reçoivent");
 decor({ fcm: (jeton) => jeton === COURSE.jetons[0]

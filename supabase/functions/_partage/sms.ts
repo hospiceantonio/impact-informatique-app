@@ -145,13 +145,13 @@ export function configuration() {
 }
 
 /**
- * Envoyer un SMS. C'est le seul chemin : le hook de connexion et le
- * bouton d'essai passent tous les deux par ici.
+ * Envoyer un SMS. C'est le seul chemin : le hook de connexion, le
+ * bouton d'essai et les SMS d'étape des commandes passent tous par ici.
  *
  * Ne lève pas pour un refus de la passerelle — un refus est un résultat,
  * pas un accident. L'appelant lit « ok ».
  */
-export async function envoyerSms(numero: string, texte: string): Promise<Envoi> {
+export async function envoyerSms(numero: string, texte: string, indicatif = INDICATIF): Promise<Envoi> {
   const { cle, expediteur } = configuration();
   if (!cle) {
     return {
@@ -170,7 +170,10 @@ export async function envoyerSms(numero: string, texte: string): Promise<Envoi> 
     };
   }
 
-  const vers = normaliserNumero(numero);
+  /* « indicatif » vide : le numéro arrive DÉJÀ complet (la base l'a mis
+     en forme pour un client étranger) — rien à ajouter devant. Sans
+     cela, « 22890… » (Togo) partait « 22922890… ». */
+  const vers = normaliserNumero(numero, indicatif);
   if (vers.length < 8) {
     return {
       ok: false, code: "NUMERO_INVALIDE", statutHttp: 0, brut: null,
@@ -208,8 +211,19 @@ export async function envoyerSms(numero: string, texte: string): Promise<Envoi> 
       signal: AbortSignal.timeout(20000),
     });
   } catch (err) {
-    /* Passerelle injoignable. À distinguer d'un refus : ici, réessayer
-       a du sens. */
+    /* (3.70.0) UN DÉLAI DÉPASSÉ N'EST PAS UNE PASSERELLE INJOIGNABLE. La
+       requête est partie ; la passerelle a peut-être envoyé le SMS et
+       tarde seulement à le dire. Le renvoyer, ce serait le payer deux
+       fois : on le dit autrement, et personne ne le réessaie. */
+    const nom = (err as Error)?.name ?? "";
+    if (nom === "TimeoutError" || nom === "AbortError") {
+      return {
+        ok: false, code: "DELAI_DEPASSE", statutHttp: 0, brut: null,
+        message: "La passerelle n'a pas répondu en 20 s : le SMS est peut-être parti.",
+      };
+    }
+    /* Passerelle injoignable (connexion impossible : rien n'est parti).
+       À distinguer d'un refus : ici, réessayer a du sens. */
     return {
       ok: false, code: "INJOIGNABLE", statutHttp: 0, brut: null,
       message: "Passerelle SMS injoignable : " + (err as Error).message,

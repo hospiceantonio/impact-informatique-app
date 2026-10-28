@@ -5480,6 +5480,75 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## Le client prévenu à chaque étape : notification et SMS (3.70.0)
+
+**Avant**, le client n'apprenait où en était sa commande qu'en ouvrant
+l'application : il était absent quand le livreur arrivait, et l'équipe
+passait sa journée au téléphone.
+
+**1. La notification sonne sur son téléphone, application fermée**
+(Android). Payée, livreur trouvé (nom et numéro), colis prêt, en route,
+livré, article annulé : les notifications que l'acheteur avait déjà dans
+l'application partent désormais aussi en push vers l'application CLIENT
+(jusqu'ici, seul BIZZOO Admin sonnait).
+- La base choisit l'application d'après le lien : `#/commande/…` (au
+  singulier) n'est écrit que pour l'acheteur → application client ; tout
+  le reste → BIZZOO Admin (`push_a_envoyer`, `notification_pousse`).
+- `envoyer-push` envoie ces notifications sur le canal « client » ;
+  l'APK client les affiche dans « Suivi de vos commandes » (son ordinaire,
+  pas la sonnerie des courses), et la touche ouvre le reçu.
+- `client/js/push.js` déclare le téléphone à la connexion
+  (`enregistrer_appareil`, application « client »), le retire à la
+  déconnexion — ou, sans réseau, à la prochaine ouverture
+  (`oublier_jeton_push`, avec le seul jeton). Un téléphone qui REFUSE les
+  notifications n'est pas déclaré : ce client reçoit le SMS à la place.
+- **Il faut l'APK client 3.70.0** : les anciens ne déclarent pas leur
+  téléphone. iPhone et navigateur : pas de push (pas de certificat Apple),
+  d'où les SMS.
+
+**2. Les SMS, pour ceux que la notification ne touche pas** — sans compte,
+commande prise sur WhatsApp, compte sans l'application Android (ou qui
+ne l'a pas ouverte depuis 30 jours). Aux étapes choisies par le
+superadministrateur (**BIZZOO Admin → Réglages → SMS aux clients**) :
+par défaut « payée », « livreur trouvé » (son nom et son numéro),
+« livrée ».
+- **Coupés par défaut**, et seules les commandes payées APRÈS l'allumage
+  sont concernées. Plafonds : 3 par commande, 300 par jour (réglables).
+- La base décide et réserve (`sms_prevoir`, un seul verrou pour les
+  plafonds), écrit dans `sms_commandes` — file, journal et compteur à la
+  fois, jamais lisible par les applications —, puis demande l'envoi à la
+  fonction Edge `envoyer-sms-commande` (pg_net), qui ne croit que le numéro
+  de la ligne (`sms_a_envoyer`, une fois) et rend le verdict
+  (`sms_resultat`, réessayé 3 fois).
+- **Un SMS ne se paie qu'une fois** : on ne réessaie que si rien n'a pu
+  partir (passerelle injoignable, 429/503). Un délai dépassé
+  (`DELAI_DEPASSE`), un 200 sans code, un envoi resté « en cours » sans
+  verdict : peut-être partis, jamais renvoyés. La reprise (pg_cron
+  « sms-commandes-reprise », toutes les 10 min) ne relance que ce qui
+  attend.
+- Texte sans accents ni émoji, 160 caractères au plus (`sms_texte`) ; un
+  livreur qui change (A, puis B, puis A) annonce chaque nouveau livreur.
+- Un SMS qui échoue n'empêche JAMAIS l'étape : déclencheurs à part
+  (`commandes_sms`, `lignes_sms`), erreurs rattrapées.
+
+**3. Le compte, dans BIZZOO Personnel → Suivi des commandes → SMS** :
+envoyés, commandes prévenues, refusés, en attente, retenus par un
+plafond, jour par jour et par étape ; les échecs avec leur commande ;
+**le crédit SMS épuisé en rouge**. Aucun numéro de client
+(`rh_sms_compteur`).
+
+**Mise en ligne, dans cet ordre** : redéployer `envoyer-push`, déployer
+`envoyer-sms-commande` (`--no-verify-jwt` toutes les deux), coller
+`supabase/sms-clients.sql`, puis poser l'adresse :
+`update public.sms_reglages set url = 'https://<projet>.supabase.co/functions/v1/envoyer-sms-commande';`
+Enfin, le superadministrateur allume les SMS dans les Réglages.
+
+Essais : `supabase/tests/99zzz…-sms-clients.sql` (55 constats),
+`tools/eprouver-sms.sh` et `tools/eprouver-push.sh` (fonctions Edge),
+`tools/banc-sms-clients.mjs` (19), `tools/banc-push-client.mjs` (13).
+Revue adversariale : 14 défauts confirmés, tous corrigés (dont le double
+paiement d'un SMS dont le verdict se perd).
+
 ## La clôture automatique des commandes, et le menu Incidents (3.69.0)
 
 **Avant**, une commande « Livré et confirmé » restait ouverte tant que

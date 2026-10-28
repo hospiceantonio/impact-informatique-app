@@ -6,6 +6,7 @@
    #/suivi/alertes              : ce qui demande une action ;
    #/suivi/bilan                : le bilan par jour, semaine, mois ;
    #/suivi/reglages             : les délais des alertes, les zones ;
+   #/suivi/sms                  : les SMS envoyés aux clients (3.70.0) ;
    #/suivi/commande/<id>        : la fiche, la chronologie, les
                                   incidents, la clôture.
 
@@ -89,7 +90,7 @@ const VueSuivi = (() => {
   const barrePeriode = (route, periode, extra) => UI.barrePeriode(periode, route, extra);
 
   function onglets(actif) {
-    const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"]];
+    const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"], ["sms", "SMS"]];
     if (App.estAdmin()) items.push(["reglages", "Réglages"]);
     return h("div", { class: "filtres" }, items.map(([v, l]) =>
       h("button", { class: v === actif ? "actif" : "", onclick: () => { location.hash = "#/suivi" + (v ? "/" + v : ""); } }, l)));
@@ -102,6 +103,7 @@ const VueSuivi = (() => {
       case "alertes": return alertes(zone);
       case "bilan": return bilan(zone, params);
       case "reglages": return reglages(zone);
+      case "sms": return smsClients(zone, params);
       default: return tableau(zone, params);
     }
   }
@@ -452,6 +454,79 @@ const VueSuivi = (() => {
       tableau("Heures de pointe (commandes passées)", ["Heure", "Commandes"], b.heures.map((x) => [x.heure + " h", x.commandes])),
       tableau("Jours de la semaine", ["Jour", "Commandes"], b.jours_semaine.map((x) => [JOURS[x.jour], x.commandes])),
       h("p", { class: "doux tres-petit" }, "Les délais se mesurent avec le journal des étapes : les commandes d'avant son installation n'ont que les dates de commande, de paiement, d'acceptation de la course et de réception."));
+  }
+
+  /* ---------- (3.70.0) Les SMS aux clients ----------
+     Combien sont partis, combien la passerelle a refusés, et pourquoi —
+     jamais le numéro d'un client. Un crédit SMS épuisé se voit ici
+     d'abord : plus aucun client sans l'application n'est prévenu. */
+
+  const ETAPES_SMS = { commande_payee: "Commande payée", course_acceptee: "Livreur trouvé",
+    commande_en_livraison: "Colis en route", commande_remise: "Colis livré", commande_annulee: "Article annulé" };
+  const ETATS_SMS = { refuse: "Refusé", abandonne: "Non envoyé" };
+  const CODES_SMS = { PLAFOND: "plafond par commande atteint", PLAFOND_JOUR: "plafond du jour atteint",
+    INSUFFICIENT_BALANCE: "crédit SMS épuisé", COUPE: "SMS coupés entre-temps", TROP_TARD: "pas parti en six heures",
+    SANS_REPONSE: "passerelle muette", INJOIGNABLE: "passerelle injoignable", INVALID_PHONE: "numéro invalide" };
+
+  async function smsClients(zone, params) {
+    const periode = periodeDe(params, "30j");
+    let r;
+    try {
+      r = await Supabase.rpc("rh_sms_compteur", { depuis: periode.depuis, jusqu: periode.jusqu });
+    } catch (err) {
+      if (!zone.isConnected) return;
+      if (/rh_sms_compteur|schema cache|does not exist/i.test(err.message || "")) {
+        return UI.vider(zone, onglets("sms"), UI.vide("Cette nouveauté demande la mise à jour de la base (supabase/sms-clients.sql)."));
+      }
+      throw err;
+    }
+    if (!zone.isConnected) return;
+    const t = r.total || {};
+    const g = r.reglages || {};
+    const tuile = (valeur, libelle, classe) => h("div", { class: "tuile" + (classe ? " " + classe : "") },
+      h("b", { style: { fontSize: "19px" } }, UI.entier(valeur || 0)), h("span", {}, libelle));
+    const etat = g.actif
+      ? h("div", { class: "info" }, "SMS allumés depuis le " + dateSuivi(g.actif_depuis) + " — étapes : " +
+          (g.etapes || []).map((e) => ETAPES_SMS[e] || e).join(", ") + " ; au plus " + g.plafond + " par commande et " +
+          g.plafond_jour + " par jour. Le superadministrateur les règle dans BIZZOO Admin → Réglages.")
+      : h("div", { class: "info" }, "SMS aux clients coupés : le superadministrateur les allume dans BIZZOO Admin → Réglages.");
+    const credit = t.credit_epuise > 0
+      ? h("div", { class: "erreur" }, "Crédit SMS épuisé : " + t.credit_epuise + " SMS refusé(s) pour cette raison. " +
+          "Rechargez le compte CREATISINTER : plus aucun client sans l'application n'est prévenu, et les codes de connexion ne partent plus.")
+      : null;
+    const parJour = (r.par_jour || []).length
+      ? h("div", { class: "carte defile" }, h("h3", { style: { marginBottom: "8px" } }, "Jour par jour"),
+          h("table", { class: "tableau" },
+            h("thead", {}, h("tr", {}, ["Jour", "Envoyés", "Refusés", "Autres"].map((x) => h("th", {}, x)))),
+            h("tbody", {}, r.par_jour.map((j) => h("tr", {},
+              h("td", {}, UI.date(j.jour)), h("td", { class: "nombre" }, j.envoyes),
+              h("td", { class: "nombre" }, j.refuses), h("td", { class: "nombre" }, j.autres))))))
+      : null;
+    const parEtape = (r.par_etape || []).length
+      ? h("div", { class: "carte" }, h("h3", { style: { marginBottom: "8px" } }, "Par étape"),
+          h("div", { class: "liste" }, r.par_etape.map((e) => h("div", { class: "element" },
+            h("div", { class: "etire" }, ETAPES_SMS[e.etape] || e.etape),
+            h("b", {}, e.envoyes + " envoyé(s)"), h("span", { class: "doux petit" }, " sur " + e.total)))))
+      : null;
+    const echecs = (r.echecs || []).length
+      ? h("div", { class: "carte" }, h("h3", { style: { marginBottom: "8px" } }, "Les derniers SMS qui ne sont pas partis"),
+          h("div", { class: "liste" }, r.echecs.map((e) => h("div", { class: "element" },
+            h("div", { class: "etire" },
+              h("div", {}, h("b", {}, ETAPES_SMS[e.etape] || e.etape), " — ",
+                h("a", { href: "#/suivi/commande/" + encodeURIComponent(e.commande_id) }, "Commande " + (e.numero || e.commande_id))),
+              h("div", { class: "tres-petit doux" }, dateSuivi(e.le) + " · " + (ETATS_SMS[e.etat] || e.etat) +
+                (e.code ? " · " + (CODES_SMS[e.code] || e.code) : "")),
+              e.message ? h("div", { class: "tres-petit doux" }, e.message) : null)))))
+      : null;
+    UI.vider(zone, onglets("sms"), barrePeriode("#/suivi/sms", periode), etat, credit,
+      h("div", { class: "tuiles compactes" },
+        tuile(t.envoyes, "SMS envoyés"),
+        tuile(t.commandes, "commandes prévenues"),
+        tuile(t.refuses, "refusés par la passerelle", t.refuses ? "alerte" : ""),
+        tuile(t.en_attente, "en attente d'envoi"),
+        tuile(t.plafonnes, "retenus par un plafond")),
+      parJour, parEtape, echecs,
+      !(r.par_jour || []).length ? UI.vide("Aucun SMS sur cette période.") : null);
   }
 
   /* ---------- Les réglages ---------- */
