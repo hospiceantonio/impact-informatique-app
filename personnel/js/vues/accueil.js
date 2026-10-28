@@ -151,6 +151,18 @@ const VueAccueil = (() => {
     if (k.encaissements_anciens > 0) {
       aFaire.push(tuile(k.encaissements_anciens, "encaissement(s) à la livraison en attente depuis trop longtemps", "#/controles/encaissements", true));
     }
+    /* L'argent : un client peut-être débité, un remboursement qui tarde,
+       une demande d'argent qui attend trop. */
+    const ar = App.argent() || {};
+    if (ar.paiements_a_traiter > 0) {
+      aFaire.push(tuile(ar.paiements_a_traiter, "paiement(s) à rapprocher", "#/controles/paiements", true));
+    }
+    if (ar.remboursements_en_retard > 0) {
+      aFaire.push(tuile(ar.remboursements_en_retard, "remboursement(s) en retard", "#/controles/remboursements", true));
+    }
+    if (ar.dettes_anciennes > 0) {
+      aFaire.push(tuile(ar.dettes_anciennes, "demande(s) d'argent qui attendent trop", "#/controles/dettes", true));
+    }
 
     UI.vider(zone,
       alerteReglage,

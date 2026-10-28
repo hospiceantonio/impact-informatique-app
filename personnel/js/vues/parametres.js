@@ -26,9 +26,14 @@ const VueParametres = (() => {
       ["suivi", "Suivi des commandes", "Statuts, alertes, incidents, export Excel : sans les montants."],
       ["livreurs", "Localiser un livreur", "La carte des livreurs en course, et leur distance au client."],
       ["controles", "Contrôles des encaissements", "MoMoPay à vérifier, espèces pas rendues, écarts, par livreur : nombres et ancienneté, sans les montants."],
+      ["paiements", "Paiements et remboursements à suivre", "Clients peut-être débités, paiements en litige, remboursements dus : pour rappeler le client. Sans montants, numéros masqués."],
     ]],
     ["Caisse", [
-      ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire. L'administration ne la voit pas d'office."],
+      ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire, et ce que BIZZOO doit payer (nombres et ancienneté). L'administration ne la voit pas d'office."],
+    ]],
+    ["Contrôle interne", [
+      ["audit", "Journal des gestes de BIZZOO Admin", "Qui a fait quoi dans Admin (prix, marges, suppressions, comptes), gestes sensibles en avant. Le CEO le lit toujours ; l'administration n'y entre pas d'office."],
+      ["promos", "Codes promo et parrainage", "Usages de chaque code et abus probables, sans les montants ; numéros masqués."],
     ]],
     ["Statistiques (sans les montants)", [
       ["stats_commandes", "Commandes", "Payées, passées, en attente, jour par jour."],

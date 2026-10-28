@@ -11,7 +11,9 @@
                                pas rendues, livraisons sans déclaration),
                                les écarts et les contestations, par
                                livreur (?p=30j, ou ?du=…&au=…) ;
-   #/controles/seuils        : les seuils de ces contrôles.
+   #/controles/seuils        : les seuils de ces contrôles ;
+   #/controles/paiements, dettes, remboursements, gestes, codes :
+                               l'argent (js/vues/argent.js).
 
    L'administration et le superadministrateur voient tout, montants
    compris. Un profil à qui Paramètres ouvre « controles » ne voit que
@@ -39,27 +41,49 @@ const VueControles = (() => {
   };
   const voitFiche = () => App.ouvert("livreurs") || App.ouvert("stats_livreurs") || App.estSuper();
 
-  function onglets(c, actif) {
+  /* Les onglets ouverts : ceux du lot des encaissements (rh_controles_compteurs)
+     et ceux de l'argent (rh_argent_compteurs). Chacun a son droit ; la base
+     refuse de toute façon ce que l'écran montrerait à tort. */
+  function ouverts(c, a) {
+    const o = (a && a.onglets) || {};
     const items = [];
     if (c.acces === "admin") items.push(["reglages", "Réglages sensibles", c.reglages_a_approuver]);
-    items.push(["encaissements", "Encaissements", c.encaissements_anciens]);
+    if (c.acces) items.push(["encaissements", "Encaissements", c.encaissements_anciens]);
+    if (o.paiements) items.push(["paiements", "Paiements à rapprocher", a.paiements_a_traiter]);
+    if (o.remboursements) items.push(["remboursements", "Remboursements", a.remboursements_en_retard]);
+    if (o.dettes) items.push(["dettes", "À payer", a.dettes_anciennes]);
+    if (o.codes) items.push(["codes", "Codes promo", 0]);
+    if (o.gestes) items.push(["gestes", "Gestes Admin", 0]);
     if (c.acces === "admin") items.push(["seuils", "Seuils", 0]);
+    return items;
+  }
+
+  function onglets(c, actif) {
+    const items = ouverts(c, c.argent);
     return h("div", { class: "filtres" }, items.map(([v, l, n]) =>
       h("button", { class: v === actif ? "actif" : "", onclick: () => { location.hash = ROUTE + "/" + v; } },
         l, n > 0 ? h("span", { class: "pastille", style: { marginLeft: "6px" } }, n > 99 ? "99+" : n) : null)));
   }
 
   async function afficher(zone, morceaux, params) {
-    const c = await Supabase.rpc("rh_controles_compteurs");
+    const [c, a] = await Promise.all([
+      Supabase.rpc("rh_controles_compteurs"),
+      Supabase.rpc("rh_argent_compteurs").catch(() => ({})),
+    ]);
     if (!zone.isConnected) return;
-    if (!c || !c.acces) {
+    const k = Object.assign({}, c || {}, { argent: a || {} });
+    const items = ouverts(k, k.argent);
+    if (!items.length) {
       UI.vider(zone, UI.vide("Votre compte n'a pas accès aux contrôles."));
       return;
     }
-    const page = morceaux[0] || (c.acces === "admin" ? "reglages" : "encaissements");
-    if (page === "reglages" && c.acces === "admin") return reglages(zone, c, params);
-    if (page === "seuils" && c.acces === "admin") return seuils(zone, c);
-    return encaissements(zone, c, params);
+    const permis = items.map((x) => x[0]);
+    const page = permis.includes(morceaux[0]) ? morceaux[0] : permis[0];
+    const barre = () => onglets(k, page);
+    if (page === "reglages") return reglages(zone, k, params);
+    if (page === "seuils") return seuils(zone, k);
+    if (page === "encaissements") return encaissements(zone, k, params);
+    return VueArgent[page](zone, barre(), params);
   }
 
   /* ---------- Les réglages sensibles ---------- */
@@ -234,7 +258,9 @@ const VueControles = (() => {
         v_momopay_h: v("momopay_h"), v_especes_h: v("especes_h"), v_plafond_nb: v("plafond_nb") }), "Seuils enregistrés.");
       App.rafraichir();
     });
-    UI.vider(zone, onglets(c, "seuils"), form,
+    const argent = await VueArgent.formSeuils().catch(() => null);
+    if (!zone.isConnected) return;
+    UI.vider(zone, onglets(c, "seuils"), form, argent,
       h("p", { class: "doux petit" }, "La veille des livreurs (course sans livreur, livreur sans position) se règle avec les autres délais : Suivi commandes, onglet Réglages."));
   }
 

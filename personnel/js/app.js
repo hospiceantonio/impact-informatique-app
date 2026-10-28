@@ -20,6 +20,9 @@ const App = (() => {
   /* Le menu Contrôles et ses alertes (rh_controles_compteurs) : réglages
      sensibles pas encore approuvés, encaissements qui attendent trop. */
   let controles = {};
+  /* Les onglets d'argent du même menu (rh_argent_compteurs) : paiements à
+     rapprocher, remboursements en retard, demandes d'argent anciennes. */
+  let argent = {};
   let routeCourante = "";
   let minuterie = null;
   let relu = 0;                 // quand les compteurs ont été relus (Date.now())
@@ -105,8 +108,10 @@ const App = (() => {
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
       /* L'administration et le superadministrateur ; un profil à qui
          Paramètres ouvre « controles » (sans montants). La base tranche. */
-      { route: "controles", libelle: "Contrôles", icone: "alerte", pour: () => !!controles.acces,
-        pastille: (controles.reglages_a_approuver || 0) + (controles.encaissements_anciens || 0) },
+      { route: "controles", libelle: "Contrôles", icone: "alerte",
+        pour: () => !!controles.acces || Object.values(argent.onglets || {}).some(Boolean),
+        pastille: (controles.reglages_a_approuver || 0) + (controles.encaissements_anciens || 0)
+          + (argent.paiements_a_traiter || 0) + (argent.remboursements_en_retard || 0) + (argent.dettes_anciennes || 0) },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
@@ -258,6 +263,7 @@ const App = (() => {
     caisseAcces = await Supabase.rpc("rh_caisse_acces").catch(() => null);
     compteursSolde = await Supabase.rpc("rh_compteurs_solde").catch(() => ({})) || {};
     controles = await Supabase.rpc("rh_controles_compteurs").catch(() => ({})) || {};
+    argent = await Supabase.rpc("rh_argent_compteurs").catch(() => ({})) || {};
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];
@@ -352,7 +358,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer, alertesAffichees,
   };
 })();
