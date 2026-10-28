@@ -100,6 +100,7 @@ const VueMissions = (() => {
         ? Supabase.modifier("rh_missions", "id=eq." + mission.id, valeurs)
         : Supabase.ajouter("rh_missions", { ...valeurs, profil_id: profil.value }),
         mission ? "Mission modifiée." : "Mission créée et envoyée au responsable du profil.");
+      App.rafraichir();
       location.hash = "#/missions/" + (m ? m.id : mission.id);
     });
     UI.vider(zone, form);
@@ -146,6 +147,7 @@ const VueMissions = (() => {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
         if (!await UI.confirmer("Supprimer définitivement cette mission ?", { danger: true, valider: "Supprimer" })) return;
         await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_missions", "id=eq." + m.id), "Mission supprimée.");
+        App.rafraichir();
         location.hash = "#/missions";
       } }, UI.icone("poubelle", "ic-sm"), "Supprimer"));
     }

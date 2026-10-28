@@ -19,6 +19,7 @@ const App = (() => {
   let compteursSolde = {};
   let routeCourante = "";
   let minuterie = null;
+  let relu = 0;                 // quand les compteurs ont été relus (Date.now())
 
   const moi = () => (tableau && tableau.moi) || null;
   const compteurs = () => (tableau && tableau.compteurs) || {};
@@ -192,6 +193,10 @@ const App = (() => {
       alertesVue = null;
       dessinerMenus();
     }
+    /* LES COMPTEURS SUIVENT CE QUE FONT LES AUTRES : relus à chaque page
+       ouverte (l'accueil les relit lui-même), et pas seulement toutes les
+       minutes. Pas deux fois en 5 secondes : une action relit déjà. */
+    if (routeCourante !== "accueil" && Date.now() - relu > 5000) rafraichir();
     const vue = route === "plus" ? VuePlus : VUES[route];
     const zone = document.getElementById("contenu");
     /* Une zone neuve à chaque navigation : une vue quittée pendant son
@@ -225,6 +230,7 @@ const App = (() => {
   /* ---------- Le tableau de bord ---------- */
 
   async function rafraichir() {
+    relu = Date.now();
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
       if (tableau && tableau.moi) await chargerMenus();
@@ -311,7 +317,7 @@ const App = (() => {
        l'a faite (et si pg_cron n'est pas là pour la faire). */
     if (estAdmin()) Supabase.rpc("rh_paie_a_jour").then((n) => { if (n > 0) rafraichir(); }).catch(() => {});
     clearInterval(minuterie);
-    minuterie = setInterval(rafraichir, 60000);
+    minuterie = setInterval(rafraichir, 30000);
     naviguer();
   }
 
@@ -324,6 +330,11 @@ const App = (() => {
     naviguer();
   });
   window.addEventListener("hashchange", naviguer);
+  /* De retour sur l'application (onglet repris, téléphone rallumé) : les
+     compteurs se relisent tout de suite, sans attendre la minute. */
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && tableau && moi() && Date.now() - relu > 5000) rafraichir();
+  });
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
