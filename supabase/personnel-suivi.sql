@@ -38,6 +38,20 @@ alter table public.rh_profils drop constraint if exists rh_profils_statistiques_
 alter table public.rh_profils add constraint rh_profils_statistiques_check
   check (statistiques <@ array['commandes', 'livraisons', 'sav', 'suivi']::text[]);
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
 -- Qui est connecté : recopié de personnel.sql, pour que ce fichier se suffise.
 create or replace function public.rh_moi() returns uuid
 language sql stable security definer set search_path = public as $$

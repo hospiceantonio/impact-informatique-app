@@ -68,8 +68,10 @@ const PORTEUR = "cccccccc-1111-1111-1111-111111111111";
 const PROFIL = { id: PORTEUR, email: "porteur@alpha.bj", nom: "Rachidi", role: "livreur", actif: true,
   peut_modifier_produits: true, boutique_id: "bou_a" };
 
-async function ouvrirAdmin({ courses, hash, demandes = [], tropTard = false }) {
-  const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 }, serviceWorkers: "block" });
+async function ouvrirAdmin({ courses, hash, demandes = [], tropTard = false, apk = false }) {
+  /* (3.70.0) La position du livreur, que l'écran envoie pour la cascade. */
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 }, serviceWorkers: "block",
+    permissions: ["geolocation"], geolocation: { latitude: 6.3702, longitude: 2.4289, accuracy: 15 } });
   const page = await ctx.newPage();
   const erreurs = [];
   page.on("pageerror", (e) => erreurs.push(e.message));
@@ -80,7 +82,20 @@ async function ouvrirAdmin({ courses, hash, demandes = [], tropTard = false }) {
     localStorage.setItem("impact-session", JSON.stringify({
       access_token: b64({ alg: "HS256" }) + "." + b64({ sub: a.moi }) + ".s",
       refresh_token: "r", expire_a: Date.now() + 3600000, email: a.email }));
-  }, { moi: PORTEUR, email: PROFIL.email });
+    /* (3.70.0) L'APK : le pont Android, qui note ce qu'on lui demande. */
+    if (a.apk) {
+      window.__pont = [];
+      window.AndroidPont = {
+        demarrerSuivi: (u, c, j) => window.__pont.push("demarrer:" + j),
+        arreterSuivi: () => window.__pont.push("arreter"),
+        suiviActif: () => true,
+        sansEconomieBatterie: () => false,
+        positionToujours: () => false,
+        demanderSansEconomieBatterie: () => window.__pont.push("batterie"),
+        demanderPositionToujours: () => window.__pont.push("toujours"),
+      };
+    }
+  }, { moi: PORTEUR, email: PROFIL.email, apk });
   const serveur = { appels: [] };
   let liste = courses;
   let proposees = demandes;
@@ -112,6 +127,11 @@ async function ouvrirAdmin({ courses, hash, demandes = [], tropTard = false }) {
       return d(2);
     }
     if (c.startsWith("notifications")) return d([NOTIF]);
+    if (c === "rpc/ouvrir_suivi_livreur") return d({ jeton: "jeton-essai", en_course: false, disponible: true });
+    if (c === "rpc/regler_disponibilite") {
+      const v = (() => { try { return req.postDataJSON().dispo; } catch (_) { return true; } })();
+      return d(v !== false);
+    }
     if (c.startsWith("rpc/")) return d(null);
     if (c.startsWith("boutique")) return d([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]);
     return d([]);
@@ -148,6 +168,10 @@ titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
   ok(t.includes("À payer par MoMoPay : " + F(7000)), "ce qu'il reste à récupérer");
   ok(!t.includes(F(9000)), "pas le prix des articles");
   ok(/Sonner deux fois/.test(t), "la note du client");
+  await page.waitForTimeout(800);
+  const pos = serveur.appels.find((a) => a.fn === "signaler_ma_position");
+  ok(pos && pos.corps && Math.abs(pos.corps.lat - 6.3702) < 1e-6 && Math.abs(pos.corps.lng - 2.4289) < 1e-6,
+    "(3.70.0) l'écran envoie la position du livreur, pour la cascade au plus proche");
   ok(await page.evaluate(() => !document.querySelector(".lv-lieu-saisi")),
     "une commande de l'application : pas de « Où récupérer (précisé par BIZZOO) »");
   ok(await page.evaluate(() => !!document.querySelector(".lv-recu") && !document.querySelector(".lv-avancer")),
@@ -245,6 +269,41 @@ titre("6a. Les demandes de course (admin)");
   await page.waitForTimeout(1500);
   ok(await page.evaluate(() => window.__t.some((x) => /Trop tard/.test(x))), "trop tard : on le lui dit");
   ok(await page.evaluate(() => !document.querySelector(".lv-demande")), "et la demande disparaît");
+  await ctx.close();
+}
+
+titre("6c. (3.70.0) « Disponible pour les courses », application fermée (APK)");
+{
+  const { page, ctx, erreurs, serveur } = await ouvrirAdmin({ courses: [], apk: true });
+  await page.waitForSelector("#lv-dispo-inter", { timeout: 6000 }).catch(() => {});
+  ok(await page.evaluate(() => { const i = document.getElementById("lv-dispo-inter"); return !!i && i.checked; }),
+    "l'interrupteur « Disponible pour les courses », allumé par défaut");
+  ok(/même application fermée/.test(plat(await page.evaluate(() => (document.getElementById("lv-dispo") || {}).innerText || ""))),
+    "il dit que la position part même application fermée");
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => (window.__pont || []).includes("demarrer:jeton-essai")),
+    "libre mais disponible : le service Android démarre (sans course en cours)");
+  ok(await page.evaluate(() => !!document.getElementById("lv-dispo-toujours") && !!document.getElementById("lv-dispo-batterie")),
+    "les deux réglages du téléphone qui manquent sont proposés");
+  await page.click("#lv-dispo-toujours");
+  await page.click("#lv-dispo-batterie");
+  ok(await page.evaluate(() => (window.__pont || []).includes("toujours") && (window.__pont || []).includes("batterie")),
+    "« Toujours autoriser » et « Ne pas limiter la batterie » ouvrent les réglages d'Android");
+  await page.click('label[for="lv-dispo-inter"]');
+  await page.waitForTimeout(800);
+  const reg = serveur.appels.find((a) => a.fn === "regler_disponibilite");
+  ok(reg && reg.corps && reg.corps.dispo === false, "éteint : la base le sait (regler_disponibilite false)");
+  ok(await page.evaluate(() => (window.__pont || []).includes("arreter")), "et le service Android s'arrête");
+  ok(await page.evaluate(() => { const i = document.getElementById("lv-dispo-inter"); return !!i && !i.checked; }),
+    "l'interrupteur reste éteint");
+  const avant = serveur.appels.filter((a) => a.fn === "signaler_ma_position").length;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForTimeout(500);
+  ok(serveur.appels.filter((a) => a.fn === "signaler_ma_position").length === avant,
+    "éteint : la page n'envoie plus la position non plus");
+  ok(/Ne pas limiter la batterie|Toujours autoriser/.test(await page.evaluate(() => document.body.innerText)) === false,
+    "éteint : pas de réglages du téléphone à proposer");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 

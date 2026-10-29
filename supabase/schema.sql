@@ -491,7 +491,12 @@ begin
     -- À CLASSER. Le produit reste en vente, dans sa boutique et dans la
     -- recherche ; il n'apparaît sous aucun rayon de BIZZOO.
     new.sous_categorie_id := null;
-    new.categorie_id := null;
+    -- (3.70.0) Mais il reste DANS LE SECTEUR de sa boutique : sans cela,
+    -- une boutique qui change de secteur disparaissait du nouveau dans
+    -- l'application cliente, ses produits n'étant plus nulle part.
+    select b.categorie_id into secteur
+      from public.boutiques b where b.id = new.boutique_id;
+    new.categorie_id := secteur;
   else
     select sc.categorie_id into rayon
       from public.sous_categories sc where sc.id = new.sous_categorie_id;
@@ -678,6 +683,11 @@ alter table public.profils add constraint profils_vehicule check (vehicule in ('
 -- Le livreur bloqué par l'administration de BIZZOO (BIZZOO Personnel) :
 -- il ne reçoit plus aucune course. Seul « rh_bloquer_livreur » le pose.
 alter table public.profils add column if not exists courses_bloquees boolean not null default false;
+-- (3.70.0) « Disponible pour les courses » : le livreur l'allume ou l'éteint
+-- lui-même (BIZZOO Admin → Livraisons). Allumé, son téléphone envoie sa
+-- position même application fermée, et la cascade peut le choisir parmi
+-- les plus proches ; éteint, ni l'un ni l'autre.
+alter table public.profils add column if not exists disponible boolean not null default true;
 -- (3.63.0) Qui l'a créé, et s'il attend sa validation : les règles de
 -- « profils », plus bas, les lisent. Posées ici, avant elles — la suite
 -- du fichier les répète là où elles sont expliquées.
@@ -2402,10 +2412,17 @@ create trigger boutiques_verrous
 -- ambiguous » et la fonction s'arrêtait là. Un paramètre ne se renomme
 -- pas par « create or replace » — il faut retirer l'ancienne signature.
 drop function if exists public.changer_secteur(text, text);
+-- (3.70.0) ELLE NE DÉCLASSE PLUS TOUT. Chaque produit va dans le rayon
+-- du MÊME NOM du nouveau secteur, s'il en a un ; les autres restent « à
+-- classer », mais DANS le nouveau secteur (« produit_code » y range tout
+-- produit sans rayon). Avant, tout le catalogue passait sous aucune
+-- catégorie : dans l'application cliente, la boutique n'apparaissait
+-- pas dans le secteur qu'on venait de lui donner.
+-- Elle rend le nombre de produits restés « à classer ».
 create or replace function public.changer_secteur(boutique text, vers text)
 returns int
 language plpgsql security definer set search_path = public as $$
-declare combien int;
+declare combien int; ancien text; cible text := nullif(coalesce(vers, ''), '');
 begin
   if not public.est_super() then
     raise exception 'Le secteur d''une boutique est fixé par l''enseigne';
@@ -2421,16 +2438,37 @@ begin
     raise exception 'Cette catégorie n''existe pas';
   end if;
 
-  update public.produits
-     set sous_categorie_id = null, categorie_id = null, modifie_le = now()
-   where boutique_id = boutique and sous_categorie_id is not null;
-  get diagnostics combien = row_count;
+  select b.categorie_id into ancien from public.boutiques b where b.id = boutique;
 
+  -- La boutique D'ABORD : « produit_code » range chaque produit dans le
+  -- secteur de sa boutique, il faut qu'il y lise le nouveau.
   perform set_config('bizzoo.secteur', 'oui', true);
   update public.boutiques
-     set categorie_id = nullif(coalesce(vers, ''), ''), maj_le = now()
+     set categorie_id = cible, maj_le = now()
    where id = boutique;
   perform set_config('bizzoo.secteur', '', true);
+
+  -- Puis ses produits : le rayon du même nom dans le nouveau secteur, ou
+  -- « à classer ». « modifie_le » bouge : les téléphones relisent le
+  -- catalogue, et y trouvent la boutique à sa nouvelle place.
+  if cible is distinct from ancien then
+    update public.produits p
+       set sous_categorie_id = (
+             select nv.id
+               from public.sous_categories av
+               join public.sous_categories nv
+                 on nv.categorie_id = cible
+                and lower(btrim(nv.nom)) = lower(btrim(av.nom))
+              where av.id = p.sous_categorie_id
+              order by nv.ordre, nv.id
+              limit 1),
+           modifie_le = now()
+     where p.boutique_id = boutique;
+  end if;
+
+  select count(*)::int into combien
+    from public.produits p
+   where p.boutique_id = boutique and p.sous_categorie_id is null;
   return combien;
 end $$;
 revoke all on function public.changer_secteur(text, text) from public, anon, authenticated;
@@ -2446,6 +2484,43 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.produits_classes(text) from public, anon, authenticated;
 grant execute on function public.produits_classes(text) to authenticated;
+
+-- (3.70.0) Ce que ferait « changer_secteur(boutique, vers) », AVANT de
+-- le faire : combien de produits trouvent un rayon du même nom dans le
+-- nouveau secteur, combien resteront « à classer » (dans ce secteur).
+create or replace function public.apercu_secteur(boutique text, vers text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not public.est_super() then null else
+    jsonb_build_object(
+      'produits', count(*),
+      'suivent', count(*) filter (where s.nv is not null),
+      'a_classer', count(*) filter (where s.nv is null))
+  end
+    from public.produits p
+    cross join lateral (
+      select (select nv.id
+                from public.sous_categories av
+                join public.sous_categories nv
+                  on nv.categorie_id = nullif(coalesce(vers, ''), '')
+                 and lower(btrim(nv.nom)) = lower(btrim(av.nom))
+               where av.id = p.sous_categorie_id
+               limit 1) as nv) s
+   where p.boutique_id = boutique;
+$$;
+revoke all on function public.apercu_secteur(text, text) from public, anon, authenticated;
+grant execute on function public.apercu_secteur(text, text) to authenticated;
+
+-- (3.70.0) LA RÉPARATION. Les produits « à classer » d'avant n'avaient
+-- plus de secteur du tout : ceux d'une boutique qui avait changé de
+-- secteur n'apparaissaient pas dans le nouveau, côté client. Les
+-- toucher suffit — « produit_code » les range dans le secteur de leur
+-- boutique. Relançable : ne touche que ce qui n'y est pas encore.
+update public.produits p
+   set modifie_le = now()
+  from public.boutiques b
+ where b.id = p.boutique_id
+   and p.sous_categorie_id is null
+   and p.categorie_id is distinct from b.categorie_id;
 
 -- ---------- La marge change, les prix suivent ----------
 -- Le modèle est « prix de vente = prix BIZZOO + marge ». Mais le prix de
@@ -2472,8 +2547,11 @@ language sql immutable as $$
   -- Le même calcul, au franc près, que celui de l'application admin.
   -- Les deux doivent donner le même chiffre : sinon réenregistrer un
   -- produit déplacerait son prix sans que personne ne l'ait demandé.
+  -- (3.70.0) Arrondi au franc SUPÉRIEUR : la marge réglée est toujours
+  -- tenue. 2 273 + 10 % = 2 500,3 → 2 501 ; l'arrondi au plus proche
+  -- donnait 2 500, soit 9,99 % pour BIZZOO au lieu des 10 % réglés.
   select case when coalesce(prix_bizzoo, 0) <= 0 then 0
-              else round(prix_bizzoo * (1 + greatest(0, coalesce(taux, 0)) / 100))::int
+              else ceil(prix_bizzoo * (1 + greatest(0, coalesce(taux, 0)) / 100))::int
          end;
 $$;
 revoke all on function public.prix_public(bigint, numeric) from public, anon, authenticated;
@@ -3885,6 +3963,11 @@ begin
         '#/commandes/' || commande, commande, b.id, true);
     end loop;
   end if;
+  -- (3.70.0) Course reprise au livreur (« Confier » vide) : elle repart en
+  -- cascade, du plus proche à tous (rien si une autre partie est portée).
+  if livreur is null then
+    perform public.reproposer_course(commande);
+  end if;
   return combien + autres;
 end $$;
 revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
@@ -4298,26 +4381,392 @@ begin
 end $$;
 revoke all on function public.texte_demande(jsonb) from public, anon, authenticated;
 
+-- ---------- La course au plus proche, puis à tous (3.70.0) ----------
+--
+-- AVANT, la course payée sonnait chez TOUS les livreurs à la fois. Désormais
+-- elle va d'abord au plus proche :
+--   1. le livreur le plus proche du point de retrait est seul alerté ; il a
+--      30 secondes pour toucher « Commande reçue » ;
+--   2. sinon, le deuxième plus proche est alerté à son tour (le premier peut
+--      encore la prendre), puis le troisième ;
+--   3. si aucun des trois ne l'a prise, elle part à TOUS les livreurs de
+--      BIZZOO — et à ceux qui pouvaient déjà la prendre (« candidats_course »).
+--
+-- « Le plus proche » : parmi les livreurs qui peuvent la prendre — ceux de
+-- la boutique d'abord, puis ceux de BIZZOO (véhicule, refus retirés) —,
+-- libres (sans course en cours) et dont la position est RÉCENTE (moins d'une
+-- heure : l'application ouverte l'envoie toutes les 3 minutes, voir
+-- « signaler_ma_position ») ; par distance à vol d'oiseau jusqu'à la
+-- boutique (la première, en livraison groupée ; le point BIZZOO si elle n'a
+-- pas de position). Personne de récent : elle part à tous tout de suite.
+--
+-- C'est la BASE qui tient l'horloge : une tâche passe toutes les 5 secondes
+-- (avancer_cascades), téléphones éteints ou non. Les réglages (délai, rangs,
+-- fraîcheur, interrupteur) vivent dans « cascade_reglage », que seul le
+-- serveur lit ; éteinte, la course part à tous d'un coup, comme avant.
+create table if not exists public.cascade_reglage (
+  id            int primary key default 1 check (id = 1),
+  actif         boolean not null default true,
+  delai_s       int not null default 30 check (delai_s between 10 and 600),
+  rangs         int not null default 3 check (rangs between 1 and 10),
+  fraicheur_min int not null default 60 check (fraicheur_min between 5 and 1440)
+);
+insert into public.cascade_reglage (id) values (1) on conflict (id) do nothing;
+alter table public.cascade_reglage enable row level security;
+revoke all on public.cascade_reglage from anon, authenticated;
+
+-- Où en est la course : qui a été alerté, dans quel ordre, et quand passer
+-- au suivant. Une ligne par commande ; un nouveau tour (course annulée par
+-- son livreur) la remet à zéro.
+create table if not exists public.courses_cascade (
+  commande_id text primary key references public.commandes(id) on delete cascade,
+  ordre       uuid[] not null default '{}',
+  etape       int not null default 0,
+  tous        boolean not null default false,
+  alertes     uuid[] not null default '{}',
+  prochaine   timestamptz,
+  lancee_le   timestamptz not null default now(),
+  reprise     boolean not null default false
+);
+create index if not exists courses_cascade_prochaine on public.courses_cascade (prochaine)
+  where prochaine is not null;
+alter table public.courses_cascade enable row level security;
+revoke all on public.courses_cascade from anon, authenticated;
+
+-- Le point d'où l'on mesure : la boutique où récupérer (la première qui a
+-- une position, en livraison groupée), sinon le point BIZZOO.
+create or replace function public.point_retrait_course(commande text,
+  out lat double precision, out lng double precision)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  select b.latitude, b.longitude into lat, lng
+    from public.commande_lignes l join public.boutiques b on b.id = l.boutique_id
+   where l.commande_id = commande and l.etat <> 'annulee'
+     and b.latitude is not null and b.longitude is not null
+   order by b.id limit 1;
+  if lat is null then
+    select p.livraison_latitude, p.livraison_longitude into lat, lng
+      from public.paiement p where p.id = 1;
+  end if;
+end $$;
+revoke all on function public.point_retrait_course(text) from public, anon, authenticated;
+
+-- Les livreurs les plus proches, du premier au dernier (« combien » au plus).
+create or replace function public.plus_proches_course(commande text, combien int)
+returns uuid[]
+language plpgsql stable security definer set search_path = public as $$
+declare
+  pt     record;
+  fraich int;
+  boutq  uuid[];
+begin
+  select * into pt from public.point_retrait_course(commande);
+  select coalesce(r.fraicheur_min, 60) into fraich from public.cascade_reglage r where r.id = 1;
+  boutq := public.candidats_course(commande);
+  return coalesce((
+    select array_agg(x.id order by x.rang, x.km nulls last, x.id)
+      from (select p.id,
+                   -- Ceux qui pouvaient déjà la prendre (sa boutique) d'abord.
+                   case when p.id = any(boutq) then 0 else 1 end as rang,
+                   case when pt.lat is null then null else
+                     2 * 6371 * asin(least(1, sqrt(
+                       sin(radians(pl.latitude - pt.lat) / 2) ^ 2
+                       + cos(radians(pt.lat)) * cos(radians(pl.latitude))
+                         * sin(radians(pl.longitude - pt.lng) / 2) ^ 2))) end as km
+              from unnest(public.tous_livreurs_course(commande)) as c(id)
+              join public.profils p on p.id = c.id
+              join public.positions_livreurs pl on pl.profil_id = p.id
+             where pl.enregistre_le > now() - make_interval(mins => coalesce(fraich, 60))
+               -- (3.70.0) « Pas disponible » : jamais parmi les plus proches.
+               and p.disponible
+               and not public.livreur_en_course(p.id)
+             order by 2, 3 nulls last, 1
+             limit greatest(coalesce(combien, 3), 0)) x), '{}');
+end $$;
+revoke all on function public.plus_proches_course(text, int) from public, anon, authenticated;
+
+-- TOUS les livreurs qui la reçoivent à la fin : ceux qui pouvaient la
+-- prendre, et tous les livreurs de BIZZOO dont le véhicule convient
+-- (tricycle exigé : les tricycles ; moto : motos et tricycles). Jamais un
+-- livreur suspendu, sans position, ou qui l'a refusée.
+create or replace function public.tous_livreurs_course(commande text)
+returns uuid[]
+language plpgsql stable security definer set search_path = public as $$
+declare besoin text;
+begin
+  select c.livraison ->> 'vehicule' into besoin from public.commandes c where c.id = commande;
+  return coalesce((
+    select array_agg(distinct x.id order by x.id) from (
+      select unnest(public.candidats_course(commande)) as id
+      union
+      select p.id from public.profils p
+       where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
+         and (besoin is null or besoin not in ('moto', 'tricycle')
+              or p.vehicule = besoin or (besoin = 'moto' and p.vehicule = 'tricycle'))
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id)) x), '{}');
+end $$;
+revoke all on function public.tous_livreurs_course(text) from public, anon, authenticated;
+
+-- La course est-elle encore à prendre ? Payée depuis moins de 7 jours (la
+-- fenêtre de l'écran des demandes), et personne ne la porte.
+--   1 : à prendre ; 0 : plus à proposer ; -1 : une partie portée ou en route.
+create or replace function public.course_a_prendre(commande text)
+returns int
+language plpgsql stable security definer set search_path = public as $$
+declare c record;
+begin
+  select c0.etat, c0.paye_le into c from public.commandes c0 where c0.id = commande;
+  if not found or c.etat <> 'payee' then return 0; end if;
+  if not exists (select 1 from public.commande_lignes l
+                  where l.commande_id = commande and l.etat <> 'annulee') then
+    return 0;
+  end if;
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.etat <> 'annulee'
+                and (l.livreur_id is not null or l.etat in ('en_livraison', 'remise'))) then
+    return -1;
+  end if;
+  if c.paye_le is null or c.paye_le <= now() - interval '7 days' then return 0; end if;
+  return 1;
+end $$;
+revoke all on function public.course_a_prendre(text) from public, anon, authenticated;
+
+-- Alerter : une demande qui sonne, à ceux qui ne l'ont pas encore reçue
+-- dans ce tour. Une demande d'un tour précédent est mise de côté (« …_avant_
+-- <n> », lue) pour que la nouvelle passe l'index « une fois ».
+create or replace function public.alerter_course(commande text, qui uuid[], titre text, entete text default '')
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  f    jsonb;
+  deja uuid[];
+begin
+  select k.alertes into deja from public.courses_cascade k where k.commande_id = commande;
+  qui := array(select distinct x from unnest(coalesce(qui, '{}'::uuid[])) as x
+                where x is not null and not (x = any(coalesce(deja, '{}'::uuid[]))));
+  if array_length(qui, 1) is null then return 0; end if;
+  f := public.fiche_demande(commande);
+  if f is null then return 0; end if;
+  update public.notifications n
+     set type = n.type || '_avant_' || n.id, lue_le = coalesce(n.lue_le, now())
+   where n.commande_id = commande
+     and n.type in ('course_proposee', 'course_prise')
+     and n.destinataire = any(qui);
+  update public.courses_cascade k set alertes = k.alertes || qui where k.commande_id = commande;
+  return public.notifier(qui, 'course_proposee', titre,
+    coalesce(nullif(entete, '') || E'\n', '') || public.texte_demande(f),
+    '#/livraisons', commande, null, true);
+end $$;
+revoke all on function public.alerter_course(text, uuid[], text, text) from public, anon, authenticated;
+
+-- Un pas de la cascade : le suivant de l'ordre, ou tout le monde. Rend le
+-- nombre de livreurs alertés à ce pas.
+create or replace function public.avancer_cascade(commande text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  k      public.courses_cascade%rowtype;
+  r      public.cascade_reglage%rowtype;
+  num    text;
+  titre  text;
+  qui    uuid;
+  n      int := 0;
+begin
+  -- Même ordre de verrous que « prendre_course » (la commande, puis la
+  -- cascade) : on n'alerte jamais le suivant d'une course en train d'être prise.
+  perform 1 from public.commandes c where c.id = commande for update;
+  select * into k from public.courses_cascade x where x.commande_id = commande for update;
+  if not found or k.tous then return 0; end if;
+  if public.course_a_prendre(commande) <> 1 then
+    update public.courses_cascade x set prochaine = null where x.commande_id = commande;
+    return 0;
+  end if;
+  select * into r from public.cascade_reglage x where x.id = 1;
+  if not public.horloge_cascade() then r.actif := false; end if;
+  select c.numero into num from public.commandes c where c.id = commande;
+  if k.reprise then
+    titre := 'Course à reprendre — ' || coalesce(num, '');
+  elsif (select count(distinct l.boutique_id) from public.commande_lignes l
+          where l.commande_id = commande and l.etat <> 'annulee') > 1 then
+    titre := 'Livraison groupée — ' || coalesce(num, '');
+  else
+    titre := 'Nouvelle course — ' || coalesce(num, '');
+  end if;
+
+  -- Le suivant de l'ordre, s'il peut encore la prendre.
+  while k.etape < coalesce(array_length(k.ordre, 1), 0) loop
+    k.etape := k.etape + 1;
+    qui := k.ordre[k.etape];
+    if qui = any(public.tous_livreurs_course(commande)) and not public.livreur_en_course(qui) then
+      update public.courses_cascade x
+         set etape = k.etape, prochaine = now() + make_interval(secs => coalesce(r.delai_s, 30))
+       where x.commande_id = commande;
+      n := public.alerter_course(commande, array[qui], titre,
+        'Vous êtes parmi les plus proches : touchez « Commande reçue » dans les ' ||
+        coalesce(r.delai_s, 30) || ' secondes, sinon elle passe au livreur suivant.');
+      if n > 0 then return n; end if;
+    end if;
+  end loop;
+
+  -- Personne (plus) dans l'ordre : à tous les livreurs de BIZZOO. Cascade
+  -- éteinte : à ceux qui pouvaient la prendre, d'un coup, comme avant.
+  update public.courses_cascade x set etape = k.etape, tous = true, prochaine = null
+   where x.commande_id = commande;
+  return public.alerter_course(commande,
+    case when coalesce(r.actif, true) then public.tous_livreurs_course(commande)
+         else public.candidats_course(commande) end, titre);
+end $$;
+revoke all on function public.avancer_cascade(text) from public, anon, authenticated;
+
+-- Lance (ou relance, « reprise ») la cascade d'une commande. Rend le
+-- nombre de livreurs alertés tout de suite ; 0 s'il n'y a plus rien à
+-- proposer, -1 si une partie est portée ou déjà en route.
+create or replace function public.lancer_cascade(commande text, reprise boolean default false)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  etat int;
+  r    public.cascade_reglage%rowtype;
+begin
+  etat := public.course_a_prendre(commande);
+  if etat <> 1 then return etat; end if;
+  select * into r from public.cascade_reglage x where x.id = 1;
+  if coalesce(r.actif, true) and not public.horloge_cascade() then
+    -- Sans la tâche des 5 secondes, la cascade resterait au premier : à
+    -- tous d'un coup, comme avant.
+    r.actif := false;
+  end if;
+  if reprise then
+    -- Les demandes du tour d'avant ne valent plus : la course repart du
+    -- plus proche, et chacun la retrouvera à son tour.
+    update public.notifications n set lue_le = coalesce(n.lue_le, now())
+     where n.commande_id = commande and n.type = 'course_proposee';
+  end if;
+  insert into public.courses_cascade as k (commande_id, ordre, etape, tous, alertes, prochaine, lancee_le, reprise)
+  values (commande,
+          case when r.actif is not false
+               then public.plus_proches_course(commande, coalesce(r.rangs, 3)) else '{}' end,
+          0, false, '{}', null, now(), coalesce(reprise, false))
+  on conflict (commande_id) do update
+     set ordre = excluded.ordre, etape = 0, tous = false, alertes = '{}',
+         prochaine = null, lancee_le = now(), reprise = excluded.reprise;
+  return public.avancer_cascade(commande);
+end $$;
+revoke all on function public.lancer_cascade(text, boolean) from public, anon, authenticated;
+
+-- L'horloge : toutes les 5 secondes, les cascades dont le délai est passé
+-- avancent d'un pas. Une panne sur une commande n'arrête pas les autres.
+create or replace function public.avancer_cascades()
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  cible text;
+  n     int := 0;
+begin
+  for cible in
+    select k.commande_id from public.courses_cascade k
+     where k.prochaine is not null and k.prochaine <= now() and not k.tous
+     order by k.prochaine
+     limit 200
+  loop
+    begin
+      perform public.avancer_cascade(cible);
+      n := n + 1;
+    exception when others then
+      raise warning 'avancer_cascade(%) : %', cible, sqlerrm;
+      update public.courses_cascade x set prochaine = null where x.commande_id = cible;
+    end;
+  end loop;
+  return n;
+end $$;
+revoke all on function public.avancer_cascades() from public, anon, authenticated;
+
+-- La tâche des 5 secondes est-elle programmée ? Sans elle, pas de cascade.
+create or replace function public.horloge_cascade()
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare ok boolean := false;
+begin
+  if to_regclass('cron.job') is null then return false; end if;
+  execute 'select exists (select 1 from cron.job where jobname = ''courses-cascade'' and active)' into ok;
+  return coalesce(ok, false);
+exception when others then
+  return false;
+end $$;
+revoke all on function public.horloge_cascade() from public, anon, authenticated;
+
+-- À qui la course est ouverte : ceux que la cascade a alertés dans ce tour.
+-- Une commande d'avant la cascade (sans ligne) : comme avant, à tous les
+-- candidats.
+create or replace function public.course_ouverte_a(commande text, qui uuid)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare k public.courses_cascade%rowtype;
+begin
+  select * into k from public.courses_cascade x where x.commande_id = commande;
+  if not found then
+    return qui = any(public.candidats_course(commande));
+  end if;
+  if exists (select 1 from public.profils p where p.id = qui and (p.courses_bloquees or not p.actif))
+     or exists (select 1 from public.refus_courses r where r.commande_id = commande and r.livreur_id = qui) then
+    return false;
+  end if;
+  if qui = any(k.alertes) then return true; end if;
+  -- Étape « tous » passée (ou cascade arrêtée) : ouverte à ceux qui peuvent
+  -- la prendre MAINTENANT — un livreur débloqué ou validé depuis la voit.
+  if k.tous or k.prochaine is null then
+    -- Cascade éteinte (ou sans horloge) : à ceux qui pouvaient la prendre,
+    -- comme avant ; allumée : à tous les livreurs de BIZZOO aussi.
+    if coalesce((select r.actif from public.cascade_reglage r where r.id = 1), true)
+       and public.horloge_cascade() then
+      return qui = any(public.tous_livreurs_course(commande))
+          or qui = any(public.candidats_course(commande));
+    end if;
+    return qui = any(public.candidats_course(commande));
+  end if;
+  return false;
+end $$;
+revoke all on function public.course_ouverte_a(text, uuid) from public, anon, authenticated;
+
+-- Ceux qui ont reçu la demande (pour « Déjà pris par … »).
+create or replace function public.alertes_course(commande text)
+returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce((select k.alertes from public.courses_cascade k where k.commande_id = commande),
+                  public.candidats_course(commande));
+$$;
+revoke all on function public.alertes_course(text) from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('courses-cascade', '5 seconds', 'select public.avancer_cascades()');
+    -- Le journal de pg_cron garde chaque passage : 17 280 par jour. Une
+    -- heure suffit pour ceux-là.
+    perform cron.schedule('courses-cascade-menage', '41 * * * *',
+      $q$delete from cron.job_run_details
+          where jobid in (select jobid from cron.job where jobname = 'courses-cascade')
+            and end_time < now() - interval '1 hour'$q$);
+  end if;
+exception when others then
+  raise notice 'Cascade des courses non programmée (%)', sqlerrm;
+end $$;
+
 -- Au paiement : la demande part. Une panne ici ne doit jamais faire
 -- échouer le paiement — elle se lit dans le journal, et la boutique
 -- garde « Confier à un livreur ».
 create or replace function public.proposer_course() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare
-  f jsonb;
 begin
   if new.etat is not distinct from old.etat or new.etat <> 'payee' then
     return null;
   end if;
   begin
-    f := public.fiche_demande(new.id);
-    if f is null then return null; end if;
-    perform public.notifier(public.candidats_course(new.id), 'course_proposee',
-      case when (f ->> 'groupee')::boolean
-           then 'Livraison groupée — ' || coalesce(new.numero, '')
-           else 'Nouvelle course — ' || coalesce(new.numero, '') end,
-      public.texte_demande(f),
-      '#/livraisons', new.id, null, true);
+    -- (3.70.0) Au plus proche d'abord, puis aux suivants, puis à tous.
+    perform public.lancer_cascade(new.id, false);
   exception when others then
     raise warning 'proposer_course(%) : %', new.id, sqlerrm;
   end;
@@ -4352,7 +4801,8 @@ begin
                         where l.commande_id = c.id
                           and l.etat in ('en_livraison', 'remise'))
        and c.paye_le > now() - interval '7 days'
-       and moi = any(public.candidats_course(c.id))
+       -- (3.70.0) Ceux que la cascade a déjà alertés (avant : tous les candidats).
+       and public.course_ouverte_a(c.id, moi)
        -- (3.59.0) Il l'a refusée : elle ne lui revient pas.
        and not exists (select 1 from public.refus_courses rc
                         where rc.commande_id = c.id and rc.livreur_id = moi)
@@ -4380,7 +4830,8 @@ begin
   if not found then
     raise exception 'Cette commande n''attend pas de livreur';
   end if;
-  if not (moi = any(public.candidats_course(commande))) then
+  -- (3.70.0) Ouverte à ceux que la cascade a déjà alertés.
+  if not public.course_ouverte_a(commande, moi) then
     raise exception 'Cette course n''est pas proposée à votre compte';
   end if;
   if exists (select 1 from public.refus_courses rc
@@ -4421,8 +4872,10 @@ begin
      set lue_le = now()
    where n.commande_id = commande and n.type = 'course_proposee'
      and n.destinataire <> moi and n.lue_le is null;
+  -- (3.70.0) La cascade s'arrête : la course a son livreur.
+  update public.courses_cascade k set prochaine = null where k.commande_id = commande;
   perform public.notifier(
-    array(select x from unnest(public.candidats_course(commande)) as x where x <> moi),
+    array(select x from unnest(public.alertes_course(commande)) as x where x <> moi),
     'course_prise',
     'Déjà pris par ' || preneur,
     'Commande ' || coalesce(numero, '') || ' — ' || preneur || ' a pris la course. Elle n''est plus disponible.',
@@ -4801,48 +5254,20 @@ revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
 
 -- (3.70.0) LA COURSE REPART TOUTE SEULE. Quand le livreur la lâche — il
 -- l'annule, ou BIZZOO le suspend —, elle est REPROPOSÉE aussitôt, avec
--- sonnerie, aux livreurs qui pouvaient la prendre (« candidats_course »),
--- sauf ceux qui l'ont déjà refusée. Elle ne repart que si plus personne ne
+-- sonnerie, par la cascade (le plus proche, puis les suivants, puis tous),
+-- sauf à ceux qui l'ont déjà refusée. Elle ne repart que si plus personne ne
 -- la porte : payée depuis moins de 7 jours (comme « courses_proposees »),
 -- aucun livreur sur ses lignes, rien parti en livraison.
--- Rend le nombre de livreurs prévenus ; -1 quand une partie est encore
--- portée ou déjà en route (elle se confie alors à la main).
+-- Rend le nombre de livreurs alertés tout de suite ; -1 quand une partie
+-- est encore portée ou déjà en route (elle se confie alors à la main).
 -- Réservée aux fonctions de la base.
 create or replace function public.reproposer_course(commande text)
 returns int
 language plpgsql security definer set search_path = public as $$
-declare
-  f   jsonb;
-  qui uuid[];
-  c   record;
 begin
-  select c0.numero, c0.etat, c0.paye_le into c from public.commandes c0 where c0.id = commande;
-  if not found or c.etat <> 'payee' then return 0; end if;
-  if exists (select 1 from public.commande_lignes l
-              where l.commande_id = commande and l.etat <> 'annulee'
-                and (l.livreur_id is not null or l.etat in ('en_livraison', 'remise'))) then
-    return -1;
-  end if;
-  -- Plus vieille, elle n'apparaîtrait sur l'écran d'aucun livreur.
-  if c.paye_le is null or c.paye_le <= now() - interval '7 days' then return 0; end if;
-  select coalesce(array_agg(x), '{}') into qui
-    from unnest(public.candidats_course(commande)) as x
-   where not exists (select 1 from public.refus_courses r
-                      where r.commande_id = commande and r.livreur_id = x);
-  if array_length(qui, 1) is null then return 0; end if;
-  f := public.fiche_demande(commande);
-  if f is null then return 0; end if;
-  -- Une demande ne part qu'une fois par livreur et par commande : les
-  -- anciennes sont mises de côté (« …_avant_<n> »), comme au refus.
-  update public.notifications n
-     set type = n.type || '_avant_' || n.id, lue_le = coalesce(n.lue_le, now())
-   where n.commande_id = commande
-     and n.type in ('course_proposee', 'course_prise')
-     and n.destinataire = any(qui);
-  return public.notifier(qui, 'course_proposee',
-    'Course à reprendre — ' || coalesce(c.numero, ''),
-    public.texte_demande(f),
-    '#/livraisons', commande, null, true);
+  -- (3.70.0) Comme au paiement : la cascade repart du plus proche (ceux
+  -- qui l'ont refusée exceptés), puis à tous les livreurs de BIZZOO.
+  return public.lancer_cascade(commande, true);
 end $$;
 revoke all on function public.reproposer_course(text) from public, anon, authenticated;
 
@@ -4929,8 +5354,7 @@ begin
   texte := porteur || ' a annulé la course' ||
       case when pourquoi <> '' then ' : « ' || pourquoi || ' »' else '' end || '.' || E'\n' ||
       case when relances > 0
-           then 'Elle a été reproposée à ' || relances || ' autre' || case when relances > 1 then 's' else '' end ||
-                ' livreur' || case when relances > 1 then 's' else '' end || '.'
+           then 'Elle repart vers les livreurs les plus proches, puis vers tous les livreurs de BIZZOO.'
            when relances < 0
            then 'Une partie de la commande est déjà en route ou portée par un autre livreur : ' ||
                 'confiez à la main la part libérée.'
@@ -11770,6 +12194,35 @@ begin
          enregistre_le = now();
   return jsonb_build_object('latitude', la, 'longitude', lo, 'adresse', ad, 'le', now());
 end $$;
+-- (3.70.0) LA POSITION DU LIVREUR LIBRE. BIZZOO Admin ouvert, elle part
+-- toutes les 3 minutes : c'est elle qui dit qui est « le plus proche » d'une
+-- nouvelle course. Elle ne valide pas un compte (« enregistrer_ma_position »
+-- le fait, avec l'adresse) : elle met seulement à jour une position déjà là.
+create or replace function public.signaler_ma_position(
+  lat double precision, lng double precision, precision_m int default null)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  la  double precision := public.coord_valable(lat, 90);
+  lo  double precision := public.coord_valable(lng, 180);
+begin
+  if moi is null or not public.est_livreur() then return false; end if;
+  if la is null or lo is null or (la = 0 and lo = 0) then return false; end if;
+  -- (3.70.0) « Pas disponible » et sans course : sa position ne part pas.
+  if exists (select 1 from public.profils p where p.id = moi and not p.disponible)
+     and not public.livreur_en_course(moi) then
+    return false;
+  end if;
+  update public.positions_livreurs
+     set latitude = la, longitude = lo, precision_m = greatest(0, signaler_ma_position.precision_m),
+         enregistre_le = now()
+   where profil_id = moi and enregistre_le < now() - interval '30 seconds';
+  return found;
+end $$;
+revoke all on function public.signaler_ma_position(double precision, double precision, int) from public, anon;
+grant execute on function public.signaler_ma_position(double precision, double precision, int) to authenticated;
+
 revoke all on function public.enregistrer_ma_position(double precision, double precision, text, int)
   from public, anon;
 grant execute on function public.enregistrer_ma_position(double precision, double precision, text, int)
@@ -16082,6 +16535,11 @@ create table if not exists public.suivis_livreurs (
   expire_le   timestamptz not null,
   cree_le     timestamptz not null default now()
 );
+-- (3.70.0) L'ANCIEN JETON RESTE VALABLE 10 MINUTES après un renouvellement :
+-- le téléphone qui l'utilise encore (un envoi parti, ou le service pas
+-- encore relancé avec le nouveau) n'est plus coupé par un refus.
+alter table public.suivis_livreurs add column if not exists jeton_hash_precedent text;
+alter table public.suivis_livreurs add column if not exists precedent_expire_le timestamptz;
 alter table public.suivis_livreurs enable row level security;
 -- Aucune règle : personne ne lit ni n'écrit la table, sinon ces fonctions.
 revoke all on table public.suivis_livreurs from public, anon, authenticated;
@@ -16109,12 +16567,27 @@ begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
   end if;
+  -- (3.70.0) Rien à suivre — ni course, ni « disponible » — : pas de jeton,
+  -- et « Localiser un livreur » ne le montre pas suivi.
+  if not public.livreur_en_course(moi)
+     and not exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees) then
+    delete from public.suivis_livreurs where profil_id = moi;
+    return jsonb_build_object('jeton', null, 'en_course', false, 'disponible', false);
+  end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-  insert into public.suivis_livreurs (profil_id, jeton_hash, expire_le, cree_le)
+  insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())
   on conflict (profil_id) do update
-     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now();
+     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now(),
+         -- (3.70.0) L'ancien reste bon 10 minutes, s'il l'était encore.
+         jeton_hash_precedent = case when s.expire_le > now() then s.jeton_hash end,
+         precedent_expire_le = case when s.expire_le > now() then now() + interval '10 minutes' end;
   return jsonb_build_object('jeton', jeton, 'en_course', public.livreur_en_course(moi),
+                            -- (3.70.0) Libre mais disponible (et pas suspendu) : le
+                            -- téléphone suit aussi. Une base d'avant ne le dit pas.
+                            'disponible', coalesce((select p.disponible and not p.courses_bloquees
+                                                      from public.profils p where p.id = moi), true),
                             'expire_le', now() + interval '16 hours');
 end $$;
 
@@ -16132,8 +16605,11 @@ declare
   derniere timestamptz;
 begin
   select s.profil_id into qui from public.suivis_livreurs s
-   where s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-     and s.expire_le > now();
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      -- (3.70.0) L'ancien jeton, 10 minutes après un renouvellement.
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
   if qui is null then
     raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
   end if;
@@ -16167,6 +16643,116 @@ grant execute on function public.ouvrir_suivi_livreur() to authenticated;
 revoke all on function public.position_en_course(text, double precision, double precision, int) from public;
 grant execute on function public.position_en_course(text, double precision, double precision, int)
   to anon, authenticated;
+
+-- (3.70.0) LA POSITION DU LIVREUR, COURSE OU PAS — application fermée.
+-- Le service Android de BIZZOO Admin 3.70.0 l'appelle (l'ancien, celui de
+-- « position_en_course », s'arrête toujours en fin de course) : il continue
+-- tant que le livreur a une course OU s'est dit « disponible ». La réponse
+-- dit lequel des deux, pour que le téléphone règle son rythme : toutes les
+-- 20 secondes en course, toutes les 3 minutes libre. C'est cette position
+-- qui fait « le plus proche » dans la cascade des courses.
+create or replace function public.position_livreur(jeton text, lat double precision,
+  lng double precision, precision_m int default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  qui uuid;
+  p   public.profils%rowtype;
+  la  double precision := public.coord_valable(lat, 90);
+  lo  double precision := public.coord_valable(lng, 180);
+  en_course boolean;
+  derniere timestamptz;
+  pas      interval;
+begin
+  select s.profil_id into qui from public.suivis_livreurs s
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
+  if qui is null then
+    raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
+  end if;
+  -- Le service travaille encore avec l'ancien jeton (le nouveau attend que
+  -- la page revienne à l'écran) : il le garde tant qu'il s'en sert.
+  update public.suivis_livreurs set precedent_expire_le = now() + interval '10 minutes'
+   where profil_id = qui
+     and jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+     and precedent_expire_le < now() + interval '5 minutes';
+  select * into p from public.profils x where x.id = qui;
+  if not found or not p.actif or p.role <> 'livreur' then
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false, 'en_course', false);
+  end if;
+  en_course := public.livreur_en_course(qui);
+  if not en_course and (not coalesce(p.disponible, true) or p.courses_bloquees) then
+    -- Le suivi s'arrête : « Localiser un livreur » ne le montre plus actif.
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false, 'en_course', false);
+  end if;
+  -- APPLICATION FERMÉE DES JOURS DURANT : tant que le téléphone se manifeste,
+  -- le jeton ne meurt pas (16 heures après le dernier signe ; une écriture
+  -- par heure au plus).
+  update public.suivis_livreurs set expire_le = now() + interval '16 hours'
+   where profil_id = qui and expire_le < now() + interval '15 hours';
+  if la is null or lo is null or (la = 0 and lo = 0) then
+    return jsonb_build_object('continuer', true, 'en_course', en_course);
+  end if;
+  -- Pas plus d'une écriture toutes les 5 secondes en course, toutes les 30
+  -- secondes libre. Seule une position déjà là (compte validé) se met à jour.
+  select pl.enregistre_le into derniere from public.positions_livreurs pl where pl.profil_id = qui;
+  pas := case when en_course then interval '5 seconds' else interval '30 seconds' end;
+  if derniere is not null and derniere < now() - pas then
+    update public.positions_livreurs
+       set latitude = la, longitude = lo, precision_m = greatest(0, position_livreur.precision_m),
+           enregistre_le = now()
+     where profil_id = qui;
+  end if;
+  return jsonb_build_object('continuer', true, 'en_course', en_course);
+end $$;
+-- Sans session : le jeton fait foi.
+revoke all on function public.position_livreur(text, double precision, double precision, int) from public;
+grant execute on function public.position_livreur(text, double precision, double precision, int)
+  to anon, authenticated;
+
+-- (3.70.0) Le téléphone cesse de suivre (la page l'a arrêté, ou le livreur
+-- se déconnecte) : la base l'oublie aussi. Sans « tout », seulement s'il
+-- n'a plus rien à suivre.
+create or replace function public.fermer_suivi_livreur(tout boolean default false)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then return false; end if;
+  if not coalesce(tout, false)
+     and (public.livreur_en_course(moi)
+          or exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees)) then
+    return false;
+  end if;
+  delete from public.suivis_livreurs where profil_id = moi;
+  return found;
+end $$;
+revoke all on function public.fermer_suivi_livreur(boolean) from public, anon;
+grant execute on function public.fermer_suivi_livreur(boolean) to authenticated;
+
+-- (3.70.0) Le livreur se dit disponible, ou non. Rend l'état gardé.
+create or replace function public.regler_disponibilite(dispo boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Réservé aux livreurs.' using errcode = '42501';
+  end if;
+  update public.profils set disponible = coalesce(dispo, true) where id = moi;
+  -- Éteint et sans course : le suivi s'arrête aussi en base.
+  if not coalesce(dispo, true) and not public.livreur_en_course(moi) then
+    delete from public.suivis_livreurs where profil_id = moi;
+  end if;
+  return coalesce(dispo, true);
+end $$;
+revoke all on function public.regler_disponibilite(boolean) from public, anon;
+grant execute on function public.regler_disponibilite(boolean) to authenticated;
 
 -- ---------- BIZZOO Personnel : le menu « Localiser un livreur » ----------
 do $$
@@ -16223,8 +16809,11 @@ begin
               'latitude', pl.latitude, 'longitude', pl.longitude, 'precision', pl.precision_m,
               'adresse', pl.adresse, 'le', pl.enregistre_le) end,
           'en_course', public.livreur_en_course(p.id),
+          -- (3.70.0) Actif : un jeton valable ET une position de moins de
+          -- 15 minutes — un téléphone éteint ne passe plus pour suivi.
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
-                                  where s.profil_id = p.id and s.expire_le > now()),
+                                  where s.profil_id = p.id and s.expire_le > now())
+                         and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
           -- En route vers un client, et rien reçu de son téléphone depuis
           -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
           'muet', exists (select 1 from public.commande_lignes l
@@ -18198,6 +18787,12 @@ begin
   perform set_config('bizzoo.blocage', 'oui', true);
   update public.profils set courses_bloquees = bloquer where id = livreur;
   perform set_config('bizzoo.blocage', '', true);
+  -- (3.70.0) Bloqué pendant son tour dans une cascade : elle passe au
+  -- suivant au prochain passage de l'horloge, sans attendre ses 30 secondes.
+  if bloquer then
+    update public.courses_cascade k set prochaine = now()
+     where not k.tous and k.prochaine is not null and k.etape > 0 and k.ordre[k.etape] = livreur;
+  end if;
   insert into public.livreurs_blocages (profil_id, bloque, motif, par_compte, par_nom)
   values (livreur, bloquer, pourquoi, auth.uid(), auteur);
 
@@ -22256,3 +22851,78 @@ begin
 exception when others then
   raise notice 'File, alertes et bilan non programmés (%), l''écran les rattrapera', sqlerrm;
 end $$;
+
+-- =========================================================
+-- (3.70.0) LES PRÉFIXES DES OPÉRATEURS, réglables sans mise à jour
+--
+-- Un numéro béninois dit son réseau : « 01 » + deux chiffres (ou ces
+-- deux chiffres en tête de l'ancien numéro à 8 chiffres). Les trois
+-- applications s'en servent pour corriger le réseau choisi au paiement
+-- et pour repérer un numéro tapé à la place d'un ID de transaction.
+--
+-- La liste vivait dans le code : un nouveau préfixe attribué par l'ARCEP
+-- demandait une nouvelle version. Elle vit maintenant ICI ; les
+-- applications la relisent à chaque ouverture, et gardent la leur si la
+-- base ne répond pas. Le superadministrateur la règle depuis BIZZOO
+-- Admin → Réglages → « Préfixes des opérateurs ».
+--
+-- Lecture : tout le monde (le client paie sans compte). Écriture : par
+-- « regler_prefixe_operateur() » seulement, réservée au superadmin.
+-- =========================================================
+create table if not exists public.prefixes_operateurs (
+  prefixe    text primary key check (prefixe ~ '^[0-9]{2}$'),
+  operateur  text not null check (operateur in ('MTN', 'MOOV', 'CELTIIS')),
+  modifie_le timestamptz not null default now()
+);
+alter table public.prefixes_operateurs enable row level security;
+drop policy if exists "lecture publique" on public.prefixes_operateurs;
+create policy "lecture publique" on public.prefixes_operateurs for select using (true);
+revoke all on public.prefixes_operateurs from public, anon, authenticated;
+grant select on public.prefixes_operateurs to anon, authenticated;
+
+-- La liste de départ : celle du SDK de FeexPay, qui est aussi celle de
+-- l'ancien plan. « do nothing » : relancé, ce fichier ne défait pas ce
+-- que le superadmin a réglé depuis.
+insert into public.prefixes_operateurs (prefixe, operateur)
+select p, 'MTN' from unnest(array['42','46','50','51','52','53','54','56','57','59','61','62',
+                                  '66','67','69','90','91','92','93','96','97']) p
+union all
+select p, 'MOOV' from unnest(array['45','55','58','60','63','64','65','68','94','95','98','99']) p
+union all
+select p, 'CELTIIS' from unnest(array['40','41','43','44','47']) p
+on conflict (prefixe) do nothing;
+
+-- Ajouter, réattribuer (« operateur » donné) ou retirer (« operateur »
+-- vide) un préfixe. « prefixe » : « 30 », « 0130 » ou « 01 30 » — les
+-- deux chiffres qui suivent « 01 ».
+create or replace function public.regler_prefixe_operateur(prefixe text, operateur text)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  p text := regexp_replace(coalesce(prefixe, ''), '\D', '', 'g');
+  o text := upper(btrim(coalesce(operateur, '')));
+begin
+  if not public.est_super() then
+    raise exception 'Les préfixes des opérateurs sont réglés par le superadministrateur';
+  end if;
+  if length(p) = 4 and left(p, 2) = '01' then p := right(p, 2); end if;
+  if p !~ '^[0-9]{2}$' then
+    raise exception 'Un préfixe : les deux chiffres qui suivent « 01 » (par exemple 97 pour 01 97…)';
+  end if;
+  if o = '' then
+    delete from public.prefixes_operateurs x where x.prefixe = p;
+    return jsonb_build_object('prefixe', p, 'operateur', null);
+  end if;
+  if o not in ('MTN', 'MOOV', 'CELTIIS') then
+    raise exception 'Opérateur inconnu : MTN, Moov ou Celtiis';
+  end if;
+  insert into public.prefixes_operateurs as x (prefixe, operateur, modifie_le)
+  values (p, o, now())
+  -- La contrainte par son nom : « prefixe » est aussi le nom du paramètre,
+  -- et « on conflict (prefixe) » serait ambigu pour plpgsql.
+  on conflict on constraint prefixes_operateurs_pkey
+  do update set operateur = excluded.operateur, modifie_le = now();
+  return jsonb_build_object('prefixe', p, 'operateur', o);
+end $$;
+revoke all on function public.regler_prefixe_operateur(text, text) from public, anon, authenticated;
+grant execute on function public.regler_prefixe_operateur(text, text) to authenticated;

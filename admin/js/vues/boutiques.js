@@ -381,24 +381,48 @@ const VueBoutiques = (() => {
         UI.fermerFeuille();
 
         if (changement) {
-          const combien = await Store.produitsClasses(boutique.id);
-          const ok = await UI.confirmer({
-            titre: "Changer le secteur ?",
-            texte: combien
+          const apercu = await Store.apercuSecteur(boutique.id, secteurVoulu);
+          const pl = (n, un, plusieurs) => n + " " + (n > 1 ? plusieurs : un);
+          const combien = apercu.aClasser;
+          let texte;
+          if (apercu.ancienneBase) {
+            texte = combien
               ? combien + " produit" + (combien > 1 ? "s" : "") + " de cette boutique " +
                 (combien > 1 ? "sont rangés" : "est rangé") + " dans les rayons du secteur " +
                 "actuel. Le nouveau n'a pas les mêmes : " +
                 (combien > 1 ? "ils repasseront" : "il repassera") + " « à classer » — " +
                 "en vente, mais sous aucune catégorie — jusqu'à ce que la boutique " +
                 (combien > 1 ? "les reclasse" : "le reclasse") + "."
-              : "Aucun produit n'est encore classé : rien ne sera perdu.",
+              : "Aucun produit n'est encore classé : rien ne sera perdu.";
+          } else if (!apercu.produits) {
+            texte = "Cette boutique n'a encore aucun produit : rien à déplacer.";
+          } else {
+            /* (3.70.0) Les produits SUIVENT la boutique dans son nouveau
+               secteur : l'application cliente les y montre aussitôt. */
+            texte = (apercu.produits > 1
+                ? "Ses " + apercu.produits + " produits passent"
+                : "Son produit passe") + " avec elle dans le nouveau secteur." +
+              (apercu.suivent
+                ? " " + pl(apercu.suivent, "produit retrouve", "produits retrouvent") +
+                  " un rayon du même nom."
+                : "") +
+              (combien
+                ? " " + pl(combien, "produit n'a pas", "produits n'ont pas") +
+                  " de rayon équivalent : visible" + (combien > 1 ? "s" : "") +
+                  " dans le secteur (« Tout voir »), mais « à classer » jusqu'à ce que " +
+                  "la boutique " + (combien > 1 ? "leur" : "lui") + " choisisse un rayon."
+                : "");
+          }
+          const ok = await UI.confirmer({
+            titre: "Changer le secteur ?",
+            texte,
             bouton: "Changer le secteur",
             danger: combien > 0,
           });
           if (ok) {
-            await Store.changerSecteur(boutique.id, secteurVoulu);
-            UI.toast(combien
-              ? "Secteur changé — " + combien + " produit" + (combien > 1 ? "s" : "") + " à reclasser"
+            const reste = await Store.changerSecteur(boutique.id, secteurVoulu);
+            UI.toast(reste
+              ? "Secteur changé — " + reste + " produit" + (reste > 1 ? "s" : "") + " à ranger dans un rayon"
               : "Secteur changé", "ok");
           } else {
             UI.toast("Le reste est enregistré ; le secteur n'a pas changé.");

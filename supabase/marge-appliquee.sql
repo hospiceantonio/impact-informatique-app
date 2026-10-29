@@ -65,8 +65,11 @@ language sql immutable as $$
   -- Le même calcul, au franc près, que celui de l'application admin.
   -- Les deux doivent donner le même chiffre : sinon réenregistrer un
   -- produit déplacerait son prix sans que personne ne l'ait demandé.
+  -- (3.70.0) Arrondi au franc SUPÉRIEUR : la marge réglée est toujours
+  -- tenue. 2 273 + 10 % = 2 500,3 → 2 501 ; l'arrondi au plus proche
+  -- donnait 2 500, soit 9,99 % pour BIZZOO au lieu des 10 % réglés.
   select case when coalesce(prix_bizzoo, 0) <= 0 then 0
-              else round(prix_bizzoo * (1 + greatest(0, coalesce(taux, 0)) / 100))::int
+              else ceil(prix_bizzoo * (1 + greatest(0, coalesce(taux, 0)) / 100))::int
          end;
 $$;
 revoke all on function public.prix_public(bigint, numeric) from public, anon, authenticated;

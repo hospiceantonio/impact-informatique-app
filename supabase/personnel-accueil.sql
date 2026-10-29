@@ -13,6 +13,9 @@
 -- Les autres reçoivent null : leur accueil reste celui de leurs tâches.
 -- =========================================================
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.profils add column if not exists disponible boolean not null default true;
+
 create or replace function public.rh_moi() returns uuid
 language sql stable security definer set search_path = public as $$
   select id from public.rh_employes where compte_id = auth.uid() and etat = 'actif';

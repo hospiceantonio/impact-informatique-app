@@ -1041,8 +1041,11 @@ begin
               'latitude', pl.latitude, 'longitude', pl.longitude, 'precision', pl.precision_m,
               'adresse', pl.adresse, 'le', pl.enregistre_le) end,
           'en_course', public.livreur_en_course(p.id),
+          -- (3.70.0) Actif : un jeton valable ET une position de moins de
+          -- 15 minutes — un téléphone éteint ne passe plus pour suivi.
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
-                                  where s.profil_id = p.id and s.expire_le > now()),
+                                  where s.profil_id = p.id and s.expire_le > now())
+                         and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
           -- En route vers un client, et rien reçu de son téléphone depuis
           -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
           'muet', exists (select 1 from public.commande_lignes l

@@ -146,11 +146,15 @@ const Store = (() => {
   /** Le taux qui s'applique vraiment à un produit. */
   const tauxApplique = (taux) => (taux === null || taux === undefined ? reglages.tauxMarge : taux);
 
-  /** Prix public = prix grossiste + marge, arrondi au franc. */
+  /** Prix public = prix grossiste + marge, arrondi au franc SUPÉRIEUR :
+      la marge réglée est toujours tenue (2 273 + 10 % = 2 500,3 → 2 501,
+      et non 2 500, qui ne laissait que 9,99 %). Calcul en centièmes
+      entiers : 2 000 × 1,1 ne doit pas devenir 2 201 par la virgule. */
   function prixPublic(prixGrossiste, taux) {
     const achat = Math.max(0, Math.round(Number(prixGrossiste) || 0));
     if (!achat) return 0;
-    return Math.round(achat * (1 + tauxApplique(taux) / 100));
+    const centiemes = Math.round(Math.max(0, Number(tauxApplique(taux)) || 0) * 100);
+    return Math.ceil(achat * (10000 + centiemes) / 10000);
   }
 
   /**
@@ -953,6 +957,14 @@ const Store = (() => {
     return Supabase.rpc("remettre_course", {
       commande, boutique, montant: Math.max(0, Math.round(Number(montant) || 0)),
       mode: mode || "aucun", motif: motif || "" });
+  }
+
+  /** (3.70.0) Le livreur se dit disponible pour les courses, ou non. */
+  async function reglerDisponibilite(dispo) {
+    const r = await Supabase.rpc("regler_disponibilite", { dispo: !!dispo });
+    const p = Supabase.compte();
+    if (p) p.disponible = r !== false;
+    return r !== false;
   }
 
   /** Ce que le livreur a encaissé et pas encore rendu. Une base d'avant :
@@ -2502,6 +2514,26 @@ const Store = (() => {
      clés différentes, webhooks différents. Les trois interrupteurs se
      poussent ensemble. */
 
+  /* ---------- (3.70.0) Les préfixes des opérateurs ----------
+     Lus par tout le monde, réglés par le superadmin. Chaque réglage
+     remet aussitôt la liste en service dans cette application ; les
+     autres la relisent à leur prochaine ouverture. */
+  async function listerPrefixes() {
+    const lignes = await Supabase.requete("GET",
+      "prefixes_operateurs?select=prefixe,operateur&order=prefixe.asc");
+    Utils.appliquerPrefixes(lignes || []);
+    return (lignes || []).map((l) => ({ prefixe: l.prefixe, operateur: l.operateur }));
+  }
+
+  /** Ajoute ou réattribue (« operateur » donné), retire (« operateur » vide). */
+  async function reglerPrefixe(prefixe, operateur) {
+    const r = await Supabase.rpc("regler_prefixe_operateur", { prefixe, operateur: operateur || "" });
+    journaliser("reglages", "modification",
+      operateur ? "Préfixe 01 " + r.prefixe + " → " + operateur : "Préfixe 01 " + r.prefixe + " retiré",
+      "prefixes", undefined, null);
+    return r;
+  }
+
   async function lirePaiement() {
     const lignes = await Supabase.requete("GET", "paiement?select=*&id=eq.1");
     const l = (lignes || [])[0] || {};
@@ -3191,7 +3223,23 @@ const Store = (() => {
     return Number(n) || 0;
   }
 
-  /** Déclasse, puis change. Rend le nombre de produits déclassés. */
+  /** (3.70.0) Ce que ferait le changement : { produits, suivent, aClasser }.
+      « suivent » : un rayon du même nom les attend dans le nouveau secteur.
+      Une base d'avant ne sait pas le dire : tout produit classé y perdait
+      son rayon. */
+  async function apercuSecteur(boutique, vers) {
+    try {
+      const r = await Supabase.rpcLecture("apercu_secteur", { boutique, vers: vers || null });
+      if (r && typeof r === "object") {
+        return { produits: Number(r.produits) || 0, suivent: Number(r.suivent) || 0,
+                 aClasser: Number(r.a_classer) || 0, ancienneBase: false };
+      }
+    } catch (_) { /* base d'avant : on retombe sur l'ancien décompte */ }
+    const classes = await produitsClasses(boutique);
+    return { produits: classes, suivent: 0, aClasser: classes, ancienneBase: true };
+  }
+
+  /** Change le secteur ; les produits suivent. Rend le nombre resté « à classer ». */
   async function changerSecteur(boutique, vers) {
     const combien = await Supabase.rpc("changer_secteur", { boutique, vers: vers || null });
     journaliser("boutique", "modification",
@@ -3997,7 +4045,8 @@ const Store = (() => {
     listerComptes, creerCompte, creerRevendeur, majCompte, supprimerCompte, changerMotDePasseCompte,
     estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
-    sousCategoriesDuSecteur, produitsClasses, changerSecteur,
+    sousCategoriesDuSecteur, produitsClasses, apercuSecteur, changerSecteur,
+    listerPrefixes, reglerPrefixe,
     listerProduits, lireProduit, masquerProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
@@ -4007,7 +4056,7 @@ const Store = (() => {
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
-    positionsLivreurs, maPosition, enregistrerMaPosition,
+    positionsLivreurs, maPosition, enregistrerMaPosition, reglerDisponibilite,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
     remettreCourse, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,

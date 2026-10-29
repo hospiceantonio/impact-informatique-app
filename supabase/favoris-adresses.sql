@@ -96,6 +96,9 @@ create index if not exists adresses_du_client
 create unique index if not exists adresses_une_par_defaut
   on public.adresses(client_id) where par_defaut;
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.profils add column if not exists disponible boolean not null default true;
+
 -- L'index REFUSE la deuxième ; le déclencheur fait en sorte qu'on n'ait
 -- jamais à la refuser. Sans lui, cocher « par défaut » sur une nouvelle
 -- adresse renverrait une erreur de contrainte au client, qui devrait

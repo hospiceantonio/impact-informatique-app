@@ -266,6 +266,10 @@ const App = (() => {
 
   async function rafraichir() {
     relu = Date.now();
+    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans
+       attendre). APRÈS le code SMS, comme dans BIZZOO Admin. */
+    const cfg = Supabase.configuration();
+    if (cfg) UI.actualiserPrefixes(cfg.url, cfg.cle);
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
       if (tableau && tableau.moi) await chargerMenus();

@@ -502,6 +502,11 @@ const App = { evenementInstallation: null };
         UI.toast("Votre session a expiré : reconnectez-vous pour retrouver vos commandes.", "err"));
     }
 
+    /* (3.70.0) La liste des préfixes des opérateurs, à jour : elle part
+       avec le catalogue et n'attend personne. */
+    const cfg = Catalogue.configuration();
+    if (cfg) Utils.actualiserPrefixes(cfg.url, cfg.cle);
+
     const ok = await Catalogue.charger();
     if (!ok) {
       ecranErreur();

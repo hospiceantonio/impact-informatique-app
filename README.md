@@ -836,6 +836,17 @@ qui rend les comptes de l'enseigne vrais — un prix arrondi à la main
 ferait mentir le bénéfice annoncé. Il n'y a plus non plus de taux par
 produit : la marge est celle de la boutique, une fois pour toutes.
 
+**L'arrondi ne rabote jamais la marge (3.70.0).** Le prix de vente est
+arrondi au franc **supérieur** (`prix_public()` en base, `prixPublic()`
+dans l'admin — les deux donnent le même chiffre). Avant, l'arrondi se
+faisait au plus proche : 2 273 + 10 % = 2 500,3 donnait 2 500, soit
+227 F et 9,99 % pour BIZZOO au lieu des 10 % réglés. Désormais :
+2 501, soit 228 F. La fiche produit affiche alors la marge réglée
+(10 %), pas le 10,03 % que donnerait la fraction de franc. Pour vendre
+pile à 2 500 à 10 %, la boutique saisit un prix BIZZOO de 2 272.
+`supabase/marge-exacte.sql` pose le nouvel arrondi et relève d'1 F les
+seuls articles dont le prix venait de l'ancien arrondi.
+
 ### Ce que rapportent les boutiques
 
 Le tableau de bord du super administrateur mène à un écran qui ne compte
@@ -1454,15 +1465,31 @@ et l'écran des produits le compte en haut de la liste. L'application,
 elle, **refuse d'en créer de nouveaux** sans rayon — rien ne justifie de
 publier un article que personne ne trouvera.
 
-### Changer de secteur déclasse le catalogue
+### Changer de secteur : les produits suivent (3.70.0)
 
 Les produits sont rangés dans des rayons de l'ancien secteur, que le
-nouveau n'a pas. La base **refuse l'écriture directe**, même à
-l'enseigne : ce n'est pas une question de rang mais de cohérence.
-`changer_secteur()` fait les deux gestes dans l'ordre — déclasser, puis
-changer — et rend le nombre de produits déclassés ; l'application le
-demande **avant** d'ouvrir la confirmation, pour que l'enseigne sache ce
-qu'elle s'apprête à défaire.
+nouveau n'a pas forcément. La base **refuse l'écriture directe**, même à
+l'enseigne : ce n'est pas une question de rang mais de cohérence. Tout
+passe par `changer_secteur()`.
+
+Avant la 3.70.0, elle déclassait tout le catalogue : les produits
+n'étaient plus sous aucune catégorie, et **dans l'application cliente la
+boutique n'apparaissait pas dans le secteur qu'on venait de lui donner**.
+Désormais :
+
+- elle change d'abord le secteur de la boutique, puis range chaque
+  produit dans le rayon **du même nom** du nouveau secteur (casse et
+  espaces ignorés) ;
+- les autres restent « à classer », mais **dans le nouveau secteur** :
+  `produit_code` range tout produit sans rayon dans le secteur de sa
+  boutique. Le client les trouve sous la catégorie (« Tout voir ») ;
+- « modifie_le » bouge : les téléphones relisent le catalogue ;
+- elle rend le nombre de produits restés « à classer ».
+
+`apercu_secteur(boutique, vers)` dit **avant** la confirmation combien de
+produits suivent dans un rayon et combien resteront à ranger.
+`supabase/secteur-suit.sql` pose tout cela et range dans le secteur de
+leur boutique les produits « à classer » d'avant.
 
 ### Ce que voit l'acheteur
 
@@ -2720,6 +2747,49 @@ pas été confirmée par la banque.
   administrateur, et le reçu du client propose un bouton « Prévenir la
   boutique » — le message part alors du WhatsApp du client, avec le
   détail déjà écrit.
+
+## L'opérateur suit le numéro ; un numéro n'est pas un ID (3.70.0)
+
+Un numéro béninois dit son réseau d'origine : « 01 » + deux chiffres
+(depuis le 30 novembre 2024), ou ces deux chiffres en tête de l'ancien
+numéro à 8 chiffres. MTN : 42, 46, 50–54, 56, 57, 59, 61, 62, 66, 67, 69,
+90–93, 96, 97 ; Moov : 45, 55, 58, 60, 63–65, 68, 94, 95, 98, 99 ;
+Celtiis : 40, 41, 43, 44, 47 (les tables du SDK de FeexPay, qui sont aussi
+celles de l'ancien plan). Une seule table, la même dans les trois
+applications : `Utils.reseauDuNumero()` (client, admin) et
+`UI.reseauDuNumero()` (Personnel). L'ancienne table à 8 chiffres du client
+se trompait (« 90 » et « 91 » donnés à Moov, « 94 » et « 95 » à MTN).
+
+**La liste vit dans la base** (`prefixes_operateurs`, posée par
+`supabase/prefixes-operateurs.sql`) : un nouveau préfixe attribué par
+l'ARCEP s'ajoute sans nouvelle version. Le superadmin la règle dans BIZZOO
+Admin → Réglages → « Préfixes des opérateurs » (ajouter « 01 30 » avec son
+opérateur, réattribuer, toucher un préfixe pour le retirer), par
+`regler_prefixe_operateur()` — personne d'autre n'y écrit, tout le monde la
+lit (le client paie sans compte). Les trois applications la relisent à
+chaque ouverture (`actualiserPrefixes()`) et la gardent pour l'ouverture
+suivante hors connexion ; si la base ne répond pas, ou n'a pas encore la
+table, elles gardent la liste intégrée. Rien de tout cela n'est
+automatique : il n'existe pas de liste publique que BIZZOO pourrait
+consulter — c'est à BIZZOO d'ajouter le préfixe quand un opérateur
+l'annonce. Un préfixe inconnu ne casse rien : le réseau n'est simplement
+pas corrigé.
+
+**Le réseau se corrige tout seul** pendant qu'on tape le numéro : Moov
+choisi, numéro MTN tapé → MTN, et l'écran le dit (« Opérateur corrigé : ce
+numéro est un numéro MTN »). Au paiement de la commande, au retrait d'un
+code promo, aux numéros de réception des boutiques et des livreurs, au
+retrait sur le solde dans Personnel. On peut encore rechoisir un autre
+réseau ensuite — un numéro porté garde son préfixe — mais l'écran prévient.
+
+**Un numéro de téléphone n'est pas un ID de transaction.** Un texte fait
+seulement de chiffres (et d'espaces, « + », tirets) qui se lit comme un
+numéro béninois est signalé pendant la saisie, et le premier « Valider »
+s'arrête dessus : « ressemble à un numéro de téléphone MTN, pas à un ID de
+transaction ». Validé une seconde fois tel quel, il passe — un vrai ID peut
+ressembler à un numéro. Dans « Faire livrer », à la remise du colis par le
+livreur, aux reversements des soldes et dans la caisse de Personnel.
+`tools/banc-operateur-numero.mjs` l'éprouve.
 
 ## Le paiement qui n'aboutit pas (3.56.1)
 
@@ -5551,6 +5621,154 @@ partenaires, toujours dans le même ordre. Désormais :
 `client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
 par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
 
+## Le livreur « disponible » : sa position, application fermée (3.70.0)
+
+La cascade (section suivante) choisit le livreur **le plus proche** d'après
+sa dernière position. Pour qu'elle soit juste, la position doit partir
+**même quand l'application est fermée** — c'est ce que fait désormais
+BIZZOO Admin sur Android.
+
+**Pour le livreur (BIZZOO Admin → Livraisons) :** l'interrupteur
+**« Disponible pour les courses »**, allumé par défaut.
+- **Allumé** : le téléphone envoie sa position **toutes les 3 minutes**,
+  application fermée, écran éteint, même immobile ; **toutes les 20
+  secondes** pendant une course. Une notification permanente le dit
+  (« Disponible pour les courses »).
+- **Éteint** (en fin de journée) : plus de position hors course, et il ne
+  fait plus partie des trois plus proches. Il reçoit encore l'étape « à
+  tous ».
+- Deux boutons apparaissent tant qu'ils manquent : **« Position : Toujours
+  autoriser »** et **« Ne pas limiter la batterie de BIZZOO »**. Sans eux,
+  Android peut couper le suivi et ne pas le relancer ; avec eux, il le
+  garde.
+- Dans un navigateur (sans l'APK) : la position part tant que la page est
+  ouverte, et l'écran le dit.
+- iPhone : pas de suivi application fermée (BIZZOO Admin n'est pas prévu
+  pour iOS côté livreur).
+
+**Comment ça tient (Android, `ServiceSuiviPosition`)** : un service au
+premier plan de type « location » (déjà là pour les courses depuis la
+3.59.0), qui appelle désormais `position_livreur`. Libre, il demande une
+position toutes les 3 minutes **sans distance minimale**, ce qui oblige
+Android à réveiller le téléphone ; un verrou d'éveil couvre chaque envoi.
+Chaque envoi garde **son** jeton : le refus d'un jeton remplacé ne coupe
+pas le service. Une base d'avant (sans `position_livreur`) : il repasse à
+`position_en_course`, comme avant.
+
+**En base :**
+- `profils.disponible` (vrai par défaut) ; `regler_disponibilite(dispo)`
+  — éteint et sans course, le suivi est **révoqué** (« Localiser un
+  livreur » ne le montre plus actif) ;
+- `position_livreur(jeton, lat, lng, precision_m)` : sans session, le
+  jeton de suivi fait foi ; continue tant que le livreur a une course OU
+  est disponible (et pas suspendu) ; rend `continuer` et `en_course` ;
+  écrit au plus toutes les 5 s en course, 30 s libre ; **prolonge le
+  jeton** (16 h après le dernier signe) — application fermée des jours
+  durant, le suivi ne meurt pas ;
+- `ouvrir_suivi_livreur` : un renouvellement garde **l'ancien jeton
+  valable 10 minutes** (`jeton_hash_precedent`) — un envoi parti ou un
+  service pas encore relancé n'est pas coupé ; `position_en_course` (APK
+  3.68.0) en profite aussi ;
+- `plus_proches_course` ne prend que les livreurs disponibles ;
+  `signaler_ma_position` (page ouverte) n'écrit rien pour un livreur non
+  disponible et libre.
+
+**La page** (`suivi-position.js`) ne renouvelle pas le jeton quand elle
+est cachée (Android refuserait de relancer le service hors de l'écran) ;
+au retour à l'écran, elle relance le service s'il s'est arrêté
+(`suiviActif` du pont). Le passage « libre → en course » relance tout de
+suite au rythme serré.
+
+**Vie privée :** le livreur choisit (interrupteur), la notification
+permanente le lui rappelle, et rien ne part quand il est éteint et libre.
+
+Fichier à coller : `supabase/livreur-disponible.sql` (relançable,
+autonome). Essais : `supabase/tests/99zzz…-cascade-courses.sql` (section
+11), `tools/banc-parcours-livraison.mjs` (section 6c). Le service Android
+est compilé contre des classes de remplacement avant chaque envoi (la
+construction réelle se fait sur GitHub).
+
+## La course au livreur le plus proche, puis à tous (3.70.0)
+
+Avant, une commande payée sonnait chez **tous** les livreurs à la fois.
+Désormais elle part **en cascade** :
+1. le livreur **le plus proche** de la boutique est alerté **seul** (sonnerie
+   insistante, même application fermée). Son alerte lui dit : « Vous êtes
+   parmi les plus proches : touchez « Commande reçue » dans les 30 secondes,
+   sinon elle passe au livreur suivant » ;
+2. **30 secondes** sans réponse : le **deuxième** plus proche est alerté à
+   son tour — le premier peut encore la prendre ; puis le **troisième** ;
+3. aucun des trois ne l'a prise : elle part à **tous les livreurs de
+   BIZZOO** (et à ceux de la boutique qui pouvaient la prendre). Le premier
+   qui touche « Commande reçue » la garde ; les autres apprennent « Déjà pris
+   par … ».
+
+**Qui est « le plus proche » :** parmi les livreurs qui peuvent la prendre
+— ceux de la boutique d'abord, puis ceux de BIZZOO (véhicule ; ceux qui
+l'ont refusée exceptés) —, **libres** (sans course en cours) et dont la
+position est **récente (moins d'une heure)**, par distance à vol d'oiseau
+jusqu'à la boutique — la première qui a une position, en livraison
+groupée ; le **point BIZZOO** si aucune n'en a. **Personne de récent :
+elle part à tous tout de suite** (inutile de faire attendre le client 90
+secondes pour des livreurs dont on ne sait pas où ils sont). Un livreur
+pas encore alerté ne voit pas la course et ne peut pas la prendre ; une
+fois l'étape « tous » passée, elle est ouverte à tous ceux qui peuvent la
+prendre à ce moment (un livreur débloqué ou validé depuis la voit).
+
+**La position du livreur libre** : avant, elle ne bougeait qu'à la
+validation du compte et pendant une course. Désormais, **BIZZOO Admin
+ouvert (et visible), elle part toutes les 3 minutes**
+(`signaler_ma_position`, une écriture au plus toutes les 30 secondes ; elle
+ne valide pas un compte, elle met à jour une position déjà là). C'est ce
+qui rend « le plus proche » juste : un livreur qui n'a pas ouvert
+l'application depuis plus d'une heure attend l'étape « tous ».
+
+**L'écran du livreur** se relit dès qu'une demande lui arrive (la cascade
+vient de l'atteindre), en plus de quand elle part chez un autre.
+
+**Annulée par son livreur** (section suivante) : la cascade repart du plus
+proche, sans lui (« Course à reprendre »). Un livreur suspendu, ou une
+course que la boutique reprend à son livreur (« Confier » vide) : pareil.
+Un livreur suspendu pendant son tour : on passe au suivant sans attendre
+ses 30 secondes.
+
+**L'horloge est dans la base** : la tâche pg_cron `courses-cascade` passe
+toutes les **5 secondes** (`avancer_cascades`) — le délai réel est donc de
+30 à 35 secondes, téléphones éteints ou non. **Sans cette tâche, pas de
+cascade** (`horloge_cascade`) : la course part à tous d'un coup, comme
+avant — jamais bloquée au premier. Une commande en erreur est mise de côté
+sans arrêter les autres. Le journal de pg_cron de cette tâche est vidé
+chaque heure (`courses-cascade-menage`).
+
+**Réglages** (table `cascade_reglage`, lisible par le seul serveur, à
+changer dans l'éditeur SQL de Supabase) : `actif` (éteinte : à tous d'un
+coup, comme avant), `delai_s` (30), `rangs` (3), `fraicheur_min` (60).
+
+En base : tables `courses_cascade` (où en est chaque course : l'ordre, qui
+a été alerté, quand passer au suivant) et `cascade_reglage` ; fonctions
+`lancer_cascade`, `avancer_cascade`, `avancer_cascades`,
+`plus_proches_course`, `tous_livreurs_course`, `course_ouverte_a`…
+`proposer_course` (au paiement), `courses_proposees`, `prendre_course` et
+`reproposer_course` passent par elles. Une commande d'avant la cascade
+(sans ligne dans `courses_cascade`) reste ouverte à tous les candidats.
+
+**À savoir sur les données d'aujourd'hui (29/10/2026) :** aucune position
+de livreur n'a moins d'une heure (elles ne bougeaient pas hors course) :
+tant que les livreurs n'ont pas la nouvelle BIZZOO Admin ouverte, les
+courses partent à tous tout de suite, comme avant. 4 boutiques sur 8 n'ont
+pas de position (on mesure alors depuis le point BIZZOO) : plus elles sont
+renseignées, plus « le plus proche » est juste.
+
+Fichier à coller : `supabase/cascade-courses.sql` (relançable, autonome ; il
+programme la tâche des 5 secondes).
+
+**En ligne depuis le 29/10/2026** (base seulement : les écrans viennent avec BIZZOO Admin 3.70.0). Appliqué par un script réduit aux seuls objets qui changent — les fonctions empruntées par le fichier étaient déjà identiques en ligne —, éprouvé d'abord sur une base jetable (base d'avant + script = base neuve, sans un écart), puis vérifié en ligne : 25 fonctions identiques au dépôt, droits compris ; tâche `courses-cascade` active et sans erreur.
+
+Essais :
+`supabase/tests/99zzz…-cascade-courses.sql` (10 sections),
+`tools/banc-parcours-livraison.mjs` (la position envoyée). Les anciens essais
+des demandes de course tournent cascade éteinte (la règle d'avant).
+
 ## Le livreur annule sa course : BIZZOO l'entend, la course repart (3.70.0)
 
 Un livreur qui a pris une course peut l'annuler (« Refuser la course »)
@@ -5591,7 +5809,8 @@ défaut son téléphone) — `fiche_course` rend les deux.
 Rien à redéployer côté fonctions Edge : `envoyer-push` envoie déjà toute
 notification qui sonne. Fichier à coller : `supabase/course-annulee.sql`
 (relançable, autonome : il pose aussi `lieu_retrait` et `refus_courses`,
-dans n'importe quel ordre avec `lieu-retrait.sql`). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
+dans n'importe quel ordre avec `lieu-retrait.sql`). **En ligne depuis le
+29/10/2026** (voir la section de la cascade). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
 2 bis et 4), `tools/banc-parcours-livraison.mjs`.
 
 ## « Faire livrer » : où le livreur récupère la commande (3.70.0)
@@ -5636,7 +5855,8 @@ que le lieu n'a pas été gardé ; `fiche_course` et
 sa commande passe comme avant, sans la ligne.
 
 Fichier à coller : `supabase/lieu-retrait.sql` (relançable ; il recopie les
-fonctions qu'il emprunte). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
+fonctions qu'il emprunte). **En ligne depuis le 29/10/2026** (base ; la case
+de saisie vient avec BIZZOO Admin 3.70.0). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
 (section 9), `tools/banc-faire-livrer.mjs`, `tools/banc-parcours-livraison.mjs`
 (section 6a).
 

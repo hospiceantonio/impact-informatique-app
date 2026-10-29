@@ -161,7 +161,47 @@ select essai.egal((select taux_marge from public.commande_lignes where commande_
 -- s'ils divergeaient, réenregistrer un produit déplacerait son prix
 -- sans que personne ne l'ait demandé.
 select essai.egal(public.prix_public(8000, 30), 10400, '8 000 + 30 %');
-select essai.egal(public.prix_public(7777, 20), 9332, '7 777 + 20 % = 9 332,4 → 9 332');
+select essai.egal(public.prix_public(7777, 20), 9333, '7 777 + 20 % = 9 332,4 → 9 333 (au franc supérieur)');
+-- (3.70.0) La marge réglée est tenue : l'arrondi ne la rabote jamais.
+select essai.egal(public.prix_public(2273, 10), 2501,
+  '2 273 + 10 % = 2 500,3 → 2 501 : BIZZOO garde 228 F, pas 227 (9,99 %)');
+select essai.egal(public.prix_public(2000, 10), 2200, '2 000 + 10 % tombe juste : 2 200, pas un franc de plus');
+select essai.egal(public.prix_public(1999, 12.5), 2249, '1 999 + 12,5 % = 2 248,875 → 2 249');
+
+-- (3.70.0) Les articles d'avant, arrondis au plus proche : marge-exacte.sql
+-- relève d'1 F ceux qui y perdaient, et ceux-là seulement.
+insert into public.produits
+  (id, boutique_id, nom, prix, ancien_prix, sous_categorie_id, stock, disponible)
+values ('prod_arrondi', 'bou_informatique', 'Arrondi d''avant', 2500, null,
+        'sc_hightech_accessoires', 5, true),
+       ('prod_arrondi_barre', 'bou_informatique', 'Arrondi, prix barré collé', 2500, 2501,
+        'sc_hightech_accessoires', 5, true),
+       ('prod_juste', 'bou_informatique', 'Tombe juste', 2200, null,
+        'sc_hightech_accessoires', 5, true),
+       ('prod_a_la_main', 'bou_informatique', 'Prix posé à la main', 3000, null,
+        'sc_hightech_accessoires', 5, true);
+insert into public.produits_prive (produit_id, prix_grossiste, taux_marge) values
+  ('prod_arrondi', 2273, 10), ('prod_arrondi_barre', 2273, 10),
+  ('prod_juste', 2000, 10), ('prod_a_la_main', 2273, 10);
+\set fichier `echo "$RACINE/supabase/marge-exacte.sql"`
+\o /dev/null
+\i :fichier
+\o
+select essai.egal((select prix from public.produits where id = 'prod_arrondi')::int,
+  2501, 'l''article arrondi au plus proche (2 500) passe à 2 501 : 10 % pour BIZZOO');
+select essai.egal((select ancien_prix is null from public.produits where id = 'prod_arrondi_barre'),
+  true, 'un prix barré qui n''est plus au-dessus du prix tombe');
+select essai.egal((select prix from public.produits where id = 'prod_juste')::int,
+  2200, 'un article qui tombait juste ne bouge pas');
+select essai.egal((select prix from public.produits where id = 'prod_a_la_main')::int,
+  3000, 'un prix qui ne venait pas du calcul n''est pas touché');
+\o /dev/null
+\i :fichier
+\o
+select essai.egal((select prix from public.produits where id = 'prod_arrondi')::int,
+  2501, 'relancé, le fichier ne remonte rien une seconde fois');
+delete from public.produits
+ where id in ('prod_arrondi', 'prod_arrondi_barre', 'prod_juste', 'prod_a_la_main');
 select essai.egal(public.prix_public(0, 30), 0, 'sans prix BIZZOO, zéro — et non un prix inventé');
 select essai.egal(public.prix_public(5000, 0), 5000, 'sans marge, le prix BIZZOO nu');
 

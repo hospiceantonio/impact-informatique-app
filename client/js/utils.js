@@ -280,7 +280,102 @@ const Utils = (() => {
     return morceaux.map((l) => "<p>" + echapper(l) + "</p>").join("");
   }
 
+  /* ---------- (3.70.0) L'opérateur d'un numéro béninois ----------
+     Depuis le 30 novembre 2024, un numéro mobile s'écrit « 01 » + les
+     8 chiffres d'avant ; les deux chiffres qui suivent « 01 » disent le
+     réseau d'origine. Ce sont ceux du SDK de FeexPay, et ceux du plan
+     d'avant (« 97… » MTN, « 95… » Moov, « 40… » Celtiis) : un numéro
+     dicté à l'ancienne, sur 8 chiffres, se lit de la même façon.
+     On s'en sert pour CORRIGER le réseau choisi et pour repérer un
+     numéro tapé à la place d'un ID de transaction — jamais pour
+     interdire : le client reste maître de son choix.
+     La liste ci-dessous n'est que celle de départ : la base tient la
+     liste à jour (« prefixes_operateurs », réglée par le superadmin dans
+     Réglages), relue à chaque ouverture par « actualiserPrefixes() ». */
+  let PREFIXES_OPERATEURS = {
+    MTN: ["42", "46", "50", "51", "52", "53", "54", "56", "57", "59", "61", "62",
+          "66", "67", "69", "90", "91", "92", "93", "96", "97"],
+    MOOV: ["45", "55", "58", "60", "63", "64", "65", "68", "94", "95", "98", "99"],
+    CELTIIS: ["40", "41", "43", "44", "47"],
+  };
+  const NOM_OPERATEUR = { MTN: "MTN", MOOV: "Moov", CELTIIS: "Celtiis" };
+  const CLE_PREFIXES = "bizzoo-prefixes-operateurs";
+
+  /** Prend la liste de la base : [{ prefixe, operateur }]. Une liste vide
+      ou illisible ne remplace rien — on garde celle qu'on a. */
+  function appliquerPrefixes(lignes) {
+    if (!Array.isArray(lignes) || !lignes.length) return false;
+    const neuf = { MTN: [], MOOV: [], CELTIIS: [] };
+    for (const l of lignes) {
+      if (l && /^[0-9]{2}$/.test(l.prefixe) && neuf[l.operateur]) neuf[l.operateur].push(l.prefixe);
+    }
+    if (!neuf.MTN.length && !neuf.MOOV.length && !neuf.CELTIIS.length) return false;
+    PREFIXES_OPERATEURS = neuf;
+    return true;
+  }
+
+  /** Relit la liste de la base, et la garde pour la prochaine ouverture
+      hors connexion. La base ne répond pas : on garde la sienne. */
+  async function actualiserPrefixes(url, cle) {
+    if (!url || !cle) return false;
+    try {
+      const r = await fetch(String(url).replace(/\/$/, "") +
+        "/rest/v1/prefixes_operateurs?select=prefixe,operateur", { headers: { apikey: cle } });
+      if (!r.ok) return false;
+      const lignes = await r.json();
+      if (!appliquerPrefixes(lignes)) return false;
+      try { localStorage.setItem(CLE_PREFIXES, JSON.stringify(lignes)); } catch (_) { /* stockage plein */ }
+      return true;
+    } catch (_) {
+      return false;   // réseau, ou base d'avant sans la table
+    }
+  }
+
+  /* La liste relue la dernière fois, en attendant la base. */
+  try { appliquerPrefixes(JSON.parse(localStorage.getItem(CLE_PREFIXES) || "null")); } catch (_) { /* vide */ }
+
+  /** La liste en cours, par opérateur (pour l'écran des réglages). */
+  const prefixesOperateurs = () => JSON.parse(JSON.stringify(PREFIXES_OPERATEURS));
+
+  /** Les chiffres nationaux d'un numéro : sans « +229 », « 00229 » ni espaces. */
+  function chiffresNationaux(tel) {
+    let n = String(tel || "").replace(/\D/g, "");
+    if (/^00229/.test(n)) n = n.slice(5);
+    else if (/^229/.test(n) && (n.length === 13 || n.length === 11)) n = n.slice(3);
+    return n;
+  }
+
+  /** « MTN », « MOOV », « CELTIIS », ou "" si le numéro ne le dit pas. */
+  function reseauDuNumero(tel) {
+    const n = chiffresNationaux(tel);
+    const p = n.length === 10 && n.startsWith("01") ? n.slice(2, 4)
+      : n.length === 8 ? n.slice(0, 2) : "";
+    if (!p) return "";
+    return Object.keys(PREFIXES_OPERATEURS).find((r) => PREFIXES_OPERATEURS[r].includes(p)) || "";
+  }
+
+  /** Un texte qui n'est QU'UN numéro de téléphone (chiffres, espaces,
+      « + », tirets, points) : rend son opérateur, sinon "". C'est ce qui
+      trahit un numéro saisi à la place d'un ID de transaction. */
+  function ressembleTelephone(texte) {
+    const t = String(texte || "").trim();
+    if (!t || /[^\d\s+().-]/.test(t)) return "";
+    return reseauDuNumero(t);
+  }
+
+  /** Le message à montrer quand un ID de transaction ressemble à un numéro. */
+  function alerteTransaction(texte) {
+    const op = ressembleTelephone(texte);
+    return op
+      ? "« " + String(texte).trim() + " » ressemble à un numéro de téléphone " + NOM_OPERATEUR[op] +
+        ", pas à un ID de transaction. Recopiez l'ID indiqué dans le SMS de paiement " +
+        "(s'il est vraiment juste, validez à nouveau)."
+      : "";
+  }
+
   return {
+    reseauDuNumero, ressembleTelephone, alerteTransaction, NOM_OPERATEUR,
+    actualiserPrefixes, appliquerPrefixes, prefixesOperateurs,
     pad, echapper,
     fmtNombre, fmtMontant, remisePourcent,
     fmtDateHeure,

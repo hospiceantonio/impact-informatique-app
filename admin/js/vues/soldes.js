@@ -126,6 +126,28 @@ const VueSoldes = (() => {
     if (demander) demander.onclick = () => feuilleDemande(boutique.id, solde, () => afficher(vue));
   }
 
+  /* (3.70.0) Le réseau suit le numéro tapé : un numéro MTN avec « Moov »
+     choisi repasse sur MTN, et la feuille le dit. On peut encore choisir
+     une autre puce ensuite — un numéro porté garde son préfixe. */
+  function suivreReseau(corps, idTel, choisir) {
+    const champ = UI.$("#" + idTel, corps);
+    if (!champ) return;
+    const note = document.createElement("p");
+    note.className = "note-saisie";
+    note.hidden = true;
+    champ.insertAdjacentElement("afterend", note);
+    champ.addEventListener("input", () => {
+      const op = Utils.reseauDuNumero(champ.value);
+      const puce = op ? UI.$('[data-reseau="' + op + '"]', corps) : null;
+      if (!puce) { note.hidden = true; return; }
+      const avant = UI.$("[data-reseau].active", corps);
+      choisir(puce);
+      note.textContent = avant && avant !== puce
+        ? "Réseau corrigé : ce numéro est un numéro " + Utils.NOM_OPERATEUR[op] + "." : "";
+      note.hidden = !note.textContent;
+    });
+  }
+
   function feuilleReception(boutiqueId, r, apres) {
     const corps = UI.ouvrirFeuille("Numéro de réception",
       '<p class="aide" style="margin:0 0 12px">Le numéro Mobile Money sur lequel BIZZOO enverra vos ' +
@@ -139,12 +161,12 @@ const VueSoldes = (() => {
         placeholder: "Le nom du compte Mobile Money" }) +
       '<button type="button" class="btn" id="sd-enregistrer">' + UI.icone("check") + "Enregistrer</button>");
     let reseau = r ? r.reseau : "";
-    for (const b of UI.$$("[data-reseau]", corps)) {
-      b.onclick = () => {
-        reseau = b.dataset.reseau;
-        for (const x of UI.$$("[data-reseau]", corps)) x.classList.toggle("active", x === b);
-      };
-    }
+    const choisir = (b) => {
+      reseau = b.dataset.reseau;
+      for (const x of UI.$$("[data-reseau]", corps)) x.classList.toggle("active", x === b);
+    };
+    for (const b of UI.$$("[data-reseau]", corps)) b.onclick = () => choisir(b);
+    suivreReseau(corps, "sd-tel", choisir);
     const bouton = UI.$("#sd-enregistrer", corps);
     bouton.onclick = async () => {
       bouton.disabled = true;
@@ -230,9 +252,20 @@ const VueSoldes = (() => {
         : "");
     for (const b of UI.$$("[data-valider]", vue)) {
       b.onclick = async () => {
-        const ref = await UI.demanderTexte({ titre: "Reversement envoyé",
-          texte: "Notez la référence de la transaction Mobile Money envoyée.", libelle: "Référence", bouton: "Valider" });
-        if (ref === null) return;
+        /* (3.70.0) Un numéro de téléphone recopié à la place de l'ID de
+           transaction : on le dit, et on redemande. Validé une seconde
+           fois tel quel, il passe (un ID peut ressembler à un numéro). */
+        let ref = "";
+        let averti = null;
+        for (;;) {
+          ref = await UI.demanderTexte({ titre: "Reversement envoyé",
+            texte: averti === null ? "Notez la référence de la transaction Mobile Money envoyée."
+              : Utils.alerteTransaction(averti),
+            libelle: "Référence", bouton: "Valider", valeur: ref });
+          if (ref === null) return;
+          if (Utils.ressembleTelephone(ref) && ref.trim() !== averti) { averti = ref.trim(); continue; }
+          break;
+        }
         b.disabled = true;
         try {
           if (b.dataset.livreur) await Store.deciderReversementLivreur(Number(b.dataset.valider), true, ref, "");
@@ -344,12 +377,12 @@ const VueSoldes = (() => {
         placeholder: "Le nom du compte Mobile Money" }) +
       '<button type="button" class="btn" id="gn-enregistrer">' + UI.icone("check") + "Enregistrer</button>");
     let reseau = r ? r.reseau : "";
-    for (const b of UI.$$("[data-reseau]", corps)) {
-      b.onclick = () => {
-        reseau = b.dataset.reseau;
-        for (const x of UI.$$("[data-reseau]", corps)) x.classList.toggle("active", x === b);
-      };
-    }
+    const choisir = (b) => {
+      reseau = b.dataset.reseau;
+      for (const x of UI.$$("[data-reseau]", corps)) x.classList.toggle("active", x === b);
+    };
+    for (const b of UI.$$("[data-reseau]", corps)) b.onclick = () => choisir(b);
+    suivreReseau(corps, "gn-tel", choisir);
     const bouton = UI.$("#gn-enregistrer", corps);
     bouton.onclick = async () => {
       bouton.disabled = true;

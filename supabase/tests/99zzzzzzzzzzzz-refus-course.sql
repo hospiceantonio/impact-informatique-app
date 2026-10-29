@@ -28,6 +28,11 @@ set client_min_messages = notice;
 \set MODBZ    '''dededede-0000-0000-0000-000000000004'''
 \set LIVBZ    '''dededede-0000-0000-0000-000000000005'''
 
+-- (3.70.0) Ces essais éprouvent qui PEUT prendre la course : on la fait
+-- partir à tous d'un coup (cascade éteinte, la règle d'avant). La cascade
+-- au plus proche a ses propres essais (…-cascade-courses.sql).
+update public.cascade_reglage set actif = false where id = 1;
+
 select essai.titre('Le décor');
 insert into auth.users (id, email) values
   (:RF1::uuid, 'rf1.refus@essai.bj'), (:RF2::uuid, 'rf2.refus@essai.bj'), (:VOISIN::uuid, 'voisin.refus@essai.bj'),
@@ -135,7 +140,7 @@ select essai.egal((select count(*)::int from public.notifications
   'pas à Moussa, qui vient de l''annuler');
 select essai.verifie((select corps from public.notifications
                        where destinataire = :ENSEIGNE::uuid and commande_id = :'cmd' and type = 'course_annulee_livreur')
-                     like '%reproposée à % livreur%',
+                     like '%repart vers les livreurs les plus proches%',
   'BIZZOO sait qu''elle est repartie');
 
 select essai.titre('3. La demande se rouvre aux autres, pas à lui');
@@ -186,7 +191,7 @@ select essai.devenir(:LIVBZ::uuid); set role authenticated;
 select essai.egal((select count(*)::int from public.courses_proposees() where commande_id = :'cmd'), 1,
   'et Bio la voit dans ses demandes : il peut la prendre');
 reset role; select essai.personne();
-select essai.verifie((select corps like '%reproposée à % livreur%' from public.notifications
+select essai.verifie((select corps like '%repart vers les livreurs les plus proches%' from public.notifications
                        where destinataire = :ENSEIGNE::uuid and commande_id = :'cmd' and type = 'course_annulee_livreur'),
   'BIZZOO lit qu''elle est repartie, pas « confiez-la à la main »');
 select essai.devenir(:CHEF::uuid); set role authenticated;

@@ -271,6 +271,27 @@ ok(/a payé 20 000 FCFA, mais la commande coûte 21 500 FCFA/.test(await texte(p
   "un montant trop court : refusé à l'écran");
 ok(!serveur.appels.some((a) => a.fn === "faire_livrer"), "et rien n'est parti vers la base");
 
+titre("4 bis. (3.70.0) Un numéro de téléphone à la place de l'ID de transaction");
+await page.fill("#fl-montant", "21500");
+await page.fill("#fl-transaction", "01 97 12 15 96");
+await page.waitForTimeout(150);
+ok(/numéro de téléphone MTN, pas à un ID de transaction/.test(await texte(page, "#fl-paiement .note-saisie")),
+  "pendant la saisie : « ressemble à un numéro de téléphone MTN, pas à un ID de transaction »");
+await page.click("#fl-valider");
+await page.waitForTimeout(300);
+ok(/ressemble à un numéro de téléphone MTN/.test(await texte(page, "#fl-erreur")) &&
+   !(await page.$("[data-role=ok]")),
+  "le premier « Valider » s'arrête là-dessus, sans confirmation");
+await page.click("#fl-valider");
+await page.waitForSelector("[data-role=ok]", { timeout: 3000 }).catch(() => {});
+ok(!!(await page.$("[data-role=ok]")), "validé une seconde fois tel quel, il passe (un ID peut ressembler à un numéro)");
+await page.click("[data-role=annuler]");
+await page.waitForTimeout(300);
+await page.fill("#fl-transaction", "MP241027.1530.A12345");
+await page.waitForTimeout(150);
+ok(await page.$eval("#fl-paiement .note-saisie", (n) => n.hidden), "un vrai ID : plus d'avertissement");
+ok(!serveur.appels.some((a) => a.fn === "faire_livrer"), "et rien n'est parti vers la base");
+
 titre("5. Validé : la commande part, l'écran l'ouvre");
 await page.fill("#fl-montant", "21500");
 await page.selectOption("#fl-reseau", "MOOV");

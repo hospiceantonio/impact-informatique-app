@@ -415,7 +415,12 @@ begin
     -- À CLASSER. Le produit reste en vente, dans sa boutique et dans la
     -- recherche ; il n'apparaît sous aucun rayon de BIZZOO.
     new.sous_categorie_id := null;
-    new.categorie_id := null;
+    -- (3.70.0) Mais il reste DANS LE SECTEUR de sa boutique : sans cela,
+    -- une boutique qui change de secteur disparaissait du nouveau dans
+    -- l'application cliente, ses produits n'étant plus nulle part.
+    select b.categorie_id into secteur
+      from public.boutiques b where b.id = new.boutique_id;
+    new.categorie_id := secteur;
   else
     select sc.categorie_id into rayon
       from public.sous_categories sc where sc.id = new.sous_categorie_id;

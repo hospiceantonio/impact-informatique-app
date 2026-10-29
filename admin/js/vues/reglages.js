@@ -293,6 +293,79 @@ const VueReglages = (() => {
     );
   }
 
+  /* ---------- (3.70.0) Les préfixes des opérateurs ---------- */
+  const OPERATEURS_PREFIXES = [["MTN", "MTN"], ["MOOV", "Moov"], ["CELTIIS", "Celtiis"]];
+
+  function htmlPrefixes(lignes) {
+    const e = Utils.echapper;
+    return OPERATEURS_PREFIXES.map(([op, nom]) => {
+      const siens = lignes.filter((l) => l.operateur === op).map((l) => l.prefixe).sort();
+      return '<div class="champ"><label>' + e(nom) + " <small>(" + siens.length + ")</small></label>" +
+        '<div class="st-filtres">' +
+          (siens.length
+            ? siens.map((p) => '<button type="button" class="puce" data-prefixe="' + e(p) +
+                '" data-operateur="' + e(op) + '" title="Retirer ou réattribuer">01 ' + e(p) + "</button>").join("")
+            : '<span class="aide">Aucun préfixe</span>') +
+        "</div></div>";
+    }).join("") +
+    '<div class="champ-duo">' +
+      UI.champTexte({ id: "prefixe-nouveau", label: "Préfixe", type: "tel", placeholder: "Exemple : 01 30",
+        aide: "Les deux chiffres après 01." }) +
+      '<div class="champ"><label for="prefixe-operateur">Opérateur</label>' +
+        '<select id="prefixe-operateur">' +
+          OPERATEURS_PREFIXES.map(([op, nom]) => '<option value="' + op + '">' + nom + "</option>").join("") +
+        "</select></div>" +
+    "</div>" +
+    '<button type="button" class="btn" id="prefixe-enregistrer">' + UI.icone("plus") +
+      "Ajouter ou réattribuer</button>";
+  }
+
+  function brancherPrefixes(toujoursLa) {
+    Store.listerPrefixes().then((lignes) => {
+      const corps = UI.$("#prefixes-corps");
+      if (!toujoursLa() || !corps) return;
+      if (!lignes.length) {
+        corps.innerHTML = '<p class="aide" style="margin:0">Exécutez d\'abord le fichier ' +
+          "supabase/prefixes-operateurs.sql. En attendant, les applications gardent leur liste intégrée.</p>";
+        return;
+      }
+      corps.innerHTML = htmlPrefixes(lignes);
+      const regler = async (bouton, prefixe, operateur, message) => unEnvoi(bouton, async () => {
+        try {
+          await Store.reglerPrefixe(prefixe, operateur);
+          UI.toast(message, "ok");
+          brancherPrefixes(toujoursLa);
+        } catch (err) { UI.toast(err.message, "err"); }
+      });
+      const bouton = UI.$("#prefixe-enregistrer");
+      bouton.onclick = () => {
+        const saisi = UI.$("#prefixe-nouveau").value;
+        const chiffres = saisi.replace(/\D/g, "").replace(/^01(?=\d{2}$)/, "");
+        const op = UI.$("#prefixe-operateur").value;
+        const nom = Utils.NOM_OPERATEUR[op] || op;
+        const avant = lignes.find((l) => l.prefixe === chiffres);
+        if (avant && avant.operateur === op) { UI.toast("01 " + chiffres + " est déjà " + nom + ".", "alerte"); return; }
+        if (avant && !window.confirm("01 " + chiffres + " est aujourd'hui " +
+            (Utils.NOM_OPERATEUR[avant.operateur] || avant.operateur) + ". Le passer à " + nom + " ?")) return;
+        regler(bouton, saisi, op, "01 " + chiffres + " → " + nom);
+      };
+      for (const puce of UI.$$("[data-prefixe]", corps)) {
+        puce.onclick = () => {
+          const p = puce.dataset.prefixe;
+          const nom = Utils.NOM_OPERATEUR[puce.dataset.operateur] || puce.dataset.operateur;
+          if (!window.confirm("Retirer 01 " + p + " (" + nom + ") ? Les numéros qui commencent ainsi " +
+              "ne feront plus corriger le réseau. Pour le passer à un autre opérateur, saisissez-le " +
+              "plutôt dans « Préfixe » avec le bon opérateur.")) return;
+          regler(puce, p, "", "01 " + p + " retiré");
+        };
+      }
+    }).catch(() => {
+      const corps = UI.$("#prefixes-corps");
+      if (corps) corps.innerHTML = '<p class="aide" style="margin:0">Liste illisible pour l\'instant ' +
+        "(exécutez supabase/prefixes-operateurs.sql si ce n'est pas fait).</p>";
+    });
+  }
+
   function brancherLivraisonKm(toujoursLa) {
     if (carteKm) { carteKm.detruire(); carteKm = null; }
     Store.lirePaiement().then(async (p) => {
@@ -869,6 +942,23 @@ const VueReglages = (() => {
           "</div>"
         : "") +
 
+      /* ---------- (3.70.0) Les préfixes des opérateurs ----------
+         Ce qui fait corriger le réseau au paiement (Moov choisi, numéro
+         MTN tapé → MTN) et repérer un numéro saisi à la place d'un ID de
+         transaction. La liste vit dans la base : un nouveau préfixe
+         attribué par l'ARCEP s'ajoute ici, sans nouvelle version. */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte" id="section-prefixes">' +
+            '<div class="carte-titre">' + UI.icone("tel", "ic-sm") + " Préfixes des opérateurs</div>" +
+            '<p class="aide" style="margin:0 0 12px">Les deux chiffres après « 01 » disent le réseau ' +
+              "d'un numéro. Les applications s'en servent pour corriger le réseau choisi au paiement, " +
+              "et pour signaler un numéro tapé à la place d'un ID de transaction. Quand MTN, Moov ou " +
+              "Celtiis annoncent de nouveaux numéros, ajoutez leur préfixe ici : les applications le " +
+              "prennent à leur prochaine ouverture, sans mise à jour.</p>" +
+            '<div id="prefixes-corps"><p class="aide" style="margin:0">Lecture…</p></div>' +
+          "</div>"
+        : "") +
+
       /* ---------- Un compte pour commander ----------
          Le seul réglage de l'application qui puisse FERMER la caisse.
          Il mérite donc son avertissement : tant qu'aucune porte
@@ -973,6 +1063,7 @@ const VueReglages = (() => {
       "</div>";
 
     if (UI.$("#km-corps")) brancherLivraisonKm(() => moi === generation);
+    if (UI.$("#prefixes-corps")) brancherPrefixes(() => moi === generation);
 
     const boutonMomo = UI.$("#momo-enregistrer");
     if (boutonMomo) {
