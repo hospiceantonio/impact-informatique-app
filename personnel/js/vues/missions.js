@@ -38,7 +38,7 @@ const VueMissions = (() => {
   async function afficher(zone, morceaux, params) {
     UI.vider(zone, UI.chargement());
     annuaire = await Supabase.rpc("rh_annuaire").catch(() => []);
-    if (morceaux[0] === "nouvelle") return formulaire(zone);
+    if (morceaux[0] === "nouvelle") return formulaire(zone, null, params);
     if (morceaux[0]) return fiche(zone, morceaux[0]);
     return liste(zone, params.filtre || "");
   }
@@ -65,7 +65,10 @@ const VueMissions = (() => {
         : UI.vide("Aucune mission ici."));
   }
 
-  async function formulaire(zone, mission) {
+  /* « prerempli » : titre et description proposés par un autre écran (la
+     fiche qualité d'une boutique) ; l'administration les relit avant de créer. */
+  async function formulaire(zone, mission, prerempli) {
+    const propose = (!mission && prerempli) || {};
     App.titre(mission ? "Modifier la mission" : "Nouvelle mission");
     const profils = await Supabase.lire("rh_profils?select=id,nom,responsable_id&order=nom");
     if (!zone.isConnected) return;
@@ -73,9 +76,9 @@ const VueMissions = (() => {
       UI.vider(zone, h("div", { class: "avertissement" }, "Créez d'abord un profil (menu Profils)."));
       return;
     }
-    const titre = h("input", { required: true, value: mission ? mission.titre : "" });
+    const titre = h("input", { required: true, value: mission ? mission.titre : (propose.titre || "") });
     const description = h("textarea", {});
-    description.value = mission ? mission.description : "";
+    description.value = mission ? mission.description : (propose.description || "");
     const profil = h("select", { disabled: !!mission }, profils.map((p) =>
       h("option", { value: p.id, selected: mission && mission.profil_id === p.id },
         p.nom + (p.responsable_id ? "" : " (sans responsable)"))));
@@ -100,6 +103,7 @@ const VueMissions = (() => {
         ? Supabase.modifier("rh_missions", "id=eq." + mission.id, valeurs)
         : Supabase.ajouter("rh_missions", { ...valeurs, profil_id: profil.value }),
         mission ? "Mission modifiée." : "Mission créée et envoyée au responsable du profil.");
+      App.rafraichir();
       location.hash = "#/missions/" + (m ? m.id : mission.id);
     });
     UI.vider(zone, form);
@@ -146,6 +150,7 @@ const VueMissions = (() => {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
         if (!await UI.confirmer("Supprimer définitivement cette mission ?", { danger: true, valider: "Supprimer" })) return;
         await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_missions", "id=eq." + m.id), "Mission supprimée.");
+        App.rafraichir();
         location.hash = "#/missions";
       } }, UI.icone("poubelle", "ic-sm"), "Supprimer"));
     }

@@ -242,13 +242,23 @@ create or replace function public.rh_localiser_livreurs() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+  seuil int;
 begin
   if not public.rh_menu_ouvert('livreurs') then
     raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
   end if;
+  -- Le seuil du « livreur muet » vit dans les réglages du suivi : sans
+  -- eux (fichier rejoué seul sur une base plus ancienne), 15 minutes.
+  begin
+    select (to_jsonb(r) ->> 'position_min')::int into seuil from public.rh_reglages_suivi r where r.id;
+  exception when others then
+    seuil := null;
+  end;
+  seuil := coalesce(seuil, 15);
   return jsonb_build_object(
     'coef', coef,
     'maintenant', now(),
+    'seuil_muet_min', seuil,
     'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
       from (
         select jsonb_build_object(
@@ -266,6 +276,12 @@ begin
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
                                   where s.profil_id = p.id and s.expire_le > now())
                          and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
+          -- En route vers un client, et rien reçu de son téléphone depuis
+          -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
+          'muet', exists (select 1 from public.commande_lignes l
+                            join public.commandes c on c.id = l.commande_id
+                           where l.livreur_id = p.id and c.etat = 'payee' and l.etat = 'en_livraison'
+                             and now() - greatest(pl.enregistre_le, l.recu_le, c.paye_le) > make_interval(mins => seuil)),
           'courses', (select coalesce(jsonb_agg(jsonb_build_object(
               'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
               'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,

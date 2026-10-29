@@ -219,7 +219,7 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
     alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
-      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'stats_commandes',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse', 'stats_commandes',
       'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
   end if;
 end $$;
@@ -233,13 +233,23 @@ create or replace function public.rh_localiser_livreurs() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+  seuil int;
 begin
   if not public.rh_menu_ouvert('livreurs') then
     raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
   end if;
+  -- Le seuil du « livreur muet » vit dans les réglages du suivi : sans
+  -- eux (fichier rejoué seul sur une base plus ancienne), 15 minutes.
+  begin
+    select (to_jsonb(r) ->> 'position_min')::int into seuil from public.rh_reglages_suivi r where r.id;
+  exception when others then
+    seuil := null;
+  end;
+  seuil := coalesce(seuil, 15);
   return jsonb_build_object(
     'coef', coef,
     'maintenant', now(),
+    'seuil_muet_min', seuil,
     'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
       from (
         select jsonb_build_object(
@@ -257,6 +267,12 @@ begin
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
                                   where s.profil_id = p.id and s.expire_le > now())
                          and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
+          -- En route vers un client, et rien reçu de son téléphone depuis
+          -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
+          'muet', exists (select 1 from public.commande_lignes l
+                            join public.commandes c on c.id = l.commande_id
+                           where l.livreur_id = p.id and c.etat = 'payee' and l.etat = 'en_livraison'
+                             and now() - greatest(pl.enregistre_le, l.recu_le, c.paye_le) > make_interval(mins => seuil)),
           'courses', (select coalesce(jsonb_agg(jsonb_build_object(
               'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
               'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
@@ -293,6 +309,12 @@ revoke all on function public.rh_localiser_livreurs() from public, anon;
 grant execute on function public.rh_localiser_livreurs() to authenticated, service_role;
 
 -- ---------- Les menus réglables, « livreurs » compris (copies de schema.sql) ----------
+create or replace function public.rh_est_ceo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.rh_employes
+                  where compte_id = auth.uid() and etat = 'actif' and ceo);
+$$;
+
 create or replace function public.rh_regler_acces(cible uuid, choix jsonb) returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -309,10 +331,18 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
+    end if;
+    -- Le journal des gestes regarde l'administration : elle ne choisit pas
+    -- qui la regarde. L'écran renvoie toutes les clés à chaque
+    -- enregistrement : seule une clé « audit » qui CHANGE est refusée.
+    if k = 'audit' and not (public.rh_est_ceo() or public.est_super())
+       and coalesce(nullif(v, 'ferme'), '') is distinct from
+           coalesce((select a.qui from public.rh_acces_menus a where a.profil_id = cible and a.menu = 'audit'), '') then
+      raise exception 'Seul le CEO ouvre ou ferme le journal des gestes : c''est l''administration qu''il regarde';
     end if;
     if v is null or v = 'ferme' then
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
@@ -331,7 +361,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -508,8 +538,17 @@ language plpgsql stable security definer set search_path = public as $$
 declare
   r public.rh_reglages_suivi;
   maintenant timestamptz := now();
+  -- Les seuils de la veille et des encaissements (personnel-controles.sql)
+  -- se lisent par to_jsonb : sur une base où leurs colonnes manquent
+  -- encore, la valeur de départ vaut, au lieu d'une erreur.
+  v_prise_min int;
+  v_position_min int;
+  v_momopay_h int;
 begin
   select * into r from public.rh_reglages_suivi where id;
+  v_prise_min := coalesce((to_jsonb(r) ->> 'prise_course_min')::int, 30);
+  v_position_min := coalesce((to_jsonb(r) ->> 'position_min')::int, 15);
+  v_momopay_h := coalesce((to_jsonb(r) ->> 'momopay_h')::int, 48);
   return query
   with cmd as (
     select c.* from public.commandes c
@@ -614,6 +653,27 @@ begin
         union all
         select 'encaissement_conteste' where exists (select 1 from public.encaissements e
                                                      where e.commande_id = c.id and e.conteste_le is not null)
+        union all
+        -- Payée (ou préparée) et personne n'a pris la course : la demande
+        -- part à tous les livreurs au paiement, elle devrait trouver preneur.
+        select 'course_sans_livreur' where exists (select 1 from lig2 x where x.commande_id = c.id
+                                 and x.etat in ('nouvelle', 'vue', 'preparee') and x.livreur_id is null
+                                 and maintenant - coalesce(x.preparee_le, c.paye_le) > make_interval(mins => v_prise_min))
+        union all
+        -- En route, et son téléphone n'envoie plus rien : compté depuis sa
+        -- dernière position, ou depuis qu'il a accepté la course.
+        select 'livreur_muet' where exists (select 1 from lig2 x
+                                 left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
+                                 where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
+                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
+                                       > make_interval(mins => v_position_min))
+        union all
+        select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null
+                                   and maintenant - e.encaisse_le > make_interval(hours => v_momopay_h))
+        union all
+        select 'encaissement_ecart' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.montant <> e.du)
       ) al)
     end)
   from cmd c

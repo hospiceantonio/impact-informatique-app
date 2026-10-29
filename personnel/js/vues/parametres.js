@@ -25,9 +25,18 @@ const VueParametres = (() => {
     ["Commandes", [
       ["suivi", "Suivi des commandes", "Statuts, alertes, incidents, export Excel : sans les montants."],
       ["livreurs", "Localiser un livreur", "La carte des livreurs en course, et leur distance au client."],
+      ["controles", "Contrôles des encaissements", "MoMoPay à vérifier, espèces pas rendues, écarts, par livreur : nombres et ancienneté, sans les montants."],
+      ["paiements", "Paiements et remboursements à suivre", "Clients peut-être débités, paiements en litige, remboursements dus : pour rappeler le client. Sans montants, numéros masqués."],
+    ]],
+    ["Qualité", [
+      ["qualite", "Qualité du service", "SAV et satisfaction, fiche qualité des boutiques (délais, jamais les ventes), santé du catalogue, files d'attente d'Admin, service par zone, fidélité des clients en taux. Sans montants, sans noms de clients."],
     ]],
     ["Caisse", [
-      ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire. L'administration ne la voit pas d'office."],
+      ["caisse", "Caisse (consultation)", "Le solde et les mouvements de la caisse, sans rien y faire, et ce que BIZZOO doit payer (nombres et ancienneté). L'administration ne la voit pas d'office."],
+    ]],
+    ["Contrôle interne", [
+      ["audit", "Journal des gestes de BIZZOO Admin", "Qui a fait quoi dans Admin (prix, suppressions, comptes, réglages de paiement), gestes sensibles en avant, chiffres masqués. Le CEO le lit toujours et règle seul cet accès ; l'administration n'y entre jamais."],
+      ["promos", "Codes promo et parrainage", "Usages de chaque code et abus probables, sans les montants ; numéros masqués."],
     ]],
     ["Statistiques (sans les montants)", [
       ["stats_commandes", "Commandes", "Payées, passées, en attente, jour par jour."],
@@ -84,8 +93,11 @@ const VueParametres = (() => {
     const choix = {};
     const ligneMenu = ([cle, libelle, texte, responsableSeul]) => {
       const nom = "acces-" + cle;
+      /* « audit » regarde l'administration : elle ne choisit pas qui la
+         regarde. La base le refuse ; l'écran le montre d'avance. */
+      const reserveCeo = cle === "audit" && !(App.estCeo() || App.estSuper());
       choix[cle] = CHOIX.map(([v]) => h("input", { type: "radio", name: nom, value: v,
-        checked: etat(p.id, cle) === v, disabled: responsableSeul && v === "membres" }));
+        checked: etat(p.id, cle) === v, disabled: reserveCeo || (responsableSeul && v === "membres") }));
       return h("tr", {},
         h("td", {}, h("div", { class: "gras" }, libelle), h("div", { class: "doux tres-petit" }, texte)),
         choix[cle].map((radio, i) => h("td", { class: "centre" },

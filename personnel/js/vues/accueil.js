@@ -86,6 +86,16 @@ const VueAccueil = (() => {
   async function afficher(zone) {
     const [, marche] = await Promise.all([App.rafraichir(), Supabase.rpc("rh_accueil_chiffres").catch(() => null)]);
     if (!zone.isConnected) return;
+    /* Le bilan du matin : seulement si la base me l'ouvre (administration,
+       responsables de profil) ; elle ôte elle-même les montants. */
+    const f = App.file() || {};
+    const bilans = f.bilan ? await Supabase.rpc("rh_bilans_lire", { v_nombre: 1 }).catch(() => null) : null;
+    if (!zone.isConnected) return;
+    const bilan = bilans && bilans.bilans && bilans.bilans[0];
+    const aujourdhui = UI.aujourdhui();
+    const carteBilan = bilan ? h("div", {},
+      VueBilans.carte(bilan, { titre: bilan.jour === aujourdhui ? "Bilan du jour" : "Dernier bilan (" + UI.date(bilan.jour) + ")" }),
+      h("a", { class: "petit", href: "#/bilans" }, "Voir l'historique des bilans")) : null;
     const moi = App.moi();
     const c = App.compteurs();
     const heure = new Date().getHours();
@@ -93,6 +103,11 @@ const VueAccueil = (() => {
     const rang = moi.ceo ? "CEO" : moi.administration ? "Administration" : moi.poste || "";
 
     const aFaire = [];
+    if (f.acces) {
+      aFaire.push(tuile((f.a_prendre || 0), "tâche(s) libre(s) dans ma file", "#/file", true));
+      if (f.a_moi) aFaire.push(tuile(f.a_moi, "tâche(s) que j'ai prise(s)", "#/file"));
+      if (f.escalades) aFaire.push(tuile(f.escalades, "tâche(s) que personne n'a prise(s)", "#/file", true));
+    }
     if (App.estCeo()) {
       aFaire.push(tuile(c.employes_a_valider, "employé(s) à valider", "#/employes?filtre=en_attente", true));
       aFaire.push(tuile(c.rapports_a_valider, "rapport(s) d'activité à valider", "#/rapports?filtre=publie", true));
@@ -136,11 +151,41 @@ const VueAccueil = (() => {
     }
     raccourcis.push(h("a", { class: "btn btn-second", href: "#/mails/ecrire" }, UI.icone("mail", "ic-sm"), "Écrire un mail"));
 
+    /* UN RÉGLAGE SENSIBLE CHANGÉ (code MoMoPay, mode essai…) reste en
+       rouge ici tant que le CEO ou le superadministrateur ne l'a pas
+       approuvé dans Contrôles. */
+    const k = App.controles() || {};
+    const alerteReglage = k.reglages_a_approuver > 0 && k.dernier ? h("a", { class: "alerte-rouge", href: "#/controles/reglages" },
+      UI.icone("alerte"),
+      h("div", { class: "etire" },
+        h("b", {}, k.dernier.libelle),
+        h("div", { class: "petit" }, "Par " + (k.dernier.par || "inconnu") + ", le " + UI.dateHeure(k.dernier.le) +
+          (k.reglages_a_approuver > 1 ? " · " + k.reglages_a_approuver + " changements à vérifier" : "") +
+          (k.approuver ? " · touchez pour vérifier et approuver" : " · en attente du CEO"))),
+      UI.icone("chevron", "ic-sm")) : null;
+    if (k.encaissements_anciens > 0) {
+      aFaire.push(tuile(k.encaissements_anciens, "encaissement(s) à la livraison en attente depuis trop longtemps", "#/controles/encaissements", true));
+    }
+    /* L'argent : un client peut-être débité, un remboursement qui tarde,
+       une demande d'argent qui attend trop. */
+    const ar = App.argent() || {};
+    if (ar.paiements_a_traiter > 0) {
+      aFaire.push(tuile(ar.paiements_a_traiter, "paiement(s) à rapprocher", "#/controles/paiements", true));
+    }
+    if (ar.remboursements_en_retard > 0) {
+      aFaire.push(tuile(ar.remboursements_en_retard, "remboursement(s) en retard", "#/controles/remboursements", true));
+    }
+    if (ar.dettes_anciennes > 0) {
+      aFaire.push(tuile(ar.dettes_anciennes, "demande(s) d'argent qui attendent trop", "#/controles/dettes", true));
+    }
+
     UI.vider(zone,
+      alerteReglage,
       h("div", {},
         h("h2", { style: { fontSize: "21px" } }, salut + ", " + (moi.prenoms || moi.nom)),
         h("p", { class: "doux" }, [rang, moi.profil ? "Profil " + moi.profil : ""].filter(Boolean).join(" · "))),
       h("div", { class: "tuiles" }, aFaire),
+      carteBilan,
       marche ? placeDeMarche(marche) : null,
       h("div", { class: "carte" }, h("h2", {}, "Raccourcis"), h("div", { class: "actions" }, raccourcis)));
   }

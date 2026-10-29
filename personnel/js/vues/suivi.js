@@ -28,6 +28,10 @@ const VueSuivi = (() => {
     incident: ["Incident ouvert", "rouge"],
     refus_course: ["Course refusée par un livreur", ""],
     encaissement_conteste: ["Encaissement contesté", "rouge"],
+    course_sans_livreur: ["Course sans livreur", "rouge"],
+    livreur_muet: ["Livreur en route sans position", "orange"],
+    momopay_non_verifie: ["MoMoPay pas vérifié", "orange"],
+    encaissement_ecart: ["Écart d'encaissement", "rouge"],
   };
   const COULEUR_STATUT = { 0: "", 1: "orange", 2: "bleu", 3: "bleu", 4: "bleu", 5: "bleu", 6: "orange",
     8: "vert", 9: "rouge", 10: "rouge", 11: "", 12: "orange", 13: "", 14: "vert", 15: "" };
@@ -389,7 +393,8 @@ const VueSuivi = (() => {
       onglets("alertes"),
       h("p", { class: "doux petit" }, "Les commandes des 60 derniers jours qui demandent une action. Délais réglés : vue " +
         r.reglages.vue_h + " h, préparation " + r.reglages.preparation_h + " h, livraison " + r.reglages.livraison_h +
-        " h, confirmation " + r.reglages.confirmation_h + " h."),
+        " h, confirmation " + r.reglages.confirmation_h + " h ; course sans livreur " + (r.reglages.prise_course_min ?? 30) +
+        " min, livreur sans position " + (r.reglages.position_min ?? 15) + " min."),
       Object.keys(parType).length ? h("div", { class: "tuiles" }, Object.entries(parType).map(([a, n]) =>
         h("div", { class: "tuile" + ((ALERTES[a] || [])[1] === "rouge" ? " alerte" : "") },
           h("b", {}, n), h("span", {}, (ALERTES[a] || [a])[0])))) : null,
@@ -556,6 +561,26 @@ const VueSuivi = (() => {
         "Délais enregistrés.");
       App.rafraichir();
     });
+    /* LA VEILLE DES LIVREURS, en minutes : une course payée que personne
+       ne prend, un livreur en route dont le téléphone se tait. */
+    const champMin = (nom, libelle, aide, min, max, defaut) => {
+      const e = h("input", { type: "number", min, max, value: g[nom] ?? defaut, required: true });
+      e.name = nom;
+      return h("label", { class: "champ" }, h("span", {}, libelle), e, h("small", {}, aide));
+    };
+    const formVeille = h("form", { class: "carte pile" },
+      h("h2", {}, "Veille des livreurs (en minutes)"),
+      h("div", { class: "formulaire" },
+        champMin("prise_course_min", "Une course doit trouver un livreur", "après le paiement, ou après la préparation", 5, 1440, 30),
+        champMin("position_min", "Un livreur en route doit donner sa position", "sinon il passe en orange sur la carte Localiser", 2, 720, 15)),
+      h("div", { class: "actions" }, h("button", { class: "btn", type: "submit" }, "Enregistrer")));
+    formVeille.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const v = (n) => Number(formVeille.querySelector("[name=" + n + "]").value);
+      await UI.agir(ev.submitter, () => Supabase.rpc("rh_suivi_regler_veille", {
+        v_prise_course_min: v("prise_course_min"), v_position_min: v("position_min") }), "Veille enregistrée.");
+      App.rafraichir();
+    });
     const nom = h("input", { required: true, placeholder: "Ex. : Bidossessi" });
     const commune = h("input", { placeholder: "Ex. : Abomey-Calavi" });
     const formZone = h("form", { class: "carte pile" },
@@ -591,7 +616,7 @@ const VueSuivi = (() => {
           v === "" ? "Clôture à la main seulement." : "Clôture automatique : " + v + " h après la confirmation du client.");
       });
     }
-    UI.vider(zone, onglets("reglages"), form, formCloture, formZone);
+    UI.vider(zone, onglets("reglages"), form, formVeille, formCloture, formZone);
   }
 
   /* ---------- La fiche d'une commande ---------- */

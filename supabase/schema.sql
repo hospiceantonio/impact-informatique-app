@@ -15104,8 +15104,17 @@ language plpgsql stable security definer set search_path = public as $$
 declare
   r public.rh_reglages_suivi;
   maintenant timestamptz := now();
+  -- Les seuils de la veille et des encaissements (personnel-controles.sql)
+  -- se lisent par to_jsonb : sur une base où leurs colonnes manquent
+  -- encore, la valeur de départ vaut, au lieu d'une erreur.
+  v_prise_min int;
+  v_position_min int;
+  v_momopay_h int;
 begin
   select * into r from public.rh_reglages_suivi where id;
+  v_prise_min := coalesce((to_jsonb(r) ->> 'prise_course_min')::int, 30);
+  v_position_min := coalesce((to_jsonb(r) ->> 'position_min')::int, 15);
+  v_momopay_h := coalesce((to_jsonb(r) ->> 'momopay_h')::int, 48);
   return query
   with cmd as (
     select c.* from public.commandes c
@@ -15210,6 +15219,27 @@ begin
         union all
         select 'encaissement_conteste' where exists (select 1 from public.encaissements e
                                                      where e.commande_id = c.id and e.conteste_le is not null)
+        union all
+        -- Payée (ou préparée) et personne n'a pris la course : la demande
+        -- part à tous les livreurs au paiement, elle devrait trouver preneur.
+        select 'course_sans_livreur' where exists (select 1 from lig2 x where x.commande_id = c.id
+                                 and x.etat in ('nouvelle', 'vue', 'preparee') and x.livreur_id is null
+                                 and maintenant - coalesce(x.preparee_le, c.paye_le) > make_interval(mins => v_prise_min))
+        union all
+        -- En route, et son téléphone n'envoie plus rien : compté depuis sa
+        -- dernière position, ou depuis qu'il a accepté la course.
+        select 'livreur_muet' where exists (select 1 from lig2 x
+                                 left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
+                                 where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
+                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
+                                       > make_interval(mins => v_position_min))
+        union all
+        select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null
+                                   and maintenant - e.encaisse_le > make_interval(hours => v_momopay_h))
+        union all
+        select 'encaissement_ecart' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.montant <> e.du)
       ) al)
     end)
   from cmd c
@@ -15852,7 +15882,7 @@ create table if not exists public.rh_acces_menus (
   modifie_le   timestamptz not null default now(),
   primary key (profil_id, menu),
   constraint rh_acces_menus_menu check (menu in ('mails', 'discussions', 'missions', 'rapports',
-    'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits',
+    'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits',
     'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes')),
   constraint rh_acces_menus_qui check (qui in ('responsable', 'membres'))
 );
@@ -15916,10 +15946,18 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
+    end if;
+    -- Le journal des gestes regarde l'administration : elle ne choisit pas
+    -- qui la regarde. L'écran renvoie toutes les clés à chaque
+    -- enregistrement : seule une clé « audit » qui CHANGE est refusée.
+    if k = 'audit' and not (public.rh_est_ceo() or public.est_super())
+       and coalesce(nullif(v, 'ferme'), '') is distinct from
+           coalesce((select a.qui from public.rh_acces_menus a where a.profil_id = cible and a.menu = 'audit'), '') then
+      raise exception 'Seul le CEO ouvre ou ferme le journal des gestes : c''est l''administration qu''il regarde';
     end if;
     if v is null or v = 'ferme' then
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
@@ -15939,7 +15977,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -16846,7 +16884,7 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
     alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
-      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'stats_commandes',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse', 'stats_commandes',
       'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
   end if;
 end $$;
@@ -16860,13 +16898,23 @@ create or replace function public.rh_localiser_livreurs() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+  seuil int;
 begin
   if not public.rh_menu_ouvert('livreurs') then
     raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
   end if;
+  -- Le seuil du « livreur muet » vit dans les réglages du suivi : sans
+  -- eux (fichier rejoué seul sur une base plus ancienne), 15 minutes.
+  begin
+    select (to_jsonb(r) ->> 'position_min')::int into seuil from public.rh_reglages_suivi r where r.id;
+  exception when others then
+    seuil := null;
+  end;
+  seuil := coalesce(seuil, 15);
   return jsonb_build_object(
     'coef', coef,
     'maintenant', now(),
+    'seuil_muet_min', seuil,
     'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
       from (
         select jsonb_build_object(
@@ -16884,6 +16932,12 @@ begin
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
                                   where s.profil_id = p.id and s.expire_le > now())
                          and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
+          -- En route vers un client, et rien reçu de son téléphone depuis
+          -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
+          'muet', exists (select 1 from public.commande_lignes l
+                            join public.commandes c on c.id = l.commande_id
+                           where l.livreur_id = p.id and c.etat = 'payee' and l.etat = 'en_livraison'
+                             and now() - greatest(pl.enregistre_le, l.recu_le, c.paye_le) > make_interval(mins => seuil)),
           'courses', (select coalesce(jsonb_agg(jsonb_build_object(
               'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
               'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
@@ -17397,7 +17451,7 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
     alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
-      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse', 'stats_commandes',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse', 'stats_commandes',
       'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
   end if;
 end $$;
@@ -18929,6 +18983,3993 @@ revoke all on function public.rh_livreur_fiche(uuid, date, date) from public, an
 grant execute on function public.rh_livreur_fiche(uuid, date, date) to authenticated, service_role;
 revoke all on function public.rh_bloquer_livreur(uuid, boolean, text) from public, anon;
 grant execute on function public.rh_bloquer_livreur(uuid, boolean, text) to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : les contrôles (réglages sensibles, encaissements,
+-- veille des livreurs)
+--
+-- 1. L'HISTORIQUE DES RÉGLAGES SENSIBLES. Chaque changement de
+--    « paiement » (bac à sable, paiement fermé, agrégateur, code
+--    MoMoPay, tarifs), de « reglages » (compte obligatoire) et des
+--    numéros de réception des boutiques est gardé, champ par champ, avec
+--    son auteur, l'ancienne et la nouvelle valeur. Il reste en alerte
+--    rouge (accueil, menu Contrôles) tant que le CEO ou le
+--    superadministrateur ne l'a pas dit « vu et approuvé ».
+--    L'administration le lit ; les codes et numéros sont tronqués.
+-- 2. LE CONTRÔLE DES ENCAISSEMENTS À LA LIVRAISON : MoMoPay pas encore
+--    vérifié, espèces pas encore rendues, livraisons sans déclaration,
+--    écarts et contestations, par livreur et avec leur ancienneté.
+--    Montants : l'administration et le superadministrateur ; la clé
+--    « controles » de Paramètres ouvre la version sans montants.
+-- 3. LA VEILLE DES LIVREURS dans le suivi des commandes : « course sans
+--    livreur » et « livreur muet » (en route, sans position), et le
+--    livreur muet en orange sur la carte Localiser.
+-- =========================================================
+
+-- ---------- La clé « controles » dans Paramètres ----------
+-- Elle ouvre le contrôle des encaissements SANS montants (nombres et
+-- ancienneté) aux profils choisis, la logistique par exemple.
+do $$
+begin
+  if to_regclass('public.rh_acces_menus') is null then
+    return;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu'
+               and pg_get_constraintdef(oid) not like '%''controles''%') then
+    alter table public.rh_acces_menus drop constraint rh_acces_menus_menu;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
+    alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse', 'stats_commandes',
+      'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
+  end if;
+end $$;
+
+-- ---------- Les seuils, avec ceux du suivi ----------
+-- Veille des livreurs, en minutes : une course payée que personne ne
+-- prend, un livreur en route dont le téléphone se tait. Encaissements :
+-- au-delà de combien d'heures un MoMoPay non vérifié ou des espèces non
+-- rendues deviennent « anciens », et à combien d'anciens un livreur est
+-- signalé (sa fiche propose alors le blocage, qui existe déjà).
+alter table public.rh_reglages_suivi add column if not exists prise_course_min int not null default 30
+  check (prise_course_min between 5 and 1440);
+alter table public.rh_reglages_suivi add column if not exists position_min int not null default 15
+  check (position_min between 2 and 720);
+alter table public.rh_reglages_suivi add column if not exists momopay_h int not null default 48
+  check (momopay_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists especes_h int not null default 24
+  check (especes_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists plafond_nb int not null default 3
+  check (plafond_nb between 1 and 100);
+
+-- ---------- L'historique des réglages sensibles ----------
+-- Un code MoMoPay changé envoie tous les restes payés à la livraison sur
+-- un autre compte ; un « bac à sable » coché par erreur arrête toutes
+-- les ventes réelles. Jusqu'ici seul « maj_le » bougeait, sans auteur ni
+-- valeur d'avant. Chaque changement de « paiement », « reglages » et
+-- « boutiques_reception » s'écrit ici, champ par champ, et attend que le
+-- CEO ou le superadministrateur le dise « vu et approuvé ».
+--
+-- Table FIGÉE : on n'efface rien, on ne réécrit rien ; seule
+-- l'approbation se pose, une fois. Personne ne la lit directement : les
+-- valeurs entières (code MoMoPay, numéros) n'en sortent que tronquées,
+-- par rh_audit_reglages_liste.
+create table if not exists public.rh_audit_reglages (
+  id            bigint generated always as identity primary key,
+  le            timestamptz not null default now(),
+  table_nom     text not null,
+  cible         text not null default '',
+  champ         text not null,
+  avant         text,
+  apres         text,
+  par_compte    uuid,
+  par_nom       text not null default '',
+  critique      boolean not null default false,
+  approuve_le   timestamptz,
+  approuve_par  uuid,
+  approuve_nom  text not null default ''
+);
+create index if not exists rh_audit_reglages_attente on public.rh_audit_reglages (le desc) where approuve_le is null;
+alter table public.rh_audit_reglages enable row level security;
+revoke all on table public.rh_audit_reglages from public, anon, authenticated;
+revoke all on sequence public.rh_audit_reglages_id_seq from public, anon, authenticated;
+grant all on table public.rh_audit_reglages to service_role;
+grant usage, select on sequence public.rh_audit_reglages_id_seq to service_role;
+
+create or replace function public.rh_audit_reglages_fige() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'L''historique des réglages ne s''efface pas';
+  end if;
+  if old.approuve_le is not null
+     or (to_jsonb(new) - 'approuve_le' - 'approuve_par' - 'approuve_nom')
+        is distinct from (to_jsonb(old) - 'approuve_le' - 'approuve_par' - 'approuve_nom') then
+    raise exception 'L''historique des réglages ne se réécrit pas : un changement s''approuve, une fois';
+  end if;
+  return new;
+end $$;
+drop trigger if exists rh_audit_reglages_fige on public.rh_audit_reglages;
+create trigger rh_audit_reglages_fige
+  before update or delete on public.rh_audit_reglages
+  for each row execute function public.rh_audit_reglages_fige();
+
+/** Le nom de qui a fait le changement : l'employé, sinon le compte de la place de marché. */
+create or replace function public.rh_audit_qui(compte uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select nullif(btrim(coalesce(e.prenoms, '') || ' ' || coalesce(e.nom, '')), '')
+       from public.rh_employes e where e.compte_id = compte
+      order by (e.etat = 'actif') desc limit 1),
+    (select coalesce(nullif(btrim(p.nom), ''), p.email) from public.profils p where p.id = compte),
+    'Compte ' || left(compte::text, 8));
+$$;
+
+/** Ce qui ouvre l'argent ou le ferme : l'alerte la plus haute. */
+create or replace function public.rh_audit_critique(t text, c text) returns boolean
+language sql immutable set search_path = public as $$
+  select (t = 'paiement' and c in ('actif', 'bac_a_sable', 'fournisseur', 'cle_publique', 'momopay_code', 'momopay_nom'))
+      or t in ('reglages', 'boutiques_reception');
+$$;
+
+/** Une valeur montrable : les codes, clés et numéros tronqués. */
+create or replace function public.rh_audit_affiche(t text, c text, v text) returns text
+language sql immutable set search_path = public as $$
+  select case
+    when v is null or v = '' then '(vide)'
+    when c in ('momopay_code', 'cle_publique', 'tel') then
+      case when length(v) <= 4 then left(v, 1) || '…' else left(v, 3) || '…' || right(v, 2) end
+    when v = 'true' then 'oui'
+    when v = 'false' then 'non'
+    else v end;
+$$;
+
+/** Ce que le changement veut dire, en une phrase. */
+create or replace function public.rh_audit_libelle(t text, c text, av text, ap text) returns text
+language sql immutable set search_path = public as $$
+  select case
+    when t = 'paiement' and c = 'bac_a_sable' then
+      case when ap = 'true' then 'Paiement passé en mode essai (bac à sable) : plus aucune vente réelle ne passe'
+           else 'Paiement passé en production (argent réel)' end
+    when t = 'paiement' and c = 'actif' then
+      case when ap = 'true' then 'Paiement en ligne ouvert' else 'Paiement en ligne fermé' end
+    when t = 'paiement' and c = 'fournisseur' then 'Agrégateur de paiement changé'
+    when t = 'paiement' and c = 'momopay_code' then 'Code MoMoPay changé : les restes payés à la livraison partent sur ce compte'
+    when t = 'paiement' and c = 'momopay_nom' then 'Nom du compte MoMoPay changé'
+    when t = 'paiement' and c = 'cle_publique' then 'Clé publique de paiement changée'
+    when t = 'paiement' and c = 'taux_acompte' then 'Acompte à la commande changé (en %)'
+    when t = 'paiement' and c = 'taux_livreur' then 'Part du livreur changée (en %)'
+    when t = 'paiement' and c = 'frais_livraison' then 'Frais de livraison changés'
+    when t = 'paiement' and c = 'moto_forfait' then 'Tarif de livraison changé : forfait moto'
+    when t = 'paiement' and c = 'moto_prix_km' then 'Tarif de livraison changé : prix au km en moto'
+    when t = 'paiement' and c = 'tricycle_forfait' then 'Tarif de livraison changé : forfait tricycle'
+    when t = 'paiement' and c = 'tricycle_prix_km' then 'Tarif de livraison changé : prix au km en tricycle'
+    when t = 'paiement' and c = 'livraison_coef' then 'Coefficient de la route changé'
+    when t = 'paiement' and c = 'livraison_rayon_km' then 'Rayon de livraison changé (km)'
+    when t = 'paiement' and c in ('livraison_latitude', 'livraison_longitude', 'livraison_adresse') then 'Point de départ des livraisons changé'
+    when t = 'reglages' and c = 'compte_obligatoire' then
+      case when ap = 'true' then 'Compte obligatoire pour commander' else 'Commande sans compte de nouveau permise' end
+    when t = 'boutiques_reception' and c = 'tel' then 'Numéro de réception des reversements changé'
+    when t = 'boutiques_reception' and c = 'reseau' then 'Réseau de réception des reversements changé'
+    when t = 'boutiques_reception' and c = 'titulaire' then 'Titulaire du numéro de réception changé'
+    else 'Réglage « ' || c || ' » changé' end;
+$$;
+
+/* JAMAIS D'ERREUR VERS ADMIN NI CLIENT : ce déclencheur vit sur des
+   tables de la place de marché. Tout est dans un bloc qui avale ses
+   propres échecs. Un historique manqué se regrette ; un réglage refusé
+   à cause de lui, jamais. On compare la ligne entière, champ par champ :
+   une colonne ajoutée demain sera suivie sans rien changer ici. */
+create or replace function public.rh_audit_reglages_noter() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  avant jsonb;
+  apres jsonb;
+  v_cible text := '';
+  v_qui uuid;
+  v_nom text;
+  k text;
+begin
+  begin
+    avant := case when tg_op in ('UPDATE', 'DELETE') then to_jsonb(old) else '{}'::jsonb end;
+    apres := case when tg_op in ('UPDATE', 'INSERT') then to_jsonb(new) else '{}'::jsonb end;
+    v_qui := auth.uid();
+    v_nom := case when v_qui is null then 'Système (aucun compte connecté)' else public.rh_audit_qui(v_qui) end;
+    if tg_table_name = 'boutiques_reception' then
+      v_cible := coalesce(apres ->> 'boutique_id', avant ->> 'boutique_id', '');
+    end if;
+    for k in select x.cle from (select jsonb_object_keys(avant) as cle
+                                union select jsonb_object_keys(apres)) x order by 1 loop
+      continue when k in ('id', 'boutique_id', 'maj_le', 'maj_par');
+      if coalesce(avant ->> k, '') is distinct from coalesce(apres ->> k, '') then
+        insert into public.rh_audit_reglages (table_nom, cible, champ, avant, apres, par_compte, par_nom, critique)
+        values (tg_table_name, v_cible, k, avant ->> k, apres ->> k, v_qui, coalesce(v_nom, ''),
+                public.rh_audit_critique(tg_table_name, k));
+      end if;
+    end loop;
+  exception when others then
+    raise warning 'rh_audit_reglages_noter : % (%)', sqlerrm, sqlstate;
+  end;
+  return null;
+end $$;
+
+drop trigger if exists rh_audit_paiement on public.paiement;
+create trigger rh_audit_paiement
+  after update on public.paiement
+  for each row execute function public.rh_audit_reglages_noter();
+drop trigger if exists rh_audit_reglages on public.reglages;
+create trigger rh_audit_reglages
+  after update on public.reglages
+  for each row execute function public.rh_audit_reglages_noter();
+drop trigger if exists rh_audit_boutiques_reception on public.boutiques_reception;
+create trigger rh_audit_boutiques_reception
+  after insert or update or delete on public.boutiques_reception
+  for each row execute function public.rh_audit_reglages_noter();
+
+/** Qui ouvre le menu Contrôles : « admin » (l'administration et le
+    superadministrateur : réglages sensibles et montants), « logistique »
+    (un profil à qui Paramètres ouvre « controles » : les encaissements
+    en nombres et en ancienneté), ou rien. */
+create or replace function public.rh_controles_acces() returns text
+language sql stable security definer set search_path = public as $$
+  select case
+    when public.rh_est_admin() or public.est_super() then 'admin'
+    when public.rh_menu_ouvert('controles') then 'logistique'
+  end;
+$$;
+
+/** Les seuils de la veille et des encaissements, valeurs de départ comprises. */
+create or replace function public.rh_controles_seuils() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'prise_course_min', coalesce((x.j ->> 'prise_course_min')::int, 30),
+    'position_min', coalesce((x.j ->> 'position_min')::int, 15),
+    'momopay_h', coalesce((x.j ->> 'momopay_h')::int, 48),
+    'especes_h', coalesce((x.j ->> 'especes_h')::int, 24),
+    'plafond_nb', coalesce((x.j ->> 'plafond_nb')::int, 3))
+    from (select coalesce((select to_jsonb(r) from public.rh_reglages_suivi r where r.id), '{}'::jsonb) as j) x;
+$$;
+
+/** L'historique des réglages sensibles : l'administration le lit, le CEO
+    et le superadministrateur l'approuvent. */
+create or replace function public.rh_audit_reglages_liste(seulement_a_approuver boolean default false)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'L''historique des réglages est réservé à l''administration et au superadministrateur';
+  end if;
+  return jsonb_build_object(
+    'approuver', public.rh_est_ceo() or public.est_super(),
+    'a_approuver', (select count(*) from public.rh_audit_reglages a where a.approuve_le is null),
+    'changements', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', a.id, 'le', a.le, 'table', a.table_nom,
+        'boutique', case when a.table_nom = 'boutiques_reception' then coalesce(b.nom, a.cible) end,
+        'champ', a.champ,
+        'libelle', public.rh_audit_libelle(a.table_nom, a.champ, a.avant, a.apres),
+        'avant', public.rh_audit_affiche(a.table_nom, a.champ, a.avant),
+        'apres', public.rh_audit_affiche(a.table_nom, a.champ, a.apres),
+        'par', a.par_nom, 'critique', a.critique,
+        'approuve_le', a.approuve_le, 'approuve_par', nullif(a.approuve_nom, ''))
+        order by a.le desc, a.id desc), '[]')
+      from (select * from public.rh_audit_reglages x
+             where not coalesce(seulement_a_approuver, false) or x.approuve_le is null
+             order by x.le desc, x.id desc limit 300) a
+      left join public.boutiques b on b.id = a.cible));
+end $$;
+
+/** « Vu et approuvé » : le CEO ou le superadministrateur, une fois par changement. */
+create or replace function public.rh_audit_approuver(ids bigint[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  n int;
+begin
+  if not (public.rh_est_ceo() or public.est_super()) then
+    raise exception 'Seuls le CEO et le superadministrateur approuvent un changement de réglage';
+  end if;
+  if ids is null or cardinality(ids) = 0 then
+    raise exception 'Choisissez au moins un changement';
+  end if;
+  update public.rh_audit_reglages a
+     set approuve_le = now(), approuve_par = auth.uid(), approuve_nom = coalesce(public.rh_audit_qui(auth.uid()), '')
+   where a.id = any(ids) and a.approuve_le is null;
+  get diagnostics n = row_count;
+  if n = 0 then
+    raise exception 'Rien à approuver : ces changements le sont déjà';
+  end if;
+  return n;
+end $$;
+
+/** Régler les seuils des encaissements : l'administration et le superadministrateur. */
+create or replace function public.rh_controles_regler(v_momopay_h int, v_especes_h int, v_plafond_nb int)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seuls l''administration et le superadministrateur règlent les seuils des contrôles';
+  end if;
+  if coalesce(v_momopay_h, 0) not between 1 and 720 or coalesce(v_especes_h, 0) not between 1 and 720 then
+    raise exception 'Les délais se comptent en heures, de 1 à 720';
+  end if;
+  if coalesce(v_plafond_nb, 0) not between 1 and 100 then
+    raise exception 'Le plafond se compte en encaissements, de 1 à 100';
+  end if;
+  update public.rh_reglages_suivi
+     set momopay_h = v_momopay_h, especes_h = v_especes_h, plafond_nb = v_plafond_nb
+   where id;
+end $$;
+
+/** Régler la veille des livreurs, avec les autres délais du suivi : l'administration. */
+create or replace function public.rh_suivi_regler_veille(v_prise_course_min int, v_position_min int)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_admin() then
+    raise exception 'Seule l''administration règle les délais';
+  end if;
+  if coalesce(v_prise_course_min, 0) not between 5 and 1440 then
+    raise exception 'Une course sans livreur se signale entre 5 et 1 440 minutes';
+  end if;
+  if coalesce(v_position_min, 0) not between 2 and 720 then
+    raise exception 'Un livreur muet se signale entre 2 et 720 minutes';
+  end if;
+  update public.rh_reglages_suivi
+     set prise_course_min = v_prise_course_min, position_min = v_position_min
+   where id;
+end $$;
+
+/**
+ * Le contrôle des encaissements à la livraison. Ce qui attend (MoMoPay
+ * pas encore retrouvé dans le compte de BIZZOO, espèces pas encore
+ * rendues, livraisons sans déclaration alors qu'un reste était dû) quelle
+ * que soit la période, et ce qui s'est mal passé sur la période (écarts
+ * entre le dû et le déclaré, contestations). Par livreur et ligne par
+ * ligne. Les montants et le numéro de transaction : l'administration et
+ * le superadministrateur seulement ; la logistique a les nombres et
+ * l'ancienneté. Rien ne s'écrit ici : « Vérifié » se touche dans BIZZOO
+ * Admin, menu Caisse.
+ */
+create or replace function public.rh_encaissements(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_controles_acces();
+  argent boolean;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  s jsonb;
+  h_momo int;
+  h_esp int;
+  plafond int;
+  resultat jsonb;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès au contrôle des encaissements';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  argent := acces = 'admin';
+  s := public.rh_controles_seuils();
+  h_momo := (s ->> 'momopay_h')::int;
+  h_esp := (s ->> 'especes_h')::int;
+  plafond := (s ->> 'plafond_nb')::int;
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with e as (
+    select x.id, x.commande_id, c.numero, x.boutique_id, x.livreur_id, x.du, x.montant, x.mode,
+           x.transaction_id, x.encaisse_le as le, x.remis_le, x.conteste_le,
+           case when x.mode = 'mobile_money' and x.remis_le is null then 'momopay_a_verifier'
+                when x.mode <> 'mobile_money' and x.remis_le is null and x.montant > 0 then 'especes_non_remises'
+                when x.conteste_le is not null then 'conteste'
+                when x.montant <> x.du then 'ecart'
+                else 'regle' end as statut,
+           x.montant <> x.du as ecart
+      from public.encaissements x
+      join public.commandes c on c.id = x.commande_id
+     where (x.remis_le is null and x.montant > 0)
+        or (x.encaisse_le >= t1 and x.encaisse_le < t2)
+    union all
+    -- Livré alors qu'un reste était dû, sans rien déclarer (application
+    -- d'avant 3.59.0) : la même règle que la caisse de BIZZOO Admin.
+    select null::bigint, l.commande_id, c.numero, l.boutique_id, l.livreur_id, r.a_encaisser, 0::bigint, 'aucun'::text,
+           ''::text, max(c.paye_le), null::timestamptz, null::timestamptz, 'non_declare'::text, false
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+      join lateral (select rr.a_encaisser from public.restes_par_boutique(l.commande_id) rr
+                     where rr.boutique_id = l.boutique_id) r on true
+     where l.etat = 'remise'
+       and c.paye_le >= least(t1, now() - interval '60 days') and c.paye_le < t2
+       and r.a_encaisser > 0
+       and not exists (select 1 from public.encaissements x
+                        where x.commande_id = l.commande_id and x.boutique_id = l.boutique_id)
+     group by l.commande_id, c.numero, l.boutique_id, l.livreur_id, r.a_encaisser
+  ),
+  f as (
+    select e.*,
+           greatest(0, floor(extract(epoch from (now() - e.le)) / 3600))::int as heures,
+           case e.statut when 'momopay_a_verifier' then now() - e.le > make_interval(hours => h_momo)
+                         when 'especes_non_remises' then now() - e.le > make_interval(hours => h_esp)
+                         when 'non_declare' then true
+                         else false end as ancien,
+           e.statut in ('momopay_a_verifier', 'especes_non_remises', 'non_declare') as en_attente,
+           -- Ce qui attend s'affiche quelle que soit sa date ; un écart ou
+           -- une contestation, seulement dans la période choisie (l'écran le
+           -- dit). Sans cela, des espèces non rendues d'il y a trois mois
+           -- gonflaient les écarts des « 7 derniers jours ».
+           (e.ecart and e.le >= t1 and e.le < t2) as ecart_p,
+           (e.conteste_le is not null and e.le >= t1 and e.le < t2) as conteste_p
+      from e
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'montants', argent,
+    'seuils', s,
+    'totaux', (select jsonb_build_object(
+        'momopay_a_verifier', count(*) filter (where f.statut = 'momopay_a_verifier'),
+        'momopay_anciens', count(*) filter (where f.statut = 'momopay_a_verifier' and f.ancien),
+        'especes_non_remises', count(*) filter (where f.statut = 'especes_non_remises'),
+        'especes_anciennes', count(*) filter (where f.statut = 'especes_non_remises' and f.ancien),
+        'non_declares', count(*) filter (where f.statut = 'non_declare'),
+        'ecarts', count(*) filter (where f.ecart_p),
+        'contestes', count(*) filter (where f.conteste_p),
+        'verifies', count(*) filter (where f.mode = 'mobile_money' and f.remis_le is not null),
+        'plus_ancien', min(f.le) filter (where f.en_attente))
+      || case when argent then jsonb_build_object(
+        'montant_a_verifier', coalesce(sum(f.montant) filter (where f.statut = 'momopay_a_verifier'), 0),
+        'montant_especes', coalesce(sum(f.montant) filter (where f.statut = 'especes_non_remises'), 0),
+        'montant_non_declare', coalesce(sum(f.du) filter (where f.statut = 'non_declare'), 0),
+        'ecart_total', coalesce(sum(f.du - f.montant) filter (where f.ecart_p), 0))
+        else '{}'::jsonb end
+      from f),
+    'livreurs', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', g.livreur_id,
+        'nom', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur inconnu'),
+        'tel', coalesce(p.tel, ''),
+        'boutique', (select b.nom from public.boutiques b where b.id = p.boutique_id),
+        'bloque', coalesce(p.courses_bloquees, false),
+        'en_attente', g.en_attente, 'anciens', g.anciens, 'plus_ancien', g.plus_ancien,
+        'ecarts', g.ecarts, 'contestes', g.contestes, 'au_plafond', g.anciens >= plafond)
+        || case when argent then jsonb_build_object('montant', g.montant) else '{}'::jsonb end
+        order by g.anciens desc, g.en_attente desc, p.nom), '[]')
+      from (select f.livreur_id,
+                   count(*) filter (where f.en_attente) as en_attente,
+                   count(*) filter (where f.en_attente and f.ancien) as anciens,
+                   min(f.le) filter (where f.en_attente) as plus_ancien,
+                   count(*) filter (where f.ecart_p) as ecarts,
+                   count(*) filter (where f.conteste_p) as contestes,
+                   coalesce(sum(case when f.statut = 'non_declare' then f.du else f.montant end)
+                              filter (where f.en_attente), 0) as montant
+              from f
+             group by f.livreur_id
+            having count(*) filter (where f.en_attente or f.ecart_p or f.conteste_p) > 0) g
+      left join public.profils p on p.id = g.livreur_id),
+    'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', k.id, 'commande', k.commande_id, 'numero', k.numero,
+        'boutique', coalesce(b.nom, k.boutique_id),
+        'livreur_id', k.livreur_id, 'livreur', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur inconnu'),
+        'mode', k.mode, 'statut', k.statut, 'le', k.le, 'heures', k.heures, 'ancien', k.ancien,
+        'ecart', k.ecart, 'conteste', k.conteste_le is not null, 'remis_le', k.remis_le)
+        || case when argent then jsonb_build_object('du', k.du, 'montant', k.montant,
+                                                   'transaction', k.transaction_id) else '{}'::jsonb end
+        order by k.ancien desc, k.le), '[]')
+      from (select * from f where f.en_attente or f.ecart_p or f.conteste_p
+             order by f.ancien desc, f.le limit 500) k
+      left join public.boutiques b on b.id = k.boutique_id
+      left join public.profils p on p.id = k.livreur_id))
+    into resultat;
+  return resultat;
+end $$;
+
+/** Les pastilles et l'alerte de l'accueil : un seul appel, à chaque relecture. */
+create or replace function public.rh_controles_compteurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_controles_acces();
+  s jsonb;
+begin
+  if acces is null then
+    return jsonb_build_object('acces', null);
+  end if;
+  s := public.rh_controles_seuils();
+  return jsonb_build_object(
+    'acces', acces,
+    'approuver', public.rh_est_ceo() or public.est_super(),
+    'reglages_a_approuver', case when acces = 'admin' then
+      (select count(*) from public.rh_audit_reglages a where a.approuve_le is null) end,
+    'dernier', case when acces = 'admin' then
+      (select jsonb_build_object(
+          'libelle', public.rh_audit_libelle(a.table_nom, a.champ, a.avant, a.apres)
+                     || coalesce(' — ' || nullif(b.nom, ''), ''),
+          'le', a.le, 'par', a.par_nom, 'critique', a.critique)
+         from public.rh_audit_reglages a
+         left join public.boutiques b on a.table_nom = 'boutiques_reception' and b.id = a.cible
+        where a.approuve_le is null
+        order by a.critique desc, a.le desc, a.id desc limit 1) end,
+    -- Les « anciens » : la même règle que rh_encaissements, livrés sans
+    -- déclaration compris (toujours anciens, sur 60 jours). Sans eux, un
+    -- livreur s'affichait « Plafond atteint » pendant que la pastille et
+    -- l'accueil disaient 0.
+    'encaissements_anciens', (select count(*) from public.encaissements x
+       where x.remis_le is null and x.montant > 0
+         and now() - x.encaisse_le > make_interval(hours => case when x.mode = 'mobile_money'
+                                                                 then (s ->> 'momopay_h')::int
+                                                                 else (s ->> 'especes_h')::int end))
+      + (select count(*) from (select distinct l.commande_id, l.boutique_id
+                                 from public.commande_lignes l
+                                 join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+                                where l.etat = 'remise' and c.paye_le >= now() - interval '60 days'
+                                  and not exists (select 1 from public.encaissements x
+                                                   where x.commande_id = l.commande_id
+                                                     and x.boutique_id = l.boutique_id)) d
+          where exists (select 1 from public.restes_par_boutique(d.commande_id) rr
+                         where rr.boutique_id = d.boutique_id and rr.a_encaisser > 0)));
+end $$;
+
+revoke all on function public.rh_audit_reglages_fige() from public, anon, authenticated;
+revoke all on function public.rh_audit_reglages_noter() from public, anon, authenticated;
+revoke all on function public.rh_audit_qui(uuid) from public, anon, authenticated;
+grant execute on function public.rh_audit_qui(uuid) to service_role;
+revoke all on function public.rh_audit_critique(text, text) from public, anon;
+grant execute on function public.rh_audit_critique(text, text) to authenticated, service_role;
+revoke all on function public.rh_audit_affiche(text, text, text) from public, anon;
+grant execute on function public.rh_audit_affiche(text, text, text) to authenticated, service_role;
+revoke all on function public.rh_audit_libelle(text, text, text, text) from public, anon;
+grant execute on function public.rh_audit_libelle(text, text, text, text) to authenticated, service_role;
+revoke all on function public.rh_controles_acces() from public, anon;
+grant execute on function public.rh_controles_acces() to authenticated, service_role;
+revoke all on function public.rh_controles_seuils() from public, anon;
+grant execute on function public.rh_controles_seuils() to authenticated, service_role;
+revoke all on function public.rh_audit_reglages_liste(boolean) from public, anon;
+grant execute on function public.rh_audit_reglages_liste(boolean) to authenticated, service_role;
+revoke all on function public.rh_audit_approuver(bigint[]) from public, anon;
+grant execute on function public.rh_audit_approuver(bigint[]) to authenticated, service_role;
+revoke all on function public.rh_controles_regler(int, int, int) from public, anon;
+grant execute on function public.rh_controles_regler(int, int, int) to authenticated, service_role;
+revoke all on function public.rh_suivi_regler_veille(int, int) from public, anon;
+grant execute on function public.rh_suivi_regler_veille(int, int) to authenticated, service_role;
+revoke all on function public.rh_encaissements(date, date) from public, anon;
+grant execute on function public.rh_encaissements(date, date) to authenticated, service_role;
+revoke all on function public.rh_controles_compteurs() from public, anon;
+grant execute on function public.rh_controles_compteurs() to authenticated, service_role;
+
+-- =========================================================
+-- BIZZOO Personnel : l'argent sous contrôle (personnel-argent.sql)
+--
+-- Le menu Contrôles gagne cinq onglets :
+--   1. Paiements à rapprocher : clients peut-être débités dont la
+--      commande ne le dit pas (versement payé, en conflit, incomplet,
+--      inconnu, « j'ai payé » sans preuve), et paiements confirmés à la
+--      main ; on note qui a traité, quand, comment (rh_rapprochements).
+--      La confirmation du paiement reste dans BIZZOO Admin.
+--   2. À payer : ce que BIZZOO doit aux boutiques, aux livreurs et aux
+--      parrains, demandes en attente et ancienneté, réel à côté du
+--      théorique. La décision reste dans BIZZOO Admin.
+--   3. Remboursements : la file des clients à rembourser après une
+--      annulation payée se remplit seule ; on note le remboursement fait
+--      (mode, référence) ; alerte s'il tarde ; les boutiques qui annulent
+--      après paiement. Qui a annulé : rh_annulations, par déclencheur.
+--   4. Gestes Admin : le journal de BIZZOO Admin, gestes sensibles en
+--      avant (CEO, superadministrateur, clé « audit »).
+--   5. Codes promo : usages, coût, parrains, abus probables, numéros
+--      masqués aux 4 derniers chiffres.
+-- Montants : l'administration et le superadministrateur seulement.
+-- =========================================================
+
+-- Les seuils de l'argent, avec ceux du suivi et des contrôles :
+--   annonce_min     : un client a dit « j'ai payé » et la commande reste
+--                     « à payer » depuis plus de N minutes ;
+--   dette_j         : une demande de reversement, de gains ou de retrait
+--                     attend depuis plus de N jours ;
+--   remboursement_j : un remboursement dû n'est pas noté après N jours.
+alter table public.rh_reglages_suivi add column if not exists annonce_min int not null default 30
+  check (annonce_min between 5 and 1440);
+alter table public.rh_reglages_suivi add column if not exists dette_j int not null default 5
+  check (dette_j between 1 and 60);
+alter table public.rh_reglages_suivi add column if not exists remboursement_j int not null default 7
+  check (remboursement_j between 1 and 60);
+
+-- ---------- Ce qui a été fait d'un paiement à rapprocher ----------
+-- Une ligne par geste (« client rappelé », « paiement retrouvé chez
+-- FeexPay »…), jamais réécrite : la dernière dit où en est le dossier.
+-- Pas de clé étrangère vers « commandes », comme « versements » : la
+-- trace survit à la commande. La confirmation du paiement, elle, reste
+-- dans BIZZOO Admin : ici, on note seulement qui a traité, et comment.
+create table if not exists public.rh_rapprochements (
+  id          bigint generated always as identity primary key,
+  commande_id text not null,
+  statut      text not null check (statut in ('en_cours', 'regle', 'sans_suite')),
+  commentaire text not null default '',
+  par         uuid,
+  par_nom     text not null default '',
+  le          timestamptz not null default now()
+);
+create index if not exists rh_rapprochements_commande on public.rh_rapprochements (commande_id, le desc);
+alter table public.rh_rapprochements enable row level security;
+revoke all on table public.rh_rapprochements from public, anon, authenticated;
+revoke all on sequence public.rh_rapprochements_id_seq from public, anon, authenticated;
+grant all on table public.rh_rapprochements to service_role;
+grant usage, select on sequence public.rh_rapprochements_id_seq to service_role;
+
+-- ---------- Qui a annulé, et quand ----------
+-- « commande_lignes » ne dit pas qui a annulé un article, et sa lecture
+-- est restreinte par colonne : on n'y ajoute rien. Cette table à part se
+-- remplit par déclencheur, à chaque annulation d'un article ou d'une
+-- commande entière, avec le compte qui l'a faite. Elle ne connaît que
+-- les annulations faites après son installation.
+create table if not exists public.rh_annulations (
+  id             bigint generated always as identity primary key,
+  commande_id    text not null,
+  ligne_id       text,
+  boutique_id    text,
+  apres_paiement boolean not null default false,
+  par_compte     uuid,
+  par_nom        text not null default '',
+  le             timestamptz not null default now()
+);
+create index if not exists rh_annulations_commande on public.rh_annulations (commande_id, le desc);
+alter table public.rh_annulations enable row level security;
+revoke all on table public.rh_annulations from public, anon, authenticated;
+revoke all on sequence public.rh_annulations_id_seq from public, anon, authenticated;
+grant all on table public.rh_annulations to service_role;
+grant usage, select on sequence public.rh_annulations_id_seq to service_role;
+
+-- ---------- Les remboursements faits ----------
+-- Une ligne par remboursement (on peut rendre en deux fois). Le montant
+-- dû n'est pas écrit ici : la base le recalcule (rh_rembourse_du), pour
+-- qu'un article annulé demain change ce qui reste à rendre.
+create table if not exists public.rh_remboursements (
+  id          bigint generated always as identity primary key,
+  commande_id text not null,
+  montant     bigint not null check (montant > 0),
+  mode        text not null check (mode in ('mobile_money', 'especes', 'virement', 'autre')),
+  reference   text not null default '',
+  note        text not null default '',
+  par         uuid,
+  par_nom     text not null default '',
+  le          timestamptz not null default now()
+);
+create index if not exists rh_remboursements_commande on public.rh_remboursements (commande_id);
+alter table public.rh_remboursements enable row level security;
+revoke all on table public.rh_remboursements from public, anon, authenticated;
+revoke all on sequence public.rh_remboursements_id_seq from public, anon, authenticated;
+grant all on table public.rh_remboursements to service_role;
+grant usage, select on sequence public.rh_remboursements_id_seq to service_role;
+
+/* JAMAIS D'ERREUR VERS ADMIN NI CLIENT : ce déclencheur vit sur
+   « commandes » et « commande_lignes ». Tout est dans un bloc qui avale
+   ses propres échecs : une annulation manquée au journal se regrette,
+   une annulation refusée à cause de lui, jamais. */
+create or replace function public.rh_annulation_noter() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_qui uuid;
+  v_nom text;
+  v_paye timestamptz;
+begin
+  begin
+    if new.etat = 'annulee' and old.etat is distinct from 'annulee' then
+      v_qui := auth.uid();
+      v_nom := case when v_qui is null then 'Système (aucun compte connecté)' else public.rh_audit_qui(v_qui) end;
+      if tg_table_name = 'commande_lignes' then
+        select c.paye_le into v_paye from public.commandes c where c.id = new.commande_id;
+        insert into public.rh_annulations (commande_id, ligne_id, boutique_id, apres_paiement, par_compte, par_nom)
+        values (new.commande_id, new.id, new.boutique_id, v_paye is not null, v_qui, coalesce(v_nom, ''));
+      else
+        insert into public.rh_annulations (commande_id, apres_paiement, par_compte, par_nom)
+        values (new.id, new.paye_le is not null or old.etat = 'payee', v_qui, coalesce(v_nom, ''));
+      end if;
+    end if;
+  exception when others then
+    raise warning 'rh_annulation_noter : % (%)', sqlerrm, sqlstate;
+  end;
+  return null;
+end $$;
+
+drop trigger if exists rh_annulations_lignes on public.commande_lignes;
+create trigger rh_annulations_lignes
+  after update of etat on public.commande_lignes
+  for each row execute function public.rh_annulation_noter();
+drop trigger if exists rh_annulations_commandes on public.commandes;
+create trigger rh_annulations_commandes
+  after update of etat on public.commandes
+  for each row execute function public.rh_annulation_noter();
+
+/** Les seuils de l'argent, valeurs de départ comprises. */
+create or replace function public.rh_argent_seuils() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'annonce_min', coalesce((x.j ->> 'annonce_min')::int, 30),
+    'dette_j', coalesce((x.j ->> 'dette_j')::int, 5),
+    'remboursement_j', coalesce((x.j ->> 'remboursement_j')::int, 7))
+    from (select coalesce((select to_jsonb(r) from public.rh_reglages_suivi r where r.id), '{}'::jsonb) as j) x;
+$$;
+
+/** Un numéro réduit à ses 4 derniers chiffres : de quoi reconnaître un
+    client au téléphone, pas de quoi l'appeler. */
+create or replace function public.rh_tel_masque(t text) returns text
+language sql immutable set search_path = public as $$
+  select case when length(regexp_replace(coalesce(t, ''), '\D', '', 'g')) < 4 then ''
+              else '•••• ' || right(regexp_replace(t, '\D', '', 'g'), 4) end;
+$$;
+
+/**
+ * Ce que chaque onglet d'argent ouvre au compte connecté : « admin »
+ * (montants compris : l'administration, le CEO, le superadministrateur),
+ * « equipe » (sans aucun montant, par une clé de Paramètres), ou rien.
+ *   paiements, remboursements : la clé « paiements » (relation client, SAV) ;
+ *   dettes : la clé « caisse » (consultation) ;
+ *   codes  : la clé « promos » (marketing) ;
+ *   gestes : le CEO, le superadministrateur et les profils à qui
+ *            Paramètres ouvre EXPRESSÉMENT « audit » — l'administration
+ *            n'y entre pas, même si son propre profil a la clé : c'est
+ *            elle que ce journal regarde (et seul le CEO règle la clé,
+ *            voir rh_regler_acces).
+ */
+create or replace function public.rh_argent_acces() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  admin boolean := public.rh_est_admin() or public.est_super();
+  v_moi uuid := public.rh_moi();
+  v_profil uuid := public.rh_mon_profil();
+  audit boolean := false;
+begin
+  if v_moi is not null and to_regclass('public.rh_acces_menus') is not null then
+    select exists (select 1 from public.rh_acces_menus a
+                     join public.rh_profils p on p.id = a.profil_id
+                    where a.menu = 'audit'
+                      and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)))
+      into audit;
+  end if;
+  return jsonb_build_object(
+    'paiements', case when admin then 'admin' when public.rh_menu_ouvert('paiements') then 'equipe' end,
+    'remboursements', case when admin then 'admin' when public.rh_menu_ouvert('paiements') then 'equipe' end,
+    'dettes', case when admin then 'admin' when public.rh_menu_ouvert('caisse') then 'equipe' end,
+    'codes', case when admin then 'admin' when public.rh_menu_ouvert('promos') then 'equipe' end,
+    'gestes', public.rh_est_ceo() or public.est_super() or (audit and not public.rh_est_admin()),
+    'seuils', admin);
+end $$;
+
+/** Régler les seuils de l'argent : l'administration et le superadministrateur. */
+create or replace function public.rh_argent_regler(v_annonce_min int, v_dette_j int, v_remboursement_j int)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seuls l''administration et le superadministrateur règlent les seuils de l''argent';
+  end if;
+  if coalesce(v_annonce_min, 0) not between 5 and 1440 then
+    raise exception 'Un paiement annoncé se signale entre 5 et 1 440 minutes';
+  end if;
+  if coalesce(v_dette_j, 0) not between 1 and 60 or coalesce(v_remboursement_j, 0) not between 1 and 60 then
+    raise exception 'Les délais se comptent en jours, de 1 à 60';
+  end if;
+  update public.rh_reglages_suivi
+     set annonce_min = v_annonce_min, dette_j = v_dette_j, remboursement_j = v_remboursement_j
+   where id;
+end $$;
+
+/**
+ * Les paiements à rapprocher : le client a peut-être payé, mais la
+ * commande ne le dit pas.
+ *   debite_non_paye     : l'agrégateur a dit « payé », la commande n'est pas payée ;
+ *   conflit, incomplet  : le versement ne correspond pas à la commande ;
+ *   annonce_sans_preuve : le téléphone a dit « j'ai payé », rien n'a suivi ;
+ *   inconnu             : l'agrégateur n'a pas su répondre ;
+ *   manuel              : payée parce qu'un superadministrateur s'est porté
+ *                         garant (confirmée à la main dans Admin) — pour mémoire.
+ * Ce qui attend s'affiche quelle que soit la période (60 jours au plus) ;
+ * le reste, celui de la période. Montants, transactions et numéro entier :
+ * l'administration ; l'équipe a le nom, le numéro masqué et l'ancienneté.
+ * Rien ne se confirme ici : la confirmation reste dans BIZZOO Admin.
+ */
+create or replace function public.rh_paiements(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_argent_acces() ->> 'paiements';
+  argent boolean;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  borne timestamptz;
+  annonce int := (public.rh_argent_seuils() ->> 'annonce_min')::int;
+  resultat jsonb;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès aux paiements à rapprocher';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  argent := acces = 'admin';
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+  borne := least(t1, now() - interval '60 days');
+
+  with v as (
+    select x.commande_id,
+           count(*) as tentatives,
+           bool_or(x.verdict = 'payee') as payee_chez,
+           bool_or(x.verdict = 'conflit') as conflit,
+           bool_or(x.verdict = 'incomplete') as incomplete,
+           bool_or(x.verdict = 'inconnue') as inconnue,
+           max(x.cree_le) as dernier,
+           (array_agg(x.verdict order by x.cree_le desc, x.id desc))[1] as verdict,
+           (array_agg(x.fournisseur order by x.cree_le desc, x.id desc))[1] as fournisseur,
+           (array_agg(x.reseau order by x.cree_le desc, x.id desc))[1] as reseau,
+           (array_agg(x.detail order by x.cree_le desc, x.id desc))[1] as detail,
+           max(x.attendu) as attendu,
+           max(x.recu) as recu,
+           string_agg(distinct nullif(x.transaction_id, ''), ', ') as transactions
+      from public.versements x
+     where x.commande_id is not null and x.cree_le >= borne
+     group by x.commande_id
+  ), k as (
+    select c.id, c.numero, c.etat, c.cree_le, c.annonce_le, c.paye_le, c.total, c.confirme_par, c.remarque,
+           c.client_nom, c.client_tel, v.tentatives, v.verdict, v.fournisseur, v.reseau, v.detail,
+           v.attendu, v.recu, v.transactions, v.dernier,
+           -- paye_le reste posé quand une commande payée est annulée : sans lui,
+           -- chaque annulation après paiement (son versement dit « payée »)
+           -- reviendrait ici en « client débité », alors qu'elle est déjà
+           -- dans les remboursements. Et « inconnu » ne regarde que la
+           -- DERNIÈRE réponse : un refus venu ensuite tranche la question.
+           case
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.payee_chez, false) then 'debite_non_paye'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.conflit, false) then 'conflit'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.incomplete, false) then 'incomplet'
+             when c.etat = 'a_payer' and c.annonce_le is not null
+                  and c.annonce_le < now() - make_interval(mins => annonce) then 'annonce_sans_preuve'
+             when c.paye_le is null and c.etat <> 'payee' and v.verdict = 'inconnue' then 'inconnu'
+             when c.etat = 'payee' and c.confirme_par <> '' then 'manuel'
+           end as motif
+      from public.commandes c
+      left join v on v.commande_id = c.id
+     where c.cree_le >= borne and c.cree_le < t2
+       and (v.commande_id is not null or c.annonce_le is not null or c.confirme_par <> '')
+  ), f as (
+    select k.*, n.statut as note_statut, n.commentaire as note, n.par_nom as note_par, n.le as note_le,
+           (k.motif <> 'manuel' and coalesce(n.statut, '') not in ('regle', 'sans_suite')) as a_traiter,
+           greatest(0, floor(extract(epoch from (now() - coalesce(k.annonce_le, k.dernier, k.cree_le))) / 3600))::int as heures
+      from k
+      left join lateral (select r.statut, r.commentaire, r.par_nom, r.le from public.rh_rapprochements r
+                          where r.commande_id = k.id order by r.le desc, r.id desc limit 1) n on true
+     where k.motif is not null
+  ), g as (
+    -- Ce qui attend, quelle que soit sa date ; le reste, s'il touche la période.
+    select * from f
+     where f.a_traiter or f.cree_le >= t1 or (f.paye_le >= t1 and f.paye_le < t2)
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'montants', argent,
+    'seuils', public.rh_argent_seuils(),
+    'totaux', (select jsonb_build_object(
+        'a_traiter', count(*) filter (where g.a_traiter),
+        'debite_non_paye', count(*) filter (where g.motif = 'debite_non_paye'),
+        'conflit', count(*) filter (where g.motif = 'conflit'),
+        'incomplet', count(*) filter (where g.motif = 'incomplet'),
+        'annonce_sans_preuve', count(*) filter (where g.motif = 'annonce_sans_preuve'),
+        'inconnu', count(*) filter (where g.motif = 'inconnu'),
+        'manuel', count(*) filter (where g.motif = 'manuel'),
+        'plus_ancien', min(coalesce(g.annonce_le, g.dernier, g.cree_le)) filter (where g.a_traiter))
+      || case when argent then jsonb_build_object(
+        'montant_a_traiter', coalesce(sum(g.total) filter (where g.a_traiter), 0),
+        'montant_manuel', coalesce(sum(g.total) filter (where g.motif = 'manuel'), 0))
+        else '{}'::jsonb end
+      from g),
+    'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'commande', x.id, 'numero', x.numero, 'motif', x.motif, 'etat', x.etat,
+        'cree_le', x.cree_le, 'annonce_le', x.annonce_le, 'paye_le', x.paye_le, 'heures', x.heures,
+        'a_traiter', x.a_traiter, 'client', nullif(btrim(x.client_nom), ''),
+        'tel', case when argent then x.client_tel else public.rh_tel_masque(x.client_tel) end,
+        'fournisseur', nullif(x.fournisseur, ''), 'reseau', nullif(x.reseau, ''),
+        'verdict', x.verdict, 'tentatives', coalesce(x.tentatives, 0),
+        'confirme_par', nullif(x.confirme_par, ''),
+        'traitement', case when x.note_statut is null then null
+                           else jsonb_build_object('statut', x.note_statut, 'commentaire', x.note,
+                                                   'par', x.note_par, 'le', x.note_le) end)
+        || case when argent then jsonb_build_object(
+             'total', x.total, 'attendu', x.attendu, 'recu', x.recu,
+             'transactions', x.transactions, 'remarque', nullif(x.remarque, ''), 'detail', nullif(x.detail, ''))
+           else '{}'::jsonb end
+        order by x.a_traiter desc, x.heures desc), '[]')
+      from (select * from g order by g.a_traiter desc, g.heures desc limit 500) x))
+    into resultat;
+  return resultat;
+end $$;
+
+/** Noter ce qui a été fait d'un paiement à rapprocher : qui, quand, comment. */
+create or replace function public.rh_rapprocher(cible text, v_statut text, v_commentaire text)
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  n bigint;
+  texte text := btrim(coalesce(v_commentaire, ''));
+begin
+  if public.rh_argent_acces() ->> 'paiements' is null then
+    raise exception 'Votre compte n''a pas accès aux paiements à rapprocher';
+  end if;
+  if not exists (select 1 from public.commandes c where c.id = cible) then
+    raise exception 'Commande introuvable';
+  end if;
+  if coalesce(v_statut, '') not in ('en_cours', 'regle', 'sans_suite') then
+    raise exception 'Choisissez où en est ce paiement : en cours, réglé ou sans suite';
+  end if;
+  if length(texte) < 3 then
+    raise exception 'Dites en quelques mots ce qui a été fait (client rappelé, paiement retrouvé…)';
+  end if;
+  insert into public.rh_rapprochements (commande_id, statut, commentaire, par, par_nom)
+  values (cible, v_statut, left(texte, 500), public.rh_moi(), coalesce(public.rh_audit_qui(auth.uid()), ''))
+  returning id into n;
+  return n;
+end $$;
+
+/**
+ * Ce que BIZZOO doit rendre au client d'une commande payée : ce qu'il a
+ * versé en ligne, moins ce que vaut ce qui sera encore servi (remise au
+ * prorata, frais tant qu'il reste quelque chose à livrer). Toute la
+ * somme si la commande entière est annulée. Zéro si rien n'est annulé.
+ * Interne : les montants n'en sortent que par les écrans de
+ * l'administration.
+ */
+create or replace function public.rh_rembourse_du(cible text) returns bigint
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c public.commandes%rowtype;
+  paye numeric;
+  brut numeric;
+  servi numeric;
+  frais numeric;
+begin
+  select * into c from public.commandes where id = cible;
+  if not found or c.paye_le is null then
+    return 0;
+  end if;
+  paye := greatest(0, coalesce(c.verse, c.acompte, c.total));
+  if c.etat = 'annulee' then
+    return paye::bigint;
+  end if;
+  select coalesce(sum(l.prix::numeric * l.quantite), 0),
+         coalesce(sum(l.prix::numeric * l.quantite) filter (where l.etat <> 'annulee'), 0)
+    into brut, servi
+    from public.commande_lignes l where l.commande_id = cible;
+  if brut = 0 or servi >= brut then
+    return 0;
+  end if;
+  frais := case
+    when servi <= 0 then 0
+    -- Frais par boutique (3.59.0) : ceux des boutiques qui livrent encore.
+    when c.livraison is null and c.parts is not null then
+      coalesce((select sum(coalesce((c.parts -> b.bou ->> 'frais')::numeric, 0))
+                  from (select distinct l.boutique_id as bou from public.commande_lignes l
+                         where l.commande_id = cible and l.etat <> 'annulee') b), 0)
+    else greatest(0, coalesce(c.frais_livraison, 0)) end;
+  return greatest(0, paye - (round(greatest(0, c.total - coalesce(c.frais_livraison, 0)) * servi / brut) + frais))::bigint;
+end $$;
+
+/**
+ * Les remboursements dus après une annulation : la file se remplit seule
+ * (une commande payée dont un article, ou le tout, est annulé et pour
+ * laquelle le client a versé plus que ce qui sera servi). « En retard »
+ * au-delà du seuil (jours). Et, sur la période, les boutiques qui annulent
+ * après paiement. Montants, modes et références : l'administration ;
+ * l'équipe voit les dossiers, leur ancienneté et s'ils sont traités.
+ */
+create or replace function public.rh_remboursements_liste(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_argent_acces() ->> 'remboursements';
+  argent boolean;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  retard interval := make_interval(days => (public.rh_argent_seuils() ->> 'remboursement_j')::int);
+  resultat jsonb;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès aux remboursements';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  argent := acces = 'admin';
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with c as (
+    select k.id, k.numero, k.etat, k.paye_le, k.client_nom, k.client_tel,
+           public.rh_rembourse_du(k.id) as du,
+           -- Quand l'annulation a eu lieu : notre journal, sinon celui des
+           -- étapes du suivi ; à défaut (annulation plus ancienne que les
+           -- deux), le paiement.
+           coalesce((select max(a.le) from public.rh_annulations a where a.commande_id = k.id),
+                    (select max(j.le) from public.rh_journal_lignes j
+                      where j.commande_id = k.id and j.valeur = 'annulee' and j.quoi in ('etat', 'commande'))) as annule_le,
+           (select a.par_nom from public.rh_annulations a where a.commande_id = k.id
+             order by a.le desc, a.id desc limit 1) as annule_par,
+           (select string_agg(distinct coalesce(b.nom, l.boutique_id), ', ')
+              from public.commande_lignes l left join public.boutiques b on b.id = l.boutique_id
+             where l.commande_id = k.id and l.etat = 'annulee') as boutiques
+      from public.commandes k
+     where k.paye_le is not null and k.paye_le >= least(t1, now() - interval '365 days')
+       and (k.etat = 'annulee'
+            or exists (select 1 from public.commande_lignes l where l.commande_id = k.id and l.etat = 'annulee'))
+  ), r as (
+    select c.*,
+           coalesce((select sum(m.montant) from public.rh_remboursements m where m.commande_id = c.id), 0) as rendu,
+           (select max(m.le) from public.rh_remboursements m where m.commande_id = c.id) as rendu_le
+      from c
+  ), f as (
+    select r.*, greatest(0, r.du - r.rendu) as reste,
+           case when r.du - r.rendu > 0 and r.rendu = 0 then 'a_rembourser'
+                when r.du - r.rendu > 0 then 'partiel'
+                else 'rembourse' end as statut,
+           greatest(0, floor(extract(epoch from (now() - coalesce(r.annule_le, r.paye_le))) / 86400))::int as jours
+      from r
+     where r.du > 0 or r.rendu > 0
+  ), g as (
+    select f.*, (f.reste > 0 and now() - coalesce(f.annule_le, f.paye_le) > retard) as en_retard
+      from f
+     where f.reste > 0 or (f.rendu_le >= t1 and f.rendu_le < t2)
+  ), stats as (
+    -- Les boutiques qui annulent APRÈS le paiement, sur la période : le
+    -- journal des étapes, qui remonte plus loin que le nôtre.
+    select j.boutique_id, count(distinct j.ligne_id) as lignes, count(distinct j.commande_id) as commandes,
+           coalesce(sum(l.prix::bigint * l.quantite), 0) as valeur
+      from public.rh_journal_lignes j
+      join public.commandes k on k.id = j.commande_id and k.paye_le is not null and j.le >= k.paye_le
+      left join public.commande_lignes l on l.id = j.ligne_id
+     where j.quoi = 'etat' and j.valeur = 'annulee' and j.le >= t1 and j.le < t2
+     group by j.boutique_id
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'montants', argent,
+    'seuils', public.rh_argent_seuils(),
+    'totaux', (select jsonb_build_object(
+        'a_rembourser', count(*) filter (where g.reste > 0),
+        'en_retard', count(*) filter (where g.en_retard),
+        'rembourses', count(*) filter (where g.reste = 0),
+        'plus_ancien', min(coalesce(g.annule_le, g.paye_le)) filter (where g.reste > 0))
+      || case when argent then jsonb_build_object(
+        'reste_total', coalesce(sum(g.reste), 0),
+        'rendu_periode', coalesce((select sum(m.montant) from public.rh_remboursements m
+                                    where m.le >= t1 and m.le < t2), 0))
+        else '{}'::jsonb end
+      from g),
+    'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'commande', x.id, 'numero', x.numero, 'etat', x.etat, 'paye_le', x.paye_le,
+        'annule_le', x.annule_le, 'annule_par', x.annule_par, 'boutiques', x.boutiques,
+        'jours', x.jours, 'en_retard', x.en_retard, 'statut', x.statut,
+        'client', nullif(btrim(x.client_nom), ''),
+        'tel', case when argent then x.client_tel else public.rh_tel_masque(x.client_tel) end,
+        'faits', (select coalesce(jsonb_agg(jsonb_build_object('le', m.le, 'mode', m.mode, 'par', m.par_nom)
+                    || case when argent then jsonb_build_object('montant', m.montant, 'reference', nullif(m.reference, ''),
+                                                                'note', nullif(m.note, '')) else '{}'::jsonb end
+                    order by m.le), '[]')
+                    from public.rh_remboursements m where m.commande_id = x.id))
+        || case when argent then jsonb_build_object('du', x.du, 'rendu', x.rendu, 'reste', x.reste) else '{}'::jsonb end
+        order by x.en_retard desc, (x.reste > 0) desc, x.jours desc), '[]')
+      from (select * from g order by g.en_retard desc, (g.reste > 0) desc, g.jours desc limit 500) x),
+    'boutiques', (select coalesce(jsonb_agg(jsonb_build_object(
+        'boutique', coalesce(b.nom, s.boutique_id, 'Boutique inconnue'), 'lignes', s.lignes, 'commandes', s.commandes)
+        || case when argent then jsonb_build_object('valeur', s.valeur) else '{}'::jsonb end
+        order by s.lignes desc, s.commandes desc), '[]')
+      from stats s left join public.boutiques b on b.id = s.boutique_id))
+    into resultat;
+  return resultat;
+end $$;
+
+/** Noter un remboursement fait : l'administration et le superadministrateur, jamais plus que ce qui reste dû. */
+create or replace function public.rh_rembourser(cible text, v_montant bigint, v_mode text,
+                                                v_reference text default '', v_note text default '')
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  du bigint;
+  rendu bigint;
+  ref text := btrim(coalesce(v_reference, ''));
+  n bigint;
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seuls l''administration et le superadministrateur notent un remboursement';
+  end if;
+  if not exists (select 1 from public.commandes c where c.id = cible) then
+    raise exception 'Commande introuvable';
+  end if;
+  if coalesce(v_mode, '') not in ('mobile_money', 'especes', 'virement', 'autre') then
+    raise exception 'Choisissez comment le client a été remboursé';
+  end if;
+  if v_mode in ('mobile_money', 'virement') and length(ref) < 4 then
+    raise exception 'Notez la référence de la transaction : c''est elle qui prouve le remboursement';
+  end if;
+  if coalesce(v_montant, 0) <= 0 then
+    raise exception 'Le montant remboursé doit être positif';
+  end if;
+  -- Deux remboursements notés en même temps ne dépassent pas le dû.
+  perform pg_advisory_xact_lock(hashtext('rh_rembourser:' || cible));
+  du := public.rh_rembourse_du(cible);
+  select coalesce(sum(m.montant), 0) into rendu from public.rh_remboursements m where m.commande_id = cible;
+  if du - rendu <= 0 then
+    raise exception 'Rien n''est dû au client sur cette commande';
+  end if;
+  if v_montant > du - rendu then
+    raise exception 'Il ne reste que % FCFA à rendre sur cette commande', du - rendu;
+  end if;
+  insert into public.rh_remboursements (commande_id, montant, mode, reference, note, par, par_nom)
+  values (cible, v_montant, v_mode, left(ref, 80), left(btrim(coalesce(v_note, '')), 300),
+          public.rh_moi(), coalesce(public.rh_audit_qui(auth.uid()), ''))
+  returning id into n;
+  return n;
+end $$;
+
+/**
+ * Ce que BIZZOO doit payer, aujourd'hui : les demandes de reversement des
+ * boutiques, de gains des livreurs et de retrait des parrains qui
+ * attendent (avec leur ancienneté), et ce qui est dû sans avoir encore été
+ * demandé. À côté, le « théorique » de la période (ce que les boutiques
+ * ont vendu au prix BIZZOO) et ce qui a vraiment été versé. Rien ne se
+ * décide ici : on valide un reversement dans BIZZOO Admin.
+ * Montants : l'administration ; la clé « caisse » donne les nombres et
+ * l'ancienneté.
+ */
+create or replace function public.rh_dettes(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_argent_acces() ->> 'dettes';
+  argent boolean;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  seuil interval := make_interval(days => (public.rh_argent_seuils() ->> 'dette_j')::int);
+  resultat jsonb;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès à ce que BIZZOO doit payer';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  argent := acces = 'admin';
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with gb as (
+    -- La même règle que solde_boutique : gagné à la livraison, moins les
+    -- espèces que la boutique a déjà touchées, moins ses reversements.
+    select l.boutique_id as id,
+           coalesce(sum(l.prix_bizzoo::bigint * l.quantite) filter (where l.etat = 'remise'), 0) as gagne,
+           coalesce(sum(l.prix_bizzoo::bigint * l.quantite)
+                      filter (where l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')), 0) as a_venir
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+     where l.boutique_id is not null
+     group by l.boutique_id
+  ), eb as (
+    select x.boutique_id as id, coalesce(sum(x.montant), 0) as encaisse
+      from public.encaissements x where x.mode = 'especes' and x.remis_le is not null
+     group by x.boutique_id
+  ), rb as (
+    select v.boutique_id as id,
+           coalesce(sum(v.montant) filter (where v.etat = 'valide'), 0) as verse,
+           coalesce(sum(v.montant) filter (where v.etat = 'en_attente'), 0) as attente,
+           count(*) filter (where v.etat = 'en_attente') as demandes,
+           count(*) filter (where v.etat = 'en_attente' and v.demande_le < now() - seuil) as anciennes,
+           min(v.demande_le) filter (where v.etat = 'en_attente') as plus_ancienne
+      from public.reversements v group by v.boutique_id
+  ), bou as (
+    select 'boutique'::text as type, b.id::text as id, b.nom as nom,
+           coalesce(rb.attente, 0) as attente,
+           greatest(0, coalesce(gb.gagne, 0) - coalesce(eb.encaisse, 0) - coalesce(rb.verse, 0) - coalesce(rb.attente, 0)) as disponible,
+           coalesce(gb.a_venir, 0) as a_venir,
+           coalesce(rb.demandes, 0) as demandes, coalesce(rb.anciennes, 0) as anciennes, rb.plus_ancienne
+      from public.boutiques b
+      left join gb on gb.id = b.id
+      left join eb on eb.id = b.id
+      left join rb on rb.id = b.id
+  ), rl as (
+    select v.livreur_id as id,
+           coalesce(sum(v.montant) filter (where v.etat = 'valide'), 0) as verse,
+           coalesce(sum(v.montant) filter (where v.etat = 'en_attente'), 0) as attente,
+           count(*) filter (where v.etat = 'en_attente') as demandes,
+           count(*) filter (where v.etat = 'en_attente' and v.demande_le < now() - seuil) as anciennes,
+           min(v.demande_le) filter (where v.etat = 'en_attente') as plus_ancienne
+      from public.reversements_livreurs v where v.livreur_id is not null group by v.livreur_id
+  ), avl as (
+    -- La même règle que solde_livreur : sa part des frais (au taux du jour)
+    -- des courses payées qu'il a en main et pas encore livrées.
+    select x.livreur_id as id,
+           coalesce(sum(floor(public.part_frais_livreur(x.commande_id, x.livreur_id)
+                              * coalesce((select p.taux_livreur from public.paiement p where p.id = 1), 80) / 100.0)), 0)::bigint as a_venir
+      from (select distinct c.id as commande_id, l.livreur_id
+              from public.commandes c
+              join public.commande_lignes l on l.commande_id = c.id
+             where c.etat = 'payee' and coalesce(c.frais_livraison, 0) > 0
+               and l.livreur_id is not null and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+               and not exists (select 1 from public.gains_livreurs g
+                                where g.commande_id = c.id and g.livreur_id = l.livreur_id)) x
+     group by x.livreur_id
+  ), liv as (
+    select 'livreur'::text as type, q.id::text as id,
+           coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur') as nom,
+           coalesce(rl.attente, 0) as attente,
+           greatest(0, coalesce((select sum(g.montant) from public.gains_livreurs g where g.livreur_id = q.id), 0)
+                       - coalesce(rl.verse, 0) - coalesce(rl.attente, 0)) as disponible,
+           coalesce(avl.a_venir, 0) as a_venir,
+           coalesce(rl.demandes, 0) as demandes, coalesce(rl.anciennes, 0) as anciennes, rl.plus_ancienne
+      from (select g.livreur_id as id from public.gains_livreurs g where g.livreur_id is not null
+            union select rl.id from rl union select avl.id from avl) q
+      left join rl on rl.id = q.id
+      left join avl on avl.id = q.id
+      left join public.profils p on p.id = q.id
+  ), rp as (
+    select v.parrain as id,
+           coalesce(sum(v.montant) filter (where v.etat = 'payee'), 0) as verse,
+           coalesce(sum(v.montant) filter (where v.etat = 'demande'), 0) as attente,
+           count(*) filter (where v.etat = 'demande') as demandes,
+           count(*) filter (where v.etat = 'demande' and v.demande_le < now() - seuil) as anciennes,
+           min(v.demande_le) filter (where v.etat = 'demande') as plus_ancienne
+      from public.retraits_parrain v group by v.parrain
+  ), par as (
+    -- Un parrain est un client : son nom ne sort que pour l'administration ;
+    -- l'équipe le reconnaît à son code.
+    select 'parrain'::text as type, q.id::text as id,
+           coalesce((select string_agg(k.code, ', ' order by k.code) from public.codes_promo k where k.parrain = q.id), '')
+             || case when argent then coalesce(' — ' || nullif(btrim(coalesce((select cl.nom from public.clients cl where cl.id = q.id),
+                                                                             (select pf.nom from public.profils pf where pf.id = q.id), '')), ''), '')
+                     else '' end as nom,
+           coalesce(rp.attente, 0) as attente,
+           greatest(0, coalesce((select sum(g.montant) from public.gains_parrain g where g.parrain = q.id), 0)
+                       - coalesce(rp.verse, 0) - coalesce(rp.attente, 0)) as disponible,
+           0::bigint as a_venir,
+           coalesce(rp.demandes, 0) as demandes, coalesce(rp.anciennes, 0) as anciennes, rp.plus_ancienne
+      from (select g.parrain as id from public.gains_parrain g union select rp.id from rp) q
+      left join rp on rp.id = q.id
+  ), tout as (
+    select * from bou union all select * from liv union all select * from par
+  ), d as (
+    select 'boutique'::text as type, coalesce(b.nom, v.boutique_id) as nom, v.montant, v.demande_le
+      from public.reversements v left join public.boutiques b on b.id = v.boutique_id
+     where v.etat = 'en_attente'
+    union all
+    select 'livreur', coalesce(nullif(btrim(p.nom), ''), nullif(v.nom_livreur, ''), p.email, 'Livreur'), v.montant, v.demande_le
+      from public.reversements_livreurs v left join public.profils p on p.id = v.livreur_id
+     where v.etat = 'en_attente'
+    union all
+    select 'parrain', coalesce((select string_agg(k.code, ', ' order by k.code) from public.codes_promo k where k.parrain = v.parrain), 'Parrain'),
+           v.montant, v.demande_le
+      from public.retraits_parrain v where v.etat = 'demande'
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'montants', argent,
+    'seuils', public.rh_argent_seuils(),
+    'totaux', (select jsonb_build_object(
+        'demandes', count(*), 'anciennes', count(*) filter (where d.demande_le < now() - seuil),
+        'demandes_boutiques', count(*) filter (where d.type = 'boutique'),
+        'demandes_livreurs', count(*) filter (where d.type = 'livreur'),
+        'demandes_parrains', count(*) filter (where d.type = 'parrain'),
+        'plus_ancienne', min(d.demande_le))
+      || case when argent then (select jsonb_build_object(
+        'attente_boutiques', coalesce(sum(t.attente) filter (where t.type = 'boutique'), 0),
+        'attente_livreurs', coalesce(sum(t.attente) filter (where t.type = 'livreur'), 0),
+        'attente_parrains', coalesce(sum(t.attente) filter (where t.type = 'parrain'), 0),
+        'disponible_boutiques', coalesce(sum(t.disponible) filter (where t.type = 'boutique'), 0),
+        'disponible_livreurs', coalesce(sum(t.disponible) filter (where t.type = 'livreur'), 0),
+        'disponible_parrains', coalesce(sum(t.disponible) filter (where t.type = 'parrain'), 0),
+        'reel', coalesce(sum(t.attente + t.disponible), 0),
+        'a_venir_boutiques', coalesce(sum(t.a_venir) filter (where t.type = 'boutique'), 0),
+        'a_venir_livreurs', coalesce(sum(t.a_venir) filter (where t.type = 'livreur'), 0),
+        -- Le « théorique » des statistiques : ce que valent au prix BIZZOO
+        -- les articles payés sur la période, livrés ou non.
+        'theorique_periode', (select coalesce(sum(l.prix_bizzoo::bigint * l.quantite), 0)
+                                from public.commande_lignes l
+                                join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+                               where l.etat <> 'annulee' and c.paye_le >= t1 and c.paye_le < t2),
+        'verse_periode', (select coalesce(sum(v.montant), 0) from public.reversements v
+                           where v.etat = 'valide' and v.decide_le >= t1 and v.decide_le < t2)
+                       + (select coalesce(sum(v.montant), 0) from public.reversements_livreurs v
+                           where v.etat = 'valide' and v.decide_le >= t1 and v.decide_le < t2)
+                       + (select coalesce(sum(v.montant), 0) from public.retraits_parrain v
+                           where v.etat = 'payee' and v.traite_le >= t1 and v.traite_le < t2))
+        from tout t) else '{}'::jsonb end
+      from d),
+    'demandes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'type', x.type, 'nom', x.nom, 'le', x.demande_le,
+        'jours', greatest(0, floor(extract(epoch from (now() - x.demande_le)) / 86400))::int,
+        'ancienne', x.demande_le < now() - seuil)
+        || case when argent then jsonb_build_object('montant', x.montant) else '{}'::jsonb end
+        order by x.demande_le), '[]')
+      from (select * from d order by d.demande_le limit 300) x),
+    'comptes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'type', t.type, 'nom', t.nom, 'demandes', t.demandes, 'anciennes', t.anciennes,
+        'plus_ancienne', t.plus_ancienne)
+        || case when argent then jsonb_build_object('attente', t.attente, 'disponible', t.disponible,
+                                                   'a_venir', t.a_venir) else '{}'::jsonb end
+        order by t.anciennes desc, t.demandes desc, t.attente + t.disponible desc, t.nom), '[]')
+      from tout t
+     where t.demandes > 0 or t.disponible > 0 or t.a_venir > 0))
+    into resultat;
+  return resultat;
+end $$;
+
+/** Pourquoi un geste d'Admin mérite qu'on le regarde. */
+create or replace function public.rh_geste_raisons(j_famille text, j_action text, j_libelle text,
+                                                   j_le timestamptz, j_annule timestamptz)
+returns text[]
+language sql stable set search_path = public as $$
+  select array_remove(array[
+    case when j_action in ('suppression', 'desactivation') then 'suppression' end,
+    -- Se connecter n'est pas un geste sensible : chaque ouverture d'Admin
+    -- noierait le filtre « sensibles ».
+    case when j_famille = 'compte' and coalesce(j_action, '') not in ('connexion', 'deconnexion') then 'compte' end,
+    -- Admin écrit « Produit modifié : X — 10 000 FCFA » sans le mot « prix » :
+    -- la devise suffit à dire qu'un montant a changé.
+    case when coalesce(j_libelle, '') ~* '(marge|prix|taux|commission|remise|reversement|paiement|momopay|r[eé]ception|f ?cfa|xof)' then 'argent' end,
+    case when extract(hour from j_le at time zone 'Africa/Porto-Novo') >= 22
+           or extract(hour from j_le at time zone 'Africa/Porto-Novo') < 6 then 'nuit' end,
+    case when j_annule is not null then 'annule' end], null);
+$$;
+
+/**
+ * Le journal des gestes faits dans BIZZOO Admin (table « journal », que
+ * l'écran d'Admin remplit lui-même) : qui, quoi, quand, sur quelle
+ * boutique. Les gestes sensibles portent leurs raisons (suppression,
+ * compte, argent, nuit, annulé, rafale de 10 gestes ou plus dans l'heure).
+ * L'état d'avant (« retour ») : le CEO et le superadministrateur seuls.
+ * Les chiffres des libellés et des cibles aussi : Admin y écrit des
+ * montants (« Reversement demandé : 20000 », « … — 10 000 FCFA »), des
+ * numéros de réception et des codes MoMoPay ; un profil ouvert par
+ * « audit » les lit masqués (•••).
+ * Ce qui s'écrit hors de l'écran d'Admin (éditeur SQL, fonctions du
+ * serveur) n'y figure pas : l'écran le dit.
+ */
+create or replace function public.rh_gestes(depuis date default null, jusqu date default null,
+                                            v_famille text default null, v_sensibles boolean default false)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  tout_voir boolean := public.rh_est_ceo() or public.est_super();
+  -- Un nombre, avec ses séparateurs de milliers (espace, insécable, point, virgule).
+  chiffre_re text := '[0-9]([0-9 .,' || chr(160) || chr(8239) || ']*[0-9])?';
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 6);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  resultat jsonb;
+begin
+  if not coalesce((public.rh_argent_acces() ->> 'gestes')::boolean, false) then
+    raise exception 'Le journal des gestes est réservé au CEO, au superadministrateur et aux profils ouverts à « audit »';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with j as (
+    select x.id, x.fait_le, x.utilisateur, x.famille, x.action, x.libelle, x.cible, x.annule_le, x.annule_par,
+           x.retour, b.nom as boutique,
+           count(*) over (partition by x.utilisateur, date_trunc('hour', x.fait_le)) as dans_l_heure
+      from public.journal x
+      left join public.boutiques b on b.id = x.boutique_id
+     where x.fait_le >= t1 and x.fait_le < t2
+  ), r as (
+    select j.*, public.rh_geste_raisons(j.famille, j.action, j.libelle, j.fait_le, j.annule_le)
+                || case when j.dans_l_heure >= 10 then array['rafale'] else '{}'::text[] end as raisons
+      from j
+  ), s as (
+    select * from r
+     where (coalesce(v_famille, '') = '' or r.famille = v_famille)
+       and (not coalesce(v_sensibles, false) or cardinality(r.raisons) > 0)
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'tout_voir', tout_voir,
+    'chiffres_masques', not tout_voir,
+    'totaux', (select jsonb_build_object(
+        'gestes', count(*),
+        'sensibles', count(*) filter (where cardinality(r.raisons) > 0),
+        'suppressions', count(*) filter (where 'suppression' = any(r.raisons)),
+        'argent', count(*) filter (where 'argent' = any(r.raisons)),
+        'nuit', count(*) filter (where 'nuit' = any(r.raisons)),
+        'annules', count(*) filter (where r.annule_le is not null),
+        'auteurs', count(distinct r.utilisateur))
+      from r),
+    'familles', (select coalesce(jsonb_agg(jsonb_build_object('famille', x.famille, 'nb', x.nb) order by x.nb desc), '[]')
+      from (select r.famille, count(*) as nb from r group by r.famille) x),
+    'auteurs', (select coalesce(jsonb_agg(jsonb_build_object('qui', x.qui, 'gestes', x.nb, 'sensibles', x.sensibles,
+                                                             'dernier', x.dernier)
+                                          order by x.sensibles desc, x.nb desc), '[]')
+      from (select coalesce(nullif(r.utilisateur, ''), 'inconnu') as qui, count(*) as nb,
+                   count(*) filter (where cardinality(r.raisons) > 0) as sensibles, max(r.fait_le) as dernier
+              from r group by 1 order by 3 desc, 2 desc limit 30) x),
+    'lignes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', x.id, 'le', x.fait_le, 'qui', nullif(x.utilisateur, ''), 'famille', x.famille, 'action', x.action,
+        'libelle', case when tout_voir then x.libelle else regexp_replace(x.libelle, chiffre_re, '•••', 'g') end,
+        'cible', nullif(case when tout_voir then x.cible else regexp_replace(coalesce(x.cible, ''), chiffre_re, '•••', 'g') end, ''),
+        'boutique', x.boutique,
+        'annule_le', x.annule_le, 'annule_par', nullif(x.annule_par, ''), 'raisons', to_jsonb(x.raisons))
+        || case when tout_voir and x.retour is not null then jsonb_build_object('retour', left(x.retour::text, 2000))
+                else '{}'::jsonb end
+        order by x.fait_le desc, x.id desc), '[]')
+      from (select * from s order by s.fait_le desc, s.id desc limit 500) x))
+    into resultat;
+  return resultat;
+end $$;
+
+/**
+ * Les codes promo et le parrainage sur la période : pour chaque code, ses
+ * usages (commandes payées), ce qu'il a coûté (remises) et rapporté
+ * (ventes, commissions) ; pour chaque parrain, ses commissions et ses
+ * retraits ; et les abus probables :
+ *   meme_lieu   : un même code, plusieurs comptes, une même position de
+ *                 livraison (à 100 m près) ou une même adresse ;
+ *   propre_code : le parrain achète avec son propre code (même compte ou
+ *                 même numéro).
+ * Les numéros n'en sortent que par leurs 4 derniers chiffres, pour tout le
+ * monde. Montants, valeur des codes, noms des parrains : l'administration ;
+ * la clé « promos » donne les usages et les abus.
+ * Limite : un code expiré ou refusé qu'un client tente encore n'est noté
+ * nulle part (verifier_code ne garde rien).
+ */
+create or replace function public.rh_codes_surveillance(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  acces text := public.rh_argent_acces() ->> 'codes';
+  argent boolean;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  d1 date := coalesce(depuis, aujourdhui - 29);
+  d2 date := coalesce(jusqu, aujourdhui);
+  t1 timestamptz;
+  t2 timestamptz;
+  resultat jsonb;
+begin
+  if acces is null then
+    raise exception 'Votre compte n''a pas accès aux codes promo';
+  end if;
+  if d2 < d1 then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if d2 - d1 > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  argent := acces = 'admin';
+  t1 := d1::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (d2 + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with cm as (
+    select c.id, c.numero, c.code_promo as code, c.remise, c.total, c.client_id, c.client_tel, c.paye_le,
+           coalesce(c.client_id::text, right(regexp_replace(c.client_tel, '\D', '', 'g'), 8)) as compte,
+           case when jsonb_typeof(c.livraison #> '{destination,latitude}') = 'number'
+                 and jsonb_typeof(c.livraison #> '{destination,longitude}') = 'number'
+                then 'gps:' || round((c.livraison #>> '{destination,latitude}')::numeric, 3)::text || ','
+                            || round((c.livraison #>> '{destination,longitude}')::numeric, 3)::text
+                -- « À retirer » en boutique : tout le monde y passe, ce n'est pas un indice.
+                when btrim(c.client_adresse) = '' or c.client_adresse ~* 'retir' then ''
+                else 'adr:' || lower(regexp_replace(btrim(c.client_adresse), '\s+', ' ', 'g')) end as lieu
+      from public.commandes c
+     where c.etat = 'payee' and c.code_promo <> '' and c.paye_le >= t1 and c.paye_le < t2
+  ), lieux as (
+    select cm.code, cm.lieu, count(distinct cm.compte) as comptes, count(*) as commandes,
+           coalesce(sum(cm.remise), 0) as remise,
+           jsonb_agg(distinct public.rh_tel_masque(cm.client_tel)) as numeros,
+           jsonb_agg(cm.numero order by cm.paye_le) as liste
+      from cm where cm.lieu <> ''
+     group by cm.code, cm.lieu
+    having count(distinct cm.compte) >= 2
+  ), soi as (
+    select cm.* from cm
+      join public.codes_promo k on k.code = cm.code and k.parrain is not null
+      left join public.clients pc on pc.id = k.parrain
+     where cm.client_id = k.parrain
+        or (length(regexp_replace(coalesce(pc.tel, ''), '\D', '', 'g')) >= 8
+            and right(regexp_replace(cm.client_tel, '\D', '', 'g'), 8) = right(regexp_replace(pc.tel, '\D', '', 'g'), 8))
+  ), abus as (
+    select 'meme_lieu'::text as type, l.code, l.comptes, l.commandes, l.remise, l.numeros, l.liste,
+           case when l.lieu like 'gps:%' then 'Même position de livraison, comptes différents'
+                else 'Même adresse de livraison, comptes différents' end as detail
+      from lieux l
+    union all
+    select 'propre_code', s.code, 1::bigint, count(*), coalesce(sum(s.remise), 0),
+           jsonb_agg(distinct public.rh_tel_masque(s.client_tel)), jsonb_agg(s.numero order by s.paye_le),
+           'Le parrain achète avec son propre code'
+      from soi s group by s.code
+  ), u as (
+    select cm.code, count(*) as usages, count(distinct cm.compte) as clients,
+           coalesce(sum(cm.remise), 0) as cout, coalesce(sum(cm.total), 0) as ventes
+      from cm group by cm.code
+  ), com as (
+    select g.code, coalesce(sum(g.montant), 0) as commissions
+      from public.gains_parrain g where g.cree_le >= t1 and g.cree_le < t2 group by g.code
+  ), codes as (
+    select coalesce(k.code, u.code) as code, k.libelle, k.actif, k.fin, k.maximum, k.mode, k.valeur,
+           k.parrain is not null as particulier,
+           coalesce(u.usages, 0) as usages, coalesce(u.clients, 0) as clients,
+           coalesce(u.cout, 0) as cout, coalesce(u.ventes, 0) as ventes, coalesce(com.commissions, 0) as commissions,
+           (select count(*) from public.commandes c where c.etat = 'payee' and c.code_promo = coalesce(k.code, u.code)) as usages_total,
+           (select count(*) from abus a where a.code = coalesce(k.code, u.code)) as signalements
+      from public.codes_promo k
+      full join u on u.code = k.code
+      left join com on com.code = coalesce(k.code, u.code)
+     where coalesce(u.usages, 0) > 0 or coalesce(k.actif, false)
+  ), par as (
+    select q.parrain,
+           (select string_agg(k.code, ', ' order by k.code) from public.codes_promo k where k.parrain = q.parrain) as codes,
+           (select coalesce(sum(u.usages), 0) from u join public.codes_promo k on k.code = u.code and k.parrain = q.parrain) as usages,
+           (select coalesce(sum(g.montant), 0) from public.gains_parrain g
+             where g.parrain = q.parrain and g.cree_le >= t1 and g.cree_le < t2) as commissions_periode,
+           (select coalesce(sum(g.montant), 0) from public.gains_parrain g where g.parrain = q.parrain) as commissions_total,
+           (select coalesce(sum(r.montant), 0) from public.retraits_parrain r where r.parrain = q.parrain and r.etat = 'payee') as retire,
+           (select coalesce(sum(r.montant), 0) from public.retraits_parrain r where r.parrain = q.parrain and r.etat = 'demande') as demande,
+           (select count(*) from public.retraits_parrain r where r.parrain = q.parrain and r.etat = 'demande') as demandes,
+           (select cl.nom from public.clients cl where cl.id = q.parrain) as nom,
+           (select cl.tel from public.clients cl where cl.id = q.parrain) as tel,
+           exists (select 1 from soi s join public.codes_promo k on k.code = s.code where k.parrain = q.parrain) as propre_code
+      from (select distinct k.parrain from public.codes_promo k where k.parrain is not null) q
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', d1, 'jusqu', d2),
+    'montants', argent,
+    'totaux', (select jsonb_build_object('usages', count(*), 'codes', count(distinct cm.code),
+                                         'clients', count(distinct cm.compte),
+                                         'abus', (select count(*) from abus))
+                      || case when argent then jsonb_build_object(
+                           'cout', coalesce(sum(cm.remise), 0), 'ventes', coalesce(sum(cm.total), 0),
+                           'commissions', (select coalesce(sum(com.commissions), 0) from com))
+                         else '{}'::jsonb end
+                 from cm),
+    'codes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'code', x.code, 'libelle', nullif(x.libelle, ''), 'actif', coalesce(x.actif, false), 'fin', x.fin,
+        'maximum', x.maximum, 'particulier', x.particulier, 'usages', x.usages, 'clients', x.clients,
+        'usages_total', x.usages_total, 'signalements', x.signalements)
+        || case when argent then jsonb_build_object('mode', x.mode, 'valeur', x.valeur, 'cout', x.cout,
+                                                   'ventes', x.ventes, 'commissions', x.commissions)
+                else '{}'::jsonb end
+        order by x.signalements desc, x.usages desc, x.code), '[]')
+      from codes x),
+    'parrains', (select coalesce(jsonb_agg(jsonb_build_object(
+        'codes', x.codes, 'usages', x.usages, 'demandes', x.demandes, 'propre_code', x.propre_code,
+        'tel', public.rh_tel_masque(x.tel))
+        || case when argent then jsonb_build_object(
+             'nom', nullif(btrim(coalesce(x.nom, '')), ''), 'commissions_periode', x.commissions_periode,
+             'commissions_total', x.commissions_total, 'retire', x.retire, 'demande', x.demande,
+             'disponible', greatest(0, x.commissions_total - x.retire - x.demande))
+           else '{}'::jsonb end
+        order by x.propre_code desc, x.usages desc, x.codes), '[]')
+      from par x),
+    'abus', (select coalesce(jsonb_agg(jsonb_build_object(
+        'type', a.type, 'code', a.code, 'detail', a.detail, 'comptes', a.comptes, 'commandes', a.commandes,
+        'numeros', a.numeros, 'liste', a.liste)
+        || case when argent then jsonb_build_object('remise', a.remise) else '{}'::jsonb end
+        order by a.commandes desc), '[]')
+      from abus a))
+    into resultat;
+  return resultat;
+end $$;
+
+/** Les pastilles de l'argent : un seul appel, à chaque relecture des compteurs. */
+create or replace function public.rh_argent_compteurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_argent_acces();
+  j int := (public.rh_argent_seuils() ->> 'dette_j')::int;
+  res jsonb;
+begin
+  res := jsonb_build_object('onglets', a);
+  if a ->> 'paiements' is not null then
+    res := res || jsonb_build_object('paiements_a_traiter', (public.rh_paiements() #>> '{totaux,a_traiter}')::int);
+  end if;
+  if a ->> 'remboursements' is not null then
+    res := res || jsonb_build_object('remboursements_en_retard',
+                                     (public.rh_remboursements_liste() #>> '{totaux,en_retard}')::int);
+  end if;
+  if a ->> 'dettes' is not null then
+    res := res || jsonb_build_object('dettes_anciennes',
+      (select count(*) from public.reversements v
+        where v.etat = 'en_attente' and v.demande_le < now() - make_interval(days => j))
+      + (select count(*) from public.reversements_livreurs v
+          where v.etat = 'en_attente' and v.demande_le < now() - make_interval(days => j))
+      + (select count(*) from public.retraits_parrain v
+          where v.etat = 'demande' and v.demande_le < now() - make_interval(days => j)));
+  end if;
+  return res;
+end $$;
+
+revoke all on function public.rh_annulation_noter() from public, anon, authenticated;
+revoke all on function public.rh_argent_seuils() from public, anon;
+grant execute on function public.rh_argent_seuils() to authenticated, service_role;
+revoke all on function public.rh_tel_masque(text) from public, anon;
+grant execute on function public.rh_tel_masque(text) to authenticated, service_role;
+revoke all on function public.rh_argent_acces() from public, anon;
+grant execute on function public.rh_argent_acces() to authenticated, service_role;
+revoke all on function public.rh_argent_regler(int, int, int) from public, anon;
+grant execute on function public.rh_argent_regler(int, int, int) to authenticated, service_role;
+revoke all on function public.rh_paiements(date, date) from public, anon;
+grant execute on function public.rh_paiements(date, date) to authenticated, service_role;
+revoke all on function public.rh_rapprocher(text, text, text) from public, anon;
+grant execute on function public.rh_rapprocher(text, text, text) to authenticated, service_role;
+revoke all on function public.rh_rembourse_du(text) from public, anon, authenticated;
+grant execute on function public.rh_rembourse_du(text) to service_role;
+revoke all on function public.rh_remboursements_liste(date, date) from public, anon;
+grant execute on function public.rh_remboursements_liste(date, date) to authenticated, service_role;
+revoke all on function public.rh_rembourser(text, bigint, text, text, text) from public, anon;
+grant execute on function public.rh_rembourser(text, bigint, text, text, text) to authenticated, service_role;
+revoke all on function public.rh_dettes(date, date) from public, anon;
+grant execute on function public.rh_dettes(date, date) to authenticated, service_role;
+revoke all on function public.rh_geste_raisons(text, text, text, timestamptz, timestamptz) from public, anon;
+grant execute on function public.rh_geste_raisons(text, text, text, timestamptz, timestamptz) to authenticated, service_role;
+revoke all on function public.rh_gestes(date, date, text, boolean) from public, anon;
+grant execute on function public.rh_gestes(date, date, text, boolean) to authenticated, service_role;
+revoke all on function public.rh_codes_surveillance(date, date) from public, anon;
+grant execute on function public.rh_codes_surveillance(date, date) to authenticated, service_role;
+revoke all on function public.rh_argent_compteurs() from public, anon;
+grant execute on function public.rh_argent_compteurs() to authenticated, service_role;
+
+-- ---------- Les clés « paiements », « audit » et « promos » dans Paramètres ----------
+-- « paiements » : les paiements à rapprocher et les remboursements dus,
+-- sans montants (relation client, SAV) ; « audit » : le journal des
+-- gestes de BIZZOO Admin ; « promos » : les usages des codes et les abus,
+-- sans montants (marketing).
+do $$
+begin
+  if to_regclass('public.rh_acces_menus') is null then
+    return;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu'
+               and pg_get_constraintdef(oid) not like '%''promos''%') then
+    alter table public.rh_acces_menus drop constraint rh_acces_menus_menu;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
+    alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit',
+      'promos', 'qualite', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs',
+      'stats_sav', 'employes'));
+  end if;
+end $$;
+
+-- =========================================================
+-- BIZZOO Personnel : la qualité du service (personnel-qualite.sql)
+--
+-- Un menu « Qualité », en six onglets, pour voir COMMENT la place de
+-- marché sert ses clients, et pas seulement combien elle vend :
+--   1. SAV : les réclamations rangées en « la boutique doit répondre »,
+--      « en attente du client », « à trancher par BIZZOO » ; le délai de
+--      réponse de chaque boutique ; l'évolution de sa note (relevé
+--      quotidien dans rh_notes_boutiques). Alertes : réclamation sans
+--      réponse, escalade non tranchée. La décision reste dans Admin.
+--   2. Boutiques : une fiche qualité par boutique, feu vert, orange ou
+--      rouge (délai pour voir et préparer, annulations, réclamations,
+--      ruptures, note, horaires). Les ventes : l'administration seule.
+--   3. Catalogue : produits qui se vendaient et sont épuisés,
+--      réapprovisionnements dépassés, fiches sans photo ou sans
+--      catégorie, produits masqués depuis longtemps ; « boutique
+--      appelée » se coche (rh_ruptures_suivi).
+--   4. Files : ce qui attend une décision dans Admin (demandes des
+--      boutiques, revendeurs, comptes à valider, signalements).
+--   5. Zones : le service par commune ou par quartier.
+--   6. Fidélité : cohortes de premier achat, réachat, clients perdus,
+--      comptes supprimés ; la liste à relancer (administration seule,
+--      numéros masqués).
+-- Ouvert à l'administration, au superadministrateur, et par la clé
+-- « qualite » de Paramètres. AUCUN MONTANT hors de l'administration.
+-- Rien n'est posé sur les tables de la place de marché : pas un
+-- déclencheur, pas une colonne. Tout se lit.
+-- =========================================================
+
+-- Les seuils de la qualité, avec ceux du suivi :
+--   reponse_h             : une réclamation attend la boutique depuis plus de N h ;
+--   decision_h            : une escalade attend BIZZOO depuis plus de N h ;
+--   qualite_vue_h         : délai moyen pour VOIR une commande payée ;
+--   qualite_preparation_h : délai moyen pour la PRÉPARER une fois vue ;
+--   annulation_pct        : part des articles annulés ;
+--   reclamation_pct       : réclamations pour 100 commandes ;
+--   rupture_pct           : part des produits visibles en rupture ;
+--   note_min              : note de la boutique en dessous de laquelle elle est signalée ;
+--   note_chute            : baisse de la note en 30 jours qui fait un signal ;
+--   populaire_min         : articles vendus en 30 jours pour qu'une rupture « coûte » ;
+--   masque_j              : un produit masqué depuis plus de N jours ;
+--   files_h               : par file d'attente d'Admin, l'attente qui fait rougir ;
+--   zone_lent_h           : une livraison plus longue que N h est « lente » ;
+--   inactif_j             : un client sans commande depuis N jours est à relancer.
+alter table public.rh_reglages_suivi add column if not exists reponse_h int not null default 24
+  check (reponse_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists decision_h int not null default 48
+  check (decision_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists qualite_vue_h int not null default 4
+  check (qualite_vue_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists qualite_preparation_h int not null default 24
+  check (qualite_preparation_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists annulation_pct int not null default 10
+  check (annulation_pct between 1 and 100);
+alter table public.rh_reglages_suivi add column if not exists reclamation_pct int not null default 5
+  check (reclamation_pct between 1 and 100);
+alter table public.rh_reglages_suivi add column if not exists rupture_pct int not null default 30
+  check (rupture_pct between 1 and 100);
+alter table public.rh_reglages_suivi add column if not exists note_min numeric(2,1) not null default 3.5
+  check (note_min between 1 and 5);
+alter table public.rh_reglages_suivi add column if not exists note_chute numeric(2,1) not null default 0.3
+  check (note_chute between 0.1 and 4);
+alter table public.rh_reglages_suivi add column if not exists populaire_min int not null default 3
+  check (populaire_min between 1 and 1000);
+alter table public.rh_reglages_suivi add column if not exists masque_j int not null default 30
+  check (masque_j between 1 and 365);
+alter table public.rh_reglages_suivi add column if not exists files_h jsonb not null default '{}'::jsonb;
+alter table public.rh_reglages_suivi add column if not exists zone_lent_h int not null default 4
+  check (zone_lent_h between 1 and 720);
+alter table public.rh_reglages_suivi add column if not exists inactif_j int not null default 90
+  check (inactif_j between 30 and 365);
+
+-- ---------- La note de chaque boutique, relevée chaque jour ----------
+-- La base ne garde que la note du jour (boutiques.note_moyenne). Pour
+-- dire « elle est passée de 4,5 à 3,8 en un mois », il faut l'avoir
+-- notée : une ligne par boutique et par semaine, réécrite chaque jour de
+-- la semaine (la dernière lecture de la semaine fait foi). Pas de clé
+-- étrangère : la trace survit à la boutique.
+create table if not exists public.rh_notes_boutiques (
+  boutique_id  text not null,
+  semaine      date not null,
+  note         numeric(3,2),
+  nb_avis      int not null default 0,
+  releve_le    timestamptz not null default now(),
+  primary key (boutique_id, semaine)
+);
+alter table public.rh_notes_boutiques enable row level security;
+revoke all on table public.rh_notes_boutiques from public, anon, authenticated;
+grant all on table public.rh_notes_boutiques to service_role;
+
+-- ---------- « Boutique appelée » ----------
+-- Une ligne par appel, jamais réécrite : qui a appelé la boutique au
+-- sujet de quel produit, et pour quelle anomalie. Un appel vaut 7 jours :
+-- passé ce délai, l'anomalie qui dure redevient « à appeler ».
+create table if not exists public.rh_ruptures_suivi (
+  id          bigint generated always as identity primary key,
+  produit_id  text not null,
+  anomalie    text not null check (anomalie in ('rupture', 'appro', 'photo', 'categorie', 'masque')),
+  appele_le   timestamptz not null default now(),
+  appele_par  uuid,
+  note        text not null default ''
+);
+create index if not exists rh_ruptures_suivi_produit on public.rh_ruptures_suivi (produit_id, anomalie, appele_le desc);
+alter table public.rh_ruptures_suivi enable row level security;
+revoke all on table public.rh_ruptures_suivi from public, anon, authenticated;
+revoke all on sequence public.rh_ruptures_suivi_id_seq from public, anon, authenticated;
+grant all on table public.rh_ruptures_suivi to service_role;
+grant usage, select on sequence public.rh_ruptures_suivi_id_seq to service_role;
+
+/** Les seuils de la qualité, valeurs de départ comprises. */
+create or replace function public.rh_qualite_seuils() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'reponse_h', coalesce((x.j ->> 'reponse_h')::int, 24),
+    'decision_h', coalesce((x.j ->> 'decision_h')::int, 48),
+    'qualite_vue_h', coalesce((x.j ->> 'qualite_vue_h')::int, 4),
+    'qualite_preparation_h', coalesce((x.j ->> 'qualite_preparation_h')::int, 24),
+    'annulation_pct', coalesce((x.j ->> 'annulation_pct')::int, 10),
+    'reclamation_pct', coalesce((x.j ->> 'reclamation_pct')::int, 5),
+    'rupture_pct', coalesce((x.j ->> 'rupture_pct')::int, 30),
+    'note_min', coalesce((x.j ->> 'note_min')::numeric, 3.5),
+    'note_chute', coalesce((x.j ->> 'note_chute')::numeric, 0.3),
+    'populaire_min', coalesce((x.j ->> 'populaire_min')::int, 3),
+    'masque_j', coalesce((x.j ->> 'masque_j')::int, 30),
+    'files_h', jsonb_build_object(
+      'demandes', coalesce((x.j #>> '{files_h,demandes}')::int, 48),
+      'revendeurs', coalesce((x.j #>> '{files_h,revendeurs}')::int, 48),
+      'comptes', coalesce((x.j #>> '{files_h,comptes}')::int, 48),
+      'avis', coalesce((x.j #>> '{files_h,avis}')::int, 48),
+      'produits', coalesce((x.j #>> '{files_h,produits}')::int, 48)),
+    'zone_lent_h', coalesce((x.j ->> 'zone_lent_h')::int, 4),
+    'inactif_j', coalesce((x.j ->> 'inactif_j')::int, 90))
+    from (select coalesce((select to_jsonb(r) from public.rh_reglages_suivi r where r.id), '{}'::jsonb) as j) x;
+$$;
+
+/**
+ * Ce que le menu Qualité ouvre au compte connecté : « admin » (montants,
+ * ventes, noms des clients, liste à relancer, seuils : l'administration,
+ * le CEO, le superadministrateur), « equipe » (la clé « qualite » de
+ * Paramètres : délais, nombres et taux, aucun montant), ou rien.
+ */
+create or replace function public.rh_qualite_acces() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'acces', case when public.rh_est_admin() or public.est_super() then 'admin'
+                  when public.rh_menu_ouvert('qualite') then 'equipe' end,
+    'montants', public.rh_est_admin() or public.est_super());
+$$;
+
+/** Régler les seuils de la qualité : l'administration et le superadministrateur. */
+create or replace function public.rh_qualite_regler(choix jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  k text;
+  v jsonb;
+  f text;
+  n numeric;
+  bornes jsonb := jsonb_build_object(
+    'reponse_h', '[1, 720]'::jsonb, 'decision_h', '[1, 720]'::jsonb, 'qualite_vue_h', '[1, 720]'::jsonb,
+    'qualite_preparation_h', '[1, 720]'::jsonb, 'annulation_pct', '[1, 100]'::jsonb,
+    'reclamation_pct', '[1, 100]'::jsonb, 'rupture_pct', '[1, 100]'::jsonb, 'note_min', '[1, 5]'::jsonb,
+    'note_chute', '[0.1, 4]'::jsonb, 'populaire_min', '[1, 1000]'::jsonb, 'masque_j', '[1, 365]'::jsonb,
+    'zone_lent_h', '[1, 720]'::jsonb, 'inactif_j', '[30, 365]'::jsonb);
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Seuls l''administration et le superadministrateur règlent les seuils de la qualité';
+  end if;
+  if jsonb_typeof(choix) is distinct from 'object' then
+    raise exception 'Réglage illisible';
+  end if;
+  for k, v in select e.key, e.value from jsonb_each(choix) as e loop
+    if k = 'files_h' then
+      if jsonb_typeof(v) is distinct from 'object' then
+        raise exception 'Les seuils des files se donnent file par file';
+      end if;
+      for f in select jsonb_object_keys(v) loop
+        if f not in ('demandes', 'revendeurs', 'comptes', 'avis', 'produits') then
+          raise exception 'File inconnue : %', f;
+        end if;
+        if jsonb_typeof(v -> f) is distinct from 'number' or (v ->> f)::numeric <> trunc((v ->> f)::numeric)
+           or (v ->> f)::numeric not between 1 and 720 then
+          raise exception 'L''attente d''une file se compte en heures, de 1 à 720';
+        end if;
+      end loop;
+      update public.rh_reglages_suivi set files_h = files_h || v where id;
+    elsif bornes ? k then
+      if jsonb_typeof(v) is distinct from 'number' then
+        raise exception 'Le seuil % doit être un nombre', k;
+      end if;
+      n := (v #>> '{}')::numeric;
+      if n < (bornes #>> array[k, '0'])::numeric or n > (bornes #>> array[k, '1'])::numeric then
+        raise exception 'Le seuil % va de % à %', k, bornes #>> array[k, '0'], bornes #>> array[k, '1'];
+      end if;
+      if k not in ('note_min', 'note_chute') and n <> trunc(n) then
+        raise exception 'Le seuil % est un nombre entier', k;
+      end if;
+      execute format('update public.rh_reglages_suivi set %I = %L where id', k, n);
+    else
+      raise exception 'Seuil inconnu : %', k;
+    end if;
+  end loop;
+end $$;
+
+/**
+ * Relève la note de chaque boutique notée : la ligne de la semaine en
+ * cours est réécrite (la dernière lecture de la semaine fait foi).
+ * pg_cron l'appelle chaque matin ; l'écran Qualité aussi, à l'ouverture,
+ * si pg_cron n'est pas là. Sans compte connecté (pg_cron), ou pour qui a
+ * le menu Qualité.
+ */
+create or replace function public.rh_notes_releve() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  n int;
+  semaine_courante date := date_trunc('week', now() at time zone 'Africa/Porto-Novo')::date;
+begin
+  if auth.uid() is not null and (public.rh_qualite_acces() ->> 'acces') is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  insert into public.rh_notes_boutiques (boutique_id, semaine, note, nb_avis, releve_le)
+  select b.id, semaine_courante, b.note_moyenne, b.nb_avis, now()
+    from public.boutiques b
+   where b.nb_avis > 0
+  on conflict (boutique_id, semaine) do update
+    set note = excluded.note, nb_avis = excluded.nb_avis, releve_le = excluded.releve_le;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+/**
+ * La note d'une boutique à un instant : le relevé le plus proche dans les
+ * 7 jours qui précèdent (« releve »), sinon la moyenne des avis de la
+ * boutique écrits avant cet instant et toujours visibles (« reconstituee » :
+ * un avis masqué depuis compte comme s'il l'avait toujours été).
+ */
+create or replace function public.rh_note_boutique_au(cible text, instant timestamptz) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select jsonb_build_object('note', n.note, 'source', 'releve')
+       from public.rh_notes_boutiques n
+      where n.boutique_id = cible and n.releve_le <= instant and n.releve_le > instant - interval '7 days'
+      order by n.releve_le desc limit 1),
+    (select jsonb_build_object('note', round(avg(a.note), 2), 'source', 'reconstituee')
+       from public.avis a
+      where a.boutique_id = cible and a.produit_id is null and not a.masque and a.cree_le < instant
+     having count(*) > 0),
+    jsonb_build_object('note', null, 'source', 'aucune'));
+$$;
+
+/**
+ * Les réclamations encore ouvertes, rangées : « boutique » (elle doit
+ * répondre : jamais répondu, ou le client a réécrit après sa réponse),
+ * « client » (la boutique a répondu, le client lit), « bizzoo » (escaladée,
+ * à trancher). « depuis_le » : depuis quand on attend celui qui doit agir.
+ * Interne : les fonctions publiques vérifient d'abord qui appelle.
+ */
+create or replace function public.rh_sav_ouvertes()
+returns table (reclamation_id text, colonne text, depuis_le timestamptz)
+language sql stable security definer set search_path = public as $$
+  with o as (
+    select r.id, r.etat, r.cree_le, r.repondu_le, r.escalade_le, r.maj_le,
+           (select m.auteur_role from public.reclamation_messages m where m.reclamation_id = r.id
+             order by m.cree_le desc, m.id desc limit 1) as dernier_role,
+           (select max(m.cree_le) from public.reclamation_messages m
+             where m.reclamation_id = r.id and m.auteur_role = 'client') as dernier_client,
+           (select max(m.cree_le) from public.reclamation_messages m
+             where m.reclamation_id = r.id and m.auteur_role <> 'client') as derniere_reponse
+      from public.reclamations r
+     where r.etat in ('ouverte', 'repondue', 'escaladee')
+  ),
+  c as (
+    select o.*, case
+      when o.etat = 'escaladee' then 'bizzoo'
+      when o.etat = 'ouverte' then 'boutique'
+      when o.dernier_role = 'client'
+           and o.dernier_client > coalesce(o.derniere_reponse, o.repondu_le, o.cree_le) then 'boutique'
+      else 'client' end as col
+      from o
+  )
+  select c.id, c.col, case c.col
+      when 'bizzoo' then coalesce(c.escalade_le, c.maj_le)
+      when 'boutique' then case when c.etat = 'ouverte' then c.cree_le else c.dernier_client end
+      else coalesce(c.derniere_reponse, c.repondu_le, c.maj_le) end
+    from c;
+$$;
+
+/**
+ * Le SAV et la satisfaction sur une période (30 jours par défaut, heure du
+ * Bénin) : les réclamations ouvertes en trois colonnes, quelle que soit la
+ * période ; par boutique, les réclamations de la période, le délai de
+ * réponse, et l'évolution de la note sur 30 jours (8 semaines en courbe).
+ * Le nom du client et le motif d'une escalade : l'administration seule.
+ */
+create or replace function public.rh_satisfaction(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  admin boolean := (a ->> 'acces') = 'admin';
+  s jsonb := public.rh_qualite_seuils();
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+  t1 timestamptz;
+  t2 timestamptz;
+  rep_h int := (s ->> 'reponse_h')::int;
+  dec_h int := (s ->> 'decision_h')::int;
+  chute numeric := (s ->> 'note_chute')::numeric;
+  liste_r jsonb;
+  totaux jsonb;
+  par_boutique jsonb;
+begin
+  if a ->> 'acces' is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with o as (
+    select x.*, r.sujet, r.etat, r.cree_le, r.boutique_id, r.escalade_motif, c.numero, c.client_nom,
+           b.nom as boutique_nom,
+           round((extract(epoch from (now() - x.depuis_le)) / 3600)::numeric, 1) as heures
+      from public.rh_sav_ouvertes() x
+      join public.reclamations r on r.id = x.reclamation_id
+      left join public.commandes c on c.id = r.commande_id
+      left join public.boutiques b on b.id = r.boutique_id
+  ),
+  o2 as (
+    select o.*, case
+      when o.colonne = 'boutique' and o.heures > rep_h then 'sans_reponse'
+      when o.colonne = 'bizzoo' and o.heures > dec_h then 'escalade_en_attente' end as alerte
+      from o
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', o2.reclamation_id, 'commande', o2.numero, 'boutique_id', o2.boutique_id,
+           'boutique', coalesce(o2.boutique_nom, o2.boutique_id), 'sujet', o2.sujet, 'etat', o2.etat,
+           'colonne', o2.colonne, 'cree_le', o2.cree_le, 'depuis_le', o2.depuis_le, 'heures', o2.heures,
+           'alerte', o2.alerte,
+           'client', case when admin then o2.client_nom end,
+           'motif', case when admin and o2.colonne = 'bizzoo' then left(o2.escalade_motif, 300) end)
+           order by (o2.alerte is not null) desc, o2.depuis_le), '[]'),
+         jsonb_build_object(
+           'boutique', count(*) filter (where o2.colonne = 'boutique'),
+           'client', count(*) filter (where o2.colonne = 'client'),
+           'bizzoo', count(*) filter (where o2.colonne = 'bizzoo'),
+           'sans_reponse', count(*) filter (where o2.alerte = 'sans_reponse'),
+           'escalades_en_retard', count(*) filter (where o2.alerte = 'escalade_en_attente'))
+    into liste_r, totaux
+    from o2;
+
+  totaux := totaux || (
+    select jsonb_build_object(
+      'creees', count(*),
+      'repondues', count(*) filter (where r.repondu_le is not null),
+      'delai_reponse_h', round((avg(extract(epoch from (r.repondu_le - r.cree_le)) / 3600)
+                               filter (where r.repondu_le is not null))::numeric, 1),
+      'escaladees', count(*) filter (where r.escalade_le is not null))
+      from public.reclamations r where r.cree_le >= t1 and r.cree_le < t2)
+    || (select jsonb_build_object(
+      'tranchees', count(*),
+      'delai_decision_h', round(avg(extract(epoch from (r.decide_le - r.escalade_le)) / 3600)::numeric, 1))
+      from public.reclamations r
+     where r.decide_le >= t1 and r.decide_le < t2 and r.escalade_le is not null);
+
+  with periode as (
+    select r.boutique_id, count(*) as nb,
+           count(*) filter (where r.repondu_le is not null) as repondues,
+           round((avg(extract(epoch from (r.repondu_le - r.cree_le)) / 3600)
+                 filter (where r.repondu_le is not null))::numeric, 1) as delai_h,
+           round((max(extract(epoch from (r.repondu_le - r.cree_le)) / 3600)
+                 filter (where r.repondu_le is not null))::numeric, 1) as delai_max_h,
+           count(*) filter (where r.escalade_le is not null) as escaladees
+      from public.reclamations r where r.cree_le >= t1 and r.cree_le < t2
+     group by r.boutique_id
+  ),
+  attente as (
+    select r.boutique_id, count(*) as nb
+      from public.rh_sav_ouvertes() x
+      join public.reclamations r on r.id = x.reclamation_id
+     where x.colonne = 'boutique' and now() - x.depuis_le > make_interval(hours => rep_h)
+     group by r.boutique_id
+  ),
+  bq as (
+    select b.id, b.nom, b.nb_avis,
+           case when fin >= aujourdhui then jsonb_build_object('note', b.note_moyenne, 'source', 'du_jour')
+                else public.rh_note_boutique_au(b.id, t2) end as note_fin,
+           public.rh_note_boutique_au(b.id, t2 - interval '30 days') as note_avant,
+           p.nb, p.repondues, p.delai_h, p.delai_max_h, p.escaladees, coalesce(att.nb, 0) as sans_reponse
+      from public.boutiques b
+      left join periode p on p.boutique_id = b.id
+      left join attente att on att.boutique_id = b.id
+     where p.boutique_id is not null or att.boutique_id is not null or b.nb_avis > 0
+  ),
+  bq2 as (
+    select bq.*, (bq.note_fin ->> 'note')::numeric - (bq.note_avant ->> 'note')::numeric as variation
+      from bq
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', bq2.id, 'boutique', bq2.nom, 'reclamations', coalesce(bq2.nb, 0),
+           'repondues', coalesce(bq2.repondues, 0), 'delai_reponse_h', bq2.delai_h,
+           'delai_reponse_max_h', bq2.delai_max_h, 'escaladees', coalesce(bq2.escaladees, 0),
+           'sans_reponse', bq2.sans_reponse, 'nb_avis', bq2.nb_avis,
+           'note', bq2.note_fin -> 'note', 'note_avant', bq2.note_avant -> 'note',
+           'source_avant', bq2.note_avant ->> 'source', 'variation', bq2.variation,
+           'chute', coalesce(bq2.variation <= -chute, false),
+           'semaines', case when bq2.nb_avis > 0 then (
+              select jsonb_agg(jsonb_build_object('jusqu', (fin - k * 7),
+                       'note', public.rh_note_boutique_au(bq2.id, t2 - make_interval(days => k * 7)) -> 'note')
+                       order by k desc)
+                from generate_series(0, 7) k) else '[]'::jsonb end)
+           order by coalesce(bq2.variation <= -chute, false) desc, bq2.sans_reponse desc,
+                    coalesce(bq2.nb, 0) desc, bq2.nom), '[]')
+    into par_boutique
+    from bq2;
+
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'montants', admin,
+    'seuils', jsonb_build_object('reponse_h', rep_h, 'decision_h', dec_h, 'note_chute', chute),
+    'totaux', totaux,
+    'reclamations', liste_r,
+    'boutiques', par_boutique);
+end $$;
+
+/**
+ * La fiche qualité de chaque boutique sur une période : comment elle sert
+ * ses clients. Les commandes comptent au jour de leur paiement (même
+ * annulées ensuite : c'est l'annulation qu'on mesure).
+ *   delai_vue_h         : du paiement au « vu » de la boutique ;
+ *   delai_preparation_h : du « vu » au « préparé » ;
+ *   non_vues            : articles payés jamais vus depuis plus du seuil ;
+ *   annulation_pct      : articles annulés sur articles payés ;
+ *   reclamation_pct     : réclamations ouvertes sur la période pour 100 commandes ;
+ *   rupture_pct         : produits visibles épuisés (hors « sur commande »), aujourd'hui ;
+ *   note, horaires      : aujourd'hui.
+ * Feu : rouge à deux signaux ou plus, orange à un, vert sinon. Les ventes
+ * (prix payés par les clients, jamais le prix BIZZOO) : l'administration seule.
+ */
+create or replace function public.rh_qualite_boutiques(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  admin boolean := (a ->> 'acces') = 'admin';
+  s jsonb := public.rh_qualite_seuils();
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+  t1 timestamptz;
+  t2 timestamptz;
+  liste jsonb;
+begin
+  if a ->> 'acces' is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  with lig as (
+    -- « j.commande_id = l.commande_id » : le journal n'est indexé que par
+    -- commande ; sans ce filtre, chaque article relirait tout le journal.
+    select l.id, l.boutique_id, l.commande_id, l.etat, l.quantite, l.prix, c.paye_le,
+           (select min(j.le) from public.rh_journal_lignes j
+             where j.commande_id = l.commande_id and j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'vue') as vue_le,
+           (select min(j.le) from public.rh_journal_lignes j
+             where j.commande_id = l.commande_id and j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'preparee') as preparee_le
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+     where c.paye_le >= t1 and c.paye_le < t2 and l.boutique_id is not null
+  ),
+  parl as (
+    select g.boutique_id,
+           count(distinct g.commande_id) as commandes,
+           count(*) as lignes,
+           sum(g.prix * g.quantite) filter (where g.etat <> 'annulee') as ventes,
+           round((avg(extract(epoch from (coalesce(g.vue_le, g.preparee_le) - g.paye_le)) / 3600)
+                 filter (where coalesce(g.vue_le, g.preparee_le) >= g.paye_le))::numeric, 1) as delai_vue_h,
+           round((avg(extract(epoch from (g.preparee_le - coalesce(g.vue_le, g.paye_le))) / 3600)
+                 filter (where g.preparee_le >= coalesce(g.vue_le, g.paye_le)))::numeric, 1) as delai_preparation_h,
+           count(*) filter (where g.etat = 'nouvelle'
+                              and now() - g.paye_le > make_interval(hours => (s ->> 'qualite_vue_h')::int)) as non_vues,
+           count(*) filter (where g.etat = 'annulee') as annulees
+      from lig g group by g.boutique_id
+  ),
+  recl as (
+    select r.boutique_id, count(*) as nb from public.reclamations r
+     where r.cree_le >= t1 and r.cree_le < t2 group by r.boutique_id
+  ),
+  prod as (
+    select p.boutique_id, count(*) filter (where not p.masque) as visibles,
+           count(*) filter (where not p.masque and p.stock <= 0 and not p.sur_commande) as ruptures
+      from public.produits p where p.boutique_id is not null group by p.boutique_id
+  ),
+  bq as (
+    select b.id, b.nom, b.actif, b.note_moyenne, b.nb_avis, b.ouvertures is not null as horaires,
+           coalesce(pl.commandes, 0) as commandes, coalesce(pl.lignes, 0) as lignes, pl.ventes,
+           pl.delai_vue_h, pl.delai_preparation_h, coalesce(pl.non_vues, 0) as non_vues,
+           coalesce(pl.annulees, 0) as annulees,
+           case when coalesce(pl.lignes, 0) > 0 then round(100.0 * pl.annulees / pl.lignes, 1) end as annulation_pct,
+           coalesce(rc.nb, 0) as reclamations,
+           case when coalesce(pl.commandes, 0) > 0 then round(100.0 * coalesce(rc.nb, 0) / pl.commandes, 1) end as reclamation_pct,
+           coalesce(pr.visibles, 0) as produits, coalesce(pr.ruptures, 0) as ruptures,
+           case when coalesce(pr.visibles, 0) > 0 then round(100.0 * pr.ruptures / pr.visibles, 1) end as rupture_pct
+      from public.boutiques b
+      left join parl pl on pl.boutique_id = b.id
+      left join recl rc on rc.boutique_id = b.id
+      left join prod pr on pr.boutique_id = b.id
+     where b.actif or pl.boutique_id is not null
+  ),
+  bq2 as (
+    select bq.*, array_remove(array[
+      case when bq.delai_vue_h > (s ->> 'qualite_vue_h')::numeric then 'vue_lente' end,
+      case when bq.non_vues > 0 then 'non_vues' end,
+      case when bq.delai_preparation_h > (s ->> 'qualite_preparation_h')::numeric then 'preparation_lente' end,
+      case when bq.annulation_pct > (s ->> 'annulation_pct')::numeric then 'annulations' end,
+      case when bq.reclamation_pct > (s ->> 'reclamation_pct')::numeric then 'reclamations' end,
+      case when bq.rupture_pct > (s ->> 'rupture_pct')::numeric then 'ruptures' end,
+      case when bq.note_moyenne < (s ->> 'note_min')::numeric then 'note' end,
+      case when not bq.horaires then 'horaires' end], null) as problemes
+      from bq
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', x.id, 'boutique', x.nom, 'actif', x.actif, 'commandes', x.commandes, 'lignes', x.lignes,
+           'ventes', case when admin then coalesce(x.ventes, 0) end,
+           'delai_vue_h', x.delai_vue_h, 'delai_preparation_h', x.delai_preparation_h, 'non_vues', x.non_vues,
+           'annulees', x.annulees, 'annulation_pct', x.annulation_pct,
+           'reclamations', x.reclamations, 'reclamation_pct', x.reclamation_pct,
+           'produits', x.produits, 'ruptures', x.ruptures, 'rupture_pct', x.rupture_pct,
+           'note', x.note_moyenne, 'nb_avis', x.nb_avis, 'horaires', x.horaires,
+           'problemes', to_jsonb(x.problemes),
+           'feu', case when cardinality(x.problemes) >= 2 then 'rouge'
+                       when cardinality(x.problemes) = 1 then 'orange' else 'vert' end)
+           order by cardinality(x.problemes) desc, x.lignes desc, x.nom), '[]')
+    into liste
+    from bq2 x;
+
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'montants', admin,
+    'seuils', s - 'files_h' - 'zone_lent_h' - 'inactif_j' - 'masque_j' - 'populaire_min',
+    'boutiques', liste);
+end $$;
+
+/**
+ * Les produits qui se vendaient (au moins « populaire_min » articles payés
+ * en 30 jours, articles annulés exclus), avec leur rang parmi les ventes
+ * des 30 derniers jours. Interne.
+ */
+create or replace function public.rh_ventes_30j()
+returns table (produit_id text, qte bigint, rang bigint, derniere timestamptz)
+language sql stable security definer set search_path = public as $$
+  select v.produit_id, v.qte, rank() over (order by v.qte desc), v.derniere
+    from (select l.produit_id, sum(l.quantite)::bigint as qte, max(c.paye_le) as derniere
+            from public.commande_lignes l
+            join public.commandes c on c.id = l.commande_id
+           where c.paye_le >= now() - interval '30 days' and l.etat <> 'annulee' and l.produit_id is not null
+           group by l.produit_id) v;
+$$;
+
+/**
+ * La santé du catalogue, aujourd'hui. Aucun prix : ni celui du client,
+ * ni celui d'achat.
+ *   ruptures       : épuisés (stock 0, pas « sur commande », visibles) qui
+ *                    se vendaient ; les mieux vendus en tête ;
+ *   appro_depasse  : épuisés dont la date de réapprovisionnement est passée ;
+ *   sans_photo, sans_categorie : fiches incomplètes, visibles ;
+ *   masques       : masqués depuis plus de « masque_j » jours (ou depuis
+ *                    une date inconnue : masqués avant 3.59.0).
+ * Chaque produit porte le dernier appel « boutique appelée » de moins de 7 jours.
+ */
+create or replace function public.rh_catalogue_anomalies() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  s jsonb := public.rh_qualite_seuils();
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  pop int := (s ->> 'populaire_min')::int;
+  masque_jours int := (s ->> 'masque_j')::int;
+  res jsonb;
+begin
+  if a ->> 'acces' is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  with v as (select * from public.rh_ventes_30j()),
+  appels as (
+    select distinct on (x.produit_id, x.anomalie) x.produit_id, x.anomalie, x.appele_le, x.note,
+           coalesce((select nullif(btrim(coalesce(e.prenoms, '') || ' ' || coalesce(e.nom, '')), '')
+                       from public.rh_employes e where e.id = x.appele_par), '') as par
+      from public.rh_ruptures_suivi x
+     where x.appele_le > now() - interval '7 days'
+     order by x.produit_id, x.anomalie, x.appele_le desc
+  ),
+  p as (
+    select pr.id, pr.nom, pr.code, pr.boutique_id, b.nom as boutique, pr.stock, pr.sur_commande, pr.appro_le,
+           pr.masque, pr.masque_le, pr.masque_par, cardinality(pr.images) = 0 as sans_photo,
+           pr.categorie_id is null and pr.sous_categorie_id is null as sans_categorie,
+           v.qte, v.rang, v.derniere
+      from public.produits pr
+      left join public.boutiques b on b.id = pr.boutique_id
+      left join v on v.produit_id = pr.id
+  ),
+  fiche as (
+    select p.*, jsonb_build_object('id', p.id, 'produit', p.nom, 'code', p.code, 'boutique_id', p.boutique_id,
+                                   'boutique', coalesce(p.boutique, p.boutique_id)) as base
+      from p
+  ),
+  appel_de as (
+    select f.id, an.anomalie,
+           (select jsonb_build_object('le', ap.appele_le, 'par', ap.par, 'note', ap.note)
+              from appels ap where ap.produit_id = f.id and ap.anomalie = an.anomalie) as appel
+      from fiche f cross join (values ('rupture'), ('appro'), ('photo'), ('categorie'), ('masque')) an(anomalie)
+  )
+  select jsonb_build_object(
+    'seuils', jsonb_build_object('populaire_min', pop, 'masque_j', masque_jours),
+    'ruptures', coalesce((select jsonb_agg(f.base || jsonb_build_object(
+                   'vendus_30j', f.qte, 'rang', f.rang, 'derniere_vente', f.derniere, 'appro_le', f.appro_le,
+                   'retard_j', case when f.appro_le < aujourdhui then aujourdhui - f.appro_le end,
+                   'appel', ad.appel) order by f.qte desc, f.rang)
+                   from fiche f join appel_de ad on ad.id = f.id and ad.anomalie = 'rupture'
+                  where not f.masque and f.stock <= 0 and not f.sur_commande and f.qte >= pop), '[]'),
+    'appro_depasse', coalesce((select jsonb_agg(f.base || jsonb_build_object(
+                   'appro_le', f.appro_le, 'retard_j', aujourdhui - f.appro_le, 'vendus_30j', coalesce(f.qte, 0),
+                   'appel', ad.appel) order by f.appro_le)
+                   from fiche f join appel_de ad on ad.id = f.id and ad.anomalie = 'appro'
+                  where not f.masque and f.stock <= 0 and not f.sur_commande and f.appro_le < aujourdhui), '[]'),
+    'sans_photo', coalesce((select jsonb_agg(f.base || jsonb_build_object('appel', ad.appel) order by f.boutique, f.nom)
+                   from (select * from fiche f0 where not f0.masque and f0.sans_photo order by f0.boutique, f0.nom limit 300) f
+                   join appel_de ad on ad.id = f.id and ad.anomalie = 'photo'), '[]'),
+    'sans_categorie', coalesce((select jsonb_agg(f.base || jsonb_build_object('appel', ad.appel) order by f.boutique, f.nom)
+                   from (select * from fiche f0 where not f0.masque and f0.sans_categorie order by f0.boutique, f0.nom limit 300) f
+                   join appel_de ad on ad.id = f.id and ad.anomalie = 'categorie'), '[]'),
+    'masques', coalesce((select jsonb_agg(f.base || jsonb_build_object(
+                   'masque_le', f.masque_le, 'masque_par', f.masque_par,
+                   'jours', case when f.masque_le is not null then aujourdhui - (f.masque_le at time zone 'Africa/Porto-Novo')::date end,
+                   'appel', ad.appel) order by f.masque_le nulls first)
+                   from (select * from fiche f0 where f0.masque
+                            and (f0.masque_le is null or f0.masque_le < now() - make_interval(days => masque_jours))
+                          order by f0.masque_le nulls first limit 300) f
+                   join appel_de ad on ad.id = f.id and ad.anomalie = 'masque'), '[]'),
+    'totaux', (select jsonb_build_object(
+                 'ruptures', count(*) filter (where not f.masque and f.stock <= 0 and not f.sur_commande and f.qte >= pop),
+                 'ruptures_a_appeler', count(*) filter (where not f.masque and f.stock <= 0 and not f.sur_commande and f.qte >= pop
+                                                          and not exists (select 1 from appels ap where ap.produit_id = f.id and ap.anomalie = 'rupture')),
+                 'epuises', count(*) filter (where not f.masque and f.stock <= 0 and not f.sur_commande),
+                 'appro_depasse', count(*) filter (where not f.masque and f.stock <= 0 and not f.sur_commande and f.appro_le < aujourdhui),
+                 'sans_photo', count(*) filter (where not f.masque and f.sans_photo),
+                 'sans_categorie', count(*) filter (where not f.masque and f.sans_categorie),
+                 'masques', count(*) filter (where f.masque and (f.masque_le is null
+                                                or f.masque_le < now() - make_interval(days => masque_jours))))
+                 from fiche f))
+    into res;
+  return res;
+end $$;
+
+/**
+ * « Boutique appelée » : cocher (appele = true) note l'appel ; décocher
+ * retire les appels de moins de 7 jours de ce produit pour cette anomalie.
+ * Pour qui a le menu Qualité, montants ou pas : un appel n'en a pas.
+ */
+create or replace function public.rh_catalogue_appeler(cible_produit text, cible_anomalie text, appele boolean,
+                                                       v_note text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if (public.rh_qualite_acces() ->> 'acces') is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  if coalesce(cible_anomalie, '') not in ('rupture', 'appro', 'photo', 'categorie', 'masque') then
+    raise exception 'Anomalie inconnue';
+  end if;
+  if not exists (select 1 from public.produits where id = cible_produit) then
+    raise exception 'Produit introuvable';
+  end if;
+  if coalesce(appele, false) then
+    insert into public.rh_ruptures_suivi (produit_id, anomalie, appele_par, note)
+    values (cible_produit, cible_anomalie, public.rh_moi(), left(btrim(coalesce(v_note, '')), 300));
+  else
+    delete from public.rh_ruptures_suivi
+     where produit_id = cible_produit and anomalie = cible_anomalie and appele_le > now() - interval '7 days';
+  end if;
+end $$;
+
+/**
+ * Les files qui attendent une décision dans BIZZOO Admin : une ligne par
+ * file, combien, la plus ancienne, l'attente moyenne, et le délai moyen
+ * des décisions des 30 derniers jours (quand la base le date). Rouge
+ * quand la plus ancienne dépasse le seuil de sa file. Aucun nom, aucun
+ * numéro : des nombres et des dates.
+ */
+create or replace function public.rh_files_attente() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  f jsonb := public.rh_qualite_seuils() -> 'files_h';
+  res jsonb;
+begin
+  if a ->> 'acces' is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  with attente as (
+    select 'demandes' as cle, d.demande_le as le from public.demandes d where d.etat = 'en_attente'
+    union all
+    select 'revendeurs', coalesce(c.revendeur_demande_le, c.maj_le) from public.clients c where c.revendeur_etat = 'en_attente'
+    union all
+    select 'comptes', p.cree_le from public.profils p where p.a_valider
+    union all
+    select 'avis', s.cree_le from public.avis_signalements s where s.etat = 'ouvert'
+    union all
+    select 'produits', s.cree_le from public.produits_signalements s where s.etat = 'ouvert'
+  ),
+  decisions as (
+    select 'demandes' as cle, extract(epoch from (d.decide_le - d.demande_le)) / 3600 as h
+      from public.demandes d where d.decide_le > now() - interval '30 days'
+    union all
+    select 'revendeurs', extract(epoch from (c.revendeur_decide_le - c.revendeur_demande_le)) / 3600
+      from public.clients c where c.revendeur_decide_le > now() - interval '30 days' and c.revendeur_demande_le is not null
+    union all
+    select 'avis', extract(epoch from (s.traite_le - s.cree_le)) / 3600
+      from public.avis_signalements s where s.traite_le > now() - interval '30 days'
+    union all
+    select 'produits', extract(epoch from (s.traite_le - s.cree_le)) / 3600
+      from public.produits_signalements s where s.traite_le > now() - interval '30 days'
+  ),
+  files(cle, libelle, ecran, route, ordre) as (
+    values ('demandes', 'Demandes des boutiques (réglages, slider)', 'Validations', 'validations', 1),
+           ('revendeurs', 'Demandes de compte revendeur', 'Revendeurs', 'revendeurs', 2),
+           ('comptes', 'Comptes d''équipe à valider', 'Comptes', 'comptes', 3),
+           ('avis', 'Avis signalés (harcèlement, haine…)', 'Avis', 'avis', 4),
+           ('produits', 'Produits signalés (contrefaçon, trompeur…)', 'Avis', 'avis', 5)
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'cle', x.cle, 'libelle', x.libelle, 'ecran', x.ecran, 'route', x.route,
+           'nombre', x.nombre, 'plus_ancienne', x.plus_ancienne,
+           'attente_moyenne_h', x.attente_h, 'delai_decision_h', x.delai_h,
+           'seuil_h', x.seuil_h, 'en_retard', x.en_retard,
+           'rouge', x.plus_ancienne is not null and x.plus_ancienne < now() - make_interval(hours => x.seuil_h))
+           order by x.ordre), '[]')
+    into res
+    from (select fl.cle, fl.libelle, fl.ecran, fl.route, fl.ordre, (f ->> fl.cle)::int as seuil_h,
+                 (select count(*) from attente w where w.cle = fl.cle) as nombre,
+                 (select min(w.le) from attente w where w.cle = fl.cle) as plus_ancienne,
+                 (select round(avg(extract(epoch from (now() - w.le)) / 3600)::numeric, 1)
+                    from attente w where w.cle = fl.cle) as attente_h,
+                 (select count(*) from attente w where w.cle = fl.cle
+                     and w.le < now() - make_interval(hours => (f ->> fl.cle)::int)) as en_retard,
+                 (select round(avg(dc.h)::numeric, 1) from decisions dc where dc.cle = fl.cle) as delai_h
+            from files fl) x;
+  return jsonb_build_object('files', res, 'seuils', f);
+end $$;
+
+/**
+ * Le service par zone sur une période : les commandes payées, rangées par
+ * commune (niveau « commune ») ou par quartier (« quartier »), selon la
+ * zone du suivi (corrigée par l'administration, sinon lue dans l'adresse).
+ * Aucun montant : des nombres, des délais, des distances.
+ *   delai_moyen_h : du paiement à la livraison (réception confirmée par le
+ *                   client, sinon remise déclarée), commandes entièrement livrées ;
+ *   lentes        : livrées en plus de « zone_lent_h » heures ;
+ *   echecs        : un article noté échoué, en retour ou retourné ;
+ *   non_recus     : une réclamation « non reçu » ;
+ *   distance, tricycle : la livraison au kilomètre (3.64.0), quand elle est connue.
+ */
+create or replace function public.rh_statistiques_zones(depuis date default null, jusqu date default null,
+                                                         niveau text default 'commune')
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  lent int := (public.rh_qualite_seuils() ->> 'zone_lent_h')::int;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+  t1 timestamptz;
+  t2 timestamptz;
+  zones jsonb;
+begin
+  if a ->> 'acces' is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  if coalesce(niveau, '') not in ('commune', 'quartier') then
+    raise exception 'Niveau inconnu : commune ou quartier';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
+
+  -- Toutes les commandes de la période, sans plafond : ce sont des
+  -- statistiques, et en couper la liste fausserait chaque nombre.
+  with cmd as (
+    select c.id, c.paye_le, c.livraison,
+           coalesce(nullif(sc.zone, ''), public.rh_zone_de(c.client_adresse), '') as zone_brute
+      from public.commandes c
+      left join public.rh_suivi_commandes sc on sc.commande_id = c.id
+     where c.etat = 'payee' and c.paye_le >= t1 and c.paye_le < t2
+  ),
+  cz as (
+    select x.*, case
+      when x.zone_brute = '' then 'Zone inconnue'
+      when niveau = 'commune' and x.zone_brute ~ '\([^()]+\)\Z' then substring(x.zone_brute from '\(([^()]+)\)\Z')
+      else x.zone_brute end as zone
+      from cmd x
+  ),
+  lig as (
+    select l.commande_id, l.etat, l.confirme_le, s.statut as terrain,
+           (select min(j.le) from public.rh_journal_lignes j
+             where j.commande_id = l.commande_id and j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'remise') as remise_le
+      from public.commande_lignes l
+      join cz on cz.id = l.commande_id
+      left join public.rh_suivi_lignes s on s.ligne_id = l.id
+  ),
+  -- Les articles résumés une fois par commande : sans plafond, relire
+  -- « lig » pour chaque commande coûterait le carré du nombre de commandes.
+  parl as (
+    select lig.commande_id,
+           bool_or(lig.etat <> 'annulee') as vivante,
+           bool_or(lig.etat <> 'annulee' and lig.confirme_le is null and lig.etat <> 'remise') as en_cours,
+           max(coalesce(lig.confirme_le, lig.remise_le)) filter (where lig.etat <> 'annulee') as fini_le,
+           bool_or(lig.terrain in ('echouee', 'retour_en_cours', 'retournee')) as echec
+      from lig group by lig.commande_id
+  ),
+  nonrecu as (
+    select distinct r.commande_id from public.reclamations r
+      join cz on cz.id = r.commande_id
+     where r.sujet = 'non_recu'
+  ),
+  parc as (
+    select cz.id, cz.zone,
+           case when cz.livraison ->> 'distance_km' ~ '\A[0-9]+(\.[0-9]+)?\Z'
+                then (cz.livraison ->> 'distance_km')::numeric end as distance,
+           cz.livraison is not null as au_km,
+           cz.livraison ->> 'vehicule' = 'tricycle' as tricycle,
+           case when pl.vivante and not pl.en_cours
+                then extract(epoch from (pl.fini_le - cz.paye_le)) / 3600
+           end as delai_h,
+           coalesce(pl.echec, false) as echec,
+           nr.commande_id is not null as non_recu
+      from cz
+      left join parl pl on pl.commande_id = cz.id
+      left join nonrecu nr on nr.commande_id = cz.id
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'zone', z.zone, 'commandes', z.commandes, 'livrees', z.livrees, 'delai_moyen_h', z.delai_moyen_h,
+           'lentes', z.lentes, 'lentes_pct', case when z.livrees > 0 then round(100.0 * z.lentes / z.livrees, 1) end,
+           'echecs', z.echecs, 'echecs_pct', round(100.0 * z.echecs / z.commandes, 1),
+           'non_recus', z.non_recus, 'non_recus_pct', round(100.0 * z.non_recus / z.commandes, 1),
+           'distance_moyenne_km', z.distance, 'au_km', z.au_km,
+           'tricycle_pct', case when z.au_km > 0 then round(100.0 * z.tricycles / z.au_km, 1) end)
+           order by z.commandes desc, z.zone), '[]')
+    into zones
+    from (select p.zone, count(*) as commandes,
+                 count(*) filter (where p.delai_h is not null) as livrees,
+                 round(avg(p.delai_h)::numeric, 1) as delai_moyen_h,
+                 count(*) filter (where p.delai_h > lent) as lentes,
+                 count(*) filter (where p.echec) as echecs,
+                 count(*) filter (where p.non_recu) as non_recus,
+                 round(avg(p.distance)::numeric, 1) as distance,
+                 count(*) filter (where p.au_km) as au_km,
+                 count(*) filter (where p.au_km and p.tricycle) as tricycles
+            from parc p group by p.zone) z;
+
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'niveau', niveau, 'zone_lent_h', lent, 'zones', zones);
+end $$;
+
+/**
+ * La fidélité des clients. Un client, c'est son compte, ou à défaut son
+ * numéro (les 8 derniers chiffres : « 01 97… » et « 97… » se rejoignent).
+ * Seules les commandes payées comptent.
+ *   cohortes : les 12 mois qui finissent avec la période ; pour chaque mois
+ *              de premier achat, combien de nouveaux clients, et combien ont
+ *              racheté 1, 2, 3 mois plus tard (null : mois pas encore terminé) ;
+ *   perdus   : clients dont le dernier achat date de plus de 60 / 90 jours ;
+ *   comptes supprimés : clients dont des commandes portent « compte_supprime ».
+ * La valeur des cohortes et la liste à relancer (inactifs depuis
+ * « inactif_j » jours, numéros masqués aux 4 derniers chiffres) :
+ * l'administration seule. Les autres : des nombres et des taux.
+ */
+create or replace function public.rh_statistiques_clients(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  admin boolean := (a ->> 'acces') = 'admin';
+  inactif int := (public.rh_qualite_seuils() ->> 'inactif_j')::int;
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+  t1 timestamptz;
+  t2 timestamptz;
+  mois_courant date := date_trunc('month', now() at time zone 'Africa/Porto-Novo')::date;
+  mois_fin date;
+  res jsonb;
+begin
+  if a ->> 'acces' is null then
+    raise exception 'Votre compte n''a pas accès au menu Qualité';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 1100 then
+    raise exception 'Choisissez une période de trois ans au plus';
+  end if;
+  t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
+  mois_fin := date_trunc('month', fin)::date;
+
+  with cm as (
+    select c.id, c.numero, c.paye_le, c.total, c.client_nom, c.client_tel, c.client_id, c.compte_supprime,
+           coalesce(c.client_id::text,
+                    nullif('tel:' || right(regexp_replace(coalesce(c.client_tel, ''), '\D', '', 'g'), 8), 'tel:')) as cle,
+           date_trunc('month', c.paye_le at time zone 'Africa/Porto-Novo')::date as mois
+      from public.commandes c
+     where c.paye_le is not null and c.etat = 'payee'
+  ),
+  cm2 as (select * from cm where cm.cle is not null),
+  clients_ as (
+    select x.cle, min(x.mois) as premier_mois, min(x.paye_le) as premier, max(x.paye_le) as dernier,
+           count(*) as nb, sum(x.total) as depense, bool_or(x.compte_supprime) as supprime,
+           (array_agg(x.client_nom order by x.paye_le desc))[1] as nom,
+           (array_agg(x.client_tel order by x.paye_le desc))[1] as tel,
+           (array_agg(x.numero order by x.paye_le desc))[1] as numero
+      from cm2 x group by x.cle
+  ),
+  cohortes as (
+    select k.premier_mois as mois, count(*) as nouveaux,
+           -- « < mois_courant » : seul un mois TERMINÉ donne un taux ; le mois en
+           -- cours, incomplet, le sous-estimerait (l'écran dit « à venir »).
+           case when k.premier_mois + interval '1 month' < mois_courant then
+             count(*) filter (where exists (select 1 from cm2 y where y.cle = k.cle
+                                              and y.mois = (k.premier_mois + interval '1 month')::date)) end as m1,
+           case when k.premier_mois + interval '2 months' < mois_courant then
+             count(*) filter (where exists (select 1 from cm2 y where y.cle = k.cle
+                                              and y.mois = (k.premier_mois + interval '2 months')::date)) end as m2,
+           case when k.premier_mois + interval '3 months' < mois_courant then
+             count(*) filter (where exists (select 1 from cm2 y where y.cle = k.cle
+                                              and y.mois = (k.premier_mois + interval '3 months')::date)) end as m3,
+           count(*) filter (where k.nb > 1) as revenus,
+           sum(k.depense) as valeur
+      from clients_ k
+     where k.premier_mois > mois_fin - interval '12 months' and k.premier_mois <= mois_fin
+     group by k.premier_mois
+  )
+  select jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'montants', admin,
+    'inactif_j', inactif,
+    'cohortes', coalesce((select jsonb_agg(jsonb_build_object(
+                    'mois', ch.mois, 'nouveaux', ch.nouveaux,
+                    'm1', ch.m1, 'm2', ch.m2, 'm3', ch.m3,
+                    'm1_pct', case when ch.m1 is not null then round(100.0 * ch.m1 / ch.nouveaux, 1) end,
+                    'm2_pct', case when ch.m2 is not null then round(100.0 * ch.m2 / ch.nouveaux, 1) end,
+                    'm3_pct', case when ch.m3 is not null then round(100.0 * ch.m3 / ch.nouveaux, 1) end,
+                    'revenus', ch.revenus, 'revenus_pct', round(100.0 * ch.revenus / ch.nouveaux, 1),
+                    'valeur', case when admin then ch.valeur end) order by ch.mois)
+                   from cohortes ch), '[]'),
+    'totaux', (select jsonb_build_object(
+                 'clients', count(*),
+                 'fideles', count(*) filter (where k.nb > 1),
+                 'fideles_pct', case when count(*) > 0 then round(100.0 * count(*) filter (where k.nb > 1) / count(*), 1) end,
+                 'actifs_periode', (select count(distinct y.cle) from cm2 y where y.paye_le >= t1 and y.paye_le < t2),
+                 'nouveaux_periode', count(*) filter (where k.premier >= t1 and k.premier < t2),
+                 'perdus_60', count(*) filter (where not k.supprime and k.dernier < now() - interval '60 days'),
+                 'perdus_90', count(*) filter (where not k.supprime and k.dernier < now() - interval '90 days'),
+                 'a_relancer', count(*) filter (where not k.supprime and k.dernier < now() - make_interval(days => inactif)),
+                 'comptes_supprimes', count(*) filter (where k.supprime))
+                 from clients_ k),
+    'relance', case when admin then coalesce((select jsonb_agg(jsonb_build_object(
+                   'nom', r.nom, 'tel', public.rh_tel_masque(r.tel), 'commandes', r.nb,
+                   'premier', r.premier, 'dernier', r.dernier, 'derniere_commande', r.numero,
+                   'jours', aujourdhui - (r.dernier at time zone 'Africa/Porto-Novo')::date,
+                   'depense', r.depense) order by r.nb desc, r.dernier desc)
+                   from (select * from clients_ k
+                          where not k.supprime and k.dernier < now() - make_interval(days => inactif)
+                          order by k.nb desc, k.dernier desc limit 200) r), '[]') end)
+    into res;
+  return res;
+end $$;
+
+/** Les pastilles du menu Qualité : un seul appel, à chaque relecture des compteurs. */
+create or replace function public.rh_qualite_compteurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb := public.rh_qualite_acces();
+  s jsonb;
+  pop int;
+begin
+  if a ->> 'acces' is null then
+    return jsonb_build_object('acces', null);
+  end if;
+  s := public.rh_qualite_seuils();
+  pop := (s ->> 'populaire_min')::int;
+  return jsonb_build_object(
+    'acces', a ->> 'acces',
+    'sav_sans_reponse', (select count(*) from public.rh_sav_ouvertes() x
+                          where x.colonne = 'boutique'
+                            and now() - x.depuis_le > make_interval(hours => (s ->> 'reponse_h')::int)),
+    'sav_escalades', (select count(*) from public.rh_sav_ouvertes() x
+                       where x.colonne = 'bizzoo'
+                         and now() - x.depuis_le > make_interval(hours => (s ->> 'decision_h')::int)),
+    'ruptures_a_appeler', (select count(*) from public.rh_ventes_30j() v
+                             join public.produits p on p.id = v.produit_id
+                            where not p.masque and p.stock <= 0 and not p.sur_commande and v.qte >= pop
+                              and not exists (select 1 from public.rh_ruptures_suivi x
+                                               where x.produit_id = p.id and x.anomalie = 'rupture'
+                                                 and x.appele_le > now() - interval '7 days')),
+    'files_en_retard', (select count(*) from jsonb_array_elements(public.rh_files_attente() -> 'files') f
+                         where (f ->> 'rouge')::boolean));
+end $$;
+
+revoke all on function public.rh_qualite_seuils() from public, anon;
+grant execute on function public.rh_qualite_seuils() to authenticated, service_role;
+revoke all on function public.rh_qualite_acces() from public, anon;
+grant execute on function public.rh_qualite_acces() to authenticated, service_role;
+revoke all on function public.rh_qualite_regler(jsonb) from public, anon;
+grant execute on function public.rh_qualite_regler(jsonb) to authenticated, service_role;
+revoke all on function public.rh_notes_releve() from public, anon;
+grant execute on function public.rh_notes_releve() to authenticated, service_role;
+revoke all on function public.rh_note_boutique_au(text, timestamptz) from public, anon, authenticated;
+grant execute on function public.rh_note_boutique_au(text, timestamptz) to service_role;
+revoke all on function public.rh_sav_ouvertes() from public, anon, authenticated;
+grant execute on function public.rh_sav_ouvertes() to service_role;
+revoke all on function public.rh_satisfaction(date, date) from public, anon;
+grant execute on function public.rh_satisfaction(date, date) to authenticated, service_role;
+revoke all on function public.rh_qualite_boutiques(date, date) from public, anon;
+grant execute on function public.rh_qualite_boutiques(date, date) to authenticated, service_role;
+revoke all on function public.rh_ventes_30j() from public, anon, authenticated;
+grant execute on function public.rh_ventes_30j() to service_role;
+revoke all on function public.rh_catalogue_anomalies() from public, anon;
+grant execute on function public.rh_catalogue_anomalies() to authenticated, service_role;
+revoke all on function public.rh_catalogue_appeler(text, text, boolean, text) from public, anon;
+grant execute on function public.rh_catalogue_appeler(text, text, boolean, text) to authenticated, service_role;
+revoke all on function public.rh_files_attente() from public, anon;
+grant execute on function public.rh_files_attente() to authenticated, service_role;
+revoke all on function public.rh_statistiques_zones(date, date, text) from public, anon;
+grant execute on function public.rh_statistiques_zones(date, date, text) to authenticated, service_role;
+revoke all on function public.rh_statistiques_clients(date, date) from public, anon;
+grant execute on function public.rh_statistiques_clients(date, date) to authenticated, service_role;
+revoke all on function public.rh_qualite_compteurs() from public, anon;
+grant execute on function public.rh_qualite_compteurs() to authenticated, service_role;
+
+-- Le premier relevé des notes, puis chaque matin à 6 h 15 (heure du
+-- Bénin) par pg_cron. Sans pg_cron, l'écran Qualité relève à l'ouverture.
+select public.rh_notes_releve();
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('rh-notes-boutiques', '15 5 * * *', 'select public.rh_notes_releve()');
+  end if;
+exception when others then
+  raise notice 'Relevé des notes non programmé (%), l''écran Qualité le fera', sqlerrm;
+end $$;
+
+-- ---------- La clé « qualite » dans Paramètres ----------
+-- Le menu Qualité, sans montants : responsable des boutiques, SAV,
+-- catalogue, logistique, marketing.
+do $$
+begin
+  if to_regclass('public.rh_acces_menus') is null then
+    return;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu'
+               and pg_get_constraintdef(oid) not like '%''qualite''%') then
+    alter table public.rh_acces_menus drop constraint rh_acces_menus_menu;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
+    alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit',
+      'promos', 'qualite', 'caisse', 'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
+      'stats_livreurs', 'stats_sav', 'employes'));
+  end if;
+end $$;
+
+-- =========================================================
+-- BIZZOO Personnel : l'équipe au travail (lot D)
+-- =========================================================
+-- 1. MA FILE DU JOUR. Les alertes du suivi, des contrôles, de l'argent et
+--    de la qualité deviennent des TÂCHES (rh_taches), confiées à un profil
+--    selon un routage que l'administration règle (rh_routage_alertes :
+--    type d'alerte → profil, délai d'escalade). « Je prends », une note de
+--    relance datée, « Terminé ». Une tâche que personne ne prend remonte au
+--    responsable du profil après le délai ; une tâche dont l'alerte n'existe
+--    plus disparaît d'elle-même. Aucun montant dans une tâche.
+-- 2. LES ALERTES SUR LE TÉLÉPHONE. Chaque employé abonne son téléphone
+--    (rh_push_abonnements), choisit ses types d'alerte et ses heures de
+--    silence (rh_push_preferences). Une tâche nouvelle, ou une escalade,
+--    part UNE fois par personne (rh_alertes_envoyees) : la fonction Edge
+--    « rh-push » relit tout ici, avec la clé de service, et l'envoie en
+--    Web Push. Le message ne porte ni montant ni nom de client.
+-- 3. LE BILAN DU MATIN. Chaque jour à 7 h (heure du Bénin), un résumé dans
+--    rh_bilans ; le lundi, la semaine écoulée comparée à la précédente.
+--    Complet (montants) pour l'administration, le CEO et le
+--    superadministrateur ; sans montants pour les responsables de profil.
+--
+-- Rien n'est posé sur les tables de la place de marché : ni déclencheur, ni
+-- colonne. Tout se lit ; seules les tables rh_ s'écrivent. Sans pg_cron,
+-- la file se recalcule à l'ouverture de « Ma file » et le bilan à la
+-- première lecture après 7 h ; sans pg_net ou sans l'adresse de la
+-- fonction Edge (rh_push_reglage), rien ne part et rien ne casse.
+
+-- ---------- Le catalogue des alertes ----------
+/** Les types d'alerte qu'on peut confier à un profil : clé, libellé, menu
+    d'origine. Une seule liste, lue par le routage, la file et le push. */
+create or replace function public.rh_alertes_types() returns jsonb
+language sql immutable set search_path = public as $$
+  select jsonb_agg(jsonb_build_object('type', x.t, 'libelle', x.l, 'groupe', x.g) order by x.n)
+    from (values
+      (1, 'non_vue', 'Commande pas vue par la boutique', 'Suivi des commandes'),
+      (2, 'retard_preparation', 'Préparation en retard', 'Suivi des commandes'),
+      (3, 'retard_livraison', 'Livraison en retard', 'Suivi des commandes'),
+      (4, 'sans_confirmation', 'Livrée, sans confirmation du client', 'Suivi des commandes'),
+      (5, 'contestee', 'Livraison contestée', 'Suivi des commandes'),
+      (6, 'echec', 'Échec ou retour de livraison', 'Suivi des commandes'),
+      (7, 'incident', 'Incident ouvert', 'Suivi des commandes'),
+      (8, 'course_sans_livreur', 'Course sans livreur', 'Suivi des commandes'),
+      (9, 'livreur_muet', 'Livreur en route sans position', 'Suivi des commandes'),
+      (10, 'momopay_non_verifie', 'MoMoPay pas vérifié', 'Suivi des commandes'),
+      (11, 'encaissement_ecart', 'Écart d''encaissement', 'Suivi des commandes'),
+      (12, 'encaissement_conteste', 'Encaissement contesté', 'Suivi des commandes'),
+      (13, 'reglage_a_approuver', 'Réglage sensible à approuver', 'Contrôles'),
+      (14, 'encaissement_ancien', 'Encaissement à la livraison qui attend', 'Contrôles'),
+      (15, 'paiement_a_rapprocher', 'Paiement à rapprocher', 'Argent'),
+      (16, 'remboursement_en_retard', 'Remboursement en retard', 'Argent'),
+      (17, 'dette_ancienne', 'Demande d''argent qui attend', 'Argent'),
+      (18, 'sav_sans_reponse', 'Réclamation sans réponse de la boutique', 'Qualité'),
+      (19, 'sav_escalade', 'Réclamation escaladée à trancher', 'Qualité'),
+      (20, 'rupture_a_appeler', 'Rupture d''un produit qui se vend', 'Qualité'),
+      (21, 'file_en_retard', 'File d''Admin en retard', 'Qualité')) as x(n, t, l, g);
+$$;
+
+/** Le libellé d'un type d'alerte. */
+create or replace function public.rh_alerte_libelle(v_type text) returns text
+language sql immutable set search_path = public as $$
+  select coalesce((select x ->> 'libelle' from jsonb_array_elements(public.rh_alertes_types()) x
+                    where x ->> 'type' = v_type), v_type);
+$$;
+
+-- ---------- Les tables ----------
+-- Le routage : quel profil reçoit quel type d'alerte, et au bout de combien
+-- de minutes une tâche que personne n'a prise remonte. Sans profil : la
+-- tâche reste à l'administration.
+create table if not exists public.rh_routage_alertes (
+  type          text primary key,
+  profil_id     uuid references public.rh_profils(id) on delete set null,
+  escalade_min  int not null default 30 check (escalade_min between 5 and 10080),
+  actif         boolean not null default true,
+  maj_le        timestamptz not null default now(),
+  maj_par       text not null default ''
+);
+alter table public.rh_routage_alertes enable row level security;
+revoke all on table public.rh_routage_alertes from public, anon, authenticated;
+grant all on table public.rh_routage_alertes to service_role;
+insert into public.rh_routage_alertes (type)
+select x ->> 'type' from jsonb_array_elements(public.rh_alertes_types()) x
+on conflict (type) do nothing;
+
+-- Les tâches : une par alerte (sa clé), pour toujours ; elle se rouvre si
+-- l'alerte revient après avoir disparu, même si elle avait été terminée.
+create table if not exists public.rh_taches (
+  id           bigserial primary key,
+  cle          text not null unique,
+  type         text not null,
+  libelle      text not null,
+  commande_id  text references public.commandes(id) on delete cascade,
+  boutique_id  text,
+  livreur_id   uuid,
+  lien         text not null default '',
+  profil_id    uuid references public.rh_profils(id) on delete set null,
+  etat         text not null default 'ouverte' check (etat in ('ouverte', 'prise', 'terminee', 'disparue')),
+  cree_le      timestamptz not null default now(),
+  vue_le       timestamptz not null default now(),
+  prise_par    uuid references public.rh_employes(id) on delete set null,
+  prise_nom    text not null default '',
+  prise_le     timestamptz,
+  escalade_le  timestamptz,
+  terminee_le  timestamptz,
+  terminee_nom text not null default '',
+  disparue_le  timestamptz
+);
+create index if not exists rh_taches_ouvertes on public.rh_taches (etat, profil_id) where etat in ('ouverte', 'prise');
+-- « occurrence » : combien de fois l'alerte est revenue. Elle entre dans la
+-- clé d'envoi des alertes poussées : une alerte revenue sonne de nouveau
+-- (la première garde la clé nue, celle des envois déjà notés).
+-- « confiee_le » : depuis quand la tâche attend son profil actuel. Le délai
+-- d'escalade se compte de là : un profil qui reçoit une tâche par un
+-- changement de routage a tout son délai pour la prendre.
+alter table public.rh_taches add column if not exists occurrence int not null default 1;
+alter table public.rh_taches add column if not exists confiee_le timestamptz;
+update public.rh_taches set confiee_le = cree_le where confiee_le is null;
+alter table public.rh_taches alter column confiee_le set default now();
+alter table public.rh_taches alter column confiee_le set not null;
+alter table public.rh_taches enable row level security;
+revoke all on table public.rh_taches from public, anon, authenticated;
+revoke all on sequence public.rh_taches_id_seq from public, anon, authenticated;
+grant all on table public.rh_taches to service_role;
+grant usage, select on sequence public.rh_taches_id_seq to service_role;
+
+create table if not exists public.rh_taches_notes (
+  id        bigserial primary key,
+  tache_id  bigint not null references public.rh_taches(id) on delete cascade,
+  le        timestamptz not null default now(),
+  par       uuid references public.rh_employes(id) on delete set null,
+  par_nom   text not null default '',
+  note      text not null check (length(btrim(note)) between 1 and 500)
+);
+create index if not exists rh_taches_notes_tache on public.rh_taches_notes (tache_id, le desc);
+alter table public.rh_taches_notes enable row level security;
+revoke all on table public.rh_taches_notes from public, anon, authenticated;
+revoke all on sequence public.rh_taches_notes_id_seq from public, anon, authenticated;
+grant all on table public.rh_taches_notes to service_role;
+grant usage, select on sequence public.rh_taches_notes_id_seq to service_role;
+
+-- Quand la file a été recalculée pour la dernière fois.
+create table if not exists public.rh_file_etat (
+  id          int primary key default 1 check (id = 1),
+  synchro_le  timestamptz
+);
+insert into public.rh_file_etat (id) values (1) on conflict (id) do nothing;
+alter table public.rh_file_etat enable row level security;
+revoke all on table public.rh_file_etat from public, anon, authenticated;
+grant all on table public.rh_file_etat to service_role;
+
+-- Le push : l'adresse de la fonction Edge « rh-push » et la clé publique
+-- VAPID (celle que le téléphone donne à son navigateur). La clé PRIVÉE
+-- n'est jamais ici : elle vit dans les secrets de la fonction.
+create table if not exists public.rh_push_reglage (
+  id            int primary key default 1 check (id = 1),
+  url           text not null default '' check (url = '' or url ~ '^https://'),
+  cle_publique  text not null default '' check (cle_publique ~ '^[A-Za-z0-9_-]*\Z')
+);
+insert into public.rh_push_reglage (id) values (1) on conflict (id) do nothing;
+alter table public.rh_push_reglage enable row level security;
+revoke all on table public.rh_push_reglage from public, anon, authenticated;
+grant all on table public.rh_push_reglage to service_role;
+
+-- Les téléphones abonnés (un abonnement Web Push par navigateur).
+create table if not exists public.rh_push_abonnements (
+  endpoint  text primary key check (endpoint ~ '^https://' and length(endpoint) <= 2000),
+  compte    uuid not null references auth.users(id) on delete cascade,
+  p256dh    text not null check (length(p256dh) between 40 and 200),
+  auth      text not null check (length(auth) between 10 and 100),
+  cree_le   timestamptz not null default now()
+);
+create index if not exists rh_push_abonnements_compte on public.rh_push_abonnements (compte);
+alter table public.rh_push_abonnements enable row level security;
+revoke all on table public.rh_push_abonnements from public, anon, authenticated;
+grant all on table public.rh_push_abonnements to service_role;
+
+-- Les choix de chacun : actif, types (null = tous ceux qui le concernent),
+-- heures de silence (heure du Bénin). « depuis » : rien de plus ancien ne
+-- part, pour qu'un abonnement neuf ne déverse pas toutes les vieilles tâches.
+create table if not exists public.rh_push_preferences (
+  compte         uuid primary key references auth.users(id) on delete cascade,
+  actif          boolean not null default true,
+  types          text[],
+  silence_debut  int check (silence_debut between 0 and 23),
+  silence_fin    int check (silence_fin between 0 and 23),
+  depuis         timestamptz not null default now(),
+  maj_le         timestamptz not null default now()
+);
+alter table public.rh_push_preferences enable row level security;
+revoke all on table public.rh_push_preferences from public, anon, authenticated;
+grant all on table public.rh_push_preferences to service_role;
+
+-- Ce qui est parti, une fois par personne et par alerte (escalade à part).
+create table if not exists public.rh_alertes_envoyees (
+  id         bigserial primary key,
+  compte     uuid not null references auth.users(id) on delete cascade,
+  cle        text not null,
+  titre      text not null,
+  corps      text not null,
+  lien       text not null default '',
+  cree_le    timestamptz not null default now(),
+  pousse_le  timestamptz,
+  constraint rh_alertes_envoyees_une_fois unique (compte, cle)
+);
+alter table public.rh_alertes_envoyees enable row level security;
+revoke all on table public.rh_alertes_envoyees from public, anon, authenticated;
+revoke all on sequence public.rh_alertes_envoyees_id_seq from public, anon, authenticated;
+grant all on table public.rh_alertes_envoyees to service_role;
+grant usage, select on sequence public.rh_alertes_envoyees_id_seq to service_role;
+
+-- Les bilans du matin : les nombres d'un côté, les montants de l'autre,
+-- pour que la version sans montants ne soit qu'un retrait de colonne.
+create table if not exists public.rh_bilans (
+  id        bigserial primary key,
+  jour      date not null unique,
+  hebdo     boolean not null default false,
+  chiffres  jsonb not null default '{}'::jsonb,
+  montants  jsonb not null default '{}'::jsonb,
+  cree_le   timestamptz not null default now()
+);
+alter table public.rh_bilans enable row level security;
+revoke all on table public.rh_bilans from public, anon, authenticated;
+revoke all on sequence public.rh_bilans_id_seq from public, anon, authenticated;
+grant all on table public.rh_bilans to service_role;
+grant usage, select on sequence public.rh_bilans_id_seq to service_role;
+
+-- ---------- Les alertes en cours, toutes sources ----------
+/**
+ * Toutes les alertes en cours, une ligne chacune, avec une CLÉ stable (le
+ * type et l'objet) : la tâche la retrouve d'un passage à l'autre. Les
+ * règles sont celles des écrans (suivi, Contrôles, Qualité), mais lues
+ * sans compte connecté : pg_cron n'en a pas. Aucun montant, aucun nom de
+ * client dans les libellés. Interne.
+ */
+create or replace function public.rh_alertes_courantes()
+returns table (a_cle text, a_type text, a_libelle text, a_commande text, a_boutique text, a_livreur uuid, a_lien text)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  sc jsonb := public.rh_controles_seuils();
+  sa jsonb := public.rh_argent_seuils();
+  sq jsonb := public.rh_qualite_seuils();
+begin
+  -- Le suivi : une tâche par commande et par alerte (la course refusée
+  -- n'en est pas une : la pastille du suivi l'ignore aussi).
+  return query
+  select 'suivi:' || al.t || ':' || (d ->> 'id'), al.t,
+         public.rh_alerte_libelle(al.t) || ' — ' || coalesce(d ->> 'numero', d ->> 'id'),
+         d ->> 'id',
+         (select l ->> 'boutique_id' from jsonb_array_elements(d -> 'lignes') l
+           where l ->> 'etat' <> 'annulee' order by (l ->> 'rang')::int limit 1),
+         (select (l ->> 'livreur_id')::uuid from jsonb_array_elements(d -> 'lignes') l
+           where l ->> 'livreur_id' is not null limit 1),
+         '#/suivi/commande/' || (d ->> 'id')
+    from public.rh_suivi_donnees(now() - interval '60 days', now() + interval '1 day') d
+    cross join lateral jsonb_array_elements_text(d -> 'alertes') al(t)
+   where al.t <> 'refus_course';
+
+  -- Contrôles : un réglage sensible pas encore approuvé.
+  return query
+  select 'reglage:' || a.id, 'reglage_a_approuver'::text,
+         'Réglage sensible changé par ' || coalesce(nullif(a.par_nom, ''), 'un compte inconnu') || ', à approuver',
+         null::text, case when a.table_nom = 'boutiques_reception' then a.cible end, null::uuid, '#/controles/reglages'::text
+    from public.rh_audit_reglages a
+   where a.approuve_le is null;
+
+  -- Contrôles : un encaissement à la livraison pas rendu à temps, ou une
+  -- livraison sans aucune déclaration (la règle de rh_controles_compteurs).
+  return query
+  select 'encaissement:' || x.commande_id || ':' || x.boutique_id, 'encaissement_ancien'::text,
+         'Encaissement pas encore remis — ' || coalesce(c.numero, x.commande_id) || ' · ' || coalesce(b.nom, x.boutique_id),
+         x.commande_id, x.boutique_id, x.livreur_id, '#/controles/encaissements'::text
+    from public.encaissements x
+    join public.commandes c on c.id = x.commande_id
+    left join public.boutiques b on b.id = x.boutique_id
+   where x.remis_le is null and x.montant > 0
+     and now() - x.encaisse_le > make_interval(hours => case when x.mode = 'mobile_money'
+                                                             then (sc ->> 'momopay_h')::int
+                                                             else (sc ->> 'especes_h')::int end);
+  return query
+  select 'encaissement:' || d.commande_id || ':' || d.boutique_id, 'encaissement_ancien'::text,
+         'Livraison sans déclaration d''encaissement — ' || coalesce(c.numero, d.commande_id) || ' · ' || coalesce(b.nom, d.boutique_id),
+         d.commande_id, d.boutique_id, d.livreur_id, '#/controles/encaissements'::text
+    from (select l.commande_id, l.boutique_id, (array_agg(l.livreur_id) filter (where l.livreur_id is not null))[1] as livreur_id
+            from public.commande_lignes l
+            join public.commandes k on k.id = l.commande_id and k.etat = 'payee'
+           where l.etat = 'remise' and k.paye_le >= now() - interval '60 days'
+             and not exists (select 1 from public.encaissements x
+                              where x.commande_id = l.commande_id and x.boutique_id = l.boutique_id)
+           group by l.commande_id, l.boutique_id) d
+    join public.commandes c on c.id = d.commande_id
+    left join public.boutiques b on b.id = d.boutique_id
+   where exists (select 1 from public.restes_par_boutique(d.commande_id) rr
+                  where rr.boutique_id = d.boutique_id and rr.a_encaisser > 0);
+
+  -- Argent : un paiement à rapprocher (la règle « à traiter » de rh_paiements).
+  return query
+  select 'paiement:' || k.id, 'paiement_a_rapprocher'::text,
+         'Paiement à rapprocher — ' || coalesce(k.numero, k.id) || ' (' || k.motif || ')',
+         k.id, null::text, null::uuid, '#/controles/paiements'::text
+    from (select c.id, c.numero, case
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.payee_chez, false) then 'client peut-être débité'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.conflit, false) then 'versement en conflit'
+             when c.paye_le is null and c.etat <> 'payee' and coalesce(v.incomplete, false) then 'versement incomplet'
+             when c.etat = 'a_payer' and c.annonce_le is not null
+                  and c.annonce_le < now() - make_interval(mins => (sa ->> 'annonce_min')::int) then '« j''ai payé » sans preuve'
+             when c.paye_le is null and c.etat <> 'payee' and v.verdict = 'inconnue' then 'réponse inconnue'
+           end as motif
+            from public.commandes c
+            left join lateral (select bool_or(x.verdict = 'payee') as payee_chez, bool_or(x.verdict = 'conflit') as conflit,
+                                      bool_or(x.verdict = 'incomplete') as incomplete,
+                                      (array_agg(x.verdict order by x.cree_le desc, x.id desc))[1] as verdict
+                                 from public.versements x where x.commande_id = c.id) v on true
+           where c.cree_le >= now() - interval '60 days'
+             and (c.annonce_le is not null or exists (select 1 from public.versements x where x.commande_id = c.id))) k
+   where k.motif is not null
+     and coalesce((select r.statut from public.rh_rapprochements r where r.commande_id = k.id
+                    order by r.le desc, r.id desc limit 1), '') not in ('regle', 'sans_suite');
+
+  -- Argent : un remboursement dû qui tarde (la règle de rh_remboursements_liste).
+  return query
+  select 'remboursement:' || k.id, 'remboursement_en_retard'::text,
+         'Remboursement en retard — ' || coalesce(k.numero, k.id),
+         k.id, null::text, null::uuid, '#/controles/remboursements'::text
+    from public.commandes k
+   where k.paye_le is not null and k.paye_le >= now() - interval '365 days'
+     and (k.etat = 'annulee'
+          or exists (select 1 from public.commande_lignes l where l.commande_id = k.id and l.etat = 'annulee'))
+     and now() - coalesce((select max(a.le) from public.rh_annulations a where a.commande_id = k.id),
+                          (select max(j.le) from public.rh_journal_lignes j
+                            where j.commande_id = k.id and j.valeur = 'annulee' and j.quoi in ('etat', 'commande')),
+                          k.paye_le) > make_interval(days => (sa ->> 'remboursement_j')::int)
+     and public.rh_rembourse_du(k.id)
+         - coalesce((select sum(m.montant) from public.rh_remboursements m where m.commande_id = k.id), 0) > 0;
+
+  -- Argent : une demande d'argent qui attend (boutique, livreur, parrain).
+  -- Le parrain est un client : ni nom, ni numéro.
+  return query
+  select 'dette:boutique:' || v.id, 'dette_ancienne'::text,
+         'Reversement demandé par ' || coalesce(b.nom, v.boutique_id) || ' le '
+           || to_char(v.demande_le at time zone 'Africa/Porto-Novo', 'DD/MM'),
+         null::text, v.boutique_id, null::uuid, '#/controles/dettes'::text
+    from public.reversements v
+    left join public.boutiques b on b.id = v.boutique_id
+   where v.etat = 'en_attente' and v.demande_le < now() - make_interval(days => (sa ->> 'dette_j')::int);
+  return query
+  select 'dette:livreur:' || v.id, 'dette_ancienne'::text,
+         'Gains demandés par ' || coalesce(nullif(btrim(v.nom_livreur), ''), 'un livreur') || ' le '
+           || to_char(v.demande_le at time zone 'Africa/Porto-Novo', 'DD/MM'),
+         null::text, null::text, v.livreur_id, '#/controles/dettes'::text
+    from public.reversements_livreurs v
+   where v.etat = 'en_attente' and v.demande_le < now() - make_interval(days => (sa ->> 'dette_j')::int);
+  return query
+  select 'dette:parrain:' || v.id, 'dette_ancienne'::text,
+         'Retrait demandé par un parrain le ' || to_char(v.demande_le at time zone 'Africa/Porto-Novo', 'DD/MM'),
+         null::text, null::text, null::uuid, '#/controles/dettes'::text
+    from public.retraits_parrain v
+   where v.etat = 'demande' and v.demande_le < now() - make_interval(days => (sa ->> 'dette_j')::int);
+
+  -- Qualité : une réclamation qui attend la boutique, ou BIZZOO.
+  return query
+  select 'sav:' || s.reclamation_id || ':' || s.colonne,
+         case when s.colonne = 'boutique' then 'sav_sans_reponse' else 'sav_escalade' end,
+         case when s.colonne = 'boutique'
+              then 'Réclamation sans réponse — ' || coalesce(b.nom, r.boutique_id, 'boutique')
+              else 'Réclamation escaladée à trancher — ' || coalesce(b.nom, r.boutique_id, 'boutique') end
+           || coalesce(' · ' || c.numero, ''),
+         r.commande_id, r.boutique_id, null::uuid, '#/qualite/sav'::text
+    from public.rh_sav_ouvertes() s
+    join public.reclamations r on r.id = s.reclamation_id
+    left join public.boutiques b on b.id = r.boutique_id
+    left join public.commandes c on c.id = r.commande_id
+   where (s.colonne = 'boutique' and now() - s.depuis_le > make_interval(hours => (sq ->> 'reponse_h')::int))
+      or (s.colonne = 'bizzoo' and now() - s.depuis_le > make_interval(hours => (sq ->> 'decision_h')::int));
+
+  -- Qualité : un produit qui se vend, épuisé, et la boutique pas appelée.
+  return query
+  select 'rupture:' || p.id, 'rupture_a_appeler'::text,
+         'Rupture : ' || p.nom || ' · ' || coalesce(b.nom, p.boutique_id),
+         null::text, p.boutique_id, null::uuid, '#/qualite/catalogue'::text
+    from public.rh_ventes_30j() v
+    join public.produits p on p.id = v.produit_id
+    left join public.boutiques b on b.id = p.boutique_id
+   where not p.masque and p.stock <= 0 and not p.sur_commande and v.qte >= (sq ->> 'populaire_min')::int
+     and not exists (select 1 from public.rh_ruptures_suivi x
+                      where x.produit_id = p.id and x.anomalie = 'rupture'
+                        and x.appele_le > now() - interval '7 days');
+
+  -- Qualité : une file d'Admin dont la plus ancienne demande dépasse son seuil.
+  return query
+  select 'file:' || w.cle, 'file_en_retard'::text,
+         'File d''Admin en retard : ' || case w.cle
+           when 'demandes' then 'demandes des boutiques'
+           when 'revendeurs' then 'demandes de compte revendeur'
+           when 'comptes' then 'comptes d''équipe à valider'
+           when 'avis' then 'avis signalés'
+           else 'produits signalés' end,
+         null::text, null::text, null::uuid, '#/qualite/files'::text
+    from (select z.cle, min(z.le) as le
+            from (select 'demandes' as cle, d.demande_le as le from public.demandes d where d.etat = 'en_attente'
+                  union all
+                  select 'revendeurs', coalesce(c.revendeur_demande_le, c.maj_le) from public.clients c
+                   where c.revendeur_etat = 'en_attente'
+                  union all
+                  select 'comptes', p.cree_le from public.profils p where p.a_valider
+                  union all
+                  select 'avis', s.cree_le from public.avis_signalements s where s.etat = 'ouvert'
+                  union all
+                  select 'produits', s.cree_le from public.produits_signalements s where s.etat = 'ouvert') z
+           group by z.cle) w
+   where w.le < now() - make_interval(hours => coalesce((sq #>> array['files_h', w.cle])::int, 48));
+end $$;
+
+-- ---------- Qui voit quelle tâche ----------
+/** Une tâche confiée à ce profil m'est-elle visible ? L'administration et
+    le superadministrateur voient tout ; un membre, celles de son profil ;
+    un responsable, celles des profils qu'il dirige. Sans profil : à
+    l'administration seule. */
+create or replace function public.rh_tache_visible(v_profil uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.rh_est_admin() or public.est_super()
+      or (v_profil is not null and public.rh_moi() is not null
+          and (public.rh_mon_profil() = v_profil or public.rh_responsable_de(v_profil)));
+$$;
+
+/** « admin » (tout, routage compris), « equipe » (une alerte au moins est
+    confiée à mon profil, ou à un profil que je dirige), ou rien. */
+create or replace function public.rh_file_acces() returns text
+language sql stable security definer set search_path = public as $$
+  select case
+    when public.rh_est_admin() or public.est_super() then 'admin'
+    when public.rh_moi() is not null and exists (
+      select 1 from public.rh_routage_alertes r
+       where r.actif and r.profil_id is not null
+         and (r.profil_id = public.rh_mon_profil() or public.rh_responsable_de(r.profil_id))) then 'equipe'
+  end;
+$$;
+
+/** Le bilan : « complet » (administration, CEO, superadministrateur),
+    « sans_montants » (un responsable de profil), ou rien. */
+create or replace function public.rh_bilan_acces() returns text
+language sql stable security definer set search_path = public as $$
+  select case
+    when public.rh_est_admin() or public.est_super() then 'complet'
+    when public.rh_moi() is not null
+         and exists (select 1 from public.rh_profils p where p.responsable_id = public.rh_moi()) then 'sans_montants'
+  end;
+$$;
+
+/** Le nom de l'employé connecté, tel qu'il s'écrit dans une note. */
+create or replace function public.rh_mon_nom() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select btrim(coalesce(e.prenoms, '') || ' ' || coalesce(e.nom, ''))
+                     from public.rh_employes e where e.compte_id = auth.uid() and e.etat = 'actif'), '');
+$$;
+
+-- ---------- La file : recalcul, escalade ----------
+/**
+ * Recalcule la file : une tâche par alerte nouvelle (confiée au profil du
+ * routage), la tâche d'une alerte disparue s'efface d'elle-même (« disparue »),
+ * celle d'une alerte revenue se rouvre, et une tâche que personne n'a prise
+ * après le délai du routage remonte (escalade). « v_forcer » à faux : rien
+ * si le dernier calcul a moins de deux minutes (l'écran l'appelle à
+ * l'ouverture). Un seul calcul à la fois. Interne (pg_cron, Ma file).
+ */
+create or replace function public.rh_taches_synchroniser(v_forcer boolean default true) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_alertes jsonb;
+  v_cles text[];
+  v_creees int := 0;
+  v_rouvertes int := 0;
+  v_disparues int := 0;
+  v_escaladees int := 0;
+begin
+  if not coalesce(v_forcer, true) and exists (select 1 from public.rh_file_etat e
+                                               where e.id = 1 and e.synchro_le > now() - interval '2 minutes') then
+    return null;
+  end if;
+  if not pg_try_advisory_xact_lock(hashtext('rh_taches_synchroniser')) then
+    return null;
+  end if;
+  select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_alertes from public.rh_alertes_courantes() x;
+  select coalesce(array_agg(distinct x ->> 'a_cle'), '{}') into v_cles from jsonb_array_elements(v_alertes) x;
+
+  select count(*) filter (where t.id is null),
+         count(*) filter (where t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null))
+    into v_creees, v_rouvertes
+    from unnest(v_cles) k(cle)
+    left join public.rh_taches t on t.cle = k.cle;
+
+  -- Les nouvelles, et celles qui reviennent : une ligne par clé (deux sources
+  -- ne donnent jamais la même clé, mais distinct on par prudence). « Revient » :
+  -- effacée d'elle-même, ou terminée puis son alerte partie (disparue_le posé
+  -- plus bas) — sans quoi une file d'Admin ou une rupture, qui reviennent
+  -- régulièrement, ne feraient plus jamais de tâche après un seul « Terminé ».
+  with a as (
+    select distinct on (y.a_cle) y.*
+      from jsonb_to_recordset(v_alertes) as y(a_cle text, a_type text, a_libelle text, a_commande text,
+                                              a_boutique text, a_livreur uuid, a_lien text)
+     order by y.a_cle
+  )
+    insert into public.rh_taches as t (cle, type, libelle, commande_id, boutique_id, livreur_id, lien, profil_id)
+    select a.a_cle, a.a_type, left(a.a_libelle, 300),
+           case when exists (select 1 from public.commandes c where c.id = a.a_commande) then a.a_commande end,
+           a.a_boutique, a.a_livreur, a.a_lien, r.profil_id
+      from a
+      left join public.rh_routage_alertes r on r.type = a.a_type
+     where coalesce(r.actif, true)
+    on conflict (cle) do update
+       set vue_le = now(),
+           libelle = excluded.libelle,
+           etat = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                       then 'ouverte' else t.etat end,
+           occurrence = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                             then t.occurrence + 1 else t.occurrence end,
+           cree_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                          then now() else t.cree_le end,
+           confiee_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                             then now() else t.confiee_le end,
+           profil_id = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                            then excluded.profil_id else t.profil_id end,
+           prise_par = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                            then null else t.prise_par end,
+           prise_nom = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                            then '' else t.prise_nom end,
+           prise_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                           then null else t.prise_le end,
+           escalade_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                              then null else t.escalade_le end,
+           terminee_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                              then null else t.terminee_le end,
+           terminee_nom = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                               then '' else t.terminee_nom end,
+           disparue_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                              then null else t.disparue_le end;
+
+  update public.rh_taches t
+     set etat = 'disparue', disparue_le = now()
+   where t.etat in ('ouverte', 'prise') and not (t.cle = any(v_cles));
+  get diagnostics v_disparues = row_count;
+  -- Terminée et son alerte partie : elle reste « terminée » (l'historique
+  -- garde qui l'a close), mais on note que l'alerte est partie, pour la
+  -- rouvrir si elle revient.
+  update public.rh_taches t
+     set disparue_le = now()
+   where t.etat = 'terminee' and t.disparue_le is null and not (t.cle = any(v_cles));
+
+  -- L'escalade se compte depuis que la tâche attend son profil actuel.
+  update public.rh_taches t
+     set escalade_le = now()
+   where t.etat = 'ouverte' and t.escalade_le is null
+     and t.confiee_le < now() - make_interval(mins => coalesce((select r.escalade_min from public.rh_routage_alertes r
+                                                             where r.type = t.type), 30));
+  get diagnostics v_escaladees = row_count;
+
+  update public.rh_file_etat set synchro_le = now() where id = 1;
+  return jsonb_build_object('creees', v_creees, 'rouvertes', v_rouvertes,
+                            'disparues', v_disparues, 'escaladees', v_escaladees);
+end $$;
+
+-- ---------- La file : lire et agir ----------
+/** Les pastilles : ce qui attend dans ma file, et le bilan s'il m'est ouvert. */
+create or replace function public.rh_file_compteurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_acces text := public.rh_file_acces();
+  v_moi uuid := public.rh_moi();
+  v_admin boolean := public.rh_est_admin() or public.est_super();
+begin
+  if v_acces is null then
+    return jsonb_build_object('acces', null, 'bilan', public.rh_bilan_acces());
+  end if;
+  return jsonb_build_object(
+    'acces', v_acces,
+    'bilan', public.rh_bilan_acces(),
+    'a_prendre', (select count(*) from public.rh_taches t
+                   where t.etat = 'ouverte' and public.rh_tache_visible(t.profil_id)),
+    'a_moi', (select count(*) from public.rh_taches t where t.etat = 'prise' and t.prise_par = v_moi),
+    -- Les escalades qui me reviennent : celles des profils que je dirige
+    -- (ou sans responsable, et alors à l'administration).
+    'escalades', (select count(*) from public.rh_taches t
+                   left join public.rh_profils p on p.id = t.profil_id
+                  where t.etat = 'ouverte' and t.escalade_le is not null
+                    and ((p.responsable_id is not null and p.responsable_id = v_moi)
+                         or (p.responsable_id is null and v_admin))));
+end $$;
+
+/**
+ * Ma file : les tâches à faire (« a_faire ») ou closes depuis 7 jours
+ * (« terminees »), avec les numéros de la boutique et du livreur pour
+ * appeler. Le client : l'administration seule. Aucun montant.
+ */
+create or replace function public.rh_ma_file(v_vue text default 'a_faire') returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_acces text := public.rh_file_acces();
+  v_admin boolean := public.rh_est_admin() or public.est_super();
+  v_moi uuid := public.rh_moi();
+begin
+  if v_acces is null then
+    raise exception 'Votre compte n''a pas de file : aucune alerte n''est confiée à votre profil';
+  end if;
+  if coalesce(v_vue, '') not in ('a_faire', 'terminees') then
+    raise exception 'Choisissez les tâches à faire ou les tâches terminées';
+  end if;
+  perform public.rh_taches_synchroniser(false);
+  return jsonb_build_object(
+    'acces', v_acces,
+    'moi', v_moi,
+    'droits', jsonb_build_object('routage', v_admin, 'client', v_admin),
+    'synchro_le', (select e.synchro_le from public.rh_file_etat e where e.id = 1),
+    'taches', (select coalesce(jsonb_agg(jsonb_build_object(
+        'id', t.id, 'type', t.type, 'type_libelle', public.rh_alerte_libelle(t.type), 'libelle', t.libelle,
+        'etat', t.etat, 'cree_le', t.cree_le, 'lien', t.lien, 'profil', p.nom,
+        'prise_nom', nullif(t.prise_nom, ''), 'prise_le', t.prise_le, 'a_moi', t.prise_par = v_moi,
+        'escalade_le', t.escalade_le, 'terminee_le', coalesce(t.terminee_le, t.disparue_le),
+        'terminee_nom', nullif(t.terminee_nom, ''),
+        'reprendre', v_admin or public.rh_responsable_de(t.profil_id),
+        'commande', c.numero,
+        'boutiques', (select coalesce(jsonb_agg(distinct jsonb_build_object('nom', b.nom, 'tel', b.tel)), '[]'::jsonb)
+                        from public.boutiques b
+                       where coalesce(b.tel, '') <> ''
+                         and (b.id = t.boutique_id
+                              or b.id in (select l.boutique_id from public.commande_lignes l
+                                           where l.commande_id = t.commande_id and l.etat <> 'annulee'))),
+        'livreurs', (select coalesce(jsonb_agg(distinct jsonb_build_object('nom', coalesce(nullif(pl.nom, ''), 'Livreur'),
+                                                                           'tel', pl.tel)), '[]'::jsonb)
+                       from public.profils pl
+                      where coalesce(pl.tel, '') <> ''
+                        and (pl.id = t.livreur_id
+                             or pl.id in (select l.livreur_id from public.commande_lignes l
+                                           where l.commande_id = t.commande_id and l.livreur_id is not null))),
+        'client', case when v_admin and c.id is not null then
+                    jsonb_build_object('nom', nullif(btrim(c.client_nom), ''),
+                                       'tel', btrim(case when coalesce(c.client_indicatif, '') <> '' and c.client_indicatif <> '229'
+                                                         then '+' || c.client_indicatif || ' ' else '' end || coalesce(c.client_tel, '')))
+                  end,
+        'notes', (select coalesce(jsonb_agg(jsonb_build_object('le', n.le, 'par', n.par_nom, 'note', n.note)
+                                            order by n.le desc), '[]'::jsonb)
+                    from (select * from public.rh_taches_notes n where n.tache_id = t.id
+                           order by n.le desc limit 10) n))
+        order by (t.escalade_le is not null) desc, t.cree_le), '[]'::jsonb)
+      from (select * from public.rh_taches x
+             where public.rh_tache_visible(x.profil_id)
+               and case when v_vue = 'a_faire' then x.etat in ('ouverte', 'prise')
+                        else x.etat in ('terminee', 'disparue')
+                             and coalesce(x.terminee_le, x.disparue_le) > now() - interval '7 days' end
+             order by x.cree_le
+             limit 300) t
+      left join public.rh_profils p on p.id = t.profil_id
+      left join public.commandes c on c.id = t.commande_id));
+end $$;
+
+/** Lire une tâche que je peux voir, et la verrouiller pour la changer. */
+create or replace function public.rh_tache_a_moi(v_tache bigint) returns public.rh_taches
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.rh_taches;
+begin
+  if public.rh_moi() is null then
+    raise exception 'Seul un employé en poste agit sur une tâche';
+  end if;
+  select * into t from public.rh_taches x where x.id = v_tache for update;
+  if not found or not public.rh_tache_visible(t.profil_id) then
+    raise exception 'Tâche introuvable';
+  end if;
+  if t.etat in ('terminee', 'disparue') then
+    raise exception 'Cette tâche est déjà close';
+  end if;
+  return t;
+end $$;
+
+/** « Je prends » : la tâche est à moi, les autres le voient. Reprendre une
+    tâche déjà prise : son responsable ou l'administration. */
+create or replace function public.rh_tache_prendre(v_tache bigint, v_reprendre boolean default false) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.rh_taches := public.rh_tache_a_moi(v_tache);
+  v_moi uuid := public.rh_moi();
+begin
+  if t.etat = 'prise' and t.prise_par = v_moi then
+    raise exception 'Vous avez déjà pris cette tâche';
+  end if;
+  if t.etat = 'prise' and not coalesce(v_reprendre, false) then
+    raise exception 'Déjà prise par % : voyez avec cette personne', coalesce(nullif(t.prise_nom, ''), 'un collègue');
+  end if;
+  if t.etat = 'prise' and not (public.rh_est_admin() or public.est_super() or public.rh_responsable_de(t.profil_id)) then
+    raise exception 'Seuls le responsable du profil et l''administration reprennent une tâche déjà prise';
+  end if;
+  update public.rh_taches x
+     set etat = 'prise', prise_par = v_moi, prise_nom = public.rh_mon_nom(), prise_le = now()
+   where x.id = t.id;
+  if t.etat = 'prise' then
+    insert into public.rh_taches_notes (tache_id, par, par_nom, note)
+    values (t.id, v_moi, public.rh_mon_nom(), 'Reprise à ' || coalesce(nullif(t.prise_nom, ''), 'un collègue'));
+  end if;
+  return jsonb_build_object('id', t.id, 'etat', 'prise', 'prise_nom', public.rh_mon_nom());
+end $$;
+
+/** Une note de relance, datée et signée (« boutique appelée, prêt dans 20 min »). */
+create or replace function public.rh_tache_relancer(v_tache bigint, v_note text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.rh_taches := public.rh_tache_a_moi(v_tache);
+  v_texte text := btrim(coalesce(v_note, ''));
+  n bigint;
+begin
+  if length(v_texte) < 3 then
+    raise exception 'Écrivez ce qui a été fait (boutique appelée, livreur relancé…)';
+  end if;
+  insert into public.rh_taches_notes (tache_id, par, par_nom, note)
+  values (t.id, public.rh_moi(), public.rh_mon_nom(), left(v_texte, 500))
+  returning id into n;
+  return n;
+end $$;
+
+/** « Terminé » : par qui l'a prise, son responsable ou l'administration ;
+    une tâche libre, par qui la voit. */
+create or replace function public.rh_tache_terminer(v_tache bigint, v_note text default '') returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.rh_taches := public.rh_tache_a_moi(v_tache);
+  v_moi uuid := public.rh_moi();
+  v_texte text := btrim(coalesce(v_note, ''));
+begin
+  if t.etat = 'prise' and t.prise_par is distinct from v_moi
+     and not (public.rh_est_admin() or public.est_super() or public.rh_responsable_de(t.profil_id)) then
+    raise exception 'Prise par % : elle seule, son responsable ou l''administration la termine',
+      coalesce(nullif(t.prise_nom, ''), 'un collègue');
+  end if;
+  if v_texte <> '' then
+    insert into public.rh_taches_notes (tache_id, par, par_nom, note)
+    values (t.id, v_moi, public.rh_mon_nom(), left(v_texte, 500));
+  end if;
+  update public.rh_taches x
+     set etat = 'terminee', terminee_le = now(), terminee_nom = public.rh_mon_nom()
+   where x.id = t.id;
+  return jsonb_build_object('id', t.id, 'etat', 'terminee');
+end $$;
+
+-- ---------- Le routage ----------
+/** Le routage, pour l'administration : chaque type d'alerte, son profil,
+    son délai d'escalade ; les profils pour le choisir. */
+create or replace function public.rh_routage_lire() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Le routage des alertes se règle par l''administration';
+  end if;
+  return jsonb_build_object(
+    'types', (select coalesce(jsonb_agg(jsonb_build_object(
+        'type', x ->> 'type', 'libelle', x ->> 'libelle', 'groupe', x ->> 'groupe',
+        'profil_id', r.profil_id, 'profil', p.nom, 'escalade_min', coalesce(r.escalade_min, 30),
+        'actif', coalesce(r.actif, true), 'maj_le', r.maj_le, 'maj_par', nullif(r.maj_par, ''))
+        order by o.n), '[]'::jsonb)
+      from jsonb_array_elements(public.rh_alertes_types()) with ordinality as o(x, n)
+      left join public.rh_routage_alertes r on r.type = o.x ->> 'type'
+      left join public.rh_profils p on p.id = r.profil_id),
+    'profils', (select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'nom', p.nom,
+                                                             'responsable', p.responsable_id is not null)
+                                          order by p.nom), '[]'::jsonb)
+                  from public.rh_profils p));
+end $$;
+
+/** Confier un type d'alerte à un profil (null : à l'administration). Les
+    tâches de ce type que personne n'a prises suivent le nouveau routage. */
+create or replace function public.rh_routage_regler(v_type text, v_profil uuid, v_escalade_min int, v_actif boolean default true)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (public.rh_est_admin() or public.est_super()) then
+    raise exception 'Le routage des alertes se règle par l''administration';
+  end if;
+  if not exists (select 1 from jsonb_array_elements(public.rh_alertes_types()) x where x ->> 'type' = v_type) then
+    raise exception 'Type d''alerte inconnu';
+  end if;
+  if v_profil is not null and not exists (select 1 from public.rh_profils p where p.id = v_profil) then
+    raise exception 'Profil introuvable';
+  end if;
+  if coalesce(v_escalade_min, 0) not between 5 and 10080 then
+    raise exception 'Le délai d''escalade se compte en minutes, de 5 à 10 080 (une semaine)';
+  end if;
+  insert into public.rh_routage_alertes as r (type, profil_id, escalade_min, actif, maj_le, maj_par)
+  values (v_type, v_profil, v_escalade_min, coalesce(v_actif, true), now(), public.rh_mon_nom())
+  on conflict (type) do update
+     set profil_id = excluded.profil_id, escalade_min = excluded.escalade_min, actif = excluded.actif,
+         maj_le = excluded.maj_le, maj_par = excluded.maj_par;
+  -- Le nouveau profil a tout son délai : l'escalade repart de maintenant.
+  update public.rh_taches t
+     set profil_id = v_profil, escalade_le = null, confiee_le = now()
+   where t.type = v_type and t.etat = 'ouverte' and t.profil_id is distinct from v_profil;
+end $$;
+
+-- ---------- Les alertes sur le téléphone ----------
+/** Mes alertes : la clé publique (le service est-il prêt ?), mes choix, mes
+    téléphones abonnés, et les types d'alerte qui me concernent. */
+create or replace function public.rh_push_etat() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_admin boolean := public.rh_est_admin() or public.est_super();
+begin
+  if public.rh_moi() is null then
+    raise exception 'Les alertes sur le téléphone sont réservées aux employés en poste';
+  end if;
+  return jsonb_build_object(
+    'cle_publique', nullif((select g.cle_publique from public.rh_push_reglage g where g.id = 1), ''),
+    'appareils', (select count(*) from public.rh_push_abonnements a where a.compte = auth.uid()),
+    'preferences', (select jsonb_build_object('actif', f.actif, 'types', f.types,
+                                              'silence_debut', f.silence_debut, 'silence_fin', f.silence_fin)
+                      from public.rh_push_preferences f where f.compte = auth.uid()),
+    'types', (select coalesce(jsonb_agg(x order by o.n), '[]'::jsonb)
+                from jsonb_array_elements(public.rh_alertes_types()) with ordinality as o(x, n)
+                left join public.rh_routage_alertes r on r.type = o.x ->> 'type'
+               where coalesce(r.actif, true)
+                 and (case when r.profil_id is null then v_admin
+                           else v_admin or r.profil_id = public.rh_mon_profil() or public.rh_responsable_de(r.profil_id) end)));
+end $$;
+
+/** Ce téléphone s'abonne (ou renouvelle son abonnement). Cinq au plus par compte. */
+create or replace function public.rh_push_abonner(v_endpoint text, v_p256dh text, v_auth text) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  v_compte uuid := auth.uid();
+begin
+  if public.rh_moi() is null then
+    raise exception 'Les alertes sur le téléphone sont réservées aux employés en poste';
+  end if;
+  if coalesce(v_endpoint, '') !~ '^https://' or length(v_endpoint) > 2000
+     or length(coalesce(v_p256dh, '')) not between 40 and 200 or length(coalesce(v_auth, '')) not between 10 and 100 then
+    raise exception 'Abonnement du téléphone illisible';
+  end if;
+  insert into public.rh_push_abonnements as a (endpoint, compte, p256dh, auth, cree_le)
+  values (v_endpoint, v_compte, v_p256dh, v_auth, now())
+  on conflict (endpoint) do update
+     set compte = excluded.compte, p256dh = excluded.p256dh, auth = excluded.auth, cree_le = excluded.cree_le;
+  delete from public.rh_push_abonnements a
+   where a.compte = v_compte
+     and a.endpoint not in (select x.endpoint from public.rh_push_abonnements x
+                             where x.compte = v_compte order by x.cree_le desc limit 5);
+  insert into public.rh_push_preferences (compte) values (v_compte) on conflict (compte) do nothing;
+  return true;
+end $$;
+
+/** Ce téléphone ne reçoit plus rien. */
+create or replace function public.rh_push_desabonner(v_endpoint text) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then
+    return false;
+  end if;
+  delete from public.rh_push_abonnements a where a.endpoint = v_endpoint and a.compte = auth.uid();
+  return found;
+end $$;
+
+/** Mes choix : alertes en marche, types (null = tous les miens), heures de
+    silence (heure du Bénin, de « début » à « fin »). Remis en marche, rien
+    de plus ancien ne part. */
+create or replace function public.rh_push_regler(v_actif boolean, v_types text[], v_silence_debut int, v_silence_fin int)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.rh_moi() is null then
+    raise exception 'Les alertes sur le téléphone sont réservées aux employés en poste';
+  end if;
+  if v_types is not null and exists (select 1 from unnest(v_types) u(t)
+                                      where not exists (select 1 from jsonb_array_elements(public.rh_alertes_types()) x
+                                                         where x ->> 'type' = u.t)) then
+    raise exception 'Type d''alerte inconnu';
+  end if;
+  if (v_silence_debut is null) <> (v_silence_fin is null)
+     or coalesce(v_silence_debut, 0) not between 0 and 23 or coalesce(v_silence_fin, 0) not between 0 and 23 then
+    raise exception 'Les heures de silence vont de 0 à 23 h, début et fin ensemble';
+  end if;
+  insert into public.rh_push_preferences as f (compte, actif, types, silence_debut, silence_fin, depuis, maj_le)
+  values (auth.uid(), coalesce(v_actif, true), v_types, v_silence_debut, v_silence_fin, now(), now())
+  on conflict (compte) do update
+     set actif = excluded.actif, types = excluded.types, silence_debut = excluded.silence_debut,
+         silence_fin = excluded.silence_fin, maj_le = now(),
+         depuis = case when not f.actif and excluded.actif then now() else f.depuis end;
+end $$;
+
+/** Est-ce l'heure de silence de ce compte (heure du Bénin) ? */
+create or replace function public.rh_push_en_silence(v_debut int, v_fin int, v_quand timestamptz default now()) returns boolean
+language sql stable set search_path = public as $$
+  select v_debut is not null and v_fin is not null and v_debut <> v_fin
+     and case when v_debut < v_fin
+              then extract(hour from v_quand at time zone 'Africa/Porto-Novo') >= v_debut
+                   and extract(hour from v_quand at time zone 'Africa/Porto-Novo') < v_fin
+              else extract(hour from v_quand at time zone 'Africa/Porto-Novo') >= v_debut
+                   or extract(hour from v_quand at time zone 'Africa/Porto-Novo') < v_fin end;
+$$;
+
+/**
+ * Ce qui doit partir maintenant : pour chaque tâche libre, ses destinataires
+ * (les membres de son profil ; l'administration si elle n'a pas de profil),
+ * et pour chaque escalade, le responsable du profil (l'administration s'il
+ * n'en a pas). Seulement qui a un téléphone abonné, les alertes en marche,
+ * ce type parmi ses choix, hors de ses heures de silence, et jamais deux
+ * fois pour la même occurrence : la clé d'envoi porte le numéro
+ * d'occurrence de la tâche (nue pour la première), si bien qu'une alerte
+ * revenue sonne de nouveau. Le message : le type et la tâche, sans montant
+ * ni nom de client ; le lien, celui de la tâche (la commande dans le
+ * Suivi…), sinon « Ma file ». « quand » : depuis quand la tâche attend ce
+ * profil, comparé au début de l'abonnement. Interne.
+ */
+create or replace function public.rh_alertes_a_pousser()
+returns table (p_compte uuid, p_cle text, p_titre text, p_corps text, p_lien text)
+language sql stable security definer set search_path = public as $$
+  with t as (
+    select x.*, p.responsable_id
+      from public.rh_taches x
+      left join public.rh_profils p on p.id = x.profil_id
+     where x.etat = 'ouverte'
+  ), dest as (
+    select e.compte_id as compte, t.id, t.type, t.libelle, t.lien,
+           t.cle || case when t.occurrence > 1 then '#' || t.occurrence else '' end as cle,
+           t.confiee_le as quand, false as escalade
+      from t join public.rh_employes e on e.etat = 'actif' and e.compte_id is not null
+       and ((t.profil_id is not null and e.profil_id = t.profil_id)
+            or (t.profil_id is null and (e.administration or e.ceo)))
+    union
+    select e.compte_id, t.id, t.type, t.libelle, t.lien,
+           'escalade:' || t.cle || case when t.occurrence > 1 then '#' || t.occurrence else '' end,
+           t.escalade_le, true
+      from t join public.rh_employes e on e.etat = 'actif' and e.compte_id is not null
+       and t.escalade_le is not null
+       and ((t.responsable_id is not null and e.id = t.responsable_id)
+            or (t.responsable_id is null and (e.administration or e.ceo)))
+  )
+  select d.compte, d.cle,
+         case when d.escalade then 'Personne ne l''a prise : ' else '' end || public.rh_alerte_libelle(d.type),
+         d.libelle, case when d.lien like '#/%' then d.lien else '#/file' end
+    from dest d
+    join public.rh_push_preferences f on f.compte = d.compte and f.actif
+   where (f.types is null or d.type = any(f.types))
+     and d.quand >= f.depuis
+     and not public.rh_push_en_silence(f.silence_debut, f.silence_fin)
+     and exists (select 1 from public.rh_push_abonnements a where a.compte = d.compte)
+     and not exists (select 1 from public.rh_alertes_envoyees s where s.compte = d.compte and s.cle = d.cle);
+$$;
+
+/** Note ce qui part, une fois par personne et par alerte ; rend les numéros
+    des envois neufs. Interne. */
+create or replace function public.rh_alertes_enregistrer() returns bigint[]
+language plpgsql security definer set search_path = public as $$
+declare
+  v_ids bigint[];
+begin
+  with neuf as (
+    insert into public.rh_alertes_envoyees (compte, cle, titre, corps, lien)
+    select a.p_compte, a.p_cle, a.p_titre, a.p_corps, a.p_lien from public.rh_alertes_a_pousser() a
+    on conflict (compte, cle) do nothing
+    returning id
+  )
+  select coalesce(array_agg(neuf.id order by neuf.id), '{}') into v_ids from neuf;
+  return v_ids;
+end $$;
+
+/**
+ * Pousse les alertes : la file d'abord, puis un appel à la fonction Edge
+ * « rh-push » par envoi, avec son seul numéro. Sont appelés les envois
+ * neufs ET ceux de la dernière heure pas encore partis (clés VAPID absentes,
+ * appel pg_net perdu) : la fonction Edge ne consomme un envoi qu'en le
+ * poussant, et la base ne le rend qu'une fois, d'où aucun doublon. Sans
+ * pg_net ou sans l'adresse de la fonction, rien n'est noté (rien ne serait
+ * parti) et rien ne casse. pg_cron l'appelle toutes les cinq minutes ; rend
+ * le nombre d'appels.
+ */
+create or replace function public.rh_pousser_alertes() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  v_adresse text;
+  v_ids bigint[];
+  v_id bigint;
+begin
+  select g.url into v_adresse from public.rh_push_reglage g where g.id = 1;
+  if coalesce(v_adresse, '') = '' or to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') is null then
+    return 0;
+  end if;
+  perform public.rh_taches_synchroniser(false);
+  perform public.rh_alertes_enregistrer();
+  select coalesce(array_agg(x.id order by x.id), '{}') into v_ids
+    from public.rh_alertes_envoyees x
+   where x.pousse_le is null and x.cree_le > now() - interval '1 hour';
+  foreach v_id in array v_ids loop
+    begin
+      perform net.http_post(v_adresse, jsonb_build_object('id', v_id),
+        '{}'::jsonb, '{"Content-Type": "application/json"}'::jsonb, 10000);
+    exception when others then
+      raise warning 'rh_pousser_alertes(%) : %', v_id, sqlerrm;
+    end;
+  end loop;
+  return coalesce(cardinality(v_ids), 0);
+end $$;
+
+/** Ce que la fonction Edge envoie : le message et les téléphones de son
+    destinataire — une seule fois, dans l'heure. « tache » : la clé de la
+    tâche, sans « escalade: » ni numéro d'occurrence ; elle sert d'étiquette
+    à la notification, pour qu'une même tâche ne s'empile pas sur le
+    téléphone. Réservé au serveur. */
+create or replace function public.rh_push_a_envoyer(cible bigint) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  s public.rh_alertes_envoyees;
+begin
+  update public.rh_alertes_envoyees x set pousse_le = now()
+   where x.id = cible and x.pousse_le is null and x.cree_le > now() - interval '1 hour'
+  returning * into s;
+  if not found then
+    return null;
+  end if;
+  return jsonb_build_object(
+    'id', s.id, 'titre', s.titre, 'corps', s.corps, 'lien', s.lien,
+    'tache', regexp_replace(regexp_replace(s.cle, '^escalade:', ''), '#[0-9]+\Z', ''),
+    'abonnements', coalesce((select jsonb_agg(jsonb_build_object('endpoint', a.endpoint, 'p256dh', a.p256dh, 'auth', a.auth)
+                                              order by a.cree_le desc)
+                               from public.rh_push_abonnements a where a.compte = s.compte), '[]'::jsonb));
+end $$;
+
+/** Un abonnement que le service de push ne connaît plus : on l'oublie. Réservé au serveur. */
+create or replace function public.rh_push_abonnement_mort(v_endpoint text) returns void
+language sql security definer set search_path = public as $$
+  delete from public.rh_push_abonnements a where a.endpoint = v_endpoint;
+$$;
+
+-- ---------- Le bilan du matin ----------
+/**
+ * Le bilan du jour (heure du Bénin) : les alertes par type, les paiements
+ * en litige, les MoMoPay pas vérifiés, les demandes d'argent en retard, les
+ * réglages pas approuvés, les réclamations en souffrance, les ruptures de
+ * produits qui se vendent, les commandes de la veille et la file ; le
+ * lundi, la semaine écoulée comparée à la précédente. Les nombres dans
+ * « chiffres », les montants à part. Une fois par jour (« v_forcer » le
+ * refait). pg_cron l'appelle à 7 h. Interne.
+ */
+create or replace function public.rh_preparer_bilan(v_forcer boolean default false) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  v_jour date := (now() at time zone 'Africa/Porto-Novo')::date;
+  v_hier timestamptz := (v_jour - 1)::timestamp at time zone 'Africa/Porto-Novo';
+  v_aujourdhui timestamptz := v_jour::timestamp at time zone 'Africa/Porto-Novo';
+  v_s1 timestamptz := (v_jour - 7)::timestamp at time zone 'Africa/Porto-Novo';
+  v_s2 timestamptz := (v_jour - 14)::timestamp at time zone 'Africa/Porto-Novo';
+  v_hebdo boolean := extract(isodow from v_jour) = 1;
+  sc jsonb := public.rh_controles_seuils();
+  sa jsonb := public.rh_argent_seuils();
+  v_alertes jsonb;
+  v_chiffres jsonb;
+  v_montants jsonb;
+  v_id bigint;
+begin
+  select b.id into v_id from public.rh_bilans b where b.jour = v_jour;
+  if v_id is not null and not coalesce(v_forcer, false) then
+    return v_id;
+  end if;
+  select coalesce(jsonb_object_agg(x.a_type, x.n), '{}'::jsonb) into v_alertes
+    from (select a.a_type, count(*) as n from public.rh_alertes_courantes() a group by a.a_type) x;
+
+  v_chiffres := jsonb_build_object(
+    'alertes', v_alertes,
+    'paiements_litige', coalesce((v_alertes ->> 'paiement_a_rapprocher')::int, 0),
+    'momopay_non_verifies', (select count(*) from public.encaissements x
+                              where x.mode = 'mobile_money' and x.remis_le is null and x.montant > 0
+                                and now() - x.encaisse_le > make_interval(hours => (sc ->> 'momopay_h')::int)),
+    'dettes_retard', coalesce((v_alertes ->> 'dette_ancienne')::int, 0),
+    'reglages_non_approuves', (select count(*) from public.rh_audit_reglages a where a.approuve_le is null),
+    'reclamations_souffrance', coalesce((v_alertes ->> 'sav_sans_reponse')::int, 0)
+                               + coalesce((v_alertes ->> 'sav_escalade')::int, 0),
+    'ruptures_vedettes', coalesce((v_alertes ->> 'rupture_a_appeler')::int, 0),
+    'remboursements_retard', coalesce((v_alertes ->> 'remboursement_en_retard')::int, 0),
+    'veille', jsonb_build_object(
+      'creees', (select count(*) from public.commandes c where c.cree_le >= v_hier and c.cree_le < v_aujourdhui),
+      'payees', (select count(*) from public.commandes c where c.paye_le >= v_hier and c.paye_le < v_aujourdhui),
+      'jamais_payees', (select count(*) from public.commandes c
+                         where c.cree_le >= v_hier and c.cree_le < v_aujourdhui and c.paye_le is null
+                           and c.etat in ('a_payer', 'echouee')),
+      'annulees', (select count(*) from public.commandes c
+                    where c.cree_le >= v_hier and c.cree_le < v_aujourdhui and c.etat = 'annulee')),
+    'file', jsonb_build_object(
+      'ouvertes', (select count(*) from public.rh_taches t where t.etat = 'ouverte'),
+      'prises', (select count(*) from public.rh_taches t where t.etat = 'prise'),
+      'escaladees', (select count(*) from public.rh_taches t where t.etat = 'ouverte' and t.escalade_le is not null)));
+  v_montants := jsonb_build_object(
+    'momopay_non_verifies', (select coalesce(sum(x.montant), 0) from public.encaissements x
+                              where x.mode = 'mobile_money' and x.remis_le is null and x.montant > 0
+                                and now() - x.encaisse_le > make_interval(hours => (sc ->> 'momopay_h')::int)),
+    'dettes_retard', (select coalesce(sum(v.montant), 0) from public.reversements v
+                       where v.etat = 'en_attente' and v.demande_le < now() - make_interval(days => (sa ->> 'dette_j')::int))
+                     + (select coalesce(sum(v.montant), 0) from public.reversements_livreurs v
+                         where v.etat = 'en_attente' and v.demande_le < now() - make_interval(days => (sa ->> 'dette_j')::int))
+                     + (select coalesce(sum(v.montant), 0) from public.retraits_parrain v
+                         where v.etat = 'demande' and v.demande_le < now() - make_interval(days => (sa ->> 'dette_j')::int)),
+    'ventes_veille', (select coalesce(sum(c.total), 0) from public.commandes c
+                       where c.paye_le >= v_hier and c.paye_le < v_aujourdhui));
+  if v_hebdo then
+    v_chiffres := v_chiffres || jsonb_build_object('semaine', jsonb_build_object(
+      'payees', (select count(*) from public.commandes c where c.paye_le >= v_s1 and c.paye_le < v_aujourdhui),
+      'payees_avant', (select count(*) from public.commandes c where c.paye_le >= v_s2 and c.paye_le < v_s1),
+      'jamais_payees', (select count(*) from public.commandes c
+                         where c.cree_le >= v_s1 and c.cree_le < v_aujourdhui and c.paye_le is null
+                           and c.etat in ('a_payer', 'echouee')),
+      'jamais_payees_avant', (select count(*) from public.commandes c
+                               where c.cree_le >= v_s2 and c.cree_le < v_s1 and c.paye_le is null
+                                 and c.etat in ('a_payer', 'echouee')),
+      'reclamations', (select count(*) from public.reclamations r where r.cree_le >= v_s1 and r.cree_le < v_aujourdhui),
+      'reclamations_avant', (select count(*) from public.reclamations r where r.cree_le >= v_s2 and r.cree_le < v_s1)));
+    v_montants := v_montants || jsonb_build_object(
+      'ventes_semaine', (select coalesce(sum(c.total), 0) from public.commandes c
+                          where c.paye_le >= v_s1 and c.paye_le < v_aujourdhui),
+      'ventes_semaine_avant', (select coalesce(sum(c.total), 0) from public.commandes c
+                                where c.paye_le >= v_s2 and c.paye_le < v_s1));
+  end if;
+  insert into public.rh_bilans as b (jour, hebdo, chiffres, montants, cree_le)
+  values (v_jour, v_hebdo, v_chiffres, v_montants, now())
+  on conflict (jour) do update
+     set hebdo = excluded.hebdo, chiffres = excluded.chiffres, montants = excluded.montants, cree_le = excluded.cree_le
+  returning b.id into v_id;
+  return v_id;
+end $$;
+
+/** Les derniers bilans (le plus récent d'abord). Sans montants pour un
+    responsable de profil. Sans pg_cron, le bilan du jour se prépare à la
+    première lecture après 7 h (heure du Bénin). */
+create or replace function public.rh_bilans_lire(v_nombre int default 1) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_acces text := public.rh_bilan_acces();
+begin
+  if v_acces is null then
+    raise exception 'Le bilan du matin est réservé à l''administration et aux responsables de profil';
+  end if;
+  if coalesce(v_nombre, 0) not between 1 and 90 then
+    raise exception 'De 1 à 90 bilans à la fois';
+  end if;
+  if extract(hour from now() at time zone 'Africa/Porto-Novo') >= 7
+     and not exists (select 1 from public.rh_bilans b where b.jour = (now() at time zone 'Africa/Porto-Novo')::date) then
+    perform public.rh_preparer_bilan(false);
+  end if;
+  return jsonb_build_object(
+    'acces', v_acces,
+    'montants', v_acces = 'complet',
+    'bilans', (select coalesce(jsonb_agg(jsonb_build_object('jour', b.jour, 'hebdo', b.hebdo, 'cree_le', b.cree_le,
+                                                            'chiffres', b.chiffres)
+                                         || case when v_acces = 'complet' then jsonb_build_object('montants', b.montants)
+                                                 else '{}'::jsonb end
+                                         order by b.jour desc), '[]'::jsonb)
+                 from (select * from public.rh_bilans x order by x.jour desc limit v_nombre) b));
+end $$;
+
+-- ---------- Les droits ----------
+revoke all on function public.rh_alertes_types() from public, anon;
+grant execute on function public.rh_alertes_types() to authenticated, service_role;
+revoke all on function public.rh_alerte_libelle(text) from public, anon;
+grant execute on function public.rh_alerte_libelle(text) to authenticated, service_role;
+revoke all on function public.rh_alertes_courantes() from public, anon, authenticated;
+grant execute on function public.rh_alertes_courantes() to service_role;
+revoke all on function public.rh_tache_visible(uuid) from public, anon;
+grant execute on function public.rh_tache_visible(uuid) to authenticated, service_role;
+revoke all on function public.rh_file_acces() from public, anon;
+grant execute on function public.rh_file_acces() to authenticated, service_role;
+revoke all on function public.rh_bilan_acces() from public, anon;
+grant execute on function public.rh_bilan_acces() to authenticated, service_role;
+revoke all on function public.rh_mon_nom() from public, anon;
+grant execute on function public.rh_mon_nom() to authenticated, service_role;
+revoke all on function public.rh_taches_synchroniser(boolean) from public, anon, authenticated;
+grant execute on function public.rh_taches_synchroniser(boolean) to service_role;
+revoke all on function public.rh_file_compteurs() from public, anon;
+grant execute on function public.rh_file_compteurs() to authenticated, service_role;
+revoke all on function public.rh_ma_file(text) from public, anon;
+grant execute on function public.rh_ma_file(text) to authenticated, service_role;
+revoke all on function public.rh_tache_a_moi(bigint) from public, anon, authenticated;
+grant execute on function public.rh_tache_a_moi(bigint) to service_role;
+revoke all on function public.rh_tache_prendre(bigint, boolean) from public, anon;
+grant execute on function public.rh_tache_prendre(bigint, boolean) to authenticated, service_role;
+revoke all on function public.rh_tache_relancer(bigint, text) from public, anon;
+grant execute on function public.rh_tache_relancer(bigint, text) to authenticated, service_role;
+revoke all on function public.rh_tache_terminer(bigint, text) from public, anon;
+grant execute on function public.rh_tache_terminer(bigint, text) to authenticated, service_role;
+revoke all on function public.rh_routage_lire() from public, anon;
+grant execute on function public.rh_routage_lire() to authenticated, service_role;
+revoke all on function public.rh_routage_regler(text, uuid, int, boolean) from public, anon;
+grant execute on function public.rh_routage_regler(text, uuid, int, boolean) to authenticated, service_role;
+revoke all on function public.rh_push_etat() from public, anon;
+grant execute on function public.rh_push_etat() to authenticated, service_role;
+revoke all on function public.rh_push_abonner(text, text, text) from public, anon;
+grant execute on function public.rh_push_abonner(text, text, text) to authenticated, service_role;
+revoke all on function public.rh_push_desabonner(text) from public, anon;
+grant execute on function public.rh_push_desabonner(text) to authenticated, service_role;
+revoke all on function public.rh_push_regler(boolean, text[], int, int) from public, anon;
+grant execute on function public.rh_push_regler(boolean, text[], int, int) to authenticated, service_role;
+revoke all on function public.rh_push_en_silence(int, int, timestamptz) from public, anon;
+grant execute on function public.rh_push_en_silence(int, int, timestamptz) to authenticated, service_role;
+revoke all on function public.rh_alertes_a_pousser() from public, anon, authenticated;
+grant execute on function public.rh_alertes_a_pousser() to service_role;
+revoke all on function public.rh_alertes_enregistrer() from public, anon, authenticated;
+grant execute on function public.rh_alertes_enregistrer() to service_role;
+revoke all on function public.rh_pousser_alertes() from public, anon, authenticated;
+grant execute on function public.rh_pousser_alertes() to service_role;
+revoke all on function public.rh_push_a_envoyer(bigint) from public, anon, authenticated;
+grant execute on function public.rh_push_a_envoyer(bigint) to service_role;
+revoke all on function public.rh_push_abonnement_mort(text) from public, anon, authenticated;
+grant execute on function public.rh_push_abonnement_mort(text) to service_role;
+revoke all on function public.rh_preparer_bilan(boolean) from public, anon, authenticated;
+grant execute on function public.rh_preparer_bilan(boolean) to service_role;
+revoke all on function public.rh_bilans_lire(int) from public, anon;
+grant execute on function public.rh_bilans_lire(int) to authenticated, service_role;
+
+-- ---------- Le calendrier ----------
+-- Toutes les 5 minutes : la file (nouvelles tâches, disparues, escalades),
+-- puis, une minute après, les alertes poussées. Chaque matin à 7 h (heure du
+-- Bénin, 6 h UTC) : le bilan. Sans pg_cron, l'écran fait le nécessaire à
+-- l'ouverture (file, bilan) ; seul le push attend pg_cron.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('rh-file-taches', '*/5 * * * *', 'select public.rh_taches_synchroniser()');
+    perform cron.schedule('rh-alertes-push', '1-59/5 * * * *', 'select public.rh_pousser_alertes()');
+    perform cron.schedule('rh-bilan-matin', '0 6 * * *', 'select public.rh_preparer_bilan()');
+  end if;
+exception when others then
+  raise notice 'File, alertes et bilan non programmés (%), l''écran les rattrapera', sqlerrm;
+end $$;
+
 -- =========================================================
 -- (3.70.0) LES PRÉFIXES DES OPÉRATEURS, réglables sans mise à jour
 --

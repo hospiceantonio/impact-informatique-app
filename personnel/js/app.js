@@ -17,8 +17,21 @@ const App = (() => {
   let caisseAcces = null;
   /* Les pastilles des prêts et retraits (rh_compteurs_solde). */
   let compteursSolde = {};
+  /* Le menu Contrôles et ses alertes (rh_controles_compteurs) : réglages
+     sensibles pas encore approuvés, encaissements qui attendent trop. */
+  let controles = {};
+  /* Les onglets d'argent du même menu (rh_argent_compteurs) : paiements à
+     rapprocher, remboursements en retard, demandes d'argent anciennes. */
+  let argent = {};
+  /* Le menu Qualité et ses alertes (rh_qualite_compteurs) : réclamations sans
+     réponse, appels à BIZZOO pas tranchés, ruptures à appeler, files en retard. */
+  let qualite = {};
+  /* Ma file et le bilan (rh_file_compteurs) : tâches libres, les miennes,
+     escalades ; et si le bilan du matin m'est ouvert. */
+  let file = {};
   let routeCourante = "";
   let minuterie = null;
+  let relu = 0;                 // quand les compteurs ont été relus (Date.now())
 
   const moi = () => (tableau && tableau.moi) || null;
   const compteurs = () => (tableau && tableau.compteurs) || {};
@@ -71,7 +84,11 @@ const App = (() => {
     suivi: VueSuivi,
     incidents: VueIncidents,
     livreurs: VueLocaliser,
+    controles: VueControles,
     "liste-livreurs": VueLivreurs,
+    qualite: VueQualite,
+    file: VueFile,
+    bilans: VueBilans,
     parametres: VueParametres,
     compte: VueCompte,
   };
@@ -81,6 +98,9 @@ const App = (() => {
     const c = compteurs();
     return [
       { route: "accueil", libelle: "Accueil", icone: "accueil" },
+      /* Les alertes confiées à mon profil par le routage (l'administration voit tout). */
+      { route: "file", libelle: "Ma file", icone: "check", pour: () => !!file.acces,
+        pastille: (file.a_prendre || 0) + (file.a_moi || 0) },
       { route: "mails", libelle: "Mails", icone: "mail", pour: () => ouvert("mails") },
       { route: "discussions", libelle: "Discussions", icone: "bulle", pour: () => ouvert("discussions"),
         pastille: c.messages_non_lus },
@@ -102,7 +122,19 @@ const App = (() => {
       { route: "liste-livreurs", libelle: "Livreurs", icone: "equipe",
         pour: () => ouvert("livreurs") || ouvert("stats_livreurs") || estSuper() },
       { route: "livreurs", libelle: "Localiser un livreur", icone: "carte", pour: () => ouvert("livreurs") },
+      /* L'administration et le superadministrateur ; un profil à qui
+         Paramètres ouvre « controles » (sans montants). La base tranche. */
+      { route: "controles", libelle: "Contrôles", icone: "alerte",
+        pour: () => !!controles.acces || Object.values(argent.onglets || {}).some(Boolean),
+        pastille: (controles.reglages_a_approuver || 0) + (controles.encaissements_anciens || 0)
+          + (argent.paiements_a_traiter || 0) + (argent.remboursements_en_retard || 0) + (argent.dettes_anciennes || 0) },
+      /* L'administration, le superadministrateur, et la clé « qualite » (sans montants). */
+      { route: "qualite", libelle: "Qualité", icone: "etoile", pour: () => !!qualite.acces,
+        pastille: (qualite.sav_sans_reponse || 0) + (qualite.sav_escalades || 0) + (qualite.ruptures_a_appeler || 0)
+          + (qualite.files_en_retard || 0) },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
+      /* L'administration (montants) et les responsables de profil (nombres). */
+      { route: "bilans", libelle: "Bilan du matin", icone: "rapport", pour: () => !!file.bilan },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
         pastille: c.employes_a_valider, groupe: estAdmin() ? "Administration" : undefined },
@@ -196,6 +228,10 @@ const App = (() => {
       alertesVue = null;
       dessinerMenus();
     }
+    /* LES COMPTEURS SUIVENT CE QUE FONT LES AUTRES : relus à chaque page
+       ouverte (l'accueil les relit lui-même), et pas seulement toutes les
+       minutes. Pas deux fois en 5 secondes : une action relit déjà. */
+    if (routeCourante !== "accueil" && Date.now() - relu > 5000) rafraichir();
     const vue = route === "plus" ? VuePlus : VUES[route];
     const zone = document.getElementById("contenu");
     /* Une zone neuve à chaque navigation : une vue quittée pendant son
@@ -229,6 +265,7 @@ const App = (() => {
   /* ---------- Le tableau de bord ---------- */
 
   async function rafraichir() {
+    relu = Date.now();
     /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans
        attendre). APRÈS le code SMS, comme dans BIZZOO Admin. */
     const cfg = Supabase.configuration();
@@ -252,6 +289,10 @@ const App = (() => {
   async function chargerMenus() {
     caisseAcces = await Supabase.rpc("rh_caisse_acces").catch(() => null);
     compteursSolde = await Supabase.rpc("rh_compteurs_solde").catch(() => ({})) || {};
+    controles = await Supabase.rpc("rh_controles_compteurs").catch(() => ({})) || {};
+    argent = await Supabase.rpc("rh_argent_compteurs").catch(() => ({})) || {};
+    qualite = await Supabase.rpc("rh_qualite_compteurs").catch(() => ({})) || {};
+    file = await Supabase.rpc("rh_file_compteurs").catch(() => ({})) || {};
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];
@@ -323,7 +364,7 @@ const App = (() => {
        l'a faite (et si pg_cron n'est pas là pour la faire). */
     if (estAdmin()) Supabase.rpc("rh_paie_a_jour").then((n) => { if (n > 0) rafraichir(); }).catch(() => {});
     clearInterval(minuterie);
-    minuterie = setInterval(rafraichir, 60000);
+    minuterie = setInterval(rafraichir, 30000);
     naviguer();
   }
 
@@ -336,6 +377,11 @@ const App = (() => {
     naviguer();
   });
   window.addEventListener("hashchange", naviguer);
+  /* De retour sur l'application (onglet repris, téléphone rallumé) : les
+     compteurs se relisent tout de suite, sans attendre la minute. */
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && tableau && moi() && Date.now() - relu > 5000) rafraichir();
+  });
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -344,7 +390,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, compteursSolde: () => compteursSolde, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, file: () => file, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer, alertesAffichees,
   };
 })();
