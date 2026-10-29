@@ -5566,7 +5566,11 @@ pas de position (on mesure alors depuis le point BIZZOO) : plus elles sont
 renseignées, plus « le plus proche » est juste.
 
 Fichier à coller : `supabase/cascade-courses.sql` (relançable, autonome ; il
-programme la tâche des 5 secondes). Essais :
+programme la tâche des 5 secondes).
+
+**En ligne depuis le 29/10/2026** (base seulement : les écrans viennent avec BIZZOO Admin 3.70.0). Appliqué par un script réduit aux seuls objets qui changent — les fonctions empruntées par le fichier étaient déjà identiques en ligne —, éprouvé d'abord sur une base jetable (base d'avant + script = base neuve, sans un écart), puis vérifié en ligne : 25 fonctions identiques au dépôt, droits compris ; tâche `courses-cascade` active et sans erreur.
+
+Essais :
 `supabase/tests/99zzz…-cascade-courses.sql` (10 sections),
 `tools/banc-parcours-livraison.mjs` (la position envoyée). Les anciens essais
 des demandes de course tournent cascade éteinte (la règle d'avant).
@@ -5611,7 +5615,8 @@ défaut son téléphone) — `fiche_course` rend les deux.
 Rien à redéployer côté fonctions Edge : `envoyer-push` envoie déjà toute
 notification qui sonne. Fichier à coller : `supabase/course-annulee.sql`
 (relançable, autonome : il pose aussi `lieu_retrait` et `refus_courses`,
-dans n'importe quel ordre avec `lieu-retrait.sql`). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
+dans n'importe quel ordre avec `lieu-retrait.sql`). **En ligne depuis le
+29/10/2026** (voir la section de la cascade). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
 2 bis et 4), `tools/banc-parcours-livraison.mjs`.
 
 ## « Faire livrer » : où le livreur récupère la commande (3.70.0)
@@ -5656,7 +5661,8 @@ que le lieu n'a pas été gardé ; `fiche_course` et
 sa commande passe comme avant, sans la ligne.
 
 Fichier à coller : `supabase/lieu-retrait.sql` (relançable ; il recopie les
-fonctions qu'il emprunte). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
+fonctions qu'il emprunte). **En ligne depuis le 29/10/2026** (base ; la case
+de saisie vient avec BIZZOO Admin 3.70.0). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
 (section 9), `tools/banc-faire-livrer.mjs`, `tools/banc-parcours-livraison.mjs`
 (section 6a).
 
