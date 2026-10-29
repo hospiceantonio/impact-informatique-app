@@ -955,6 +955,14 @@ const Store = (() => {
       mode: mode || "aucun", motif: motif || "" });
   }
 
+  /** (3.70.0) Le livreur se dit disponible pour les courses, ou non. */
+  async function reglerDisponibilite(dispo) {
+    const r = await Supabase.rpc("regler_disponibilite", { dispo: !!dispo });
+    const p = Supabase.compte();
+    if (p) p.disponible = r !== false;
+    return r !== false;
+  }
+
   /** Ce que le livreur a encaissé et pas encore rendu. Une base d'avant :
       rien à montrer. */
   async function maCaisse() {
@@ -4007,7 +4015,7 @@ const Store = (() => {
     VERDICTS, journalVersements, resumeVersements,
     listerCodes, enregistrerCode, remisesPeriode,
     creerParrain, listerParrains, retraitsATraiter, traiterRetrait,
-    positionsLivreurs, maPosition, enregistrerMaPosition,
+    positionsLivreurs, maPosition, enregistrerMaPosition, reglerDisponibilite,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
     remettreCourse, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,

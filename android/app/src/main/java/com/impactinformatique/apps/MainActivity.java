@@ -73,6 +73,8 @@ public class MainActivity extends Activity {
     private static final int CODE_POSITION = 42;
     private static final int CODE_NOTIFICATIONS = 43;
     private static final int CODE_SUIVI = 44;
+    /* (3.70.0) La position « Toujours », pour le livreur disponible. */
+    private static final int CODE_POSITION_TOUJOURS = 45;
     /* Le suivi demandé par la page, en attendant l'autorisation de position. */
     private String[] suiviEnAttente;
 
@@ -345,7 +347,9 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int code, String[] permissions, int[] resultats) {
         super.onRequestPermissionsResult(code, permissions, resultats);
         if (code == CODE_SUIVI) {
-            boolean permis = resultats.length > 0 && resultats[0] == PackageManager.PERMISSION_GRANTED;
+            /* (3.70.0) La position « approximative » seule suffit aussi. */
+            boolean permis = false;
+            for (int r : resultats) if (r == PackageManager.PERMISSION_GRANTED) permis = true;
             if (permis && suiviEnAttente != null) {
                 ServiceSuiviPosition.demarrer(this, suiviEnAttente[0], suiviEnAttente[1], suiviEnAttente[2]);
             }
@@ -726,6 +730,71 @@ public class MainActivity extends Activity {
         public void arreterSuivi() {
             if (!getResources().getBoolean(R.bool.suivi_position)) return;
             ServiceSuiviPosition.arreter(MainActivity.this);
+        }
+
+        /** (3.70.0) Le service de position tourne-t-il vraiment ? */
+        @JavascriptInterface
+        public boolean suiviActif() {
+            return ServiceSuiviPosition.actif;
+        }
+
+        /**
+         * (3.70.0) Le livreur « disponible » est suivi application fermée.
+         * Pour qu'Android ne coupe pas ce suivi — et puisse le relancer
+         * s'il l'a arrêté —, deux réglages du téléphone : l'application
+         * hors de l'économie de batterie, et la position « Toujours ».
+         */
+        @JavascriptInterface
+        public boolean sansEconomieBatterie() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+            android.os.PowerManager energie = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            return energie == null || energie.isIgnoringBatteryOptimizations(getPackageName());
+        }
+
+        @JavascriptInterface
+        public void demanderSansEconomieBatterie() {
+            if (!getResources().getBoolean(R.bool.suivi_position)) return;
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || sansEconomieBatterie()) return;
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + getPackageName())));
+                } catch (Exception e) {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    } catch (Exception ignoree) { /* réglage introuvable sur ce téléphone */ }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean positionToujours() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+            }
+            return checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        }
+
+        @JavascriptInterface
+        public void demanderPositionToujours() {
+            if (!getResources().getBoolean(R.bool.suivi_position)) return;
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || positionToujours()) return;
+            runOnUiThread(() -> {
+                try {
+                    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                            && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                        /* D'abord la position « pendant l'utilisation ». */
+                        requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION}, CODE_POSITION_TOUJOURS);
+                        return;
+                    }
+                    /* Android 11 et plus ouvre ici la page des réglages de
+                       l'application : « Autoriser tout le temps ». */
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION},
+                            CODE_POSITION_TOUJOURS);
+                } catch (Exception e) { /* refusé par le système */ }
+            });
         }
 
         /**

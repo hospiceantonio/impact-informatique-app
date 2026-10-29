@@ -333,6 +333,96 @@ const VueLivraisons = (() => {
       "</div>";
   }
 
+  /* ---------- (3.70.0) « Disponible pour les courses » ----------
+     Allumé, le téléphone envoie sa position même application fermée
+     (toutes les 3 minutes, notification « Disponible pour les courses ») :
+     les nouvelles courses vont d'abord au livreur le plus proche. Éteint
+     — en fin de journée —, plus de position hors course, et il ne fait plus
+     partie des trois plus proches. */
+  const disponible = () => {
+    const p = Supabase.compte();
+    return !p || p.disponible !== false;
+  };
+  /* null pendant une relecture : l'interrupteur ne rejoue alors rien, la
+     relecture s'en charge (une liste vide arrêterait le suivi d'une course). */
+  let dernieresCourses = null;
+
+  const apk = () => typeof SuiviPosition !== "undefined" && SuiviPosition.natif();
+  const pontAndroid = () => (typeof window.AndroidPont !== "undefined" ? window.AndroidPont : null);
+  /* Les deux réglages du téléphone qui empêchent Android de couper le suivi
+     (APK 3.70.0) : faux s'ils manquent. */
+  const reglageManquant = (methode) => {
+    const p = pontAndroid();
+    if (!p || typeof p[methode] !== "function") return false;
+    try { return !p[methode](); } catch (_) { return false; }
+  };
+
+  function htmlDisponible() {
+    const batterie = apk() && disponible() && reglageManquant("sansEconomieBatterie");
+    const toujours = apk() && disponible() && reglageManquant("positionToujours");
+    return (
+      '<div class="carte lv-dispo" id="lv-dispo">' +
+        UI.interrupteur({ id: "lv-dispo-inter", label: "Disponible pour les courses", actif: disponible(),
+          aide: !disponible()
+            ? "Vous ne recevez plus les courses en premier, et votre position n'est plus envoyée hors course."
+            : apk()
+              ? "BIZZOO voit votre position, même application fermée, pour vous proposer les courses les plus proches. Éteignez en fin de journée."
+              : "BIZZOO voit votre position tant que cette page reste ouverte. Avec l'application BIZZOO Admin, elle part même application fermée." }) +
+        (batterie || toujours
+          ? '<div class="lv-dispo-reglages">' +
+              '<p class="aide" style="margin:8px 0">Pour qu\'Android ne coupe pas votre position quand l\'application est fermée :</p>' +
+              (toujours ? '<button type="button" class="btn btn-clair btn-petit" id="lv-dispo-toujours">' +
+                UI.icone("carte", "ic-sm") + "Position : « Toujours autoriser »</button>" : "") +
+              (batterie ? '<button type="button" class="btn btn-clair btn-petit" id="lv-dispo-batterie">' +
+                UI.icone("check", "ic-sm") + "Ne pas limiter la batterie de BIZZOO</button>" : "") +
+            "</div>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  function brancherDisponible(vue) {
+    const inter = UI.$("#lv-dispo-inter", vue);
+    if (!inter) return;
+    const regler = (id, methode) => {
+      const b = UI.$(id, vue);
+      if (!b) return;
+      b.onclick = () => {
+        const p = pontAndroid();
+        try { if (p && typeof p[methode] === "function") p[methode](); } catch (_) { /* refusé */ }
+        /* Au retour des réglages, l'écran se relit et dit ce qui reste. */
+        const relire = () => {
+          if (document.hidden) return;
+          document.removeEventListener("visibilitychange", relire);
+          const carte = UI.$("#lv-dispo", vue);
+          if (carte) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
+        };
+        document.addEventListener("visibilitychange", relire);
+      };
+    };
+    regler("#lv-dispo-toujours", "demanderPositionToujours");
+    regler("#lv-dispo-batterie", "demanderSansEconomieBatterie");
+    inter.onchange = async () => {
+      const voulu = inter.checked;
+      inter.disabled = true;
+      try {
+        await Store.reglerDisponibilite(voulu);
+        UI.toast(voulu ? "Disponible : les courses proches vous arrivent en premier."
+                       : "Vous n'êtes plus disponible pour les courses.");
+        if (typeof SuiviPosition !== "undefined") {
+          if (dernieresCourses !== null) SuiviPosition.mettreAJour(dernieresCourses, voulu);
+          if (voulu) SuiviPosition.presence(); else SuiviPosition.arreterPresence();
+        }
+      } catch (err) {
+        inter.checked = !voulu;
+        UI.toast(err.message, "err");
+      }
+      inter.disabled = false;
+      const carte = UI.$("#lv-dispo", vue);
+      if (carte) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
+    };
+  }
+
   async function afficher(vue) {
     vueOuverte = vue;
     UI.entete({ titre: "Mes courses", sous: "Ce que vous avez à porter",
@@ -346,6 +436,7 @@ const VueLivraisons = (() => {
 
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
       "Lecture de vos courses…</div>";
+    dernieresCourses = null;
 
     const rafraichir = UI.$("#lv-rafraichir");
     if (rafraichir) rafraichir.onclick = () => afficher(vue);
@@ -362,10 +453,14 @@ const VueLivraisons = (() => {
       /* La sonnerie suit ce que l'écran montre (3.59.0) : « Commande
          reçue » touchée, l'écran se relit, et elle s'arrête. */
       Notifs.majAlerte(courses, demandes);
-      /* Sa position suit, tant qu'une course est en cours (Localiser un livreur). */
-      if (typeof SuiviPosition !== "undefined") SuiviPosition.mettreAJour(courses);
-      /* (3.70.0) Et, libre ou non, sa position pour la cascade des courses. */
-      if (typeof SuiviPosition !== "undefined") SuiviPosition.presence();
+      dernieresCourses = courses;
+      /* Sa position suit, tant qu'une course est en cours (Localiser un livreur)
+         — (3.70.0) et, s'il est disponible, même libre et application fermée :
+         c'est elle qui fait de lui « le plus proche » d'une nouvelle course. */
+      if (typeof SuiviPosition !== "undefined") {
+        SuiviPosition.mettreAJour(courses, disponible());
+        if (disponible()) SuiviPosition.presence(); else SuiviPosition.arreterPresence();
+      }
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +
@@ -401,12 +496,14 @@ const VueLivraisons = (() => {
 
     if (!courses.length && !demandes.length) {
       if (aRendre || htmlDejaPrises()) {
-        vue.innerHTML = monSolde + aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
+        vue.innerHTML = htmlDisponible() + monSolde + aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
           "Dès qu'une commande vous est proposée ou confiée, elle apparaît ici.");
+        brancherDisponible(vue);
         return;
       }
-      vue.innerHTML = monSolde + UI.vide("voiture", "Aucune course pour l'instant",
+      vue.innerHTML = htmlDisponible() + monSolde + UI.vide("voiture", "Aucune course pour l'instant",
         "Dès que la boutique vous confie une commande préparée, elle apparaît ici.");
+      brancherDisponible(vue);
       return;
     }
 
@@ -417,7 +514,7 @@ const VueLivraisons = (() => {
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
-    vue.innerHTML = monSolde + aRendre + htmlDejaPrises() +
+    vue.innerHTML = htmlDisponible() + monSolde + aRendre + htmlDejaPrises() +
       (demandes.length
         ? '<div class="titre-section" id="lv-demandes">' +
             (demandes.length > 1 ? demandes.length + " demandes de course" : "1 demande de course") +
@@ -427,6 +524,7 @@ const VueLivraisons = (() => {
         (aFaire ? aFaire + " course" + (aFaire > 1 ? "s" : "") + " à faire"
                 : "Rien à faire pour l'instant") + "</div>" +
       courses.map(htmlCourse).join("");
+    brancherDisponible(vue);
 
     for (const b of UI.$$(".lv-prendre", vue)) {
       b.onclick = async () => {

@@ -25,6 +25,13 @@ alter table public.refus_courses enable row level security;
 revoke all on public.refus_courses from anon, authenticated;
 revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.profils add column if not exists disponible boolean not null default true;
+
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.suivis_livreurs add column if not exists jeton_hash_precedent text;
+alter table public.suivis_livreurs add column if not exists precedent_expire_le timestamptz;
+
 -- ---------- Les aides (copies de schema.sql) ----------
 create or replace function public.coord_valable(valeur double precision, borne double precision)
 returns double precision
@@ -124,11 +131,18 @@ begin
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
   end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-  insert into public.suivis_livreurs (profil_id, jeton_hash, expire_le, cree_le)
+  insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())
   on conflict (profil_id) do update
-     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now();
+     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now(),
+         -- (3.70.0) L'ancien reste bon 10 minutes, s'il l'était encore.
+         jeton_hash_precedent = case when s.expire_le > now() then s.jeton_hash end,
+         precedent_expire_le = case when s.expire_le > now() then now() + interval '10 minutes' end;
   return jsonb_build_object('jeton', jeton, 'en_course', public.livreur_en_course(moi),
+                            -- (3.70.0) Libre mais disponible (et pas suspendu) : le
+                            -- téléphone suit aussi. Une base d'avant ne le dit pas.
+                            'disponible', coalesce((select p.disponible and not p.courses_bloquees
+                                                      from public.profils p where p.id = moi), true),
                             'expire_le', now() + interval '16 hours');
 end $$;
 
@@ -146,8 +160,11 @@ declare
   derniere timestamptz;
 begin
   select s.profil_id into qui from public.suivis_livreurs s
-   where s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-     and s.expire_le > now();
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      -- (3.70.0) L'ancien jeton, 10 minutes après un renouvellement.
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
   if qui is null then
     raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
   end if;

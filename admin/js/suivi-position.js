@@ -23,32 +23,69 @@ const SuiviPosition = (() => {
   let surveillance = null;
   let dernierEnvoi = 0;
   let jeton = "";
+  /* (3.70.0) Le suivi en cours est-il celui d'une course (rythme serré) ? */
+  let suiviEnCourse = false;
+  /* Ce que l'écran a dit la dernière fois : on le rejoue au retour au
+     premier plan, pour relancer un service qu'Android aurait arrêté. */
+  let dernierEtat = null;
 
   const pont = () => (typeof window.AndroidPont !== "undefined" ? window.AndroidPont : null);
   const natif = () => { const p = pont(); return !!(p && typeof p.demarrerSuivi === "function"); };
+  /* Le service Android tourne-t-il vraiment ? Une APK d'avant ne sait pas
+     le dire : on la croit. */
+  const serviceTourne = () => {
+    const p = pont();
+    if (!p) return false;
+    if (typeof p.suiviActif !== "function") return true;
+    try { return !!p.suiviActif(); } catch (_) { return true; }
+  };
 
-  /** Les courses de l'écran viennent d'être lues : suivre, ou s'arrêter. */
-  async function mettreAJour(courses) {
+  /** Les courses de l'écran viennent d'être lues : suivre, ou s'arrêter.
+      (3.70.0) « disponible » : libre, l'APK suit aussi, application fermée
+      (toutes les 3 minutes) — c'est ce qui fait « le plus proche ». */
+  async function mettreAJour(courses, disponible) {
+    dernierEtat = { courses: courses || [], disponible: !!disponible };
     const enCourse = (courses || []).some((c) => c.etat !== "remise");
-    if (!enCourse) return arreter();
-    if (Date.now() - ouvertLe < RENOUVELER && (natif() || surveillance !== null)) return;
+    if (!enCourse && !(disponible && natif())) return arreter();
+    const tourne = natif() ? serviceTourne() : surveillance !== null;
+    /* Libre → en course : on relance tout de suite, pour le rythme serré. */
+    const memeRythme = !(enCourse && !suiviEnCourse);
+    if (Date.now() - ouvertLe < RENOUVELER && tourne && memeRythme) return;
+    /* Page cachée, service en marche : on ne renouvelle pas le jeton. Android
+       refuserait de relancer le service hors de l'écran, et l'ancien jeton
+       remplacé finirait par ne plus valoir. Ce sera au retour à l'écran. */
+    if (natif() && document.hidden && tourne) return;
     let r = null;
     try {
       r = await Supabase.rpcLecture("ouvrir_suivi_livreur", {});
     } catch (_) {
       return;   // base d'avant, ou réseau : les courses s'affichent quand même
     }
-    if (!r || !r.jeton || !r.en_course) return arreter();
+    /* Libre : seulement si la base le permet (elle répond « disponible »
+       depuis la 3.70.0 ; une base d'avant ne suit que les courses). */
+    const libre = r && r.disponible === true && disponible && natif();
+    if (!r || !r.jeton || !(r.en_course || libre)) return arreter();
     const c = Supabase.configuration();
     if (!c) return;
     ouvertLe = Date.now();
+    suiviEnCourse = !!r.en_course;
     jeton = r.jeton;
     if (natif()) {
       try { pont().demarrerSuivi(c.url, c.cle, r.jeton); } catch (_) { /* le service n'a pas pu démarrer */ }
+      /* Android a pu refuser (permission demandée, démarrage interdit) : le
+         prochain passage réessaiera au lieu d'attendre 10 minutes. */
+      setTimeout(() => { if (!serviceTourne()) ouvertLe = 0; }, 4000);
       return;
     }
     suivreDepuisLaPage(c);
   }
+
+  /* Retour à l'écran : relancer ce qu'Android aurait arrêté entre-temps. */
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden || !dernierEtat || !natif()) return;
+    if (!serviceTourne()) ouvertLe = 0;
+    mettreAJour(dernierEtat.courses, dernierEtat.disponible);
+  });
 
   /* ---------- Sans l'APK : la page, tant qu'elle est ouverte ---------- */
 
@@ -83,7 +120,10 @@ const SuiviPosition = (() => {
   const PRESENCE = 3 * 60 * 1000;
   let presenceMinuteur = null;
   let dernierePresence = 0;
+  let presenceTic = null;
 
+  /* Dans l'APK aussi : le service s'en charge application fermée ; la page
+     ouverte en est le secours (la base ignore les doublons de 30 secondes). */
   function presence() {
     if (presenceMinuteur !== null || !navigator.geolocation) return;
     const tic = () => {
@@ -99,12 +139,15 @@ const SuiviPosition = (() => {
     };
     tic();
     presenceMinuteur = setInterval(tic, 30 * 1000);
-    document.addEventListener("visibilitychange", tic);
+    presenceTic = tic;
+    document.addEventListener("visibilitychange", presenceTic);
   }
 
   function arreterPresence() {
     if (presenceMinuteur !== null) clearInterval(presenceMinuteur);
+    if (presenceTic) document.removeEventListener("visibilitychange", presenceTic);
     presenceMinuteur = null;
+    presenceTic = null;
     dernierePresence = 0;
   }
 
@@ -113,6 +156,7 @@ const SuiviPosition = (() => {
     if (surveillance !== null && navigator.geolocation) navigator.geolocation.clearWatch(surveillance);
     surveillance = null;
     ouvertLe = 0;
+    suiviEnCourse = false;
     jeton = "";
     const p = pont();
     if (p && typeof p.arreterSuivi === "function") {
@@ -120,5 +164,12 @@ const SuiviPosition = (() => {
     }
   }
 
-  return { mettreAJour, arreter, presence, arreterPresence };
+  /** Déconnexion : plus rien à rejouer au retour à l'écran. */
+  function oublier() {
+    dernierEtat = null;
+    arreter();
+    arreterPresence();
+  }
+
+  return { mettreAJour, arreter, presence, arreterPresence, oublier, natif };
 })();

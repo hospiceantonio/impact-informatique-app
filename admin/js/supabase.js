@@ -256,7 +256,7 @@ const Supabase = (() => {
     /* (3.65.0) Ce téléphone se tait pour ce compte, tant que la session
        peut encore le dire à la base. */
     if (typeof Push !== "undefined") { try { await Push.oublier(); } catch (_) { /* vide */ } }
-    if (typeof SuiviPosition !== "undefined") { SuiviPosition.arreter(); SuiviPosition.arreterPresence(); }
+    if (typeof SuiviPosition !== "undefined") SuiviPosition.oublier();
     try { await appelAuth("logout", {}, true); } catch (_) { /* déjà expirée */ }
     garderSession(null);
     profil = null;
@@ -306,6 +306,9 @@ const Supabase = (() => {
         /* (3.68.0) « Faire livrer » : accordé par le superadministrateur
            seul, éteint par défaut. */
         faireLivrer: l.peut_faire_livrer === true,
+        /* (3.70.0) Le livreur « disponible pour les courses ». Absent d'une
+           base d'avant : disponible, comme le défaut du schéma. */
+        disponible: l.disponible !== false,
       };
     }
     return profil;

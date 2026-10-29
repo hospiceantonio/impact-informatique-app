@@ -14,7 +14,10 @@
 --   7. annulée par son livreur : la cascade repart du plus proche, sans lui ;
 --   8. cascade éteinte, ou sans son horloge (pg_cron) : à tous d'un coup ;
 --   9. la boutique reprend la course à son livreur : elle repart en cascade ;
---  10. la position du livreur libre se met à jour (signaler_ma_position).
+--  10. la position du livreur libre se met à jour (signaler_ma_position) ;
+--  11. « disponible » : application fermée, le service Android l'envoie
+--      (position_livreur, par le jeton de suivi) ; pas disponible : il
+--      s'arrête, et le livreur n'est plus parmi les plus proches.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -220,6 +223,58 @@ select essai.verifie((select enregistre_le > now() - interval '1 minute' and lat
   'elle est à jour : il redevient « récent » pour la cascade');
 select essai.devenir(:ACHETEUR::uuid); set role authenticated;
 select essai.verifie(not public.signaler_ma_position(6.37, 2.42, 10), 'un client n''écrit rien');
+reset role; select essai.personne();
+
+select essai.titre('11. Disponible : sa position, application fermée');
+select essai.devenir(:L3::uuid); set role authenticated;
+select public.ouvrir_suivi_livreur() ->> 'jeton' as jeton_vieux \gset
+select public.ouvrir_suivi_livreur() as o3 \gset
+select :'o3'::jsonb ->> 'jeton' as jeton3 \gset
+select essai.egal((:'o3'::jsonb ->> 'disponible'), 'true', 'le jeton dit « disponible » (par défaut)');
+reset role; select essai.personne();
+set role anon;
+select essai.egal((public.position_livreur(:'jeton_vieux', 9.3450, 2.6302, 20) ->> 'continuer'), 'true',
+  'un jeton renouvelé : l''ancien vaut encore (10 minutes), le service en route n''est pas coupé');
+reset role;
+update public.suivis_livreurs set precedent_expire_le = now() - interval '1 second' where profil_id = :L3::uuid;
+select essai.refuse(format($$select public.position_livreur(%L, 9.3, 2.6, 10)$$, :'jeton_vieux'),
+  'passé ces 10 minutes : refusé');
+update public.suivis_livreurs set expire_le = now() + interval '1 hour' where profil_id = :L3::uuid;
+update public.positions_livreurs set enregistre_le = now() - interval '2 hours' where profil_id = :L3::uuid;
+set role anon;
+select essai.egal((public.position_livreur(:'jeton3', 9.3450, 2.6302, 20))::text,
+  '{"continuer": true, "en_course": false}', 'libre et disponible, sans session (le jeton fait foi) : continuer');
+reset role;
+select essai.verifie((select enregistre_le > now() - interval '1 minute' and latitude = 9.345
+                        from public.positions_livreurs where profil_id = :L3::uuid),
+  'sa position est à jour : il compte parmi les plus proches');
+select essai.verifie((select expire_le > now() + interval '15 hours' from public.suivis_livreurs where profil_id = :L3::uuid),
+  'application fermée des jours durant : le jeton se prolonge tant que le téléphone se manifeste');
+set role anon;
+select public.position_livreur(:'jeton3', 9.9, 2.9, 20) as r \gset
+reset role;
+select essai.verifie((select latitude = 9.345 from public.positions_livreurs where profil_id = :L3::uuid),
+  'libre : pas plus d''une écriture toutes les 30 secondes');
+select essai.refuse($$select public.position_livreur('pas-un-jeton', 9.3, 2.6, 10)$$, 'un faux jeton : refusé');
+select essai.devenir(:L3::uuid); set role authenticated;
+select essai.egal(public.regler_disponibilite(false), false, 'il se dit « pas disponible »');
+reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from public.suivis_livreurs where profil_id = :L3::uuid),
+  'pas disponible et libre : son suivi est révoqué (« Localiser » ne le montre plus actif)');
+select essai.refuse(format($$select public.position_livreur(%L, 9.3451, 2.6302, 20)$$, :'jeton3'),
+  'et son téléphone, refusé, s''arrête');
+select essai.devenir(:L3::uuid); set role authenticated;
+select essai.verifie(not public.signaler_ma_position(9.3452, 2.6302, 20),
+  'la page ouverte ne l''envoie pas non plus');
+reset role; select essai.personne();
+select pg_temp.commande_payee('TRX-CASCADE-5') as c5 \gset
+select essai.verifie(not (:L3::uuid = any(coalesce((select ordre from public.courses_cascade where commande_id = :'c5'), '{}'::uuid[]))),
+  'et il n''est plus parmi les plus proches');
+select essai.devenir(:L3::uuid); set role authenticated;
+select essai.egal(public.regler_disponibilite(true), true, 'il se redit disponible');
+reset role; select essai.personne();
+select essai.devenir(:ACHETEUR::uuid); set role authenticated;
+select essai.refuse($$select public.regler_disponibilite(true)$$, 'un client ne règle rien');
 reset role; select essai.personne();
 
 -- Le décor rendu : nos livreurs ne gênent pas les essais suivants.

@@ -103,6 +103,9 @@ revoke all on public.courses_cascade from anon, authenticated;
 -- Le point d'où l'on mesure : la boutique où récupérer (la première qui a
 -- une position, en livraison groupée), sinon le point BIZZOO.
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.profils add column if not exists disponible boolean not null default true;
+
 -- (3.70.0) Empruntées plus bas, recopiées telles quelles.
 create or replace function public.horloge_cascade()
 returns boolean
@@ -435,6 +438,8 @@ begin
               join public.profils p on p.id = c.id
               join public.positions_livreurs pl on pl.profil_id = p.id
              where pl.enregistre_le > now() - make_interval(mins => coalesce(fraich, 60))
+               -- (3.70.0) « Pas disponible » : jamais parmi les plus proches.
+               and p.disponible
                and not public.livreur_en_course(p.id)
              order by 2, 3 nulls last, 1
              limit greatest(coalesce(combien, 3), 0)) x), '{}');

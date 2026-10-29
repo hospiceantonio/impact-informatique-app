@@ -7,6 +7,13 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- (3.70.0) Le livreur « disponible » : sa position, application
+         fermée. Le processeur reste éveillé le temps d'un envoi ; la
+         position « Toujours » et l'exemption d'économie de batterie
+         permettent à Android de relancer le suivi s'il l'a arrêté. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application>
         <service

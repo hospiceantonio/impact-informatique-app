@@ -678,6 +678,11 @@ alter table public.profils add constraint profils_vehicule check (vehicule in ('
 -- Le livreur bloqué par l'administration de BIZZOO (BIZZOO Personnel) :
 -- il ne reçoit plus aucune course. Seul « rh_bloquer_livreur » le pose.
 alter table public.profils add column if not exists courses_bloquees boolean not null default false;
+-- (3.70.0) « Disponible pour les courses » : le livreur l'allume ou l'éteint
+-- lui-même (BIZZOO Admin → Livraisons). Allumé, son téléphone envoie sa
+-- position même application fermée, et la cascade peut le choisir parmi
+-- les plus proches ; éteint, ni l'un ni l'autre.
+alter table public.profils add column if not exists disponible boolean not null default true;
 -- (3.63.0) Qui l'a créé, et s'il attend sa validation : les règles de
 -- « profils », plus bas, les lisent. Posées ici, avant elles — la suite
 -- du fichier les répète là où elles sont expliquées.
@@ -4399,6 +4404,8 @@ begin
               join public.profils p on p.id = c.id
               join public.positions_livreurs pl on pl.profil_id = p.id
              where pl.enregistre_le > now() - make_interval(mins => coalesce(fraich, 60))
+               -- (3.70.0) « Pas disponible » : jamais parmi les plus proches.
+               and p.disponible
                and not public.livreur_en_course(p.id)
              order by 2, 3 nulls last, 1
              limit greatest(coalesce(combien, 3), 0)) x), '{}');
@@ -12129,6 +12136,11 @@ declare
 begin
   if moi is null or not public.est_livreur() then return false; end if;
   if la is null or lo is null or (la = 0 and lo = 0) then return false; end if;
+  -- (3.70.0) « Pas disponible » et sans course : sa position ne part pas.
+  if exists (select 1 from public.profils p where p.id = moi and not p.disponible)
+     and not public.livreur_en_course(moi) then
+    return false;
+  end if;
   update public.positions_livreurs
      set latitude = la, longitude = lo, precision_m = greatest(0, signaler_ma_position.precision_m),
          enregistre_le = now()
@@ -16412,6 +16424,11 @@ create table if not exists public.suivis_livreurs (
   expire_le   timestamptz not null,
   cree_le     timestamptz not null default now()
 );
+-- (3.70.0) L'ANCIEN JETON RESTE VALABLE 10 MINUTES après un renouvellement :
+-- le téléphone qui l'utilise encore (un envoi parti, ou le service pas
+-- encore relancé avec le nouveau) n'est plus coupé par un refus.
+alter table public.suivis_livreurs add column if not exists jeton_hash_precedent text;
+alter table public.suivis_livreurs add column if not exists precedent_expire_le timestamptz;
 alter table public.suivis_livreurs enable row level security;
 -- Aucune règle : personne ne lit ni n'écrit la table, sinon ces fonctions.
 revoke all on table public.suivis_livreurs from public, anon, authenticated;
@@ -16440,11 +16457,18 @@ begin
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
   end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-  insert into public.suivis_livreurs (profil_id, jeton_hash, expire_le, cree_le)
+  insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())
   on conflict (profil_id) do update
-     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now();
+     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now(),
+         -- (3.70.0) L'ancien reste bon 10 minutes, s'il l'était encore.
+         jeton_hash_precedent = case when s.expire_le > now() then s.jeton_hash end,
+         precedent_expire_le = case when s.expire_le > now() then now() + interval '10 minutes' end;
   return jsonb_build_object('jeton', jeton, 'en_course', public.livreur_en_course(moi),
+                            -- (3.70.0) Libre mais disponible (et pas suspendu) : le
+                            -- téléphone suit aussi. Une base d'avant ne le dit pas.
+                            'disponible', coalesce((select p.disponible and not p.courses_bloquees
+                                                      from public.profils p where p.id = moi), true),
                             'expire_le', now() + interval '16 hours');
 end $$;
 
@@ -16462,8 +16486,11 @@ declare
   derniere timestamptz;
 begin
   select s.profil_id into qui from public.suivis_livreurs s
-   where s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-     and s.expire_le > now();
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      -- (3.70.0) L'ancien jeton, 10 minutes après un renouvellement.
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
   if qui is null then
     raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
   end if;
@@ -16497,6 +16524,89 @@ grant execute on function public.ouvrir_suivi_livreur() to authenticated;
 revoke all on function public.position_en_course(text, double precision, double precision, int) from public;
 grant execute on function public.position_en_course(text, double precision, double precision, int)
   to anon, authenticated;
+
+-- (3.70.0) LA POSITION DU LIVREUR, COURSE OU PAS — application fermée.
+-- Le service Android de BIZZOO Admin 3.70.0 l'appelle (l'ancien, celui de
+-- « position_en_course », s'arrête toujours en fin de course) : il continue
+-- tant que le livreur a une course OU s'est dit « disponible ». La réponse
+-- dit lequel des deux, pour que le téléphone règle son rythme : toutes les
+-- 20 secondes en course, toutes les 3 minutes libre. C'est cette position
+-- qui fait « le plus proche » dans la cascade des courses.
+create or replace function public.position_livreur(jeton text, lat double precision,
+  lng double precision, precision_m int default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  qui uuid;
+  p   public.profils%rowtype;
+  la  double precision := public.coord_valable(lat, 90);
+  lo  double precision := public.coord_valable(lng, 180);
+  en_course boolean;
+  derniere timestamptz;
+  pas      interval;
+begin
+  select s.profil_id into qui from public.suivis_livreurs s
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
+  if qui is null then
+    raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
+  end if;
+  select * into p from public.profils x where x.id = qui;
+  if not found or not p.actif or p.role <> 'livreur' then
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false, 'en_course', false);
+  end if;
+  en_course := public.livreur_en_course(qui);
+  if not en_course and (not coalesce(p.disponible, true) or p.courses_bloquees) then
+    -- Le suivi s'arrête : « Localiser un livreur » ne le montre plus actif.
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false, 'en_course', false);
+  end if;
+  -- APPLICATION FERMÉE DES JOURS DURANT : tant que le téléphone se manifeste,
+  -- le jeton ne meurt pas (16 heures après le dernier signe ; une écriture
+  -- par heure au plus).
+  update public.suivis_livreurs set expire_le = now() + interval '16 hours'
+   where profil_id = qui and expire_le < now() + interval '15 hours';
+  if la is null or lo is null or (la = 0 and lo = 0) then
+    return jsonb_build_object('continuer', true, 'en_course', en_course);
+  end if;
+  -- Pas plus d'une écriture toutes les 5 secondes en course, toutes les 30
+  -- secondes libre. Seule une position déjà là (compte validé) se met à jour.
+  select pl.enregistre_le into derniere from public.positions_livreurs pl where pl.profil_id = qui;
+  pas := case when en_course then interval '5 seconds' else interval '30 seconds' end;
+  if derniere is not null and derniere < now() - pas then
+    update public.positions_livreurs
+       set latitude = la, longitude = lo, precision_m = greatest(0, position_livreur.precision_m),
+           enregistre_le = now()
+     where profil_id = qui;
+  end if;
+  return jsonb_build_object('continuer', true, 'en_course', en_course);
+end $$;
+-- Sans session : le jeton fait foi.
+revoke all on function public.position_livreur(text, double precision, double precision, int) from public;
+grant execute on function public.position_livreur(text, double precision, double precision, int)
+  to anon, authenticated;
+
+-- (3.70.0) Le livreur se dit disponible, ou non. Rend l'état gardé.
+create or replace function public.regler_disponibilite(dispo boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Réservé aux livreurs.' using errcode = '42501';
+  end if;
+  update public.profils set disponible = coalesce(dispo, true) where id = moi;
+  -- Éteint et sans course : le suivi s'arrête aussi en base.
+  if not coalesce(dispo, true) and not public.livreur_en_course(moi) then
+    delete from public.suivis_livreurs where profil_id = moi;
+  end if;
+  return coalesce(dispo, true);
+end $$;
+revoke all on function public.regler_disponibilite(boolean) from public, anon;
+grant execute on function public.regler_disponibilite(boolean) to authenticated;
 
 -- ---------- BIZZOO Personnel : le menu « Localiser un livreur » ----------
 do $$

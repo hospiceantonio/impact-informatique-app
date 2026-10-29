@@ -94,6 +94,9 @@ create index if not exists courses_cascade_prochaine on public.courses_cascade (
 alter table public.courses_cascade enable row level security;
 revoke all on public.courses_cascade from anon, authenticated;
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.profils add column if not exists disponible boolean not null default true;
+
 -- (3.70.0) Empruntées plus bas, recopiées telles quelles.
 create or replace function public.est_equipe() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -738,6 +741,11 @@ declare
 begin
   if moi is null or not public.est_livreur() then return false; end if;
   if la is null or lo is null or (la = 0 and lo = 0) then return false; end if;
+  -- (3.70.0) « Pas disponible » et sans course : sa position ne part pas.
+  if exists (select 1 from public.profils p where p.id = moi and not p.disponible)
+     and not public.livreur_en_course(moi) then
+    return false;
+  end if;
   update public.positions_livreurs
      set latitude = la, longitude = lo, precision_m = greatest(0, signaler_ma_position.precision_m),
          enregistre_le = now()
@@ -788,6 +796,8 @@ begin
               join public.profils p on p.id = c.id
               join public.positions_livreurs pl on pl.profil_id = p.id
              where pl.enregistre_le > now() - make_interval(mins => coalesce(fraich, 60))
+               -- (3.70.0) « Pas disponible » : jamais parmi les plus proches.
+               and p.disponible
                and not public.livreur_en_course(p.id)
              order by 2, 3 nulls last, 1
              limit greatest(coalesce(combien, 3), 0)) x), '{}');
