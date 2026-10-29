@@ -2035,3 +2035,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    réseau corrigé d'après le numéro : la note qui le dit. */
 .note-saisie{margin:6px 0 0;font-size:.85rem;font-weight:600;color:var(--orange-texte)}
 .note-saisie[hidden]{display:none}
+
+/* (3.70.0) « Confier » : la recherche du livreur, en tête, qui reste en
+   haut pendant qu'on fait défiler la liste. */
+.cmd-livreur-recherche{position:sticky;top:0;z-index:2;margin:0 0 14px}
+.cmd-livreur[hidden],#cmd-livreur-aucun[hidden]{display:none}

@@ -159,7 +159,16 @@ const VueCommandes = (() => {
       return;
     }
 
+    /* (3.70.0) LA RECHERCHE EN TÊTE. Des dizaines de livreurs : on tape
+       son nom ou son numéro au lieu de dérouler toute la liste. Elle
+       reste en haut pendant qu'on fait défiler. */
+    const cherchable = (l) => Utils.sansAccent((l.affichage || "") + " " + (l.nom || "")) +
+      " " + String(l.tel || "").replace(/\D/g, "");
     const corps = UI.ouvrirFeuille("Confier « " + (commande.numero || "") + " »",
+      '<div class="recherche-boite cmd-livreur-recherche">' + UI.icone("recherche", "ic-sm") +
+        '<input id="cmd-livreur-chercher" type="search" autocomplete="off" enterkeyhint="search" ' +
+          'placeholder="Nom ou numéro du livreur…" aria-label="Rechercher un livreur">' +
+      "</div>" +
       '<p class="aide" style="margin:0 0 10px"><strong>La demande est partie à tous les ' +
         "livreurs dès le paiement</strong> : le premier qui touche « Commande reçue » la prend. " +
         "Confiez à la main seulement si personne ne l'a prise.</p>" +
@@ -179,7 +188,8 @@ const VueCommandes = (() => {
         : "") +
       livreurs.map((l) =>
         '<button type="button" class="btn btn-clair cmd-livreur" style="margin-bottom:8px" ' +
-          'data-livreur="' + Utils.echapper(l.id) + '">' + UI.icone("voiture") +
+          'data-livreur="' + Utils.echapper(l.id) + '" data-cherche="' + Utils.echapper(cherchable(l)) + '">' +
+          UI.icone("voiture") +
           '<span class="cmd-livreur-mots">' +
             '<span class="cmd-livreur-nom">' + Utils.echapper(l.affichage) +
               /* CELUI-LÀ N'EST PAS DE LA MAISON. On lui remet le nom, le
@@ -193,8 +203,30 @@ const VueCommandes = (() => {
             (l.tel ? '<span class="cmd-livreur-tel">' + Utils.echapper(l.tel) + "</span>" : "") +
           "</span>" +
         "</button>").join("") +
+      '<p class="aide" id="cmd-livreur-aucun" hidden style="margin:0 0 14px">Aucun livreur ne ' +
+        "correspond : essayez une partie du nom, ou les derniers chiffres de son numéro.</p>" +
       '<button type="button" class="btn btn-clair btn-danger-clair" ' +
         'data-livreur="">' + UI.icone("fermer") + "Reprendre la course</button>");
+
+    /* Chaque mot tapé doit se trouver dans le nom ou le numéro : « jean
+       claude », « adelabou », « 0140 », « 397039 ». Le numéro se tape
+       avec ou sans espaces, avec ou sans 229. */
+    const champ = UI.$("#cmd-livreur-chercher", corps);
+    const aucun = UI.$("#cmd-livreur-aucun", corps);
+    if (champ) {
+      champ.addEventListener("input", () => {
+        const mots = Utils.sansAccent(champ.value).trim().split(/\s+/).filter(Boolean)
+          .map((m) => (/^[\d+().-]+$/.test(m) ? m.replace(/\D/g, "").replace(/^229(?=\d{8,})/, "") : m))
+          .filter(Boolean);
+        let visibles = 0;
+        for (const b of UI.$$(".cmd-livreur[data-cherche]", corps)) {
+          const garde = mots.every((m) => b.dataset.cherche.includes(m));
+          b.hidden = !garde;
+          if (garde) visibles += 1;
+        }
+        aucun.hidden = visibles > 0;
+      });
+    }
 
     for (const b of UI.$$("[data-livreur]", corps)) {
       b.onclick = async () => {

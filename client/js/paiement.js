@@ -176,20 +176,82 @@ const Paiement = (() => {
     return lignes.some((l) => l.produit && l.produit.vehicule === "tricycle") ? "tricycle" : "moto";
   }
 
+  /* ---------- (3.70.0) La distance PAR LA ROUTE ----------
+     La fonction serveur « distance-route » demande le vrai trajet à
+     Google (sa clé ne descend jamais ici) et l'écrit dans la base, qui
+     s'en sert pour figer les frais. Ici, ce n'est qu'un APERÇU : tant
+     qu'elle n'a pas répondu — ou si elle n'a pas de clé —, l'écran
+     montre le vol d'oiseau × coefficient, comme la base le ferait. */
+  const routes = new Map();     // « lat,lng » → km par la route, ou null
+  const routesEnCours = new Map();
+  let routeInactive = false;    // pas de clé, ou fonction absente : on ne redemande plus
+  const cleRoute = (d) => Number(d.latitude).toFixed(6) + "," + Number(d.longitude).toFixed(6);
+
+  function demanderRoute(dest) {
+    if (routeInactive || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) {
+      return Promise.resolve(null);
+    }
+    const k = cleRoute(dest);
+    if (routes.has(k)) return Promise.resolve(routes.get(k));
+    if (routesEnCours.has(k)) return routesEnCours.get(k);
+    const c = Catalogue.configuration();
+    if (!c) return Promise.resolve(null);
+    const arret = new AbortController();
+    const minuteur = setTimeout(() => arret.abort(), 9000);
+    const promesse = fetch(c.url + "/functions/v1/distance-route", {
+      method: "POST",
+      headers: { "apikey": c.cle, "Content-Type": "application/json" },
+      body: JSON.stringify({ latitude: Number(dest.latitude), longitude: Number(dest.longitude) }),
+      signal: arret.signal,
+    }).then(async (r) => {
+      if (r.status === 404) { routeInactive = true; return null; }   // pas encore déployée
+      return r.json().catch(() => null);
+    }).catch(() => null).then((d) => {
+      clearTimeout(minuteur);
+      routesEnCours.delete(k);
+      if (!d) return null;           // réseau : on redemandera
+      if (d.actif === false) { routeInactive = true; return null; }
+      const km = typeof d.distance_km === "number" && d.distance_km > 0 ? d.distance_km : null;
+      routes.set(k, km);
+      if (km !== null) document.dispatchEvent(new CustomEvent("route:maj"));
+      return km;
+    });
+    routesEnCours.set(k, promesse);
+    return promesse;
+  }
+
+  /** Avant de créer la commande : laisser à la distance par la route le
+      temps d'arriver (5 secondes au plus), pour que la base fige les
+      mêmes frais que ceux que l'écran vient de montrer. */
+  function attendreRoute(dest) {
+    return Promise.race([demanderRoute(dest),
+      new Promise((ok) => setTimeout(() => ok(null), 5000))]);
+  }
+
   /** Le devis d'une livraison vers « dest », ou null. */
   function devis(dest, vehicule) {
     const t = tarifs();
     if (!t || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) return null;
     const v = vehicule === "tricycle" ? "tricycle" : "moto";
-    const rad = (d) => d * Math.PI / 180;
-    const dlat = rad(dest.latitude - t.point.latitude);
-    const dlng = rad(dest.longitude - t.point.longitude);
-    const a = Math.sin(dlat / 2) ** 2 +
-      Math.cos(rad(t.point.latitude)) * Math.cos(rad(dest.latitude)) * Math.sin(dlng / 2) ** 2;
-    const dist = Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000;
+    /* (3.70.0) Par la route quand on la connaît ; sinon on la demande, et
+       en attendant, le vol d'oiseau × coefficient. */
+    const parRoute = routes.get(cleRoute(dest));
+    let dist;
+    if (typeof parRoute === "number") {
+      dist = Math.round(parRoute * 1000) / 1000;
+    } else {
+      if (!routes.has(cleRoute(dest))) demanderRoute(dest);
+      const rad = (d) => d * Math.PI / 180;
+      const dlat = rad(dest.latitude - t.point.latitude);
+      const dlng = rad(dest.longitude - t.point.longitude);
+      const a = Math.sin(dlat / 2) ** 2 +
+        Math.cos(rad(t.point.latitude)) * Math.cos(rad(dest.latitude)) * Math.sin(dlng / 2) ** 2;
+      dist = Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000;
+    }
     const km = dist > t.rayon ? Math.ceil(dist - t.rayon) : 0;
     const tarif = t[v];
     return { vehicule: v, distanceKm: Math.round(dist * 10) / 10, rayon: t.rayon, kmFactures: km,
+             calcul: typeof parRoute === "number" ? "route" : "vol_oiseau",
              forfait: tarif.forfait, prixKm: tarif.prixKm, frais: tarif.forfait + km * tarif.prixKm };
   }
 
@@ -477,6 +539,7 @@ const Paiement = (() => {
     /* (3.64.0) Où livrer : la base en tire la distance et les frais. Une
        base d'avant ne connaît pas « destination » : on retombe plus bas. */
     if (ou) {
+      await attendreRoute(ou);
       try {
         return await rpc("creer_commande",
           { client, articles, code: code || "", avec_acompte: true, avec_frais: true,
@@ -620,6 +683,7 @@ const Paiement = (() => {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe, fraisLivraison, apercu,
     livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
+    demanderRoute, attendreRoute,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,

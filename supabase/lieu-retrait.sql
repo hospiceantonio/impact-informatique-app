@@ -24,6 +24,26 @@ alter table public.commande_lignes add column if not exists confirme_le timestam
 alter table public.commande_lignes add column if not exists livreur_id uuid;
 alter table public.commande_lignes add column if not exists recu_le timestamptz;
 
+-- (3.70.0) Le devis plus bas lit la distance par la route : la grille
+-- et le cache qu'il emprunte, recopiés tels quels.
+create or replace function public.grille_route(x double precision) returns numeric
+language sql immutable as $$
+  select (round((x * 2000)::numeric) / 2000)::numeric(9,4);
+$$;
+
+create table if not exists public.distances_route (
+  o_lat      numeric(9,4) not null,
+  o_lng      numeric(9,4) not null,
+  d_lat      numeric(9,4) not null,
+  d_lng      numeric(9,4) not null,
+  distance_m int not null check (distance_m > 0 and distance_m <= 1000000),
+  cree_le    timestamptz not null default now(),
+  primary key (o_lat, o_lng, d_lat, d_lng)
+);
+create index if not exists distances_route_jour on public.distances_route(cree_le);
+alter table public.distances_route enable row level security;
+revoke all on public.distances_route from public, anon, authenticated;
+
 -- Empruntées par les fonctions plus bas, recopiées telles quelles.
 create or replace function public.creer_commande(
   client jsonb, articles jsonb, code text default '',
@@ -783,6 +803,7 @@ declare
   km    int;
   forf  int;
   prix  int;
+  route_m int;
 begin
   select * into r from public.paiement where id = 1;
   if not found or r.livraison_latitude is null or r.livraison_longitude is null then
@@ -794,13 +815,24 @@ begin
     raise exception 'Position de livraison invalide : touchez « Utiliser ma position ».'
       using errcode = 'P0001';
   end if;
-  -- À vol d'oiseau (formule de haversine, rayon terrestre de 6 371 km),
-  -- multipliée par le coefficient de la route ; au mètre près.
-  dlat := radians(latitude - r.livraison_latitude);
-  dlng := radians(longitude - r.livraison_longitude);
-  a := sin(dlat / 2) ^ 2
-       + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
-  dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  -- (3.70.0) PAR LA ROUTE, quand la fonction serveur « distance-route » l'a
+  -- demandée à Google pour ce client (à 50 m près) : le vrai trajet.
+  select x.distance_m into route_m from public.distances_route x
+   where x.o_lat = public.grille_route(r.livraison_latitude)
+     and x.o_lng = public.grille_route(r.livraison_longitude)
+     and x.d_lat = public.grille_route(latitude)
+     and x.d_lng = public.grille_route(longitude);
+  if route_m is not null then
+    dist := round(route_m / 1000.0, 3);
+  else
+    -- Sinon, à vol d'oiseau (formule de haversine, rayon terrestre de
+    -- 6 371 km), multipliée par le coefficient de la route ; au mètre près.
+    dlat := radians(latitude - r.livraison_latitude);
+    dlng := radians(longitude - r.livraison_longitude);
+    a := sin(dlat / 2) ^ 2
+         + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
+    dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  end if;
   -- Le kilomètre ENTAMÉ compte : 10,001 km facturent un kilomètre de plus.
   km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
   forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
@@ -808,6 +840,8 @@ begin
   return jsonb_build_object(
     'vehicule', v,
     'distance_km', round(dist, 1),
+    -- (3.70.0) « route » : le trajet réel (Google) ; « vol_oiseau » : estimé.
+    'calcul', case when route_m is not null then 'route' else 'vol_oiseau' end,
     'rayon_km', r.livraison_rayon_km,
     'km_factures', km,
     'forfait', forf,

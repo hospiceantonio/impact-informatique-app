@@ -18,7 +18,7 @@
 -- « regler_prefixe_operateur() » seulement, réservée au superadmin.
 -- =========================================================
 create table if not exists public.prefixes_operateurs (
-  prefixe    text primary key check (prefixe ~ '^[0-9]{2}$'),
+  prefixe    text primary key check (length(prefixe) = 2 and prefixe ~ '^[0-9][0-9]'),
   operateur  text not null check (operateur in ('MTN', 'MOOV', 'CELTIIS')),
   modifie_le timestamptz not null default now()
 );
@@ -54,7 +54,7 @@ begin
     raise exception 'Les préfixes des opérateurs sont réglés par le superadministrateur';
   end if;
   if length(p) = 4 and left(p, 2) = '01' then p := right(p, 2); end if;
-  if p !~ '^[0-9]{2}$' then
+  if length(p) <> 2 or p !~ '^[0-9][0-9]' then
     raise exception 'Un préfixe : les deux chiffres qui suivent « 01 » (par exemple 97 pour 01 97…)';
   end if;
   if o = '' then

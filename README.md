@@ -5528,6 +5528,66 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## La distance par la route, avec Google (3.70.0)
+
+Sans réglage, la distance d'une livraison est **à vol d'oiseau × 1,3**
+(`livraison_coef`) : une moyenne, qu'une lagune ou un pont mettent en
+défaut. Avec une clé Google, c'est **le trajet réel** (Google Routes API,
+« computeRoutes », en voiture, sans trafic — le tarif « Essentials »).
+
+Comment ça marche :
+
+- dès que le client a dit où livrer, l'application appelle la fonction
+  serveur `distance-route` (la clé Google ne descend jamais dans
+  l'application) ;
+- la fonction demande à la base si la distance est déjà connue
+  (`route_connue`) — à 50 m près : une grille de 0,0005° ; un client qui
+  recommande de chez lui ne coûte rien. Sinon elle demande le trajet à
+  Google et l'écrit (`enregistrer_route`, table `distances_route`) ;
+- `devis_livraison` — et donc `creer_commande`, qui fige les frais — prend
+  la distance de la route quand elle existe (`"calcul": "route"`), sinon
+  le vol d'oiseau × coefficient (`"calcul": "vol_oiseau"`) ;
+- l'écran affiche « 18,5 km par la route » ; avant de créer la commande,
+  il attend la réponse 5 secondes au plus, pour que la base fige les mêmes
+  frais que ceux montrés.
+
+Ce qui protège :
+
+- **personne d'autre que le serveur n'écrit une distance** : ni le
+  client, ni un administrateur (une distance écrite à la main ferait
+  payer moins) ; la base seule juge ;
+- **sans clé, rien ne change** : la fonction répond `{ actif: false }`,
+  l'application ne la redemande plus, tout reste à vol d'oiseau ;
+- **Google en panne, refus, trop loin (plus de 150 km), plafond du jour
+  atteint** : pas de distance, la commande part à vol d'oiseau, jamais
+  bloquée ;
+- **plafond** : 1 000 appels nouveaux à Google par jour au plus
+  (`route_connue`), en plus des quotas que vous réglez chez Google ;
+- **le point BIZZOO déplacé** : les anciennes distances ne servent plus
+  (le point fait partie de la clé du cache), rien n'est effacé.
+
+Mise en service (une fois) :
+
+1. **Google Cloud** (console.cloud.google.com, compte de l'entreprise) :
+   un projet « BIZZOO », la facturation activée, **Routes API** activée ;
+   une clé API **restreinte à « Routes API »** ; une alerte de budget
+   (par exemple 5 $/mois) et un plafond d'appels par jour.
+2. **Supabase → Edge Functions → Secrets** : `GOOGLE_MAPS_KEY` = la clé.
+   Elle ne s'écrit nulle part ailleurs — ni dans le dépôt, ni dans un
+   message.
+3. La base : `supabase/distance-route.sql` (déjà compris dans la mise à
+   jour de la 3.70.0).
+4. La fonction : `supabase functions deploy distance-route --no-verify-jwt`
+   (les clients commandent sans compte).
+5. La version 3.70.0 des applications.
+
+Coût (grille Google, à revérifier le jour de la mise en service) : les
+10 000 premiers appels du mois sont gratuits, puis 5 $ les 1 000. Avec le
+cache, un client régulier ne coûte qu'un appel. Éprouvé par
+`tools/eprouver-distance-route.sh` (la fonction, Google et la base
+simulés), `supabase/tests/…-distance-route.sql` (la base) et
+`tools/banc-livraison-km.mjs` section 3 bis (l'écran).
+
 ## Le téléphone sonne, application fermée (3.65.0)
 
 Avant, une course confiée à un livreur ou une commande payée chez une
