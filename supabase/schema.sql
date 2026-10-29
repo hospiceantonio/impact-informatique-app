@@ -19309,11 +19309,13 @@ begin
   t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
 
   with lig as (
+    -- « j.commande_id = l.commande_id » : le journal n'est indexé que par
+    -- commande ; sans ce filtre, chaque article relirait tout le journal.
     select l.id, l.boutique_id, l.commande_id, l.etat, l.quantite, l.prix, c.paye_le,
            (select min(j.le) from public.rh_journal_lignes j
-             where j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'vue') as vue_le,
+             where j.commande_id = l.commande_id and j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'vue') as vue_le,
            (select min(j.le) from public.rh_journal_lignes j
-             where j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'preparee') as preparee_le
+             where j.commande_id = l.commande_id and j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'preparee') as preparee_le
       from public.commande_lignes l
       join public.commandes c on c.id = l.commande_id
      where c.paye_le >= t1 and c.paye_le < t2 and l.boutique_id is not null
@@ -19639,14 +19641,14 @@ begin
   t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
   t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
 
+  -- Toutes les commandes de la période, sans plafond : ce sont des
+  -- statistiques, et en couper la liste fausserait chaque nombre.
   with cmd as (
     select c.id, c.paye_le, c.livraison,
            coalesce(nullif(sc.zone, ''), public.rh_zone_de(c.client_adresse), '') as zone_brute
       from public.commandes c
       left join public.rh_suivi_commandes sc on sc.commande_id = c.id
      where c.etat = 'payee' and c.paye_le >= t1 and c.paye_le < t2
-     order by c.paye_le desc
-     limit 3000
   ),
   cz as (
     select x.*, case
@@ -19658,10 +19660,25 @@ begin
   lig as (
     select l.commande_id, l.etat, l.confirme_le, s.statut as terrain,
            (select min(j.le) from public.rh_journal_lignes j
-             where j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'remise') as remise_le
+             where j.commande_id = l.commande_id and j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'remise') as remise_le
       from public.commande_lignes l
       join cz on cz.id = l.commande_id
       left join public.rh_suivi_lignes s on s.ligne_id = l.id
+  ),
+  -- Les articles résumés une fois par commande : sans plafond, relire
+  -- « lig » pour chaque commande coûterait le carré du nombre de commandes.
+  parl as (
+    select lig.commande_id,
+           bool_or(lig.etat <> 'annulee') as vivante,
+           bool_or(lig.etat <> 'annulee' and lig.confirme_le is null and lig.etat <> 'remise') as en_cours,
+           max(coalesce(lig.confirme_le, lig.remise_le)) filter (where lig.etat <> 'annulee') as fini_le,
+           bool_or(lig.terrain in ('echouee', 'retour_en_cours', 'retournee')) as echec
+      from lig group by lig.commande_id
+  ),
+  nonrecu as (
+    select distinct r.commande_id from public.reclamations r
+      join cz on cz.id = r.commande_id
+     where r.sujet = 'non_recu'
   ),
   parc as (
     select cz.id, cz.zone,
@@ -19669,16 +19686,14 @@ begin
                 then (cz.livraison ->> 'distance_km')::numeric end as distance,
            cz.livraison is not null as au_km,
            cz.livraison ->> 'vehicule' = 'tricycle' as tricycle,
-           case when exists (select 1 from lig where lig.commande_id = cz.id and lig.etat <> 'annulee')
-                 and not exists (select 1 from lig where lig.commande_id = cz.id and lig.etat <> 'annulee'
-                                    and lig.confirme_le is null and lig.etat <> 'remise')
-                then extract(epoch from ((select max(coalesce(lig.confirme_le, lig.remise_le)) from lig
-                                           where lig.commande_id = cz.id and lig.etat <> 'annulee') - cz.paye_le)) / 3600
+           case when pl.vivante and not pl.en_cours
+                then extract(epoch from (pl.fini_le - cz.paye_le)) / 3600
            end as delai_h,
-           exists (select 1 from lig where lig.commande_id = cz.id
-                     and lig.terrain in ('echouee', 'retour_en_cours', 'retournee')) as echec,
-           exists (select 1 from public.reclamations r where r.commande_id = cz.id and r.sujet = 'non_recu') as non_recu
+           coalesce(pl.echec, false) as echec,
+           nr.commande_id is not null as non_recu
       from cz
+      left join parl pl on pl.commande_id = cz.id
+      left join nonrecu nr on nr.commande_id = cz.id
   )
   select coalesce(jsonb_agg(jsonb_build_object(
            'zone', z.zone, 'commandes', z.commandes, 'livrees', z.livrees, 'delai_moyen_h', z.delai_moyen_h,
@@ -19711,7 +19726,7 @@ end $$;
  * Seules les commandes payées comptent.
  *   cohortes : les 12 mois qui finissent avec la période ; pour chaque mois
  *              de premier achat, combien de nouveaux clients, et combien ont
- *              racheté 1, 2, 3 mois plus tard (null : mois pas encore venu) ;
+ *              racheté 1, 2, 3 mois plus tard (null : mois pas encore terminé) ;
  *   perdus   : clients dont le dernier achat date de plus de 60 / 90 jours ;
  *   comptes supprimés : clients dont des commandes portent « compte_supprime ».
  * La valeur des cohortes et la liste à relancer (inactifs depuis
@@ -19766,13 +19781,15 @@ begin
   ),
   cohortes as (
     select k.premier_mois as mois, count(*) as nouveaux,
-           case when k.premier_mois + interval '1 month' <= mois_courant then
+           -- « < mois_courant » : seul un mois TERMINÉ donne un taux ; le mois en
+           -- cours, incomplet, le sous-estimerait (l'écran dit « à venir »).
+           case when k.premier_mois + interval '1 month' < mois_courant then
              count(*) filter (where exists (select 1 from cm2 y where y.cle = k.cle
                                               and y.mois = (k.premier_mois + interval '1 month')::date)) end as m1,
-           case when k.premier_mois + interval '2 months' <= mois_courant then
+           case when k.premier_mois + interval '2 months' < mois_courant then
              count(*) filter (where exists (select 1 from cm2 y where y.cle = k.cle
                                               and y.mois = (k.premier_mois + interval '2 months')::date)) end as m2,
-           case when k.premier_mois + interval '3 months' <= mois_courant then
+           case when k.premier_mois + interval '3 months' < mois_courant then
              count(*) filter (where exists (select 1 from cm2 y where y.cle = k.cle
                                               and y.mois = (k.premier_mois + interval '3 months')::date)) end as m3,
            count(*) filter (where k.nb > 1) as revenus,

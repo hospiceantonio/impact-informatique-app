@@ -247,8 +247,12 @@ const VueQualite = (() => {
       coche.addEventListener("change", async () => {
         let mot = "";
         if (coche.checked) {
-          mot = await UI.motif("Boutique appelée", "Ce qu'elle a dit (facultatif)");
-          if (mot === null) { coche.checked = false; return; }
+          // Pas UI.motif : il rend la note obligatoire (et le bouton rouge), alors que
+          // l'appel se note même sans réponse de la boutique ; la base accepte une note vide.
+          const r = await UI.formulaire({ titre: "Boutique appelée", valider: "Noter l'appel",
+            champs: [{ nom: "note", libelle: "Ce qu'elle a dit (facultatif)", type: "textarea" }] });
+          if (r === null) { coche.checked = false; return; }
+          mot = (r.note || "").trim();
         }
         coche.disabled = true;
         try {
@@ -395,7 +399,7 @@ const VueQualite = (() => {
     UI.vider(zone,
       barre,
       UI.barrePeriode(periode, ROUTE + "/fidelite"),
-      h("p", { class: "doux petit" }, "Un client, c'est son compte, ou à défaut son numéro. Seules les commandes payées comptent. Les cohortes couvrent les 12 mois qui finissent avec la période ; « à venir » : le mois n'est pas encore passé." +
+      h("p", { class: "doux petit" }, "Un client, c'est son compte, ou à défaut son numéro. Seules les commandes payées comptent. Les cohortes couvrent les 12 mois qui finissent avec la période ; « à venir » : le mois n'est pas encore terminé (le mois en cours ne compte qu'une fois fini)." +
         (admin ? "" : " La valeur des clients et la liste à relancer sont réservées à l'administration.")),
       h("div", { class: "tuiles compactes" },
         tuile(UI.entier(t.actifs_periode), "clients sur la période"),

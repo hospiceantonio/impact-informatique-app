@@ -74,7 +74,10 @@
 --      seule ; la santé du catalogue et « boutique appelée » ; les files
 --      d'attente d'Admin, sans aucun nom ; le service par zone, sans montant ;
 --      la fidélité (cohortes, perdus, comptes supprimés), la liste à relancer
---      à l'administration seule, numéros masqués ; les seuils dans leurs bornes.
+--      à l'administration seule, numéros masqués ; les seuils dans leurs bornes ;
+--      les zones comptent TOUTES les commandes (plus de 3 000 aussi), le
+--      journal se lit par commande (son index), et une cohorte n'a de taux de
+--      rachat que pour un mois terminé, jamais pour le mois en cours.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -2790,6 +2793,15 @@ select essai.verifie(not (:'files_mkt'::jsonb::text ~ '(Cliente|Ventilateur|Bout
   'des nombres et des dates : aucun nom');
 
 -- 5. Le service par zone.
+-- Le volume : 3 000 commandes payées il y a 1 h, plus récentes que celles
+-- du décor. Les zones ne gardaient que les 3 000 plus récentes : le décor
+-- disparaissait des nombres, sans que l'écran le dise.
+set session_replication_role = replica;
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le)
+select 'cmd_rv_' || g, 'BZ-RV' || g, 'Volume', '', 'Rue V', 1000, 'payee', now() - interval '1 hour', now() - interval '1 hour'
+  from generate_series(1, 3000) g;
+insert into public.rh_suivi_commandes (commande_id, zone) select 'cmd_rv_' || g, 'Zone Volume' from generate_series(1, 3000) g;
+set session_replication_role = origin;
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
 select public.rh_statistiques_zones(current_date - 1, current_date + 1) as zones_c \gset
 select public.rh_statistiques_zones(current_date - 1, current_date + 1, 'quartier') as zones_q \gset
@@ -2806,8 +2818,37 @@ select essai.verifie((select (x ->> 'echecs')::int = 1 and x -> 'tricycle_pct' =
 select essai.verifie((select (x ->> 'commandes')::int = 1 from jsonb_array_elements(:'zones_q'::jsonb -> 'zones') x
                        where x ->> 'zone' = 'Quartier Alpha (Commune Essai)'), 'par quartier : chaque quartier à part');
 select essai.verifie(not (:'zones_c'::jsonb::text ~ '"(total|montant|frais|prix)"'), 'aucun montant');
+select essai.verifie((select (x ->> 'commandes')::int = 3000 and (x ->> 'livrees')::int = 0
+                        from jsonb_array_elements(:'zones_c'::jsonb -> 'zones') x where x ->> 'zone' = 'Zone Volume'),
+  'les 3 000 commandes du volume comptent toutes, sans chasser celles du décor');
+set session_replication_role = replica;
+delete from public.rh_suivi_commandes where commande_id like 'cmd\_rv\_%';
+delete from public.commandes where id like 'cmd\_rv\_%';
+set session_replication_role = origin;
+-- Le journal n'est indexé que par commande : chaque lecture d'un article
+-- dans le journal doit passer par sa commande, sinon elle relit tout le
+-- journal pour chaque article et une période d'un an dépasse le délai.
+select essai.verifie((select bool_and(
+                        (length(p.prosrc) - length(replace(p.prosrc, 'j.ligne_id = l.id', ''))) / length('j.ligne_id = l.id')
+                        = (length(p.prosrc) - length(replace(p.prosrc, 'j.commande_id = l.commande_id and j.ligne_id = l.id', '')))
+                          / length('j.commande_id = l.commande_id and j.ligne_id = l.id')
+                        and p.prosrc like '%j.ligne_id = l.id%')
+                        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                       where n.nspname = 'public' and p.proname in ('rh_qualite_boutiques', 'rh_statistiques_zones'))
+                     and (select count(*) from pg_proc where proname in ('rh_qualite_boutiques', 'rh_statistiques_zones')) = 2,
+  'la fiche des boutiques et les zones lisent le journal par commande (son index)');
 
 -- 6. La fidélité.
+-- Une cliente venue le mois dernier, revenue ce mois-ci : le mois en cours
+-- n'est pas fini, sa cohorte n'a pas encore de taux « le mois suivant ».
+select (date_trunc('month', now() at time zone 'Africa/Porto-Novo') - interval '1 month')::date as mois_prec \gset
+set session_replication_role = replica;
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id)
+values ('cmd_rf_5', 'BZ-RF5', 'Récente Quatre', '0196990004', 'Rue I', 1000, 'payee',
+        (:'mois_prec'::date + interval '10 days 12 hours') at time zone 'Africa/Porto-Novo',
+        (:'mois_prec'::date + interval '10 days 12 hours') at time zone 'Africa/Porto-Novo', null),
+       ('cmd_rf_6', 'BZ-RF6', 'Récente Quatre', '0196990004', 'Rue I', 1000, 'payee', now() - interval '1 minute', now() - interval '1 minute', null);
+set session_replication_role = origin;
 select essai.devenir(:ADMRH::uuid); set role authenticated;
 select public.rh_statistiques_clients() as fid_adm \gset
 reset role; select essai.personne();
@@ -2832,6 +2873,16 @@ select essai.verifie(not exists (select 1 from jsonb_array_elements(:'fid_adm'::
 select essai.verifie(not (:'fid_adm'::jsonb::text ~ '0196990001'), 'aucun numéro entier, même pour l''administration');
 select essai.verifie(:'fid_mkt'::jsonb -> 'relance' = 'null'::jsonb and not (:'fid_mkt'::jsonb::text ~ '(Fidèle|"valeur": [0-9]|"depense")'),
   'les autres : les taux, ni la liste, ni la valeur des clients');
+select essai.verifie((select (x ->> 'nouveaux')::int >= 1 and x -> 'm1' = 'null'::jsonb
+                        from jsonb_array_elements(:'fid_adm'::jsonb -> 'cohortes') x where (x ->> 'mois')::date = :'mois_prec'::date),
+  'la cohorte du mois dernier : « à venir » le mois suivant, puisque c''est le mois en cours');
+-- Sur toutes les cohortes : un taux n'existe que pour un mois terminé.
+select essai.verifie(coalesce((select bool_and(
+                        (x -> 'm1' = 'null'::jsonb) = ((x ->> 'mois')::date + interval '1 month' >= :'mois_prec'::date + interval '1 month')
+                        and (x -> 'm2' = 'null'::jsonb) = ((x ->> 'mois')::date + interval '2 months' >= :'mois_prec'::date + interval '1 month')
+                        and (x -> 'm3' = 'null'::jsonb) = ((x ->> 'mois')::date + interval '3 months' >= :'mois_prec'::date + interval '1 month'))
+                        from jsonb_array_elements(:'fid_adm'::jsonb -> 'cohortes') x), false),
+  'aucune cohorte n''a de taux pour le mois en cours, toutes en ont pour un mois fini');
 
 -- Les seuils : l'administration, dans leurs bornes.
 select essai.devenir(:ADMRH::uuid); set role authenticated;
