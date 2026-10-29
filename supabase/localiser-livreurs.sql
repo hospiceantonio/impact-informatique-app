@@ -11,6 +11,20 @@
 -- par rh_localiser_livreurs, avec la distance jusqu'au client.
 -- =========================================================
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
 -- ---------- Les aides (copies de schema.sql) ----------
 create or replace function public.coord_valable(valeur double precision, borne double precision)
 returns double precision

@@ -304,8 +304,11 @@ const VueLivraisons = (() => {
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
         '<button type="button" class="btn lv-prendre">' + UI.icone("check") + "Commande reçue</button>" +
-        '<div class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui ' +
-          "touche « Commande reçue » la prend. Le client reçoit alors votre nom et votre numéro.</div>" +
+        /* (3.70.0) La course va d'abord au plus proche, puis aux suivants :
+           qui tarde la laisse passer. */
+        '<div class="aide" style="margin:6px 0 0">Touchez vite « Commande reçue » : sans réponse, ' +
+          "elle passe au livreur suivant, puis à tous. Le premier qui la prend la garde, et le client " +
+          "reçoit alors votre nom et votre numéro.</div>" +
       "</div>"
     );
   }
@@ -361,6 +364,8 @@ const VueLivraisons = (() => {
       Notifs.majAlerte(courses, demandes);
       /* Sa position suit, tant qu'une course est en cours (Localiser un livreur). */
       if (typeof SuiviPosition !== "undefined") SuiviPosition.mettreAJour(courses);
+      /* (3.70.0) Et, libre ou non, sa position pour la cascade des courses. */
+      if (typeof SuiviPosition !== "undefined") SuiviPosition.presence();
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +

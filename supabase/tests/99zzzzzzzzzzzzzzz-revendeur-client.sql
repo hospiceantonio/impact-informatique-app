@@ -21,6 +21,11 @@ set client_min_messages = notice;
 \set REV      '''e0e0e0e0-0000-0000-0000-000000000001'''
 \set LIV      '''e0e0e0e0-0000-0000-0000-000000000002'''
 
+-- (3.70.0) Ces essais éprouvent qui PEUT prendre la course : on la fait
+-- partir à tous d'un coup (cascade éteinte, la règle d'avant). La cascade
+-- au plus proche a ses propres essais (…-cascade-courses.sql).
+update public.cascade_reglage set actif = false where id = 1;
+
 select essai.titre('Le décor : un revendeur validé, un livreur');
 insert into auth.users (id, email, phone) values
   (:REV::uuid, '', '2290197555001'), (:LIV::uuid, 'liv.rev@essai.bj', null)

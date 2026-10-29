@@ -75,6 +75,39 @@ const SuiviPosition = (() => {
     } catch (_) { /* réseau : la prochaine position repartira */ }
   }
 
+  /* ---------- (3.70.0) Le livreur libre : sa position, toutes les 3 minutes ----------
+     La course va d'abord au livreur le plus proche : encore faut-il savoir
+     où il est. Tant que BIZZOO Admin est ouvert (et visible), sa position
+     part toutes les 3 minutes (« signaler_ma_position » ; la base ignore
+     ce qui arrive moins de 30 secondes après la précédente). */
+  const PRESENCE = 3 * 60 * 1000;
+  let presenceMinuteur = null;
+  let dernierePresence = 0;
+
+  function presence() {
+    if (presenceMinuteur !== null || !navigator.geolocation) return;
+    const tic = () => {
+      if (document.hidden || Date.now() - dernierePresence < PRESENCE - 5000) return;
+      dernierePresence = Date.now();
+      navigator.geolocation.getCurrentPosition((p) => {
+        Supabase.rpcLecture("signaler_ma_position", {
+          lat: p.coords.latitude, lng: p.coords.longitude,
+          precision_m: Math.round(p.coords.accuracy || 0),
+        }).catch(() => { /* base d'avant, ou réseau : la prochaine partira */ });
+      }, () => { /* refusée ou introuvable : rien à envoyer */ },
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 });
+    };
+    tic();
+    presenceMinuteur = setInterval(tic, 30 * 1000);
+    document.addEventListener("visibilitychange", tic);
+  }
+
+  function arreterPresence() {
+    if (presenceMinuteur !== null) clearInterval(presenceMinuteur);
+    presenceMinuteur = null;
+    dernierePresence = 0;
+  }
+
   /** Plus de course, ou déconnexion : le téléphone cesse de suivre. */
   function arreter() {
     if (surveillance !== null && navigator.geolocation) navigator.geolocation.clearWatch(surveillance);
@@ -87,5 +120,5 @@ const SuiviPosition = (() => {
     }
   }
 
-  return { mettreAJour, arreter };
+  return { mettreAJour, arreter, presence, arreterPresence };
 })();

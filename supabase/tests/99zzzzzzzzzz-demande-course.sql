@@ -33,6 +33,11 @@ set client_min_messages = notice;
 \set BZ1      '''dadadada-0000-0000-0000-000000000005'''
 \set BZ2      '''dadadada-0000-0000-0000-000000000006'''
 
+-- (3.70.0) Ces essais éprouvent qui PEUT prendre la course : on la fait
+-- partir à tous d'un coup (cascade éteinte, la règle d'avant). La cascade
+-- au plus proche a ses propres essais (…-cascade-courses.sql).
+update public.cascade_reglage set actif = false where id = 1;
+
 select essai.titre('Le décor : deux boutiques, leurs livreurs, ceux de BIZZOO');
 insert into auth.users (id, email) values
   (:LA1::uuid, 'la1.demande@essai.bj'), (:LA2::uuid, 'la2.demande@essai.bj'),

@@ -256,7 +256,7 @@ const Supabase = (() => {
     /* (3.65.0) Ce téléphone se tait pour ce compte, tant que la session
        peut encore le dire à la base. */
     if (typeof Push !== "undefined") { try { await Push.oublier(); } catch (_) { /* vide */ } }
-    if (typeof SuiviPosition !== "undefined") SuiviPosition.arreter();
+    if (typeof SuiviPosition !== "undefined") { SuiviPosition.arreter(); SuiviPosition.arreterPresence(); }
     try { await appelAuth("logout", {}, true); } catch (_) { /* déjà expirée */ }
     garderSession(null);
     profil = null;

@@ -69,7 +69,9 @@ const PROFIL = { id: PORTEUR, email: "porteur@alpha.bj", nom: "Rachidi", role: "
   peut_modifier_produits: true, boutique_id: "bou_a" };
 
 async function ouvrirAdmin({ courses, hash, demandes = [], tropTard = false }) {
-  const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 }, serviceWorkers: "block" });
+  /* (3.70.0) La position du livreur, que l'écran envoie pour la cascade. */
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 }, serviceWorkers: "block",
+    permissions: ["geolocation"], geolocation: { latitude: 6.3702, longitude: 2.4289, accuracy: 15 } });
   const page = await ctx.newPage();
   const erreurs = [];
   page.on("pageerror", (e) => erreurs.push(e.message));
@@ -148,6 +150,10 @@ titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
   ok(t.includes("À payer par MoMoPay : " + F(7000)), "ce qu'il reste à récupérer");
   ok(!t.includes(F(9000)), "pas le prix des articles");
   ok(/Sonner deux fois/.test(t), "la note du client");
+  await page.waitForTimeout(800);
+  const pos = serveur.appels.find((a) => a.fn === "signaler_ma_position");
+  ok(pos && pos.corps && Math.abs(pos.corps.lat - 6.3702) < 1e-6 && Math.abs(pos.corps.lng - 2.4289) < 1e-6,
+    "(3.70.0) l'écran envoie la position du livreur, pour la cascade au plus proche");
   ok(await page.evaluate(() => !document.querySelector(".lv-lieu-saisi")),
     "une commande de l'application : pas de « Où récupérer (précisé par BIZZOO) »");
   ok(await page.evaluate(() => !!document.querySelector(".lv-recu") && !document.querySelector(".lv-avancer")),

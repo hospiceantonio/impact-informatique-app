@@ -5494,6 +5494,83 @@ partenaires, toujours dans le même ordre. Désormais :
 `client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
 par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
 
+## La course au livreur le plus proche, puis à tous (3.70.0)
+
+Avant, une commande payée sonnait chez **tous** les livreurs à la fois.
+Désormais elle part **en cascade** :
+1. le livreur **le plus proche** de la boutique est alerté **seul** (sonnerie
+   insistante, même application fermée). Son alerte lui dit : « Vous êtes
+   parmi les plus proches : touchez « Commande reçue » dans les 30 secondes,
+   sinon elle passe au livreur suivant » ;
+2. **30 secondes** sans réponse : le **deuxième** plus proche est alerté à
+   son tour — le premier peut encore la prendre ; puis le **troisième** ;
+3. aucun des trois ne l'a prise : elle part à **tous les livreurs de
+   BIZZOO** (et à ceux de la boutique qui pouvaient la prendre). Le premier
+   qui touche « Commande reçue » la garde ; les autres apprennent « Déjà pris
+   par … ».
+
+**Qui est « le plus proche » :** parmi les livreurs qui peuvent la prendre
+— ceux de la boutique d'abord, puis ceux de BIZZOO (véhicule ; ceux qui
+l'ont refusée exceptés) —, **libres** (sans course en cours) et dont la
+position est **récente (moins d'une heure)**, par distance à vol d'oiseau
+jusqu'à la boutique — la première qui a une position, en livraison
+groupée ; le **point BIZZOO** si aucune n'en a. **Personne de récent :
+elle part à tous tout de suite** (inutile de faire attendre le client 90
+secondes pour des livreurs dont on ne sait pas où ils sont). Un livreur
+pas encore alerté ne voit pas la course et ne peut pas la prendre ; une
+fois l'étape « tous » passée, elle est ouverte à tous ceux qui peuvent la
+prendre à ce moment (un livreur débloqué ou validé depuis la voit).
+
+**La position du livreur libre** : avant, elle ne bougeait qu'à la
+validation du compte et pendant une course. Désormais, **BIZZOO Admin
+ouvert (et visible), elle part toutes les 3 minutes**
+(`signaler_ma_position`, une écriture au plus toutes les 30 secondes ; elle
+ne valide pas un compte, elle met à jour une position déjà là). C'est ce
+qui rend « le plus proche » juste : un livreur qui n'a pas ouvert
+l'application depuis plus d'une heure attend l'étape « tous ».
+
+**L'écran du livreur** se relit dès qu'une demande lui arrive (la cascade
+vient de l'atteindre), en plus de quand elle part chez un autre.
+
+**Annulée par son livreur** (section suivante) : la cascade repart du plus
+proche, sans lui (« Course à reprendre »). Un livreur suspendu, ou une
+course que la boutique reprend à son livreur (« Confier » vide) : pareil.
+Un livreur suspendu pendant son tour : on passe au suivant sans attendre
+ses 30 secondes.
+
+**L'horloge est dans la base** : la tâche pg_cron `courses-cascade` passe
+toutes les **5 secondes** (`avancer_cascades`) — le délai réel est donc de
+30 à 35 secondes, téléphones éteints ou non. **Sans cette tâche, pas de
+cascade** (`horloge_cascade`) : la course part à tous d'un coup, comme
+avant — jamais bloquée au premier. Une commande en erreur est mise de côté
+sans arrêter les autres. Le journal de pg_cron de cette tâche est vidé
+chaque heure (`courses-cascade-menage`).
+
+**Réglages** (table `cascade_reglage`, lisible par le seul serveur, à
+changer dans l'éditeur SQL de Supabase) : `actif` (éteinte : à tous d'un
+coup, comme avant), `delai_s` (30), `rangs` (3), `fraicheur_min` (60).
+
+En base : tables `courses_cascade` (où en est chaque course : l'ordre, qui
+a été alerté, quand passer au suivant) et `cascade_reglage` ; fonctions
+`lancer_cascade`, `avancer_cascade`, `avancer_cascades`,
+`plus_proches_course`, `tous_livreurs_course`, `course_ouverte_a`…
+`proposer_course` (au paiement), `courses_proposees`, `prendre_course` et
+`reproposer_course` passent par elles. Une commande d'avant la cascade
+(sans ligne dans `courses_cascade`) reste ouverte à tous les candidats.
+
+**À savoir sur les données d'aujourd'hui (29/10/2026) :** aucune position
+de livreur n'a moins d'une heure (elles ne bougeaient pas hors course) :
+tant que les livreurs n'ont pas la nouvelle BIZZOO Admin ouverte, les
+courses partent à tous tout de suite, comme avant. 4 boutiques sur 8 n'ont
+pas de position (on mesure alors depuis le point BIZZOO) : plus elles sont
+renseignées, plus « le plus proche » est juste.
+
+Fichier à coller : `supabase/cascade-courses.sql` (relançable, autonome ; il
+programme la tâche des 5 secondes). Essais :
+`supabase/tests/99zzz…-cascade-courses.sql` (10 sections),
+`tools/banc-parcours-livraison.mjs` (la position envoyée). Les anciens essais
+des demandes de course tournent cascade éteinte (la règle d'avant).
+
 ## Le livreur annule sa course : BIZZOO l'entend, la course repart (3.70.0)
 
 Un livreur qui a pris une course peut l'annuler (« Refuser la course »)
