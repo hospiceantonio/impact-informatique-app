@@ -291,6 +291,9 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
     private void envoyer(final Location position) {
         if (detruit || arrete) return;
         dernierEnvoi = System.currentTimeMillis();
+        /* Le réveil suivant, dès maintenant : si le téléphone se rendort
+           avant la fin de cet envoi, la chaîne des réveils ne casse pas. */
+        programmerReveil();
         final double lat = position.getLatitude();
         final double lng = position.getLongitude();
         final int precision = Math.round(position.getAccuracy());

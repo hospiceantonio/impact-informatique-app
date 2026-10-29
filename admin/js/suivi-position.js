@@ -31,6 +31,9 @@ const SuiviPosition = (() => {
   /* Un jeton obtenu page cachée : il partira au service au retour à l'écran
      (Android refuse de le relancer hors de l'écran). */
   let jetonEnAttente = "";
+  /* Le jeton que le service a VRAIMENT reçu (≠ le dernier obtenu, s'il est
+     encore en attente) : c'est avec lui qu'on vérifie qu'il tourne. */
+  let jetonService = "";
   /* Une mise à jour à la fois : deux renouvellements croisés laisseraient
      au service un jeton déjà remplacé. */
   let occupe = false;
@@ -71,14 +74,14 @@ const SuiviPosition = (() => {
   async function suivre(courses, disponible) {
     const enCourse = (courses || []).some((c) => c.etat !== "remise");
     if (!enCourse && !(disponible && natif())) return arreter();
-    const tourne = natif() ? serviceTourne(jeton) : surveillance !== null;
+    const tourne = natif() ? serviceTourne(jetonService) : surveillance !== null;
     /* Libre → en course : on relance tout de suite, pour le rythme serré. */
     const memeRythme = !(enCourse && !suiviEnCourse);
     if (Date.now() - ouvertLe < RENOUVELER && tourne && memeRythme) return;
     /* Page cachée, service en marche : on ne renouvelle pas le jeton. Android
        refuserait de relancer le service hors de l'écran, et l'ancien jeton
        remplacé finirait par ne plus valoir. Ce sera au retour à l'écran. */
-    if (natif() && document.hidden && tourne) return;
+    if (natif() && document.hidden && (tourne || jetonEnAttente)) return;
     let r = null;
     try {
       r = await Supabase.rpcLecture("ouvrir_suivi_livreur", {});
@@ -106,6 +109,7 @@ const SuiviPosition = (() => {
 
   function demarrerNatif(c, j) {
     jetonEnAttente = "";
+    jetonService = j;
     try { pont().demarrerSuivi(c.url, c.cle, j); } catch (_) { /* le service n'a pas pu démarrer */ }
     /* Android a pu refuser (permission demandée, démarrage interdit) : le
        prochain passage réessaiera au lieu d'attendre 10 minutes. */
@@ -118,7 +122,7 @@ const SuiviPosition = (() => {
     if (document.hidden || !dernierEtat || !natif()) return;
     const c = Supabase.configuration();
     if (jetonEnAttente && c) { demarrerNatif(c, jetonEnAttente); return; }
-    if (!serviceTourne(jeton)) ouvertLe = 0;
+    if (!serviceTourne(jetonService)) ouvertLe = 0;
     mettreAJour(dernierEtat.courses, dernierEtat.disponible);
   });
 
@@ -198,6 +202,7 @@ const SuiviPosition = (() => {
     ouvertLe = 0;
     suiviEnCourse = false;
     jetonEnAttente = "";
+    jetonService = "";
     jeton = "";
     const p = pont();
     if (p && typeof p.arreterSuivi === "function") {

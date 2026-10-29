@@ -79,6 +79,49 @@ alter table public.suivis_livreurs add column if not exists jeton_hash_precedent
 alter table public.suivis_livreurs add column if not exists precedent_expire_le timestamptz;
 
 -- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.rh_est_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.rh_employes
+                  where compte_id = auth.uid() and etat = 'actif' and (administration or ceo));
+$$;
+
+create or replace function public.rh_moi() returns uuid
+language sql stable security definer set search_path = public as $$
+  select id from public.rh_employes where compte_id = auth.uid() and etat = 'actif';
+$$;
+
+create or replace function public.rh_mon_profil() returns uuid
+language sql stable security definer set search_path = public as $$
+  select profil_id from public.rh_employes where compte_id = auth.uid() and etat = 'actif';
+$$;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.rh_menu_ouvert(cle text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_moi uuid := public.rh_moi();
+  v_profil uuid := public.rh_mon_profil();
+begin
+  if public.rh_est_admin() then
+    return true;
+  end if;
+  if v_moi is null then
+    return false;
+  end if;
+  if to_regclass('public.rh_acces_menus') is null then
+    return cle in ('mails', 'discussions', 'missions', 'rapports');
+  end if;
+  if v_profil is null and not exists (select 1 from public.rh_profils p where p.responsable_id = v_moi) then
+    return cle in ('mails', 'discussions', 'depenses');
+  end if;
+  return exists (
+    select 1 from public.rh_acces_menus a
+      join public.rh_profils p on p.id = a.profil_id
+     where a.menu = cle
+       and (p.responsable_id = v_moi or (a.qui = 'membres' and p.id = v_profil)));
+end $$;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
 create or replace function public.candidats_course(commande text)
 returns uuid[]
 language plpgsql stable security definer set search_path = public as $$
@@ -193,6 +236,71 @@ revoke all on function public.tous_livreurs_course(text) from public, anon, auth
 
 -- Empruntées par les fonctions plus bas, recopiées telles quelles.
 -- ---------- Ce que ce fichier change ----------
+-- « Localiser un livreur » (BIZZOO Personnel) : suivi actif = jeton valable
+-- ET position de moins de 15 minutes.
+create or replace function public.rh_localiser_livreurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+begin
+  if not public.rh_menu_ouvert('livreurs') then
+    raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
+  end if;
+  return jsonb_build_object(
+    'coef', coef,
+    'maintenant', now(),
+    'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
+      from (
+        select jsonb_build_object(
+          'id', p.id,
+          'nom', coalesce(nullif(btrim(p.nom), ''), p.email, 'Livreur'),
+          'tel', coalesce(p.tel, ''),
+          'vehicule', coalesce(p.vehicule, 'moto'),
+          'boutique', (select b.nom from public.boutiques b where b.id = p.boutique_id),
+          'position', case when pl.profil_id is null then null else jsonb_build_object(
+              'latitude', pl.latitude, 'longitude', pl.longitude, 'precision', pl.precision_m,
+              'adresse', pl.adresse, 'le', pl.enregistre_le) end,
+          'en_course', public.livreur_en_course(p.id),
+          -- (3.70.0) Actif : un jeton valable ET une position de moins de
+          -- 15 minutes — un téléphone éteint ne passe plus pour suivi.
+          'suivi_actif', exists (select 1 from public.suivis_livreurs s
+                                  where s.profil_id = p.id and s.expire_le > now())
+                         and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
+          'courses', (select coalesce(jsonb_agg(jsonb_build_object(
+              'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
+              'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
+              'retrait', case when k.b_lat is null then null
+                              else jsonb_build_object('latitude', k.b_lat, 'longitude', k.b_lng) end,
+              'destination', case when k.d_lat is null then null
+                                  else jsonb_build_object('latitude', k.d_lat, 'longitude', k.d_lng) end,
+              'distance_km', case when k.d_lat is null or pl.profil_id is null then null else round((
+                  2 * 6371 * asin(least(1, sqrt(
+                    sin(radians(k.d_lat - pl.latitude) / 2) ^ 2
+                    + cos(radians(pl.latitude)) * cos(radians(k.d_lat))
+                      * sin(radians(k.d_lng - pl.longitude) / 2) ^ 2))) * coef)::numeric, 1) end)
+              order by k.numero), '[]')
+            from (
+              select c.id as commande_id, c.numero, c.client_nom, c.client_adresse,
+                     (array['nouvelle', 'vue', 'preparee', 'en_livraison'])[
+                       min(array_position(array['nouvelle', 'vue', 'preparee', 'en_livraison'], l.etat))] as etat,
+                     max(b.nom) as boutique, max(b.latitude) as b_lat, max(b.longitude) as b_lng,
+                     public.coord_valable((c.livraison #>> '{destination,latitude}')::double precision, 90) as d_lat,
+                     public.coord_valable((c.livraison #>> '{destination,longitude}')::double precision, 180) as d_lng
+                from public.commande_lignes l
+                join public.commandes c on c.id = l.commande_id
+                left join public.boutiques b on b.id = l.boutique_id
+               where l.livreur_id = p.id and c.etat = 'payee'
+                 and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+               group by c.id, c.numero, c.client_nom, c.client_adresse, c.livraison) k)
+        ) as l
+          from public.profils p
+          left join public.positions_livreurs pl on pl.profil_id = p.id
+         where p.role = 'livreur' and p.actif
+      ) x));
+end $$;
+revoke all on function public.rh_localiser_livreurs() from public, anon;
+grant execute on function public.rh_localiser_livreurs() to authenticated, service_role;
+
 create or replace function public.fermer_suivi_livreur(tout boolean default false)
 returns boolean
 language plpgsql security definer set search_path = public as $$
@@ -302,6 +410,12 @@ begin
   if qui is null then
     raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
   end if;
+  -- Le service travaille encore avec l'ancien jeton (le nouveau attend que
+  -- la page revienne à l'écran) : il le garde tant qu'il s'en sert.
+  update public.suivis_livreurs set precedent_expire_le = now() + interval '10 minutes'
+   where profil_id = qui
+     and jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+     and precedent_expire_le < now() + interval '5 minutes';
   select * into p from public.profils x where x.id = qui;
   if not found or not p.actif or p.role <> 'livreur' then
     delete from public.suivis_livreurs where profil_id = qui;

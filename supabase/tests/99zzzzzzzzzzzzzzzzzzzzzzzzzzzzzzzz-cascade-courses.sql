@@ -236,6 +236,13 @@ set role anon;
 select essai.egal((public.position_livreur(:'jeton_vieux', 9.3450, 2.6302, 20) ->> 'continuer'), 'true',
   'un jeton renouvelé : l''ancien vaut encore (10 minutes), le service en route n''est pas coupé');
 reset role;
+update public.suivis_livreurs set precedent_expire_le = now() + interval '1 minute' where profil_id = :L3::uuid;
+update public.positions_livreurs set enregistre_le = now() - interval '2 hours' where profil_id = :L3::uuid;
+set role anon;
+select public.position_livreur(:'jeton_vieux', 9.3450, 2.6302, 20) as r \gset
+reset role;
+select essai.verifie((select precedent_expire_le > now() + interval '9 minutes' from public.suivis_livreurs where profil_id = :L3::uuid),
+  'tant que le service s''en sert (page cachée, nouveau jeton en attente), l''ancien jeton se prolonge');
 update public.suivis_livreurs set precedent_expire_le = now() - interval '1 second' where profil_id = :L3::uuid;
 select essai.refuse(format($$select public.position_livreur(%L, 9.3, 2.6, 10)$$, :'jeton_vieux'),
   'passé ces 10 minutes : refusé');

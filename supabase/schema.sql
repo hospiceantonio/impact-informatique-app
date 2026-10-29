@@ -16561,6 +16561,12 @@ begin
   if qui is null then
     raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
   end if;
+  -- Le service travaille encore avec l'ancien jeton (le nouveau attend que
+  -- la page revienne à l'écran) : il le garde tant qu'il s'en sert.
+  update public.suivis_livreurs set precedent_expire_le = now() + interval '10 minutes'
+   where profil_id = qui
+     and jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+     and precedent_expire_le < now() + interval '5 minutes';
   select * into p from public.profils x where x.id = qui;
   if not found or not p.actif or p.role <> 'livreur' then
     delete from public.suivis_livreurs where profil_id = qui;
@@ -16682,8 +16688,11 @@ begin
               'latitude', pl.latitude, 'longitude', pl.longitude, 'precision', pl.precision_m,
               'adresse', pl.adresse, 'le', pl.enregistre_le) end,
           'en_course', public.livreur_en_course(p.id),
+          -- (3.70.0) Actif : un jeton valable ET une position de moins de
+          -- 15 minutes — un téléphone éteint ne passe plus pour suivi.
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
-                                  where s.profil_id = p.id and s.expire_le > now()),
+                                  where s.profil_id = p.id and s.expire_le > now())
+                         and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
           'courses', (select coalesce(jsonb_agg(jsonb_build_object(
               'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
               'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
