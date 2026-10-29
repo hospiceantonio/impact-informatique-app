@@ -141,6 +141,123 @@ titre("3. Au paiement : Moov choisi, numéro MTN tapé → MTN, et l'écran le d
   await ctx.close();
 }
 
+titre("4. La liste vient de la base : un préfixe ajouté y est pris aussitôt");
+{
+  /* La base connaît « 01 30 » → MTN, que la liste intégrée ignore. */
+  const LISTE = [{ prefixe: "30", operateur: "MTN" }, { prefixe: "97", operateur: "MTN" },
+    { prefixe: "95", operateur: "MOOV" }, { prefixe: "40", operateur: "CELTIIS" }];
+  const essai = async (reponse) => {
+    const ctx = await nav.newContext({ serviceWorkers: "block" });
+    const page = await ctx.newPage();
+    await page.addInitScript(() => {
+      try { localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "k" })); }
+      catch (_) { /* vide */ }
+    });
+    await page.route("**/rest/v1/**", (route) => {
+      const c = new URL(route.request().url()).pathname.replace(/^.*\/rest\/v1\//, "");
+      if (c.startsWith("prefixes_operateurs")) return reponse(route);
+      if (c.startsWith("boutique")) return route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]) });
+      return route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+    await page.goto(BASE + "/client/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1500);
+    const r = await page.evaluate(() => ({ trente: Utils.reseauDuNumero("0130112233"),
+      mtn: Utils.reseauDuNumero("0197112233"), garde: (() => {
+        try { return JSON.parse(localStorage.getItem("bizzoo-prefixes-operateurs") || "[]").length; }
+        catch (_) { return -1; } })() }));
+    await ctx.close();
+    return r;
+  };
+  const avec = await essai((route) => route.fulfill({ status: 200, contentType: "application/json",
+    body: JSON.stringify(LISTE) }));
+  ok(avec.trente === "MTN", "« 01 30 » ajouté dans la base : le client le reconnaît MTN (" + avec.trente + ")");
+  ok(avec.garde === 4, "et garde la liste pour la prochaine ouverture hors connexion");
+  const sans = await essai((route) => route.fulfill({ status: 404, contentType: "application/json",
+    body: JSON.stringify({ message: "relation does not exist" }) }));
+  ok(sans.mtn === "MTN" && sans.trente === "",
+    "base d'avant, sans la table : la liste intégrée reste en service (97 → MTN, 30 inconnu)");
+  const vide = await essai((route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  ok(vide.mtn === "MTN", "une liste vide ne remplace rien");
+}
+
+titre("5. Le superadmin ajoute un préfixe dans Réglages");
+{
+  const SUPER = "11111111-1111-1111-1111-111111111111";
+  const PROFIL = { id: SUPER, email: "chef@bizzoo.bj", role: "superadministrateur", actif: true,
+    peut_modifier_produits: true, boutique_id: null };
+  const BOUTIQUES = [{ id: "bou_a", nom: "Alpha", categorie_id: "cat_hightech", icone: "magasin",
+    couleur: "#0047D9", devise: "FCFA", indicatif: "229", actif: true, ordre: 1 }];
+  let liste = [{ prefixe: "97", operateur: "MTN" }, { prefixe: "95", operateur: "MOOV" },
+    { prefixe: "40", operateur: "CELTIIS" }];
+  const appels = [];
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 2400 }, serviceWorkers: "block" });
+  const page = await ctx.newPage();
+  const erreurs = [];
+  page.on("pageerror", (e) => erreurs.push(e.message));
+  page.on("dialog", (d) => d.accept());
+  await page.addInitScript((a) => {
+    localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "c" }));
+    const b64 = (o) => btoa(unescape(encodeURIComponent(JSON.stringify(o))))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    localStorage.setItem("impact-session", JSON.stringify({
+      access_token: b64({ alg: "HS256" }) + "." + b64({ sub: a.moi }) + ".s",
+      refresh_token: "r", expire_a: Date.now() + 3600000, email: a.email }));
+  }, { moi: SUPER, email: PROFIL.email });
+  await page.route("**/rest/v1/**", (route) => {
+    const req = route.request();
+    const u = new URL(req.url());
+    const c = u.pathname.replace(/^.*\/rest\/v1\//, "");
+    const d = (x) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
+    if (c.startsWith("rpc/regler_prefixe_operateur")) {
+      const corps = req.postDataJSON();
+      appels.push(corps);
+      const p = String(corps.prefixe).replace(/\D/g, "").replace(/^01(?=\d{2}$)/, "");
+      liste = liste.filter((l) => l.prefixe !== p);
+      if (corps.operateur) liste.push({ prefixe: p, operateur: corps.operateur });
+      return d({ prefixe: p, operateur: corps.operateur || null });
+    }
+    if (c.startsWith("rpc/")) return d(null);
+    if (req.method() !== "GET") return route.fulfill({ status: 204, body: "" });
+    if (c.startsWith("prefixes_operateurs")) return d(liste);
+    if (c.startsWith("profils")) return d([PROFIL]);
+    if (c.startsWith("boutiques")) return d(BOUTIQUES);
+    if (c.startsWith("boutique")) return d([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]);
+    return d([]);
+  });
+  await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.goto(BASE + "/admin/index.html", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1800);
+  await page.evaluate(() => { location.hash = "#/reglages"; });
+  await page.waitForTimeout(1600);
+  if (await page.$('[data-cible="enseigne"]')) {
+    await page.click('[data-cible="enseigne"]');
+    await page.waitForTimeout(1400);
+  }
+  const vu = await page.waitForSelector("#prefixe-enregistrer", { timeout: 6000 }).then(() => true, () => false);
+  ok(vu, "la carte « Préfixes des opérateurs » est là, avec la liste de la base");
+  if (vu) {
+    const texteSection = async () => (await page.textContent("#section-prefixes")).replace(/\s+/g, " ");
+    ok(/01 97/.test(await texteSection()) && /01 95/.test(await texteSection()), "chaque préfixe sous son opérateur");
+    await page.fill("#prefixe-nouveau", "01 30");
+    await page.selectOption("#prefixe-operateur", "MTN");
+    await page.click("#prefixe-enregistrer");
+    await page.waitForTimeout(1200);
+    ok(appels.length === 1 && appels[0].prefixe === "01 30" && appels[0].operateur === "MTN",
+      "« 01 30 » + MTN : regler_prefixe_operateur(« 01 30 », MTN)");
+    ok(/01 30/.test(await texteSection()), "la liste se relit : 01 30 y est");
+    ok(await page.evaluate(() => Utils.reseauDuNumero("0130112233")) === "MTN",
+      "et cette application s'en sert aussitôt");
+    await page.click('[data-prefixe="30"]');
+    await page.waitForTimeout(1200);
+    ok(appels.length === 2 && appels[1].prefixe === "30" && appels[1].operateur === "",
+      "toucher un préfixe le retire (après confirmation)");
+  }
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
 await nav.close();
 console.log(echecs ? "\n\x1b[31m" + echecs + " échec(s)\x1b[0m"
   : "\n\x1b[32mL'opérateur suit le numéro, et un numéro n'est pas pris pour un ID ✔\x1b[0m");

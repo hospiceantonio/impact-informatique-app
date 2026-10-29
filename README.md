@@ -2760,6 +2760,21 @@ applications : `Utils.reseauDuNumero()` (client, admin) et
 `UI.reseauDuNumero()` (Personnel). L'ancienne table à 8 chiffres du client
 se trompait (« 90 » et « 91 » donnés à Moov, « 94 » et « 95 » à MTN).
 
+**La liste vit dans la base** (`prefixes_operateurs`, posée par
+`supabase/prefixes-operateurs.sql`) : un nouveau préfixe attribué par
+l'ARCEP s'ajoute sans nouvelle version. Le superadmin la règle dans BIZZOO
+Admin → Réglages → « Préfixes des opérateurs » (ajouter « 01 30 » avec son
+opérateur, réattribuer, toucher un préfixe pour le retirer), par
+`regler_prefixe_operateur()` — personne d'autre n'y écrit, tout le monde la
+lit (le client paie sans compte). Les trois applications la relisent à
+chaque ouverture (`actualiserPrefixes()`) et la gardent pour l'ouverture
+suivante hors connexion ; si la base ne répond pas, ou n'a pas encore la
+table, elles gardent la liste intégrée. Rien de tout cela n'est
+automatique : il n'existe pas de liste publique que BIZZOO pourrait
+consulter — c'est à BIZZOO d'ajouter le préfixe quand un opérateur
+l'annonce. Un préfixe inconnu ne casse rien : le réseau n'est simplement
+pas corrigé.
+
 **Le réseau se corrige tout seul** pendant qu'on tape le numéro : Moov
 choisi, numéro MTN tapé → MTN, et l'écran le dit (« Opérateur corrigé : ce
 numéro est un numéro MTN »). Au paiement de la commande, au retrait d'un

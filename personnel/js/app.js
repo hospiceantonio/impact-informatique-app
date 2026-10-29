@@ -269,6 +269,9 @@ const App = (() => {
 
   async function demarrer() {
     const zone = document.getElementById("contenu");
+    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans attendre). */
+    const cfg = Supabase.configuration();
+    if (cfg) UI.actualiserPrefixes(cfg.url, cfg.cle);
     const connecte = Supabase.sessionPresente() && await Supabase.assurerSession();
     document.body.classList.toggle("connecte", !!connecte);
     for (const id of ["entete", "onglets", "menu-lateral"]) document.getElementById(id).hidden = !connecte;

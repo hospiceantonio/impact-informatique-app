@@ -2514,6 +2514,26 @@ const Store = (() => {
      clés différentes, webhooks différents. Les trois interrupteurs se
      poussent ensemble. */
 
+  /* ---------- (3.70.0) Les préfixes des opérateurs ----------
+     Lus par tout le monde, réglés par le superadmin. Chaque réglage
+     remet aussitôt la liste en service dans cette application ; les
+     autres la relisent à leur prochaine ouverture. */
+  async function listerPrefixes() {
+    const lignes = await Supabase.requete("GET",
+      "prefixes_operateurs?select=prefixe,operateur&order=prefixe.asc");
+    Utils.appliquerPrefixes(lignes || []);
+    return (lignes || []).map((l) => ({ prefixe: l.prefixe, operateur: l.operateur }));
+  }
+
+  /** Ajoute ou réattribue (« operateur » donné), retire (« operateur » vide). */
+  async function reglerPrefixe(prefixe, operateur) {
+    const r = await Supabase.rpc("regler_prefixe_operateur", { prefixe, operateur: operateur || "" });
+    journaliser("reglages", "modification",
+      operateur ? "Préfixe 01 " + r.prefixe + " → " + operateur : "Préfixe 01 " + r.prefixe + " retiré",
+      "prefixes", undefined, null);
+    return r;
+  }
+
   async function lirePaiement() {
     const lignes = await Supabase.requete("GET", "paiement?select=*&id=eq.1");
     const l = (lignes || [])[0] || {};
@@ -4026,6 +4046,7 @@ const Store = (() => {
     estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
     sousCategoriesDuSecteur, produitsClasses, apercuSecteur, changerSecteur,
+    listerPrefixes, reglerPrefixe,
     listerProduits, lireProduit, masquerProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,
