@@ -835,6 +835,9 @@ const VuePanier = (() => {
      être livré ailleurs. Les frais suivent, en aperçu : la base les
      recalcule et les fige en créant la commande. */
   let carteOu = null;
+  /* (3.70.0) La distance par la route arrive après coup : l'écran se
+     redessine. Un seul écouteur à la fois, celui de l'écran ouvert. */
+  let ecouteRoute = null;
 
   function etatOuLivrer(devise) {
     const ap = Paiement.apercu(promo.remise || 0);
@@ -844,7 +847,8 @@ const VuePanier = (() => {
     }
     return '<div class="co-ou-etat co-ou-ok">' + UI.icone("check", "ic-sm") +
       "<span>Livraison " + (ap.vehicule === "tricycle" ? "en tricycle" : "à moto") + " · " +
-      String(ap.devis.distanceKm).replace(".", ",") + " km · <strong>" +
+      String(ap.devis.distanceKm).replace(".", ",") + " km" +
+      (ap.devis.calcul === "route" ? " par la route" : "") + " · <strong>" +
       Utils.echapper(Utils.fmtMontant(ap.devis.frais, devise)) + "</strong></span></div>";
   }
 
@@ -875,6 +879,9 @@ const VuePanier = (() => {
       if (etat) etat.innerHTML = etatOuLivrer(devise);
       rafraichirTotal(vue, devise, boutonPayer);
     };
+    if (ecouteRoute) document.removeEventListener("route:maj", ecouteRoute);
+    ecouteRoute = () => { if (etat && etat.isConnected) maj(); };
+    document.addEventListener("route:maj", ecouteRoute);
     const choisir = (d, recentrer) => {
       Paiement.choisirDestination(d);
       if (carteOu) carteOu.placer(d, recentrer);

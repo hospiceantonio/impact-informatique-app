@@ -77,7 +77,7 @@ const PRODUITS = [
 const CLIENT = { nom: "Koffi", tel: "0197000000", indicatif: "229", adresse: "Godomey" };
 
 async function ouvrirClient({ hash = "#/panier", panier = [{ produitId: "prod_1", quantite: 1 }],
-                              km = true, destination = null, geo = LOIN } = {}) {
+                              km = true, destination = null, geo = LOIN, route = null } = {}) {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 1400 }, serviceWorkers: "block",
     permissions: ["geolocation"], geolocation: geo });
   const page = await ctx.newPage();
@@ -92,7 +92,17 @@ async function ouvrirClient({ hash = "#/panier", panier = [{ produitId: "prod_1"
     } catch (_) { /* une page hors de l'application */ }
   }, { panier, client: CLIENT, destination });
   await sansTuiles(page);
-  const serveur = { creations: [] };
+  const serveur = { creations: [], routes: [], ordre: [] };
+  /* (3.70.0) La fonction « distance-route » : ce que dirait Google. */
+  if (route) {
+    await page.route("**/functions/v1/distance-route", (r) => {
+      const corps = JSON.parse(r.request().postData() || "{}");
+      serveur.routes.push(corps);
+      serveur.ordre.push("route");
+      const rep = route(corps);
+      return r.fulfill({ status: rep.statut || 200, contentType: "application/json", body: JSON.stringify(rep.corps || rep) });
+    });
+  }
   await page.route("**/functions/v1/feexpay", (route) => {
     const corps = JSON.parse(route.request().postData() || "{}");
     const d = (x) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
@@ -107,6 +117,7 @@ async function ouvrirClient({ hash = "#/panier", panier = [{ produitId: "prod_1"
     if (c.startsWith("rpc/creer_commande")) {
       const corps = JSON.parse(req.postData() || "{}");
       serveur.creations.push(corps);
+      serveur.ordre.push("commande");
       return d({ id: "cmd_km", numero: "BZ-000101", total: 301400, devise: "FCFA", etat: "a_payer",
         code_promo: "", remise: 0, frais_livraison: 1400,
         livraison: { vehicule: "moto", distance_km: 13.4, km_factures: 4, frais: 1400 },
@@ -234,6 +245,58 @@ titre("3. Le formulaire : la position d'abord, puis les frais");
   const { page, ctx } = await ouvrirClient({ hash: "#/commande", destination: PRES });
   ok(/Livraison à moto · 7 km · 1 000 FCFA/.test(await texte(page, "#co-ou-etat")),
     "la position de la dernière commande est reprise : 7 km, 1 000");
+  await ctx.close();
+}
+
+/* ------------------------------------------------------------------ */
+titre("3 bis. (3.70.0) La distance par la route, quand Google la donne");
+{
+  /* La fonction serveur rend 18,45 km par la route, là où le vol d'oiseau
+     × 1,3 en estimait 13,4 : les frais suivent la route. */
+  const { page, ctx, serveur, erreurs } = await ouvrirClient({ hash: "#/commande", destination: LOIN,
+    route: () => ({ actif: true, distance_km: 18.45, cache: false }) });
+  await page.waitForFunction(() => /par la route/.test((document.querySelector("#co-ou-etat") || {}).textContent || ""),
+    null, { timeout: 8000 }).catch(() => {});
+  ok(/Livraison à moto · 18,5 km par la route · 1 900 FCFA/.test(await texte(page, "#co-ou-etat")),
+    "« Livraison à moto · 18,5 km par la route · 1 900 FCFA » (" + await texte(page, "#co-ou-etat") + ")");
+  ok(serveur.routes.length >= 1 && serveur.routes[0].latitude === LOIN.latitude &&
+     serveur.routes[0].longitude === LOIN.longitude, "la fonction est appelée avec la position du client, et elle seule");
+  ok(/19 400 FCFA|31 900 FCFA/.test(await texte(page, "#co-payer")) || /1 900/.test((await lignesTotal(page)).join(" ")),
+    "le total compte les 1 900 de la route (" + (await lignesTotal(page)).join(" | ") + ")");
+  const avant = serveur.routes.length;
+  await page.click('#co-operateurs [data-reseau="MTN"]');
+  await page.click("#co-payer");
+  await page.waitForFunction(() => location.hash === "#/commande/cmd_km", null, { timeout: 8000 }).catch(() => {});
+  ok(serveur.creations.length === 1 && serveur.routes.length === avant,
+    "en payant, la route déjà connue n'est pas redemandée, et la commande part");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  /* Sans clé Google : la fonction répond « inactive » une fois, et l'on ne
+     redemande plus — tout reste à vol d'oiseau, comme avant. */
+  const { page, ctx, serveur } = await ouvrirClient({ hash: "#/commande", destination: LOIN,
+    route: () => ({ actif: false }) });
+  await page.waitForTimeout(800);
+  ok(/Livraison à moto · 13,4 km · 1 400 FCFA/.test(await texte(page, "#co-ou-etat")),
+    "sans clé : « 13,4 km · 1 400 FCFA », comme avant (" + await texte(page, "#co-ou-etat") + ")");
+  await page.fill("#co-ou-lien", "https://www.google.com/maps/@" + PRES.latitude + "," + PRES.longitude + ",15z");
+  await page.dispatchEvent("#co-ou-lien", "change");
+  await page.waitForTimeout(500);
+  ok(serveur.routes.length === 1, "et la fonction n'est plus redemandée (" + serveur.routes.length + " appel)");
+  await ctx.close();
+}
+{
+  /* Google lent : la commande attend 5 secondes au plus, puis part. */
+  const { page, ctx, serveur } = await ouvrirClient({ hash: "#/commande", destination: LOIN,
+    route: () => ({ statut: 200, corps: { actif: true, distance_km: null } }) });
+  await page.waitForTimeout(600);
+  ok(/13,4 km · 1 400 FCFA/.test(await texte(page, "#co-ou-etat")),
+    "Google sans réponse utile : l'estimation reste (13,4 km)");
+  await page.click('#co-operateurs [data-reseau="MTN"]');
+  await page.click("#co-payer");
+  await page.waitForFunction(() => location.hash === "#/commande/cmd_km", null, { timeout: 9000 }).catch(() => {});
+  ok(serveur.creations.length === 1, "la commande part quand même");
   await ctx.close();
 }
 
