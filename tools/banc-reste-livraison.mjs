@@ -171,8 +171,18 @@ titre("1. Le livreur : MoMoPay, plus d'espèces");
   ok(!f.especes, "pas de choix « En espèces »");
   await page.click("#lv-remettre");
   await page.waitForTimeout(400);
-  ok(/numéro de la transaction/.test(await toasts(page)) &&
+  ok(/ID de la transaction/.test(await toasts(page)) &&
      !serveur.appels.some((a) => a.fn === "remettre_course"), "sans numéro de transaction : on le demande, rien ne part");
+  /* (3.70.0) Le numéro du client recopié à la place de l'ID du SMS. */
+  await page.fill("#lv-transaction", "01 97 00 00 00");
+  await page.waitForTimeout(150);
+  ok(/numéro de téléphone MTN, pas à un ID de transaction/.test(
+       await page.$eval(".note-saisie", (n) => (n.hidden ? "" : n.textContent)).catch(() => "")),
+    "un numéro tapé à la place de l'ID : la feuille le dit pendant la saisie");
+  await page.click("#lv-remettre");
+  await page.waitForTimeout(400);
+  ok(/numéro de téléphone, pas l'ID/.test(await toasts(page)) &&
+     !serveur.appels.some((a) => a.fn === "remettre_course"), "et le premier appui s'arrête là-dessus, rien ne part");
   await page.fill("#lv-transaction", "MP 1234567");
   await page.click("#lv-remettre");
   await page.waitForTimeout(1500);

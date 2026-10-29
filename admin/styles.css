@@ -2030,3 +2030,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .fl-total{border-top:1px solid var(--trait);margin-top:4px;padding-top:10px;font-size:15.5px}
 .cmd-faire-livrer{margin-bottom:12px}
 .cmd-whatsapp{display:inline-flex;align-items:center;gap:4px;color:var(--wa);font-weight:600}
+
+/* (3.70.0) Un numéro saisi à la place d'un ID de transaction, ou un
+   réseau corrigé d'après le numéro : la note qui le dit. */
+.note-saisie{margin:6px 0 0;font-size:.85rem;font-weight:600;color:var(--orange-texte)}
+.note-saisie[hidden]{display:none}

@@ -2748,6 +2748,34 @@ pas été confirmée par la banque.
   boutique » — le message part alors du WhatsApp du client, avec le
   détail déjà écrit.
 
+## L'opérateur suit le numéro ; un numéro n'est pas un ID (3.70.0)
+
+Un numéro béninois dit son réseau d'origine : « 01 » + deux chiffres
+(depuis le 30 novembre 2024), ou ces deux chiffres en tête de l'ancien
+numéro à 8 chiffres. MTN : 42, 46, 50–54, 56, 57, 59, 61, 62, 66, 67, 69,
+90–93, 96, 97 ; Moov : 45, 55, 58, 60, 63–65, 68, 94, 95, 98, 99 ;
+Celtiis : 40, 41, 43, 44, 47 (les tables du SDK de FeexPay, qui sont aussi
+celles de l'ancien plan). Une seule table, la même dans les trois
+applications : `Utils.reseauDuNumero()` (client, admin) et
+`UI.reseauDuNumero()` (Personnel). L'ancienne table à 8 chiffres du client
+se trompait (« 90 » et « 91 » donnés à Moov, « 94 » et « 95 » à MTN).
+
+**Le réseau se corrige tout seul** pendant qu'on tape le numéro : Moov
+choisi, numéro MTN tapé → MTN, et l'écran le dit (« Opérateur corrigé : ce
+numéro est un numéro MTN »). Au paiement de la commande, au retrait d'un
+code promo, aux numéros de réception des boutiques et des livreurs, au
+retrait sur le solde dans Personnel. On peut encore rechoisir un autre
+réseau ensuite — un numéro porté garde son préfixe — mais l'écran prévient.
+
+**Un numéro de téléphone n'est pas un ID de transaction.** Un texte fait
+seulement de chiffres (et d'espaces, « + », tirets) qui se lit comme un
+numéro béninois est signalé pendant la saisie, et le premier « Valider »
+s'arrête dessus : « ressemble à un numéro de téléphone MTN, pas à un ID de
+transaction ». Validé une seconde fois tel quel, il passe — un vrai ID peut
+ressembler à un numéro. Dans « Faire livrer », à la remise du colis par le
+livreur, aux reversements des soldes et dans la caisse de Personnel.
+`tools/banc-operateur-numero.mjs` l'éprouve.
+
 ## Le paiement qui n'aboutit pas (3.56.1)
 
 Après un paiement Mobile Money refusé, le reçu répétait en boucle

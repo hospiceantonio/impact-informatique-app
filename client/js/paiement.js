@@ -29,43 +29,11 @@ const Paiement = (() => {
   let enCours = null;           // la promesse du paiement ouvert
 
   /* ---------- Les opérateurs du Bénin ----------
-     Les préfixes viennent des tables du SDK officiel de FeexPay. On ne
-     s'en sert que pour PROPOSER l'opérateur : le client garde la main,
-     un numéro porté d'un réseau à l'autre ne se devine pas. */
-  const PREFIXES_10 = {
-    MTN: ["0142", "0146", "0150", "0151", "0152", "0153", "0154", "0156", "0157",
-          "0159", "0161", "0162", "0166", "0167", "0169", "0190", "0191", "0192",
-          "0193", "0196", "0197"],
-    MOOV: ["0145", "0155", "0158", "0160", "0163", "0164", "0165", "0168",
-           "0194", "0195", "0198", "0199"],
-    CELTIIS: ["0140", "0141", "0143", "0144", "0147"],
-  };
-  /* L'ancien format à huit chiffres, encore dicté par beaucoup de monde. */
-  const PREFIXES_8 = {
-    MTN: ["04", "05", "06", "44", "45", "46", "54", "55", "56", "64", "65", "66",
-          "74", "75", "76", "84", "85", "86", "94", "95", "96"],
-    MOOV: ["01", "02", "03", "40", "41", "42", "43", "50", "51", "52", "53",
-           "70", "71", "72", "73", "80", "81", "82", "83", "90", "91", "92", "93"],
-  };
-
-  /** L'opérateur que suggère un numéro, ou "" si on ne sait pas. */
-  function operateurDuNumero(tel) {
-    const n = String(tel || "").replace(/\D/g, "").replace(/^229/, "");
-    if (n.length >= 10 && n.startsWith("01")) {
-      const p = n.slice(0, 4);
-      for (const [nom, liste] of Object.entries(PREFIXES_10)) {
-        if (liste.includes(p)) return nom;
-      }
-      return "";
-    }
-    if (n.length >= 8) {
-      const p = n.slice(0, 2);
-      for (const [nom, liste] of Object.entries(PREFIXES_8)) {
-        if (liste.includes(p)) return nom;
-      }
-    }
-    return "";
-  }
+     (3.70.0) Une seule table, dans Utils : l'ancienne table à 8 chiffres
+     d'ici se trompait (« 90 », « 91 » donnés à Moov, « 94 », « 95 » à
+     MTN). On ne s'en sert que pour PROPOSER l'opérateur : le client
+     garde la main. */
+  const operateurDuNumero = (tel) => Utils.reseauDuNumero(tel);
 
   /* ---------- Dialogue avec la base ---------- */
 

@@ -1264,7 +1264,8 @@ const VueCompte = (() => {
             (Number(d.solde) || 0) + '"></div>' +
         '<div class="champ"><label for="cp-retrait-numero">Numéro Mobile Money</label>' +
           '<input id="cp-retrait-numero" type="tel" inputmode="tel" value="' +
-            Utils.echapper((moi && moi.tel) || "") + '"></div>' +
+            Utils.echapper((moi && moi.tel) || "") + '">' +
+          '<p class="aide co-mm-note" id="cp-retrait-note" hidden></p></div>' +
         '<div class="champ"><label for="cp-retrait-reseau">Réseau</label>' +
           '<select id="cp-retrait-reseau"><option value="MTN">MTN MoMo</option>' +
             '<option value="Moov">Moov Money</option><option value="Celtiis">Celtiis Cash</option>' +
@@ -1294,11 +1295,28 @@ const VueCompte = (() => {
       ouvrir.addEventListener("click", () => {
         UI.$("#cp-retrait", zone).hidden = false;
         ouvrir.hidden = true;
-        const op = Paiement.operateurDuNumero(UI.$("#cp-retrait-numero", zone).value);
-        if (/moov/i.test(op)) UI.$("#cp-retrait-reseau", zone).value = "Moov";
-        else if (/celtiis/i.test(op)) UI.$("#cp-retrait-reseau", zone).value = "Celtiis";
+        suivreNumero(false);
       });
     }
+    /* (3.70.0) Le réseau suit le numéro pendant qu'on le tape. */
+    const VALEUR_RESEAU = { MTN: "MTN", MOOV: "Moov", CELTIIS: "Celtiis" };
+    function suivreNumero(dire) {
+      const champ = UI.$("#cp-retrait-numero", zone);
+      const choix = UI.$("#cp-retrait-reseau", zone);
+      const note = UI.$("#cp-retrait-note", zone);
+      if (!champ || !choix) return;
+      const op = Paiement.operateurDuNumero(champ.value);
+      const voulu = VALEUR_RESEAU[op];
+      const corrige = !!voulu && choix.value !== voulu;
+      if (voulu) choix.value = voulu;
+      if (note) {
+        note.textContent = dire && corrige
+          ? "Réseau corrigé : ce numéro est un numéro " + Utils.NOM_OPERATEUR[op] + "." : "";
+        note.hidden = !note.textContent;
+      }
+    }
+    const champRetrait = UI.$("#cp-retrait-numero", zone);
+    if (champRetrait) champRetrait.addEventListener("input", () => suivreNumero(true));
     const envoyer = UI.$("#cp-retrait-envoyer", zone);
     if (envoyer) {
       envoyer.addEventListener("click", async () => {

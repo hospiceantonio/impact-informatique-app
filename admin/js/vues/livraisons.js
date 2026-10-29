@@ -629,8 +629,8 @@ const VueLivraisons = (() => {
             "</div>" +
             '<p class="aide" style="margin:12px 0">Le client paie ce montant à ce code MoMoPay depuis ' +
               "son téléphone, et valide avec son code secret. <strong>Pas d'espèces.</strong> Il reçoit " +
-              "un SMS de confirmation : recopiez ici le numéro de la transaction.</p>" +
-            '<div class="champ"><label for="lv-transaction">Numéro de la transaction (SMS du client)</label>' +
+              "un SMS de confirmation : recopiez ici l'ID de la transaction (pas son numéro de téléphone).</p>" +
+            '<div class="champ"><label for="lv-transaction">ID de la transaction (SMS du client)</label>' +
               '<input id="lv-transaction" autocomplete="off" autocapitalize="characters" maxlength="40" ' +
                 'placeholder="Exemple : 1234567890"></div>' +
             '<button type="button" class="btn" id="lv-remettre">' + UI.icone("check") +
@@ -644,11 +644,34 @@ const VueLivraisons = (() => {
 
     const bouton = UI.$("#lv-remettre", corps);
     if (!bouton) return;
+    /* (3.70.0) Le numéro du client recopié à la place de l'ID du SMS :
+       dit pendant la saisie, et le premier appui s'arrête là-dessus.
+       Appuyé une seconde fois tel quel, il passe. */
+    let transactionAvertie = null;
+    const champTx = UI.$("#lv-transaction", corps);
+    let noteTx = null;
+    if (champTx) {
+      noteTx = document.createElement("p");
+      noteTx.className = "note-saisie";
+      noteTx.hidden = true;
+      champTx.insertAdjacentElement("afterend", noteTx);
+      champTx.addEventListener("input", () => {
+        noteTx.textContent = Utils.alerteTransaction(champTx.value);
+        noteTx.hidden = !noteTx.textContent;
+      });
+    }
     bouton.onclick = async () => {
       const champ = UI.$("#lv-transaction", corps);
       const transaction = champ ? champ.value.trim() : "";
       if (du > 0 && transaction.replace(/[^A-Za-z0-9]/g, "").length < 4) {
-        UI.toast("Saisissez le numéro de la transaction, lu sur le SMS du client.", "err");
+        UI.toast("Saisissez l'ID de la transaction, lu sur le SMS du client.", "err");
+        if (champ) champ.focus();
+        return;
+      }
+      if (du > 0 && Utils.ressembleTelephone(transaction) && transaction !== transactionAvertie) {
+        transactionAvertie = transaction;
+        UI.toast("C'est un numéro de téléphone, pas l'ID de la transaction : vérifiez le SMS du client.", "err");
+        if (noteTx) { noteTx.textContent = Utils.alerteTransaction(transaction); noteTx.hidden = false; }
         if (champ) champ.focus();
         return;
       }

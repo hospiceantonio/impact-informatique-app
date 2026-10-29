@@ -377,6 +377,26 @@ const VueFaireLivrer = (() => {
       if (etat.destination) ouvrirCarte();
     }
 
+    /* (3.70.0) UN NUMÉRO À LA PLACE DE L'ID. On recopie souvent le
+       numéro du client au lieu de l'ID du SMS de paiement : l'écran le
+       dit pendant la saisie, et le premier « Valider » s'arrête là-dessus.
+       Validé une seconde fois tel quel, il passe (un ID peut ressembler
+       à un numéro). */
+    let transactionAvertie = null;
+    const champTransaction = UI.$("#fl-transaction", vue);
+    if (champTransaction) {
+      const note = document.createElement("p");
+      note.className = "note-saisie";
+      note.hidden = true;
+      champTransaction.insertAdjacentElement("afterend", note);
+      const signaler = () => {
+        note.textContent = Utils.alerteTransaction(champTransaction.value);
+        note.hidden = !note.textContent;
+      };
+      champTransaction.addEventListener("input", signaler);
+      signaler();
+    }
+
     const bouton = UI.$("#fl-valider", vue);
     bouton.onclick = async () => {
       garder();
@@ -406,6 +426,13 @@ const VueFaireLivrer = (() => {
       }
       if (frais == null) { dit("Indiquez les frais de livraison convenus avec le client (0 s'il n'y en a pas)."); return; }
       if (!etat.paiement.transaction.trim()) { dit("Saisissez la référence de la transaction du client."); return; }
+      if (Utils.ressembleTelephone(etat.paiement.transaction)
+          && etat.paiement.transaction.trim() !== transactionAvertie) {
+        transactionAvertie = etat.paiement.transaction.trim();
+        dit(Utils.alerteTransaction(etat.paiement.transaction));
+        UI.$("#fl-transaction", vue).focus();
+        return;
+      }
       if (!montant) { dit("Indiquez le montant que le client a payé."); return; }
       const tot = total();
       if (tot != null && montant < tot) {
