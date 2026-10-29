@@ -44,7 +44,7 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const json = (corps: unknown, statut = 200) =>
   new Response(JSON.stringify(corps), { status: statut, headers: { "Content-Type": "application/json" } });
 
-type APousser = { id: number; titre: string; corps: string; lien: string; abonnements: Abonnement[] };
+type APousser = { id: number; titre: string; corps: string; lien: string; tache?: string; abonnements: Abonnement[] };
 
 async function base(fonction: string, corps: unknown): Promise<unknown> {
   const r = await fetch(BASE + "/rest/v1/rpc/" + fonction, {
@@ -65,7 +65,8 @@ Deno.serve(async (requete) => {
   if (!BASE || !SERVICE) return json({ ok: false, message: "Fonction mal réglée." }, 500);
 
   /* Les clés d'abord : sans elles, on ne consomme pas l'envoi (il
-     resterait marqué parti sans être parti). */
+     resterait marqué parti sans être parti) ; « rh_pousser_alertes » le
+     rappelle toutes les cinq minutes pendant une heure. */
   const cles = lireClesVapid();
   if (!cles) {
     console.error("rh-push : secrets VAPID_PUBLIQUE, VAPID_PRIVEE ou VAPID_SUJET absents");
@@ -87,7 +88,10 @@ Deno.serve(async (requete) => {
   if (!abonnements.length) return json({ ok: true, envoyees: 0, message: "Aucun téléphone abonné." });
 
   /* 2. LE WEB PUSH. */
-  const donnees = { titre: n.titre || "BIZZOO Personnel", corps: n.corps || "", lien: n.lien || "#/file", id: n.id };
+  /* « tache » : l'étiquette de la notification — les alertes d'une même
+     tâche se remplacent sur le téléphone au lieu de s'empiler. */
+  const donnees = { titre: n.titre || "BIZZOO Personnel", corps: n.corps || "", lien: n.lien || "#/file", id: n.id,
+                    tache: n.tache || "" };
   let envoyees = 0;
   const echecs: string[] = [];
   for (const a of abonnements) {

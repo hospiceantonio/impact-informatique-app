@@ -87,6 +87,12 @@
 --      silence, une seule fois par alerte, rien d'avant l'abonnement, aucun
 --      montant ni client dans le message, l'escalade chez le responsable ;
 --      le bilan du matin, une fois par jour, sans montants pour un responsable.
+--      Corrections : une tâche terminée se rouvre quand son alerte part puis
+--      revient ; une alerte revenue sonne de nouveau (clé d'envoi par
+--      occurrence) ; un profil qui reçoit une tâche par le routage a tout son
+--      délai avant l'escalade ; les envois restés en attente sont rappelés
+--      pendant une heure ; le message porte le lien de la tâche et sa clé,
+--      étiquette de la notification.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -3055,6 +3061,30 @@ reset role; select essai.personne();
 select essai.egal((select etat || '/' || terminee_nom from public.rh_taches where id = :t1), 'terminee/Koffi DOSSOU', 'terminée, et par qui');
 select public.rh_taches_synchroniser();
 select essai.egal((select etat from public.rh_taches where id = :t1), 'terminee', 'l''alerte toujours là, la tâche terminée ne revient pas');
+-- Terminée, puis son alerte part et revient (une file d'Admin, une rupture
+-- reviennent ainsi) : la tâche se rouvre, libre, comme une neuve.
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'vue' where id = 'lig_rd_1';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.egal((select etat || '/' || terminee_nom from public.rh_taches where id = :t1), 'terminee/Koffi DOSSOU',
+  'l''alerte partie, la tâche reste terminée, et par qui');
+select essai.verifie((select disparue_le is not null from public.rh_taches where id = :t1), 'mais on note que l''alerte est partie');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(exists (select 1 from jsonb_array_elements(public.rh_ma_file('terminees') -> 'taches') x where x ->> 'id' = :'t1'),
+  'elle reste rangée avec les tâches closes');
+reset role; select essai.personne();
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'nouvelle' where id = 'lig_rd_1';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser() as synchro_t1 \gset
+select essai.egal((select etat || '/' || occurrence || '/' || terminee_nom || '/' || coalesce(prise_nom, '')
+                     from public.rh_taches where id = :t1), 'ouverte/2//',
+  'l''alerte revenue, la tâche terminée se rouvre, libre : deuxième occurrence');
+select essai.verifie((:'synchro_t1'::jsonb ->> 'rouvertes')::int >= 1, 'le calcul la compte parmi les rouvertes');
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_tache_terminer(:t1, 'Livrée, de nouveau');
+reset role; select essai.personne();
 
 -- Disparue d'elle-même, puis revenue ; l'escalade au responsable.
 select id as t2 from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_2' \gset
@@ -3077,7 +3107,7 @@ set session_replication_role = origin;
 select public.rh_taches_synchroniser();
 select essai.egal((select etat || '/' || coalesce(prise_nom, '') from public.rh_taches where id = :t2), 'ouverte/',
   'l''alerte revenue, la tâche se rouvre, libre');
-update public.rh_taches set cree_le = now() - interval '31 minutes' where id = :t2;
+update public.rh_taches set cree_le = now() - interval '31 minutes', confiee_le = now() - interval '31 minutes' where id = :t2;
 select public.rh_taches_synchroniser() as synchro2 \gset
 select essai.verifie((select escalade_le is not null from public.rh_taches where id = :t2), 'personne ne l''a prise en 30 min : elle remonte');
 select essai.devenir(:RESP::uuid); set role authenticated;
@@ -3093,6 +3123,9 @@ select public.rh_routage_regler('non_vue', null, 30, true);
 reset role; select essai.personne();
 select essai.verifie((select profil_id is null and escalade_le is null from public.rh_taches where id = :t2),
   'rendue à l''administration, la tâche libre la suit, son escalade remise à zéro');
+select public.rh_taches_synchroniser();
+select essai.verifie((select escalade_le is null and confiee_le = now() from public.rh_taches where id = :t2),
+  'et le recalcul ne la fait pas remonter : le nouveau profil a tout son délai');
 select essai.egal((select profil_id from public.rh_taches where id = :t1), :'p_mkt'::uuid, 'une tâche close garde son profil');
 select essai.devenir(:MEMBRE::uuid); set role authenticated;
 select essai.egal(public.rh_file_compteurs() -> 'acces', 'null'::jsonb, 'et le Marketing n''a plus de file');
@@ -3120,7 +3153,8 @@ select essai.egal((select count(*)::int from public.rh_push_preferences where co
   'abonné, ses alertes sont en marche');
 -- Ce qui existait avant l'abonnement ne part pas : la file d'avant est
 -- reculée de deux minutes, l'abonnement d'une.
-update public.rh_taches set cree_le = least(cree_le, now() - interval '2 minutes');
+update public.rh_taches set cree_le = least(cree_le, now() - interval '2 minutes'),
+                             confiee_le = least(confiee_le, now() - interval '2 minutes');
 update public.rh_push_preferences set depuis = now() - interval '1 minute' where compte = :MEMBRE::uuid;
 set session_replication_role = replica;
 insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id)
@@ -3131,8 +3165,9 @@ set session_replication_role = origin;
 select public.rh_taches_synchroniser();
 select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a
                               where a.p_compte = :MEMBRE::uuid and a.p_cle = 'suivi:non_vue:cmd_rd_3'
-                                and a.p_titre = 'Commande pas vue par la boutique' and a.p_corps like '%BZ-RD3%' and a.p_lien = '#/file'),
-  'la tâche nouvelle part vers le téléphone du membre');
+                                and a.p_titre = 'Commande pas vue par la boutique' and a.p_corps like '%BZ-RD3%'
+                                and a.p_lien = '#/suivi/commande/cmd_rd_3'),
+  'la tâche nouvelle part vers le téléphone du membre, avec le lien de la commande dans le Suivi');
 select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a
                                   where a.p_compte = :MEMBRE::uuid and a.p_cle <> 'suivi:non_vue:cmd_rd_3'),
   'et rien de ce qui existait avant son abonnement');
@@ -3149,7 +3184,50 @@ select public.rh_push_a_envoyer(:envoi_rd) as message \gset
 select essai.verifie(:'message'::jsonb -> 'abonnements' @> '[{"endpoint": "https://push.essai/membre"}]'::jsonb,
   'la fonction Edge reçoit ses téléphones');
 select essai.egal(public.rh_push_a_envoyer(:envoi_rd), null::jsonb, 'et le message ne se relit pas : il ne part qu''une fois');
+select essai.egal(:'message'::jsonb ->> 'tache', 'suivi:non_vue:cmd_rd_3',
+  'il porte la clé de la tâche, étiquette de la notification');
+insert into public.rh_alertes_envoyees (compte, cle, titre, corps) values (:MEMBRE::uuid, 'escalade:essai:etiquette#3', 'x', 'y')
+returning id as envoi_etiquette \gset
+select essai.egal(public.rh_push_a_envoyer(:envoi_etiquette) ->> 'tache', 'essai:etiquette',
+  'sans « escalade: » ni numéro d''occurrence : l''escalade remplace la notification de la tâche');
 select essai.egal(public.rh_pousser_alertes(), 0, 'sans adresse de la fonction Edge, rien ne part et rien ne casse');
+
+-- L'alerte part, puis revient : elle sonne de nouveau.
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'vue' where id = 'lig_rd_3';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'nouvelle' where id = 'lig_rd_3';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a
+                              where a.p_compte = :MEMBRE::uuid and a.p_cle = 'suivi:non_vue:cmd_rd_3#2'),
+  'l''alerte revenue sonne de nouveau chez le membre (deuxième occurrence)');
+select public.rh_alertes_enregistrer();
+select essai.egal((select count(*)::int from public.rh_alertes_envoyees
+                    where compte = :MEMBRE::uuid and cle like 'suivi:non_vue:cmd_rd_3%'), 2,
+  'deux envois pour deux occurrences, pas plus');
+
+-- Un envoi resté en attente (clés VAPID absentes, appel perdu) est rappelé
+-- tant qu'il a moins d'une heure. pg_net est remplacé par une doublure qui
+-- note les numéros appelés ; tout s'annule à la fin de la section.
+create temp table appels_net (id bigint);
+create schema if not exists net;
+create or replace function net.http_post(url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer)
+returns bigint language sql as 'insert into pg_temp.appels_net values ((body ->> ''id'')::bigint) returning 1::bigint';
+update public.rh_push_reglage set url = 'https://essai.invalid/functions/v1/rh-push' where id = 1;
+insert into public.rh_alertes_envoyees (compte, cle, titre, corps) values (:MEMBRE::uuid, 'essai:en_attente', 'x', 'y')
+returning id as envoi_attente \gset
+insert into public.rh_alertes_envoyees (compte, cle, titre, corps, cree_le)
+values (:MEMBRE::uuid, 'essai:trop_vieux', 'x', 'y', now() - interval '2 hours') returning id as envoi_vieux \gset
+select public.rh_pousser_alertes() as appels \gset
+select essai.verifie(exists (select 1 from appels_net where id = :envoi_attente),
+  'un envoi noté mais pas parti est rappelé au passage suivant');
+select essai.verifie(not exists (select 1 from appels_net where id in (:envoi_vieux, :envoi_rd)),
+  'ni celui de plus d''une heure, ni celui déjà parti');
+select essai.egal(:appels::int, (select count(*)::int from appels_net), 'la fonction rend le nombre d''appels');
+update public.rh_push_reglage set url = '' where id = 1;
 
 -- Ses choix : un autre type, puis le silence.
 set session_replication_role = replica;
@@ -3185,10 +3263,11 @@ select essai.devenir(:RESP::uuid); set role authenticated;
 select public.rh_push_abonner('https://push.essai/responsable', repeat('C', 87), repeat('b', 22));
 reset role; select essai.personne();
 update public.rh_push_preferences set depuis = now() - interval '1 minute' where compte = :RESP::uuid;
-update public.rh_taches set cree_le = now() - interval '31 minutes' where cle = 'suivi:non_vue:cmd_rd_3';
+update public.rh_taches set cree_le = now() - interval '31 minutes', confiee_le = now() - interval '31 minutes'
+ where cle = 'suivi:non_vue:cmd_rd_3';
 select public.rh_taches_synchroniser();
 select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a
-                              where a.p_compte = :RESP::uuid and a.p_cle = 'escalade:suivi:non_vue:cmd_rd_3'
+                              where a.p_compte = :RESP::uuid and a.p_cle = 'escalade:suivi:non_vue:cmd_rd_3#2'
                                 and a.p_titre like 'Personne ne l''a prise%'),
   'personne ne l''a prise : le responsable est prévenu');
 select essai.devenir(:MEMBRE::uuid); set role authenticated;

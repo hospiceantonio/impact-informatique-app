@@ -20012,7 +20012,7 @@ select x ->> 'type' from jsonb_array_elements(public.rh_alertes_types()) x
 on conflict (type) do nothing;
 
 -- Les tâches : une par alerte (sa clé), pour toujours ; elle se rouvre si
--- l'alerte revient après avoir disparu.
+-- l'alerte revient après avoir disparu, même si elle avait été terminée.
 create table if not exists public.rh_taches (
   id           bigserial primary key,
   cle          text not null unique,
@@ -20035,6 +20035,17 @@ create table if not exists public.rh_taches (
   disparue_le  timestamptz
 );
 create index if not exists rh_taches_ouvertes on public.rh_taches (etat, profil_id) where etat in ('ouverte', 'prise');
+-- « occurrence » : combien de fois l'alerte est revenue. Elle entre dans la
+-- clé d'envoi des alertes poussées : une alerte revenue sonne de nouveau
+-- (la première garde la clé nue, celle des envois déjà notés).
+-- « confiee_le » : depuis quand la tâche attend son profil actuel. Le délai
+-- d'escalade se compte de là : un profil qui reçoit une tâche par un
+-- changement de routage a tout son délai pour la prendre.
+alter table public.rh_taches add column if not exists occurrence int not null default 1;
+alter table public.rh_taches add column if not exists confiee_le timestamptz;
+update public.rh_taches set confiee_le = cree_le where confiee_le is null;
+alter table public.rh_taches alter column confiee_le set default now();
+alter table public.rh_taches alter column confiee_le set not null;
 alter table public.rh_taches enable row level security;
 revoke all on table public.rh_taches from public, anon, authenticated;
 revoke all on sequence public.rh_taches_id_seq from public, anon, authenticated;
@@ -20400,13 +20411,17 @@ begin
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_alertes from public.rh_alertes_courantes() x;
   select coalesce(array_agg(distinct x ->> 'a_cle'), '{}') into v_cles from jsonb_array_elements(v_alertes) x;
 
-  select count(*) filter (where t.id is null), count(*) filter (where t.etat = 'disparue')
+  select count(*) filter (where t.id is null),
+         count(*) filter (where t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null))
     into v_creees, v_rouvertes
     from unnest(v_cles) k(cle)
     left join public.rh_taches t on t.cle = k.cle;
 
   -- Les nouvelles, et celles qui reviennent : une ligne par clé (deux sources
-  -- ne donnent jamais la même clé, mais distinct on par prudence).
+  -- ne donnent jamais la même clé, mais distinct on par prudence). « Revient » :
+  -- effacée d'elle-même, ou terminée puis son alerte partie (disparue_le posé
+  -- plus bas) — sans quoi une file d'Admin ou une rupture, qui reviennent
+  -- régulièrement, ne feraient plus jamais de tâche après un seul « Terminé ».
   with a as (
     select distinct on (y.a_cle) y.*
       from jsonb_to_recordset(v_alertes) as y(a_cle text, a_type text, a_libelle text, a_commande text,
@@ -20423,24 +20438,47 @@ begin
     on conflict (cle) do update
        set vue_le = now(),
            libelle = excluded.libelle,
-           etat = case when t.etat = 'disparue' then 'ouverte' else t.etat end,
-           cree_le = case when t.etat = 'disparue' then now() else t.cree_le end,
-           profil_id = case when t.etat = 'disparue' then excluded.profil_id else t.profil_id end,
-           prise_par = case when t.etat = 'disparue' then null else t.prise_par end,
-           prise_nom = case when t.etat = 'disparue' then '' else t.prise_nom end,
-           prise_le = case when t.etat = 'disparue' then null else t.prise_le end,
-           escalade_le = case when t.etat = 'disparue' then null else t.escalade_le end,
-           disparue_le = case when t.etat = 'disparue' then null else t.disparue_le end;
+           etat = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                       then 'ouverte' else t.etat end,
+           occurrence = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                             then t.occurrence + 1 else t.occurrence end,
+           cree_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                          then now() else t.cree_le end,
+           confiee_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                             then now() else t.confiee_le end,
+           profil_id = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                            then excluded.profil_id else t.profil_id end,
+           prise_par = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                            then null else t.prise_par end,
+           prise_nom = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                            then '' else t.prise_nom end,
+           prise_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                           then null else t.prise_le end,
+           escalade_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                              then null else t.escalade_le end,
+           terminee_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                              then null else t.terminee_le end,
+           terminee_nom = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                               then '' else t.terminee_nom end,
+           disparue_le = case when t.etat = 'disparue' or (t.etat = 'terminee' and t.disparue_le is not null)
+                              then null else t.disparue_le end;
 
   update public.rh_taches t
      set etat = 'disparue', disparue_le = now()
    where t.etat in ('ouverte', 'prise') and not (t.cle = any(v_cles));
   get diagnostics v_disparues = row_count;
+  -- Terminée et son alerte partie : elle reste « terminée » (l'historique
+  -- garde qui l'a close), mais on note que l'alerte est partie, pour la
+  -- rouvrir si elle revient.
+  update public.rh_taches t
+     set disparue_le = now()
+   where t.etat = 'terminee' and t.disparue_le is null and not (t.cle = any(v_cles));
 
+  -- L'escalade se compte depuis que la tâche attend son profil actuel.
   update public.rh_taches t
      set escalade_le = now()
    where t.etat = 'ouverte' and t.escalade_le is null
-     and t.cree_le < now() - make_interval(mins => coalesce((select r.escalade_min from public.rh_routage_alertes r
+     and t.confiee_le < now() - make_interval(mins => coalesce((select r.escalade_min from public.rh_routage_alertes r
                                                              where r.type = t.type), 30));
   get diagnostics v_escaladees = row_count;
 
@@ -20676,8 +20714,9 @@ begin
   on conflict (type) do update
      set profil_id = excluded.profil_id, escalade_min = excluded.escalade_min, actif = excluded.actif,
          maj_le = excluded.maj_le, maj_par = excluded.maj_par;
+  -- Le nouveau profil a tout son délai : l'escalade repart de maintenant.
   update public.rh_taches t
-     set profil_id = v_profil, escalade_le = null
+     set profil_id = v_profil, escalade_le = null, confiee_le = now()
    where t.type = v_type and t.etat = 'ouverte' and t.profil_id is distinct from v_profil;
 end $$;
 
@@ -20786,8 +20825,12 @@ $$;
  * et pour chaque escalade, le responsable du profil (l'administration s'il
  * n'en a pas). Seulement qui a un téléphone abonné, les alertes en marche,
  * ce type parmi ses choix, hors de ses heures de silence, et jamais deux
- * fois. Le message : le type et la tâche, sans montant ni nom de client.
- * Interne.
+ * fois pour la même occurrence : la clé d'envoi porte le numéro
+ * d'occurrence de la tâche (nue pour la première), si bien qu'une alerte
+ * revenue sonne de nouveau. Le message : le type et la tâche, sans montant
+ * ni nom de client ; le lien, celui de la tâche (la commande dans le
+ * Suivi…), sinon « Ma file ». « quand » : depuis quand la tâche attend ce
+ * profil, comparé au début de l'abonnement. Interne.
  */
 create or replace function public.rh_alertes_a_pousser()
 returns table (p_compte uuid, p_cle text, p_titre text, p_corps text, p_lien text)
@@ -20798,12 +20841,16 @@ language sql stable security definer set search_path = public as $$
       left join public.rh_profils p on p.id = x.profil_id
      where x.etat = 'ouverte'
   ), dest as (
-    select e.compte_id as compte, t.id, t.type, t.libelle, t.cle, t.cree_le as quand, false as escalade
+    select e.compte_id as compte, t.id, t.type, t.libelle, t.lien,
+           t.cle || case when t.occurrence > 1 then '#' || t.occurrence else '' end as cle,
+           t.confiee_le as quand, false as escalade
       from t join public.rh_employes e on e.etat = 'actif' and e.compte_id is not null
        and ((t.profil_id is not null and e.profil_id = t.profil_id)
             or (t.profil_id is null and (e.administration or e.ceo)))
     union
-    select e.compte_id, t.id, t.type, t.libelle, 'escalade:' || t.cle, t.escalade_le, true
+    select e.compte_id, t.id, t.type, t.libelle, t.lien,
+           'escalade:' || t.cle || case when t.occurrence > 1 then '#' || t.occurrence else '' end,
+           t.escalade_le, true
       from t join public.rh_employes e on e.etat = 'actif' and e.compte_id is not null
        and t.escalade_le is not null
        and ((t.responsable_id is not null and e.id = t.responsable_id)
@@ -20811,7 +20858,7 @@ language sql stable security definer set search_path = public as $$
   )
   select d.compte, d.cle,
          case when d.escalade then 'Personne ne l''a prise : ' else '' end || public.rh_alerte_libelle(d.type),
-         d.libelle, '#/file'
+         d.libelle, case when d.lien like '#/%' then d.lien else '#/file' end
     from dest d
     join public.rh_push_preferences f on f.compte = d.compte and f.actif
    where (f.types is null or d.type = any(f.types))
@@ -20840,9 +20887,13 @@ end $$;
 
 /**
  * Pousse les alertes : la file d'abord, puis un appel à la fonction Edge
- * « rh-push » par envoi, avec son seul numéro. Sans pg_net ou sans
- * l'adresse de la fonction, rien n'est noté (rien ne serait parti) et rien
- * ne casse. pg_cron l'appelle toutes les cinq minutes.
+ * « rh-push » par envoi, avec son seul numéro. Sont appelés les envois
+ * neufs ET ceux de la dernière heure pas encore partis (clés VAPID absentes,
+ * appel pg_net perdu) : la fonction Edge ne consomme un envoi qu'en le
+ * poussant, et la base ne le rend qu'une fois, d'où aucun doublon. Sans
+ * pg_net ou sans l'adresse de la fonction, rien n'est noté (rien ne serait
+ * parti) et rien ne casse. pg_cron l'appelle toutes les cinq minutes ; rend
+ * le nombre d'appels.
  */
 create or replace function public.rh_pousser_alertes() returns int
 language plpgsql security definer set search_path = public as $$
@@ -20856,7 +20907,10 @@ begin
     return 0;
   end if;
   perform public.rh_taches_synchroniser(false);
-  v_ids := public.rh_alertes_enregistrer();
+  perform public.rh_alertes_enregistrer();
+  select coalesce(array_agg(x.id order by x.id), '{}') into v_ids
+    from public.rh_alertes_envoyees x
+   where x.pousse_le is null and x.cree_le > now() - interval '1 hour';
   foreach v_id in array v_ids loop
     begin
       perform net.http_post(v_adresse, jsonb_build_object('id', v_id),
@@ -20869,7 +20923,10 @@ begin
 end $$;
 
 /** Ce que la fonction Edge envoie : le message et les téléphones de son
-    destinataire — une seule fois, dans l'heure. Réservé au serveur. */
+    destinataire — une seule fois, dans l'heure. « tache » : la clé de la
+    tâche, sans « escalade: » ni numéro d'occurrence ; elle sert d'étiquette
+    à la notification, pour qu'une même tâche ne s'empile pas sur le
+    téléphone. Réservé au serveur. */
 create or replace function public.rh_push_a_envoyer(cible bigint) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -20883,6 +20940,7 @@ begin
   end if;
   return jsonb_build_object(
     'id', s.id, 'titre', s.titre, 'corps', s.corps, 'lien', s.lien,
+    'tache', regexp_replace(regexp_replace(s.cle, '^escalade:', ''), '#[0-9]+\Z', ''),
     'abonnements', coalesce((select jsonb_agg(jsonb_build_object('endpoint', a.endpoint, 'p256dh', a.p256dh, 'auth', a.auth)
                                               order by a.cree_le desc)
                                from public.rh_push_abonnements a where a.compte = s.compte), '[]'::jsonb));

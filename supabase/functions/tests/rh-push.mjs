@@ -142,7 +142,8 @@ ok(monde.base.length === 1 && monde.base[0].cle === "Bearer " + SECRETS.SUPABASE
    && monde.base[0].corps.cible === 7, "la base est interrogée avec la clé de service et le seul numéro");
 
 dire(gris("4 et 5. Deux navigateurs, dont un disparu"));
-const MESSAGE = { id: 12, titre: "Préparation en retard", corps: "Préparation en retard — BZ-123", lien: "#/file",
+const MESSAGE = { id: 12, titre: "Préparation en retard", corps: "Préparation en retard — BZ-123", lien: "#/suivi/commande/cmd_1",
+  tache: "suivi:retard_preparation:cmd_1",
   abonnements: [A.abonnement, B.abonnement] };
 neuf(() => reponse(MESSAGE));
 r = await appeler({ id: 12, titre: "FORGÉ", corps: "forgé" });
@@ -151,8 +152,9 @@ ok(r.status === 200 && rendu.envoyees === 1 && rendu.echecs === 1, "un envoyé, 
 ok(monde.push.length === 2, "chaque navigateur est appelé");
 const versA = monde.push.find((p) => p.url === A.abonnement.endpoint);
 const lu = dechiffrer(A, versA.corps);
-ok(lu.titre === MESSAGE.titre && lu.corps === MESSAGE.corps && lu.lien === "#/file" && lu.id === 12,
+ok(lu.titre === MESSAGE.titre && lu.corps === MESSAGE.corps && lu.lien === MESSAGE.lien && lu.id === 12,
   "le navigateur déchiffre exactement le message de la base (rien de l'appel)");
+ok(lu.tache === MESSAGE.tache, "avec la clé de la tâche, qui sert d'étiquette à la notification");
 ok(versA.entetes["Content-Encoding"] === "aes128gcm" && Number(versA.entetes.TTL) > 0, "aes128gcm, avec une durée de vie");
 ok(jetonValable(versA.entetes.Authorization, A.abonnement.endpoint), "la signature VAPID se vérifie, pour l'origine du service");
 let autre = true;

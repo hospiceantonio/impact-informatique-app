@@ -5,7 +5,7 @@
    mails : rien de cela ne doit rester dans un téléphone).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "bizzoo-personnel-v37";
+const VERSION = "bizzoo-personnel-v38";
 
 const FICHIERS = [
   "./",
@@ -70,7 +70,8 @@ self.addEventListener("activate", (ev) => {
 /* UNE ALERTE POUSSÉE (fonction Edge « rh-push ») : le message arrive
    chiffré, le navigateur le déchiffre et nous le remet. On l'affiche tel
    quel : la base n'y met ni montant ni nom de client. Une même tâche ne
-   s'empile pas : elle remplace la notification précédente (tag). */
+   s'empile pas : son étiquette (tag) est la clé de la tâche, si bien que
+   l'escalade ou l'alerte revenue remplace la notification précédente. */
 self.addEventListener("push", (ev) => {
   let d = {};
   try { d = ev.data ? ev.data.json() : {}; } catch (_) { d = { corps: ev.data ? ev.data.text() : "" }; }
@@ -78,7 +79,7 @@ self.addEventListener("push", (ev) => {
     body: d.corps || "Une tâche vous attend dans « Ma file ».",
     icon: "./icons/icon-192.png",
     badge: "./icons/icon-192.png",
-    tag: "rh-" + (d.id || "alerte"),
+    tag: "rh-" + (d.tache || d.id || "alerte"),
     data: { lien: typeof d.lien === "string" && d.lien.startsWith("#/") ? d.lien : "#/file" },
   }));
 });
