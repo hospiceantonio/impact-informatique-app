@@ -1144,7 +1144,12 @@ const VueProduits = (() => {
     /* Le détail des prix ne sort jamais de l'application admin. */
     if (p.prixGrossiste) {
       const benefice = p.prix - p.prixGrossiste;
-      const tauxReel = Store.tauxDepuisPrix(p.prixGrossiste, p.prix);
+      /* Un prix qui suit la règle porte la marge RÉGLÉE (10 %, et non
+         10,03 % : la fraction vient de l'arrondi au franc supérieur).
+         Sinon — prix posé avant la règle — le taux réellement pratiqué. */
+      const tauxRegle = Store.tauxApplique(p.tauxMarge);
+      const tauxReel = p.prix === Store.prixPublic(p.prixGrossiste, p.tauxMarge)
+        ? tauxRegle : Store.tauxDepuisPrix(p.prixGrossiste, p.prix);
       html +=
         '<div class="carte">' +
           '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Marge " +

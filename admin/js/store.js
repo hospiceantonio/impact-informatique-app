@@ -146,11 +146,15 @@ const Store = (() => {
   /** Le taux qui s'applique vraiment à un produit. */
   const tauxApplique = (taux) => (taux === null || taux === undefined ? reglages.tauxMarge : taux);
 
-  /** Prix public = prix grossiste + marge, arrondi au franc. */
+  /** Prix public = prix grossiste + marge, arrondi au franc SUPÉRIEUR :
+      la marge réglée est toujours tenue (2 273 + 10 % = 2 500,3 → 2 501,
+      et non 2 500, qui ne laissait que 9,99 %). Calcul en centièmes
+      entiers : 2 000 × 1,1 ne doit pas devenir 2 201 par la virgule. */
   function prixPublic(prixGrossiste, taux) {
     const achat = Math.max(0, Math.round(Number(prixGrossiste) || 0));
     if (!achat) return 0;
-    return Math.round(achat * (1 + tauxApplique(taux) / 100));
+    const centiemes = Math.round(Math.max(0, Number(tauxApplique(taux)) || 0) * 100);
+    return Math.ceil(achat * (10000 + centiemes) / 10000);
   }
 
   /**

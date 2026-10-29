@@ -836,6 +836,17 @@ qui rend les comptes de l'enseigne vrais — un prix arrondi à la main
 ferait mentir le bénéfice annoncé. Il n'y a plus non plus de taux par
 produit : la marge est celle de la boutique, une fois pour toutes.
 
+**L'arrondi ne rabote jamais la marge (3.70.0).** Le prix de vente est
+arrondi au franc **supérieur** (`prix_public()` en base, `prixPublic()`
+dans l'admin — les deux donnent le même chiffre). Avant, l'arrondi se
+faisait au plus proche : 2 273 + 10 % = 2 500,3 donnait 2 500, soit
+227 F et 9,99 % pour BIZZOO au lieu des 10 % réglés. Désormais :
+2 501, soit 228 F. La fiche produit affiche alors la marge réglée
+(10 %), pas le 10,03 % que donnerait la fraction de franc. Pour vendre
+pile à 2 500 à 10 %, la boutique saisit un prix BIZZOO de 2 272.
+`supabase/marge-exacte.sql` pose le nouvel arrondi et relève d'1 F les
+seuls articles dont le prix venait de l'ancien arrondi.
+
 ### Ce que rapportent les boutiques
 
 Le tableau de bord du super administrateur mène à un écran qui ne compte
