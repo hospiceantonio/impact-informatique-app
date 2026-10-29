@@ -309,6 +309,30 @@ titre("5. « Confier » dit qui n'est pas de la maison");
   ok(/BIZZOO livre toute la commande/.test(aide.replace(/\s+/g, " ")) &&
      /ne livre que vos produits/.test(aide),
     "la feuille dit : BIZZOO livre toute la commande, le sien ses produits seulement");
+
+  /* (3.70.0) La recherche en tête de la feuille : un nom ou un numéro. */
+  const visibles = () => page.evaluate(() => [...document.querySelectorAll(".cmd-livreur")]
+    .filter((l) => !l.hidden).map((l) => (l.querySelector(".cmd-livreur-nom") || {}).textContent || ""));
+  const enTete = await page.evaluate(() => {
+    const champ = document.querySelector("#cmd-livreur-chercher");
+    const corps = document.querySelector("#feuille-corps");
+    return !!champ && !!corps && corps.firstElementChild.contains(champ);
+  });
+  ok(enTete, "la recherche est le premier élément de la feuille");
+  await page.fill("#cmd-livreur-chercher", "ablo");
+  let v = await visibles();
+  ok(v.length === 1 && /Ablo/.test(v[0]), "« ablo » : seul Ablo reste (" + v.join(", ") + ")");
+  await page.fill("#cmd-livreur-chercher", "01 97 00 00 99");
+  v = await visibles();
+  ok(v.length === 1 && /Ablo/.test(v[0]), "son numéro, tapé avec des espaces : Ablo aussi");
+  await page.fill("#cmd-livreur-chercher", "zzz");
+  ok((await visibles()).length === 0 &&
+     await page.evaluate(() => !document.querySelector("#cmd-livreur-aucun").hidden),
+    "rien ne correspond : la feuille le dit");
+  ok(await page.evaluate(() => !document.querySelector('[data-livreur=""]').hidden),
+    "« Reprendre la course » reste toujours là");
+  await page.fill("#cmd-livreur-chercher", "");
+  ok((await visibles()).length === 2, "champ vidé : toute la liste revient");
   await ctx.close();
 }
 
