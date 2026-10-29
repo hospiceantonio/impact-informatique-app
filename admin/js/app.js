@@ -405,6 +405,11 @@
       return;
     }
 
+    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans
+       attendre). APRÈS le code SMS : rien n'est lu avant lui. */
+    const cfg = Supabase.configuration();
+    if (cfg) Utils.actualiserPrefixes(cfg.url, cfg.cle);
+
     try {
       await Store.init();
     } catch (err) {
@@ -518,9 +523,6 @@
   function demarrer() {
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     const vue = document.getElementById("vue");
-    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans attendre). */
-    const cfg = Supabase.configuration();
-    if (cfg) Utils.actualiserPrefixes(cfg.url, cfg.cle);
 
     if (!Supabase.estConfigure()) {
       VueConnexion.configuration(vue);

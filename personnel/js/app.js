@@ -229,6 +229,10 @@ const App = (() => {
   /* ---------- Le tableau de bord ---------- */
 
   async function rafraichir() {
+    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans
+       attendre). APRÈS le code SMS, comme dans BIZZOO Admin. */
+    const cfg = Supabase.configuration();
+    if (cfg) UI.actualiserPrefixes(cfg.url, cfg.cle);
     try {
       tableau = await Supabase.rpc("rh_tableau_de_bord");
       if (tableau && tableau.moi) await chargerMenus();
@@ -269,9 +273,6 @@ const App = (() => {
 
   async function demarrer() {
     const zone = document.getElementById("contenu");
-    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans attendre). */
-    const cfg = Supabase.configuration();
-    if (cfg) UI.actualiserPrefixes(cfg.url, cfg.cle);
     const connecte = Supabase.sessionPresente() && await Supabase.assurerSession();
     document.body.classList.toggle("connecte", !!connecte);
     for (const id of ["entete", "onglets", "menu-lateral"]) document.getElementById(id).hidden = !connecte;
