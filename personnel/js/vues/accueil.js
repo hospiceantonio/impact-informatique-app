@@ -86,6 +86,16 @@ const VueAccueil = (() => {
   async function afficher(zone) {
     const [, marche] = await Promise.all([App.rafraichir(), Supabase.rpc("rh_accueil_chiffres").catch(() => null)]);
     if (!zone.isConnected) return;
+    /* Le bilan du matin : seulement si la base me l'ouvre (administration,
+       responsables de profil) ; elle ôte elle-même les montants. */
+    const f = App.file() || {};
+    const bilans = f.bilan ? await Supabase.rpc("rh_bilans_lire", { v_nombre: 1 }).catch(() => null) : null;
+    if (!zone.isConnected) return;
+    const bilan = bilans && bilans.bilans && bilans.bilans[0];
+    const aujourdhui = UI.aujourdhui();
+    const carteBilan = bilan ? h("div", {},
+      VueBilans.carte(bilan, { titre: bilan.jour === aujourdhui ? "Bilan du jour" : "Dernier bilan (" + UI.date(bilan.jour) + ")" }),
+      h("a", { class: "petit", href: "#/bilans" }, "Voir l'historique des bilans")) : null;
     const moi = App.moi();
     const c = App.compteurs();
     const heure = new Date().getHours();
@@ -93,6 +103,11 @@ const VueAccueil = (() => {
     const rang = moi.ceo ? "CEO" : moi.administration ? "Administration" : moi.poste || "";
 
     const aFaire = [];
+    if (f.acces) {
+      aFaire.push(tuile((f.a_prendre || 0), "tâche(s) libre(s) dans ma file", "#/file", true));
+      if (f.a_moi) aFaire.push(tuile(f.a_moi, "tâche(s) que j'ai prise(s)", "#/file"));
+      if (f.escalades) aFaire.push(tuile(f.escalades, "tâche(s) que personne n'a prise(s)", "#/file", true));
+    }
     if (App.estCeo()) {
       aFaire.push(tuile(c.employes_a_valider, "employé(s) à valider", "#/employes?filtre=en_attente", true));
       aFaire.push(tuile(c.rapports_a_valider, "rapport(s) d'activité à valider", "#/rapports?filtre=publie", true));
@@ -170,6 +185,7 @@ const VueAccueil = (() => {
         h("h2", { style: { fontSize: "21px" } }, salut + ", " + (moi.prenoms || moi.nom)),
         h("p", { class: "doux" }, [rang, moi.profil ? "Profil " + moi.profil : ""].filter(Boolean).join(" · "))),
       h("div", { class: "tuiles" }, aFaire),
+      carteBilan,
       marche ? placeDeMarche(marche) : null,
       h("div", { class: "carte" }, h("h2", {}, "Raccourcis"), h("div", { class: "actions" }, raccourcis)));
   }

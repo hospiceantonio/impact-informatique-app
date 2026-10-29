@@ -177,6 +177,7 @@ p{margin:0}
 .tuile span{font-size:13px;color:var(--encre-douce)}
 .tuile.alerte{border-color:var(--orange);background:var(--orange-clair)}
 .tuile.alerte b{color:var(--orange-fonce)}
+.carte.alerte{border-color:var(--rouge);box-shadow:inset 3px 0 0 var(--rouge)}
 .rubrique-accueil h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce);margin-bottom:6px}
 .rubrique-accueil .tuile b{font-size:18px}
 .btn-statut{display:inline-flex;align-items:center;gap:4px;background:none;border:1px solid var(--trait);border-radius:999px;padding:3px 8px 3px 3px;cursor:pointer;font:inherit;color:var(--encre)}

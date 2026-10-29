@@ -26,6 +26,9 @@ const App = (() => {
   /* Le menu Qualité et ses alertes (rh_qualite_compteurs) : réclamations sans
      réponse, appels à BIZZOO pas tranchés, ruptures à appeler, files en retard. */
   let qualite = {};
+  /* Ma file et le bilan (rh_file_compteurs) : tâches libres, les miennes,
+     escalades ; et si le bilan du matin m'est ouvert. */
+  let file = {};
   let routeCourante = "";
   let minuterie = null;
   let relu = 0;                 // quand les compteurs ont été relus (Date.now())
@@ -81,6 +84,8 @@ const App = (() => {
     controles: VueControles,
     "liste-livreurs": VueLivreurs,
     qualite: VueQualite,
+    file: VueFile,
+    bilans: VueBilans,
     parametres: VueParametres,
     compte: VueCompte,
   };
@@ -90,6 +95,9 @@ const App = (() => {
     const c = compteurs();
     return [
       { route: "accueil", libelle: "Accueil", icone: "accueil" },
+      /* Les alertes confiées à mon profil par le routage (l'administration voit tout). */
+      { route: "file", libelle: "Ma file", icone: "check", pour: () => !!file.acces,
+        pastille: (file.a_prendre || 0) + (file.a_moi || 0) },
       { route: "mails", libelle: "Mails", icone: "mail", pour: () => ouvert("mails") },
       { route: "discussions", libelle: "Discussions", icone: "bulle", pour: () => ouvert("discussions"),
         pastille: c.messages_non_lus },
@@ -121,6 +129,8 @@ const App = (() => {
         pastille: (qualite.sav_sans_reponse || 0) + (qualite.sav_escalades || 0) + (qualite.ruptures_a_appeler || 0)
           + (qualite.files_en_retard || 0) },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
+      /* L'administration (montants) et les responsables de profil (nombres). */
+      { route: "bilans", libelle: "Bilan du matin", icone: "rapport", pour: () => !!file.bilan },
       /* Ouvert à un profil, « Employés » n'est que l'annuaire, en lecture. */
       { route: "employes", libelle: estAdmin() ? "Employés" : "Annuaire", icone: "equipe", pour: () => ouvert("employes"),
         pastille: c.employes_a_valider, groupe: estAdmin() ? "Administration" : undefined },
@@ -273,6 +283,7 @@ const App = (() => {
     controles = await Supabase.rpc("rh_controles_compteurs").catch(() => ({})) || {};
     argent = await Supabase.rpc("rh_argent_compteurs").catch(() => ({})) || {};
     qualite = await Supabase.rpc("rh_qualite_compteurs").catch(() => ({})) || {};
+    file = await Supabase.rpc("rh_file_compteurs").catch(() => ({})) || {};
     if (estAdmin()) return;
     try {
       menus = (await Supabase.rpc("rh_mes_menus")) || [];
@@ -367,7 +378,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, file: () => file, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer, alertesAffichees,
   };
 })();
