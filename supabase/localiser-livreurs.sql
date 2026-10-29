@@ -130,6 +130,14 @@ begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
   end if;
+  -- (3.70.0) Rien à suivre — ni course, ni « disponible » — : pas de jeton,
+  -- et « Localiser un livreur » ne le montre pas suivi.
+  if not public.livreur_en_course(moi)
+     and not exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees) then
+    delete from public.suivis_livreurs where profil_id = moi;
+    return jsonb_build_object('jeton', null, 'en_course', false, 'disponible', false);
+  end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())

@@ -193,6 +193,24 @@ revoke all on function public.tous_livreurs_course(text) from public, anon, auth
 
 -- Empruntées par les fonctions plus bas, recopiées telles quelles.
 -- ---------- Ce que ce fichier change ----------
+create or replace function public.fermer_suivi_livreur(tout boolean default false)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then return false; end if;
+  if not coalesce(tout, false)
+     and (public.livreur_en_course(moi)
+          or exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees)) then
+    return false;
+  end if;
+  delete from public.suivis_livreurs where profil_id = moi;
+  return found;
+end $$;
+revoke all on function public.fermer_suivi_livreur(boolean) from public, anon;
+grant execute on function public.fermer_suivi_livreur(boolean) to authenticated;
+
 create or replace function public.position_en_course(jeton text, lat double precision,
   lng double precision, precision_m int default null)
 returns jsonb
@@ -345,6 +363,14 @@ declare
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
+  end if;
+  -- (3.70.0) Rien à suivre — ni course, ni « disponible » — : pas de jeton,
+  -- et « Localiser un livreur » ne le montre pas suivi.
+  if not public.livreur_en_course(moi)
+     and not exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees) then
+    delete from public.suivis_livreurs where profil_id = moi;
+    return jsonb_build_object('jeton', null, 'en_course', false, 'disponible', false);
   end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)

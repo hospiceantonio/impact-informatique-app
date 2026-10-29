@@ -1,6 +1,7 @@
 package com.impactinformatique.apps;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -20,6 +21,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 
 import org.json.JSONObject;
 
@@ -58,6 +60,10 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
     static final String EXTRA_URL = "bizzoo.suivi.url";
     static final String EXTRA_CLE = "bizzoo.suivi.cle";
     static final String EXTRA_JETON = "bizzoo.suivi.jeton";
+    /* (3.70.0) Le réveil programmé : une alarme Android, qui réveille le
+       téléphone même endormi (Doze), toutes les 3 minutes libre. */
+    static final String ACTION_REVEIL = "bizzoo.suivi.reveil";
+    private static final int NUMERO_INTERRUPTION = 7311;
     private static final String PREFERENCES = "bizzoo-suivi-position";
     private static final String CANAL = "suivi-position";
     private static final int NUMERO = 7310;
@@ -79,7 +85,10 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
     /* (3.70.0) Le service tourne-t-il vraiment ? La page le demande au pont
        (« suiviActif ») avant de croire qu'il n'y a rien à relancer. */
     static volatile boolean actif = false;
+    /* Le jeton avec lequel il tourne : la page vérifie que c'est le sien. */
+    static volatile String jetonActuel = "";
     private volatile boolean detruit = false;
+    private volatile boolean arrete = false;
     /* (3.70.0) En course (rythme serré) ou libre et disponible (rythme lâche). */
     private volatile boolean enCourse = false;
     private volatile boolean ancienneBase = false;
@@ -94,11 +103,31 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
 
     static void arreter(Context contexte) {
         contexte.getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().clear().apply();
+        /* (3.70.0) Le réveil programmé ne doit pas le relancer. */
+        AlarmManager alarmes = (AlarmManager) contexte.getSystemService(Context.ALARM_SERVICE);
+        if (alarmes != null) {
+            Intent reveil = new Intent(contexte, ServiceSuiviPosition.class);
+            reveil.setAction(ACTION_REVEIL);
+            int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
+                    | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+            try { alarmes.cancel(PendingIntent.getService(contexte, NUMERO, reveil, drapeaux)); } catch (Exception e) { /* vide */ }
+        }
         contexte.stopService(new Intent(contexte, ServiceSuiviPosition.class));
     }
 
     @Override
     public int onStartCommand(Intent intention, int drapeaux, int numero) {
+        boolean reveil = intention != null && ACTION_REVEIL.equals(intention.getAction());
+        /* Le réveil d'un service qui tourne : une position, et le prochain
+           réveil. Rien d'autre à refaire. */
+        if (reveil && actif && !arrete && !detruit && jeton != null && !jeton.isEmpty()) {
+            reveiller();
+            return START_STICKY;
+        }
+        /* Relancé hors de la page (Android, ou l'alarme après un arrêt) :
+           si cela échoue, le livreur doit le savoir. */
+        boolean relance = intention == null || reveil;
+        arrete = false;
         SharedPreferences prefs = getSharedPreferences(PREFERENCES, MODE_PRIVATE);
         if (intention != null && intention.hasExtra(EXTRA_JETON)) {
             url = intention.getStringExtra(EXTRA_URL);
@@ -113,7 +142,7 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
             jeton = prefs.getString(EXTRA_JETON, "");
         }
         if (url == null || url.isEmpty() || jeton == null || jeton.isEmpty() || !positionPermise()) {
-            arreterTout();
+            arreterTout(false);
             return START_NOT_STICKY;
         }
         try {
@@ -124,11 +153,15 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
             }
         } catch (Exception e) {
             /* Android refuse un service de localisation lancé hors de
-               l'écran : il repartira à la prochaine ouverture des courses. */
-            arreterTout();
+               l'écran : il repartira à la prochaine ouverture des courses —
+               et le livreur en est prévenu, s'il ne l'a pas lancé lui-même. */
+            arreterTout(relance);
             return START_NOT_STICKY;
         }
         actif = true;
+        jetonActuel = jeton;
+        NotificationManager gestionnaire = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (gestionnaire != null) gestionnaire.cancel(NUMERO_INTERRUPTION);
         ecouter();
         /* Une première position tout de suite : celle qu'on connaît. */
         if (derniere != null) envoyer(derniere);
@@ -140,31 +173,89 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                 || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
+    /** Les fournisseurs à écouter : en course, GPS et réseau ; libre, le
+        réseau seul s'il est là (la batterie compte), le GPS sinon. */
+    private String[] fournisseurs() {
+        if (!enCourse && localisation != null && localisation.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            return new String[]{LocationManager.NETWORK_PROVIDER};
+        }
+        return new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER};
+    }
+
     @SuppressWarnings("MissingPermission")
     private void ecouter() {
+        if (arrete || detruit) return;
         if (localisation == null) localisation = (LocationManager) getSystemService(LOCATION_SERVICE);
         if (localisation == null) return;
         try {
             localisation.removeUpdates(this);
-            for (String fournisseur : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+            for (String fournisseur : fournisseurs()) {
                 if (localisation.isProviderEnabled(fournisseur)) {
-                    /* Libre : distance minimale 0, pour qu'Android réveille le
-                       téléphone toutes les 3 minutes même s'il ne bouge pas —
-                       un livreur qui attend à son point, écran éteint, doit
-                       rester « récent » pour la cascade. */
                     localisation.requestLocationUpdates(fournisseur,
                             enCourse ? INTERVALLE_MS : INTERVALLE_LIBRE_MS,
                             enCourse ? DISTANCE_M : 0f, this, Looper.getMainLooper());
-                    Location connue = localisation.getLastKnownLocation(fournisseur);
-                    if (connue != null && (derniere == null || connue.getTime() > derniere.getTime())) derniere = connue;
                 }
             }
+            plusRecente();
         } catch (SecurityException e) {
-            arreterTout();
+            arreterTout(true);
             return;
         }
         horloge.removeCallbacksAndMessages(null);
         horloge.post(battement);
+        programmerReveil();
+    }
+
+    /** La position la plus récente que le téléphone connaît. */
+    @SuppressWarnings("MissingPermission")
+    private void plusRecente() {
+        if (localisation == null) return;
+        for (String fournisseur : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+            try {
+                Location connue = localisation.getLastKnownLocation(fournisseur);
+                if (connue != null && (derniere == null || connue.getTime() > derniere.getTime())) derniere = connue;
+            } catch (Exception e) { /* fournisseur absent */ }
+        }
+    }
+
+    /* (3.70.0) LE RÉVEIL. Un Handler ne compte pas le temps où le téléphone
+       dort : écran éteint, immobile, plus rien ne partait. Une alarme
+       Android, elle, le réveille — même en Doze (au plus toutes les 9 minutes
+       alors, bien sous l'heure de fraîcheur de la cascade). Elle renvoie la
+       dernière position connue : immobile, c'est la bonne, et la base sait
+       qu'il est toujours là. */
+    private void programmerReveil() {
+        if (arrete || detruit) return;
+        AlarmManager alarmes = (AlarmManager) getSystemService(ALARM_SERVICE);
+        if (alarmes == null) return;
+        long quand = SystemClock.elapsedRealtime() + (enCourse ? BATTEMENT_MS : INTERVALLE_LIBRE_MS);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmes.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, quand, intentionReveil());
+            } else {
+                alarmes.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, quand, intentionReveil());
+            }
+        } catch (Exception e) { /* le battement de la page reste */ }
+    }
+
+    private PendingIntent intentionReveil() {
+        Intent reveil = new Intent(this, ServiceSuiviPosition.class);
+        reveil.setAction(ACTION_REVEIL);
+        int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        return PendingIntent.getService(this, NUMERO, reveil, drapeaux);
+    }
+
+    private void annulerReveil() {
+        AlarmManager alarmes = (AlarmManager) getSystemService(ALARM_SERVICE);
+        if (alarmes == null) return;
+        try { alarmes.cancel(intentionReveil()); } catch (Exception e) { /* vide */ }
+    }
+
+    private void reveiller() {
+        plusRecente();
+        if (derniere != null && System.currentTimeMillis() - dernierEnvoi >= 20_000) envoyer(derniere);
+        programmerReveil();
     }
 
     /* Immobile, le téléphone ne donne plus de position : on renvoie la
@@ -198,7 +289,7 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
     @Override public void onProviderDisabled(String fournisseur) { }
 
     private void envoyer(final Location position) {
-        if (detruit) return;
+        if (detruit || arrete) return;
         dernierEnvoi = System.currentTimeMillis();
         final double lat = position.getLatitude();
         final double lng = position.getLongitude();
@@ -241,8 +332,9 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                     return;
                 }
                 if (statut >= 400 && statut < 500) {
-                    /* Jeton expiré ou refusé : la page en redonnera un. */
-                    horloge.post(() -> { if (jetonEnvoye.equals(jeton)) arreterTout(); });
+                    /* Jeton expiré ou refusé : la page en redonnera un. Le
+                       livreur le sait : sans cela, il se croirait disponible. */
+                    horloge.post(() -> { if (jetonEnvoye.equals(jeton)) arreterTout(true); });
                     return;
                 }
                 if (statut >= 200 && statut < 300) {
@@ -252,7 +344,7 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                         reponse = lecteur.hasNext() ? lecteur.next() : "";
                     }
                     if (reponse.contains("\"continuer\": false") || reponse.contains("\"continuer\":false")) {
-                        horloge.post(() -> { if (jetonEnvoye.equals(jeton)) arreterTout(); });
+                        horloge.post(() -> { if (jetonEnvoye.equals(jeton)) arreterTout(false); });
                         return;
                     }
                     /* (3.70.0) En course, ou libre : le rythme et la notification suivent. */
@@ -275,7 +367,7 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
 
     /** (3.70.0) Passe du rythme « course » au rythme « libre », ou l'inverse. */
     private void changerDeRythme(boolean course) {
-        if (detruit || course == enCourse) return;
+        if (detruit || arrete || course == enCourse) return;
         enCourse = course;
         NotificationManager gestionnaire = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (gestionnaire != null) gestionnaire.notify(NUMERO, notification());
@@ -312,9 +404,37 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                 .build();
     }
 
+    /** (3.70.0) Le suivi s'est arrêté sans que le livreur le demande. */
+    private void prevenirInterruption() {
+        NotificationManager gestionnaire = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (gestionnaire == null) return;
+        Notification.Builder constructeur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, CANAL) : new Notification.Builder(this);
+        Intent ouverture = new Intent(this, MainActivity.class);
+        ouverture.putExtra(MainActivity.EXTRA_LIEN, "#/livraisons");
+        ouverture.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        gestionnaire.notify(NUMERO_INTERRUPTION, constructeur
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Position interrompue")
+                .setContentText("Ouvrez BIZZOO Admin pour rester disponible pour les courses.")
+                .setContentIntent(PendingIntent.getActivity(this, NUMERO_INTERRUPTION, ouverture, drapeaux))
+                .setAutoCancel(true)
+                .build());
+    }
+
     private void arreterTout() {
+        arreterTout(false);
+    }
+
+    private void arreterTout(boolean prevenir) {
+        if (detruit || arrete) return;
+        arrete = true;
         actif = false;
-        if (detruit) return;
+        jetonActuel = "";
+        annulerReveil();
+        if (prevenir) prevenirInterruption();
         horloge.removeCallbacksAndMessages(null);
         if (localisation != null) {
             try { localisation.removeUpdates(this); } catch (Exception e) { /* vide */ }
@@ -327,9 +447,11 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
 
     @Override
     public void onDestroy() {
+        if (!arrete) { actif = false; jetonActuel = ""; annulerReveil(); }
         detruit = true;
-        actif = false;
         horloge.removeCallbacksAndMessages(null);
+        NotificationManager gestionnaire = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (gestionnaire != null) gestionnaire.cancel(NUMERO);
         if (localisation != null) {
             try { localisation.removeUpdates(this); } catch (Exception e) { /* vide */ }
         }

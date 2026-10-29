@@ -16456,6 +16456,14 @@ begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
   end if;
+  -- (3.70.0) Rien à suivre — ni course, ni « disponible » — : pas de jeton,
+  -- et « Localiser un livreur » ne le montre pas suivi.
+  if not public.livreur_en_course(moi)
+     and not exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees) then
+    delete from public.suivis_livreurs where profil_id = moi;
+    return jsonb_build_object('jeton', null, 'en_course', false, 'disponible', false);
+  end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())
@@ -16588,6 +16596,27 @@ end $$;
 revoke all on function public.position_livreur(text, double precision, double precision, int) from public;
 grant execute on function public.position_livreur(text, double precision, double precision, int)
   to anon, authenticated;
+
+-- (3.70.0) Le téléphone cesse de suivre (la page l'a arrêté, ou le livreur
+-- se déconnecte) : la base l'oublie aussi. Sans « tout », seulement s'il
+-- n'a plus rien à suivre.
+create or replace function public.fermer_suivi_livreur(tout boolean default false)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if moi is null or not public.est_livreur() then return false; end if;
+  if not coalesce(tout, false)
+     and (public.livreur_en_course(moi)
+          or exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees)) then
+    return false;
+  end if;
+  delete from public.suivis_livreurs where profil_id = moi;
+  return found;
+end $$;
+revoke all on function public.fermer_suivi_livreur(boolean) from public, anon;
+grant execute on function public.fermer_suivi_livreur(boolean) to authenticated;
 
 -- (3.70.0) Le livreur se dit disponible, ou non. Rend l'état gardé.
 create or replace function public.regler_disponibilite(dispo boolean)

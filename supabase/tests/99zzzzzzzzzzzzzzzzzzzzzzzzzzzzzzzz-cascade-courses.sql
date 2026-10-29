@@ -271,8 +271,16 @@ select pg_temp.commande_payee('TRX-CASCADE-5') as c5 \gset
 select essai.verifie(not (:L3::uuid = any(coalesce((select ordre from public.courses_cascade where commande_id = :'c5'), '{}'::uuid[]))),
   'et il n''est plus parmi les plus proches');
 select essai.devenir(:L3::uuid); set role authenticated;
+select essai.verifie((public.ouvrir_suivi_livreur() ->> 'jeton') is null,
+  'pas disponible et sans course : pas de jeton (rien à suivre)');
 select essai.egal(public.regler_disponibilite(true), true, 'il se redit disponible');
+select essai.verifie((public.ouvrir_suivi_livreur() ->> 'jeton') is not null, 'disponible : un jeton');
+select essai.verifie(not public.fermer_suivi_livreur(false),
+  'la page arrête le suivi alors qu''il est disponible : la base le garde');
+select essai.verifie(public.fermer_suivi_livreur(true), 'déconnexion : la base l''oublie');
 reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from public.suivis_livreurs where profil_id = :L3::uuid),
+  'plus aucun suivi actif pour lui');
 select essai.devenir(:ACHETEUR::uuid); set role authenticated;
 select essai.refuse($$select public.regler_disponibilite(true)$$, 'un client ne règle rien');
 reset role; select essai.personne();

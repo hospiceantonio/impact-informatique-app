@@ -347,7 +347,10 @@ const VueLivraisons = (() => {
      relecture s'en charge (une liste vide arrêterait le suivi d'une course). */
   let dernieresCourses = null;
 
-  const apk = () => typeof SuiviPosition !== "undefined" && SuiviPosition.natif();
+  /* L'APK 3.70.0 et au-delà (son pont sait dire si le service tourne) : la
+     seule qui suit le livreur libre application fermée. */
+  const apk = () => typeof SuiviPosition !== "undefined" && SuiviPosition.natif() &&
+    typeof (window.AndroidPont || {}).suiviActif === "function";
   const pontAndroid = () => (typeof window.AndroidPont !== "undefined" ? window.AndroidPont : null);
   /* Les deux réglages du téléphone qui empêchent Android de couper le suivi
      (APK 3.70.0) : faux s'ils manquent. */
@@ -390,14 +393,17 @@ const VueLivraisons = (() => {
       b.onclick = () => {
         const p = pontAndroid();
         try { if (p && typeof p[methode] === "function") p[methode](); } catch (_) { /* refusé */ }
-        /* Au retour des réglages, l'écran se relit et dit ce qui reste. */
+        /* Au retour des réglages (ou de la boîte de dialogue, qui ne cache
+           pas la page), la carte se relit et dit ce qui reste. */
         const relire = () => {
           if (document.hidden) return;
           document.removeEventListener("visibilitychange", relire);
           const carte = UI.$("#lv-dispo", vue);
-          if (carte) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
+          if (carte && carte.isConnected) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
         };
         document.addEventListener("visibilitychange", relire);
+        setTimeout(relire, 6000);
+        setTimeout(relire, 20000);
       };
     };
     regler("#lv-dispo-toujours", "demanderPositionToujours");

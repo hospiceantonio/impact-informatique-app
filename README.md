@@ -5494,6 +5494,73 @@ partenaires, toujours dans le même ordre. Désormais :
 `client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
 par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
 
+## Le livreur « disponible » : sa position, application fermée (3.70.0)
+
+La cascade (section suivante) choisit le livreur **le plus proche** d'après
+sa dernière position. Pour qu'elle soit juste, la position doit partir
+**même quand l'application est fermée** — c'est ce que fait désormais
+BIZZOO Admin sur Android.
+
+**Pour le livreur (BIZZOO Admin → Livraisons) :** l'interrupteur
+**« Disponible pour les courses »**, allumé par défaut.
+- **Allumé** : le téléphone envoie sa position **toutes les 3 minutes**,
+  application fermée, écran éteint, même immobile ; **toutes les 20
+  secondes** pendant une course. Une notification permanente le dit
+  (« Disponible pour les courses »).
+- **Éteint** (en fin de journée) : plus de position hors course, et il ne
+  fait plus partie des trois plus proches. Il reçoit encore l'étape « à
+  tous ».
+- Deux boutons apparaissent tant qu'ils manquent : **« Position : Toujours
+  autoriser »** et **« Ne pas limiter la batterie de BIZZOO »**. Sans eux,
+  Android peut couper le suivi et ne pas le relancer ; avec eux, il le
+  garde.
+- Dans un navigateur (sans l'APK) : la position part tant que la page est
+  ouverte, et l'écran le dit.
+- iPhone : pas de suivi application fermée (BIZZOO Admin n'est pas prévu
+  pour iOS côté livreur).
+
+**Comment ça tient (Android, `ServiceSuiviPosition`)** : un service au
+premier plan de type « location » (déjà là pour les courses depuis la
+3.59.0), qui appelle désormais `position_livreur`. Libre, il demande une
+position toutes les 3 minutes **sans distance minimale**, ce qui oblige
+Android à réveiller le téléphone ; un verrou d'éveil couvre chaque envoi.
+Chaque envoi garde **son** jeton : le refus d'un jeton remplacé ne coupe
+pas le service. Une base d'avant (sans `position_livreur`) : il repasse à
+`position_en_course`, comme avant.
+
+**En base :**
+- `profils.disponible` (vrai par défaut) ; `regler_disponibilite(dispo)`
+  — éteint et sans course, le suivi est **révoqué** (« Localiser un
+  livreur » ne le montre plus actif) ;
+- `position_livreur(jeton, lat, lng, precision_m)` : sans session, le
+  jeton de suivi fait foi ; continue tant que le livreur a une course OU
+  est disponible (et pas suspendu) ; rend `continuer` et `en_course` ;
+  écrit au plus toutes les 5 s en course, 30 s libre ; **prolonge le
+  jeton** (16 h après le dernier signe) — application fermée des jours
+  durant, le suivi ne meurt pas ;
+- `ouvrir_suivi_livreur` : un renouvellement garde **l'ancien jeton
+  valable 10 minutes** (`jeton_hash_precedent`) — un envoi parti ou un
+  service pas encore relancé n'est pas coupé ; `position_en_course` (APK
+  3.68.0) en profite aussi ;
+- `plus_proches_course` ne prend que les livreurs disponibles ;
+  `signaler_ma_position` (page ouverte) n'écrit rien pour un livreur non
+  disponible et libre.
+
+**La page** (`suivi-position.js`) ne renouvelle pas le jeton quand elle
+est cachée (Android refuserait de relancer le service hors de l'écran) ;
+au retour à l'écran, elle relance le service s'il s'est arrêté
+(`suiviActif` du pont). Le passage « libre → en course » relance tout de
+suite au rythme serré.
+
+**Vie privée :** le livreur choisit (interrupteur), la notification
+permanente le lui rappelle, et rien ne part quand il est éteint et libre.
+
+Fichier à coller : `supabase/livreur-disponible.sql` (relançable,
+autonome). Essais : `supabase/tests/99zzz…-cascade-courses.sql` (section
+11), `tools/banc-parcours-livraison.mjs` (section 6c). Le service Android
+est compilé contre des classes de remplacement avant chaque envoi (la
+construction réelle se fait sur GitHub).
+
 ## La course au livreur le plus proche, puis à tous (3.70.0)
 
 Avant, une commande payée sonnait chez **tous** les livreurs à la fois.

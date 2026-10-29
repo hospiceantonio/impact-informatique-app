@@ -738,6 +738,12 @@ public class MainActivity extends Activity {
             return ServiceSuiviPosition.actif;
         }
 
+        /** (3.70.0) … et avec CE jeton (celui que la page vient de donner) ? */
+        @JavascriptInterface
+        public boolean suiviAvec(String jeton) {
+            return ServiceSuiviPosition.actif && jeton != null && jeton.equals(ServiceSuiviPosition.jetonActuel);
+        }
+
         /**
          * (3.70.0) Le livreur « disponible » est suivi application fermée.
          * Pour qu'Android ne coupe pas ce suivi — et puisse le relancer
@@ -789,8 +795,15 @@ public class MainActivity extends Activity {
                                 Manifest.permission.ACCESS_COARSE_LOCATION}, CODE_POSITION_TOUJOURS);
                         return;
                     }
-                    /* Android 11 et plus ouvre ici la page des réglages de
-                       l'application : « Autoriser tout le temps ». */
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        /* Android 11 et plus : le choix « Autoriser tout le
+                           temps » se fait dans les réglages de l'application
+                           (Autorisations → Position). La demande seule est
+                           ignorée après un premier refus : on y mène. */
+                        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:" + getPackageName())));
+                        return;
+                    }
                     requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION},
                             CODE_POSITION_TOUJOURS);
                 } catch (Exception e) { /* refusé par le système */ }
