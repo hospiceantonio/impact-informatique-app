@@ -5471,6 +5471,69 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Les boutiques à vendeurs multiples (3.70.0)
+
+Une boutique est **à vendeur unique** (comme avant, rien ne change) ou
+**à vendeurs multiples** : plusieurs vendeurs y proposent leurs produits,
+et chacun reçoit automatiquement sa part de ses ventes.
+
+**Le superadministrateur** règle le type dans la fiche boutique (*Type de
+boutique*), avec la **part maximale** d'un vendeur (80 % par défaut) — la
+base refuse ces deux réglages à tout autre compte. Il crée les comptes
+**Vendeur** (Accueil → *Vendeurs* → *Nouveau vendeur*) : un vendeur entre
+dans BIZZOO Admin par son numéro et son mot de passe, n'appartient à
+aucune boutique, et n'a qu'un écran, **Mes ventes**.
+
+**Chaque produit** d'une boutique à vendeurs multiples a :
+
+- son **prix de vente** (saisi, au lieu du prix BIZZOO) ;
+- son **vendeur propriétaire** (un compte vendeur actif) ;
+- la **part du vendeur**, en % du prix de vente, au plus la part maximale
+  de la boutique.
+
+La part en francs (le « prix BIZZOO » du produit) se calcule **en base**,
+au franc inférieur : 10 000 F à 80 % → 8 000 pour le vendeur, 2 000 pour
+BIZZOO. Elle suit le prix de vente s'il change. Tout changement de
+vendeur ou de part est **historisé** (`parts_vendeurs_historique`), et
+une part changée **ne touche pas les ventes déjà faites** : chaque ligne
+de commande fige son vendeur et sa part (`commande_lignes.vendeur_id`,
+`taux_vendeur`, `prix_bizzoo`), que personne ne peut plus changer.
+
+**Passer une boutique en vendeurs multiples** : ouvrez ensuite chacun de
+ses produits pour lui attribuer son vendeur et sa part. La liste des
+produits dit combien n'en ont pas encore (*N produits sans vendeur*, et
+le filtre *Sans vendeur*) ; d'ici là leurs ventes restent comptées pour
+la boutique, et la base refuse de réenregistrer un tel produit sans son
+vendeur. On ne repasse pas en vendeur unique tant qu'un produit a son
+vendeur.
+
+**Le crédit**, comme pour une boutique : commande payée → **en attente** ;
+colis remis au client → **disponible** ; versement envoyé → **versé**.
+Une ligne annulée n'est jamais créditée, et le solde se **calcule** sur les
+lignes (`solde_vendeur`) : une notification de paiement répétée ne crédite
+rien de plus. Une remise (code promo, prix revendeur) se prend sur la
+commission de BIZZOO : le vendeur garde toujours sa part entière. Les
+frais de livraison restent à part. Le solde d'une boutique ne compte plus
+la part de ses vendeurs.
+
+**L'espace du vendeur** (`#/ventes`, `espace_vendeur`) : son solde, ses
+produits (prix, part, stock, vendus), l'historique de ses ventes (sans
+aucun client), ses versements ; il règle son numéro de réception et
+demande un versement (`regler_reception_vendeur`,
+`demander_reversement_vendeur`). Il ne modifie rien.
+
+**Le superadministrateur** (`#/vendeurs`, `ventes_vendeurs`) : pour chaque
+vendeur, ventes livrées, sa part, la commission de BIZZOO (avant codes
+promo), à venir, versé, disponible ; toucher un vendeur ouvre son espace ;
+l'historique des parts. Les demandes de versement des vendeurs arrivent
+dans **Reversements**, avec celles des boutiques et des livreurs
+(`decider_reversement_vendeur`, la référence de transaction exigée).
+
+Base : `supabase/vendeurs-multiples.sql`. Essais :
+`supabase/tests/…-vendeurs-multiples.sql` (droits, calcul, lignes figées,
+pas de double crédit, versements) et `tools/banc-vendeurs-multiples.mjs`
+(les écrans).
+
 ## La distance par la route, avec Google (3.70.0)
 
 Sans réglage, la distance d'une livraison est **à vol d'oiseau × 1,3**

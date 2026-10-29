@@ -38,10 +38,27 @@ const VueProduits = (() => {
     const secteur = categories.find((c) => c.id === (maBoutique && maBoutique.categorieId));
     const rayons = (secteur && secteur.sousCategories) || [];
     const aClasser = produits.filter((p) => !p.sousCategorieId).length;
-    if (filtreCategorie && filtreCategorie !== "aclasser"
+    /* (3.70.0) Dans une boutique à vendeurs multiples : les produits qui
+       n'ont pas encore leur vendeur. Leurs ventes restent comptées pour la
+       boutique tant qu'on ne les lui a pas attribués. */
+    const multi = !!(Store.connaitVendeurs() && maBoutique && maBoutique.vendeurs === "multiples");
+    const sansVendeur = multi ? produits.filter((p) => !p.vendeurId).length : 0;
+    if (filtreCategorie && filtreCategorie !== "aclasser" && filtreCategorie !== "sansvendeur"
         && !rayons.some((sc) => sc.id === filtreCategorie)) filtreCategorie = "";
+    if (filtreCategorie === "sansvendeur" && !sansVendeur) filtreCategorie = "";
 
     vue.innerHTML =
+      (sansVendeur
+        ? '<div class="carte carte-publier" id="produits-sans-vendeur">' +
+            '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") + " " +
+              sansVendeur + " produit" + (sansVendeur > 1 ? "s" : "") + " sans vendeur</div>" +
+            '<p class="aide" style="margin:0">Cette boutique est à vendeurs multiples : ouvrez ' +
+              (sansVendeur > 1 ? "chacun de ces produits" : "ce produit") + " et attribuez-" +
+              (sansVendeur > 1 ? "leur" : "lui") + " son vendeur et sa part. D'ici là, " +
+              (sansVendeur > 1 ? "leurs ventes restent comptées" : "ses ventes restent comptées") +
+              " pour la boutique.</p>" +
+          "</div>"
+        : "") +
       (aClasser
         ? '<div class="carte carte-publier">' +
             '<div class="carte-titre">' + UI.icone("alerte", "ic-sm") + " " +
@@ -58,6 +75,11 @@ const VueProduits = (() => {
       "</div>" +
       '<div class="puces" id="produits-filtres">' +
         '<button type="button" class="puce' + (filtreCategorie ? "" : " active") + '" data-filtre="">Tout</button>' +
+        (sansVendeur
+          ? '<button type="button" class="puce' +
+            (filtreCategorie === "sansvendeur" ? " active" : "") +
+            '" data-filtre="sansvendeur">Sans vendeur (' + sansVendeur + ")</button>"
+          : "") +
         (aClasser
           ? '<button type="button" class="puce' +
             (filtreCategorie === "aclasser" ? " active" : "") +
@@ -80,6 +102,7 @@ const VueProduits = (() => {
     const rendre = () => {
       let visibles = produits;
       if (filtreCategorie === "aclasser") visibles = visibles.filter((p) => !p.sousCategorieId);
+      else if (filtreCategorie === "sansvendeur") visibles = visibles.filter((p) => !p.vendeurId);
       else if (filtreCategorie) visibles = visibles.filter((p) => p.sousCategorieId === filtreCategorie);
       visibles = Store.chercherProduits(visibles, termeRecherche);
       zone.innerHTML = visibles.length
@@ -689,6 +712,15 @@ const VueProduits = (() => {
 
     const boutiques = Store.listerBoutiques();
     const laBoutique = Store.boutiqueCourante();
+    /* (3.70.0) UNE BOUTIQUE À VENDEURS MULTIPLES : on y saisit le prix de
+       vente, le vendeur propriétaire et sa part ; le prix BIZZOO (sa part
+       en francs) s'en déduit, et la base le recalcule elle-même. */
+    const multi = !!(Store.connaitVendeurs() && laBoutique && laBoutique.vendeurs === "multiples");
+    const partMax = multi ? (Number(laBoutique.partVendeurMax) || 80) : 80;
+    const vendeursDispo = multi ? await Store.listerVendeurs() : [];
+    if (multi && existant && existant.vendeurId && !vendeursDispo.some((v) => v.id === existant.vendeurId)) {
+      vendeursDispo.push({ id: existant.vendeurId, nom: "Vendeur inactif", tel: "" });
+    }
     /* Un produit appartient à une boutique et n'en change plus : on le
        dit clairement, et l'administrateur choisit laquelle avant de
        créer. Sur un produit existant, c'est un rappel, pas un choix. */
@@ -767,7 +799,37 @@ const VueProduits = (() => {
          pas. C'est ce qui rend les comptes de l'enseigne lisibles. */
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Prix</div>" +
-        UI.champMontant({ id: "p-grossiste", label: "Prix BIZZOO", obligatoire: true,
+        (multi
+          ? UI.champMontant({ id: "p-prix-vente", label: "Prix de vente", obligatoire: true,
+              valeur: existant && existant.prix ? existant.prix : "",
+              aide: "Ce que paie le client pour ce produit." }) +
+            '<div class="champ">' +
+              '<label for="p-vendeur">Vendeur propriétaire <span class="obligatoire">*</span></label>' +
+              '<select id="p-vendeur">' +
+                '<option value="">— Choisissez le vendeur —</option>' +
+                vendeursDispo.map((v) => '<option value="' + Utils.echapper(v.id) + '"' +
+                  (existant && existant.vendeurId === v.id ? " selected" : "") + ">" +
+                  Utils.echapper(v.nom + (v.tel ? " — " + v.tel : "")) + "</option>").join("") +
+              "</select>" +
+              '<div class="aide">' + (vendeursDispo.length
+                ? "Ses ventes de ce produit lui sont créditées automatiquement, dès la livraison."
+                : "Aucun compte vendeur pour l'instant : le superadministrateur en crée depuis " +
+                  "Accueil → Vendeurs.") + "</div>" +
+            "</div>" +
+            '<div class="champ">' +
+              '<label for="p-taux-vendeur">Part du vendeur <span class="obligatoire">*</span></label>' +
+              '<div class="champ-montant">' +
+                '<input id="p-taux-vendeur" inputmode="decimal" autocomplete="off"' +
+                  ' placeholder="' + Utils.echapper(Utils.fmtTaux(partMax)) + '"' +
+                  ' value="' + Utils.echapper(existant && existant.tauxVendeur != null
+                    ? Utils.fmtTaux(existant.tauxVendeur) : "") + '">' +
+                '<span class="devise">%</span>' +
+              "</div>" +
+              '<div class="aide">En pourcentage du prix de vente — au plus ' +
+                Utils.echapper(Utils.fmtTaux(partMax)) + " % dans cette boutique. Le reste est la " +
+                "commission de BIZZOO. Une part changée plus tard ne touche pas les ventes déjà faites.</div>" +
+            "</div>"
+          : UI.champMontant({ id: "p-grossiste", label: "Prix BIZZOO", obligatoire: true,
           valeur: existant && existant.prixGrossiste ? existant.prixGrossiste : "",
           aide: "Ce que la boutique touche sur cette vente. Il ne quitte jamais " +
             "l'application admin : ni vos clients ni les autres boutiques ne le voient." }) +
@@ -781,7 +843,7 @@ const VueProduits = (() => {
           '<div class="aide">Prix BIZZOO + la marge de l\'enseigne (' +
             Utils.echapper(Utils.fmtTaux(tauxBoutique)) + " %). C'est le prix que voient " +
             "vos clients ; il se calcule tout seul et ne se modifie pas.</div>" +
-        "</div>" +
+        "</div>") +
         '<div id="p-marge"></div>' +
         /* Le taux revendeur de CET article. Vide — et c'est le cas de
            presque tous — le taux de la boutique s'applique. On ne le
@@ -971,14 +1033,36 @@ const VueProduits = (() => {
             "le prix de vente s'en déduit.</div>";
     }
 
-    champGrossiste.addEventListener("input", Utils.tempo(recalculerPrix, 350));
     /* Le taux revendeur change l'aperçu, pas le prix de vente — mais on
        repasse par le même calcul : il n'y a qu'un endroit où il se fait. */
     const champTauxRevendeur = UI.$("#p-taux-revendeur");
-    if (champTauxRevendeur) {
-      champTauxRevendeur.addEventListener("input", Utils.tempo(recalculerPrix, 350));
+    if (multi) {
+      /* (3.70.0) Ce que touche le vendeur, et ce que garde BIZZOO, pendant
+         la saisie — au franc inférieur, comme la base le calcule. */
+      const recalculerPart = () => {
+        const vente = Math.max(0, Math.round(Utils.lireNombre(UI.$("#p-prix-vente").value) || 0));
+        const taux = Utils.lireNombre(String(UI.$("#p-taux-vendeur").value).replace(",", "."));
+        const ok = vente > 0 && taux >= 1 && taux <= partMax;
+        const part = ok ? Math.floor(vente * taux / 100) : 0;
+        zoneMarge.innerHTML = ok
+          ? '<div class="note-marge">' + UI.icone("promo", "ic-sm") +
+              "<span>Le vendeur reçoit <strong>" + Utils.echapper(Utils.fmtMontant(part, devise)) +
+              "</strong> par pièce, BIZZOO garde <strong>" +
+              Utils.echapper(Utils.fmtMontant(vente - part, devise)) + "</strong>.</span></div>"
+          : '<div class="aide" style="margin:-6px 0 14px">Indiquez le prix de vente et la part du ' +
+              "vendeur (de 1 à " + Utils.echapper(Utils.fmtTaux(partMax)) + " %).</div>";
+      };
+      for (const id of ["#p-prix-vente", "#p-taux-vendeur"]) {
+        UI.$(id).addEventListener("input", Utils.tempo(recalculerPart, 250));
+      }
+      recalculerPart();
+    } else {
+      champGrossiste.addEventListener("input", Utils.tempo(recalculerPrix, 350));
+      if (champTauxRevendeur) {
+        champTauxRevendeur.addEventListener("input", Utils.tempo(recalculerPrix, 350));
+      }
+      recalculerPrix();
     }
-    recalculerPrix();
 
     /* LE STOCK TEL QU'ON L'A MONTRÉ. Les ventes le font baisser pendant
        qu'on retouche la fiche : la base ne remplace que ce chiffre-là, et
@@ -1001,7 +1085,14 @@ const VueProduits = (() => {
           nom: UI.$("#p-nom").value,
           reference: UI.$("#p-reference").value,
           description: UI.$("#p-description").value,
-          prixGrossiste: champGrossiste.value,
+          prixGrossiste: champGrossiste ? champGrossiste.value : "",
+          /* (3.70.0) Boutique à vendeurs multiples : le prix de vente, le
+             vendeur et sa part se saisissent. */
+          ...(multi ? {
+            prix: UI.$("#p-prix-vente").value,
+            vendeurId: UI.$("#p-vendeur").value,
+            tauxVendeur: String(UI.$("#p-taux-vendeur").value).replace(",", "."),
+          } : {}),
           /* Ni taux de marge ni prix de vente : ils découlent de la marge
              de l'enseigne, que la boutique ne choisit pas. Le taux
              REVENDEUR, lui, se règle article par article — vide, c'est
@@ -1141,8 +1232,29 @@ const VueProduits = (() => {
         "</div>" +
       "</div>";
 
+    /* (3.70.0) Un produit de vendeur : à qui il appartient, et sa part. */
+    if (p.vendeurId && p.tauxVendeur != null) {
+      const vendeur = (await Store.listerVendeurs()).find((v) => v.id === p.vendeurId);
+      html +=
+        '<div class="carte" id="fiche-vendeur">' +
+          '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Vendeur " +
+            '<span class="aide-inline">(visible ici seulement)</span></div>' +
+          '<div class="marge-grille">' +
+            "<div><span>Vendeur propriétaire</span><strong>" +
+              Utils.echapper(vendeur ? vendeur.nom : "Vendeur inactif") + "</strong></div>" +
+            "<div><span>Part du vendeur</span><strong>" + Utils.echapper(Utils.fmtTaux(p.tauxVendeur)) + " %</strong></div>" +
+            "<div><span>Le vendeur reçoit</span><strong>" +
+              Utils.echapper(Utils.fmtMontant(p.prixGrossiste, devise)) + "</strong></div>" +
+            "<div><span>BIZZOO garde</span><strong>" +
+              Utils.echapper(Utils.fmtMontant(p.prix - p.prixGrossiste, devise)) + "</strong></div>" +
+          "</div>" +
+          '<div class="aide" style="margin:12px 0 0">Par pièce vendue, au franc inférieur. Ses ventes lui ' +
+            "sont créditées dès la livraison ; une part changée ne touche pas les ventes déjà faites.</div>" +
+        "</div>";
+    }
+
     /* Le détail des prix ne sort jamais de l'application admin. */
-    if (p.prixGrossiste) {
+    if (p.prixGrossiste && !(p.vendeurId && p.tauxVendeur != null)) {
       const benefice = p.prix - p.prixGrossiste;
       /* Un prix qui suit la règle porte la marge RÉGLÉE (10 %, et non
          10,03 % : la fraction vient de l'arrondi au franc supérieur).

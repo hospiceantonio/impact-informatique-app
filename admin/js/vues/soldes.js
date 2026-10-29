@@ -29,6 +29,9 @@ const VueSoldes = (() => {
   const gereLesFonds = () => Supabase.estSuper() ||
     (Supabase.role() === "administrateur" && !Supabase.estCompteEnseigne());
 
+  /* Qui demande : la boutique (rien), un livreur, ou un vendeur (3.70.0). */
+  const qui = (r) => (r.livreur ? ' data-livreur="1"' : r.vendeur ? ' data-vendeur="1"' : "");
+
   function htmlDemande(r, avecBoutique) {
     const etat = ETATS[r.etat] || ETATS.en_attente;
     return '<div class="sd-ligne" data-reversement="' + e(String(r.id)) + '">' +
@@ -36,7 +39,8 @@ const VueSoldes = (() => {
         "<strong>" + e(m(r.montant, r.devise)) + "</strong>" +
         '<span class="badge ' + etat.classe + '">' + e(etat.mot) + "</span>" +
       "</div>" +
-      (avecBoutique ? '<div class="sd-boutique">' + (r.livreur ? UI.icone("voiture", "ic-sm") + " Livreur — " : "") +
+      (avecBoutique ? '<div class="sd-boutique">' + (r.livreur ? UI.icone("voiture", "ic-sm") + " Livreur — "
+        : r.vendeur ? UI.icone("magasin", "ic-sm") + " Vendeur — " : "") +
         e(r.nomBoutique) + "</div>" : "") +
       '<div class="aide">Vers ' + e(r.reseau) + " " + e(r.tel) +
         (r.titulaire ? " (" + e(r.titulaire) + ")" : "") +
@@ -208,7 +212,7 @@ const VueSoldes = (() => {
 
   /* ---------- Le superadministrateur ---------- */
   async function reversements(vue) {
-    UI.entete({ titre: "Reversements", sous: "Les demandes des boutiques et des livreurs", retour: true });
+    UI.entete({ titre: "Reversements", sous: "Les demandes des boutiques, des livreurs et des vendeurs", retour: true });
     if (!Supabase.estSuper()) {
       vue.innerHTML = UI.vide("promo", "Réservé au superadministrateur",
         "Seul le superadministrateur envoie et valide les reversements.");
@@ -220,10 +224,12 @@ const VueSoldes = (() => {
       /* (3.64.0) Les livreurs demandent aussi : leurs gains de livraison.
          Une base d'avant ne les connaît pas — la liste des boutiques
          s'affiche seule. */
-      const [deBoutiques, deLivreurs] = await Promise.all([
+      /* (3.70.0) Et les vendeurs des boutiques à vendeurs multiples. */
+      const [deBoutiques, deLivreurs, deVendeurs] = await Promise.all([
         Store.reversements(null),
-        Store.reversementsLivreurs().catch(() => [])]);
-      liste = deBoutiques.concat(deLivreurs)
+        Store.reversementsLivreurs().catch(() => []),
+        Store.reversementsVendeurs().catch(() => [])]);
+      liste = deBoutiques.concat(deLivreurs, deVendeurs)
         .sort((a, b) => String(b.demandeLe).localeCompare(String(a.demandeLe)));
     } catch (err) {
       vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' + e(err.message) + "</p></div>";
@@ -239,10 +245,10 @@ const VueSoldes = (() => {
         ? attente.map((r) => '<div class="carte">' + htmlDemande(r, true) +
             '<p class="aide" style="margin:8px 0">Envoyez l\'argent sur ce numéro, puis notez la référence de la transaction.</p>' +
             '<div class="btn-rangee">' +
-              '<button type="button" class="btn" data-valider="' + e(String(r.id)) + '"' + (r.livreur ? ' data-livreur="1"' : "") +
+              '<button type="button" class="btn" data-valider="' + e(String(r.id)) + '"' + qui(r) +
                 ">" + UI.icone("check") + "Envoyé</button>" +
               '<button type="button" class="btn btn-clair btn-danger-clair" data-refuser="' + e(String(r.id)) + '"' +
-                (r.livreur ? ' data-livreur="1"' : "") + ">" +
+                qui(r) + ">" +
                 UI.icone("fermer") + "Refuser</button>" +
             "</div></div>").join("")
         : "") +
@@ -269,9 +275,10 @@ const VueSoldes = (() => {
         b.disabled = true;
         try {
           if (b.dataset.livreur) await Store.deciderReversementLivreur(Number(b.dataset.valider), true, ref, "");
+          else if (b.dataset.vendeur) await Store.deciderReversementVendeur(Number(b.dataset.valider), true, ref, "");
           else await Store.deciderReversement(Number(b.dataset.valider), true, ref, "");
-          UI.toast("Reversement validé : " + (b.dataset.livreur ? "le livreur" : "la boutique") + " est prévenu" +
-            (b.dataset.livreur ? "." : "e."), "ok");
+          UI.toast("Reversement validé : " + (b.dataset.livreur ? "le livreur est prévenu."
+            : b.dataset.vendeur ? "le vendeur est prévenu." : "la boutique est prévenue."), "ok");
           reversements(vue);
         } catch (err) { UI.toast(err.message, "err"); b.disabled = false; }
       };
@@ -279,13 +286,14 @@ const VueSoldes = (() => {
     for (const b of UI.$$("[data-refuser]", vue)) {
       b.onclick = async () => {
         const motif = await UI.demanderTexte({ titre: "Refuser le reversement",
-          texte: "Dites pourquoi : " + (b.dataset.livreur ? "le livreur" : "la boutique") +
+          texte: "Dites pourquoi : " + (b.dataset.livreur ? "le livreur" : b.dataset.vendeur ? "le vendeur" : "la boutique") +
             " le verra. Le montant revient à son solde.",
           libelle: "Motif", bouton: "Refuser", danger: true });
         if (motif === null) return;
         b.disabled = true;
         try {
           if (b.dataset.livreur) await Store.deciderReversementLivreur(Number(b.dataset.refuser), false, "", motif);
+          else if (b.dataset.vendeur) await Store.deciderReversementVendeur(Number(b.dataset.refuser), false, "", motif);
           else await Store.deciderReversement(Number(b.dataset.refuser), false, "", motif);
           UI.toast("Demande refusée.", "ok");
           reversements(vue);
@@ -364,7 +372,9 @@ const VueSoldes = (() => {
     if (demander) demander.onclick = () => feuilleDemandeLivreur(solde, () => gains(vue));
   }
 
-  function feuilleReceptionLivreur(r, apres) {
+  /* (3.70.0) « enregistrer » / « demander » : celles du livreur par défaut,
+     celles du vendeur depuis son espace — la même feuille. */
+  function feuilleReceptionLivreur(r, apres, enregistrer) {
     const corps = UI.ouvrirFeuille("Numéro de réception",
       '<p class="aide" style="margin:0 0 12px">Le numéro Mobile Money sur lequel BIZZOO enverra vos ' +
         "gains. BIZZOO est prévenu de chaque changement.</p>" +
@@ -387,7 +397,8 @@ const VueSoldes = (() => {
     bouton.onclick = async () => {
       bouton.disabled = true;
       try {
-        await Store.reglerReceptionLivreur(UI.$("#gn-tel", corps).value, reseau, UI.$("#gn-titulaire", corps).value);
+        await (enregistrer || Store.reglerReceptionLivreur)(UI.$("#gn-tel", corps).value, reseau,
+          UI.$("#gn-titulaire", corps).value);
         UI.fermerFeuille();
         UI.toast("Numéro de réception enregistré.", "ok");
         apres();
@@ -398,7 +409,7 @@ const VueSoldes = (() => {
     };
   }
 
-  function feuilleDemandeLivreur(solde, apres) {
+  function feuilleDemandeLivreur(solde, apres, demander) {
     const r = solde.reception;
     const corps = UI.ouvrirFeuille("Demander un reversement",
       '<p class="aide" style="margin:0 0 12px">Disponible : <strong>' + e(m(solde.disponible, solde.devise)) +
@@ -411,7 +422,7 @@ const VueSoldes = (() => {
       const montant = Math.round(Utils.lireNombre(UI.$("#gn-montant", corps).value) || 0);
       bouton.disabled = true;
       try {
-        await Store.demanderReversementLivreur(montant);
+        await (demander || Store.demanderReversementLivreur)(montant);
         UI.fermerFeuille();
         UI.toast("Demande envoyée : BIZZOO est prévenu.", "ok");
         apres();
@@ -422,5 +433,6 @@ const VueSoldes = (() => {
     };
   }
 
-  return { afficher, reversements, gains };
+  return { afficher, reversements, gains,
+    feuilleReception: feuilleReceptionLivreur, feuilleDemande: feuilleDemandeLivreur };
 })();

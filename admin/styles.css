@@ -2040,3 +2040,9 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    haut pendant qu'on fait défiler la liste. */
 .cmd-livreur-recherche{position:sticky;top:0;z-index:2;margin:0 0 14px}
 .cmd-livreur[hidden],#cmd-livreur-aucun[hidden]{display:none}
+
+/* (3.70.0) Les vendeurs : une ligne qu'on touche pour ouvrir son espace. */
+.vv-vendeur{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--trait);
+  padding:10px 0;font:inherit;color:inherit;cursor:pointer}
+.vv-vendeur:first-child{border-top:0}
+.pr-vendeur-note{margin:6px 0 0;font-size:.88rem}

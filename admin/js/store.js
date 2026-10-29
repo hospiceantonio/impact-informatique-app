@@ -317,9 +317,13 @@ const Store = (() => {
    */
   function priveDepuisLigne(l) {
     const p = Array.isArray(l.produits_prive) ? l.produits_prive[0] : l.produits_prive;
-    if (!p) return { prixGrossiste: 0, tauxMarge: null, tauxRevendeur: null };
+    if (!p) return { prixGrossiste: 0, tauxMarge: null, tauxRevendeur: null, vendeurId: "", tauxVendeur: null };
     return {
       prixGrossiste: Math.max(0, Math.round(Number(p.prix_grossiste) || 0)),
+      /* (3.70.0) Dans une boutique à vendeurs multiples : son vendeur, et
+         sa part en % du prix de vente (le prix BIZZOO en est le montant). */
+      vendeurId: p.vendeur_id || "",
+      tauxVendeur: p.taux_vendeur === null || p.taux_vendeur === undefined ? null : Number(p.taux_vendeur),
       tauxMarge: p.taux_marge === null || p.taux_marge === undefined ? null : Number(p.taux_marge),
       /* À null, c'est le taux de la boutique qui s'applique — la même
          règle que « tauxMarge » juste au-dessus. */
@@ -353,6 +357,8 @@ const Store = (() => {
       prixGrossiste: prive.prixGrossiste,
       tauxMarge: prive.tauxMarge,
       tauxRevendeur: prive.tauxRevendeur,
+      vendeurId: prive.vendeurId,
+      tauxVendeur: prive.tauxVendeur,
       ancienPrix: l.ancien_prix === null || l.ancien_prix === undefined ? null : Number(l.ancien_prix),
       categorieId: l.categorie_id || "",
       sousCategorieId: l.sous_categorie_id || "",
@@ -493,6 +499,13 @@ const Store = (() => {
       revendeurMode: l.revendeur_mode === "public" ? "public" : BOUTIQUE_DEFAUT.revendeurMode,
       tauxRevendeur: l.taux_revendeur === null || l.taux_revendeur === undefined
         ? BOUTIQUE_DEFAUT.tauxRevendeur : Number(l.taux_revendeur),
+      /* (3.70.0) Vendeur unique, ou vendeurs multiples — et la part la plus
+         haute qu'un vendeur puisse recevoir. Absents d'une base d'avant :
+         vendeur unique, comme toutes les boutiques jusque-là. */
+      vendeurs: l.vendeurs === "multiples" ? "multiples" : "unique",
+      partVendeurMax: l.part_vendeur_max === null || l.part_vendeur_max === undefined
+        ? 80 : Number(l.part_vendeur_max),
+      connaitVendeurs: l.vendeurs !== undefined,
     };
   }
 
@@ -510,9 +523,15 @@ const Store = (() => {
   let boutiques = [];        // toutes les boutiques, dans l'ordre
   let boutiqueId = "";       // celle sur laquelle on travaille
 
+  /* (3.70.0) La base connaît-elle les boutiques à vendeurs multiples ?
+     Appris à la lecture des boutiques. */
+  let baseVendeurs = false;
+  const connaitVendeurs = () => baseVendeurs;
+
   async function chargerBoutiques() {
     const lignes = await Supabase.requete("GET", "boutiques?select=*&order=ordre.asc,cree_le.asc");
     boutiques = (lignes || []).map(boutiqueDepuisLigne);
+    baseVendeurs = boutiques.some((b) => b.connaitVendeurs);
     return boutiques;
   }
 
@@ -600,6 +619,12 @@ const Store = (() => {
       revendeur_mode: b.revendeurMode === "public" ? "public" : "bizzoo",
       taux_revendeur: b.tauxRevendeur === undefined
         ? BOUTIQUE_DEFAUT.tauxRevendeur : b.tauxRevendeur,
+      /* (3.70.0) Seulement si la base les connaît : une base d'avant
+         refuserait la ligne entière pour deux colonnes qu'elle n'a pas. */
+      ...(baseVendeurs ? {
+        vendeurs: b.vendeurs === "multiples" ? "multiples" : "unique",
+        part_vendeur_max: Number(b.partVendeurMax) || 80,
+      } : {}),
       maj_le: new Date().toISOString(),
     };
   }
@@ -830,12 +855,22 @@ const Store = (() => {
       aide: "Les courses qu'on lui confie, et rien d'autre : ce qu'il porte, " +
             "à qui et où. Aucun prix ne lui est montré.",
     },
+    /* (3.70.0) Celui qui vend ses produits dans une boutique à vendeurs
+       multiples. Il consulte ses produits, ses ventes et son solde, et
+       demande ses versements — il ne modifie rien. */
+    vendeur: {
+      nom: "Vendeur",
+      aide: "Ses produits dans une boutique à vendeurs multiples : il voit ses ventes, ce qui lui " +
+            "revient et ses versements. Il ne modifie ni produit ni commande, et ne voit aucun client.",
+    },
   };
 
   /** Les rôles qu'un compte a le droit de distribuer. */
   function rolesAttribuables() {
     if (Supabase.estSuper()) {
-      return ["superadministrateur", "administrateur", "moderateur", "livreur"];
+      /* (3.70.0) Le vendeur, seulement si la base le connaît. */
+      return ["superadministrateur", "administrateur", "moderateur", "livreur"]
+        .concat(baseVendeurs ? ["vendeur"] : []);
     }
     /* UN COMPTE DE BIZZOO NE NOMME PERSONNE, quel que soit son rang. Ce
        n'est pas une politesse d'écran : les règles de « profils »
@@ -1064,6 +1099,95 @@ const Store = (() => {
     return r;
   }
 
+  /* ---------- (3.70.0) Les vendeurs ----------
+     Un vendeur propose ses produits dans une boutique à vendeurs
+     multiples. Sa part se calcule et se fige en base, ligne par ligne ;
+     ces fonctions ne font que relayer. */
+  const n0 = (v) => Number(v) || 0;
+  async function listerVendeurs() {
+    try {
+      const l = await Supabase.rpcLecture("vendeurs_liste", {});
+      return (Array.isArray(l) ? l : []).map((v) => ({ id: v.id, nom: v.nom || "Vendeur", tel: v.tel || "" }));
+    } catch (_) {
+      return [];   // base d'avant
+    }
+  }
+  function soldeDepuis(s) {
+    const r = s && s.reception;
+    return {
+      ventes: n0(s.ventes), gagne: n0(s.gagne), aVenir: n0(s.a_venir), reverse: n0(s.reverse),
+      enAttente: n0(s.en_attente), disponible: n0(s.disponible), devise: s.devise || "FCFA",
+      reception: r ? { tel: r.tel || "", reseau: r.reseau || "", titulaire: r.titulaire || "",
+                       majLe: r.maj_le || "" } : null,
+    };
+  }
+  async function espaceVendeur(vendeur) {
+    const e = await Supabase.rpcLecture("espace_vendeur", vendeur ? { cible: vendeur } : {});
+    return {
+      vendeur: e.vendeur ? { id: e.vendeur.id, nom: e.vendeur.nom || "", tel: e.vendeur.tel || "" } : null,
+      solde: soldeDepuis(e.solde || {}),
+      produits: (e.produits || []).map((p) => ({
+        id: p.id, nom: p.nom || "", code: p.code || "", boutique: p.boutique || "", prix: n0(p.prix),
+        taux: p.taux == null ? null : Number(p.taux), part: n0(p.part), stock: n0(p.stock),
+        surCommande: !!p.sur_commande, vendus: n0(p.vendus), enCours: n0(p.en_cours),
+        ventes: n0(p.ventes), gagne: n0(p.gagne),
+      })),
+      lignes: (e.lignes || []).map((l) => ({
+        le: l.le || "", numero: l.numero || "", produit: l.produit || "", quantite: n0(l.quantite),
+        prix: n0(l.prix), taux: l.taux == null ? null : Number(l.taux), part: n0(l.part),
+        statut: l.statut || "en_attente",
+      })),
+      versements: (e.versements || []).map((v) => ({
+        id: v.id, montant: n0(v.montant), etat: v.etat, tel: v.tel || "", reseau: v.reseau || "",
+        demandeLe: v.demande_le || "", decideLe: v.decide_le || "", reference: v.reference || "",
+        motif: v.motif || "",
+      })),
+    };
+  }
+  const reglerReceptionVendeur = (tel, reseau, titulaire) =>
+    Supabase.rpc("regler_reception_vendeur", { tel: tel || "", reseau: reseau || "", titulaire: titulaire || "" });
+  const demanderReversementVendeur = (montant) =>
+    Supabase.rpc("demander_reversement_vendeur", { montant: Math.round(Number(montant) || 0) });
+  async function reversementsVendeurs() {
+    let lignes;
+    try {
+      lignes = await Supabase.rpcLecture("reversements_vendeurs_liste", {});
+    } catch (_) {
+      return [];   // base d'avant
+    }
+    return (lignes || []).map((l) => ({
+      id: l.id, vendeurId: l.vendeur_id, nomBoutique: l.nom_vendeur || "Vendeur", montant: n0(l.montant),
+      tel: l.tel || "", reseau: l.reseau || "", titulaire: l.titulaire || "", etat: l.etat,
+      demandePar: "", demandeLe: l.demande_le || "", decidePar: l.decide_par || "",
+      decideLe: l.decide_le || "", reference: l.reference || "", motif: l.motif || "", devise: "FCFA",
+      vendeur: true,
+    }));
+  }
+  async function deciderReversementVendeur(id, accord, reference, motif) {
+    const r = await Supabase.rpc("decider_reversement_vendeur", { cible: id, accord: !!accord,
+      reference: reference || "", motif: motif || "" });
+    journaliser("compte", "modification",
+      (accord ? "Gains d'un vendeur envoyés, réf. " + reference : "Versement d'un vendeur refusé"), String(id));
+    return r;
+  }
+  async function ventesVendeurs() {
+    const l = await Supabase.rpcLecture("ventes_vendeurs", {});
+    return (Array.isArray(l) ? l : []).map((v) => ({
+      id: v.id, nom: v.nom || "Vendeur", tel: v.tel || "", actif: v.actif !== false, produits: n0(v.produits),
+      ventes: n0(v.ventes), part: n0(v.part), commission: n0(v.commission), aVenir: n0(v.a_venir),
+      reverse: n0(v.reverse), enAttente: n0(v.en_attente), disponible: n0(v.disponible),
+    }));
+  }
+  async function historiqueParts() {
+    const l = await Supabase.rpcLecture("parts_vendeurs_historique_liste", {});
+    return (Array.isArray(l) ? l : []).map((h) => ({
+      le: h.le || "", produit: h.produit || "", boutique: h.boutique || "",
+      vendeurAvant: h.vendeur_avant || "", vendeurApres: h.vendeur_apres || "",
+      tauxAvant: h.taux_avant == null ? null : Number(h.taux_avant),
+      tauxApres: h.taux_apres == null ? null : Number(h.taux_apres), prix: n0(h.prix), par: h.par || "",
+    }));
+  }
+
   async function caisseLivreurs() {
     const lignes = await Supabase.rpcLecture("caisse_livreurs", {});
     return (lignes || []).map((l) => ({
@@ -1262,7 +1386,7 @@ const Store = (() => {
     const adresse = String(email || "").trim().toLowerCase();
     /* UN LIVREUR ENTRE PAR SON NUMÉRO : son e-mail est facultatif. Le
        reste de l'équipe garde l'e-mail comme identifiant. */
-    const parNumero = role === "livreur";
+    const parNumero = role === "livreur" || role === "vendeur";
     if (parNumero ? adresse && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)
                   : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adresse)) {
       throw new Error("Indiquez une adresse email valide.");
@@ -1285,7 +1409,9 @@ const Store = (() => {
        superadministrateur — lui seul décide de ce qui dépasse une
        boutique. */
     let attachee = null;
-    if (role !== "superadministrateur" && boutiques.length) {
+    /* (3.70.0) Un vendeur est de BIZZOO : il peut vendre dans plusieurs
+       boutiques à vendeurs multiples, et n'est rattaché à aucune. */
+    if (role !== "superadministrateur" && role !== "vendeur" && boutiques.length) {
       const choix = boutiqueRattachee || "";
       /* « __enseigne » EST UN CHOIX, « » EST UN OUBLI. Les confondre,
          c'était faire d'un menu laissé vide un compte qui regarde
@@ -1333,7 +1459,8 @@ const Store = (() => {
     };
     await Supabase.requete("POST", "profils?on_conflict=id", fiche, { upsert: true });
     const ou = attachee ? " (" + (lireBoutique(attachee) || {}).nomBoutique + ")"
-      : role === "livreur" ? " (BIZZOO — toutes les boutiques)" : "";
+      : role === "livreur" ? " (BIZZOO — toutes les boutiques)"
+      : role === "vendeur" ? " (BIZZOO)" : "";
     const qui = adresse || String(tel || "").trim();
     journaliser("compte", "ajout", ROLES[role].nom + " ajouté : " + qui + ou +
       (aValider ? " — à valider par le superadministrateur" : ""), qui,
@@ -3342,9 +3469,36 @@ const Store = (() => {
        de la marge de l'enseigne. Accepter un prix envoyé par l'écran
        rendrait les comptes de l'enseigne faux — le bénéfice ne serait
        plus la marge annoncée. */
-    const prixGrossiste = Math.max(0, Math.round(Utils.lireNombre(donnees.prixGrossiste) || 0));
+    /* (3.70.0) SAUF DANS UNE BOUTIQUE À VENDEURS MULTIPLES : on y saisit le
+       prix de vente, le vendeur et sa part ; la part en francs (le prix
+       BIZZOO) s'en déduit, au franc inférieur — la base la recalcule
+       elle-même et ne croit pas celle-ci. */
+    const laBoutique = boutiqueCourante() || {};
+    const multi = baseVendeurs && laBoutique.vendeurs === "multiples";
+    let vendeur = null;
+    let prixSaisi = 0;
+    if (multi) {
+      prixSaisi = Math.max(0, Math.round(Utils.lireNombre(donnees.prix) || 0));
+      if (!prixSaisi) throw new Error("Indiquez le prix de vente du produit.");
+      const vendeurId = String(donnees.vendeurId || "").trim();
+      if (!vendeurId) {
+        throw new Error("Choisissez le vendeur propriétaire du produit : dans cette boutique, " +
+          "chaque produit a son vendeur.");
+      }
+      const taux = lireTaux(donnees.tauxVendeur);
+      const max = Number(laBoutique.partVendeurMax) || 80;
+      if (taux === null || taux < 1 || taux > max) {
+        throw new Error("La part du vendeur : un pourcentage entre 1 et " +
+          Utils.fmtTaux(max) + " % dans cette boutique.");
+      }
+      vendeur = { vendeurId, tauxVendeur: taux };
+    }
+    const prixGrossiste = multi
+      ? Math.floor(prixSaisi * vendeur.tauxVendeur / 100)
+      : Math.max(0, Math.round(Utils.lireNombre(donnees.prixGrossiste) || 0));
     if (!prixGrossiste) {
-      throw new Error("Indiquez le prix BIZZOO : le prix de vente s'en déduit.");
+      throw new Error(multi ? "La part du vendeur est nulle : vérifiez le prix et le pourcentage."
+        : "Indiquez le prix BIZZOO : le prix de vente s'en déduit.");
     }
     const tauxMarge = null;   // la marge est celle de la boutique, jamais du produit
     /* Le taux REVENDEUR, lui, peut être propre à l'article. Un champ vide
@@ -3355,7 +3509,7 @@ const Store = (() => {
         && String(donnees.tauxRevendeur).trim() !== "" && tauxRevendeur === null) {
       throw new Error("Le taux revendeur doit être un nombre entre 0 et " + TAUX_MAX + " %.");
     }
-    const prix = prixPublic(prixGrossiste, null);
+    const prix = multi ? prixSaisi : prixPublic(prixGrossiste, null);
     if (prix <= 0) {
       throw new Error("Le prix de vente est vide : vérifiez le prix BIZZOO.");
     }
@@ -3527,9 +3681,10 @@ const Store = (() => {
         produit.reference || produit.nom,
         aAnnuler("produits", [], [produit.id]));
     }
-    await sauverPrixAchat(produit.id, prixGrossiste, tauxMarge, tauxRevendeur);
+    await sauverPrixAchat(produit.id, prixGrossiste, tauxMarge, tauxRevendeur, vendeur);
     const enregistre = produitDepuisLigne(Array.isArray(lignes) ? lignes[0] : ligne);
-    return { ...enregistre, prixGrossiste, tauxMarge, tauxRevendeur };
+    return { ...enregistre, prixGrossiste, tauxMarge, tauxRevendeur,
+      vendeurId: vendeur ? vendeur.vendeurId : "", tauxVendeur: vendeur ? vendeur.tauxVendeur : null };
   }
 
   /**
@@ -3537,7 +3692,7 @@ const Store = (() => {
    * temps que lui. Une base pas encore mise à jour n'en a pas la table —
    * le produit s'enregistre quand même, sans son prix d'achat.
    */
-  async function sauverPrixAchat(id, prixGrossiste, tauxMarge, tauxRevendeur) {
+  async function sauverPrixAchat(id, prixGrossiste, tauxMarge, tauxRevendeur, vendeur) {
     if (!prixAchatEnBase) return;
     try {
       await Supabase.requete("POST", "produits_prive?on_conflict=produit_id", {
@@ -3547,6 +3702,9 @@ const Store = (() => {
         /* À null, c'est le taux de la boutique qui s'applique. C'est le
            cas de tous les produits tant qu'on n'en décide pas autrement. */
         taux_revendeur: tauxRevendeur === undefined ? null : tauxRevendeur,
+        /* (3.70.0) Le vendeur et sa part — seulement dans une boutique à
+           vendeurs multiples ; une base d'avant ne connaît pas ces colonnes. */
+        ...(vendeur ? { vendeur_id: vendeur.vendeurId, taux_vendeur: vendeur.tauxVendeur } : {}),
         maj_le: new Date().toISOString(),
       }, { upsert: true });
     } catch (err) {
@@ -4071,6 +4229,8 @@ const Store = (() => {
     statistiquesVentes,
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
+    listerVendeurs, espaceVendeur, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
+    deciderReversementVendeur, ventesVendeurs, historiqueParts, connaitVendeurs,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,
     annulerAction,

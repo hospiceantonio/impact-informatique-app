@@ -138,6 +138,37 @@ const VueBoutiques = (() => {
           "devient le prix de vente. Elle ne peut pas le modifier.</div>" +
       "</div>" +
 
+      /* (3.70.0) VENDEUR UNIQUE OU VENDEURS MULTIPLES. Une décision de
+         BIZZOO : le superadministrateur seul la voit et la prend (la base
+         refuse aux autres). Dans une boutique à vendeurs multiples, chaque
+         produit a son vendeur et sa part, en % du prix de vente, jamais
+         au-dessus de la part maximale réglée ici. */
+      (Supabase.estSuper() && Store.connaitVendeurs()
+        ? '<div class="champ">' +
+            '<label for="bq-vendeurs">Type de boutique <span class="obligatoire">*</span></label>' +
+            '<select id="bq-vendeurs">' +
+              '<option value="unique"' + (b && b.vendeurs === "multiples" ? "" : " selected") +
+                ">Boutique à vendeur unique</option>" +
+              '<option value="multiples"' + (b && b.vendeurs === "multiples" ? " selected" : "") +
+                ">Boutique à vendeurs multiples</option>" +
+            "</select>" +
+            '<div class="aide">Vendeur unique : comme aujourd\'hui. Vendeurs multiples : chaque produit ' +
+              "a son vendeur (un compte « Vendeur ») et la part qui lui revient ; sa part de chaque vente " +
+              "lui est créditée automatiquement. En passant une boutique en vendeurs multiples, ouvrez " +
+              "chacun de ses produits pour lui attribuer son vendeur.</div>" +
+          "</div>" +
+          '<div class="champ" id="bq-zone-part"' + (b && b.vendeurs === "multiples" ? "" : " hidden") + ">" +
+            '<label for="bq-part-max">Part maximale d\'un vendeur</label>' +
+            '<div class="champ-montant">' +
+              '<input id="bq-part-max" inputmode="decimal" autocomplete="off" placeholder="80"' +
+                ' value="' + Utils.echapper(Utils.fmtTaux(b ? b.partVendeurMax : 80)) + '">' +
+              '<span class="devise">%</span>' +
+            "</div>" +
+            '<div class="aide">Le pourcentage le plus haut qu\'on peut donner à un vendeur sur un produit ' +
+              "de cette boutique : le reste est la commission de BIZZOO.</div>" +
+          "</div>"
+        : "") +
+
       /* La marge sur les ventes aux REVENDEURS. Sans elle, un revendeur
          validé achèterait au prix BIZZOO exact : la boutique toucherait
          bien son dû, mais BIZZOO ne gagnerait rien, et le revendeur
@@ -256,6 +287,14 @@ const VueBoutiques = (() => {
         }
       };
     }
+    /* (3.70.0) La part maximale n'a de sens qu'à vendeurs multiples. */
+    const typeVendeurs = UI.$("#bq-vendeurs", base);
+    if (typeVendeurs) {
+      typeVendeurs.onchange = () => {
+        const zone = UI.$("#bq-zone-part", base);
+        if (zone) zone.hidden = typeVendeurs.value !== "multiples";
+      };
+    }
   }
 
   /* Les puces s'allument avec « active », pas « actif » : « choisi »
@@ -372,6 +411,11 @@ const VueBoutiques = (() => {
           tauxMarge: UI.$("#bq-marge", corps).value,
           revendeurMode: modeRevendeur(corps),
           tauxRevendeur: UI.$("#bq-marge-revendeur", corps).value,
+          /* (3.70.0) Seulement si le superadministrateur a vu le choix. */
+          ...(UI.$("#bq-vendeurs", corps) ? {
+            vendeurs: UI.$("#bq-vendeurs", corps).value === "multiples" ? "multiples" : "unique",
+            partVendeurMax: Utils.lireNombre(String(UI.$("#bq-part-max", corps).value).replace(",", ".")) || 80,
+          } : {}),
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
           ouvertures,
