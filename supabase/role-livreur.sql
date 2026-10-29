@@ -275,6 +275,9 @@ revoke all on function public.notifier(uuid[], text, text, text, text, text, tex
   from public, anon, authenticated;
 
 
+-- (3.70.0) Lue par « fiche_course » / « faire_livrer » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
 create or replace function public.fiche_course(commande text, boutique text)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -314,9 +317,14 @@ begin
   end if;
   return jsonb_build_object(
     'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),

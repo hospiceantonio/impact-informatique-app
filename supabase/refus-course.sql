@@ -57,6 +57,51 @@ end $$;
 create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
 revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.texte_demande(f jsonb)
+returns text
+language plpgsql stable set search_path = public as $$
+declare
+  r     jsonb;
+  texte text := '';
+begin
+  if coalesce((f ->> 'groupee')::boolean, false) then
+    texte := 'Livraison groupée : ' || jsonb_array_length(f -> 'retraits') || ' boutiques.' || E'\n';
+  end if;
+  for r in select * from jsonb_array_elements(f -> 'retraits') loop
+    texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') ||
+      -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+      coalesce(' — Tél. boutique : +' || coalesce(nullif(r ->> 'indicatif', ''), '229') || ' ' ||
+               nullif(r ->> 'tel', ''), '') || E'\n';
+  end loop;
+  -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+  if coalesce(f ->> 'lieu_retrait', '') <> '' then
+    texte := texte || 'Où récupérer : ' || (f ->> 'lieu_retrait') || E'\n';
+  end if;
+  return texte ||
+    'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
+      coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
+    'Destinataire : +' || (f -> 'livraison' ->> 'indicatif') || ' ' || (f -> 'livraison' ->> 'tel') || E'\n' ||
+    -- (3.64.0) Le véhicule et la distance, puis ce qu'il y gagne.
+    case when jsonb_typeof(f -> 'trajet') = 'object'
+         then 'Véhicule : ' || case when f -> 'trajet' ->> 'vehicule' = 'tricycle' then 'tricycle' else 'moto' end ||
+              -- (3.70.0) Sans distance (« Faire livrer » : frais saisis), pas
+              -- de « — … km » : un NULL ici vidait TOUTE l'alerte.
+              coalesce(' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km', '') || E'\n'
+         else '' end ||
+    'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
+    case when (f ->> 'gain') is not null
+         then 'Votre gain : ' || public.montant_lisible((f ->> 'gain')::numeric, f ->> 'devise') || E'\n'
+         else '' end ||
+    'Déjà payé : ' || public.montant_lisible((f ->> 'deja_paye')::numeric, f ->> 'devise') || E'\n' ||
+    case when (f ->> 'a_encaisser')::numeric > 0
+         then 'À récupérer : ' || public.montant_lisible((f ->> 'a_encaisser')::numeric, f ->> 'devise')
+         else 'Rien à récupérer : tout est payé.' end || E'\n' ||
+    'Le premier qui touche « Commande reçue » prend la course.';
+end $$;
+revoke all on function public.texte_demande(jsonb) from public, anon, authenticated;
+
 create or replace function public.livraison_active() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select p.livraison_latitude is not null and p.livraison_longitude is not null
@@ -352,7 +397,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -361,7 +410,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';
@@ -409,6 +460,9 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 
+-- (3.70.0) Lue par « fiche_course » / « faire_livrer » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
 create or replace function public.fiche_course(commande text, boutique text)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -448,9 +502,14 @@ begin
   end if;
   return jsonb_build_object(
     'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
@@ -515,6 +574,7 @@ begin
     'numero', premiere -> 'numero',
     'groupee', jsonb_array_length(retraits) > 1,
     'retraits', retraits,
+    'lieu_retrait', coalesce(premiere -> 'lieu_retrait', '""'::jsonb),
     'livraison', premiere -> 'livraison',
     'devise', premiere -> 'devise',
     'trajet', premiere -> 'trajet',
@@ -572,6 +632,45 @@ $$;
 
 
 
+-- (3.70.0) Empruntée plus bas, recopiée telle quelle.
+create or replace function public.reproposer_course(commande text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  f   jsonb;
+  qui uuid[];
+  c   record;
+begin
+  select c0.numero, c0.etat, c0.paye_le into c from public.commandes c0 where c0.id = commande;
+  if not found or c.etat <> 'payee' then return 0; end if;
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.etat <> 'annulee'
+                and (l.livreur_id is not null or l.etat in ('en_livraison', 'remise'))) then
+    return -1;
+  end if;
+  -- Plus vieille, elle n'apparaîtrait sur l'écran d'aucun livreur.
+  if c.paye_le is null or c.paye_le <= now() - interval '7 days' then return 0; end if;
+  select coalesce(array_agg(x), '{}') into qui
+    from unnest(public.candidats_course(commande)) as x
+   where not exists (select 1 from public.refus_courses r
+                      where r.commande_id = commande and r.livreur_id = x);
+  if array_length(qui, 1) is null then return 0; end if;
+  f := public.fiche_demande(commande);
+  if f is null then return 0; end if;
+  -- Une demande ne part qu'une fois par livreur et par commande : les
+  -- anciennes sont mises de côté (« …_avant_<n> »), comme au refus.
+  update public.notifications n
+     set type = n.type || '_avant_' || n.id, lue_le = coalesce(n.lue_le, now())
+   where n.commande_id = commande
+     and n.type in ('course_proposee', 'course_prise')
+     and n.destinataire = any(qui);
+  return public.notifier(qui, 'course_proposee',
+    'Course à reprendre — ' || coalesce(c.numero, ''),
+    public.texte_demande(f),
+    '#/livraisons', commande, null, true);
+end $$;
+revoke all on function public.reproposer_course(text) from public, anon, authenticated;
+
 create or replace function public.refuser_course(commande text, motif text default '')
 returns int
 language plpgsql security definer set search_path = public as $$
@@ -583,10 +682,15 @@ declare
   porteur  text;
   c        record;
   annonce  boolean;
+  relances int := 0;
+  texte    text;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul le livreur de la course la refuse';
   end if;
+  -- (3.70.0) Un appel à la fois par commande, comme « prendre_course » :
+  -- un double appui ne fait pas sonner deux fois les autres livreurs.
+  perform 1 from public.commandes c0 where c0.id = commande for update;
   if not exists (select 1 from public.commande_lignes l
                   where l.commande_id = commande and l.livreur_id = moi
                     and l.etat in ('nouvelle', 'vue', 'preparee')) then
@@ -612,7 +716,7 @@ begin
   update public.notifications n
      set type = n.type || '_avant_' || n.id
    where n.commande_id = commande
-     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee');
+     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee', 'course_annulee_livreur');
 
   perform set_config('bizzoo.livraison', 'oui', true);
   perform set_config('bizzoo.refus', 'oui', true);
@@ -638,6 +742,33 @@ begin
   end loop;
   perform set_config('bizzoo.refus', '', true);
   perform set_config('bizzoo.livraison', '', true);
+
+  if combien = 0 then return 0; end if;
+
+  -- (3.70.0) LA COURSE REPART aux autres livreurs, avec sonnerie…
+  relances := public.reproposer_course(commande);
+  -- … ET BIZZOO L'ENTEND, même application fermée : le superadministrateur,
+  -- les administrateurs et les modérateurs de BIZZOO (comptes sans
+  -- boutique). Une sonnerie par annulation, pas une par boutique. Ceux
+  -- qui n'ont pas l'écran des commandes l'ouvrent dans leurs notifications.
+  texte := porteur || ' a annulé la course' ||
+      case when pourquoi <> '' then ' : « ' || pourquoi || ' »' else '' end || '.' || E'\n' ||
+      case when relances > 0
+           then 'Elle a été reproposée à ' || relances || ' autre' || case when relances > 1 then 's' else '' end ||
+                ' livreur' || case when relances > 1 then 's' else '' end || '.'
+           when relances < 0
+           then 'Une partie de la commande est déjà en route ou portée par un autre livreur : ' ||
+                'confiez à la main la part libérée.'
+           else 'Aucun autre livreur disponible : confiez-la à la main.' end;
+  perform public.notifier(public.enseigne_des_commandes() || public.les_superadmins(),
+    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    texte, '#/commandes/' || commande, commande, null, true);
+  perform public.notifier(
+    coalesce((select array_agg(p.id) from public.profils p
+               where p.actif and p.boutique_id is null and not p.peut_commandes
+                 and p.role in ('administrateur', 'moderateur')), '{}'::uuid[]),
+    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    texte, '#/notifications', commande, null, true);
 
   if annonce and c.client_id is not null then
     perform public.notifier(array[c.client_id], 'course_refusee',
@@ -815,7 +946,12 @@ begin
       perform public.notifier(array[new.livreur_id], 'course_confiee',
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
-          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') ||
+          -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+          coalesce(' — Tél. boutique : +' || coalesce(nullif(fiche -> 'retrait' ->> 'indicatif', ''), '229') || ' ' ||
+                   nullif(fiche -> 'retrait' ->> 'tel', ''), '') || E'\n' ||
+        -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+        coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
           coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
         'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||

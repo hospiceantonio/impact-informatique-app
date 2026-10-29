@@ -612,6 +612,10 @@ begin
   )
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'cree_le', c.cree_le, 'paye_le', c.paye_le, 'etat', c.etat,
+    -- (3.68.0) D'où vient la commande : passée dans l'application, ou prise
+    -- sur WhatsApp et saisie par l'équipe (« Faire livrer »). Lue par
+    -- « to_jsonb » : une base sans la colonne répond « Depuis APP ».
+    'source', case when to_jsonb(c) ->> 'origine' = 'whatsapp' then 'Par whatsapp' else 'Depuis APP' end,
     'client', jsonb_build_object('nom', c.client_nom,
                                  'tel', btrim(case when coalesce(c.client_indicatif, '') <> '' and c.client_indicatif <> '229'
                                                    then '+' || c.client_indicatif || ' ' else '' end || coalesce(c.client_tel, '')),
@@ -1115,18 +1119,26 @@ returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
   nouveau bigint;
+  cible   text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
   end if;
-  if not exists (select 1 from public.commandes c where c.id = commande) then
-    raise exception 'Commande introuvable';
+  -- (3.69.0) La commande, par son identifiant ou par son numéro (« BZ-… »),
+  -- comme on le lit au client : le menu Incidents n'a que lui.
+  select c.id into cible from public.commandes c where c.id = commande;
+  if cible is null then
+    select min(c.id) into cible from public.commandes c
+     where upper(c.numero) = upper(btrim(coalesce(commande, '')));
+  end if;
+  if cible is null then
+    raise exception 'Commande introuvable : vérifiez son numéro';
   end if;
   if length(btrim(coalesce(description, ''))) = 0 then
     raise exception 'Décrivez l''incident';
   end if;
   insert into public.rh_incidents (commande_id, boutique_id, livreur_id, type, description, cree_par)
-  values (commande, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
+  values (cible, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
   returning id into nouveau;
   return nouveau;
 end $$;
@@ -1150,6 +1162,28 @@ begin
 end $$;
 
 /**
+ * Ce qui empêche de clôturer une commande, ou rien (null) : un incident
+ * ouvert, un client qui conteste, un article qui n'a pas fini son
+ * parcours (confirmé, annulé, échoué ou retourné), un reste à encaisser.
+ * La même règle pour la clôture à la main et pour la clôture automatique.
+ */
+create or replace function public.rh_suivi_cloturable(d jsonb) returns text
+language sql stable set search_path = public as $$
+  select case
+    when d ->> 'cloturee_le' is not null then 'Cette commande est déjà clôturée'
+    when (d ->> 'incidents_ouverts')::int > 0 then 'Un incident reste ouvert : résolvez-le avant de clôturer'
+    when exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10)
+      then 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer'
+    when d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
+                                             where (l ->> 'rang')::int not in (8, 9, 11, 13))
+      then 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)'
+    -- (3.69.0) L'argent d'abord : un reste dû à la livraison doit être encaissé.
+    when coalesce((d ->> 'reste')::bigint, 0) > 0
+      then 'Un reste à encaisser n''est pas réglé : encaissez-le avant de clôturer'
+  end;
+$$;
+
+/**
  * Clôturer : le suivi est terminé. REFUSÉ tant qu'un incident reste
  * ouvert, qu'un client conteste encore, ou qu'un article n'a pas fini
  * son parcours (confirmé, annulé, échoué ou retourné).
@@ -1158,6 +1192,7 @@ create or replace function public.rh_suivi_cloturer(commande text) returns void
 language plpgsql security definer set search_path = public as $$
 declare
   d jsonb;
+  refus text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
@@ -1166,18 +1201,9 @@ begin
   if d is null then
     raise exception 'Commande introuvable';
   end if;
-  if d ->> 'cloturee_le' is not null then
-    raise exception 'Cette commande est déjà clôturée';
-  end if;
-  if (d ->> 'incidents_ouverts')::int > 0 then
-    raise exception 'Un incident reste ouvert : résolvez-le avant de clôturer';
-  end if;
-  if exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10) then
-    raise exception 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer';
-  end if;
-  if d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
-                                         where (l ->> 'rang')::int not in (8, 9, 11, 13)) then
-    raise exception 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)';
+  refus := public.rh_suivi_cloturable(d);
+  if refus is not null then
+    raise exception '%', refus;
   end if;
   insert into public.rh_suivi_commandes as s (commande_id, cloturee_le, cloturee_par, maj_par, maj_le)
   values (commande, now(), public.rh_moi(), public.rh_moi(), now())

@@ -5537,6 +5537,333 @@ décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
 
+## Huit boutiques à la une, tirées au sort (3.70.0)
+
+L'accueil de l'application client affichait TOUTES les boutiques
+partenaires, toujours dans le même ordre. Désormais :
+- **huit au plus** — « Tout voir » ouvre la liste entière ;
+- **tirées au sort, dans un ordre au hasard, à chaque arrivée sur
+  l'accueil** : chaque boutique a sa chance d'être vue en premier ;
+- le tirage **tient tant que le client reste sur l'accueil** : une mise à
+  jour du catalogue, qui redessine l'écran, ne rebat pas les cartes sous
+  ses yeux ; une boutique fermée entre-temps est remplacée.
+
+`client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
+par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
+
+## Le livreur annule sa course : BIZZOO l'entend, la course repart (3.70.0)
+
+Un livreur qui a pris une course peut l'annuler (« Refuser la course »)
+**tant que le colis n'est pas parti avec lui** — après « Je l'ai prise »,
+la base refuse toujours : le colis est entre ses mains. Désormais :
+- **la course est aussitôt reproposée**, avec la sonnerie insistante des
+  courses, aux livreurs qui pouvaient la prendre (`candidats_course` :
+  ceux de la boutique, ou ceux de BIZZOO), **sauf ceux qui l'ont déjà
+  refusée**. Si **tous** les livreurs de la boutique l'ont refusée, elle
+  passe aux tricycles puis **aux livreurs de BIZZOO** (les refus sont
+  retirés avant de juger un groupe vide). Titre : « Course à reprendre —
+  BZ-… » ; les anciennes demandes passent « lues ». Elle ne repart que si
+  plus personne ne la porte et qu'elle est payée depuis moins de 7 jours,
+  comme l'écran des demandes (`reproposer_course`) ;
+- **le superadministrateur, les administrateurs et les modérateurs de
+  BIZZOO** (comptes sans boutique, quel que soit leur droit « Commandes »)
+  reçoivent une notification **qui sonne, même BIZZOO Admin fermé** :
+  « Course annulée par <livreur> — BZ-… », le motif, puis « reproposée à
+  N livreur(s) », « Aucun autre livreur disponible : confiez-la à la
+  main », ou — une partie déjà en route ou portée par un autre livreur —
+  « confiez à la main la part libérée ». Elle ouvre la commande ; un compte
+  sans le droit « Commandes » l'ouvre dans ses notifications. Une par
+  annulation ; une seconde annulation sonne de nouveau ; un double appui du
+  livreur ne sonne qu'une fois (la commande est verrouillée) ;
+- la boutique reçoit toujours « Commande refusée par le livreur », et le
+  client qui connaissait son livreur, « Votre livreur a changé ».
+
+Même reproposition quand BIZZOO **suspend** un livreur (BIZZOO Personnel →
+Livreurs) : ses courses pas encore parties repartent aux autres.
+
+**Le numéro de la boutique, pour le livreur qui se perd :** les alertes de
+course (proposée, confiée) disent « Tél. boutique : +229 … » après la
+boutique ; sur la fiche de la course, « Appeler la boutique : +229 … » et
+« Écrire à la boutique sur WhatsApp ». L'appel prend le téléphone de la
+boutique (à défaut son WhatsApp) ; WhatsApp prend son numéro WhatsApp (à
+défaut son téléphone) — `fiche_course` rend les deux.
+
+Rien à redéployer côté fonctions Edge : `envoyer-push` envoie déjà toute
+notification qui sonne. Fichier à coller : `supabase/course-annulee.sql`
+(relançable, autonome : il pose aussi `lieu_retrait` et `refus_courses`,
+dans n'importe quel ordre avec `lieu-retrait.sql`). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
+2 bis et 4), `tools/banc-parcours-livraison.mjs`.
+
+## « Faire livrer » : où le livreur récupère la commande (3.70.0)
+
+L'écran **« Faire livrer »** (BIZZOO Admin, commande prise sur WhatsApp)
+a une case de plus, **obligatoire** : **« Où le livreur récupère la
+commande »** — la boutique, son adresse ou un repère, le numéro à appeler.
+- Elle est **proposée** d'après les boutiques des produits choisis (une
+  ligne par boutique : nom — adresse — téléphone, lus sur la fiche de la
+  boutique) ; l'équipe corrige ou complète. Tant qu'on n'y a pas touché,
+  elle suit les produits (« Modifier les produits ») ; vidée, elle les suit
+  de nouveau.
+- Sans elle, ou au-delà de **500 caractères**, l'écran le dit et rien ne
+  part (la base refuse aussi : un texte coupé en silence perdrait la
+  dernière boutique ou le numéro à appeler). La confirmation la reprend.
+
+**Où le livreur la lit :**
+- dans l'alerte de la **course proposée** (`texte_demande`) et de la
+  **course confiée** (`notifier_ligne`) : une ligne « Où récupérer : … »,
+  après celle de la boutique ;
+- sur la fiche de la course, BIZZOO Admin → Livraisons : un bloc
+  **« Où récupérer (précisé par BIZZOO) »**, sous « Récupérer le colis »
+  (la fiche de la boutique reste affichée) ;
+- dans Commandes, la carte d'une commande WhatsApp dit « À récupérer : … »
+  — pour le superadministrateur et les comptes de BIZZOO seulement : le
+  texte nomme toutes les boutiques, et une boutique ne voit que sa part
+  d'une commande partagée.
+
+**Corrigé au passage : l'alerte vide.** Depuis la 3.68.0, la course
+proposée pour une commande « Faire livrer » partait aux livreurs avec un
+texte **vide** : sans distance (frais saisis), la ligne « Véhicule … km »
+valait NULL dans `texte_demande`, et tout le message avec. Elle dit
+désormais « Véhicule : moto », sans kilomètres.
+
+**En base :** colonne `commandes.lieu_retrait` (texte, vide par défaut).
+`faire_livrer` la remplit depuis `client.retrait` (espaces autour retirés,
+500 caractères au plus) **sans changer de signature**, et la rend dans sa
+réponse : si elle y manque (base pas encore mise à jour), l'écran prévient
+que le lieu n'a pas été gardé ; `fiche_course` et
+`fiche_demande` la rendent (`lieu_retrait`). Pour la base, elle reste
+**facultative** : BIZZOO Admin 3.68.0, déjà installé, ne l'envoie pas, et
+sa commande passe comme avant, sans la ligne.
+
+Fichier à coller : `supabase/lieu-retrait.sql` (relançable ; il recopie les
+fonctions qu'il emprunte). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
+(section 9), `tools/banc-faire-livrer.mjs`, `tools/banc-parcours-livraison.mjs`
+(section 6a).
+
+## « Le paiement en ligne n'est pas encore ouvert » à tort (3.70.0)
+
+Un client a vu ce message, et « Envoyer sur WhatsApp », alors que le
+paiement en ligne était ouvert. L'application lisait le réglage UNE fois,
+à l'ouverture : une lecture ratée (réseau faible) ou faite pendant une
+coupure le croyait fermé, et l'écran de commande ne le revérifiait que
+s'il était déjà ouvert — la commande partait sur WhatsApp, sans payer.
+
+- Une lecture ratée ne ferme plus le paiement : on garde le dernier
+  réglage connu, de cette ouverture ou de la précédente (`paiement.js`,
+  « bizzoo-paiement-reglages »).
+- L'écran de commande relit TOUJOURS le réglage, et se redessine s'il a
+  changé (ouvert ou fermé).
+- « Envoyer sur WhatsApp » revérifie d'abord : ouvert, le client paie ici.
+
+Banc : `tools/banc-paiement-ferme.mjs` (11 constats ; l'ancien code en
+rate 5).
+
+## Le client prévenu à chaque étape : notification et SMS (3.70.0)
+
+**Avant**, le client n'apprenait où en était sa commande qu'en ouvrant
+l'application : il était absent quand le livreur arrivait, et l'équipe
+passait sa journée au téléphone.
+
+**1. La notification sonne sur son téléphone, application fermée**
+(Android). Payée, livreur trouvé (nom et numéro), colis prêt, en route,
+livré, article annulé : les notifications que l'acheteur avait déjà dans
+l'application partent désormais aussi en push vers l'application CLIENT
+(jusqu'ici, seul BIZZOO Admin sonnait).
+- La base choisit l'application d'après le lien : `#/commande/…` (au
+  singulier) n'est écrit que pour l'acheteur → application client ; tout
+  le reste → BIZZOO Admin (`push_a_envoyer`, `notification_pousse`).
+- `envoyer-push` envoie ces notifications sur le canal « client » ;
+  l'APK client les affiche dans « Suivi de vos commandes » (son ordinaire,
+  pas la sonnerie des courses), et la touche ouvre le reçu.
+- `client/js/push.js` déclare le téléphone à la connexion
+  (`enregistrer_appareil`, application « client »), le retire à la
+  déconnexion — ou, sans réseau, à la prochaine ouverture
+  (`oublier_jeton_push`, avec le seul jeton). Un téléphone qui REFUSE les
+  notifications n'est pas déclaré : ce client reçoit le SMS à la place.
+- **Il faut l'APK client 3.70.0** : les anciens ne déclarent pas leur
+  téléphone. iPhone et navigateur : pas de push (pas de certificat Apple),
+  d'où les SMS.
+
+**2. Les SMS, pour ceux que la notification ne touche pas** — sans compte,
+commande prise sur WhatsApp, compte sans l'application Android (ou qui
+ne l'a pas ouverte depuis 30 jours). Aux étapes choisies par le
+superadministrateur (**BIZZOO Admin → Réglages → SMS aux clients**) :
+par défaut « payée », « livreur trouvé » (son nom et son numéro),
+« livrée ».
+- **Coupés par défaut**, et seules les commandes payées APRÈS l'allumage
+  sont concernées. Plafonds : 3 par commande, 300 par jour (réglables).
+- La base décide et réserve (`sms_prevoir`, un seul verrou pour les
+  plafonds), écrit dans `sms_commandes` — file, journal et compteur à la
+  fois, jamais lisible par les applications —, puis demande l'envoi à la
+  fonction Edge `envoyer-sms-commande` (pg_net), qui ne croit que le numéro
+  de la ligne (`sms_a_envoyer`, une fois) et rend le verdict
+  (`sms_resultat`, réessayé 3 fois).
+- **Un SMS ne se paie qu'une fois** : on ne réessaie que si rien n'a pu
+  partir (passerelle injoignable, 429/503). Un délai dépassé
+  (`DELAI_DEPASSE`), un 200 sans code, un envoi resté « en cours » sans
+  verdict : peut-être partis, jamais renvoyés. La reprise (pg_cron
+  « sms-commandes-reprise », toutes les 10 min) ne relance que ce qui
+  attend.
+- Texte sans accents ni émoji, 160 caractères au plus (`sms_texte`) ; un
+  livreur qui change (A, puis B, puis A) annonce chaque nouveau livreur.
+- Un SMS qui échoue n'empêche JAMAIS l'étape : déclencheurs à part
+  (`commandes_sms`, `lignes_sms`), erreurs rattrapées.
+
+**3. Le compte, dans BIZZOO Personnel → Suivi des commandes → SMS** :
+envoyés, commandes prévenues, refusés, en attente, retenus par un
+plafond, jour par jour et par étape ; les échecs avec leur commande ;
+**le crédit SMS épuisé en rouge**. Aucun numéro de client
+(`rh_sms_compteur`).
+
+**Mise en ligne, dans cet ordre** : redéployer `envoyer-push`, déployer
+`envoyer-sms-commande` (`--no-verify-jwt` toutes les deux), coller
+`supabase/sms-clients.sql`, puis poser l'adresse :
+`update public.sms_reglages set url = 'https://<projet>.supabase.co/functions/v1/envoyer-sms-commande';`
+Enfin, le superadministrateur allume les SMS dans les Réglages.
+
+**En ligne depuis le 28/10/2026** : `envoyer-push` (version 2) et
+`envoyer-sms-commande` déployées, `supabase/sms-clients.sql` appliqué,
+l'adresse posée ; les 15 fonctions vérifiées identiques au dépôt. Les SMS
+sont COUPÉS jusqu'à ce que le superadministrateur les allume.
+
+Essais : `supabase/tests/99zzz…-sms-clients.sql` (55 constats),
+`tools/eprouver-sms.sh` et `tools/eprouver-push.sh` (fonctions Edge),
+`tools/banc-sms-clients.mjs` (19), `tools/banc-push-client.mjs` (13).
+Revue adversariale : 14 défauts confirmés, tous corrigés (dont le double
+paiement d'un SMS dont le verdict se perd).
+
+## La clôture automatique des commandes, et le menu Incidents (3.69.0)
+
+**Avant**, une commande « Livré et confirmé » restait ouverte tant que
+personne ne cliquait sur « Clôturer » dans BIZZOO Personnel (Suivi →
+fiche de la commande).
+
+**Désormais**, une commande payée dont **tous** les articles sont livrés et
+confirmés par le client (ou annulés) se clôture d'elle-même **24 heures
+après le dernier « Je l'ai reçu »** — le temps qu'un client signale un
+problème. Elle passe la même règle que la clôture à la main
+(`rh_suivi_cloturable`) et reste ouverte, à l'équipe de juger, si :
+
+- un reste à encaisser n'est pas réglé (**nouveau** : la clôture à la main
+  le refuse aussi) ;
+- un incident est ouvert, ou le client conteste la livraison ;
+- un article a échoué, est en retour ou retourné, ou un encaissement est
+  contesté ;
+- l'administration a **rouverte** la commande : la base ne la referme
+  jamais d'elle-même, l'administration la referme à la main.
+
+La chronologie note « Clôturée automatiquement », la fiche aussi ; la
+clôture n'a pas d'auteur (`cloturee_par` vide). Le délai se règle dans
+**Suivi → Réglages → Clôture automatique** (`rh_reglages_suivi.cloture_auto_h`,
+`rh_suivi_regler_cloture`) : 24 par défaut, 0 = tout de suite, vide = à la
+main seulement. `rh_suivi_cloturer_auto()` passe **chaque heure à la
+minute 23 (pg_cron, « rh-suivi-cloture-auto »)** ; personne ne
+l'appelle depuis une application.
+
+**Le menu Incidents** (BIZZOO Personnel, sous « Suivi commandes », pour
+qui suit les commandes) : tous les incidents **ouverts**, quelle que soit
+leur date, et ceux **signalés sur la période** ; filtres (ouverts, résolus,
+tous ; type), recherche, « Signaler un incident » par le **numéro de la
+commande** (`rh_incident_ouvrir` accepte désormais « BZ-… »), « Résoudre »,
+lien vers la fiche. La pastille compte les incidents ouverts
+(`rh_incidents_ouverts_nb`). Liste : `rh_incidents_liste(depuis, jusqu)`.
+
+Fichier à coller : `supabase/cloture-incidents.sql` — **en ligne depuis le
+28/10/2026** (vérifié identique au dépôt ; premier passage : 14 commandes
+clôturées, 4 gardées ouvertes pour un reste à encaisser). Essais :
+`supabase/tests/99zzz…-cloture-incidents.sql` (36 constats),
+`tools/banc-incidents.mjs` (21 constats ; `CAPTURES=<dossier>`).
+
+`tools/fichiers-autonomes.sh` signalait parfois, au hasard, un emprunt
+qui n'existait pas (« printf | grep -q » sous « pipefail » : SIGPIPE) ;
+corrigé.
+
+## « Faire livrer » : une commande prise sur WhatsApp (3.68.0)
+
+Certains clients commandent et paient sur WhatsApp au lieu de valider leur
+panier : la commande se passait hors de l'application, et le point ne la
+voyait pas. Désormais l'équipe la fait entrer dans BIZZOO.
+
+**Qui : un DROIT que le superadministrateur accorde lui-même.** Dans la
+fiche d'un administrateur ou d'un modérateur de BIZZOO (Comptes → crayon),
+l'interrupteur **« Faire livrer »**, éteint par défaut. Seul le
+superadministrateur le voit ; la base refuse que quiconque d'autre le
+change — même un administrateur de BIZZOO sur un modérateur qu'il a créé,
+ou sur lui-même (`profils_faire_livrer_verrou`). Le droit « Commandes » ne
+le donne pas. Un compte sans ce droit ne voit pas l'option, et l'écran
+comme la base (`peut_faire_livrer()`) le lui ferment. Le superadministrateur
+l'a toujours.
+
+**Comment (BIZZOO Admin) :** Commandes → **Faire livrer une commande
+WhatsApp** (ou l'icône WhatsApp de l'accueil d'un compte de BIZZOO) →
+1. choisir les produits (toutes boutiques, recherche par nom, code ou
+   boutique ; les produits masqués n'y sont pas) et leurs quantités ;
+2. **Faire livrer** : le nom, le téléphone et l'adresse du client ; sa
+   **position** est **facultative** (collez le lien de localisation qu'il a
+   envoyé sur WhatsApp, ou touchez la carte) : elle sert seulement à guider
+   le livreur ;
+3. les **frais de livraison**, **saisis** : ceux convenus avec le client
+   (BIZZOO l'a décidé ainsi pour ces commandes — pas de calcul à la
+   distance ; 0 s'il n'y en a pas). Le livreur qui prendra la course en
+   touche 80 % (« taux du livreur ») à la remise ;
+4. le **total** = articles (prix du catalogue, lus en base) + frais saisis ;
+5. le **montant payé** (prérempli), le réseau, la **référence de la
+   transaction** ;
+6. **Valider et faire livrer**.
+
+**Ce que fait la base (`faire_livrer`)**, comme pour toute commande :
+- la commande naît par `creer_commande` : prix du catalogue, stock,
+  boutique ouverte ; ses frais sont les **frais saisis** (drapeau
+  `bizzoo.frais_saisis`, posé par `faire_livrer` seule) — un seul frais,
+  un seul livreur, comme une livraison au kilomètre sans kilomètre
+  (`livraison.saisie = true`, la position gardée si elle est donnée) ;
+- le montant payé doit couvrir le total — vérifié **avant** d'écrire, pour
+  ne perdre aucun numéro « BZ- » ;
+- elle est **payée en entier** : pas d'acompte, **rien à encaisser à la
+  livraison** — le livreur ne prend rien chez le client ;
+- elle porte `origine = 'whatsapp'`, qui l'a saisie (`saisie_par`,
+  « saisie par … » à l'écran), la référence de la transaction (une
+  référence ne sert qu'une fois, ponctuation et casse ignorées) ; elle est
+  au journal des versements sous « whatsapp » ;
+- si le numéro du client a un compte BIZZOO (un seul), la commande est la
+  sienne : il la retrouve dans son application, avec le suivi ;
+- le paiement déclenche ce qu'il déclenche toujours : stock décompté,
+  boutiques, admins BIZZOO et superadministrateurs prévenus (sonnerie),
+  **course proposée aux livreurs** selon les règles habituelles (au
+  kilomètre : les livreurs de BIZZOO ; une seule boutique hors kilomètre :
+  ses livreurs d'abord) ; le livreur touche sa part des frais à la remise ;
+- elle compte dans les statistiques comme toute commande payée ;
+- le « compte obligatoire » des clients ne l'empêche pas.
+
+`devis_faire_livrer` donne le prix des articles à l'écran sans rien écrire.
+
+**En ligne depuis le 27/10/2026** : colonnes, droit et verrou, fonctions
+`faire_livrer` et `devis_faire_livrer`, et la retouche de `creer_commande`
+(vérifiées identiques au dépôt). **28/10/2026** : les frais saisis et la
+position facultative en ligne ; l'ancienne signature de `faire_livrer`
+(sans « frais ») retirée. Aucun compte n'a encore le droit : le
+superadministrateur l'accorde dans BIZZOO Admin 3.68.0.
+
+Fichier à coller : `supabase/commande-whatsapp.sql`. Essais :
+`supabase/tests/99zzz…-commande-whatsapp.sql` (43 constats),
+`tools/banc-faire-livrer.mjs` (31 constats ; `CAPTURES=<dossier>` pour des
+images de chaque étape).
+
+### La colonne « Source » du suivi des commandes (BIZZOO Personnel)
+
+Le tableau « Suivi des commandes » dit d'où vient chaque commande :
+**Depuis APP** (passée par le client dans l'application) ou **Par
+whatsapp** (saisie par l'équipe avec « Faire livrer »). La colonne suit la
+date ; un filtre « Toutes les sources » la trie ; la fiche de la commande
+et les deux feuilles de l'export Excel la portent aussi.
+
+C'est `rh_suivi_donnees` qui la calcule, d'après `commandes.origine`. Une
+base qui ne la rend pas encore : l'écran lit « Depuis APP ». Fichier à
+coller : `supabase/suivi-source.sql` (la seule fonction interne du suivi,
+aucune table ni donnée) — **en ligne depuis le 28/10/2026**, vérifiée identique
+au dépôt. Banc : `tools/banc-suivi-source.mjs` (12 constats ;
+`CAPTURES=<dossier>` pour une image du tableau).
+
 ## Qui entend quoi : commande payée, course prise (3.66.0)
 
 | Événement | Boutique (admin, modérateur) | Admins BIZZOO qui suivent les commandes | Superadministrateurs |

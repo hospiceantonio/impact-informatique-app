@@ -216,11 +216,15 @@ for fichier in "$RACINE"/supabase/*.sql; do
              | sed 's/.*public\.//' | sort -u)"
   appels="$( { printf '%s\n' "$code" | grep -o 'public\.[a-z_]*(' || true; } \
              | sed 's/public\.//; s/(//' | sort -u)"
+  # PAS DE « printf | grep -q » ICI : « grep -q » sort au premier
+  # résultat, « printf » reçoit SIGPIPE, et « pipefail » fait passer la
+  # trouvaille pour un échec — au hasard de la charge de la machine. Le
+  # contrôle signalait alors un emprunt qui n'existait pas.
   for appelee in $appels; do
     # Née dans le socle : elle est là chez tout le monde depuis toujours.
-    if ! printf '%s\n' "$NEES" | grep -qx "$appelee"; then continue; fi
+    if ! grep -qx "$appelee" <<< "$NEES"; then continue; fi
     # Le fichier la pose lui-même : il se suffit.
-    if printf '%s\n' "$posees" | grep -qx "$appelee"; then continue; fi
+    if grep -qx "$appelee" <<< "$posees"; then continue; fi
     if [ "$EMPRUNTS" = "0" ]; then echo; fi
     rouge "$nom emprunte public.$appelee() sans la poser."
     echo "  Sur une base d'avant, ce fichier passerait sans erreur et"

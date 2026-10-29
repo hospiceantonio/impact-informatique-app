@@ -60,6 +60,20 @@ alter table public.commandes   add column if not exists tentative_le timestamptz
 alter table public.commandes   add column if not exists transaction_annoncee text not null default '';
 alter table public.commandes add column if not exists verse int;
 
+-- (3.70.0) Lue par « candidats_course » plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
 -- Emprunté par les fonctions plus bas (3.64.0), recopié tel quel.
 create or replace function public.boutique_du_compte() returns text
 language sql stable security definer set search_path = public as $$
@@ -876,7 +890,17 @@ declare
   taux     int;
   les_parts jsonb;
   manquant  bigint;
+  -- (3.68.0) Les frais SAISIS par l'équipe pour une commande prise sur
+  -- WhatsApp (« faire_livrer ») : ils remplacent le calcul à la distance.
+  -- Les deux drapeaux ne s'attrapent pas depuis PostgREST.
+  saisis   bigint := case when coalesce(current_setting('bizzoo.hors_appli', true), '') = 'oui'
+                          then nullif(current_setting('bizzoo.frais_saisis', true), '')::bigint end;
+  vehic    text;
 begin
+  -- Des frais saisis valent une livraison « au kilomètre » sans kilomètre :
+  -- un seul frais pour la commande, un seul livreur, payé en ligne — et le
+  -- livreur en touche sa part comme d'habitude.
+  if saisis is not null then au_km := true; end if;
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
     raise exception 'Votre panier est vide.';
@@ -890,7 +914,7 @@ begin
   -- (3.64.0) LA POSITION DU CLIENT EST OBLIGATOIRE quand la livraison se
   -- compte au kilomètre : sans elle, pas de distance, donc pas de frais.
   -- Une application d'avant ne l'envoie pas — on lui dit quoi faire.
-  if au_km then
+  if au_km and saisis is null then
     if destination is null or jsonb_typeof(destination) <> 'object'
        or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
       if coalesce(avec_frais, false) and destination is null then
@@ -951,7 +975,12 @@ begin
   -- a un — mais c'est un compte de l'équipe, et on vient de le ramener à
   -- « personne » deux lignes plus haut. Lui répondre « connectez-vous »
   -- alors qu'il EST connecté lui ferait chercher longtemps.
-  if moi is null and public.compte_exige() then
+  -- (3.68.0) Une commande prise sur WhatsApp, que l'équipe saisit pour le
+  -- client (« faire_livrer ») : le client n'est pas là pour se connecter.
+  -- Le drapeau ne s'attrape pas depuis PostgREST — seule « faire_livrer »,
+  -- qui vérifie qui l'appelle, le pose.
+  if moi is null and public.compte_exige()
+     and coalesce(current_setting('bizzoo.hors_appli', true), '') <> 'oui' then
     if equipe then
       raise exception 'Ce compte est un compte de l''équipe BIZZOO, pas un compte client. Pour commander, ouvrez un compte client et connectez-vous avec.';
     end if;
@@ -1107,13 +1136,26 @@ begin
   -- l'acompte : c'est BIZZOO qui les détient, et qui en doit sa part au
   -- livreur (« gains_livreurs »).
   if au_km then
-    devis := public.devis_livraison(
-      (destination ->> 'latitude')::double precision,
-      (destination ->> 'longitude')::double precision,
-      case when exists (select 1 from public.commande_lignes l
-                          join public.produits pr on pr.id = l.produit_id
-                         where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
-           then 'tricycle' else 'moto' end);
+    vehic := case when exists (select 1 from public.commande_lignes l
+                                 join public.produits pr on pr.id = l.produit_id
+                                where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
+                  then 'tricycle' else 'moto' end;
+    if saisis is not null then
+      -- (3.68.0) Les frais décidés par qui a pris la commande ; la position,
+      -- si on l'a, pour que le livreur trouve le client.
+      devis := jsonb_build_object('vehicule', vehic, 'distance_km', null, 'frais', greatest(0, saisis),
+                 'saisie', true) ||
+               case when destination is not null and jsonb_typeof(destination) = 'object'
+                         and (destination ->> 'latitude') is not null and (destination ->> 'longitude') is not null
+                    then jsonb_build_object('destination', jsonb_build_object(
+                           'latitude', round((destination ->> 'latitude')::numeric, 6),
+                           'longitude', round((destination ->> 'longitude')::numeric, 6)))
+                    else '{}'::jsonb end;
+    else
+      devis := public.devis_livraison(
+        (destination ->> 'latitude')::double precision,
+        (destination ->> 'longitude')::double precision, vehic);
+    end if;
     frais_km := coalesce((devis ->> 'frais')::bigint, 0);
     perform set_config('bizzoo.interne', 'oui', true);
     update public.commandes set frais_livraison = frais_km, livraison = devis where id = nouvelle;
@@ -1408,6 +1450,9 @@ end $$;
 revoke all on function public.suivre_commande(text, text) from public;
 grant execute on function public.suivre_commande(text, text) to anon, authenticated;
 
+-- (3.70.0) Lue par « fiche_course » / « faire_livrer » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
 -- ---------- Les courses ----------
 create or replace function public.fiche_course(commande text, boutique text)
 returns jsonb
@@ -1448,9 +1493,14 @@ begin
   end if;
   return jsonb_build_object(
     'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
@@ -1515,6 +1565,7 @@ begin
     'numero', premiere -> 'numero',
     'groupee', jsonb_array_length(retraits) > 1,
     'retraits', retraits,
+    'lieu_retrait', coalesce(premiere -> 'lieu_retrait', '""'::jsonb),
     'livraison', premiere -> 'livraison',
     'devise', premiere -> 'devise',
     'trajet', premiere -> 'trajet',
@@ -1535,8 +1586,15 @@ begin
   end if;
   for r in select * from jsonb_array_elements(f -> 'retraits') loop
     texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
-      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') || E'\n';
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') ||
+      -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+      coalesce(' — Tél. boutique : +' || coalesce(nullif(r ->> 'indicatif', ''), '229') || ' ' ||
+               nullif(r ->> 'tel', ''), '') || E'\n';
   end loop;
+  -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+  if coalesce(f ->> 'lieu_retrait', '') <> '' then
+    texte := texte || 'Où récupérer : ' || (f ->> 'lieu_retrait') || E'\n';
+  end if;
   return texte ||
     'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
       coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
@@ -1544,7 +1602,9 @@ begin
     -- (3.64.0) Le véhicule et la distance, puis ce qu'il y gagne.
     case when jsonb_typeof(f -> 'trajet') = 'object'
          then 'Véhicule : ' || case when f -> 'trajet' ->> 'vehicule' = 'tricycle' then 'tricycle' else 'moto' end ||
-              ' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km' || E'\n'
+              -- (3.70.0) Sans distance (« Faire livrer » : frais saisis), pas
+              -- de « — … km » : un NULL ici vidait TOUTE l'alerte.
+              coalesce(' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km', '') || E'\n'
          else '' end ||
     'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
     case when (f ->> 'gain') is not null
@@ -1585,7 +1645,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -1594,7 +1658,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';

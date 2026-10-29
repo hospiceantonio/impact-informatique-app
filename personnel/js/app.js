@@ -49,6 +49,8 @@ const App = (() => {
      des 60 derniers jours (rh_suivi_alertes_nb) ; dans le suivi, celles du
      tableau affiché, période et filtres compris (alertesAffichees). */
   let alertesSuivi = 0;
+  /* (3.69.0) Les incidents ouverts : la pastille du menu Incidents. */
+  let incidentsOuverts = 0;
   let alertesVue = null;
   /** Le suivi dit combien de commandes en alerte il affiche. */
   function alertesAffichees(n) {
@@ -80,6 +82,7 @@ const App = (() => {
     paie: VuePaie,
     statistiques: VueStatistiques,
     suivi: VueSuivi,
+    incidents: VueIncidents,
     livreurs: VueLocaliser,
     controles: VueControles,
     "liste-livreurs": VueLivreurs,
@@ -114,6 +117,7 @@ const App = (() => {
           + (compteursSolde.retraits_a_servir || 0) + (compteursSolde.retraits_incertains || 0) },
       { route: "suivi", libelle: "Suivi commandes", icone: "suivi", pour: voitSuivi,
         pastille: alertesVue !== null ? alertesVue : alertesSuivi },
+      { route: "incidents", libelle: "Incidents", icone: "alerte", pour: voitSuivi, pastille: incidentsOuverts },
       /* Les livreurs et leur fiche : ceux qui localisent les livreurs ou voient leur classement. */
       { route: "liste-livreurs", libelle: "Livreurs", icone: "equipe",
         pour: () => ouvert("livreurs") || ouvert("stats_livreurs") || estSuper() },
@@ -267,6 +271,7 @@ const App = (() => {
       if (tableau && tableau.moi) await chargerMenus();
       if (tableau && tableau.moi && voitSuivi()) {
         alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => alertesSuivi);
+        incidentsOuverts = await Supabase.rpc("rh_incidents_ouverts_nb").catch(() => incidentsOuverts);
       }
       if (tableau && tableau.moi) dessinerMenus();
     } catch (err) {
@@ -346,7 +351,10 @@ const App = (() => {
     menus = [];
     alertesSuivi = 0;
     await chargerMenus();
-    if (voitSuivi()) alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);
+    if (voitSuivi()) {
+      alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);
+      incidentsOuverts = await Supabase.rpc("rh_incidents_ouverts_nb").catch(() => 0);
+    }
     dessinerMenus();
     /* La paie de fin de mois se rattrape à l'ouverture si personne ne
        l'a faite (et si pg_cron n'est pas là pour la faire). */

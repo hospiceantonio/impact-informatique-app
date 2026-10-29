@@ -296,6 +296,41 @@ const VueAccueil = (() => {
   }
 
   /** La tuile de l'accueil : le logo, et le nom dessous. */
+  /* ---------- (3.70.0) Huit boutiques à la une, au hasard ----------
+     L'accueil n'en montre que HUIT — « Tout voir » ouvre la liste
+     entière. Elles sont TIRÉES AU SORT à chaque arrivée sur l'accueil,
+     dans un ordre au hasard : chaque boutique a sa chance d'être vue en
+     premier, pas toujours les mêmes en tête.
+     Le tirage tient tant que le client reste sur l'accueil : une mise à
+     jour du catalogue, qui redessine l'écran, ne rebat pas les cartes sous
+     ses yeux. Seule une boutique fermée entre-temps est remplacée. */
+  const BOUTIQUES_A_LA_UNE = 8;
+  let tirage = null;
+
+  /** Le routeur l'appelle à chaque nouvelle arrivée sur un écran. */
+  function nouvelleVisite() { tirage = null; }
+
+  function melanger(liste) {
+    const t = liste.slice();
+    for (let i = t.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [t[i], t[j]] = [t[j], t[i]];
+    }
+    return t;
+  }
+
+  function boutiquesALaUne(boutiques) {
+    const parId = new Map(boutiques.map((b) => [b.id, b]));
+    let ids = (tirage || []).filter((id) => parId.has(id));
+    const voulu = Math.min(BOUTIQUES_A_LA_UNE, boutiques.length);
+    if (ids.length < voulu) {
+      ids = ids.concat(melanger(boutiques.map((b) => b.id).filter((id) => !ids.includes(id))))
+        .slice(0, BOUTIQUES_A_LA_UNE);
+    }
+    tirage = ids;
+    return ids.map((id) => parId.get(id));
+  }
+
   function tuileBoutique(b) {
     /* UN NOM D'UN SEUL MOT se coupait en son milieu sur deux lignes
        (« JouJoutheq / ue ») : quatre tuiles par rangée ne laissent pas
@@ -435,11 +470,12 @@ const VueAccueil = (() => {
       html += htmlPublicite(publicites);
     }
 
-    /* « NOS BOUTIQUES PARTENAIRES », quatre par rangée. « Tout voir »
-       ouvre la liste entière, avec ses notes et ses filtres. */
+    /* « NOS BOUTIQUES PARTENAIRES », quatre par rangée : HUIT au plus,
+       tirées au sort (3.70.0). « Tout voir » ouvre la liste entière, avec
+       ses notes et ses filtres. */
     html += UI.titreSection("Nos boutiques partenaires", boutiques.length ? "#/boutiques" : "");
     html += boutiques.length
-      ? '<div class="bou-tuiles">' + boutiques.map(tuileBoutique).join("") + "</div>"
+      ? '<div class="bou-tuiles">' + boutiquesALaUne(boutiques).map(tuileBoutique).join("") + "</div>"
       : UI.vide("magasin", "Les boutiques arrivent bientôt",
           "Elles s'afficheront ici dès leur ouverture.");
 
@@ -945,5 +981,5 @@ const VueAccueil = (() => {
     brancherPublicite();
   }
 
-  return { afficher, boutiques, boutique, arreterSlider };
+  return { afficher, boutiques, boutique, arreterSlider, nouvelleVisite };
 })();

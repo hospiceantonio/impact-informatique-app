@@ -696,6 +696,9 @@ const Compte = (() => {
     /* La session qui attendait s'oublie AVANT : sinon c'est elle que la
        déconnexion viserait, et non celle du téléphone. */
     attente = null;
+    /* (3.70.0) Ce téléphone cesse de sonner pour ce compte — AVANT de
+       rendre la session, qui seule a le droit de l'oublier. */
+    if (typeof Push !== "undefined" && session) await Push.oublier();
     /* CE TÉLÉPHONE SEULEMENT (3.63.0). Sans « scope=local », GoTrue ferme
        TOUTES les sessions du compte : se déconnecter sur un appareil
        déconnectait aussi les autres — qui ne l'apprenaient qu'au

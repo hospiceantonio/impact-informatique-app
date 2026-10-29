@@ -777,10 +777,20 @@ const VuePanier = (() => {
 
     const boutonWa = UI.$("#co-whatsapp");
     if (boutonWa) {
-      boutonWa.onclick = () => {
+      boutonWa.onclick = async () => {
         const client = lire();
         if (!verifier(client)) return;
         garderCoordonnees(client);
+        /* (3.70.0) Une dernière vérification : si le paiement en ligne est
+           ouvert, la commande se paie ici — pas par WhatsApp. */
+        boutonWa.disabled = true;
+        try { await Paiement.charger({ garder: true }); } catch (_) { /* on garde ce qu'on a */ }
+        boutonWa.disabled = false;
+        if (Paiement.disponible()) {
+          UI.toast("Le paiement en ligne est ouvert : vous pouvez payer votre commande ici.", "ok");
+          commander(vue);
+          return;
+        }
         const groupes = Panier.parBoutique();
         UI.$("#co-liens").innerHTML =
           '<div class="carte">' +
@@ -805,11 +815,14 @@ const VuePanier = (() => {
     /* Les réglages déjà connus se relisent à côté : si le taux a changé
        entre-temps, le total et le bouton suivent. Une relecture qui échoue
        garde ce qui était connu. */
-    if (reglagesConnus && enLigne) {
+    /* (3.70.0) MÊME PAIEMENT « FERMÉ », on relit : il a pu s'ouvrir
+       depuis l'ouverture de l'application (ou la lecture d'alors a pu
+       échouer). Ouvert ou fermé entre-temps : l'écran se redessine. */
+    if (reglagesConnus) {
       Paiement.charger({ garder: true }).then(() => {
-        if (Paiement.tauxAcompte() !== tauxLu && location.hash === "#/commande") {
-          rafraichirTotal(vue, devise, boutonPayer);
-        }
+        if (location.hash !== "#/commande") return;
+        if (Paiement.disponible() !== enLigne) { commander(vue); return; }
+        if (enLigne && Paiement.tauxAcompte() !== tauxLu) rafraichirTotal(vue, devise, boutonPayer);
       }).catch(() => { /* on garde ce qu'on a */ });
     }
   }

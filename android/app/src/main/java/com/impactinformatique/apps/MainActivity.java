@@ -236,7 +236,8 @@ public class MainActivity extends Activity {
         }
         /* (3.65.0) L'équipe — livreurs et boutiques : le jeton Firebase de
            ce téléphone, que la page déclarera à la base une fois connectée. */
-        if (getResources().getBoolean(R.bool.push_equipe)) {
+        /* (3.70.0) Le client aussi : sa commande le prévient, application fermée. */
+        if (getResources().getBoolean(R.bool.push_equipe) || getResources().getBoolean(R.bool.push_client)) {
             ServiceNotifications.preparerPush(this);
         }
     }
@@ -681,6 +682,17 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String jetonPush() {
             return ServiceNotifications.jeton(MainActivity.this);
+        }
+
+        /**
+         * (3.70.0) Ce téléphone AFFICHE-t-il les notifications de BIZZOO ?
+         * Un client qui les a refusées n'est pas « prévenu » par le push :
+         * la page ne déclare alors pas son téléphone, et la base lui envoie
+         * le SMS à la place.
+         */
+        @JavascriptInterface
+        public boolean notificationsPermises() {
+            return ServiceNotifications.suiviPermis(MainActivity.this);
         }
 
         /**

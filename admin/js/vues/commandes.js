@@ -339,9 +339,16 @@ const VueCommandes = (() => {
         '<div class="cmd-meta"><span class="cmd-quand">' + Utils.echapper(depuis(c.creeLe)) + "</span> " +
           (payee
             ? '<span class="cmd-paye">' + UI.icone("check", "ic-sm") +
-              (c.confirmePar
+              /* (3.68.0) Prise sur WhatsApp : payée au client avant d'être
+                 saisie — par qui, c'est ce qui compte pour le point. */
+              (c.origine === "whatsapp"
+                ? "payée sur WhatsApp, saisie par " + Utils.echapper(c.confirmePar || "l'équipe")
+                : c.confirmePar
                 ? "payée, confirmée à la main par " + Utils.echapper(c.confirmePar)
                 : "payée par " + Utils.echapper(c.agregateur)) + "</span>"
+            : "") +
+          (c.origine === "whatsapp"
+            ? '<span class="cmd-whatsapp">' + UI.icone("whatsapp", "ic-sm") + "WhatsApp</span>"
             : "") +
           /* Une commande partie au prix revendeur le dit : c'est ce qui
              explique un montant plus bas que d'habitude pour la même
@@ -429,6 +436,16 @@ const VueCommandes = (() => {
             (c.note
               ? '<div class="cmd-note">« ' + Utils.echapper(c.note) + " »</div>"
               : "") +
+            /* (3.70.0) Une commande WhatsApp : où le livreur la récupère,
+               tel que l'équipe l'a saisi dans « Faire livrer ». */
+            /* Pour qui voit toute la commande seulement (le superadministrateur,
+               l'enseigne) : le texte nomme TOUTES les boutiques, et une boutique
+               ne voit que sa part d'une commande partagée. */
+            (c.lieuRetrait && (Supabase.estSuper() || Supabase.estCompteEnseigne())
+              ? '<div class="cmd-client-adresse cmd-retrait">' + UI.icone("magasin", "ic-sm") +
+                '<span style="white-space:pre-line"><strong>À récupérer :</strong> ' +
+                Utils.echapper(c.lieuRetrait) + "</span></div>"
+              : "") +
           "</div>" +
           '<div class="cmd-lignes">' +
             c.lignes.map((l) => htmlLigne(l, c.devise, !c.clientId)).join("") + "</div>" +
@@ -508,14 +525,21 @@ const VueCommandes = (() => {
           && (c.transactionAnnoncee || c.remarque))
       : [];
 
+    /* (3.68.0) UNE COMMANDE PRISE SUR WHATSAPP se saisit d'ici, pour
+       qu'elle rejoigne les autres — et le point. */
+    const faireLivrer = Supabase.peutFaireLivrer()
+      ? '<a class="btn btn-clair cmd-faire-livrer" id="cmd-faire-livrer" href="#/faire-livrer">' +
+          UI.icone("whatsapp") + "Faire livrer une commande WhatsApp</a>"
+      : "";
+
     if (!commandes.length) {
-      vue.innerHTML = UI.vide("boite", "Aucune commande pour le moment",
+      vue.innerHTML = faireLivrer + UI.vide("boite", "Aucune commande pour le moment",
         "Les commandes payées par les clients dans l'application BIZZOO " +
         "s'afficheront ici, avec leurs coordonnées.");
       return;
     }
 
-    vue.innerHTML =
+    vue.innerHTML = faireLivrer +
       '<div class="carte carte-publier cmd-resume">' +
         '<div class="carte-titre">' + UI.icone("boite", "ic-sm") + " " +
           (aFaire.length

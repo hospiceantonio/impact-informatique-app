@@ -6,6 +6,7 @@
    #/suivi/alertes              : ce qui demande une action ;
    #/suivi/bilan                : le bilan par jour, semaine, mois ;
    #/suivi/reglages             : les délais des alertes, les zones ;
+   #/suivi/sms                  : les SMS envoyés aux clients (3.70.0) ;
    #/suivi/commande/<id>        : la fiche, la chronologie, les
                                   incidents, la clôture.
 
@@ -44,7 +45,7 @@ const VueSuivi = (() => {
   const ETAPES = { nouvelle: "Nouvelle", vue: "Vue par le marchand", preparee: "Préparée", en_livraison: "En livraison",
     remise: "Déclarée livrée", annulee: "Annulée", payee: "Payée", a_payer: "À payer", echouee: "Paiement échoué",
     recupere: "Colis récupéré", retour_en_cours: "Retour en cours", retournee: "Retourné au marchand",
-    cloturee: "Clôturée", rouverte: "Rouverte" };
+    cloturee: "Clôturée", rouverte: "Rouverte", cloturee_auto: "Clôturée automatiquement" };
 
   const etiquetteStatut = (c) => UI.etiquette(c.statut || "—", COULEUR_STATUT[c.rang] || "");
   const etiquettesAlertes = (liste) => (liste || []).map((a) => UI.etiquette(...(ALERTES[a] || [a, ""])));
@@ -63,6 +64,11 @@ const VueSuivi = (() => {
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }) + " - " +
       String(d.getHours()).padStart(2, "0") + " h " + String(d.getMinutes()).padStart(2, "0");
   };
+
+  /* (3.68.0) La source d'une commande. Une base d'avant ne la rend pas :
+     c'était forcément une commande de l'application. */
+  const SOURCES = ["Depuis APP", "Par whatsapp"];
+  const sourceDe = (c) => (c && c.source === "Par whatsapp" ? "Par whatsapp" : "Depuis APP");
 
   /* ---------- La période ---------- */
 
@@ -88,7 +94,7 @@ const VueSuivi = (() => {
   const barrePeriode = (route, periode, extra) => UI.barrePeriode(periode, route, extra);
 
   function onglets(actif) {
-    const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"]];
+    const items = [["", "Commandes"], ["alertes", "Alertes"], ["bilan", "Bilan"], ["sms", "SMS"]];
     if (App.estAdmin()) items.push(["reglages", "Réglages"]);
     return h("div", { class: "filtres" }, items.map(([v, l]) =>
       h("button", { class: v === actif ? "actif" : "", onclick: () => { location.hash = "#/suivi" + (v ? "/" + v : ""); } }, l)));
@@ -101,6 +107,7 @@ const VueSuivi = (() => {
       case "alertes": return alertes(zone);
       case "bilan": return bilan(zone, params);
       case "reglages": return reglages(zone);
+      case "sms": return smsClients(zone, params);
       default: return tableau(zone, params);
     }
   }
@@ -118,6 +125,9 @@ const VueSuivi = (() => {
     const recherche = h("input", { type: "search", class: "recherche", placeholder: "Rechercher : n°, client, téléphone, marchand, livreur…", "aria-label": "Rechercher" });
     const choixStatut = h("select", { "aria-label": "Statut" }, h("option", { value: "" }, "Tous les statuts"), statuts.map((s) => h("option", { value: s }, s)));
     const choixZone = h("select", { "aria-label": "Zone" }, h("option", { value: "" }, "Toutes les zones"), zones.map((s) => h("option", { value: s }, s)));
+    /* (3.68.0) La source : passée dans l'application, ou prise sur WhatsApp. */
+    const choixSource = h("select", { "aria-label": "Source" }, h("option", { value: "" }, "Toutes les sources"),
+      SOURCES.map((s) => h("option", { value: s }, s)));
     const avecAlertes = h("input", { type: "checkbox" });
     const corps = h("div", {});
     const compte = h("p", { class: "doux petit" });
@@ -129,6 +139,7 @@ const VueSuivi = (() => {
       return toutes.filter((c) =>
         (!choixStatut.value || c.statut === choixStatut.value) &&
         (!choixZone.value || (c.client.zone || "Non reconnue") === choixZone.value) &&
+        (!choixSource.value || sourceDe(c) === choixSource.value) &&
         (!avecAlertes.checked || enAlerte(c)) &&
         (!q || [c.numero, c.client.nom, c.client.tel, c.client.adresse, c.marchands, c.livreurs, c.articles]
           .join(" ").toLowerCase().includes(q)));
@@ -138,6 +149,8 @@ const VueSuivi = (() => {
     const colonnes = [
       { titre: "N° commande", cle: (c) => c.numero || c.id, cellule: (c) => h("span", { class: "gras" }, c.numero || c.id) },
       { titre: "Date / heure", cle: (c) => c.cree_le || "", cellule: (c) => dateSuivi(c.cree_le), classe: "sans-retour" },
+      { titre: "Source", cle: sourceDe, classe: "sans-retour",
+        cellule: (c) => sourceDe(c) === "Par whatsapp" ? h("span", { class: "source-whatsapp" }, "Par whatsapp") : "Depuis APP" },
       { titre: "Client / téléphone / zone", cle: (c) => c.client.nom || "", classe: "moyen",
         cellule: (c) => [h("div", {}, c.client.nom || "—"), h("div", { class: "doux tres-petit" }, [c.client.tel, zoneDe(c)].filter(Boolean).join(" · "))] },
       { titre: "Articles commandés", cle: (c) => c.articles || "", cellule: (c) => c.articles || "—", classe: "large" },
@@ -265,7 +278,7 @@ const VueSuivi = (() => {
       UI.vider(corps, h("div", { class: "carte defile tableau-suivi" }, table));
     };
     for (const e of [recherche]) e.addEventListener("input", dessiner);
-    for (const e of [choixStatut, choixZone, avecAlertes]) e.addEventListener("change", dessiner);
+    for (const e of [choixStatut, choixZone, choixSource, avecAlertes]) e.addEventListener("change", dessiner);
 
     /* Le tableau prend toute la largeur de l’écran (zone neuve à chaque page). */
     zone.classList.add("vue-large", "serre");
@@ -276,7 +289,7 @@ const VueSuivi = (() => {
       h("div", { class: "carte compacte" },
         lignePeriode("#/suivi", periode),
         h("div", { class: "barre-compacte" },
-          recherche, choixStatut, choixZone,
+          recherche, choixStatut, choixZone, choixSource,
           h("label", { class: "case" }, avecAlertes, "En alerte seulement"),
           h("button", { class: "btn btn-vert", type: "button", onclick: () => exporter(filtrees(), r, periode) },
             UI.icone("telecharger", "ic-sm"), "Excel"))),
@@ -297,6 +310,7 @@ const VueSuivi = (() => {
       nom: "Suivi commandes",
       colonnes: [
         { titre: "N° commande", largeur: 13 }, { titre: "Date / heure de passation", largeur: 20 },
+        { titre: "Source", largeur: 13 },
         { titre: "Client / téléphone / zone", largeur: 34 }, { titre: "Articles commandés", largeur: 34 },
         { titre: "Marchand / numéro", largeur: 28 }, { titre: "Frais de livraison (FCFA)", largeur: 14, type: "fcfa" },
         { titre: "Total commande (FCFA)", largeur: 14, type: "fcfa" }, { titre: "Reste à encaisser (FCFA)", largeur: 14, type: "fcfa" },
@@ -304,7 +318,7 @@ const VueSuivi = (() => {
         { titre: "Confirmation client", largeur: 12 }, { titre: "Délai de livraison", largeur: 12 },
         { titre: "Observations / incidents", largeur: 40 }],
       lignes: commandes.map((c) => [
-        c.numero || c.id, dateSuivi(c.cree_le),
+        c.numero || c.id, dateSuivi(c.cree_le), sourceDe(c),
         [c.client.nom, c.client.tel, zone(c)].filter(Boolean).join(" / "),
         c.articles, c.marchands,
         m ? Number(c.frais) : "", m ? Number(c.total) : "", m ? Number(c.reste) : "",
@@ -315,6 +329,7 @@ const VueSuivi = (() => {
       nom: "Détail par marchand",
       colonnes: [
         { titre: "N° commande", largeur: 13 }, { titre: "Date de passation", largeur: 18 }, { titre: "Payée le", largeur: 18 },
+        { titre: "Source", largeur: 13 },
         { titre: "Client", largeur: 20 }, { titre: "Téléphone", largeur: 15 }, { titre: "Zone", largeur: 22 },
         { titre: "Adresse", largeur: 30 }, { titre: "Marchand", largeur: 22 }, { titre: "Numéro du marchand", largeur: 15 },
         { titre: "Article", largeur: 26 }, { titre: "Code", largeur: 10 }, { titre: "Quantité", largeur: 9, type: "nombre" },
@@ -325,7 +340,7 @@ const VueSuivi = (() => {
         { titre: "Alertes", largeur: 30 }],
       lignes: commandes.flatMap((c) => c.lignes.map((l) => {
         const dh = l.confirme_le && l.vue_le ? Math.round((new Date(l.confirme_le) - new Date(l.vue_le)) / 360000) / 10 : "";
-        return [c.numero || c.id, dateSuivi(c.cree_le), c.paye_le ? dateSuivi(c.paye_le) : "", c.client.nom, c.client.tel,
+        return [c.numero || c.id, dateSuivi(c.cree_le), c.paye_le ? dateSuivi(c.paye_le) : "", sourceDe(c), c.client.nom, c.client.tel,
           c.client.zone || "", c.client.adresse, l.boutique, l.boutique_tel, l.nom, l.code || "", Number(l.quantite),
           ...(m ? [Number(l.prix), Number(l.prix) * Number(l.quantite)] : []),
           l.statut, l.livreur || "", l.livreur_tel || "", l.vue_le ? dateSuivi(l.vue_le) : "",
@@ -446,6 +461,79 @@ const VueSuivi = (() => {
       h("p", { class: "doux tres-petit" }, "Les délais se mesurent avec le journal des étapes : les commandes d'avant son installation n'ont que les dates de commande, de paiement, d'acceptation de la course et de réception."));
   }
 
+  /* ---------- (3.70.0) Les SMS aux clients ----------
+     Combien sont partis, combien la passerelle a refusés, et pourquoi —
+     jamais le numéro d'un client. Un crédit SMS épuisé se voit ici
+     d'abord : plus aucun client sans l'application n'est prévenu. */
+
+  const ETAPES_SMS = { commande_payee: "Commande payée", course_acceptee: "Livreur trouvé",
+    commande_en_livraison: "Colis en route", commande_remise: "Colis livré", commande_annulee: "Article annulé" };
+  const ETATS_SMS = { refuse: "Refusé", abandonne: "Non envoyé" };
+  const CODES_SMS = { PLAFOND: "plafond par commande atteint", PLAFOND_JOUR: "plafond du jour atteint",
+    INSUFFICIENT_BALANCE: "crédit SMS épuisé", COUPE: "SMS coupés entre-temps", TROP_TARD: "pas parti en six heures",
+    SANS_REPONSE: "passerelle muette", INJOIGNABLE: "passerelle injoignable", INVALID_PHONE: "numéro invalide" };
+
+  async function smsClients(zone, params) {
+    const periode = periodeDe(params, "30j");
+    let r;
+    try {
+      r = await Supabase.rpc("rh_sms_compteur", { depuis: periode.depuis, jusqu: periode.jusqu });
+    } catch (err) {
+      if (!zone.isConnected) return;
+      if (/rh_sms_compteur|schema cache|does not exist/i.test(err.message || "")) {
+        return UI.vider(zone, onglets("sms"), UI.vide("Cette nouveauté demande la mise à jour de la base (supabase/sms-clients.sql)."));
+      }
+      throw err;
+    }
+    if (!zone.isConnected) return;
+    const t = r.total || {};
+    const g = r.reglages || {};
+    const tuile = (valeur, libelle, classe) => h("div", { class: "tuile" + (classe ? " " + classe : "") },
+      h("b", { style: { fontSize: "19px" } }, UI.entier(valeur || 0)), h("span", {}, libelle));
+    const etat = g.actif
+      ? h("div", { class: "info" }, "SMS allumés depuis le " + dateSuivi(g.actif_depuis) + " — étapes : " +
+          (g.etapes || []).map((e) => ETAPES_SMS[e] || e).join(", ") + " ; au plus " + g.plafond + " par commande et " +
+          g.plafond_jour + " par jour. Le superadministrateur les règle dans BIZZOO Admin → Réglages.")
+      : h("div", { class: "info" }, "SMS aux clients coupés : le superadministrateur les allume dans BIZZOO Admin → Réglages.");
+    const credit = t.credit_epuise > 0
+      ? h("div", { class: "erreur" }, "Crédit SMS épuisé : " + t.credit_epuise + " SMS refusé(s) pour cette raison. " +
+          "Rechargez le compte CREATISINTER : plus aucun client sans l'application n'est prévenu, et les codes de connexion ne partent plus.")
+      : null;
+    const parJour = (r.par_jour || []).length
+      ? h("div", { class: "carte defile" }, h("h3", { style: { marginBottom: "8px" } }, "Jour par jour"),
+          h("table", { class: "tableau" },
+            h("thead", {}, h("tr", {}, ["Jour", "Envoyés", "Refusés", "Autres"].map((x) => h("th", {}, x)))),
+            h("tbody", {}, r.par_jour.map((j) => h("tr", {},
+              h("td", {}, UI.date(j.jour)), h("td", { class: "nombre" }, j.envoyes),
+              h("td", { class: "nombre" }, j.refuses), h("td", { class: "nombre" }, j.autres))))))
+      : null;
+    const parEtape = (r.par_etape || []).length
+      ? h("div", { class: "carte" }, h("h3", { style: { marginBottom: "8px" } }, "Par étape"),
+          h("div", { class: "liste" }, r.par_etape.map((e) => h("div", { class: "element" },
+            h("div", { class: "etire" }, ETAPES_SMS[e.etape] || e.etape),
+            h("b", {}, e.envoyes + " envoyé(s)"), h("span", { class: "doux petit" }, " sur " + e.total)))))
+      : null;
+    const echecs = (r.echecs || []).length
+      ? h("div", { class: "carte" }, h("h3", { style: { marginBottom: "8px" } }, "Les derniers SMS qui ne sont pas partis"),
+          h("div", { class: "liste" }, r.echecs.map((e) => h("div", { class: "element" },
+            h("div", { class: "etire" },
+              h("div", {}, h("b", {}, ETAPES_SMS[e.etape] || e.etape), " — ",
+                h("a", { href: "#/suivi/commande/" + encodeURIComponent(e.commande_id) }, "Commande " + (e.numero || e.commande_id))),
+              h("div", { class: "tres-petit doux" }, dateSuivi(e.le) + " · " + (ETATS_SMS[e.etat] || e.etat) +
+                (e.code ? " · " + (CODES_SMS[e.code] || e.code) : "")),
+              e.message ? h("div", { class: "tres-petit doux" }, e.message) : null)))))
+      : null;
+    UI.vider(zone, onglets("sms"), barrePeriode("#/suivi/sms", periode), etat, credit,
+      h("div", { class: "tuiles compactes" },
+        tuile(t.envoyes, "SMS envoyés"),
+        tuile(t.commandes, "commandes prévenues"),
+        tuile(t.refuses, "refusés par la passerelle", t.refuses ? "alerte" : ""),
+        tuile(t.en_attente, "en attente d'envoi"),
+        tuile(t.plafonnes, "retenus par un plafond")),
+      parJour, parEtape, echecs,
+      !(r.par_jour || []).length ? UI.vide("Aucun SMS sur cette période.") : null);
+  }
+
   /* ---------- Les réglages ---------- */
 
   async function reglages(zone) {
@@ -508,7 +596,27 @@ const VueSuivi = (() => {
         "Zone ajoutée : elle sera reconnue dans les adresses.");
       nom.value = commune.value = "";
     });
-    UI.vider(zone, onglets("reglages"), form, formVeille, formZone);
+    /* (3.69.0) La clôture automatique : vide, à la main. Une base d'avant
+       ne connaît pas ce réglage : le cadre n'apparaît pas. */
+    let formCloture = null;
+    if ("cloture_auto_h" in g) {
+      const heures = h("input", { type: "number", min: 0, max: 720, placeholder: "Vide : à la main" });
+      heures.value = g.cloture_auto_h === null ? "" : g.cloture_auto_h;
+      formCloture = h("form", { class: "carte pile" },
+        h("h2", {}, "Clôture automatique"),
+        h("p", { class: "doux petit" }, "Une commande dont tous les articles sont livrés et confirmés par le client se clôture d'elle-même, ce délai passé après le dernier « Je l'ai reçu ». Elle reste ouverte s'il reste de l'argent à encaisser, un incident ouvert, une contestation, un échec ou un retour, ou si l'administration l'a rouverte."),
+        h("div", { class: "formulaire" },
+          h("label", { class: "champ" }, h("span", {}, "Délai (en heures)"), heures,
+            h("small", {}, "24 : le lendemain. 0 : tout de suite. Vide : clôture à la main seulement."))),
+        h("div", { class: "actions" }, h("button", { class: "btn", type: "submit" }, "Enregistrer")));
+      formCloture.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const v = heures.value.trim();
+        await UI.agir(ev.submitter, () => Supabase.rpc("rh_suivi_regler_cloture", { heures: v === "" ? null : Number(v) }),
+          v === "" ? "Clôture à la main seulement." : "Clôture automatique : " + v + " h après la confirmation du client.");
+      });
+    }
+    UI.vider(zone, onglets("reglages"), form, formVeille, formCloture, formZone);
   }
 
   /* ---------- La fiche d'une commande ---------- */
@@ -519,6 +627,8 @@ const VueSuivi = (() => {
     App.titre("Commande " + (c.numero || c.id));
     const recharger = () => App.rafraichir().then(() => fiche(zone, id));
     const close = !!c.cloturee_le;
+    /* La dernière clôture, d'après la chronologie : la base, ou l'équipe. */
+    const clotureAuto = close && ((c.journal || []).filter((j) => j.quoi === "suivi").pop() || {}).valeur === "cloturee_auto";
 
     const zoneChamp = h("input", { value: c.client.zone || "", placeholder: "Quartier (Commune)" });
     const obs = h("textarea", { placeholder: "Observations sur cette commande" });
@@ -631,6 +741,7 @@ const VueSuivi = (() => {
         h("div", { class: "formulaire petit" },
           h("div", {}, h("div", { class: "doux" }, "Passée le"), h("b", {}, dateSuivi(c.cree_le))),
           h("div", {}, h("div", { class: "doux" }, "Payée le"), h("b", {}, c.paye_le ? dateSuivi(c.paye_le) : "—")),
+          h("div", {}, h("div", { class: "doux" }, "Source"), h("b", { class: sourceDe(c) === "Par whatsapp" ? "source-whatsapp" : "" }, sourceDe(c))),
           h("div", {}, h("div", { class: "doux" }, "Client"), h("b", {}, c.client.nom || "—"), h("div", {}, c.client.tel || "")),
           h("div", {}, h("div", { class: "doux" }, "Zone"), h("b", {}, c.client.zone || "Non reconnue")),
           h("div", {}, h("div", { class: "doux" }, "Confirmation client"), h("b", {}, c.confirmation)),
@@ -638,10 +749,10 @@ const VueSuivi = (() => {
           c.montants ? h("div", {}, h("div", { class: "doux" }, "Total"), h("b", {}, montant(c.total)),
             h("div", { class: "tres-petit doux" }, "dont livraison " + montant(c.frais))) : null,
           c.montants ? h("div", {}, h("div", { class: "doux" }, "Reste à encaisser"), h("b", {}, montant(c.reste))) : null),
-        close ? h("div", { class: "info" }, "Clôturée le " + dateSuivi(c.cloturee_le) + ".") : null,
+        close ? h("div", { class: "info" }, "Clôturée" + (clotureAuto ? " automatiquement" : "") + " le " + dateSuivi(c.cloturee_le) + ".") : null,
         actions.length ? h("div", { class: "actions" }, actions) : null),
       lignes, incidents, formNotes, ...autres, journal);
   }
 
-  return { titre: "Suivi des commandes", afficher };
+  return { titre: "Suivi des commandes", afficher, TYPES_INCIDENT, dateSuivi, periodeDe };
 })();

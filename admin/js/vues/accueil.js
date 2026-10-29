@@ -17,6 +17,9 @@ const VueAccueil = (() => {
        et sans ces icônes il n'aurait aucun chemin vers eux. */
     UI.entete({ accueil: true, actions: enseigne
       ? (Supabase.peutVoirCommandes() ? icone("#/commandes", "Commandes", "boite") : "") +
+        /* (3.68.0) « Faire livrer », pour qui en a reçu le droit — même
+           sans l'interrupteur « Les commandes ». */
+        (Supabase.peutFaireLivrer() ? icone("#/faire-livrer", "Faire livrer une commande WhatsApp", "whatsapp") : "") +
         icone("#/avis", "Avis des clients", "etoile") +
         icone("#/sav", "Réclamations", "alerte") +
         (admin ? icone("#/reglages", "Réglages", "reglages")

@@ -47,6 +47,8 @@ public class ServiceNotifications extends FirebaseMessagingService {
        changer d'identifiant. */
     private static final String CANAL_COURSES = "courses_v1";
     private static final String CANAL_COMMANDES = "commandes_v1";
+    /* (3.70.0) L'acheteur : le suivi de SA commande, au son ordinaire. */
+    private static final String CANAL_SUIVI = "suivi_commandes_v1";
     private static final String JOURNAL = "BizzooNotifications";
     private static final String PREFS = "bizzoo-push";
     private static final String CLE_JETON = "jeton";
@@ -141,6 +143,14 @@ public class ServiceNotifications extends FirebaseMessagingService {
         NotificationManager gestionnaire =
                 (NotificationManager) contexte.getSystemService(Context.NOTIFICATION_SERVICE);
         if (gestionnaire == null) return;
+        /* Une notification d'acheteur dans l'application client, même si une
+           ancienne fonction d'envoi ne dit pas encore « client ». */
+        if ("client".equals(valeur(donnees, "canal"))
+                || (contexte.getResources().getBoolean(R.bool.push_client)
+                    && valeur(donnees, "lien").startsWith("#/commande/"))) {
+            notifierClient(contexte, gestionnaire, donnees);
+            return;
+        }
         boolean course = "courses".equals(valeur(donnees, "canal"));
         String titre = valeur(donnees, "titre");
         String corps = valeur(donnees, "corps");
@@ -201,6 +211,65 @@ public class ServiceNotifications extends FirebaseMessagingService {
         } catch (SecurityException e) {
             /* Notifications refusées dans les réglages du téléphone. */
         }
+    }
+
+    /* ---------- (3.70.0) Le client : où en est SA commande ----------
+       Payée, livreur trouvé, colis en route, livré : un son de message,
+       une fois. La touche ouvre son reçu, où tout est écrit. */
+    private static void notifierClient(Context contexte, NotificationManager gestionnaire,
+                                       Map<String, String> donnees) {
+        String titre = valeur(donnees, "titre");
+        String corps = valeur(donnees, "corps");
+        String lien = valeur(donnees, "lien");
+        if (!lien.startsWith("#/")) lien = "#/mes-commandes";
+        Notification.Builder constructeur;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel canal = new NotificationChannel(CANAL_SUIVI,
+                    "Suivi de vos commandes", NotificationManager.IMPORTANCE_HIGH);
+            canal.setDescription("Votre commande est payée, votre livreur arrive, votre colis est livré.");
+            canal.enableVibration(true);
+            canal.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+            gestionnaire.createNotificationChannel(canal);
+            constructeur = new Notification.Builder(contexte, CANAL_SUIVI);
+        } else {
+            constructeur = new Notification.Builder(contexte)
+                    .setPriority(Notification.PRIORITY_HIGH)
+                    .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE);
+        }
+        Intent ouverture = new Intent(contexte, MainActivity.class);
+        ouverture.putExtra(MainActivity.EXTRA_LIEN, lien);
+        ouverture.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int numero = ("client:" + valeur(donnees, "id")).hashCode();
+        int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        PendingIntent action = PendingIntent.getActivity(contexte, numero, ouverture, drapeaux);
+        Notification notification = constructeur
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(titre.isEmpty() ? "BIZZOO" : titre)
+                .setContentText(corps)
+                .setStyle(new Notification.BigTextStyle().bigText(corps))
+                .setCategory(Notification.CATEGORY_STATUS)
+                .setAutoCancel(true)
+                .setContentIntent(action)
+                .build();
+        try {
+            gestionnaire.notify(numero, notification);
+        } catch (SecurityException e) {
+            /* Notifications refusées dans les réglages du téléphone. */
+        }
+    }
+
+    /** (3.70.0) Les notifications du suivi de commande s'affichent-elles sur ce téléphone ? */
+    static boolean suiviPermis(Context contexte) {
+        NotificationManager gestionnaire =
+                (NotificationManager) contexte.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (gestionnaire == null) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !gestionnaire.areNotificationsEnabled()) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel canal = gestionnaire.getNotificationChannel(CANAL_SUIVI);
+            if (canal != null && canal.getImportance() == NotificationManager.IMPORTANCE_NONE) return false;
+        }
+        return true;
     }
 
     /** L'application s'ouvre : les sonneries en cours s'arrêtent, elle prend le relais. */

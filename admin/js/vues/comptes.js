@@ -65,7 +65,13 @@ const VueComptes = (() => {
     { id: "cp-d-finances", champ: "peutFinances", defaut: false,
       label: "Les chiffres",
       aide: "Le journal des versements et les statistiques de vente." },
+    /* (3.68.0) Accordé par le superadministrateur SEUL : un autre compte
+       ne voit même pas l'interrupteur, et la base refuserait. */
+    { id: "cp-d-faire-livrer", champ: "faireLivrer", defaut: false, superSeulement: true,
+      label: "Faire livrer",
+      aide: "Saisir une commande prise et payée sur WhatsApp : elle entre dans BIZZOO et part aux livreurs." },
   ];
+  const interrupteursVisibles = () => INTERRUPTEURS.filter((i) => !i.superSeulement || Supabase.estSuper());
 
   const lireInterrupteur = (compte, i) =>
     (i.defaut ? compte[i.champ] !== false : compte[i.champ] === true);
@@ -92,7 +98,7 @@ const VueComptes = (() => {
       '<p class="aide" style="margin:-6px 0 12px">Ce compte n\'est rattaché à aucune ' +
         "boutique : il travaille sur toutes. Laissez éteint ce dont il n'a pas besoin. " +
         "<strong>Il ne crée aucun compte</strong> — cela reste à vous seul.</p>" +
-      INTERRUPTEURS.map((i) => UI.interrupteur({ id: i.id, label: i.label,
+      interrupteursVisibles().map((i) => UI.interrupteur({ id: i.id, label: i.label,
         aide: i.aide, actif: lireInterrupteur(compte, i) })).join("") +
     "</div>";
 
@@ -414,7 +420,7 @@ const VueComptes = (() => {
         /* Les interrupteurs d'enseigne, s'ils sont à l'écran. On
            n'envoie que ce qui a bougé : le journal raconte alors
            précisément quel droit a été donné ou retiré. */
-        for (const i of INTERRUPTEURS) {
+        for (const i of interrupteursVisibles()) {
           const boite = UI.$("#" + i.id, corps);
           if (!boite || i.champ === "peutModifier") continue;
           if (boite.checked !== lireInterrupteur(compte, i)) {

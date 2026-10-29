@@ -5,7 +5,7 @@
    mails : rien de cela ne doit rester dans un téléphone).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "bizzoo-personnel-v38";
+const VERSION = "bizzoo-personnel-v39";
 
 const FICHIERS = [
   "./",
@@ -35,6 +35,7 @@ const FICHIERS = [
   "./js/vues/paie.js",
   "./js/vues/statistiques.js",
   "./js/vues/suivi.js",
+  "./js/vues/incidents.js",
   "./js/vues/localiser.js",
   "./js/vues/livreurs.js",
   "./js/vues/argent.js",

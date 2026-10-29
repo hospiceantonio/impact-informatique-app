@@ -367,3 +367,5 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
   body.connecte .vue{margin:0;padding:0;max-width:none}
   .fiche-paie{border:0;padding:0}
 }
+/* (3.68.0) Une commande prise sur WhatsApp, dans le suivi. */
+.source-whatsapp{color:var(--vert-fonce);font-weight:600}

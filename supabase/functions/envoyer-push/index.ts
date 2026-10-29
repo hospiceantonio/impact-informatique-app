@@ -40,7 +40,7 @@ const json = (corps: unknown, statut = 200) =>
 
 type APousser = {
   id: number; type: string; titre: string; corps: string; lien: string;
-  commande_id: string | null; jetons: string[];
+  commande_id: string | null; jetons: string[]; application?: string;
 };
 
 /** Les courses sonnent jusqu'à ce qu'on les touche ; le reste, une fois. */
@@ -88,10 +88,13 @@ Deno.serve(async (requete) => {
     return json({ ok: false, message: acces.message }, 502);
   }
   const course = COURSES.includes(n.type);
+  /* (3.70.0) L'acheteur, dans l'application client : un canal à lui, qui
+     sonne comme un message — pas la sonnerie insistante des courses. */
+  const client = n.application === "client";
   const donnees: Record<string, string> = {
     type: "notification",
     genre: n.type,
-    canal: course ? "courses" : "commandes",
+    canal: client ? "client" : course ? "courses" : "commandes",
     id: String(n.id),
     titre: n.titre || "BIZZOO",
     corps: n.corps || "",

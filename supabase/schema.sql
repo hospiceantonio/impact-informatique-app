@@ -4054,9 +4054,14 @@ begin
   end if;
   return jsonb_build_object(
     'numero', c.numero,
+    -- (3.70.0) Où récupérer la commande, tel que l'équipe l'a saisi
+    -- (« Faire livrer ») ; vide pour une commande de l'application.
+    'lieu_retrait', coalesce(c.lieu_retrait, ''),
     'retrait', jsonb_build_object(
       'boutique', coalesce(b.nom, ''), 'adresse', coalesce(b.adresse, ''),
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
+      -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
+      'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
       'latitude', b.latitude, 'longitude', b.longitude),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
@@ -4180,7 +4185,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -4189,7 +4198,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';
@@ -4232,6 +4243,7 @@ begin
     'numero', premiere -> 'numero',
     'groupee', jsonb_array_length(retraits) > 1,
     'retraits', retraits,
+    'lieu_retrait', coalesce(premiere -> 'lieu_retrait', '""'::jsonb),
     'livraison', premiere -> 'livraison',
     'devise', premiere -> 'devise',
     'trajet', premiere -> 'trajet',
@@ -4254,8 +4266,15 @@ begin
   end if;
   for r in select * from jsonb_array_elements(f -> 'retraits') loop
     texte := texte || 'Récupérer : ' || (r ->> 'boutique') ||
-      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') || E'\n';
+      coalesce(nullif(' — ' || (r ->> 'adresse'), ' — '), '') ||
+      -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+      coalesce(' — Tél. boutique : +' || coalesce(nullif(r ->> 'indicatif', ''), '229') || ' ' ||
+               nullif(r ->> 'tel', ''), '') || E'\n';
   end loop;
+  -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+  if coalesce(f ->> 'lieu_retrait', '') <> '' then
+    texte := texte || 'Où récupérer : ' || (f ->> 'lieu_retrait') || E'\n';
+  end if;
   return texte ||
     'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
       coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
@@ -4263,7 +4282,9 @@ begin
     -- (3.64.0) Le véhicule et la distance, puis ce qu'il y gagne.
     case when jsonb_typeof(f -> 'trajet') = 'object'
          then 'Véhicule : ' || case when f -> 'trajet' ->> 'vehicule' = 'tricycle' then 'tricycle' else 'moto' end ||
-              ' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km' || E'\n'
+              -- (3.70.0) Sans distance (« Faire livrer » : frais saisis), pas
+              -- de « — … km » : un NULL ici vidait TOUTE l'alerte.
+              coalesce(' — ' || replace(f -> 'trajet' ->> 'distance_km', '.', ',') || ' km', '') || E'\n'
          else '' end ||
     'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
     case when (f ->> 'gain') is not null
@@ -4778,6 +4799,53 @@ alter table public.refus_courses enable row level security;
 revoke all on public.refus_courses from anon, authenticated;
 revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
 
+-- (3.70.0) LA COURSE REPART TOUTE SEULE. Quand le livreur la lâche — il
+-- l'annule, ou BIZZOO le suspend —, elle est REPROPOSÉE aussitôt, avec
+-- sonnerie, aux livreurs qui pouvaient la prendre (« candidats_course »),
+-- sauf ceux qui l'ont déjà refusée. Elle ne repart que si plus personne ne
+-- la porte : payée depuis moins de 7 jours (comme « courses_proposees »),
+-- aucun livreur sur ses lignes, rien parti en livraison.
+-- Rend le nombre de livreurs prévenus ; -1 quand une partie est encore
+-- portée ou déjà en route (elle se confie alors à la main).
+-- Réservée aux fonctions de la base.
+create or replace function public.reproposer_course(commande text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  f   jsonb;
+  qui uuid[];
+  c   record;
+begin
+  select c0.numero, c0.etat, c0.paye_le into c from public.commandes c0 where c0.id = commande;
+  if not found or c.etat <> 'payee' then return 0; end if;
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.etat <> 'annulee'
+                and (l.livreur_id is not null or l.etat in ('en_livraison', 'remise'))) then
+    return -1;
+  end if;
+  -- Plus vieille, elle n'apparaîtrait sur l'écran d'aucun livreur.
+  if c.paye_le is null or c.paye_le <= now() - interval '7 days' then return 0; end if;
+  select coalesce(array_agg(x), '{}') into qui
+    from unnest(public.candidats_course(commande)) as x
+   where not exists (select 1 from public.refus_courses r
+                      where r.commande_id = commande and r.livreur_id = x);
+  if array_length(qui, 1) is null then return 0; end if;
+  f := public.fiche_demande(commande);
+  if f is null then return 0; end if;
+  -- Une demande ne part qu'une fois par livreur et par commande : les
+  -- anciennes sont mises de côté (« …_avant_<n> »), comme au refus.
+  update public.notifications n
+     set type = n.type || '_avant_' || n.id, lue_le = coalesce(n.lue_le, now())
+   where n.commande_id = commande
+     and n.type in ('course_proposee', 'course_prise')
+     and n.destinataire = any(qui);
+  return public.notifier(qui, 'course_proposee',
+    'Course à reprendre — ' || coalesce(c.numero, ''),
+    public.texte_demande(f),
+    '#/livraisons', commande, null, true);
+end $$;
+revoke all on function public.reproposer_course(text) from public, anon, authenticated;
+
 create or replace function public.refuser_course(commande text, motif text default '')
 returns int
 language plpgsql security definer set search_path = public as $$
@@ -4789,10 +4857,15 @@ declare
   porteur  text;
   c        record;
   annonce  boolean;
+  relances int := 0;
+  texte    text;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul le livreur de la course la refuse';
   end if;
+  -- (3.70.0) Un appel à la fois par commande, comme « prendre_course » :
+  -- un double appui ne fait pas sonner deux fois les autres livreurs.
+  perform 1 from public.commandes c0 where c0.id = commande for update;
   if not exists (select 1 from public.commande_lignes l
                   where l.commande_id = commande and l.livreur_id = moi
                     and l.etat in ('nouvelle', 'vue', 'preparee')) then
@@ -4818,7 +4891,7 @@ begin
   update public.notifications n
      set type = n.type || '_avant_' || n.id
    where n.commande_id = commande
-     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee');
+     and n.type in ('course_confiee', 'course_acceptee', 'course_refusee', 'course_annulee_livreur');
 
   perform set_config('bizzoo.livraison', 'oui', true);
   perform set_config('bizzoo.refus', 'oui', true);
@@ -4844,6 +4917,33 @@ begin
   end loop;
   perform set_config('bizzoo.refus', '', true);
   perform set_config('bizzoo.livraison', '', true);
+
+  if combien = 0 then return 0; end if;
+
+  -- (3.70.0) LA COURSE REPART aux autres livreurs, avec sonnerie…
+  relances := public.reproposer_course(commande);
+  -- … ET BIZZOO L'ENTEND, même application fermée : le superadministrateur,
+  -- les administrateurs et les modérateurs de BIZZOO (comptes sans
+  -- boutique). Une sonnerie par annulation, pas une par boutique. Ceux
+  -- qui n'ont pas l'écran des commandes l'ouvrent dans leurs notifications.
+  texte := porteur || ' a annulé la course' ||
+      case when pourquoi <> '' then ' : « ' || pourquoi || ' »' else '' end || '.' || E'\n' ||
+      case when relances > 0
+           then 'Elle a été reproposée à ' || relances || ' autre' || case when relances > 1 then 's' else '' end ||
+                ' livreur' || case when relances > 1 then 's' else '' end || '.'
+           when relances < 0
+           then 'Une partie de la commande est déjà en route ou portée par un autre livreur : ' ||
+                'confiez à la main la part libérée.'
+           else 'Aucun autre livreur disponible : confiez-la à la main.' end;
+  perform public.notifier(public.enseigne_des_commandes() || public.les_superadmins(),
+    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    texte, '#/commandes/' || commande, commande, null, true);
+  perform public.notifier(
+    coalesce((select array_agg(p.id) from public.profils p
+               where p.actif and p.boutique_id is null and not p.peut_commandes
+                 and p.role in ('administrateur', 'moderateur')), '{}'::uuid[]),
+    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    texte, '#/notifications', commande, null, true);
 
   if annonce and c.client_id is not null then
     perform public.notifier(array[c.client_id], 'course_refusee',
@@ -5425,7 +5525,17 @@ declare
   taux     int;
   les_parts jsonb;
   manquant  bigint;
+  -- (3.68.0) Les frais SAISIS par l'équipe pour une commande prise sur
+  -- WhatsApp (« faire_livrer ») : ils remplacent le calcul à la distance.
+  -- Les deux drapeaux ne s'attrapent pas depuis PostgREST.
+  saisis   bigint := case when coalesce(current_setting('bizzoo.hors_appli', true), '') = 'oui'
+                          then nullif(current_setting('bizzoo.frais_saisis', true), '')::bigint end;
+  vehic    text;
 begin
+  -- Des frais saisis valent une livraison « au kilomètre » sans kilomètre :
+  -- un seul frais pour la commande, un seul livreur, payé en ligne — et le
+  -- livreur en touche sa part comme d'habitude.
+  if saisis is not null then au_km := true; end if;
   if articles is null or jsonb_typeof(articles) <> 'array'
      or jsonb_array_length(articles) = 0 then
     raise exception 'Votre panier est vide.';
@@ -5439,7 +5549,7 @@ begin
   -- (3.64.0) LA POSITION DU CLIENT EST OBLIGATOIRE quand la livraison se
   -- compte au kilomètre : sans elle, pas de distance, donc pas de frais.
   -- Une application d'avant ne l'envoie pas — on lui dit quoi faire.
-  if au_km then
+  if au_km and saisis is null then
     if destination is null or jsonb_typeof(destination) <> 'object'
        or (destination ->> 'latitude') is null or (destination ->> 'longitude') is null then
       if coalesce(avec_frais, false) and destination is null then
@@ -5500,7 +5610,12 @@ begin
   -- a un — mais c'est un compte de l'équipe, et on vient de le ramener à
   -- « personne » deux lignes plus haut. Lui répondre « connectez-vous »
   -- alors qu'il EST connecté lui ferait chercher longtemps.
-  if moi is null and public.compte_exige() then
+  -- (3.68.0) Une commande prise sur WhatsApp, que l'équipe saisit pour le
+  -- client (« faire_livrer ») : le client n'est pas là pour se connecter.
+  -- Le drapeau ne s'attrape pas depuis PostgREST — seule « faire_livrer »,
+  -- qui vérifie qui l'appelle, le pose.
+  if moi is null and public.compte_exige()
+     and coalesce(current_setting('bizzoo.hors_appli', true), '') <> 'oui' then
     if equipe then
       raise exception 'Ce compte est un compte de l''équipe BIZZOO, pas un compte client. Pour commander, ouvrez un compte client et connectez-vous avec.';
     end if;
@@ -5656,13 +5771,26 @@ begin
   -- l'acompte : c'est BIZZOO qui les détient, et qui en doit sa part au
   -- livreur (« gains_livreurs »).
   if au_km then
-    devis := public.devis_livraison(
-      (destination ->> 'latitude')::double precision,
-      (destination ->> 'longitude')::double precision,
-      case when exists (select 1 from public.commande_lignes l
-                          join public.produits pr on pr.id = l.produit_id
-                         where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
-           then 'tricycle' else 'moto' end);
+    vehic := case when exists (select 1 from public.commande_lignes l
+                                 join public.produits pr on pr.id = l.produit_id
+                                where l.commande_id = nouvelle and pr.vehicule = 'tricycle')
+                  then 'tricycle' else 'moto' end;
+    if saisis is not null then
+      -- (3.68.0) Les frais décidés par qui a pris la commande ; la position,
+      -- si on l'a, pour que le livreur trouve le client.
+      devis := jsonb_build_object('vehicule', vehic, 'distance_km', null, 'frais', greatest(0, saisis),
+                 'saisie', true) ||
+               case when destination is not null and jsonb_typeof(destination) = 'object'
+                         and (destination ->> 'latitude') is not null and (destination ->> 'longitude') is not null
+                    then jsonb_build_object('destination', jsonb_build_object(
+                           'latitude', round((destination ->> 'latitude')::numeric, 6),
+                           'longitude', round((destination ->> 'longitude')::numeric, 6)))
+                    else '{}'::jsonb end;
+    else
+      devis := public.devis_livraison(
+        (destination ->> 'latitude')::double precision,
+        (destination ->> 'longitude')::double precision, vehic);
+    end if;
     frais_km := coalesce((devis ->> 'frais')::bigint, 0);
     perform set_config('bizzoo.interne', 'oui', true);
     update public.commandes set frais_livraison = frais_km, livraison = devis where id = nouvelle;
@@ -6336,6 +6464,244 @@ end $$;
 revoke all on function public.confirmer_paiement(text) from public, anon;
 grant execute on function public.confirmer_paiement(text) to authenticated;
 
+-- ---------- Une commande prise sur WhatsApp (3.68.0) ----------
+-- CERTAINS CLIENTS COMMANDENT PAR WHATSAPP au lieu de valider leur panier :
+-- ils discutent avec l'équipe, paient, et la commande se passait hors de
+-- l'application — sans trace, donc sans point possible.
+--
+-- « faire_livrer » la fait entrer par la MÊME PORTE que les autres :
+--   1. « creer_commande » relit les prix, le stock, la boutique ouverte,
+--      la monnaie ; les FRAIS DE LIVRAISON, eux, sont ceux que l'équipe a
+--      convenus avec le client (décision de BIZZOO pour ces commandes) —
+--      un seul frais, un seul livreur, qui en touche sa part comme
+--      d'habitude ; la position du client est facultative ;
+--   2. le client a DÉJÀ TOUT PAYÉ : pas d'acompte, rien à encaisser à la
+--      porte — le livreur ne prend rien chez lui ;
+--   3. elle est marquée payée avec la référence de la transaction
+--      (jamais deux fois la même), au journal des versements sous
+--      « whatsapp », au nom de qui l'a saisie ;
+--   4. le paiement déclenche ce qu'il déclenche toujours : le stock
+--      décompté, les boutiques prévenues, la course proposée aux livreurs.
+--
+-- Réservée au superadministrateur, et aux comptes de BIZZOO à qui il a
+-- accordé le droit « Faire livrer » (ci-dessous).
+alter table public.commandes add column if not exists origine text not null default 'application';
+alter table public.commandes drop constraint if exists commandes_origine;
+alter table public.commandes add constraint commandes_origine check (origine in ('application', 'whatsapp'));
+alter table public.commandes add column if not exists saisie_par uuid references public.profils(id) on delete set null;
+-- (3.70.0) OÙ LE LIVREUR RÉCUPÈRE LA COMMANDE, tel que l'équipe l'a saisi
+-- dans « Faire livrer » : la boutique, son adresse, qui appeler. Il
+-- s'ajoute à la fiche de la boutique, qui reste affichée. Vide pour une
+-- commande passée dans l'application.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
+-- LE DROIT DE FAIRE LIVRER, que le superadministrateur SEUL accorde à un
+-- administrateur ou un modérateur de BIZZOO (un compte d'enseigne). Éteint
+-- par défaut : un compte qui ne l'a pas ne voit pas l'option, et la base
+-- la lui refuse. Le droit « commandes » ne le donne pas.
+alter table public.profils add column if not exists peut_faire_livrer boolean not null default false;
+
+create or replace function public.peut_faire_livrer() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.est_super() or (public.est_compte_enseigne() and exists (
+    select 1 from public.profils p where p.id = auth.uid() and p.actif and p.peut_faire_livrer));
+end $$;
+revoke all on function public.peut_faire_livrer() from public, anon;
+grant execute on function public.peut_faire_livrer() to authenticated;
+
+-- Le verrou : la règle de « profils » laisse un administrateur toucher
+-- certains comptes (les modérateurs de sa boutique, ceux qu'il a créés…).
+-- Aucun d'eux ne doit pouvoir y glisser ce droit — ni se le donner.
+-- (SANS « security definer », exprès : « current_user » doit rester celui
+-- de l'appel — « authenticated » depuis une application. Les fonctions de
+-- confiance, qui écrivent pour elles-mêmes, passent sous leur propriétaire.)
+create or replace function public.profil_faire_livrer_verrou() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('anon', 'authenticated')
+     and coalesce(new.peut_faire_livrer, false) is distinct from
+         (case when tg_op = 'INSERT' then false else coalesce(old.peut_faire_livrer, false) end)
+     and not public.est_super() then
+    raise exception 'Seul le superadministrateur accorde ou retire le droit « Faire livrer ».'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists profils_faire_livrer_verrou on public.profils;
+create trigger profils_faire_livrer_verrou
+  before insert or update of peut_faire_livrer on public.profils
+  for each row execute function public.profil_faire_livrer_verrou();
+
+-- (3.68.0) Les frais de livraison sont SAISIS par qui a pris la commande
+-- (BIZZOO l'a décidé pour ces commandes-là) ; la position du client est
+-- facultative. « drop » : la signature a gagné « frais » — l'ancienne,
+-- à côté, rendrait l'appel ambigu.
+drop function if exists public.faire_livrer(jsonb, jsonb, jsonb, text, bigint, text);
+create or replace function public.faire_livrer(
+  articles jsonb, client jsonb, destination jsonb, frais bigint, transaction text,
+  montant bigint, reseau text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi    uuid := auth.uid();
+  qui    text;
+  net    text := upper(left(regexp_replace(coalesce(transaction, ''), '[^A-Za-z0-9._-]', '', 'g'), 64));
+  cle    text;
+  res    text := upper(trim(coalesce(reseau, '')));
+  g      jsonb;
+  c      public.commandes%rowtype;
+  compte uuid;
+begin
+  if moi is null or not public.peut_faire_livrer() then
+    raise exception 'Faire livrer une commande prise sur WhatsApp demande le droit « Faire livrer », que le superadministrateur accorde.'
+      using errcode = 'P0001';
+  end if;
+  if coalesce(trim(client ->> 'nom'), '') = '' then
+    raise exception 'Indiquez le nom du client.' using errcode = 'P0001';
+  end if;
+  if coalesce(trim(client ->> 'adresse'), '') = '' then
+    raise exception 'Indiquez l''adresse de livraison du client.' using errcode = 'P0001';
+  end if;
+  if length(net) < 4 then
+    raise exception 'Saisissez la référence de la transaction du client, lue sur son reçu de paiement.'
+      using errcode = 'P0001';
+  end if;
+  if res not in ('', 'MTN', 'MOOV', 'CELTIIS') then
+    raise exception 'Le réseau du paiement : MTN, Moov ou Celtiis.' using errcode = 'P0001';
+  end if;
+  if coalesce(montant, 0) <= 0 then
+    raise exception 'Indiquez le montant que le client a payé.' using errcode = 'P0001';
+  end if;
+  if frais is null or frais < 0 or frais > 1000000 then
+    raise exception 'Indiquez les frais de livraison convenus avec le client (0 s''il n''y en a pas).'
+      using errcode = 'P0001';
+  end if;
+  -- (3.70.0) Où récupérer : refusé plutôt que coupé en silence — la fin
+  -- coupée, c'est souvent la dernière boutique ou le numéro à appeler.
+  if length(btrim(coalesce(client ->> 'retrait', ''))) > 500 then
+    raise exception 'Où récupérer la commande : 500 caractères au plus. Raccourcissez-le.'
+      using errcode = 'P0001';
+  end if;
+  -- UNE TRANSACTION NE PAIE QU'UNE COMMANDE : ni une autre commande, ni un
+  -- reste payé à la livraison. Comparées sans ponctuation ni casse : un
+  -- reçu se recopie de plusieurs façons.
+  cle := regexp_replace(net, '[^A-Z0-9]', '', 'g');
+  if exists (select 1 from public.commandes x
+              where regexp_replace(upper(x.transaction_id), '[^A-Z0-9]', '', 'g') = cle)
+     or exists (select 1 from public.encaissements e
+                 where regexp_replace(upper(e.transaction_id), '[^A-Z0-9]', '', 'g') = cle) then
+    raise exception 'Cette transaction a déjà servi pour une autre commande : vérifiez la référence.'
+      using errcode = 'P0001';
+  end if;
+
+  -- LE MONTANT D'ABORD, avant d'écrire quoi que ce soit : une commande
+  -- refusée après coup aurait déjà pris un numéro « BZ- », et un trou
+  -- dans les numéros fait croire au point qu'une commande manque.
+  g := public.devis_faire_livrer(articles, null);
+  if montant < (g ->> 'sous_total')::bigint + frais then
+    raise exception 'Le client a payé %, mais la commande coûte % (dont % de livraison). Vérifiez le montant ou les articles.',
+      public.montant_lisible(montant, g ->> 'devise'),
+      public.montant_lisible((g ->> 'sous_total')::bigint + frais, g ->> 'devise'),
+      public.montant_lisible(frais, g ->> 'devise')
+      using errcode = 'P0001';
+  end if;
+
+  -- La commande, par le chemin de toutes les commandes : prix, stock,
+  -- boutique ouverte, frais. Tout se paie d'un coup (pas d'acompte).
+  perform set_config('bizzoo.hors_appli', 'oui', true);
+  perform set_config('bizzoo.frais_saisis', frais::text, true);
+  g := public.creer_commande(client, articles, '', false, false, destination);
+  perform set_config('bizzoo.frais_saisis', '', true);
+  perform set_config('bizzoo.hors_appli', '', true);
+  select * into c from public.commandes where id = g ->> 'id';
+
+  if montant < c.total then
+    raise exception 'Le client a payé %, mais la commande coûte % (dont % de livraison). Vérifiez le montant ou les articles.',
+      public.montant_lisible(montant, c.devise), public.montant_lisible(c.total, c.devise),
+      public.montant_lisible(coalesce(c.frais_livraison, 0), c.devise)
+      using errcode = 'P0001';
+  end if;
+
+  -- LE COMPTE DU CLIENT, s'il en a un à ce numéro (et un seul) : la
+  -- commande apparaît dans son application, avec le suivi et « J'ai bien
+  -- reçu », comme s'il l'avait passée lui-même.
+  select min(k.id::text)::uuid into compte
+    from public.clients k
+   where regexp_replace(coalesce(k.tel, ''), '\D', '', 'g') = c.client_tel
+     and coalesce(nullif(k.indicatif, ''), '229') = coalesce(nullif(c.client_indicatif, ''), '229')
+  having count(*) = 1;
+
+  select coalesce(nullif(trim(p.nom), ''), nullif(p.email, ''), 'l''équipe') into qui
+    from public.profils p where p.id = moi;
+
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes
+     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte),
+         -- (3.70.0) Où le livreur récupère la commande, saisi par l'équipe.
+         -- Facultatif ici : l'écran d'avant la 3.70.0 ne l'envoie pas.
+         lieu_retrait = btrim(coalesce(client ->> 'retrait', ''))
+   where id = c.id;
+  perform set_config('bizzoo.interne', '', true);
+
+  -- Payée : le client a TOUT réglé, rien ne reste à encaisser à la porte.
+  perform set_config('bizzoo.paiement', 'oui', true);
+  update public.commandes
+     set etat = 'payee', paye_le = now(), transaction_id = net,
+         confirme_par = coalesce(qui, 'l''équipe'), remarque = '', verse = montant
+   where id = c.id;
+  perform set_config('bizzoo.paiement', '', true);
+  perform public.noter_versement(c.id, 'payee', 'whatsapp', res, '', net, c.total, montant,
+    'Commande WhatsApp saisie par ' || coalesce(qui, 'l''équipe') || '.');
+
+  select * into c from public.commandes where id = c.id;
+  return jsonb_build_object(
+    'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
+    'frais_livraison', c.frais_livraison, 'livraison', c.livraison,
+    'verse', c.verse, 'client_relie', c.client_id is not null,
+    -- (3.70.0) Ce qui a été gardé : l'écran sait ainsi que la base est à jour.
+    'lieu_retrait', c.lieu_retrait);
+end $$;
+revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) from public, anon;
+grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) to authenticated;
+
+-- Le devis de l'écran « Faire livrer » : ce que valent les articles, au
+-- prix du catalogue, et le véhicule (le tricycle dès qu'un produit
+-- l'exige). Les frais, eux, sont saisis par l'équipe. Rien n'est écrit :
+-- pas de commande d'essai, donc pas de numéro « BZ- » perdu, qui ferait
+-- croire au point qu'une commande manque. (« destination » n'est plus
+-- lue ; elle reste dans la signature pour ne pas en changer.)
+create or replace function public.devis_faire_livrer(articles jsonb, destination jsonb default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  sous   bigint;
+  devise text;
+  tri    boolean;
+begin
+  if auth.uid() is null or not public.peut_faire_livrer() then
+    raise exception 'Réservé aux comptes qui ont le droit « Faire livrer ».' using errcode = 'P0001';
+  end if;
+  if articles is null or jsonb_typeof(articles) <> 'array' or jsonb_array_length(articles) = 0 then
+    return jsonb_build_object('sous_total', 0, 'devise', 'FCFA', 'vehicule', 'moto');
+  end if;
+  with a as (
+    select x ->> 'produit_id' as id,
+           greatest(1, least(99, coalesce((x ->> 'quantite')::int, 1))) as q
+      from jsonb_array_elements(articles) x
+  )
+  select coalesce(sum(coalesce(p.prix, 0) * a.q), 0)::bigint,
+         min(coalesce(nullif(b.devise, ''), 'FCFA')),
+         bool_or(p.vehicule = 'tricycle')
+    into sous, devise, tri
+    from a join public.produits p on p.id = a.id
+    left join public.boutiques b on b.id = p.boutique_id;
+  return jsonb_build_object('sous_total', sous, 'devise', coalesce(devise, 'FCFA'),
+    'vehicule', case when coalesce(tri, false) then 'tricycle' else 'moto' end);
+end $$;
+revoke all on function public.devis_faire_livrer(jsonb, jsonb) from public, anon;
+grant execute on function public.devis_faire_livrer(jsonb, jsonb) to authenticated;
+
 -- ---------- Ce que chaque boutique rapporte ----------
 -- Les ventes RÉELLEMENT encaissées, produit par produit. Rien d'autre
 -- ne compte : une commande à payer n'est pas une vente.
@@ -6731,7 +7097,12 @@ begin
       perform public.notifier(array[new.livreur_id], 'course_confiee',
         'Nouvelle course — ' || numero,
         'Récupérer : ' || (fiche -> 'retrait' ->> 'boutique') ||
-          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') || E'\n' ||
+          coalesce(nullif(' — ' || (fiche -> 'retrait' ->> 'adresse'), ' — '), '') ||
+          -- (3.70.0) Le numéro de la boutique, pour l'appeler s'il se perd.
+          coalesce(' — Tél. boutique : +' || coalesce(nullif(fiche -> 'retrait' ->> 'indicatif', ''), '229') || ' ' ||
+                   nullif(fiche -> 'retrait' ->> 'tel', ''), '') || E'\n' ||
+        -- (3.70.0) Ce que l'équipe a précisé en saisissant la commande.
+        coalesce('Où récupérer : ' || nullif(fiche ->> 'lieu_retrait', '') || E'\n', '') ||
         'Livrer à : ' || coalesce(nullif(fiche -> 'livraison' ->> 'nom', ''), 'le client') ||
           coalesce(nullif(' — ' || (fiche -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
         'Destinataire : +' || (fiche -> 'livraison' ->> 'indicatif') || ' ' || (fiche -> 'livraison' ->> 'tel') || E'\n' ||
@@ -7873,8 +8244,28 @@ end $$;
 revoke all on function public.oublier_appareil(text) from public, anon;
 grant execute on function public.oublier_appareil(text) to authenticated;
 
+-- (3.70.0) Un client déconnecté HORS LIGNE n'a pas pu retirer son
+-- téléphone : à la prochaine ouverture, sans session, il le retire avec
+-- le seul jeton — que seul ce téléphone connaît. Application client
+-- seulement : un jeton d'équipe ne se retire pas ainsi.
+create or replace function public.oublier_jeton_push(jeton text) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.appareils_push a
+   where a.jeton = trim(coalesce(oublier_jeton_push.jeton, '')) and a.application = 'client';
+  return found;
+end $$;
+revoke all on function public.oublier_jeton_push(text) from public;
+grant execute on function public.oublier_jeton_push(text) to anon, authenticated;
+
 -- Ce que la fonction Edge envoie : la notification et les téléphones de
 -- son destinataire — une seule fois. Réservé au serveur.
+--
+-- (3.70.0) L'APPLICATION QUI SONNE se lit dans le lien : « #/commande/… »
+-- (au singulier) n'est écrit QUE pour l'acheteur — son reçu dans
+-- l'application client. Tout le reste va à BIZZOO Admin. Le type ne
+-- suffit pas : « commande_payee », « course_acceptee »… partent aussi
+-- vers l'équipe, sous le même nom.
 create or replace function public.push_a_envoyer(cible bigint)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -7888,9 +8279,12 @@ begin
   return jsonb_build_object(
     'id', n.id, 'type', n.type, 'titre', n.titre, 'corps', n.corps, 'lien', n.lien,
     'commande_id', n.commande_id,
+    'application', case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end,
     'jetons', coalesce((select jsonb_agg(a.jeton order by a.maj_le desc)
                           from public.appareils_push a
-                         where a.compte = n.destinataire and a.application = 'admin'), '[]'::jsonb));
+                         where a.compte = n.destinataire
+                           and a.application = case when coalesce(n.lien, '') like '#/commande/%'
+                                                    then 'client' else 'admin' end), '[]'::jsonb));
 end $$;
 revoke all on function public.push_a_envoyer(bigint) from public, anon, authenticated;
 
@@ -7914,7 +8308,9 @@ begin
   select r.url into adresse from public.push_reglage r where r.id = 1;
   if coalesce(adresse, '') = '' then return null; end if;
   if not exists (select 1 from public.appareils_push a
-                  where a.compte = new.destinataire and a.application = 'admin') then
+                  where a.compte = new.destinataire
+                    and a.application = case when coalesce(new.lien, '') like '#/commande/%'
+                                             then 'client' else 'admin' end) then
     return null;
   end if;
   begin
@@ -7929,6 +8325,551 @@ drop trigger if exists notifications_poussent on public.notifications;
 create trigger notifications_poussent
   after insert on public.notifications
   for each row execute function public.notification_pousse();
+
+-- =========================================================
+-- (3.70.0) LE CLIENT PRÉVENU PAR SMS, application fermée
+--
+-- La notification de l'application ne touche que l'acheteur qui a un
+-- compte ET l'application Android. Les autres — commande passée sans
+-- compte, commande prise sur WhatsApp, iPhone ou navigateur — ne savent
+-- rien tant qu'ils n'ouvrent pas leur reçu : ils sont absents quand le
+-- livreur arrive, et l'équipe passe sa journée au téléphone.
+--
+-- Aux étapes que le superadministrateur choisit, la base écrit un SMS
+-- dans « sms_commandes » — qui est à la fois la file d'attente, le
+-- journal et le compteur — puis demande, par pg_net, à la fonction Edge
+-- « envoyer-sms-commande » de le faire partir. Comme pour le push, la
+-- fonction ne croit que le numéro de la ligne : le texte et le
+-- destinataire viennent de la base, qui marque l'envoi au passage.
+--
+-- UN SMS COÛTE DE L'ARGENT. D'où : coupé tant que le superadministrateur
+-- ne l'allume pas ; un plafond par commande (3) et par jour (300) ; rien
+-- pour une commande payée avant l'allumage (une migration rejouée, une
+-- mise à jour en masse ne réveillent pas le passé) ; une étape ne part
+-- qu'une fois par commande.
+-- =========================================================
+create table if not exists public.sms_reglages (
+  id            int primary key default 1 check (id = 1),
+  actif         boolean not null default false,
+  plafond       int not null default 3 check (plafond between 0 and 10),
+  plafond_jour  int not null default 300 check (plafond_jour between 0 and 5000),
+  etapes        text[] not null default array['commande_payee', 'course_acceptee', 'commande_remise']
+                check (etapes <@ array['commande_payee', 'course_acceptee', 'commande_en_livraison',
+                                       'commande_remise', 'commande_annulee']),
+  -- Qui reçoit : sans compte ; venu de WhatsApp ; avec un compte mais
+  -- sans l'application Android (iPhone, navigateur).
+  sans_compte   boolean not null default true,
+  whatsapp      boolean not null default true,
+  sans_appareil boolean not null default true,
+  actif_depuis  timestamptz,
+  -- L'adresse de la fonction Edge : posée depuis l'éditeur SQL, comme
+  -- celle du push. Jamais par l'application.
+  url           text not null default '' check (url = '' or url ~ '^https://'),
+  maj_le        timestamptz not null default now(),
+  maj_par       uuid
+);
+insert into public.sms_reglages (id) values (1) on conflict (id) do nothing;
+alter table public.sms_reglages enable row level security;
+revoke all on table public.sms_reglages from public, anon, authenticated;
+grant all on table public.sms_reglages to service_role;
+
+create table if not exists public.sms_commandes (
+  id           bigint generated always as identity primary key,
+  commande_id  text not null references public.commandes(id) on delete cascade,
+  etape        text not null,
+  -- Ce qui distingue deux SMS d'une même étape : le livreur, pour
+  -- « course_acceptee » (un nouveau livreur après un refus se présente).
+  cle          text not null default '',
+  numero       text not null,
+  texte        text not null,
+  etat         text not null default 'a_envoyer'
+               check (etat in ('a_envoyer', 'en_cours', 'envoye', 'refuse', 'abandonne')),
+  tentatives   int not null default 0,
+  essaye_le    timestamptz,
+  code         text not null default '',
+  statut_http  int,
+  message      text not null default '',
+  cree_le      timestamptz not null default now(),
+  envoye_le    timestamptz
+);
+create unique index if not exists sms_commandes_une_fois on public.sms_commandes (commande_id, etape, cle);
+create index if not exists sms_commandes_jour on public.sms_commandes (cree_le);
+create index if not exists sms_commandes_en_attente on public.sms_commandes (etat)
+  where etat in ('a_envoyer', 'en_cours');
+-- Le numéro complet y vit : personne d'autre que le serveur.
+alter table public.sms_commandes enable row level security;
+revoke all on table public.sms_commandes from public, anon, authenticated;
+grant all on table public.sms_commandes to service_role;
+
+/**
+ * Un texte qu'aucun téléphone ne déforme : sans accents, un seul SMS
+ * (160). Les lettres connues se traduisent (« Dɔssou » → « Dossou ») ;
+ * les autres accents se décomposent et perdent leur signe ; ce qui reste
+ * hors de l'ASCII (un émoji dans un nom) disparaît — sans quoi le SMS
+ * passerait en Unicode, à 70 caractères, et se paierait deux ou trois fois.
+ */
+create or replace function public.sms_texte(t text) returns text
+language sql immutable set search_path = public as $$
+  select left(btrim(regexp_replace(regexp_replace(normalize(translate(coalesce(t, ''),
+    'àâäáãåçéèêëíìîïñóòôöõúùûüýÿÀÂÄÁÃÅÇÉÈÊËÍÌÎÏÑÓÒÔÖÕÚÙÛÜÝ«»’‘“”–—…œŒɔƆɛƐ',
+    'aaaaaaceeeeiiiinooooouuuuyyAAAAAACEEEEIIIINOOOOOUUUUY""''''""--.oOoOeE'), NFD),
+    '[^ -~]', '', 'g'), '\s+', ' ', 'g')), 160);
+$$;
+
+/**
+ * Le numéro tel que la passerelle l'attend : indicatif compris, sans
+ * « + ». Au Bénin, un ancien numéro à 8 chiffres prend « 01 » devant
+ * (la même règle que les numéros de réception). Null : pas un numéro.
+ */
+create or replace function public.sms_numero(tel text, indicatif text default '229') returns text
+language plpgsql immutable set search_path = public as $$
+declare
+  chiffres text := regexp_replace(coalesce(tel, ''), '\D', '', 'g');
+  ind      text := coalesce(nullif(regexp_replace(coalesce(indicatif, ''), '\D', '', 'g'), ''), '229');
+begin
+  if chiffres like '00%' then chiffres := substr(chiffres, 3); end if;
+  if ind = '229' then
+    chiffres := regexp_replace(chiffres, '^229', '');
+    if length(chiffres) = 8 then chiffres := '01' || chiffres; end if;
+    if length(chiffres) <> 10 then return null; end if;
+    return '229' || chiffres;
+  end if;
+  if chiffres like ind || '%' and length(chiffres) > length(ind) + 6 then
+    chiffres := substr(chiffres, length(ind) + 1);
+  end if;
+  if length(chiffres) < 6 or length(chiffres) > 13 then return null; end if;
+  return ind || chiffres;
+end $$;
+
+/**
+ * DÉCIDER ET RÉSERVER un SMS d'étape. Rend le numéro de la ligne écrite,
+ * ou null si rien ne doit partir. Toutes les règles sont ici, au même
+ * endroit : allumé, étape choisie, commande payée après l'allumage, client
+ * visé, numéro valable, une fois par étape, plafonds.
+ */
+create or replace function public.sms_prevoir(la_commande text, l_etape text, la_cle text default '')
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  r      public.sms_reglages%rowtype;
+  c      public.commandes%rowtype;
+  vers   text;
+  num    text;
+  msg    text;
+  reste  bigint;
+  liv    record;
+  etat_x text := 'a_envoyer';
+  code_x text := '';
+  nouveau bigint;
+begin
+  select * into r from public.sms_reglages where id = 1;
+  if not found or not r.actif or r.url = '' or not (l_etape = any(r.etapes)) then
+    return null;
+  end if;
+  select * into c from public.commandes x where x.id = la_commande;
+  if not found or c.etat <> 'payee' or c.compte_supprime then
+    return null;
+  end if;
+  if r.actif_depuis is null or c.paye_le is null or c.paye_le < r.actif_depuis then
+    return null;
+  end if;
+  -- LE CLIENT VISÉ : celui que la notification de l'application ne touche pas.
+  if not ((c.client_id is null and r.sans_compte)
+          or (to_jsonb(c) ->> 'origine' = 'whatsapp' and r.whatsapp)
+          -- Un téléphone qui n'a pas ouvert l'application depuis 30 jours
+          -- (désinstallée, perdue) ne vaut plus notification.
+          or (c.client_id is not null and r.sans_appareil
+              and not exists (select 1 from public.appareils_push a
+                               where a.compte = c.client_id and a.application = 'client'
+                                 and a.maj_le > now() - interval '30 days'))) then
+    return null;
+  end if;
+  vers := public.sms_numero(c.client_tel, c.client_indicatif);
+  if vers is null then
+    return null;
+  end if;
+
+  -- UN SEUL VERROU pour toutes les réservations : le doublon d'étape, le
+  -- plafond par commande ET le plafond du jour se comptent l'un après
+  -- l'autre. Un verrou par commande laissait deux commandes payées au même
+  -- instant passer toutes deux sous le plafond du jour. Il n'est pris
+  -- qu'ici, après les sorties rapides : quelques centaines par jour.
+  perform pg_advisory_xact_lock(hashtext('sms:commandes'));
+  if l_etape = 'course_acceptee' then
+    -- Le livreur qui se présente : un SMS à chaque NOUVEAU livreur (A, puis
+    -- B après un refus, puis A de nouveau) — pas deux fois le même d'affilée.
+    if (select split_part(s.cle, '#', 1) from public.sms_commandes s
+         where s.commande_id = la_commande and s.etape = 'course_acceptee'
+         order by s.id desc limit 1) is not distinct from coalesce(la_cle, '') then
+      return null;
+    end if;
+  elsif exists (select 1 from public.sms_commandes s
+                 where s.commande_id = la_commande and s.etape = l_etape and s.cle = coalesce(la_cle, '')) then
+    return null;
+  end if;
+  if (select count(*) from public.sms_commandes s
+       where s.commande_id = la_commande and s.etat in ('a_envoyer', 'en_cours', 'envoye')) >= r.plafond then
+    etat_x := 'abandonne'; code_x := 'PLAFOND';
+  elsif (select count(*) from public.sms_commandes s
+          where s.etat in ('a_envoyer', 'en_cours', 'envoye')
+            and s.cree_le >= (date_trunc('day', now() at time zone 'Africa/Porto-Novo')
+                              at time zone 'Africa/Porto-Novo')) >= r.plafond_jour then
+    etat_x := 'abandonne'; code_x := 'PLAFOND_JOUR';
+  end if;
+
+  num := coalesce(nullif(c.numero, ''), c.id);
+  if l_etape = 'commande_payee' then
+    select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
+    msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
+                then 'BIZZOO : votre commande ' || num || ' est enregistree et payee. Nous la preparons.'
+                else 'BIZZOO : votre commande ' || num || ' est confirmee. Nous la preparons.' end
+        || case when reste > 0 then ' Reste a payer a la livraison : ' || reste || ' FCFA.' else '' end
+        || ' Nous vous enverrons le nom de votre livreur.';
+  elsif l_etape = 'course_acceptee' then
+    select coalesce(nullif(btrim(p.nom), ''), 'Votre livreur') as nom,
+           regexp_replace(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g'), '^229', '') as tel
+      into liv
+      from public.profils p where p.id::text = la_cle;
+    if not found then
+      return null;
+    end if;
+    msg := 'BIZZOO : ' || liv.nom || ' livre votre commande ' || num || '.'
+        || case when liv.tel <> '' then ' Son numero : ' || liv.tel || '.' else '' end
+        || ' Gardez votre telephone a portee.';
+  elsif l_etape = 'commande_en_livraison' then
+    msg := 'BIZZOO : votre commande ' || num || ' est en route. Gardez votre telephone a portee.';
+  elsif l_etape = 'commande_remise' then
+    msg := 'BIZZOO : votre commande ' || num || ' est livree. Merci de votre confiance !';
+  elsif l_etape = 'commande_annulee' then
+    msg := 'BIZZOO : un ou plusieurs articles de votre commande ' || num
+        || ' sont annules. Ouvrez votre recu ou contactez-nous pour le detail.';
+  else
+    return null;
+  end if;
+
+  insert into public.sms_commandes as s (commande_id, etape, cle, numero, texte, etat, code)
+  values (la_commande, l_etape,
+          case when l_etape = 'course_acceptee'
+               then coalesce(la_cle, '') || '#' || (select count(*) from public.sms_commandes x
+                                                     where x.commande_id = la_commande and x.etape = 'course_acceptee')
+               else coalesce(la_cle, '') end,
+          vers, public.sms_texte(msg), etat_x, code_x)
+  on conflict (commande_id, etape, cle) do nothing
+  returning s.id into nouveau;
+  return case when etat_x = 'a_envoyer' then nouveau end;
+end $$;
+
+-- LE DÉCLENCHEUR D'ENVOI : une demande à la fonction Edge, après la
+-- transaction. Il ne bloque jamais l'écriture, quoi qu'il arrive.
+create or replace function public.sms_commande_part() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare adresse text;
+begin
+  if new.etat <> 'a_envoyer' then return null; end if;
+  if to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') is null then return null; end if;
+  select r.url into adresse from public.sms_reglages r where r.id = 1;
+  if coalesce(adresse, '') = '' then return null; end if;
+  begin
+    perform net.http_post(adresse, jsonb_build_object('id', new.id),
+      '{}'::jsonb, '{"Content-Type": "application/json"}'::jsonb, 10000);
+  exception when others then
+    raise warning 'sms_commande_part(%) : %', new.id, sqlerrm;
+  end;
+  return null;
+end $$;
+drop trigger if exists sms_commandes_partent on public.sms_commandes;
+create trigger sms_commandes_partent
+  after insert on public.sms_commandes
+  for each row execute function public.sms_commande_part();
+
+/** Ce que la fonction Edge envoie — une seule fois. Réservé au serveur. */
+create or replace function public.sms_a_envoyer(cible bigint) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  s public.sms_commandes%rowtype;
+begin
+  -- Coupés entre-temps : rien ne part.
+  if not coalesce((select r.actif from public.sms_reglages r where r.id = 1), false) then
+    update public.sms_commandes x set etat = 'abandonne', code = 'COUPE', message = 'SMS coupés par le superadministrateur.'
+     where x.id = cible and x.etat = 'a_envoyer';
+    return null;
+  end if;
+  update public.sms_commandes x
+     set etat = 'en_cours', tentatives = x.tentatives + 1, essaye_le = now()
+   where x.id = cible and x.etat = 'a_envoyer' and x.cree_le > now() - interval '6 hours'
+  returning * into s;
+  if not found then return null; end if;
+  return jsonb_build_object('id', s.id, 'numero', s.numero, 'texte', s.texte);
+end $$;
+
+/**
+ * Le verdict de la passerelle. On ne réessaie QUE lorsque rien n'a pu
+ * partir : passerelle injoignable (connexion impossible), ou « trop de
+ * demandes » / « indisponible » sans code (429, 503) — 3 fois en tout.
+ * Un délai dépassé (DELAI_DEPASSE) ou un 200 sans code, c'est peut-être
+ * parti : renvoyer, ce serait payer deux fois le même SMS.
+ */
+create or replace function public.sms_resultat(cible bigint, ok boolean, code text default '',
+                                               statut_http int default null, message text default '')
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.sms_commandes x
+     set etat = case when ok then 'envoye'
+                     when (upper(coalesce(sms_resultat.code, '')) = 'INJOIGNABLE'
+                           or (upper(coalesce(sms_resultat.code, '')) = 'REFUS_SANS_CODE'
+                               and coalesce(sms_resultat.statut_http, 0) in (429, 503)))
+                          and x.tentatives < 3 then 'a_envoyer'
+                     else 'refuse' end,
+         envoye_le = case when ok then now() end,
+         code = left(coalesce(sms_resultat.code, ''), 40),
+         statut_http = sms_resultat.statut_http,
+         message = left(coalesce(sms_resultat.message, ''), 300)
+   where x.id = cible and x.etat = 'en_cours';
+end $$;
+
+/**
+ * La reprise, chaque 10 minutes : ce qui attend depuis plus de deux
+ * minutes repart (passerelle injoignable, appel perdu) ; au-delà de six
+ * heures, un SMS d'étape n'a plus de sens — abandonné. UN ENVOI RESTÉ
+ * « EN COURS » NE REPART JAMAIS : la fonction a peut-être envoyé le SMS
+ * puis perdu le verdict ; le renvoyer, ce serait le payer deux fois.
+ */
+create or replace function public.sms_reprendre() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  adresse text;
+  cible   bigint;
+  n       int := 0;
+begin
+  update public.sms_commandes x set etat = 'abandonne', code = 'TROP_TARD', message = 'Pas parti en six heures.'
+   where x.etat in ('a_envoyer', 'en_cours') and x.cree_le <= now() - interval '6 hours';
+  update public.sms_commandes x
+     set etat = 'abandonne', code = 'SANS_REPONSE', message = 'Sans verdict : peut-être parti, pas renvoyé.'
+   where x.etat = 'en_cours' and x.essaye_le <= now() - interval '10 minutes';
+  if to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') is null then return 0; end if;
+  select r.url into adresse from public.sms_reglages r where r.id = 1 and r.actif;
+  if coalesce(adresse, '') = '' then return 0; end if;
+  for cible in
+    select x.id from public.sms_commandes x
+     where x.etat = 'a_envoyer' and x.cree_le <= now() - interval '2 minutes'
+     order by x.cree_le limit 50
+  loop
+    begin
+      perform net.http_post(adresse, jsonb_build_object('id', cible),
+        '{}'::jsonb, '{"Content-Type": "application/json"}'::jsonb, 10000);
+      n := n + 1;
+    exception when others then
+      raise warning 'sms_reprendre(%) : %', cible, sqlerrm;
+    end;
+  end loop;
+  return n;
+end $$;
+
+-- ---------- Les étapes ----------
+-- Des déclencheurs À PART : ceux des notifications (notifier_paiement,
+-- notifier_ligne) ne bougent pas. Un SMS qui échoue n'empêche JAMAIS
+-- l'étape elle-même.
+create or replace function public.sms_paiement() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  begin
+    perform public.sms_prevoir(new.id, 'commande_payee', '');
+  exception when others then
+    raise warning 'sms_paiement(%) : %', new.id, sqlerrm;
+  end;
+  return null;
+end $$;
+drop trigger if exists commandes_sms on public.commandes;
+create trigger commandes_sms
+  after update of etat on public.commandes
+  for each row when (new.etat = 'payee' and old.etat is distinct from 'payee')
+  execute function public.sms_paiement();
+
+-- Les étapes se lisent au niveau de la COMMANDE : « livrée » quand plus
+-- aucun article n'attend. Un déclencheur AFTER voit toutes les lignes
+-- changées par la même instruction (une course prise d'un coup).
+create or replace function public.sms_ligne() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  begin
+    if new.recu_le is not null and old.recu_le is null and new.livreur_id is not null then
+      perform public.sms_prevoir(new.commande_id, 'course_acceptee', new.livreur_id::text);
+    end if;
+    if new.etat = 'en_livraison' and old.etat is distinct from 'en_livraison' then
+      perform public.sms_prevoir(new.commande_id, 'commande_en_livraison', '');
+    end if;
+    -- « Livrée » quand plus rien n'attend — que la dernière ligne soit
+    -- remise, ou annulée après que les autres l'ont été.
+    if new.etat in ('remise', 'annulee') and old.etat is distinct from new.etat
+       and not exists (select 1 from public.commande_lignes l
+                        where l.commande_id = new.commande_id and l.etat not in ('remise', 'annulee'))
+       and exists (select 1 from public.commande_lignes l
+                    where l.commande_id = new.commande_id and l.etat = 'remise') then
+      perform public.sms_prevoir(new.commande_id, 'commande_remise', '');
+    end if;
+    if new.etat = 'annulee' and old.etat is distinct from 'annulee' then
+      perform public.sms_prevoir(new.commande_id, 'commande_annulee', '');
+    end if;
+  exception when others then
+    raise warning 'sms_ligne(%) : %', new.id, sqlerrm;
+  end;
+  return null;
+end $$;
+drop trigger if exists lignes_sms on public.commande_lignes;
+create trigger lignes_sms
+  after update on public.commande_lignes
+  for each row execute function public.sms_ligne();
+
+-- ---------- Le réglage, par le superadministrateur (BIZZOO Admin) ----------
+create or replace function public.sms_commandes_reglages() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  r public.sms_reglages%rowtype;
+  debut timestamptz := date_trunc('day', now() at time zone 'Africa/Porto-Novo') at time zone 'Africa/Porto-Novo';
+begin
+  if not public.est_super() then
+    raise exception 'Réservé au superadministrateur.' using errcode = 'P0001';
+  end if;
+  select * into r from public.sms_reglages where id = 1;
+  return jsonb_build_object(
+    'actif', r.actif, 'plafond', r.plafond, 'plafond_jour', r.plafond_jour, 'etapes', to_jsonb(r.etapes),
+    'sans_compte', r.sans_compte, 'whatsapp', r.whatsapp, 'sans_appareil', r.sans_appareil,
+    'actif_depuis', r.actif_depuis, 'branche', r.url <> '',
+    'aujourdhui', jsonb_build_object(
+      'envoyes', (select count(*) from public.sms_commandes s where s.cree_le >= debut and s.etat = 'envoye'),
+      'en_attente', (select count(*) from public.sms_commandes s where s.cree_le >= debut and s.etat in ('a_envoyer', 'en_cours')),
+      'refuses', (select count(*) from public.sms_commandes s where s.cree_le >= debut and s.etat = 'refuse')),
+    'dernier_refus', (select jsonb_build_object('le', s.cree_le, 'code', s.code,
+                                                'message', regexp_replace(s.message, '\d{6,}', '…', 'g'))
+                        from public.sms_commandes s where s.etat = 'refuse' order by s.cree_le desc limit 1));
+end $$;
+
+create or replace function public.regler_sms_commandes(actif boolean, plafond int, plafond_jour int, etapes text[],
+                                                       sans_compte boolean, whatsapp boolean, sans_appareil boolean)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  etait boolean;
+begin
+  if not public.est_super() then
+    raise exception 'Seul le superadministrateur règle les SMS aux clients.' using errcode = 'P0001';
+  end if;
+  if plafond is null or plafond < 0 or plafond > 10 then
+    raise exception 'Le plafond par commande : de 0 à 10 SMS.' using errcode = 'P0001';
+  end if;
+  if plafond_jour is null or plafond_jour < 0 or plafond_jour > 5000 then
+    raise exception 'Le plafond par jour : de 0 à 5 000 SMS.' using errcode = 'P0001';
+  end if;
+  if not (coalesce(etapes, '{}') <@ array['commande_payee', 'course_acceptee', 'commande_en_livraison',
+                                          'commande_remise', 'commande_annulee']) then
+    raise exception 'Une étape inconnue.' using errcode = 'P0001';
+  end if;
+  select r.actif into etait from public.sms_reglages r where r.id = 1;
+  update public.sms_reglages r
+     set actif = coalesce(regler_sms_commandes.actif, false),
+         -- Allumer, c'est « à partir de maintenant » : rien pour le passé.
+         actif_depuis = case when coalesce(regler_sms_commandes.actif, false) and not coalesce(etait, false)
+                             then now() else r.actif_depuis end,
+         plafond = regler_sms_commandes.plafond, plafond_jour = regler_sms_commandes.plafond_jour,
+         etapes = coalesce(regler_sms_commandes.etapes, '{}'),
+         sans_compte = coalesce(regler_sms_commandes.sans_compte, true),
+         whatsapp = coalesce(regler_sms_commandes.whatsapp, true),
+         sans_appareil = coalesce(regler_sms_commandes.sans_appareil, true),
+         maj_le = now(), maj_par = auth.uid()
+   where r.id = 1;
+  return public.sms_commandes_reglages();
+end $$;
+
+-- ---------- Le compteur, dans BIZZOO Personnel (Suivi → SMS) ----------
+create or replace function public.rh_sms_compteur(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+  t1 timestamptz;
+  t2 timestamptz;
+begin
+  if public.rh_suivi_acces() is null then
+    raise exception 'Votre compte n''a pas accès au suivi des commandes';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  t1 := debut::timestamp at time zone 'Africa/Porto-Novo';
+  t2 := (fin + 1)::timestamp at time zone 'Africa/Porto-Novo';
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'reglages', (select jsonb_build_object('actif', r.actif, 'plafond', r.plafond, 'plafond_jour', r.plafond_jour,
+                                           'etapes', to_jsonb(r.etapes), 'actif_depuis', r.actif_depuis)
+                   from public.sms_reglages r where r.id = 1),
+    'total', (select jsonb_build_object(
+                'envoyes', count(*) filter (where s.etat = 'envoye'),
+                'refuses', count(*) filter (where s.etat = 'refuse'),
+                'en_attente', count(*) filter (where s.etat in ('a_envoyer', 'en_cours')),
+                'abandonnes', count(*) filter (where s.etat = 'abandonne'),
+                'plafonnes', count(*) filter (where s.code in ('PLAFOND', 'PLAFOND_JOUR')),
+                'commandes', count(distinct s.commande_id) filter (where s.etat = 'envoye'),
+                'credit_epuise', count(*) filter (where s.code = 'INSUFFICIENT_BALANCE'))
+                from public.sms_commandes s where s.cree_le >= t1 and s.cree_le < t2),
+    'par_jour', coalesce((select jsonb_agg(jsonb_build_object('jour', j.jour, 'envoyes', j.envoyes, 'refuses', j.refuses,
+                                                              'autres', j.autres) order by j.jour desc)
+                from (select (s.cree_le at time zone 'Africa/Porto-Novo')::date as jour,
+                             count(*) filter (where s.etat = 'envoye') as envoyes,
+                             count(*) filter (where s.etat = 'refuse') as refuses,
+                             count(*) filter (where s.etat not in ('envoye', 'refuse')) as autres
+                        from public.sms_commandes s where s.cree_le >= t1 and s.cree_le < t2
+                       group by 1) j), '[]'),
+    'par_etape', coalesce((select jsonb_agg(jsonb_build_object('etape', e.etape, 'envoyes', e.envoyes, 'total', e.total)
+                                            order by e.total desc)
+                from (select s.etape, count(*) filter (where s.etat = 'envoye') as envoyes, count(*) as total
+                        from public.sms_commandes s where s.cree_le >= t1 and s.cree_le < t2
+                       group by 1) e), '[]'),
+    -- Les derniers échecs, SANS le numéro du client.
+    'echecs', coalesce((select jsonb_agg(x order by x ->> 'le' desc) from (
+                select jsonb_build_object('le', s.cree_le, 'etape', s.etape, 'etat', s.etat, 'code', s.code,
+                                          'message', regexp_replace(s.message, '\d{6,}', '…', 'g'),
+                                          'commande_id', s.commande_id, 'numero', c.numero) as x
+                  from public.sms_commandes s join public.commandes c on c.id = s.commande_id
+                 where s.cree_le >= t1 and s.cree_le < t2 and s.etat in ('refuse', 'abandonne')
+                 order by s.cree_le desc limit 30) d), '[]'));
+end $$;
+
+do $$
+declare f text;
+begin
+  foreach f in array array['sms_texte(text)', 'sms_numero(text, text)', 'sms_prevoir(text, text, text)',
+                           'sms_a_envoyer(bigint)', 'sms_resultat(bigint, boolean, text, int, text)',
+                           'sms_reprendre()', 'sms_paiement()', 'sms_ligne()', 'sms_commande_part()'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+  end loop;
+  foreach f in array array['sms_a_envoyer(bigint)', 'sms_resultat(bigint, boolean, text, int, text)'] loop
+    execute format('grant execute on function public.%s to service_role', f);
+  end loop;
+  foreach f in array array['sms_commandes_reglages()',
+                           'regler_sms_commandes(boolean, int, int, text[], boolean, boolean, boolean)',
+                           'rh_sms_compteur(date, date)'] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+end $$;
+
+-- La reprise passe toutes les dix minutes. Sans pg_cron, rien ne casse :
+-- ce qui n'est pas parti du premier coup ne repart pas.
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('sms-commandes-reprise', '*/10 * * * *', 'select public.sms_reprendre()');
+  end if;
+exception when others then
+  raise notice 'Reprise des SMS non programmée (%)', sqlerrm;
+end $$;
 
 -- ---------- Temps réel ----------
 -- Permet à l'application client d'être prévenue dès qu'un produit change,
@@ -13262,6 +14203,10 @@ create table if not exists public.rh_reglages_suivi (
   confirmation_h  int not null default 24 check (confirmation_h between 1 and 720)
 );
 insert into public.rh_reglages_suivi (id) values (true) on conflict (id) do nothing;
+-- (3.69.0) La clôture automatique : tant d'heures après le dernier « Je
+-- l'ai reçu » du client. Vide : la clôture reste manuelle.
+alter table public.rh_reglages_suivi add column if not exists cloture_auto_h int default 24
+  check (cloture_auto_h is null or cloture_auto_h between 0 and 720);
 
 -- ---------- Les zones ----------
 -- Communes (toutes) et quartiers ou arrondissements connus du
@@ -13633,6 +14578,10 @@ begin
   )
   select jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'cree_le', c.cree_le, 'paye_le', c.paye_le, 'etat', c.etat,
+    -- (3.68.0) D'où vient la commande : passée dans l'application, ou prise
+    -- sur WhatsApp et saisie par l'équipe (« Faire livrer »). Lue par
+    -- « to_jsonb » : une base sans la colonne répond « Depuis APP ».
+    'source', case when to_jsonb(c) ->> 'origine' = 'whatsapp' then 'Par whatsapp' else 'Depuis APP' end,
     'client', jsonb_build_object('nom', c.client_nom,
                                  'tel', btrim(case when coalesce(c.client_indicatif, '') <> '' and c.client_indicatif <> '229'
                                                    then '+' || c.client_indicatif || ' ' else '' end || coalesce(c.client_tel, '')),
@@ -14031,18 +14980,26 @@ returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
   nouveau bigint;
+  cible   text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
   end if;
-  if not exists (select 1 from public.commandes c where c.id = commande) then
-    raise exception 'Commande introuvable';
+  -- (3.69.0) La commande, par son identifiant ou par son numéro (« BZ-… »),
+  -- comme on le lit au client : le menu Incidents n'a que lui.
+  select c.id into cible from public.commandes c where c.id = commande;
+  if cible is null then
+    select min(c.id) into cible from public.commandes c
+     where upper(c.numero) = upper(btrim(coalesce(commande, '')));
+  end if;
+  if cible is null then
+    raise exception 'Commande introuvable : vérifiez son numéro';
   end if;
   if length(btrim(coalesce(description, ''))) = 0 then
     raise exception 'Décrivez l''incident';
   end if;
   insert into public.rh_incidents (commande_id, boutique_id, livreur_id, type, description, cree_par)
-  values (commande, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
+  values (cible, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
   returning id into nouveau;
   return nouveau;
 end $$;
@@ -14066,14 +15023,93 @@ begin
 end $$;
 
 /**
+ * (3.69.0) LE MENU INCIDENTS : tous les incidents encore ouverts, quelle
+ * que soit leur date, et ceux signalés sur la période. Pour qui suit les
+ * commandes.
+ */
+create or replace function public.rh_incidents_liste(depuis date default null, jusqu date default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  aujourdhui date := (now() at time zone 'Africa/Porto-Novo')::date;
+  fin date := coalesce(jusqu, aujourdhui);
+  debut date := coalesce(depuis, coalesce(jusqu, aujourdhui) - 29);
+begin
+  if public.rh_suivi_acces() is null then
+    raise exception 'Votre compte n''a pas accès au suivi des commandes';
+  end if;
+  if fin < debut then
+    raise exception 'La fin de la période précède son début';
+  end if;
+  if fin - debut > 400 then
+    raise exception 'Choisissez une période d''un an au plus';
+  end if;
+  return jsonb_build_object(
+    'periode', jsonb_build_object('depuis', debut, 'jusqu', fin),
+    'incidents', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', i.id, 'type', i.type, 'description', i.description, 'cree_le', i.cree_le,
+        'commande_id', i.commande_id, 'numero', c.numero, 'client', c.client_nom,
+        'boutique', coalesce(b.nom, i.boutique_id), 'livreur', coalesce(nullif(p.nom, ''), p.email),
+        'auteur', btrim(coalesce(ea.prenoms, '') || ' ' || coalesce(ea.nom, '')),
+        'resolu_le', i.resolu_le, 'resolution', i.resolution,
+        'resolu_par', btrim(coalesce(er.prenoms, '') || ' ' || coalesce(er.nom, '')),
+        'cloturee', sc.cloturee_le is not null)
+      order by (i.resolu_le is null) desc, i.cree_le desc)
+      from public.rh_incidents i
+      left join public.commandes c on c.id = i.commande_id
+      left join public.boutiques b on b.id = i.boutique_id
+      left join public.profils p on p.id = i.livreur_id
+      left join public.rh_employes ea on ea.id = i.cree_par
+      left join public.rh_employes er on er.id = i.resolu_par
+      left join public.rh_suivi_commandes sc on sc.commande_id = i.commande_id
+     where i.resolu_le is null
+        or (i.cree_le >= debut::timestamp at time zone 'Africa/Porto-Novo'
+            and i.cree_le < (fin + 1)::timestamp at time zone 'Africa/Porto-Novo')), '[]'));
+end $$;
+
+/** (3.69.0) Les incidents ouverts : la pastille du menu Incidents. */
+create or replace function public.rh_incidents_ouverts_nb() returns int
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if public.rh_suivi_acces() is null then
+    return 0;
+  end if;
+  return (select count(*) from public.rh_incidents where resolu_le is null);
+end $$;
+
+/**
+ * Ce qui empêche de clôturer une commande, ou rien (null) : un incident
+ * ouvert, un client qui conteste, un article qui n'a pas fini son
+ * parcours (confirmé, annulé, échoué ou retourné), un reste à encaisser.
+ * La même règle pour la clôture à la main et pour la clôture automatique.
+ */
+create or replace function public.rh_suivi_cloturable(d jsonb) returns text
+language sql stable set search_path = public as $$
+  select case
+    when d ->> 'cloturee_le' is not null then 'Cette commande est déjà clôturée'
+    when (d ->> 'incidents_ouverts')::int > 0 then 'Un incident reste ouvert : résolvez-le avant de clôturer'
+    when exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10)
+      then 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer'
+    when d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
+                                             where (l ->> 'rang')::int not in (8, 9, 11, 13))
+      then 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)'
+    -- (3.69.0) L'argent d'abord : un reste dû à la livraison doit être encaissé.
+    when coalesce((d ->> 'reste')::bigint, 0) > 0
+      then 'Un reste à encaisser n''est pas réglé : encaissez-le avant de clôturer'
+  end;
+$$;
+
+/**
  * Clôturer : le suivi est terminé. REFUSÉ tant qu'un incident reste
- * ouvert, qu'un client conteste encore, ou qu'un article n'a pas fini
- * son parcours (confirmé, annulé, échoué ou retourné).
+ * ouvert, qu'un client conteste encore, qu'un article n'a pas fini
+ * son parcours (confirmé, annulé, échoué ou retourné) ou qu'un reste
+ * n'est pas encaissé.
  */
 create or replace function public.rh_suivi_cloturer(commande text) returns void
 language plpgsql security definer set search_path = public as $$
 declare
   d jsonb;
+  refus text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
@@ -14082,18 +15118,9 @@ begin
   if d is null then
     raise exception 'Commande introuvable';
   end if;
-  if d ->> 'cloturee_le' is not null then
-    raise exception 'Cette commande est déjà clôturée';
-  end if;
-  if (d ->> 'incidents_ouverts')::int > 0 then
-    raise exception 'Un incident reste ouvert : résolvez-le avant de clôturer';
-  end if;
-  if exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10) then
-    raise exception 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer';
-  end if;
-  if d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
-                                         where (l ->> 'rang')::int not in (8, 9, 11, 13)) then
-    raise exception 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)';
+  refus := public.rh_suivi_cloturable(d);
+  if refus is not null then
+    raise exception '%', refus;
   end if;
   insert into public.rh_suivi_commandes as s (commande_id, cloturee_le, cloturee_par, maj_par, maj_le)
   values (commande, now(), public.rh_moi(), public.rh_moi(), now())
@@ -14129,6 +15156,71 @@ begin
    where id;
 end $$;
 
+/** (3.69.0) Le délai de la clôture automatique, en heures ; vide : manuelle. */
+create or replace function public.rh_suivi_regler_cloture(heures int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_admin() then
+    raise exception 'Seule l''administration règle la clôture automatique';
+  end if;
+  if heures is not null and (heures < 0 or heures > 720) then
+    raise exception 'Le délai de clôture : de 0 à 720 heures (30 jours), ou vide pour clôturer à la main';
+  end if;
+  update public.rh_reglages_suivi set cloture_auto_h = heures where id;
+end $$;
+
+/**
+ * (3.69.0) LA CLÔTURE AUTOMATIQUE. Une commande payée dont TOUS les
+ * articles sont livrés et confirmés par le client (ou annulés) se
+ * clôture d'elle-même, le délai réglé passé après le dernier « Je l'ai
+ * reçu » — le temps qu'un client signale un problème. Elle passe la même
+ * règle que la clôture à la main (rh_suivi_cloturable). Ce qui demande
+ * un regard reste à l'équipe : un échec, un retour, une contestation, un
+ * encaissement contesté, et une commande que l'administration a
+ * rouverte. Appelée par pg_cron chaque heure ; rend le nombre clôturé.
+ */
+create or replace function public.rh_suivi_cloturer_auto() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  heures int;
+  cible record;
+  d jsonb;
+  n int := 0;
+begin
+  select r.cloture_auto_h into heures from public.rh_reglages_suivi r where r.id;
+  if heures is null then
+    return 0;
+  end if;
+  for cible in
+    select c.id from public.commandes c
+     where c.etat = 'payee'
+       and not exists (select 1 from public.rh_suivi_commandes s
+                        where s.commande_id = c.id and s.cloturee_le is not null)
+       and not exists (select 1 from public.rh_journal_lignes j
+                        where j.commande_id = c.id and j.quoi = 'suivi' and j.valeur = 'rouverte')
+       and exists (select 1 from public.commande_lignes l where l.commande_id = c.id and l.etat <> 'annulee')
+       and not exists (select 1 from public.commande_lignes l
+                        where l.commande_id = c.id and l.etat <> 'annulee' and l.confirme_le is null)
+       and (select max(l.confirme_le) from public.commande_lignes l where l.commande_id = c.id)
+             <= now() - make_interval(hours => heures)
+     order by c.cree_le
+     limit 500
+  loop
+    select x into d from public.rh_suivi_donnees(null, null, cible.id) x;
+    continue when d is null or public.rh_suivi_cloturable(d) is not null;
+    continue when exists (select 1 from jsonb_array_elements(d -> 'lignes') l
+                           where (l ->> 'rang')::int not in (8, 11));
+    continue when coalesce(d -> 'alertes', '[]'::jsonb) ? 'encaissement_conteste';
+    insert into public.rh_suivi_commandes as s (commande_id, cloturee_le, cloturee_par, maj_par, maj_le)
+    values (cible.id, now(), null, null, now())
+    on conflict on constraint rh_suivi_commandes_pkey do update
+       set cloturee_le = now(), cloturee_par = null, maj_le = now();
+    insert into public.rh_journal_lignes (commande_id, quoi, valeur) values (cible.id, 'suivi', 'cloturee_auto');
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
 create or replace function public.rh_zone_ajouter(nom_zone text, commune_zone text default '') returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -14162,16 +15254,29 @@ begin
     'rh_suivi_bilan(date, date, text)', 'rh_suivi_terrain(text, text, text)', 'rh_suivi_noter(text, text, text)',
     'rh_incident_ouvrir(text, text, text, text, uuid)', 'rh_incident_resoudre(bigint, text)',
     'rh_suivi_cloturer(text)', 'rh_suivi_rouvrir(text)', 'rh_suivi_regler(int, int, int, int)',
-    'rh_zone_ajouter(text, text)'] loop
+    'rh_zone_ajouter(text, text)', 'rh_suivi_regler_cloture(int)', 'rh_incidents_liste(date, date)',
+    'rh_incidents_ouverts_nb()'] loop
     execute format('revoke all on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated, service_role', f);
   end loop;
   foreach f in array array[
     'rh_journaliser_ligne()', 'rh_journaliser_commande()', 'rh_suivi_donnees(timestamptz, timestamptz, text)',
     'rh_suivi_sans_montants(jsonb)', 'rh_zone_de(text)', 'rh_statut_ligne(text, timestamptz, text, boolean)',
-    'rh_statut_libelle(int)', 'rh_cle(text)'] loop
+    'rh_statut_libelle(int)', 'rh_cle(text)', 'rh_suivi_cloturable(jsonb)', 'rh_suivi_cloturer_auto()'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
   end loop;
+end $$;
+
+-- (3.69.0) La clôture automatique passe chaque heure. Sans pg_cron, rien
+-- ne casse : les commandes se clôturent à la main, comme avant.
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('rh-suivi-cloture-auto', '23 * * * *', 'select public.rh_suivi_cloturer_auto()');
+  end if;
+exception when others then
+  raise notice 'Clôture automatique non programmée (%) : les commandes se clôturent à la main', sqlerrm;
 end $$;
 
 -- =========================================================
@@ -17138,6 +18243,8 @@ begin
     end loop;
     perform set_config('bizzoo.refus', '', true);
     perform set_config('bizzoo.livraison', '', true);
+    -- (3.70.0) Et la course repart aux autres livreurs, avec sonnerie.
+    perform public.reproposer_course(c.commande_id);
     if annonce and c.client_id is not null then
       perform public.notifier(array[c.client_id], 'course_refusee',
         'Votre livreur a changé',

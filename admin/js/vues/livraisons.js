@@ -64,7 +64,7 @@ const VueLivraisons = (() => {
 
   /* Un lieu de la fiche : qui, où (ouvre la carte), et le numéro
      appelable. */
-  function htmlLieu(titre, icone, nom, adresse, tel, indicatif, lat, lng, sansAdresse) {
+  function htmlLieu(titre, icone, nom, adresse, tel, indicatif, lat, lng, sansAdresse, boutique, whatsapp) {
     const complet = tel ? "+" + indicatif + " " + tel : "";
     return (
       '<div class="lv-lieu">' +
@@ -77,8 +77,34 @@ const VueLivraisons = (() => {
           : '<div class="aide">' + Utils.echapper(sansAdresse) + "</div>") +
         (complet
           ? '<a class="lv-tel" href="tel:+' + Utils.echapper(indicatif + tel) + '">' +
-            UI.icone("tel", "ic-sm") + Utils.echapper(complet) + "</a>"
-          : "") +
+            UI.icone("tel", "ic-sm") +
+            /* (3.70.0) LE NUMÉRO DE LA BOUTIQUE, nommé comme tel : perdu en
+               route, le livreur l'appelle — ou lui écrit sur WhatsApp. */
+            (boutique ? "Appeler la boutique : " : "") + Utils.echapper(complet) + "</a>" +
+            (boutique
+              ? '<a class="lv-tel lv-wa" target="_blank" rel="noopener" href="' +
+                Utils.echapper(Utils.lienWhatsApp(whatsapp || tel, "Bonjour, je suis le livreur BIZZOO" +
+                  (nom ? " pour " + nom : "") + " : ", indicatif)) + '">' +
+                UI.icone("whatsapp", "ic-sm") + "Écrire à la boutique sur WhatsApp</a>"
+              : "")
+          : boutique
+            ? '<div class="aide">Numéro de la boutique non renseigné : appelez BIZZOO.</div>'
+            : "") +
+      "</div>"
+    );
+  }
+
+  /* (3.70.0) OÙ RÉCUPÉRER LA COMMANDE, tel que l'équipe l'a saisi dans
+     « Faire livrer » : la commande a été prise sur WhatsApp, et c'est
+     là qu'on a dit au livreur où passer. Il s'ajoute à la fiche de la
+     boutique ; rien pour une commande passée dans l'application. */
+  function htmlLieuSaisi(f) {
+    const texte = String((f && f.lieu_retrait) || "").trim();
+    if (!texte) return "";
+    return (
+      '<div class="lv-lieu lv-lieu-saisi">' +
+        '<div class="lv-lieu-titre">' + UI.icone("magasin", "ic-sm") + "Où récupérer (précisé par BIZZOO)</div>" +
+        '<div class="lv-note" style="white-space:pre-line">' + Utils.echapper(texte) + "</div>" +
       "</div>"
     );
   }
@@ -219,7 +245,8 @@ const VueLivraisons = (() => {
         htmlMontants(c) +
         htmlLieu("Récupérer le colis", "magasin", r.boutique || c.nomBoutique, r.adresse,
           r.tel, r.indicatif || "229", r.latitude, r.longitude,
-          "Adresse non renseignée : appelez la boutique.") +
+          "Adresse non renseignée : appelez la boutique.", true, r.whatsapp) +
+        htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
@@ -271,7 +298,8 @@ const VueLivraisons = (() => {
           htmlLieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
                                        : "Récupérer le colis",
             "magasin", r.boutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
-            "Adresse non renseignée : appelez la boutique.")).join("") +
+            "Adresse non renseignée : appelez la boutique.", true, r.whatsapp)).join("") +
+        htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
@@ -414,14 +442,14 @@ const VueLivraisons = (() => {
         const carte = b.closest(".lv-course");
         const motif = await UI.demanderTexte({
           titre: "Refuser la course",
-          texte: "La boutique sera prévenue et pourra la confier à un autre livreur. " +
-            "La demande repart aussi vers les autres livreurs.",
+          texte: "La boutique et BIZZOO seront prévenus, et la course sera aussitôt " +
+            "reproposée aux autres livreurs disponibles.",
           libelle: "Pourquoi ? (facultatif)", bouton: "Refuser la course", danger: true });
         if (motif === null) return;
         b.disabled = true;
         try {
           await Store.refuserCourse(carte.dataset.commande, motif);
-          UI.toast("Course refusée : la boutique est prévenue.");
+          UI.toast("Course annulée : BIZZOO et la boutique sont prévenus.");
           afficher(vue);
         } catch (err) {
           UI.toast(err.message, "err");
