@@ -3203,7 +3203,23 @@ const Store = (() => {
     return Number(n) || 0;
   }
 
-  /** Déclasse, puis change. Rend le nombre de produits déclassés. */
+  /** (3.70.0) Ce que ferait le changement : { produits, suivent, aClasser }.
+      « suivent » : un rayon du même nom les attend dans le nouveau secteur.
+      Une base d'avant ne sait pas le dire : tout produit classé y perdait
+      son rayon. */
+  async function apercuSecteur(boutique, vers) {
+    try {
+      const r = await Supabase.rpcLecture("apercu_secteur", { boutique, vers: vers || null });
+      if (r && typeof r === "object") {
+        return { produits: Number(r.produits) || 0, suivent: Number(r.suivent) || 0,
+                 aClasser: Number(r.a_classer) || 0, ancienneBase: false };
+      }
+    } catch (_) { /* base d'avant : on retombe sur l'ancien décompte */ }
+    const classes = await produitsClasses(boutique);
+    return { produits: classes, suivent: 0, aClasser: classes, ancienneBase: true };
+  }
+
+  /** Change le secteur ; les produits suivent. Rend le nombre resté « à classer ». */
   async function changerSecteur(boutique, vers) {
     const combien = await Supabase.rpc("changer_secteur", { boutique, vers: vers || null });
     journaliser("boutique", "modification",
@@ -4009,7 +4025,7 @@ const Store = (() => {
     listerComptes, creerCompte, creerRevendeur, majCompte, supprimerCompte, changerMotDePasseCompte,
     estCompteEnseigne,
     listerCategories, lireCategorie, sauverCategorie, supprimerCategorie, deplacerCategorie,
-    sousCategoriesDuSecteur, produitsClasses, changerSecteur,
+    sousCategoriesDuSecteur, produitsClasses, apercuSecteur, changerSecteur,
     listerProduits, lireProduit, masquerProduit, produitsDeCategorie, chercherProduits, prochaineReference,
     sauverProduit, supprimerProduit, photosDeProduit,
     listerSlides, sauverSlide, supprimerSlide, deplacerSlide,

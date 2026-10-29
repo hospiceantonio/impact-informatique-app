@@ -1465,15 +1465,31 @@ et l'écran des produits le compte en haut de la liste. L'application,
 elle, **refuse d'en créer de nouveaux** sans rayon — rien ne justifie de
 publier un article que personne ne trouvera.
 
-### Changer de secteur déclasse le catalogue
+### Changer de secteur : les produits suivent (3.70.0)
 
 Les produits sont rangés dans des rayons de l'ancien secteur, que le
-nouveau n'a pas. La base **refuse l'écriture directe**, même à
-l'enseigne : ce n'est pas une question de rang mais de cohérence.
-`changer_secteur()` fait les deux gestes dans l'ordre — déclasser, puis
-changer — et rend le nombre de produits déclassés ; l'application le
-demande **avant** d'ouvrir la confirmation, pour que l'enseigne sache ce
-qu'elle s'apprête à défaire.
+nouveau n'a pas forcément. La base **refuse l'écriture directe**, même à
+l'enseigne : ce n'est pas une question de rang mais de cohérence. Tout
+passe par `changer_secteur()`.
+
+Avant la 3.70.0, elle déclassait tout le catalogue : les produits
+n'étaient plus sous aucune catégorie, et **dans l'application cliente la
+boutique n'apparaissait pas dans le secteur qu'on venait de lui donner**.
+Désormais :
+
+- elle change d'abord le secteur de la boutique, puis range chaque
+  produit dans le rayon **du même nom** du nouveau secteur (casse et
+  espaces ignorés) ;
+- les autres restent « à classer », mais **dans le nouveau secteur** :
+  `produit_code` range tout produit sans rayon dans le secteur de sa
+  boutique. Le client les trouve sous la catégorie (« Tout voir ») ;
+- « modifie_le » bouge : les téléphones relisent le catalogue ;
+- elle rend le nombre de produits restés « à classer ».
+
+`apercu_secteur(boutique, vers)` dit **avant** la confirmation combien de
+produits suivent dans un rayon et combien resteront à ranger.
+`supabase/secteur-suit.sql` pose tout cela et range dans le secteur de
+leur boutique les produits « à classer » d'avant.
 
 ### Ce que voit l'acheteur
 

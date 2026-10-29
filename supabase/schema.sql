@@ -491,7 +491,12 @@ begin
     -- À CLASSER. Le produit reste en vente, dans sa boutique et dans la
     -- recherche ; il n'apparaît sous aucun rayon de BIZZOO.
     new.sous_categorie_id := null;
-    new.categorie_id := null;
+    -- (3.70.0) Mais il reste DANS LE SECTEUR de sa boutique : sans cela,
+    -- une boutique qui change de secteur disparaissait du nouveau dans
+    -- l'application cliente, ses produits n'étant plus nulle part.
+    select b.categorie_id into secteur
+      from public.boutiques b where b.id = new.boutique_id;
+    new.categorie_id := secteur;
   else
     select sc.categorie_id into rayon
       from public.sous_categories sc where sc.id = new.sous_categorie_id;
@@ -2407,10 +2412,17 @@ create trigger boutiques_verrous
 -- ambiguous » et la fonction s'arrêtait là. Un paramètre ne se renomme
 -- pas par « create or replace » — il faut retirer l'ancienne signature.
 drop function if exists public.changer_secteur(text, text);
+-- (3.70.0) ELLE NE DÉCLASSE PLUS TOUT. Chaque produit va dans le rayon
+-- du MÊME NOM du nouveau secteur, s'il en a un ; les autres restent « à
+-- classer », mais DANS le nouveau secteur (« produit_code » y range tout
+-- produit sans rayon). Avant, tout le catalogue passait sous aucune
+-- catégorie : dans l'application cliente, la boutique n'apparaissait
+-- pas dans le secteur qu'on venait de lui donner.
+-- Elle rend le nombre de produits restés « à classer ».
 create or replace function public.changer_secteur(boutique text, vers text)
 returns int
 language plpgsql security definer set search_path = public as $$
-declare combien int;
+declare combien int; ancien text; cible text := nullif(coalesce(vers, ''), '');
 begin
   if not public.est_super() then
     raise exception 'Le secteur d''une boutique est fixé par l''enseigne';
@@ -2426,16 +2438,37 @@ begin
     raise exception 'Cette catégorie n''existe pas';
   end if;
 
-  update public.produits
-     set sous_categorie_id = null, categorie_id = null, modifie_le = now()
-   where boutique_id = boutique and sous_categorie_id is not null;
-  get diagnostics combien = row_count;
+  select b.categorie_id into ancien from public.boutiques b where b.id = boutique;
 
+  -- La boutique D'ABORD : « produit_code » range chaque produit dans le
+  -- secteur de sa boutique, il faut qu'il y lise le nouveau.
   perform set_config('bizzoo.secteur', 'oui', true);
   update public.boutiques
-     set categorie_id = nullif(coalesce(vers, ''), ''), maj_le = now()
+     set categorie_id = cible, maj_le = now()
    where id = boutique;
   perform set_config('bizzoo.secteur', '', true);
+
+  -- Puis ses produits : le rayon du même nom dans le nouveau secteur, ou
+  -- « à classer ». « modifie_le » bouge : les téléphones relisent le
+  -- catalogue, et y trouvent la boutique à sa nouvelle place.
+  if cible is distinct from ancien then
+    update public.produits p
+       set sous_categorie_id = (
+             select nv.id
+               from public.sous_categories av
+               join public.sous_categories nv
+                 on nv.categorie_id = cible
+                and lower(btrim(nv.nom)) = lower(btrim(av.nom))
+              where av.id = p.sous_categorie_id
+              order by nv.ordre, nv.id
+              limit 1),
+           modifie_le = now()
+     where p.boutique_id = boutique;
+  end if;
+
+  select count(*)::int into combien
+    from public.produits p
+   where p.boutique_id = boutique and p.sous_categorie_id is null;
   return combien;
 end $$;
 revoke all on function public.changer_secteur(text, text) from public, anon, authenticated;
@@ -2451,6 +2484,43 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.produits_classes(text) from public, anon, authenticated;
 grant execute on function public.produits_classes(text) to authenticated;
+
+-- (3.70.0) Ce que ferait « changer_secteur(boutique, vers) », AVANT de
+-- le faire : combien de produits trouvent un rayon du même nom dans le
+-- nouveau secteur, combien resteront « à classer » (dans ce secteur).
+create or replace function public.apercu_secteur(boutique text, vers text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not public.est_super() then null else
+    jsonb_build_object(
+      'produits', count(*),
+      'suivent', count(*) filter (where s.nv is not null),
+      'a_classer', count(*) filter (where s.nv is null))
+  end
+    from public.produits p
+    cross join lateral (
+      select (select nv.id
+                from public.sous_categories av
+                join public.sous_categories nv
+                  on nv.categorie_id = nullif(coalesce(vers, ''), '')
+                 and lower(btrim(nv.nom)) = lower(btrim(av.nom))
+               where av.id = p.sous_categorie_id
+               limit 1) as nv) s
+   where p.boutique_id = boutique;
+$$;
+revoke all on function public.apercu_secteur(text, text) from public, anon, authenticated;
+grant execute on function public.apercu_secteur(text, text) to authenticated;
+
+-- (3.70.0) LA RÉPARATION. Les produits « à classer » d'avant n'avaient
+-- plus de secteur du tout : ceux d'une boutique qui avait changé de
+-- secteur n'apparaissaient pas dans le nouveau, côté client. Les
+-- toucher suffit — « produit_code » les range dans le secteur de leur
+-- boutique. Relançable : ne touche que ce qui n'y est pas encore.
+update public.produits p
+   set modifie_le = now()
+  from public.boutiques b
+ where b.id = p.boutique_id
+   and p.sous_categorie_id is null
+   and p.categorie_id is distinct from b.categorie_id;
 
 -- ---------- La marge change, les prix suivent ----------
 -- Le modèle est « prix de vente = prix BIZZOO + marge ». Mais le prix de

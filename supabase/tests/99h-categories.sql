@@ -156,18 +156,23 @@ select essai.egal(
 insert into public.produits (id, boutique_id, nom, prix, stock, disponible)
 values ('prod_aclasser', 'bou_essai_mode', 'Écharpe', 3000, 8, true);
 select essai.verifie(
-  (select categorie_id is null and sous_categorie_id is null
-     from public.produits where id = 'prod_aclasser'),
+  (select sous_categorie_id is null from public.produits where id = 'prod_aclasser'),
   'sans sous-catégorie, le produit est « à classer »');
+-- (3.70.0) Mais il reste dans le SECTEUR de sa boutique : le client le
+-- trouve sous la catégorie (« Tout voir »), sinon il n'est nulle part.
+select essai.egal(
+  (select categorie_id from public.produits where id = 'prod_aclasser'),
+  'cat_mode', 'à classer, il reste dans le secteur de sa boutique');
 select essai.verifie(
   (select disponible from public.produits where id = 'prod_aclasser'),
   'mais il reste en vente : à classer n''est pas retiré');
 
 -- Et on déclasse en retirant la sous-catégorie.
 update public.produits set sous_categorie_id = null where id = 'prod_menteur';
-select essai.verifie(
-  (select categorie_id is null from public.produits where id = 'prod_menteur'),
-  'retirer la sous-catégorie déclasse aussi la catégorie');
+select essai.egal(
+  (select coalesce(sous_categorie_id, '') || '|' || categorie_id
+     from public.produits where id = 'prod_menteur'),
+  '|cat_mode', 'retirer la sous-catégorie retire le rayon, pas le secteur de la boutique');
 
 -- ---------------------------------------------------------
 select essai.titre('HORS DE SON SECTEUR, UN PRODUIT EST REFUSÉ');
@@ -238,16 +243,44 @@ select essai.refuse(
 select essai.egal(public.produits_classes('bou_essai_mode'), 1,
   'elle compte d''abord ce qu''elle s''apprête à déclasser');
 
--- Et la fonction fait les deux gestes dans l'ordre : déclasser, changer.
+-- (3.70.0) LES PRODUITS SUIVENT. Un rayon du MÊME NOM dans le nouveau
+-- secteur les accueille (casse et espaces n'y font rien) ; les autres
+-- restent « à classer », mais dans le nouveau secteur.
+reset role;
+insert into public.sous_categories (id, categorie_id, nom, ordre)
+values ('sc_essai_bijoux_femme', 'cat_bijoux', ' femme ', 9);
+insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
+values ('prod_chemise', 'bou_essai_mode', 'Chemise', 9000, 'sc_mode_homme', 4, true);
+set role authenticated;
+select essai.egal(public.apercu_secteur('bou_essai_mode', 'cat_bijoux'),
+  '{"produits": 4, "suivent": 1, "a_classer": 3}'::jsonb,
+  'l''aperçu dit qui suit (la robe : « Femme ») et qui restera à classer');
+
 select public.changer_secteur('bou_essai_mode', 'cat_bijoux') as combien \gset
-select essai.egal(:'combien'::int, 1, 'elle change le secteur, et dit ce qu''elle a déclassé');
+select essai.egal(:'combien'::int, 3, 'elle change le secteur, et dit combien restent à classer');
 select essai.egal(
   (select categorie_id from public.boutiques where id = 'bou_essai_mode'),
   'cat_bijoux', 'le secteur a bien changé');
+select essai.egal(
+  (select sous_categorie_id from public.produits where id = 'prod_robe'),
+  'sc_essai_bijoux_femme', 'la robe suit, dans le rayon du même nom');
 select essai.verifie(
-  (select bool_and(categorie_id is null and sous_categorie_id is null)
+  (select bool_and(categorie_id = 'cat_bijoux')
      from public.produits where boutique_id = 'bou_essai_mode'),
-  'et plus aucun produit n''est rangé sous l''ancien');
+  'TOUS ses produits sont dans le nouveau secteur : le client les y trouve');
+select essai.verifie(
+  (select sous_categorie_id is null from public.produits where id = 'prod_chemise'),
+  'sans rayon équivalent (« Homme »), la chemise est à classer — dans le nouveau secteur');
+select essai.verifie(
+  (select bool_and(modifie_le > now() - interval '1 minute')
+     from public.produits where boutique_id = 'bou_essai_mode'),
+  'et « modifie_le » bouge : les téléphones relisent le catalogue');
+reset role;
+-- Le rayon d'essai s'en va (la liste compte ses rayons plus bas).
+update public.produits set sous_categorie_id = null where id = 'prod_robe';
+delete from public.produits where id = 'prod_chemise';
+delete from public.sous_categories where id = 'sc_essai_bijoux_femme';
+set role authenticated;
 
 -- Le catalogue se reclasse alors dans le NOUVEAU secteur, et pas dans
 -- l'ancien.
