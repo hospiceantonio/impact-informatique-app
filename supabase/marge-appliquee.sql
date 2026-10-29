@@ -56,6 +56,9 @@ alter table public.boutiques
   add column if not exists taux_revendeur numeric(6,2) not null default 10;
 alter table public.produits_prive add column if not exists taux_marge numeric(6,2);
 
+-- (3.70.0) Lue plus bas : posée ici aussi, comme toute colonne qu'une fonction du fichier lit.
+alter table public.produits_prive add column if not exists taux_vendeur numeric(5,2);
+
 -- ---------------------------------------------------------
 -- 1. Le calcul, le même que celui de l'application
 -- ---------------------------------------------------------
@@ -90,6 +93,9 @@ begin
    where pp.produit_id = p.id
      and p.boutique_id = new.id
      and coalesce(pp.prix_grossiste, 0) > 0
+     -- (3.70.0) Le prix d'un produit de vendeur est saisi : la marge de la
+     -- boutique ne le recalcule pas.
+     and pp.taux_vendeur is null
      -- N'écrire que ce qui change vraiment : un article dont le prix
      -- tombe juste n'a pas à passer par les déclencheurs pour rien.
      and p.prix is distinct from public.prix_public(pp.prix_grossiste,

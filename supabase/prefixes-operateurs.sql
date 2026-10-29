@@ -22,6 +22,10 @@ create table if not exists public.prefixes_operateurs (
   operateur  text not null check (operateur in ('MTN', 'MOOV', 'CELTIIS')),
   modifie_le timestamptz not null default now()
 );
+-- La règle du préfixe, posée aussi sur une table déjà créée.
+alter table public.prefixes_operateurs drop constraint if exists prefixes_operateurs_prefixe_check;
+alter table public.prefixes_operateurs add constraint prefixes_operateurs_prefixe_check
+  check (length(prefixe) = 2 and prefixe ~ '^[0-9][0-9]');
 alter table public.prefixes_operateurs enable row level security;
 drop policy if exists "lecture publique" on public.prefixes_operateurs;
 create policy "lecture publique" on public.prefixes_operateurs for select using (true);
