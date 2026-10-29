@@ -5042,7 +5042,7 @@ Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'a
 - **Qui le voit** : l'administration, le superadministrateur, et les profils à qui Paramètres ouvre « Localiser un livreur » ou les statistiques des livreurs (`rh_voit_livreurs`). Les montants : l'administration seulement.
 - **Bloquer** (l'administration seule, motif obligatoire ; `rh_bloquer_livreur`) : la colonne `profils.courses_bloquees`, que seule cette fonction peut poser (déclencheur `profils_garde_blocage` : une boutique qui modifie son livreur ne peut pas y toucher). Bloqué, le livreur ne reçoit plus aucune demande (`candidats_course`, donc aussi `courses_proposees` et `prendre_course`), et aucune boutique ne peut lui confier de course (`assigner_livreur`). Ses courses **pas encore parties** (nouvelle, vue, préparée) lui sont retirées comme s'il les avait refusées — sans compter dans ses refus : la boutique est prévenue et la confie à un autre, le client aussi s'il connaissait déjà son livreur. Celles **déjà en route**, il les termine. Il garde son compte (ses courses passées, ses encaissements). Il est prévenu (« Courses suspendues »), et au déblocage (« Courses rétablies »). Chaque blocage et déblocage est gardé dans `livreurs_blocages` (auteur, motif, date), lisible seulement par ces fonctions.
 
-### Les contrôles : réglages sensibles, encaissements, veille des livreurs
+### Les contrôles : réglages sensibles, encaissements, veille des livreurs (3.71.0)
 
 `supabase/personnel-controles.sql` ; écran `personnel/js/vues/controles.js` (menu « Contrôles », `#/controles`), avec l'accueil, le suivi des commandes et la carte « Localiser un livreur ».
 
@@ -5057,7 +5057,7 @@ Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'a
 - **Limites** : la base ne garde que la dernière position d'un livreur, pas son trajet ; un réglage changé avant la mise en service de ce fichier n'a pas d'historique ; Personnel ne marque rien « Vérifié » lui-même (c'est BIZZOO qui retrouve la transaction dans son compte marchand).
 - **Les essais** : section 27 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql`. L'historique y est écrit sur le vrai chemin, en rôle `authenticated` (le superadministrateur qui change `paiement`, l'administrateur d'une boutique qui règle son numéro par `regler_reception`) : si le déclencheur perdait SECURITY DEFINER, aucune ligne ne s'écrirait et l'essai le verrait.
 
-### L'argent sous contrôle : paiements, dettes, remboursements, gestes Admin, codes promo
+### L'argent sous contrôle : paiements, dettes, remboursements, gestes Admin, codes promo (3.71.0)
 
 `supabase/personnel-argent.sql` ; écran `personnel/js/vues/argent.js`, cinq onglets de plus dans le menu « Contrôles » (`#/controles/paiements`, `dettes`, `remboursements`, `gestes`, `codes`), avec des tuiles à l'accueil et la pastille du menu (`rh_argent_compteurs`). Qui voit quel onglet : `rh_argent_acces`. **Les montants : l'administration, le CEO et le superadministrateur seulement** — la base les retire elle-même (`montants: false`).
 
@@ -5071,7 +5071,7 @@ Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'a
 - **Limites** : qui a annulé n'est connu que pour les annulations faites après l'installation de ce fichier ; un code expiré qu'un client tente encore n'est noté nulle part (`verifier_code` ne garde rien) ; le suivi des commandes ne lève pas encore d'alerte sur une commande non payée (il ne regarde que les commandes payées) : c'est l'onglet « Paiements à rapprocher » qui les porte ; le libellé d'un geste Admin est celui qu'Admin a écrit.
 - **Les essais** : section 28 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` — droits (un employé sans accès, une boutique, un visiteur), chaque onglet, aucun montant hors de l'administration, numéros masqués, l'annulation notée en rôle `authenticated` par la boutique, le déclencheur qui avale ses erreurs, jamais plus que le dû ; après relecture : une commande payée puis annulée hors des paiements à rapprocher, « inconnu » tranché par un refus, la clé « audit » au CEO seul, aucun chiffre pour un profil « audit », les vrais libellés d'Admin, l'« à venir » des livreurs.
 
-### La qualité du service : SAV, boutiques, catalogue, files d'attente, zones, fidélité
+### La qualité du service : SAV, boutiques, catalogue, files d'attente, zones, fidélité (3.71.0)
 
 `supabase/personnel-qualite.sql` ; écran `personnel/js/vues/qualite.js` (menu « Qualité », `#/qualite`, six onglets et « Seuils »), avec sa pastille (`rh_qualite_compteurs`). Ouvert à l'administration, au CEO, au superadministrateur, et par la clé **« qualite »** de Paramètres (nouveau groupe « Qualité ») **sans aucun montant** (`rh_qualite_acces` : « admin » ou « equipe »). Rien n'est posé sur les tables de la place de marché : ni déclencheur, ni colonne ; tout se lit, et tout se décide toujours dans BIZZOO Admin.
 
@@ -5085,7 +5085,7 @@ Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'a
 - **Limites** : la base ne date pas le début d'une rupture (on montre la dernière vente et le réassort prévu) ; une note « reconstituée » compte comme masqué depuis toujours un avis masqué plus tard ; la validation d'un compte d'équipe n'est pas datée (pas de délai de décision pour cette file) ; un client qui commandait sans compte et en a ouvert un ensuite peut compter deux fois ; la date de suppression d'un compte n'est pas gardée (on compte les comptes supprimés, pas quand).
 - **Les essais** : section 29 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` — droits (employé sans accès, boutique, visiteur, tables fermées), le rangement des réclamations et les alertes, le délai par boutique et la chute de la note, la fiche et son feu, ventes à l'administration seule, la rupture qui coûte et « boutique appelée », les cinq files, les zones (commune, quartier), les cohortes, perdus et comptes supprimés, la liste à relancer masquée, les seuils et leurs bornes ; après relecture : 3 000 commandes de plus ne chassent rien des zones, le journal lu par commande (son index) dans la fiche et les zones, aucun taux de rachat pour le mois en cours.
 
-### L'équipe au travail : ma file du jour, les alertes sur le téléphone, le bilan du matin
+### L'équipe au travail : ma file du jour, les alertes sur le téléphone, le bilan du matin (3.71.0)
 
 `supabase/personnel-equipe.sql` ; écrans `personnel/js/vues/file.js` (menu « Ma file », `#/file`, avec sa pastille), `personnel/js/vues/bilans.js` (menu « Bilan du matin », `#/bilans`, et la carte « Bilan du jour » de l'Accueil), la carte « Alertes sur ce téléphone » de Mon compte, et la fonction Edge `supabase/functions/rh-push` (Web Push). Rien n'est posé sur les tables de la place de marché : ni déclencheur, ni colonne ; tout se lit, seules les tables `rh_` s'écrivent. **Aucun montant dans une tâche ni dans une alerte.**
 
