@@ -95,6 +95,43 @@ alter table public.courses_cascade enable row level security;
 revoke all on public.courses_cascade from anon, authenticated;
 
 -- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.est_equipe() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() in
+    ('superadministrateur', 'administrateur', 'moderateur'), false);
+$$;
+revoke all on function public.est_equipe() from public, anon, authenticated;
+grant execute on function public.est_equipe() to authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.boutique_du_compte() returns text
+language sql stable security definer set search_path = public as $$
+  select boutique_id from public.profils
+   where id = auth.uid() and actif and public.role_courant() is not null;
+$$;
+grant execute on function public.boutique_du_compte() to authenticated;
+
+create or replace function public.est_compte_enseigne() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select p.role in ('administrateur', 'moderateur') and p.boutique_id is null
+      from public.profils p
+     where p.id = auth.uid() and p.actif), false)
+     and public.role_courant() is not null;
+$$;
+revoke all on function public.est_compte_enseigne()  from public, anon;
+grant execute on function public.est_compte_enseigne() to authenticated;
+
+create or replace function public.peut_agir_sur(cible text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.est_super()
+      or public.est_compte_enseigne()
+      or (public.est_equipe() and cible is not null
+          and cible = public.boutique_du_compte());
+$$;
+grant execute on function public.peut_agir_sur(text) to authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
 create or replace function public.coord_valable(valeur double precision, borne double precision)
 returns double precision
 language sql immutable as $$
@@ -553,6 +590,130 @@ revoke all on function public.texte_demande(jsonb) from public, anon, authentica
 -- une position, en livraison groupée), sinon le point BIZZOO.
 -- Empruntées par les fonctions plus bas, recopiées telles quelles.
 -- ---------- Ce que ce fichier change ----------
+-- La boutique reprend la course à son livreur (« Confier » vide) : elle
+-- repart en cascade.
+create or replace function public.assigner_livreur(
+  commande text, boutique text, livreur uuid)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  combien  int;
+  autres   int := 0;
+  rang     text;
+  bizzoo   boolean := false;
+  numero   text;
+  b        record;
+  son_vehicule text;
+  besoin   text;
+  plusieurs boolean;
+  au_km    boolean;
+  bloque   boolean;
+begin
+  if not public.peut_agir_sur(boutique) then
+    raise exception 'Cette commande ne concerne pas votre boutique';
+  end if;
+  -- (3.64.0) UN SEUL LIVREUR PAR COMMANDE AU KILOMÈTRE. Une telle
+  -- commande de plusieurs boutiques se confie à un livreur de BIZZOO, qui
+  -- les livre toutes ; et une commande en tricycle, à un livreur en
+  -- tricycle. Les commandes d'avant (frais par boutique) gardent leur
+  -- règle : un livreur par boutique.
+  select c.livraison ->> 'vehicule', c.livraison is not null into besoin, au_km
+    from public.commandes c where c.id = commande;
+  au_km := coalesce(au_km, false);
+  select au_km and count(distinct l.boutique_id) > 1 into plusieurs
+    from public.commande_lignes l where l.commande_id = commande and l.etat <> 'annulee';
+
+  -- « livreur » nul : on retire l'attribution. Une boutique doit pouvoir
+  -- reprendre une course confiée par erreur.
+  if livreur is not null then
+    select p.role, (p.boutique_id is null), p.vehicule, p.courses_bloquees
+      into rang, bizzoo, son_vehicule, bloque from public.profils p
+     where p.id = livreur and p.actif
+       and (public.est_super()
+            or public.est_compte_enseigne()
+            -- Le livreur de BIZZOO : aucune boutique, donc toutes.
+            or p.boutique_id is null
+            or p.boutique_id = public.boutique_du_compte());
+    if rang is distinct from 'livreur' then
+      raise exception 'Ce compte n''est pas un livreur de votre boutique ni de BIZZOO';
+    end if;
+    -- Bloqué par l'administration de BIZZOO : plus aucune course.
+    if bloque then
+      raise exception 'Ce livreur est bloqué par BIZZOO : il ne reçoit plus de course. Confiez-la à un autre.'
+        using errcode = 'P0001';
+    end if;
+    if coalesce(plusieurs, false) and not coalesce(bizzoo, false) then
+      raise exception 'Cette commande traverse plusieurs boutiques : confiez-la à un livreur de BIZZOO, qui les livre toutes.'
+        using errcode = 'P0001';
+    end if;
+    if besoin = 'tricycle' and son_vehicule is distinct from 'tricycle' then
+      raise exception 'Cette commande se livre en tricycle : confiez-la à un livreur en tricycle.'
+        using errcode = 'P0001';
+    end if;
+    -- UN LIVREUR VALIDE SON COMPTE EN ENREGISTRANT SA POSITION. Tant
+    -- qu'il ne l'a pas fait, on ne lui confie rien.
+    if not exists (select 1 from public.positions_livreurs pl where pl.profil_id = livreur) then
+      raise exception 'Ce livreur n''a pas encore validé son compte : il doit ouvrir BIZZOO Admin et enregistrer sa position.'
+        using errcode = 'P0001';
+    end if;
+  end if;
+
+  perform set_config('bizzoo.livraison', 'oui', true);
+  update public.commande_lignes l
+     set livreur_id = livreur,
+         -- Un autre livreur doit accepter à son tour (3.59.0).
+         recu_le = case when l.livreur_id is distinct from livreur then null else l.recu_le end
+   where l.commande_id = commande
+     -- (3.64.0) Au kilomètre, retirer le livreur le retire de toute la
+     -- commande : une course, c'est la commande entière.
+     and (l.boutique_id = boutique or (livreur is null and au_km))
+     -- (3.59.0) En secours de la demande envoyée à tous les livreurs : la
+     -- boutique peut confier dès le paiement, sans attendre le colis.
+     and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+     and exists (select 1 from public.commandes c where c.id = l.commande_id and c.etat = 'payee');
+  get diagnostics combien = row_count;
+
+  -- LE LIVREUR DE BIZZOO : les produits des autres boutiques aussi. Sans
+  -- prendre une part déjà confiée au livreur d'une autre boutique —
+  -- (3.64.0) sauf au kilomètre : un seul livreur par commande, il les
+  -- prend toutes.
+  if bizzoo and combien > 0 then
+    update public.commande_lignes l
+       set livreur_id = livreur, recu_le = null
+     where l.commande_id = commande
+       and l.boutique_id <> boutique
+       and (l.livreur_id is null or (au_km and l.livreur_id is distinct from livreur))
+       and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison');
+    get diagnostics autres = row_count;
+  end if;
+  perform set_config('bizzoo.livraison', '', true);
+
+  if combien = 0 then
+    raise exception 'Rien à confier ici : la commande n''est pas encore payée, ou elle est déjà livrée.';
+  end if;
+
+  -- Les autres boutiques le savent : un livreur BIZZOO passera chez elles.
+  if autres > 0 then
+    select c.numero into numero from public.commandes c where c.id = commande;
+    for b in select distinct l.boutique_id as id from public.commande_lignes l
+              where l.commande_id = commande and l.boutique_id <> boutique and l.livreur_id = livreur
+    loop
+      perform public.notifier(public.equipe_de(b.id), 'course_confiee',
+        'Un livreur BIZZOO passe récupérer vos produits',
+        'Commande ' || coalesce(numero, '') || ' — il livre toute la commande. Préparez le colis.',
+        '#/commandes/' || commande, commande, b.id, true);
+    end loop;
+  end if;
+  -- (3.70.0) Course reprise au livreur (« Confier » vide) : elle repart en
+  -- cascade, du plus proche à tous (rien si une autre partie est portée).
+  if livreur is null then
+    perform public.reproposer_course(commande);
+  end if;
+  return combien + autres;
+end $$;
+revoke all on function public.assigner_livreur(text, text, uuid) from public, anon;
+grant execute on function public.assigner_livreur(text, text, uuid) to authenticated;
+
 create or replace function public.horloge_cascade()
 returns boolean
 language plpgsql stable security definer set search_path = public as $$
