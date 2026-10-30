@@ -6,7 +6,9 @@
      1. « Créer un livreur » : la boutique se cherche ;
      2. la page « Livreurs » : par ordre alphabétique, et un champ ;
      3. la page « Boutiques » : le choix de la boutique ouverte, A → Z,
-        et un champ.
+        et un champ ;
+     4. « Comptes » : une section par rang (administrateurs, modérateurs),
+        et des cartes vers les livreurs, les vendeurs, les revendeurs.
    ========================================================= */
 let chromium;
 try {
@@ -162,6 +164,26 @@ titre("3. La page « Boutiques » : la boutique ouverte, A → Z, et un champ");
   await o.page.fill("#bq-chercher", "zzzz");
   await pause(200);
   ok(await o.page.$eval("#bq-aucune", (n) => !n.hidden), "rien : « Aucune boutique ne correspond »");
+  ok(!o.erreurs.length, "aucune erreur JavaScript" + (o.erreurs.length ? " : " + o.erreurs[0] : ""));
+  await o.ctx.close();
+}
+
+titre("4. « Comptes » : une section par rang, des cartes vers les autres");
+{
+  const o = await ouvrirAdmin(SUPER, { hash: "#/comptes" });
+  const sections = await o.page.$$eval(".cp-section", (c) => c.map((x) => x.id));
+  ok(sections.includes("cp-section-administrateur") && sections.includes("cp-section-moderateur"),
+    "des sections « Les administrateurs » et « Les modérateurs » (" + sections.join(", ") + ")");
+  const modos = await o.page.$eval("#cp-section-moderateur", (c) => c.innerText);
+  ok(/Awa/.test(modos) && !/Rohim|Zinsou/.test(modos), "les modérateurs à part, sans livreur");
+  ok(!!(await o.page.$('a[href="#/livreurs"]')) && !!(await o.page.$("#cp-revendeurs")),
+    "des cartes vers les livreurs et les revendeurs");
+  await o.page.click('[data-creer-rang="moderateur"]');
+  await pause(500);
+  const f = await o.page.evaluate(() => ({
+    titre: document.body.innerText.includes("Nouveau modérateur"),
+    rangs: [...document.querySelectorAll("#nc-role option")].map((x) => x.value) }));
+  ok(f.titre && f.rangs.length === 1 && f.rangs[0] === "moderateur", "« Créer un modérateur » : le rang est fixé");
   ok(!o.erreurs.length, "aucune erreur JavaScript" + (o.erreurs.length ? " : " + o.erreurs[0] : ""));
   await o.ctx.close();
 }

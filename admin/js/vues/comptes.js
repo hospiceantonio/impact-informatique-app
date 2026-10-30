@@ -208,9 +208,12 @@ const VueComptes = (() => {
        du compte, pour que le menu montre au moins ce qu'il est. */
     /* LES LIVREURS SE GÈRENT À PART (écran « Livreurs ») : un livreur
        reste livreur, et un compte de l'équipe ne le devient pas d'ici. */
+    /* (3.72.0) LES VENDEURS AUSSI : un vendeur reste vendeur, et un compte
+       de l'équipe ne le devient pas d'ici (écran « Vendeurs »). */
     const rolesOfferts = compte.role === "livreur" ? ["livreur"]
+      : compte.role === "vendeur" ? ["vendeur"]
       : Array.from(new Set(Store.rolesAttribuables().concat([compte.role])))
-          .filter((cle) => Store.ROLES[cle] && cle !== "livreur");
+          .filter((cle) => Store.ROLES[cle] && cle !== "livreur" && cle !== "vendeur");
 
     const corps = UI.ouvrirFeuille(compte.email || "Compte",
       '<p class="aide" style="margin:0 0 14px">' + Utils.echapper(traceCreation(compte)) +
@@ -266,7 +269,7 @@ const VueComptes = (() => {
          super administrateur les gère toutes. */
       (Store.listerBoutiques().length
         ? '<div id="cp-zone-boutique"' +
-            (compte.role === "superadministrateur" ? " hidden" : "") + ">" +
+            (compte.role === "superadministrateur" || compte.role === "vendeur" ? " hidden" : "") + ">" +
             '<div class="champ">' +
               '<label for="cp-boutique">Boutique confiée</label>' +
               '<select id="cp-boutique">' +
@@ -332,10 +335,10 @@ const VueComptes = (() => {
       UI.$("#cp-zone-modif", corps).hidden =
         !["moderateur", "administrateur"].includes(rang) || (surEnseigne && rang !== "superadministrateur");
       const zoneBoutique = UI.$("#cp-zone-boutique", corps);
-      if (zoneBoutique) zoneBoutique.hidden = rang === "superadministrateur";
+      if (zoneBoutique) zoneBoutique.hidden = rang === "superadministrateur" || rang === "vendeur";
       if (zoneEnseigne) {
         zoneEnseigne.hidden = rang === "superadministrateur" ||
-          rang === "livreur" || !surEnseigne;
+          rang === "livreur" || rang === "vendeur" || !surEnseigne;
       }
     };
     selecteur.onchange = rafraichirZones;
@@ -399,10 +402,11 @@ const VueComptes = (() => {
          on l'écrit en clair dans le menu pour que « boutique vide » ne
          se confonde pas avec « pas encore choisie ». */
       const choix = champBoutique ? champBoutique.value : compte.boutiqueId;
-      const boutiqueId = role === "superadministrateur" || choix === "__enseigne"
-        ? "" : choix;
+      /* (3.72.0) Un vendeur n'est rattaché à aucune boutique : ses produits le sont. */
+      const sansBoutique = role === "superadministrateur" || role === "vendeur";
+      const boutiqueId = sansBoutique || choix === "__enseigne" ? "" : choix;
       try {
-        if (role !== "superadministrateur" && champBoutique && !choix) {
+        if (!sansBoutique && champBoutique && !choix) {
           throw new Error("Choisissez la boutique confiée à ce compte.");
         }
         /* Un enregistrement par changement plutôt qu'un seul : le journal
@@ -451,7 +455,7 @@ const VueComptes = (() => {
 
   /* (3.70.0) « vendeur » : le compte d'un vendeur des boutiques à vendeurs
      multiples — par son numéro, comme un livreur, et sans boutique. */
-  function ouvrirCreation(apres, livreur, vendeur) {
+  function ouvrirCreation(apres, livreur, vendeur, rangImpose) {
     const parTel = livreur || vendeur;
     /* LE LIVREUR EST DANS LA LISTE, et il y manquait. On pouvait le
        nommer, mais seulement APRÈS coup : il fallait créer un
@@ -463,7 +467,10 @@ const VueComptes = (() => {
        une fois. Et le menu disparaît quand il n'y a pas le choix. */
     /* LES LIVREURS ONT LEUR PROPRE BOUTON (écran « Livreurs ») : ici,
        l'un ou l'autre, jamais mélangés. */
+    /* (3.72.0) Depuis la section d'un rang (« Créer un modérateur »), le
+       rang est fixé d'avance. */
     const rangs = (livreur ? ["livreur"] : vendeur ? ["vendeur"]
+      : rangImpose ? [rangImpose]
       : ["moderateur", "administrateur", "superadministrateur"])
       .filter((cle) => Store.rolesAttribuables().includes(cle));
     if (!rangs.length) {
@@ -476,7 +483,10 @@ const VueComptes = (() => {
     /* UN LIVREUR ENTRE PAR SON NUMÉRO : numéro, mot de passe, puis un
        code reçu par SMS. Son e-mail est facultatif — s'il en a un, il
        devient sa porte de secours, sans code. L'équipe garde l'e-mail. */
-    const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : vendeur ? "Nouveau vendeur" : "Nouveau compte",
+    const TITRES = { administrateur: "Nouvel administrateur", moderateur: "Nouveau modérateur",
+      superadministrateur: "Nouveau superadministrateur" };
+    const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : vendeur ? "Nouveau vendeur"
+      : (rangImpose && TITRES[rangImpose]) || "Nouveau compte",
       (parTel
         ? UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
             placeholder: "01 97 00 00 00",
@@ -637,7 +647,32 @@ const VueComptes = (() => {
     /* LES LIVREURS NE SONT PLUS MÉLANGÉS À L'ÉQUIPE : ils ont leur écran,
        leur bouton de création et leur gestion. */
     const nbLivreurs = comptes.filter((c) => c.role === "livreur").length;
-    comptes = comptes.filter((c) => c.role !== "livreur");
+    /* (3.72.0) LES VENDEURS NON PLUS : leur écran, leur bouton, leur fiche. */
+    const nbVendeurs = comptes.filter((c) => c.role === "vendeur").length;
+    comptes = comptes.filter((c) => c.role !== "livreur" && c.role !== "vendeur");
+    /* (3.72.0) Les rangs de l'équipe, chacun sa section, par ordre alphabétique. */
+    const nomDe = (c) => String(c.nom || c.email || c.tel || "");
+    const parRang = (rang) => comptes.filter((c) => c.role === rang)
+      .sort((a, b) => nomDe(a).localeCompare(nomDe(b), "fr", { sensitivity: "base" }));
+    const SECTIONS = [
+      { rang: "administrateur", titre: "Les administrateurs", icone: "equipe", creer: "Créer un administrateur",
+        aide: "Tous les droits sur SA boutique — produits, rayons, slider, réglages et ses modérateurs. " +
+          "Sans boutique, c'est un administrateur de BIZZOO.",
+        vide: "Aucun administrateur." },
+      { rang: "moderateur", titre: "Les modérateurs", icone: "equipe", creer: "Créer un modérateur",
+        aide: "Les produits et les rayons de sa boutique, rien d'autre. Sans boutique, il travaille pour BIZZOO.",
+        vide: "Aucun modérateur." },
+      { rang: "superadministrateur", titre: "Les superadministrateurs", icone: "cle", creer: "Créer un superadministrateur",
+        aide: "Ils tiennent toute l'enseigne : les boutiques, les réglages de BIZZOO et les comptes.",
+        vide: "Aucun autre superadministrateur." },
+    ];
+    /* Les revendeurs ont leur écran : ceux qui y entrent le trouvent d'ici. */
+    const voitRevendeurs = Supabase.estSuper() || Supabase.estAdminBizzoo() ||
+      (Supabase.estAdmin() && !Supabase.estCompteEnseigne());
+    let nbRevendeurs = null;
+    if (voitRevendeurs) {
+      try { nbRevendeurs = (await Store.listerRevendeurs("")).length; } catch (_) { nbRevendeurs = null; }
+    }
     /* (3.63.0) LES COMPTES À VALIDER, en tête : créés par un
        administrateur de BIZZOO, ils attendent le superadministrateur. */
     const aValider = comptes.filter((c) => c.aValider);
@@ -663,27 +698,60 @@ const VueComptes = (() => {
               "pour les voir, en ajouter un, et savoir qui a validé sa position.</p>" +
           "</a>"
         : "") +
-      '<div class="carte">' +
-        '<div class="carte-titre">' + UI.icone("equipe", "ic-sm") + " L'équipe (" + comptes.length + ")</div>" +
-        (adminBizzoo
-          ? '<p class="aide" style="margin:-4px 0 12px">Vous créez des <strong>modérateurs</strong>, ' +
-              "pour une boutique ou pour BIZZOO. Chacun attend que le <strong>superadministrateur" +
-              "</strong> le valide : d'ici là, vous pouvez le retoucher ou le retirer. Voici ceux " +
-              "que vous avez créés.</p>"
-          : "") +
-        '<p class="aide" style="margin:-4px 0 12px"' + (adminBizzoo ? " hidden" : "") +
-          '>Le <strong>super administrateur</strong> tient ' +
-          "toute l'enseigne : les boutiques, les réglages BIZZOO et les comptes. " +
-          "L'<strong>administrateur</strong> a tous les droits sur SA boutique — produits, rayons, " +
-          "slider, réglages et ses modérateurs. Le <strong>modérateur</strong> s'occupe des produits " +
-          "et des rayons de sa boutique, rien d'autre. Les <strong>livreurs</strong> se gèrent " +
-          "dans leur propre écran.</p>" +
-        (comptes.length
-          ? comptes.map((c) => htmlLigne(c, c.id === moi)).join("")
-          : '<p class="aide" style="margin:0">Aucun compte enregistré.</p>') +
-        '<button type="button" class="btn" id="cp-nouveau" style="margin-top:14px">' +
-          UI.icone("plus") + "Créer un compte</button>" +
-      "</div>" +
+      (Store.rolesAttribuables().includes("vendeur")
+        ? '<a class="carte carte-livreurs" id="cp-vendeurs" href="#/vendeurs">' +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Les vendeurs (" +
+              nbVendeurs + ")</div>" +
+            '<p class="aide" style="margin:0">Ceux des boutiques à vendeurs multiples se créent et se ' +
+              "gèrent à part : touchez ici pour les voir, en ajouter un, modifier leur compte, " +
+              "et suivre leurs ventes.</p>" +
+          "</a>"
+        : "") +
+      /* (3.72.0) UNE SECTION PAR RANG : les administrateurs, les modérateurs
+         (et les superadministrateurs pour qui les voit), chacun avec sa liste,
+         sa recherche et son bouton ; les livreurs, les vendeurs et les
+         revendeurs ont leur écran, une carte y mène. */
+      (adminBizzoo
+        ? '<p class="aide" style="margin:0 0 12px">Vous créez des <strong>modérateurs</strong>, ' +
+            "pour une boutique ou pour BIZZOO. Chacun attend que le <strong>superadministrateur" +
+            "</strong> le valide : d'ici là, vous pouvez le retoucher ou le retirer. Voici ceux " +
+            "que vous avez créés.</p>"
+        : "") +
+      SECTIONS.map((sct) => {
+        const membres = parRang(sct.rang);
+        const peutCreer = Store.rolesAttribuables().includes(sct.rang);
+        if (!membres.length && !peutCreer && sct.rang === "superadministrateur") return "";
+        return '<div class="carte cp-section" id="cp-section-' + sct.rang + '">' +
+          '<div class="carte-titre">' + UI.icone(sct.icone, "ic-sm") + " " + sct.titre + " (" + membres.length + ")</div>" +
+          '<p class="aide" style="margin:-4px 0 12px">' + sct.aide + "</p>" +
+          (membres.length > 5
+            ? '<input type="search" class="recherche-liste cp-chercher" data-section="' + sct.rang + '" autocomplete="off" ' +
+                'placeholder="Rechercher : nom, numéro, e-mail…" aria-label="Rechercher dans ' + Utils.echapper(sct.titre) + '">' +
+              '<div class="aide recherche-liste-vide" hidden>Aucun compte ne correspond.</div>'
+            : "") +
+          (membres.length
+            ? membres.map((c) => '<div class="cp-trouvable" data-cherche="' +
+                Utils.echapper(Utils.sansAccent([c.nom, c.email, c.tel].filter(Boolean).join(" "))) + '">' +
+                htmlLigne(c, c.id === moi) + "</div>").join("")
+            : '<p class="aide" style="margin:0">' + sct.vide + "</p>") +
+          (peutCreer
+            ? '<button type="button" class="btn btn-clair" data-creer-rang="' + sct.rang + '" style="margin-top:12px">' +
+                UI.icone("plus") + sct.creer + "</button>"
+            : "") +
+        "</div>";
+      }).join("") +
+      (voitRevendeurs
+        ? '<a class="carte carte-livreurs" id="cp-revendeurs" href="#/revendeurs">' +
+            '<div class="carte-titre">' + UI.icone("promo", "ic-sm") + " Les revendeurs" +
+              (nbRevendeurs === null ? "" : " (" + nbRevendeurs + ")") + "</div>" +
+            '<p class="aide" style="margin:0">Ils achètent au prix revendeur : ils se créent, se valident ' +
+              "et se gèrent dans leur propre écran. Touchez ici.</p>" +
+          "</a>"
+        : "") +
+      (comptes.length || Store.rolesAttribuables().some((r) => ["moderateur", "administrateur", "superadministrateur"].includes(r))
+        ? '<div class="btn-rangee"><button type="button" class="btn" id="cp-nouveau">' +
+            UI.icone("plus") + "Créer un compte</button></div>"
+        : "") +
       '<div class="carte">' +
         '<div class="carte-titre">Bon à savoir</div>' +
         '<p class="aide" style="margin:0">Touchez le crayon d\'un compte pour changer son rôle, ' +
@@ -698,7 +766,23 @@ const VueComptes = (() => {
           "vous ne pouvez pas modifier ses droits.</p>" +
       "</div>";
 
-    UI.$("#cp-nouveau", vue).onclick = () => ouvrirCreation(() => afficher(vue), false);
+    const nouveau = UI.$("#cp-nouveau", vue);
+    if (nouveau) nouveau.onclick = () => ouvrirCreation(() => afficher(vue), false);
+    for (const b of UI.$$("[data-creer-rang]", vue)) {
+      b.onclick = () => ouvrirCreation(() => afficher(vue), false, false, b.dataset.creerRang);
+    }
+    for (const champ of UI.$$(".cp-chercher", vue)) {
+      champ.oninput = () => {
+        const section = champ.closest(".cp-section");
+        const q = Utils.sansAccent(champ.value.trim());
+        let vus = 0;
+        for (const el of UI.$$(".cp-trouvable", section)) {
+          el.hidden = !!q && !el.dataset.cherche.includes(q);
+          if (!el.hidden) vus++;
+        }
+        UI.$(".recherche-liste-vide", section).hidden = vus > 0;
+      };
+    }
     for (const bouton of UI.$$("[data-valider]", vue)) {
       bouton.onclick = async () => {
         bouton.disabled = true;
@@ -978,5 +1062,7 @@ const VueComptes = (() => {
 
   return { afficher, monCompte, livreurs, validerPosition,
     /* (3.70.0) Le compte d'un vendeur, depuis l'écran « Vendeurs ». */
-    creerVendeur: (apres) => ouvrirCreation(apres, false, true) };
+    creerVendeur: (apres) => ouvrirCreation(apres, false, true),
+    /* (3.72.0) La fiche du compte d'un vendeur, depuis l'écran « Vendeurs ». */
+    ficheCompte: (compte, apres) => ouvrirFiche(compte, apres) };
 })();

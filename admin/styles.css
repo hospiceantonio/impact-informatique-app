@@ -2057,3 +2057,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .recherche-liste-vide{margin-top:4px;color:var(--rouge-fonce)}
 .recherche-liste-vide[hidden]{display:none}
 .bq-trouvable[hidden]{display:none!important}
+
+/* (3.72.0) Une rangée de vendeur : le crayon du compte, puis ses ventes. */
+.vv-rangee{display:flex;align-items:flex-start;gap:8px}
+.vv-rangee > .vv-vendeur{flex:1;min-width:0}
+.vv-rangee > .vv-compte{flex:none;margin-top:8px}
+.vv-rangee[hidden]{display:none}
+.cp-trouvable[hidden]{display:none}

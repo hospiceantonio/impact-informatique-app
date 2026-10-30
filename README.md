@@ -5528,6 +5528,23 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Chaque sorte de compte à sa place (3.73.0)
+
+L'écran **Comptes** de l'admin ne mélange plus tout :
+
+- **une section par rang** : les administrateurs, les modérateurs, et les
+  superadministrateurs pour qui les voit — chacune avec sa liste (par ordre
+  alphabétique), son champ de recherche et son bouton (« Créer un
+  administrateur », « Créer un modérateur »), le rang fixé d'avance ;
+- **les livreurs, les vendeurs et les revendeurs ont leur écran** : une
+  carte y mène depuis Comptes. Les **vendeurs** ne sont plus dans la liste
+  de l'équipe ; leur écran (« Vendeurs ») gère aussi leur compte — un
+  crayon ouvre leur fiche (nom, numéro, mot de passe, actif), où ils restent
+  vendeurs, sans boutique —, avec une recherche et l'ordre alphabétique.
+
+Bancs : `tools/banc-listes-cherchables.mjs` (section 4),
+`tools/banc-vendeurs-multiples.mjs` (section 5).
+
 ## Une commande groupée, une seule course (3.72.0)
 
 Une commande de plusieurs boutiques n'a qu'un livreur depuis la 3.64.0.

@@ -132,8 +132,18 @@ async function ouvrir({ role = "administrateur", moi = ADMIN, hash = "#/produits
       }
       return d([]);
     }
-    if (c.startsWith("profils")) return d([{ id: moi, email: "x@bizzoo.bj", role, actif: true, nom: "Moi",
-      peut_modifier_produits: true, boutique_id: role === "administrateur" ? "bou_marche" : null }]);
+    if (c.startsWith("profils")) {
+      const moiFiche = { id: moi, email: "x@bizzoo.bj", role, actif: true, nom: "Moi",
+        peut_modifier_produits: true, boutique_id: role === "administrateur" ? "bou_marche" : null };
+      /* (3.72.0) La liste des comptes : l'équipe et deux vendeurs. */
+      const voulu = (url.searchParams.get("id") || "").replace(/^eq\./, "");
+      if (voulu) return d([moiFiche].filter((p) => p.id === voulu));
+      return d([moiFiche,
+        { id: "1e1e1e1e-0000-0000-0000-000000000001", email: "modo@bizzoo.bj", role: "moderateur", actif: true,
+          nom: "Modo", peut_modifier_produits: true, boutique_id: "bou_marche" },
+        ...VENDEURS.map((v) => ({ id: v.id, email: "", role: "vendeur", actif: true, nom: v.nom, tel: v.tel,
+          peut_modifier_produits: true, boutique_id: null }))]);
+    }
     if (c.startsWith("boutiques")) return d([BOU(vendeurs)]);
     if (c.startsWith("boutique")) return d([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]);
     if (c.startsWith("categories")) return d(CATEGORIES);
@@ -245,6 +255,29 @@ titre("5. Le superadministrateur");
   await o.page.waitForTimeout(900);
   ok(/Ventes livrées/.test(await texte(o.page, "#feuille-corps")) && !(await o.page.$("#feuille-corps #vd-demander")),
     "toucher un vendeur ouvre son espace — sans bouton de demande");
+  await o.page.evaluate(() => UI.fermerFeuille());
+  await o.page.waitForTimeout(300);
+  /* (3.72.0) Le compte du vendeur se gère ici. */
+  ok(await o.page.$$eval("#vv-liste [data-compte]", (b) => b.length) >= 1, "(3.72.0) chaque vendeur a son crayon « compte »");
+  await o.page.click("#vv-liste [data-compte]");
+  await o.page.waitForTimeout(600);
+  const fiche = await o.page.evaluate(() => ({
+    roles: [...document.querySelectorAll("#cp-role option")].map((x) => x.value),
+    boutiqueCachee: !document.querySelector("#cp-zone-boutique") || document.querySelector("#cp-zone-boutique").hidden,
+    nom: (document.querySelector("#cp-nom") || {}).value }));
+  ok(fiche.roles.length === 1 && fiche.roles[0] === "vendeur" && fiche.boutiqueCachee && fiche.nom === "Afi",
+    "(3.72.0) sa fiche : vendeur et rien d'autre, sans boutique (" + JSON.stringify(fiche) + ")");
+  await o.page.evaluate(() => UI.fermerFeuille());
+  await o.page.evaluate(() => { location.hash = "#/comptes"; });
+  await o.page.waitForTimeout(1500);
+  const equipe = await texte(o.page, "#vue");
+  ok(!!(await o.page.$("#cp-vendeurs")) && /Les vendeurs \(2\)/i.test(equipe),
+    "(3.72.0) « Comptes » : une carte « Les vendeurs (2) » vers leur écran");
+  ok(/Modo/.test(equipe) && !(await o.page.$$eval(".carte .compte-ligne", (l) => l.some((x) => /Afi|Bio/.test(x.innerText)))),
+    "(3.72.0) et ils ne sont plus mêlés à l'équipe");
+  await o.page.click("#cp-vendeurs");
+  await o.page.waitForTimeout(1200);
+  ok(/#\/vendeurs$/.test(await o.page.evaluate(() => location.hash)), "(3.72.0) la carte mène à l'écran « Vendeurs »");
   await o.page.evaluate(() => { location.hash = "#/reversements"; });
   await o.page.waitForTimeout(1500);
   ok(/Vendeur — Afi/.test(await texte(o.page, "#vue")) && !!(await o.page.$('[data-valider="9"][data-vendeur]')),

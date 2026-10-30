@@ -141,15 +141,21 @@ const VueVendeurs = (() => {
       return;
     }
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des vendeurs…</div>';
-    let vendeurs, historique;
+    let vendeurs, historique, comptes;
     try {
-      [vendeurs, historique] = await Promise.all([Store.ventesVendeurs(), Store.historiqueParts()]);
+      /* (3.72.0) Les comptes aussi : les vendeurs se gèrent ici, comme les
+         livreurs dans leur écran — plus dans la liste de l'équipe. */
+      [vendeurs, historique, comptes] = await Promise.all([Store.ventesVendeurs(), Store.historiqueParts(),
+        Store.listerComptes().catch(() => [])]);
     } catch (err) {
       vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' + e(err.message) +
         " — la base est-elle à jour (supabase/vendeurs-multiples.sql) ?</p></div>";
       return;
     }
     const total = (cle) => vendeurs.reduce((t, v) => t + v[cle], 0);
+    vendeurs = vendeurs.slice().sort((a, b) =>
+      String(a.nom || "").localeCompare(String(b.nom || ""), "fr", { sensitivity: "base" }));
+    const compteDe = (id) => comptes.find((c) => c.id === id && c.role === "vendeur");
     vue.innerHTML =
       '<div class="carte sd-solde" id="vv-totaux">' +
         '<div class="sd-etiquette">Commission de BIZZOO (ventes livrées)</div>' +
@@ -169,8 +175,18 @@ const VueVendeurs = (() => {
         '<a class="btn btn-clair" href="#/reversements">' + UI.icone("promo") + "Versements</a>" +
       "</div>" +
       '<div class="titre-section">' + vendeurs.length + " vendeur" + (vendeurs.length > 1 ? "s" : "") + "</div>" +
+      (vendeurs.length > 5
+        ? '<input type="search" class="recherche-liste" id="vv-chercher" autocomplete="off" ' +
+            'placeholder="Rechercher un vendeur : nom, numéro…" aria-label="Rechercher un vendeur">' +
+          '<div class="aide recherche-liste-vide" id="vv-aucun" hidden>Aucun vendeur ne correspond.</div>'
+        : "") +
       (vendeurs.length
         ? '<div class="carte" id="vv-liste">' + vendeurs.map((v) =>
+            '<div class="vv-rangee" data-cherche="' + e(Utils.sansAccent([v.nom, v.tel].filter(Boolean).join(" "))) + '">' +
+            (compteDe(v.id)
+              ? '<button type="button" class="btn-ic btn-ic-clair vv-compte" data-compte="' + e(v.id) +
+                  '" aria-label="Modifier le compte de ' + e(v.nom) + '">' + UI.icone("crayon", "ic-sm") + "</button>"
+              : "") +
             '<button type="button" class="sd-ligne vv-vendeur" data-vendeur="' + e(v.id) + '">' +
               '<div class="sd-ligne-haut"><strong>' + e(v.nom) + "</strong>" +
                 (v.actif ? "<span>" + e(v.tel) + "</span>" : '<span class="badge badge-rupture">Inactif</span>') + "</div>" +
@@ -180,7 +196,7 @@ const VueVendeurs = (() => {
               '<div class="aide">Disponible ' + e(m(v.disponible)) + " · versé " + e(m(v.reverse)) +
                 (v.enAttente ? " · demandé " + e(m(v.enAttente)) : "") +
                 (v.aVenir ? " · en attente " + e(m(v.aVenir)) : "") + "</div>" +
-            "</button>").join("") + "</div>"
+            "</button></div>").join("") + "</div>"
         : '<div class="carte"><p class="aide" style="margin:0">Aucun vendeur. Créez-en un, puis attribuez-lui ' +
             "ses produits dans une boutique à vendeurs multiples.</p></div>") +
       '<details class="carte" id="vv-historique"><summary class="carte-titre">Historique des parts (' +
@@ -200,6 +216,25 @@ const VueVendeurs = (() => {
       "</details>";
 
     UI.$("#vv-nouveau", vue).onclick = () => VueComptes.creerVendeur(() => liste(vue));
+    /* (3.72.0) Le compte : nom, numéro, mot de passe, actif ou non. */
+    for (const b of UI.$$("[data-compte]", vue)) {
+      b.onclick = () => {
+        const c = compteDe(b.dataset.compte);
+        if (c) VueComptes.ficheCompte(c, () => liste(vue));
+      };
+    }
+    const chercher = UI.$("#vv-chercher", vue);
+    if (chercher) {
+      chercher.oninput = () => {
+        const q = Utils.sansAccent(chercher.value.trim());
+        let vus = 0;
+        for (const r of UI.$$(".vv-rangee", vue)) {
+          r.hidden = !!q && !r.dataset.cherche.includes(q);
+          if (!r.hidden) vus++;
+        }
+        UI.$("#vv-aucun", vue).hidden = vus > 0;
+      };
+    }
     for (const b of UI.$$("[data-vendeur]", vue)) {
       b.onclick = async () => {
         const v = vendeurs.find((x) => x.id === b.dataset.vendeur) || {};
