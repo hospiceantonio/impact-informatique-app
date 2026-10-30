@@ -972,7 +972,9 @@ const VueProduits = (() => {
 
     /* Changer de boutique change tout le reste — rayons, devise, marge :
        on rouvre le formulaire sur la boutique choisie. */
-    const champBoutique = UI.$("#p-boutique");
+    /* (3.72.0) Boutiques et vendeurs par ordre alphabétique, avec un champ pour les trouver. */
+    const champBoutique = UI.cherchable(UI.$("#p-boutique"), { placeholder: "Rechercher une boutique…" });
+    UI.cherchable(UI.$("#p-vendeur"), { placeholder: "Rechercher un vendeur…" });
     if (champBoutique) {
       champBoutique.addEventListener("change", () => {
         try {

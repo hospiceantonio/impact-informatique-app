@@ -395,6 +395,8 @@ const VueSlider = (() => {
       "</div>");
 
     brancherMedia(corps);
+    /* (3.72.0) Les produits par ordre alphabétique, avec un champ pour le trouver. */
+    UI.cherchable(UI.$("#slide-produit", corps), { placeholder: "Rechercher un produit…" });
     /* Créer depuis « Ajouter une vidéo » : le sélecteur s'ouvre tout seul. */
     if (!slide && typeDemande === "video") {
       const champ = UI.$("#slide-video", corps);

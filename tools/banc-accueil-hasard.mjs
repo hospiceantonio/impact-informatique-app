@@ -58,6 +58,23 @@ titre("1. Huit au plus, « Tout voir » pour le reste");
   await aller(page, "#/boutiques");
   const toutes = await page.$$eval("[data-boutique]", (t) => new Set(t.map((x) => x.dataset.boutique)).size);
   ok(toutes === 12, "« Tout voir » : les 12 boutiques (" + toutes + ")");
+  /* (3.72.0) Un champ pour trouver une boutique, et « A → Z ». */
+  await page.fill("#bou-chercher", "boutique 1");
+  await pause(200);
+  const trouvees = await page.$$eval(".bou-ligne", (l) => l.filter((x) => !x.hidden).map((x) => x.dataset.boutique));
+  ok(trouvees.length === 4 && trouvees.every((id) => ["bou_1", "bou_10", "bou_11", "bou_12"].includes(id)),
+    "(3.72.0) « boutique 1 » : les boutiques 1, 10, 11 et 12 (" + trouvees.join(",") + ")");
+  await page.fill("#bou-chercher", "nulle part");
+  await pause(200);
+  ok(await page.$("#bou-aucune") !== null, "(3.72.0) rien : « Aucune boutique ne correspond »");
+  await page.fill("#bou-chercher", "");
+  await page.click('#bou-filtres [data-filtre="az"]');
+  await pause(300);
+  const az = await page.$$eval(".bou-ligne .bou-ligne-nom", (l) => l.map((x) => x.textContent.trim()));
+  ok(az.length === 12 && JSON.stringify(az) === JSON.stringify(az.slice().sort((a, b) => a.localeCompare(b, "fr"))),
+    "(3.72.0) « A → Z » : par ordre alphabétique");
+  await page.click('#bou-filtres [data-filtre="toutes"]');
+  await pause(300);
 
   titre("2. Un nouveau tirage à chaque arrivée sur l'accueil");
   const vus = new Set([premiere.join(",")]);

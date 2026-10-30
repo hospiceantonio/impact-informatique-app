@@ -193,6 +193,8 @@ titre("2. Le nom et le numéro PARTENT vers la base");
   await page.fill("#nc-nom", "Ablo");
   await page.fill("#nc-tel", "0197000099");
   await page.selectOption("#nc-boutique", "bou_tech");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await page.$("#nc-momo-nom")) await page.fill("#nc-momo-nom", "Titulaire MoMo");
   await page.click("#nc-creer");
   await page.waitForTimeout(1400);
 
@@ -242,6 +244,8 @@ titre("3. « BIZZOO » est offert pour un livreur, et part en « aucune boutique
   await page.fill("#nc-nom", "Ablo");
   await page.fill("#nc-tel", "0197000099");
   await page.selectOption("#nc-boutique", "__enseigne");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await page.$("#nc-momo-nom")) await page.fill("#nc-momo-nom", "Titulaire MoMo");
   await page.click("#nc-creer");
   await page.waitForTimeout(1400);
 

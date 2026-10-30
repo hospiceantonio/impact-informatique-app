@@ -2363,3 +2363,7 @@ a.pub-carte:active{transform:scale(.98)}
 /* (3.70.0) L'opérateur suit le numéro : la note qui le dit. */
 .co-mm-note{margin:6px 0 0;font-weight:600;color:var(--orange-texte)}
 .co-mm-note[hidden]{display:none}
+
+/* (3.72.0) Nos boutiques : le champ pour en trouver une. */
+.bou-chercher{margin:0 0 10px}
+.bou-ligne[hidden]{display:none}

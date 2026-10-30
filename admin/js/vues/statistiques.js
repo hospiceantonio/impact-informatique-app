@@ -143,7 +143,8 @@ const VueStatistiques = (() => {
     for (const bouton of UI.$$("#st-periodes [data-periode]", vue)) {
       bouton.onclick = () => { periode = bouton.dataset.periode; afficher(vue); };
     }
-    const choixBoutique = UI.$("#st-boutique", vue);
+    /* (3.72.0) La page se redessine à chaque choix : on attend qu'il choisisse. */
+    const choixBoutique = UI.cherchable(UI.$("#st-boutique", vue), { placeholder: "Rechercher une boutique…", auto: false });
     if (choixBoutique) {
       choixBoutique.onchange = () => { boutiqueChoisie = choixBoutique.value; afficher(vue); };
     }

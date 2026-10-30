@@ -327,6 +327,8 @@ const VueBoutiques = (() => {
         '<option value="' + Utils.echapper(c.id) + '"' +
           (c.id === actuel ? " selected" : "") + ">" +
           Utils.echapper(c.nom) + "</option>").join("");
+    /* (3.72.0) Par ordre alphabétique, avec un champ pour le trouver. */
+    UI.cherchable(select, { placeholder: "Rechercher un secteur…" });
   }
 
   const choisi = (base, selecteur, attribut, defaut) => {
@@ -528,14 +530,25 @@ const VueBoutiques = (() => {
        Réglages — comme pour l'administrateur d'une boutique. */
     const gere = Supabase.estSuper();
 
+    /* (3.72.0) TROUVER UNE BOUTIQUE : un champ en tête, et le choix de la
+       boutique ouverte par ordre alphabétique (la liste du superadmin garde
+       l'ordre des clients, qu'il règle). */
+    const cherche = (b) => Utils.echapper(Utils.sansAccent(b.nomBoutique || ""));
+    const parNom = boutiques.slice().sort((a, b) =>
+      String(a.nomBoutique || "").localeCompare(String(b.nomBoutique || ""), "fr", { sensitivity: "base" }));
     vue.innerHTML =
+      (boutiques.length > 5
+        ? '<input type="search" class="recherche-liste" id="bq-chercher" autocomplete="off" ' +
+            'placeholder="Rechercher une boutique…" aria-label="Rechercher une boutique">' +
+          '<div class="aide recherche-liste-vide" id="bq-aucune" hidden>Aucune boutique ne correspond.</div>'
+        : "") +
       (gere
         ? '<div class="carte">' +
             '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Vos boutiques (" + boutiques.length + ")</div>" +
             '<p class="aide" style="margin:-4px 0 12px">Elles s\'affichent chez les clients dans cet ordre. ' +
               "Touchez le crayon pour changer le nom, l'icône ou fermer une boutique.</p>" +
-            boutiques.map((b, i) =>
-              htmlLigne(b, courante && b.id === courante.id, i === 0, i === boutiques.length - 1)).join("") +
+            boutiques.map((b, i) => '<div class="bq-trouvable" data-cherche="' + cherche(b) + '">' +
+              htmlLigne(b, courante && b.id === courante.id, i === 0, i === boutiques.length - 1) + "</div>").join("") +
             '<button type="button" class="btn" id="bq-nouvelle" style="margin-top:14px">' +
               UI.icone("plus") + "Créer une boutique</button>" +
           "</div>"
@@ -546,8 +559,8 @@ const VueBoutiques = (() => {
         '<p class="aide" style="margin:0 0 12px">Produits, rayons, slider et réglages concernent ' +
           "la boutique ouverte. Touchez-en une pour y travailler.</p>" +
         '<div class="bou-choix">' +
-          boutiques.map((b) =>
-            '<button type="button" class="bou-vignette' +
+          parNom.map((b) =>
+            '<button type="button" data-cherche="' + cherche(b) + '" class="bq-trouvable bou-vignette' +
               (courante && b.id === courante.id ? " actif" : "") +
               (b.actif ? "" : " bou-fermee") + '" data-ouvrir="' + Utils.echapper(b.id) + '">' +
               pastille(b) +
@@ -556,6 +569,18 @@ const VueBoutiques = (() => {
         "</div>" +
       "</div>";
 
+    const chercher = UI.$("#bq-chercher", vue);
+    if (chercher) {
+      chercher.oninput = () => {
+        const q = Utils.sansAccent(chercher.value.trim());
+        let vues = 0;
+        for (const el of UI.$$(".bq-trouvable[data-cherche]", vue)) {
+          el.hidden = !!q && !el.dataset.cherche.includes(q);
+          if (!el.hidden && el.classList.contains("bou-vignette")) vues++;
+        }
+        UI.$("#bq-aucune", vue).hidden = vues > 0;
+      };
+    }
     const nouvelle = UI.$("#bq-nouvelle");
     if (nouvelle) nouvelle.onclick = () => ouvrirFiche(null, () => afficher(vue));
 

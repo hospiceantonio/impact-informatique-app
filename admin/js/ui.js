@@ -858,7 +858,65 @@ const UI = (() => {
       : '<button type="button" class="ligne-info"' + (attrs || "") + ">" + dedans + "</button>";
   }
 
+  /* (3.72.0) UNE LISTE QUI SE CHERCHE. Un menu de boutiques, de produits,
+     de vendeurs : rangé par ordre alphabétique, et un champ au-dessus
+     pour taper quelques lettres plutôt que de faire défiler. Les choix
+     fixes (« Choisir… », « BIZZOO — toutes les boutiques », « Aucun »)
+     restent en tête. Une liste courte n'a pas besoin du champ. */
+  function cherchable(select, o = {}) {
+    if (!select || select.dataset.cherchable === "pret") return select;
+    select.dataset.cherchable = "pret";
+    const fixe = (opt) => opt.value === "" || opt.value.startsWith("__") || opt.dataset.fixe === "1";
+    const plier = (t) => Utils.sansAccent(t).replace(/\s+/g, " ").trim();
+    const valeur = select.value;
+    const tete = [...select.options].filter(fixe);
+    const reste = [...select.options].filter((x) => !fixe(x))
+      .sort((a, b) => a.textContent.localeCompare(b.textContent, "fr", { sensitivity: "base", numeric: true }));
+    const toutes = tete.concat(reste);
+    select.replaceChildren(...toutes);
+    select.value = valeur;
+    if (reste.length < (o.seuil == null ? 6 : o.seuil)) return select;
+    const champ = document.createElement("input");
+    champ.type = "search";
+    champ.className = "recherche-liste";
+    champ.autocomplete = "off";
+    champ.placeholder = o.placeholder || "Rechercher…";
+    champ.setAttribute("aria-label", o.placeholder || "Rechercher dans la liste");
+    if (select.id) champ.id = select.id + "-chercher";
+    const note = document.createElement("div");
+    note.className = "aide recherche-liste-vide";
+    note.hidden = true;
+    note.textContent = "Aucun résultat : essayez un autre mot.";
+    select.insertAdjacentElement("beforebegin", champ);
+    select.insertAdjacentElement("afterend", note);
+    champ.addEventListener("input", () => {
+      const q = plier(champ.value);
+      const avant = select.value;
+      const trouvees = q ? reste.filter((x) => plier(x.textContent).includes(q)) : reste;
+      note.hidden = !(q && !trouvees.length);
+      if (q && !trouvees.length) return;
+      select.replaceChildren(...(q ? trouvees : toutes));
+      /* Le choix d'avant reste s'il est encore là ; sinon le premier trouvé,
+         et la page en est prévenue comme d'un choix à la main. Une page qui
+         se redessine à chaque choix (« auto: false ») attend qu'on choisisse. */
+      if ([...select.options].some((x) => x.value === avant)) select.value = avant;
+      else if (o.auto === false) {
+        const invite = document.createElement("option");
+        invite.value = avant;
+        invite.disabled = true;
+        invite.textContent = trouvees.length + " résultat" + (trouvees.length > 1 ? "s" : "") + " — choisissez";
+        select.prepend(invite);
+        select.selectedIndex = 0;
+      } else if (trouvees.length) {
+        select.value = trouvees[0].value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    return select;
+  }
+
   return {
+    cherchable,
     lienPartage, liensPartage, porte,
     $, $$, entete, icone, picto, marque, motSymbole, logoAdmin, toast, majCloche,
     ouvrirFeuille, fermerFeuille, feuilleSansRappel, confirmer, demanderTexte,

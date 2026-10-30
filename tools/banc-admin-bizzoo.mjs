@@ -170,6 +170,8 @@ titre("2. Il crée un livreur");
   await o.page.fill("#nc-mdp", "secret-essai");
   await o.page.fill("#nc-nom", "Bio");
   await o.page.selectOption("#nc-boutique", "bou_a");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await o.page.$("#nc-momo-nom")) await o.page.fill("#nc-momo-nom", "Titulaire MoMo");
   await o.page.click("#nc-creer");
   await pause(1200);
   const s = o.note.signup[0] || {};
@@ -247,6 +249,8 @@ titre("5. L'administrateur d'une boutique crée ses livreurs (3.59.0)");
   await o.page.fill("#nc-tel", "01 96 00 04 04");
   await o.page.fill("#nc-mdp", "secret-essai");
   await o.page.fill("#nc-nom", "Kodjo");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await o.page.$("#nc-momo-nom")) await o.page.fill("#nc-momo-nom", "Titulaire MoMo");
   await o.page.click("#nc-creer");
   await pause(1200);
   const fiche = o.note.profils[0] || {};
@@ -333,6 +337,8 @@ titre("7. L'administrateur de BIZZOO : ses livreurs, et un modérateur à valide
   await o.page.fill("#nc-nom", "Kossi");
   await o.page.fill("#nc-tel", "0197112233");
   await o.page.selectOption("#nc-boutique", "bou_a");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await o.page.$("#nc-momo-nom")) await o.page.fill("#nc-momo-nom", "Titulaire MoMo");
   await o.page.click("#nc-creer");
   await pause(1500);
   const fiche = o.note.profils[0] || {};
