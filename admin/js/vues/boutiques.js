@@ -138,6 +138,37 @@ const VueBoutiques = (() => {
           "devient le prix de vente. Elle ne peut pas le modifier.</div>" +
       "</div>" +
 
+      /* (3.70.0) VENDEUR UNIQUE OU VENDEURS MULTIPLES. Une décision de
+         BIZZOO : le superadministrateur seul la voit et la prend (la base
+         refuse aux autres). Dans une boutique à vendeurs multiples, chaque
+         produit a son vendeur et sa part, en % du prix de vente, jamais
+         au-dessus de la part maximale réglée ici. */
+      (Supabase.estSuper() && Store.connaitVendeurs()
+        ? '<div class="champ">' +
+            '<label for="bq-vendeurs">Type de boutique <span class="obligatoire">*</span></label>' +
+            '<select id="bq-vendeurs">' +
+              '<option value="unique"' + (b && b.vendeurs === "multiples" ? "" : " selected") +
+                ">Boutique à vendeur unique</option>" +
+              '<option value="multiples"' + (b && b.vendeurs === "multiples" ? " selected" : "") +
+                ">Boutique à vendeurs multiples</option>" +
+            "</select>" +
+            '<div class="aide">Vendeur unique : comme aujourd\'hui. Vendeurs multiples : chaque produit ' +
+              "a son vendeur (un compte « Vendeur ») et la part qui lui revient ; sa part de chaque vente " +
+              "lui est créditée automatiquement. En passant une boutique en vendeurs multiples, ouvrez " +
+              "chacun de ses produits pour lui attribuer son vendeur.</div>" +
+          "</div>" +
+          '<div class="champ" id="bq-zone-part"' + (b && b.vendeurs === "multiples" ? "" : " hidden") + ">" +
+            '<label for="bq-part-max">Part maximale d\'un vendeur</label>' +
+            '<div class="champ-montant">' +
+              '<input id="bq-part-max" inputmode="decimal" autocomplete="off" placeholder="80"' +
+                ' value="' + Utils.echapper(Utils.fmtTaux(b ? b.partVendeurMax : 80)) + '">' +
+              '<span class="devise">%</span>' +
+            "</div>" +
+            '<div class="aide">Le pourcentage le plus haut qu\'on peut donner à un vendeur sur un produit ' +
+              "de cette boutique : le reste est la commission de BIZZOO.</div>" +
+          "</div>"
+        : "") +
+
       /* La marge sur les ventes aux REVENDEURS. Sans elle, un revendeur
          validé achèterait au prix BIZZOO exact : la boutique toucherait
          bien son dû, mais BIZZOO ne gagnerait rien, et le revendeur
@@ -256,6 +287,14 @@ const VueBoutiques = (() => {
         }
       };
     }
+    /* (3.70.0) La part maximale n'a de sens qu'à vendeurs multiples. */
+    const typeVendeurs = UI.$("#bq-vendeurs", base);
+    if (typeVendeurs) {
+      typeVendeurs.onchange = () => {
+        const zone = UI.$("#bq-zone-part", base);
+        if (zone) zone.hidden = typeVendeurs.value !== "multiples";
+      };
+    }
   }
 
   /* Les puces s'allument avec « active », pas « actif » : « choisi »
@@ -372,6 +411,11 @@ const VueBoutiques = (() => {
           tauxMarge: UI.$("#bq-marge", corps).value,
           revendeurMode: modeRevendeur(corps),
           tauxRevendeur: UI.$("#bq-marge-revendeur", corps).value,
+          /* (3.70.0) Seulement si le superadministrateur a vu le choix. */
+          ...(UI.$("#bq-vendeurs", corps) ? {
+            vendeurs: UI.$("#bq-vendeurs", corps).value === "multiples" ? "multiples" : "unique",
+            partVendeurMax: Utils.lireNombre(String(UI.$("#bq-part-max", corps).value).replace(",", ".")) || 80,
+          } : {}),
           logo: logoTravail && logoTravail.dataUrl ? logoTravail : (logoTravail ? undefined : null),
           actif: boutique ? UI.$("#bq-actif", corps).checked : true,
           ouvertures,
@@ -381,24 +425,48 @@ const VueBoutiques = (() => {
         UI.fermerFeuille();
 
         if (changement) {
-          const combien = await Store.produitsClasses(boutique.id);
-          const ok = await UI.confirmer({
-            titre: "Changer le secteur ?",
-            texte: combien
+          const apercu = await Store.apercuSecteur(boutique.id, secteurVoulu);
+          const pl = (n, un, plusieurs) => n + " " + (n > 1 ? plusieurs : un);
+          const combien = apercu.aClasser;
+          let texte;
+          if (apercu.ancienneBase) {
+            texte = combien
               ? combien + " produit" + (combien > 1 ? "s" : "") + " de cette boutique " +
                 (combien > 1 ? "sont rangés" : "est rangé") + " dans les rayons du secteur " +
                 "actuel. Le nouveau n'a pas les mêmes : " +
                 (combien > 1 ? "ils repasseront" : "il repassera") + " « à classer » — " +
                 "en vente, mais sous aucune catégorie — jusqu'à ce que la boutique " +
                 (combien > 1 ? "les reclasse" : "le reclasse") + "."
-              : "Aucun produit n'est encore classé : rien ne sera perdu.",
+              : "Aucun produit n'est encore classé : rien ne sera perdu.";
+          } else if (!apercu.produits) {
+            texte = "Cette boutique n'a encore aucun produit : rien à déplacer.";
+          } else {
+            /* (3.70.0) Les produits SUIVENT la boutique dans son nouveau
+               secteur : l'application cliente les y montre aussitôt. */
+            texte = (apercu.produits > 1
+                ? "Ses " + apercu.produits + " produits passent"
+                : "Son produit passe") + " avec elle dans le nouveau secteur." +
+              (apercu.suivent
+                ? " " + pl(apercu.suivent, "produit retrouve", "produits retrouvent") +
+                  " un rayon du même nom."
+                : "") +
+              (combien
+                ? " " + pl(combien, "produit n'a pas", "produits n'ont pas") +
+                  " de rayon équivalent : visible" + (combien > 1 ? "s" : "") +
+                  " dans le secteur (« Tout voir »), mais « à classer » jusqu'à ce que " +
+                  "la boutique " + (combien > 1 ? "leur" : "lui") + " choisisse un rayon."
+                : "");
+          }
+          const ok = await UI.confirmer({
+            titre: "Changer le secteur ?",
+            texte,
             bouton: "Changer le secteur",
             danger: combien > 0,
           });
           if (ok) {
-            await Store.changerSecteur(boutique.id, secteurVoulu);
-            UI.toast(combien
-              ? "Secteur changé — " + combien + " produit" + (combien > 1 ? "s" : "") + " à reclasser"
+            const reste = await Store.changerSecteur(boutique.id, secteurVoulu);
+            UI.toast(reste
+              ? "Secteur changé — " + reste + " produit" + (reste > 1 ? "s" : "") + " à ranger dans un rayon"
               : "Secteur changé", "ok");
           } else {
             UI.toast("Le reste est enregistré ; le secteur n'a pas changé.");

@@ -108,6 +108,7 @@ const VueRapports = (() => {
       actions.push(h("button", { class: "btn btn-danger", onclick: async (ev) => {
         if (!await UI.confirmer("Supprimer ce brouillon ?", { danger: true, valider: "Supprimer" })) return;
         await UI.agir(ev.currentTarget, () => Supabase.supprimer("rh_rapports", "id=eq." + r.id), "Brouillon supprimé.");
+        App.rafraichir();
         location.hash = "#/rapports";
       } }, UI.icone("poubelle", "ic-sm")));
     }

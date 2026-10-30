@@ -5,7 +5,7 @@
    mails : rien de cela ne doit rester dans un téléphone).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "bizzoo-personnel-v29";
+const VERSION = "bizzoo-personnel-v40";
 
 const FICHIERS = [
   "./",
@@ -35,8 +35,14 @@ const FICHIERS = [
   "./js/vues/paie.js",
   "./js/vues/statistiques.js",
   "./js/vues/suivi.js",
+  "./js/vues/incidents.js",
   "./js/vues/localiser.js",
   "./js/vues/livreurs.js",
+  "./js/vues/argent.js",
+  "./js/vues/controles.js",
+  "./js/vues/qualite.js",
+  "./js/vues/file.js",
+  "./js/vues/bilans.js",
   "./vendor/leaflet/leaflet.js",
   "./vendor/leaflet/leaflet.css",
   "./js/vues/parametres.js",
@@ -60,6 +66,37 @@ self.addEventListener("activate", (ev) => {
     caches.keys()
       .then((cles) => Promise.all(cles.filter((c) => c !== VERSION).map((c) => caches.delete(c))))
       .then(() => self.clients.claim()));
+});
+
+/* UNE ALERTE POUSSÉE (fonction Edge « rh-push ») : le message arrive
+   chiffré, le navigateur le déchiffre et nous le remet. On l'affiche tel
+   quel : la base n'y met ni montant ni nom de client. Une même tâche ne
+   s'empile pas : son étiquette (tag) est la clé de la tâche, si bien que
+   l'escalade ou l'alerte revenue remplace la notification précédente. */
+self.addEventListener("push", (ev) => {
+  let d = {};
+  try { d = ev.data ? ev.data.json() : {}; } catch (_) { d = { corps: ev.data ? ev.data.text() : "" }; }
+  ev.waitUntil(self.registration.showNotification(d.titre || "BIZZOO Personnel", {
+    body: d.corps || "Une tâche vous attend dans « Ma file ».",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png",
+    tag: "rh-" + (d.tache || d.id || "alerte"),
+    data: { lien: typeof d.lien === "string" && d.lien.startsWith("#/") ? d.lien : "#/file" },
+  }));
+});
+
+/* Le toucher : l'application déjà ouverte va sur la file ; sinon elle s'ouvre dessus. */
+self.addEventListener("notificationclick", (ev) => {
+  ev.notification.close();
+  const cible = new URL("./" + ((ev.notification.data && ev.notification.data.lien) || "#/file"), self.registration.scope).href;
+  ev.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((fenetres) => {
+    for (const f of fenetres) {
+      if (f.url.startsWith(self.registration.scope) && "focus" in f) {
+        return f.focus().then(() => f.navigate(cible)).catch(() => null);
+      }
+    }
+    return self.clients.openWindow(cible);
+  }));
 });
 
 /* Le réseau d'abord ; la coquille gardée seulement si le réseau manque.

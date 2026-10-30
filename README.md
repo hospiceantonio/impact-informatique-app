@@ -836,6 +836,17 @@ qui rend les comptes de l'enseigne vrais — un prix arrondi à la main
 ferait mentir le bénéfice annoncé. Il n'y a plus non plus de taux par
 produit : la marge est celle de la boutique, une fois pour toutes.
 
+**L'arrondi ne rabote jamais la marge (3.70.0).** Le prix de vente est
+arrondi au franc **supérieur** (`prix_public()` en base, `prixPublic()`
+dans l'admin — les deux donnent le même chiffre). Avant, l'arrondi se
+faisait au plus proche : 2 273 + 10 % = 2 500,3 donnait 2 500, soit
+227 F et 9,99 % pour BIZZOO au lieu des 10 % réglés. Désormais :
+2 501, soit 228 F. La fiche produit affiche alors la marge réglée
+(10 %), pas le 10,03 % que donnerait la fraction de franc. Pour vendre
+pile à 2 500 à 10 %, la boutique saisit un prix BIZZOO de 2 272.
+`supabase/marge-exacte.sql` pose le nouvel arrondi et relève d'1 F les
+seuls articles dont le prix venait de l'ancien arrondi.
+
 ### Ce que rapportent les boutiques
 
 Le tableau de bord du super administrateur mène à un écran qui ne compte
@@ -1454,15 +1465,31 @@ et l'écran des produits le compte en haut de la liste. L'application,
 elle, **refuse d'en créer de nouveaux** sans rayon — rien ne justifie de
 publier un article que personne ne trouvera.
 
-### Changer de secteur déclasse le catalogue
+### Changer de secteur : les produits suivent (3.70.0)
 
 Les produits sont rangés dans des rayons de l'ancien secteur, que le
-nouveau n'a pas. La base **refuse l'écriture directe**, même à
-l'enseigne : ce n'est pas une question de rang mais de cohérence.
-`changer_secteur()` fait les deux gestes dans l'ordre — déclasser, puis
-changer — et rend le nombre de produits déclassés ; l'application le
-demande **avant** d'ouvrir la confirmation, pour que l'enseigne sache ce
-qu'elle s'apprête à défaire.
+nouveau n'a pas forcément. La base **refuse l'écriture directe**, même à
+l'enseigne : ce n'est pas une question de rang mais de cohérence. Tout
+passe par `changer_secteur()`.
+
+Avant la 3.70.0, elle déclassait tout le catalogue : les produits
+n'étaient plus sous aucune catégorie, et **dans l'application cliente la
+boutique n'apparaissait pas dans le secteur qu'on venait de lui donner**.
+Désormais :
+
+- elle change d'abord le secteur de la boutique, puis range chaque
+  produit dans le rayon **du même nom** du nouveau secteur (casse et
+  espaces ignorés) ;
+- les autres restent « à classer », mais **dans le nouveau secteur** :
+  `produit_code` range tout produit sans rayon dans le secteur de sa
+  boutique. Le client les trouve sous la catégorie (« Tout voir ») ;
+- « modifie_le » bouge : les téléphones relisent le catalogue ;
+- elle rend le nombre de produits restés « à classer ».
+
+`apercu_secteur(boutique, vers)` dit **avant** la confirmation combien de
+produits suivent dans un rayon et combien resteront à ranger.
+`supabase/secteur-suit.sql` pose tout cela et range dans le secteur de
+leur boutique les produits « à classer » d'avant.
 
 ### Ce que voit l'acheteur
 
@@ -2720,6 +2747,49 @@ pas été confirmée par la banque.
   administrateur, et le reçu du client propose un bouton « Prévenir la
   boutique » — le message part alors du WhatsApp du client, avec le
   détail déjà écrit.
+
+## L'opérateur suit le numéro ; un numéro n'est pas un ID (3.70.0)
+
+Un numéro béninois dit son réseau d'origine : « 01 » + deux chiffres
+(depuis le 30 novembre 2024), ou ces deux chiffres en tête de l'ancien
+numéro à 8 chiffres. MTN : 42, 46, 50–54, 56, 57, 59, 61, 62, 66, 67, 69,
+90–93, 96, 97 ; Moov : 45, 55, 58, 60, 63–65, 68, 94, 95, 98, 99 ;
+Celtiis : 40, 41, 43, 44, 47 (les tables du SDK de FeexPay, qui sont aussi
+celles de l'ancien plan). Une seule table, la même dans les trois
+applications : `Utils.reseauDuNumero()` (client, admin) et
+`UI.reseauDuNumero()` (Personnel). L'ancienne table à 8 chiffres du client
+se trompait (« 90 » et « 91 » donnés à Moov, « 94 » et « 95 » à MTN).
+
+**La liste vit dans la base** (`prefixes_operateurs`, posée par
+`supabase/prefixes-operateurs.sql`) : un nouveau préfixe attribué par
+l'ARCEP s'ajoute sans nouvelle version. Le superadmin la règle dans BIZZOO
+Admin → Réglages → « Préfixes des opérateurs » (ajouter « 01 30 » avec son
+opérateur, réattribuer, toucher un préfixe pour le retirer), par
+`regler_prefixe_operateur()` — personne d'autre n'y écrit, tout le monde la
+lit (le client paie sans compte). Les trois applications la relisent à
+chaque ouverture (`actualiserPrefixes()`) et la gardent pour l'ouverture
+suivante hors connexion ; si la base ne répond pas, ou n'a pas encore la
+table, elles gardent la liste intégrée. Rien de tout cela n'est
+automatique : il n'existe pas de liste publique que BIZZOO pourrait
+consulter — c'est à BIZZOO d'ajouter le préfixe quand un opérateur
+l'annonce. Un préfixe inconnu ne casse rien : le réseau n'est simplement
+pas corrigé.
+
+**Le réseau se corrige tout seul** pendant qu'on tape le numéro : Moov
+choisi, numéro MTN tapé → MTN, et l'écran le dit (« Opérateur corrigé : ce
+numéro est un numéro MTN »). Au paiement de la commande, au retrait d'un
+code promo, aux numéros de réception des boutiques et des livreurs, au
+retrait sur le solde dans Personnel. On peut encore rechoisir un autre
+réseau ensuite — un numéro porté garde son préfixe — mais l'écran prévient.
+
+**Un numéro de téléphone n'est pas un ID de transaction.** Un texte fait
+seulement de chiffres (et d'espaces, « + », tirets) qui se lit comme un
+numéro béninois est signalé pendant la saisie, et le premier « Valider »
+s'arrête dessus : « ressemble à un numéro de téléphone MTN, pas à un ID de
+transaction ». Validé une seconde fois tel quel, il passe — un vrai ID peut
+ressembler à un numéro. Dans « Faire livrer », à la remise du colis par le
+livreur, aux reversements des soldes et dans la caisse de Personnel.
+`tools/banc-operateur-numero.mjs` l'éprouve.
 
 ## Le paiement qui n'aboutit pas (3.56.1)
 
@@ -4972,6 +5042,63 @@ Mêmes droits que les Statistiques, décidés par la base : les nombres pour l'a
 - **Qui le voit** : l'administration, le superadministrateur, et les profils à qui Paramètres ouvre « Localiser un livreur » ou les statistiques des livreurs (`rh_voit_livreurs`). Les montants : l'administration seulement.
 - **Bloquer** (l'administration seule, motif obligatoire ; `rh_bloquer_livreur`) : la colonne `profils.courses_bloquees`, que seule cette fonction peut poser (déclencheur `profils_garde_blocage` : une boutique qui modifie son livreur ne peut pas y toucher). Bloqué, le livreur ne reçoit plus aucune demande (`candidats_course`, donc aussi `courses_proposees` et `prendre_course`), et aucune boutique ne peut lui confier de course (`assigner_livreur`). Ses courses **pas encore parties** (nouvelle, vue, préparée) lui sont retirées comme s'il les avait refusées — sans compter dans ses refus : la boutique est prévenue et la confie à un autre, le client aussi s'il connaissait déjà son livreur. Celles **déjà en route**, il les termine. Il garde son compte (ses courses passées, ses encaissements). Il est prévenu (« Courses suspendues »), et au déblocage (« Courses rétablies »). Chaque blocage et déblocage est gardé dans `livreurs_blocages` (auteur, motif, date), lisible seulement par ces fonctions.
 
+### Les contrôles : réglages sensibles, encaissements, veille des livreurs (3.71.0)
+
+`supabase/personnel-controles.sql` ; écran `personnel/js/vues/controles.js` (menu « Contrôles », `#/controles`), avec l'accueil, le suivi des commandes et la carte « Localiser un livreur ».
+
+- **Les réglages sensibles** (onglet « Réglages sensibles » ; l'administration et le superadministrateur) : chaque changement de la table `paiement` (mode essai ou production, paiement ouvert ou fermé, agrégateur, clé publique, **code et nom MoMoPay**, acompte, tarifs de livraison, part du livreur), de `reglages` (compte obligatoire) et des **numéros de réception** des boutiques (`boutiques_reception`) est gardé champ par champ dans `rh_audit_reglages` : qui, quand, l'ancienne et la nouvelle valeur. Les déclencheurs (`rh_audit_reglages_noter`) avalent leurs propres erreurs : un historique manqué ne bloque jamais BIZZOO Admin ni BIZZOO. La table est figée (rien ne s'efface ni ne se réécrit) et fermée : elle ne se lit que par `rh_audit_reglages_liste`, qui **tronque** les codes, clés et numéros (`016…67`). Un changement fait sans compte connecté (une fonction du serveur) est signé « Système ».
+- **« Vu et approuvé »** : le CEO ou le superadministrateur coche ce qu'il a vérifié (`rh_audit_approuver`) ; l'administration lit seulement. Tant qu'un changement attend, une **alerte rouge** reste en tête de l'accueil (« Paiement passé en mode essai… par X, le … ») et le menu Contrôles porte une pastille. Après l'approbation, l'écran relit les compteurs : la pastille de l'onglet s'éteint aussitôt.
+- **Les encaissements à la livraison** (onglet « Encaissements », `rh_encaissements(depuis, jusqu)`) : les MoMoPay pas encore vérifiés (« Vérifié » se touche toujours dans BIZZOO Admin, menu Caisse), les espèces pas encore rendues (déclarations d'avant 3.59.0), les livraisons sans déclaration alors qu'un reste était dû, les écarts entre le dû et le déclaré, les contestations du client. Ce qui attend s'affiche quelle que soit la période ; les écarts et les contestations, seulement ceux de la période. Par livreur : combien attendent, combien sont « anciens », le plus ancien ; au plafond, il est signalé et sa fiche (menu Livreurs) propose le blocage, qui existe déjà. **Montants et numéros de transaction : l'administration et le superadministrateur seulement.**
+- **La pastille « Encaissements »** et la tuile de l'accueil (`rh_controles_compteurs`) comptent les anciens selon la même règle que l'écran, livraisons sans déclaration comprises (sur 60 jours) : un livreur « Plafond atteint » ne coexiste plus avec une pastille à 0. Dans les tableaux, les lignes au plafond ou anciennes sont marquées d'un trait orange.
+- **La clé « controles »** de Paramètres (groupe Commandes) ouvre ce menu aux profils choisis, la logistique par exemple, **sans montants** : nombres et ancienneté, pas d'onglet Réglages sensibles (`rh_controles_acces` : « admin » ou « logistique »).
+- **Les seuils** (onglet « Seuils », l'administration et le superadministrateur, `rh_controles_regler`) : MoMoPay ancien après 48 h, espèces anciennes après 24 h, plafond de 3 anciens par livreur — des valeurs de départ, à régler. Ils vivent dans `rh_reglages_suivi`.
+- **La veille des livreurs**, dans le suivi des commandes (`rh_suivi_donnees`, donc aussi la pastille `rh_suivi_alertes_nb`) : « **Course sans livreur** » (payée, ou préparée, et aucun livreur depuis 30 min) et « **Livreur en route sans position** » (en livraison, rien reçu de son téléphone depuis 15 min, compté depuis sa dernière position ou depuis la course acceptée). Ces deux délais se règlent dans Suivi commandes, onglet Réglages (`rh_suivi_regler_veille`, l'administration). Le suivi lève aussi « **MoMoPay pas vérifié** » (au-delà du seuil) et « **Écart d'encaissement** ».
+- **Sur la carte Localiser**, le livreur muet passe en **orange**, avec « Appeler » (`rh_localiser_livreurs` donne `muet` et le seuil).
+- **Limites** : la base ne garde que la dernière position d'un livreur, pas son trajet ; un réglage changé avant la mise en service de ce fichier n'a pas d'historique ; Personnel ne marque rien « Vérifié » lui-même (c'est BIZZOO qui retrouve la transaction dans son compte marchand).
+- **Les essais** : section 27 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql`. L'historique y est écrit sur le vrai chemin, en rôle `authenticated` (le superadministrateur qui change `paiement`, l'administrateur d'une boutique qui règle son numéro par `regler_reception`) : si le déclencheur perdait SECURITY DEFINER, aucune ligne ne s'écrirait et l'essai le verrait.
+
+### L'argent sous contrôle : paiements, dettes, remboursements, gestes Admin, codes promo (3.71.0)
+
+`supabase/personnel-argent.sql` ; écran `personnel/js/vues/argent.js`, cinq onglets de plus dans le menu « Contrôles » (`#/controles/paiements`, `dettes`, `remboursements`, `gestes`, `codes`), avec des tuiles à l'accueil et la pastille du menu (`rh_argent_compteurs`). Qui voit quel onglet : `rh_argent_acces`. **Les montants : l'administration, le CEO et le superadministrateur seulement** — la base les retire elle-même (`montants: false`).
+
+- **Paiements à rapprocher** (`rh_paiements`) : les commandes dont le client a peut-être payé sans que la commande le dise — l'agrégateur a répondu « payé » mais la commande n'est pas payée, versement en **conflit** ou **incomplet**, agrégateur **sans réponse** (sa dernière réponse), « **j'ai payé** » du téléphone resté sans preuve au-delà de 30 min — et, pour mémoire, les paiements **confirmés à la main** (avec le garant). Une commande déjà payée (`paye_le` posé), même annulée ensuite, n'y entre jamais : elle est dans les remboursements. Ce qui attend s'affiche quelle que soit la période (60 jours au plus). « Noter » (`rh_rapprocher`) garde qui a traité, quand, avec un commentaire (en cours, réglé, sans suite) dans `rh_rapprochements`, jamais réécrite. **Rien ne se confirme ici** : la confirmation du paiement reste dans BIZZOO Admin.
+- **À payer** (`rh_dettes`) : les demandes qui attendent — reversements des boutiques, gains des livreurs, retraits des parrains — avec leur ancienneté (« ancienne » après 5 jours) ; compte par compte, ce qui est demandé, ce qui est dû sans demande (même règle que `solde_boutique` et `solde_livreur`) et ce qui est à venir : articles payés pas encore livrés pour une boutique, part des frais des courses payées en main pour un livreur (comme `solde_livreur`), rien pour un parrain (« — »). La **dette réelle** du jour s'affiche à côté du **théorique** de la période (prix BIZZOO des articles payés) et de ce qui a vraiment été versé. La décision reste dans BIZZOO Admin.
+- **Remboursements** (`rh_remboursements_liste`) : une commande payée dont un article, ou le tout, est annulé et pour laquelle le client a versé plus que ce qui lui sera servi entre seule dans la file ; le dû est recalculé par la base (`rh_rembourse_du` : versé en ligne moins la valeur de ce qui reste, remise au prorata, frais tant qu'il reste quelque chose à livrer ; tout le versé si la commande entière est annulée). L'administration note le remboursement fait (`rh_rembourser` : montant, mode, référence obligatoire pour Mobile Money et virement, jamais plus que le reste dû) dans `rh_remboursements` ; « en retard » après 7 jours sans remboursement. **Qui a annulé** : `rh_annulations`, remplie par déclencheur sur `commandes` et `commande_lignes` (`rh_annulation_noter`, qui avale ses erreurs : il ne bloque jamais une annulation) ; rien n'est ajouté à `commande_lignes`. En bas, **les boutiques qui annulent après paiement** sur la période (journal des étapes du suivi).
+- **Gestes Admin** (`rh_gestes`) : la table `journal`, écrite par l'écran de BIZZOO Admin — qui, quoi, quand, sur quelle boutique. **Sensible** : suppression, changement de compte (une simple connexion ou déconnexion n'en est pas un), prix, montant en FCFA, paiement, MoMoPay ou numéro de réception, geste la nuit (22 h – 6 h), geste annulé ensuite, dix gestes ou plus du même compte dans l'heure (`rh_geste_raisons`). L'état d'avant (`retour`) et les **chiffres** des libellés (montants, numéros, codes MoMoPay, masqués « ••• » pour les autres) : le CEO et le superadministrateur seuls. Lisible par le CEO, le superadministrateur et les profils à qui Paramètres ouvre **« audit »** ; **l'administration n'y entre jamais**, même si son propre profil a la clé, et **seul le CEO règle la clé « audit »** (`rh_regler_acces` refuse un changement de cette clé venant de l'administration ; l'écran grise la ligne). Admin ne note pas les changements de marge : ils n'y figurent pas. **L'écran le dit : une modification faite hors de l'écran d'Admin (éditeur SQL, fonctions du serveur) n'y figure pas.**
+- **Codes promo** (`rh_codes_surveillance`) : pour chaque code, les usages (commandes payées) de la période, les clients, les usages au total ; l'administration voit aussi la valeur du code, le coût des remises, les ventes et les commissions. Les parrains : leurs codes, usages, retraits demandés ; l'administration voit leur nom, leurs commissions, leurs retraits et ce qui leur reste dû. **Abus probables** : un même code utilisé par plusieurs comptes avec la même position de livraison (à 100 m près) ou la même adresse (« à retirer » exclu) ; un parrain qui achète avec son propre code (même compte ou même numéro). **Les numéros ne sortent que par leurs 4 derniers chiffres, pour tout le monde** (`rh_tel_masque`).
+- **Trois clés de Paramètres** : « **paiements** » (groupe Commandes : paiements et remboursements, sans montants, numéros masqués — pour la relation client), « **audit** » et « **promos** » (nouveau groupe « Contrôle interne »). La clé « **caisse** » ouvre aussi « À payer » en nombres et en ancienneté.
+- **Les seuils** (onglet Seuils, `rh_argent_regler`, dans `rh_reglages_suivi`) : « j'ai payé » sans preuve après 30 min, demande d'argent ancienne après 5 jours, remboursement en retard après 7 jours — des valeurs de départ, à régler.
+- **Limites** : qui a annulé n'est connu que pour les annulations faites après l'installation de ce fichier ; un code expiré qu'un client tente encore n'est noté nulle part (`verifier_code` ne garde rien) ; le suivi des commandes ne lève pas encore d'alerte sur une commande non payée (il ne regarde que les commandes payées) : c'est l'onglet « Paiements à rapprocher » qui les porte ; le libellé d'un geste Admin est celui qu'Admin a écrit.
+- **Les essais** : section 28 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` — droits (un employé sans accès, une boutique, un visiteur), chaque onglet, aucun montant hors de l'administration, numéros masqués, l'annulation notée en rôle `authenticated` par la boutique, le déclencheur qui avale ses erreurs, jamais plus que le dû ; après relecture : une commande payée puis annulée hors des paiements à rapprocher, « inconnu » tranché par un refus, la clé « audit » au CEO seul, aucun chiffre pour un profil « audit », les vrais libellés d'Admin, l'« à venir » des livreurs.
+
+### La qualité du service : SAV, boutiques, catalogue, files d'attente, zones, fidélité (3.71.0)
+
+`supabase/personnel-qualite.sql` ; écran `personnel/js/vues/qualite.js` (menu « Qualité », `#/qualite`, six onglets et « Seuils »), avec sa pastille (`rh_qualite_compteurs`). Ouvert à l'administration, au CEO, au superadministrateur, et par la clé **« qualite »** de Paramètres (nouveau groupe « Qualité ») **sans aucun montant** (`rh_qualite_acces` : « admin » ou « equipe »). Rien n'est posé sur les tables de la place de marché : ni déclencheur, ni colonne ; tout se lit, et tout se décide toujours dans BIZZOO Admin.
+
+- **SAV et satisfaction** (`rh_satisfaction`) : les réclamations ouvertes, quelle que soit la période, en trois colonnes — « **la boutique doit répondre** » (jamais répondu, ou le client a réécrit après sa réponse), « **en attente du client** », « **à trancher par BIZZOO** » (escaladée) — avec depuis combien de temps on attend celui qui doit agir (`rh_sav_ouvertes`). Alertes : **sans réponse** après 24 h, **escalade non tranchée** après 48 h. Par boutique, sur la période : réclamations, répondues, délai moyen et le plus long, escaladées, et **l'évolution de la note** : celle du jour, celle d'il y a 30 jours, la courbe de 8 semaines ; une baisse de 0,3 point ou plus est « en chute ». La note est **relevée chaque jour** dans `rh_notes_boutiques` (`rh_notes_releve`, par pg_cron à 6 h 15, ou par l'écran à l'ouverture) ; quand le relevé manque (avant la mise en service), elle est **recalculée sur les avis** écrits avant cette date (`rh_note_boutique_au`, « reconstituée »). Le nom du client et le motif de l'appel : l'administration seule.
+- **Boutiques** (`rh_qualite_boutiques`) : la fiche qualité de chaque boutique sur les commandes payées de la période — délai pour **voir** une commande et pour la **préparer** (journal du suivi), articles payés jamais vus, **annulations**, **réclamations** pour 100 commandes, **produits épuisés**, **note**, **horaires**. Un signal par seuil dépassé ; **rouge** à deux signaux, **orange** à un, **vert** sinon. **Les ventes** (prix payés par les clients, jamais le prix BIZZOO ni la marge) : l'administration seule. Pour une boutique orange ou rouge, l'administration a **« Créer une mission d'accompagnement »** : le formulaire de mission habituel s'ouvre prérempli (« Accompagner la boutique X », les signaux en description) ; il reste à choisir le profil et l'échéance.
+- **Catalogue** (`rh_catalogue_anomalies`, aujourd'hui, aucun prix) : les **ruptures qui coûtent** (épuisé, ni « sur commande » ni masqué, vendu au moins 3 fois en 30 jours ; les mieux vendus d'abord, avec leur rang), les **réassorts dépassés** (`appro_le` passée), les fiches **sans photo** ou **sans catégorie**, les produits **masqués depuis plus de 30 jours**. **« Boutique appelée »** se coche (`rh_catalogue_appeler`, table `rh_ruptures_suivi` : qui, quand, ce qu'elle a dit) et vaut 7 jours ; la note de l'appel est facultative (bouton « Noter l'appel ») ; une rupture qui coûte et n'est pas appelée compte dans la pastille.
+- **Files d'attente** (`rh_files_attente`) : une ligne par file d'Admin — demandes des boutiques (Validations), comptes revendeur (Revendeurs), comptes d'équipe à valider (Comptes), avis et produits signalés (Avis) — : combien, la plus ancienne, l'attente moyenne, combien au-delà du seuil, le délai moyen des décisions des 30 derniers jours, et un lien vers l'écran d'Admin. **Rouge** quand la plus ancienne dépasse le seuil de sa file (48 h, réglable file par file). Des nombres et des dates : aucun nom.
+- **Zones** (`rh_statistiques_zones`) : par **commune** ou par **quartier** (zone du suivi des commandes, corrigée ou lue dans l'adresse), les commandes payées de la période, les livrées, le **délai moyen** du paiement à la livraison, les **lentes** (plus de 4 h), les **échecs et retours**, les **non reçues**, la **distance moyenne** et la **part de tricycle** (livraison au kilomètre). Toutes les commandes de la période comptent, sans plafond (une première version ne gardait que les 3 000 plus récentes, et faussait les longues périodes). Aucun montant.
+- **Fidélité** (`rh_statistiques_clients`) : un client, c'est son compte, ou à défaut son numéro (8 derniers chiffres). **Cohortes** des 12 derniers mois : nouveaux clients du mois de leur premier achat, et combien ont racheté 1, 2, 3 mois plus tard — un taux seulement pour un mois **terminé** : le mois en cours reste « à venir » ; clients **perdus** depuis 60 et 90 jours ; **comptes supprimés** (clients qui avaient acheté). **La valeur des cohortes et la liste à relancer** (sans commande depuis 90 jours, les plus fidèles d'abord, 200 au plus, **numéros masqués aux 4 derniers chiffres**, comptes supprimés exclus) : l'administration seule ; les autres ont les nombres et les taux.
+- **Les seuils** (onglet Seuils, l'administration et le superadministrateur, `rh_qualite_regler`, dans `rh_reglages_suivi`) : réponse 24 h, décision 48 h, chute de note 0,3, voir 4 h, préparer 24 h, annulations 10 %, réclamations 5 pour 100, épuisés 30 %, note minimale 3,5, rupture « qui coûte » à 3 ventes, masqué 30 jours, files 48 h, livraison lente 4 h, relance après 90 jours — des valeurs de départ, à régler.
+- **Limites** : la base ne date pas le début d'une rupture (on montre la dernière vente et le réassort prévu) ; une note « reconstituée » compte comme masqué depuis toujours un avis masqué plus tard ; la validation d'un compte d'équipe n'est pas datée (pas de délai de décision pour cette file) ; un client qui commandait sans compte et en a ouvert un ensuite peut compter deux fois ; la date de suppression d'un compte n'est pas gardée (on compte les comptes supprimés, pas quand).
+- **Les essais** : section 29 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` — droits (employé sans accès, boutique, visiteur, tables fermées), le rangement des réclamations et les alertes, le délai par boutique et la chute de la note, la fiche et son feu, ventes à l'administration seule, la rupture qui coûte et « boutique appelée », les cinq files, les zones (commune, quartier), les cohortes, perdus et comptes supprimés, la liste à relancer masquée, les seuils et leurs bornes ; après relecture : 3 000 commandes de plus ne chassent rien des zones, le journal lu par commande (son index) dans la fiche et les zones, aucun taux de rachat pour le mois en cours.
+
+### L'équipe au travail : ma file du jour, les alertes sur le téléphone, le bilan du matin (3.71.0)
+
+`supabase/personnel-equipe.sql` ; écrans `personnel/js/vues/file.js` (menu « Ma file », `#/file`, avec sa pastille), `personnel/js/vues/bilans.js` (menu « Bilan du matin », `#/bilans`, et la carte « Bilan du jour » de l'Accueil), la carte « Alertes sur ce téléphone » de Mon compte, et la fonction Edge `supabase/functions/rh-push` (Web Push). Rien n'est posé sur les tables de la place de marché : ni déclencheur, ni colonne ; tout se lit, seules les tables `rh_` s'écrivent. **Aucun montant dans une tâche ni dans une alerte.**
+
+- **Ma file** : chaque alerte du suivi (pas vue, préparation ou livraison en retard, sans confirmation, contestée, échec, incident, course sans livreur, livreur muet, MoMoPay pas vérifié, écart ou contestation d'encaissement), des contrôles (réglage sensible à approuver, encaissement qui attend), de l'argent (paiement à rapprocher, remboursement en retard, demande d'argent qui attend) et de la qualité (réclamation sans réponse, escalade à trancher, rupture qui coûte, file d'Admin en retard) devient une **tâche** (`rh_taches`), une par alerte et par objet (sa clé). `rh_alertes_courantes` reprend les règles des écrans, mais sans compte connecté (pg_cron n'en a pas). **Le routage** (onglet « Routage », l'administration seule, `rh_routage_regler`, table `rh_routage_alertes`) confie chaque type d'alerte à un profil — ou le laisse à l'administration, ce qui est le réglage de départ — avec un délai d'escalade (30 min au départ, de 5 min à une semaine) ; une alerte désactivée ne crée plus de tâche ; changer le routage déplace les tâches que personne n'a prises.
+  - **Qui voit quoi** (`rh_tache_visible`, `rh_file_acces`) : un membre, les tâches de son profil ; un responsable, celles des profils qu'il dirige ; l'administration, le CEO et le superadministrateur, tout. Le menu n'apparaît qu'à qui a au moins une alerte confiée à son profil.
+  - **Agir** : « **Je prends** » (`rh_tache_prendre` : la tâche est à moi, les collègues le voient ; la reprendre à un collègue, son responsable ou l'administration, et une note le dit) ; « **Relance** » (`rh_tache_relancer`, note datée et signée dans `rh_taches_notes`) ; « **Terminé** » (`rh_tache_terminer` : par qui l'a prise, son responsable ou l'administration) ; « **Ouvrir** » mène à l'écran de l'alerte (fiche de la commande, onglet des contrôles ou de la qualité). **Appeler** et **WhatsApp** vers la boutique et le livreur de la tâche ; **vers le client, l'administration seule**.
+  - **Tout seul** (`rh_taches_synchroniser`, pg_cron toutes les 5 minutes `rh-file-taches`, et l'écran à l'ouverture si le dernier calcul a plus de deux minutes) : une alerte nouvelle crée sa tâche ; une alerte disparue efface la sienne (« réglée d'elle-même », rangée dans « Terminées » 7 jours) ; une alerte revenue la rouvre, libre ; une tâche terminée ne revient pas tant que son alerte dure, mais **se rouvre si son alerte part puis revient** (une file d'Admin, une rupture qui reviennent un mois plus tard refont une tâche) ; une tâche que personne n'a prise dans le délai **remonte au responsable** du profil (à l'administration s'il n'en a pas). Le délai se compte depuis que la tâche attend son profil actuel (`confiee_le`) : une tâche déplacée par un changement de routage laisse tout son délai au nouveau profil.
+- **Les alertes sur le téléphone** : dans Mon compte, « Activer les alertes sur ce téléphone » abonne le navigateur (`rh_push_abonner`, table `rh_push_abonnements`, 5 téléphones au plus par compte) ; chacun choisit ses types (parmi ceux que le routage confie à son profil, `rh_push_etat`) et ses **heures de silence** (heure du Bénin, de 22 h à 6 h par exemple ; `rh_push_regler`, table `rh_push_preferences`). Une tâche nouvelle sonne chez les membres de son profil, une escalade chez le responsable (`rh_alertes_a_pousser`) — **une seule fois par occurrence** (`rh_alertes_envoyees` ; une alerte revenue sonne de nouveau), jamais pour ce qui existait avant l'abonnement, et ce qui tombe pendant le silence part à la fin du silence si l'alerte dure. Toutes les 5 minutes (`rh-alertes-push`), `rh_pousser_alertes` appelle par pg_net la fonction Edge **`rh-push`** avec le seul numéro de l'envoi (les envois neufs, et ceux de la dernière heure restés en attente — clés VAPID pas encore réglées, appel perdu) ; elle relit le message dans la base (`rh_push_a_envoyer`, une seule fois), le chiffre pour chaque navigateur (RFC 8291) et le signe avec la clé VAPID (RFC 8292) ; un abonnement disparu est oublié (`rh_push_abonnement_mort`). Le service worker affiche la notification (les alertes d'une même tâche se remplacent au lieu de s'empiler) et, au toucher, ouvre l'écran de la tâche — la fiche de la commande dans le Suivi, l'onglet des contrôles ou de la qualité —, « Ma file » à défaut. **Le message ne porte que le type et le numéro de commande ou le nom de la boutique : ni montant, ni nom ni numéro de client.** Les notifications d'Admin et du client (`envoyer-push`, `appareils_push`, Firebase) ne changent pas : Personnel est une application web, elle passe par le Web Push du navigateur.
+- **Le bilan du matin** (`rh_preparer_bilan`, pg_cron `rh-bilan-matin` à 7 h, heure du Bénin ; table `rh_bilans`, un par jour) : les paiements en litige, les MoMoPay pas vérifiés, les demandes d'argent en retard, les remboursements en retard, les réglages pas approuvés, les réclamations en souffrance, les ruptures de produits qui se vendent, les commandes de la veille (passées, payées, jamais payées, annulées), la file de l'équipe ; **le lundi**, la semaine écoulée à côté de la précédente (payées, jamais payées, réclamations, en %). Les nombres et les montants sont rangés à part : **la version complète (montants) pour l'administration, le CEO et le superadministrateur ; sans montants pour les responsables de profil** (`rh_bilan_acces`, `rh_bilans_lire`). Sans pg_cron, le bilan du jour se prépare à la première lecture après 7 h.
+- **Mise en marche des alertes sur le téléphone** (une fois) : `node tools/vapid-cles.mjs` sur le PC fabrique la paire de clés ; Supabase → Edge Functions → Secrets : `VAPID_PUBLIQUE`, `VAPID_PRIVEE` (jamais ailleurs), `VAPID_SUJET` (`mailto:` d'une adresse de BIZZOO) ; `supabase functions deploy rh-push --no-verify-jwt` ; puis `update public.rh_push_reglage set url = 'https://<projet>.supabase.co/functions/v1/rh-push', cle_publique = '<VAPID_PUBLIQUE>';`. Tant que ce n'est pas fait, Mon compte dit que le service n'est pas en marche, rien ne part et rien ne casse ; la file et le bilan marchent sans.
+- **Limites** : une alerte « encaissement qui attend » (Contrôles) et « MoMoPay pas vérifié » (suivi) peuvent viser la même commande sous deux tâches : désactiver l'un des deux types dans le routage si c'est gênant ; le parrain d'une demande de retrait est un client : sa tâche ne dit ni son nom ni son numéro, et n'a pas de bouton d'appel ; sur iPhone, une application web ne reçoit d'alerte qu'ajoutée à l'écran d'accueil (iOS 16.4 ou plus récent) ; la comparaison du lundi se fait sur les 7 jours d'avant et les 7 d'encore avant, à l'heure du Bénin ; l'envoi réel par un service de push (Google, Mozilla, Apple) ne s'éprouve qu'en ligne ; le lien poussé mène à l'écran de la tâche même si l'employé n'a pas ce menu (l'écran le lui refuse alors, comme le bouton « Ouvrir ») ; **deux points de la proposition retenue sont écartés** : le bilan n'est pas déposé dans les Discussions (un message y exige un employé auteur, et le fil d'un profil mélangerait la version avec et sans montants ; il est sur l'Accueil et dans « Bilan du matin ») et il ne compte pas les boutiques « en rouge » (le feu est calculé par l'écran Qualité, réservé à son accès ; à ajouter si le propriétaire le demande).
+- **Les essais** : section 30 de `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` — droits (employé sans routage, autre profil, boutique, visiteur, tables fermées, fonctions du serveur), le routage et ses bornes, une tâche par alerte au bon profil, ni client ni montant dans la file d'un membre, « je prends », la reprise par le responsable, la relance signée, « terminé » selon le rôle, la tâche qui s'efface et se rouvre, l'escalade, le routage qui déplace les tâches libres ; l'abonnement, les types, le silence (minuit compris), une seule fois, rien d'avant l'abonnement, l'escalade chez le responsable ; le bilan unique du jour, sans montants pour un responsable. Et `tools/eprouver-rh-push.sh` (`supabase/functions/tests/rh-push.mjs`, dans « Éprouver les fonctions ») : sans clés rien n'est consommé, seul le numéro vient de l'appel, le message se déchiffre exactement par le navigateur visé et par lui seul, la signature VAPID se vérifie, un abonnement disparu est oublié.
+
 ### Photos, vidéos et audio dans les discussions ; tout s'efface à 7 jours
 
 `supabase/personnel-pieces.sql`, fonction Edge `supabase/functions/rh-menage`.
@@ -5005,7 +5132,7 @@ Cinq sous-menus de plus dans Statistiques, mois par mois (l'année en cours par 
 3. **La fonction** : `supabase functions deploy rh-messagerie` (avec la vérification du jeton).
 4. **Le CEO** ouvre `/personnel/` avec son compte superadministrateur et devient le CEO ; puis il crée les profils, l'administration, les employés.
 
-Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql`, `personnel-sexe-statistiques.sql`, `personnel-accueil.sql`, `personnel-messages.sql`, `personnel-confidentialite.sql`, `personnel-activation.sql`, `personnel-mot-de-passe.sql`, `personnel-livreurs.sql` (puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails).
+Les chantiers suivants ont chacun leur fichier, à exécuter après : `personnel-statistiques.sql`, `personnel-suivi.sql`, `personnel-parametres.sql`, `personnel-gestion.sql`, `personnel-pieces.sql`, `localiser-livreurs.sql`, `personnel-depenses.sql`, `personnel-caisse.sql`, `personnel-fiches.sql`, `personnel-solde.sql`, `personnel-sexe-statistiques.sql`, `personnel-accueil.sql`, `personnel-messages.sql`, `personnel-confidentialite.sql`, `personnel-activation.sql`, `personnel-mot-de-passe.sql`, `personnel-livreurs.sql`, `personnel-controles.sql`, `personnel-argent.sql` (corrigé après relecture du lot : à réexécuter, il porte aussi la garde de la clé « audit » dans `rh_regler_acces` ; puis déployer `rh-menage` et `rh-reversement` avec `--no-verify-jwt` ; après `personnel-parametres.sql`, redéployer `rh-messagerie`, qui consulte l'accès au menu Mails), puis `personnel-qualite.sql` (le menu Qualité), puis `personnel-equipe.sql` (Ma file, les alertes sur le téléphone, le bilan du matin ; pour les alertes, déployer ensuite `rh-push` avec `--no-verify-jwt` et ses clés VAPID : voir « L'équipe au travail » ; corrigé après relecture du lot : s'il a déjà été exécuté, le réexécuter, puis redéployer `rh-push`).
 
 Essais : `supabase/tests/99zzzzzzzzzzzzzzzzzzzz-personnel.sql` (constats : chaque porte, et une paie au franc près calculée à la main).
 
@@ -5401,6 +5528,129 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Les boutiques à vendeurs multiples (3.70.0)
+
+Une boutique est **à vendeur unique** (comme avant, rien ne change) ou
+**à vendeurs multiples** : plusieurs vendeurs y proposent leurs produits,
+et chacun reçoit automatiquement sa part de ses ventes.
+
+**Le superadministrateur** règle le type dans la fiche boutique (*Type de
+boutique*), avec la **part maximale** d'un vendeur (80 % par défaut) — la
+base refuse ces deux réglages à tout autre compte. Il crée les comptes
+**Vendeur** (Accueil → *Vendeurs* → *Nouveau vendeur*) : un vendeur entre
+dans BIZZOO Admin par son numéro et son mot de passe, n'appartient à
+aucune boutique, et n'a qu'un écran, **Mes ventes**.
+
+**Chaque produit** d'une boutique à vendeurs multiples a :
+
+- son **prix de vente** (saisi, au lieu du prix BIZZOO) ;
+- son **vendeur propriétaire** (un compte vendeur actif) ;
+- la **part du vendeur**, en % du prix de vente, au plus la part maximale
+  de la boutique.
+
+La part en francs (le « prix BIZZOO » du produit) se calcule **en base**,
+au franc inférieur : 10 000 F à 80 % → 8 000 pour le vendeur, 2 000 pour
+BIZZOO. Elle suit le prix de vente s'il change. Tout changement de
+vendeur ou de part est **historisé** (`parts_vendeurs_historique`), et
+une part changée **ne touche pas les ventes déjà faites** : chaque ligne
+de commande fige son vendeur et sa part (`commande_lignes.vendeur_id`,
+`taux_vendeur`, `prix_bizzoo`), que personne ne peut plus changer.
+
+**Passer une boutique en vendeurs multiples** : ouvrez ensuite chacun de
+ses produits pour lui attribuer son vendeur et sa part. La liste des
+produits dit combien n'en ont pas encore (*N produits sans vendeur*, et
+le filtre *Sans vendeur*) ; d'ici là leurs ventes restent comptées pour
+la boutique, et la base refuse de réenregistrer un tel produit sans son
+vendeur. On ne repasse pas en vendeur unique tant qu'un produit a son
+vendeur.
+
+**Le crédit**, comme pour une boutique : commande payée → **en attente** ;
+colis remis au client → **disponible** ; versement envoyé → **versé**.
+Une ligne annulée n'est jamais créditée, et le solde se **calcule** sur les
+lignes (`solde_vendeur`) : une notification de paiement répétée ne crédite
+rien de plus. Une remise (code promo, prix revendeur) se prend sur la
+commission de BIZZOO : le vendeur garde toujours sa part entière. Les
+frais de livraison restent à part. Le solde d'une boutique ne compte plus
+la part de ses vendeurs.
+
+**L'espace du vendeur** (`#/ventes`, `espace_vendeur`) : son solde, ses
+produits (prix, part, stock, vendus), l'historique de ses ventes (sans
+aucun client), ses versements ; il règle son numéro de réception et
+demande un versement (`regler_reception_vendeur`,
+`demander_reversement_vendeur`). Il ne modifie rien.
+
+**Le superadministrateur** (`#/vendeurs`, `ventes_vendeurs`) : pour chaque
+vendeur, ventes livrées, sa part, la commission de BIZZOO (avant codes
+promo), à venir, versé, disponible ; toucher un vendeur ouvre son espace ;
+l'historique des parts. Les demandes de versement des vendeurs arrivent
+dans **Reversements**, avec celles des boutiques et des livreurs
+(`decider_reversement_vendeur`, la référence de transaction exigée).
+
+Base : `supabase/vendeurs-multiples.sql`. Essais :
+`supabase/tests/…-vendeurs-multiples.sql` (droits, calcul, lignes figées,
+pas de double crédit, versements) et `tools/banc-vendeurs-multiples.mjs`
+(les écrans).
+
+## La distance par la route, avec Google (3.70.0)
+
+Sans réglage, la distance d'une livraison est **à vol d'oiseau × 1,3**
+(`livraison_coef`) : une moyenne, qu'une lagune ou un pont mettent en
+défaut. Avec une clé Google, c'est **le trajet réel** (Google Routes API,
+« computeRoutes », en voiture, sans trafic — le tarif « Essentials »).
+
+Comment ça marche :
+
+- dès que le client a dit où livrer, l'application appelle la fonction
+  serveur `distance-route` (la clé Google ne descend jamais dans
+  l'application) ;
+- la fonction demande à la base si la distance est déjà connue
+  (`route_connue`) — à 50 m près : une grille de 0,0005° ; un client qui
+  recommande de chez lui ne coûte rien. Sinon elle demande le trajet à
+  Google et l'écrit (`enregistrer_route`, table `distances_route`) ;
+- `devis_livraison` — et donc `creer_commande`, qui fige les frais — prend
+  la distance de la route quand elle existe (`"calcul": "route"`), sinon
+  le vol d'oiseau × coefficient (`"calcul": "vol_oiseau"`) ;
+- l'écran affiche « 18,5 km par la route » ; avant de créer la commande,
+  il attend la réponse 5 secondes au plus, pour que la base fige les mêmes
+  frais que ceux montrés.
+
+Ce qui protège :
+
+- **personne d'autre que le serveur n'écrit une distance** : ni le
+  client, ni un administrateur (une distance écrite à la main ferait
+  payer moins) ; la base seule juge ;
+- **sans clé, rien ne change** : la fonction répond `{ actif: false }`,
+  l'application ne la redemande plus, tout reste à vol d'oiseau ;
+- **Google en panne, refus, trop loin (plus de 150 km), plafond du jour
+  atteint** : pas de distance, la commande part à vol d'oiseau, jamais
+  bloquée ;
+- **plafond** : 1 000 appels nouveaux à Google par jour au plus
+  (`route_connue`), en plus des quotas que vous réglez chez Google ;
+- **le point BIZZOO déplacé** : les anciennes distances ne servent plus
+  (le point fait partie de la clé du cache), rien n'est effacé.
+
+Mise en service (une fois) :
+
+1. **Google Cloud** (console.cloud.google.com, compte de l'entreprise) :
+   un projet « BIZZOO », la facturation activée, **Routes API** activée ;
+   une clé API **restreinte à « Routes API »** ; une alerte de budget
+   (par exemple 5 $/mois) et un plafond d'appels par jour.
+2. **Supabase → Edge Functions → Secrets** : `GOOGLE_MAPS_KEY` = la clé.
+   Elle ne s'écrit nulle part ailleurs — ni dans le dépôt, ni dans un
+   message.
+3. La base : `supabase/distance-route.sql` (déjà compris dans la mise à
+   jour de la 3.70.0).
+4. La fonction : `supabase functions deploy distance-route --no-verify-jwt`
+   (les clients commandent sans compte).
+5. La version 3.70.0 des applications.
+
+Coût (grille Google, à revérifier le jour de la mise en service) : les
+10 000 premiers appels du mois sont gratuits, puis 5 $ les 1 000. Avec le
+cache, un client régulier ne coûte qu'un appel. Éprouvé par
+`tools/eprouver-distance-route.sh` (la fonction, Google et la base
+simulés), `supabase/tests/…-distance-route.sql` (la base) et
+`tools/banc-livraison-km.mjs` section 3 bis (l'écran).
+
 ## Le téléphone sonne, application fermée (3.65.0)
 
 Avant, une course confiée à un livreur ou une commande payée chez une
@@ -5479,6 +5729,397 @@ routes : 1,3 = 30 % de détour (valeur en service). Entre 1 et 3, deux
 décimales ; une valeur hors bornes est refusée, avec un message. Rien à
 changer en base : la colonne `livraison_coef` et sa borne existaient déjà.
 Banc : `tools/banc-livraison-km.mjs`, section 5.
+
+## Huit boutiques à la une, tirées au sort (3.70.0)
+
+L'accueil de l'application client affichait TOUTES les boutiques
+partenaires, toujours dans le même ordre. Désormais :
+- **huit au plus** — « Tout voir » ouvre la liste entière ;
+- **tirées au sort, dans un ordre au hasard, à chaque arrivée sur
+  l'accueil** : chaque boutique a sa chance d'être vue en premier ;
+- le tirage **tient tant que le client reste sur l'accueil** : une mise à
+  jour du catalogue, qui redessine l'écran, ne rebat pas les cartes sous
+  ses yeux ; une boutique fermée entre-temps est remplacée.
+
+`client/js/vues/accueil.js` (`boutiquesALaUne`, `nouvelleVisite`, appelée
+par le routeur à chaque vraie arrivée). Banc : `tools/banc-accueil-hasard.mjs`.
+
+## Le livreur « disponible » : sa position, application fermée (3.70.0)
+
+La cascade (section suivante) choisit le livreur **le plus proche** d'après
+sa dernière position. Pour qu'elle soit juste, la position doit partir
+**même quand l'application est fermée** — c'est ce que fait désormais
+BIZZOO Admin sur Android.
+
+**Pour le livreur (BIZZOO Admin → Livraisons) :** l'interrupteur
+**« Disponible pour les courses »**, allumé par défaut.
+- **Allumé** : le téléphone envoie sa position **toutes les 3 minutes**,
+  application fermée, écran éteint, même immobile ; **toutes les 20
+  secondes** pendant une course. Une notification permanente le dit
+  (« Disponible pour les courses »).
+- **Éteint** (en fin de journée) : plus de position hors course, et il ne
+  fait plus partie des trois plus proches. Il reçoit encore l'étape « à
+  tous ».
+- Deux boutons apparaissent tant qu'ils manquent : **« Position : Toujours
+  autoriser »** et **« Ne pas limiter la batterie de BIZZOO »**. Sans eux,
+  Android peut couper le suivi et ne pas le relancer ; avec eux, il le
+  garde.
+- Dans un navigateur (sans l'APK) : la position part tant que la page est
+  ouverte, et l'écran le dit.
+- iPhone : pas de suivi application fermée (BIZZOO Admin n'est pas prévu
+  pour iOS côté livreur).
+
+**Comment ça tient (Android, `ServiceSuiviPosition`)** : un service au
+premier plan de type « location » (déjà là pour les courses depuis la
+3.59.0), qui appelle désormais `position_livreur`. Libre, il demande une
+position toutes les 3 minutes **sans distance minimale**, ce qui oblige
+Android à réveiller le téléphone ; un verrou d'éveil couvre chaque envoi.
+Chaque envoi garde **son** jeton : le refus d'un jeton remplacé ne coupe
+pas le service. Une base d'avant (sans `position_livreur`) : il repasse à
+`position_en_course`, comme avant.
+
+**En base :**
+- `profils.disponible` (vrai par défaut) ; `regler_disponibilite(dispo)`
+  — éteint et sans course, le suivi est **révoqué** (« Localiser un
+  livreur » ne le montre plus actif) ;
+- `position_livreur(jeton, lat, lng, precision_m)` : sans session, le
+  jeton de suivi fait foi ; continue tant que le livreur a une course OU
+  est disponible (et pas suspendu) ; rend `continuer` et `en_course` ;
+  écrit au plus toutes les 5 s en course, 30 s libre ; **prolonge le
+  jeton** (16 h après le dernier signe) — application fermée des jours
+  durant, le suivi ne meurt pas ;
+- `ouvrir_suivi_livreur` : un renouvellement garde **l'ancien jeton
+  valable 10 minutes** (`jeton_hash_precedent`) — un envoi parti ou un
+  service pas encore relancé n'est pas coupé ; `position_en_course` (APK
+  3.68.0) en profite aussi ;
+- `plus_proches_course` ne prend que les livreurs disponibles ;
+  `signaler_ma_position` (page ouverte) n'écrit rien pour un livreur non
+  disponible et libre.
+
+**La page** (`suivi-position.js`) ne renouvelle pas le jeton quand elle
+est cachée (Android refuserait de relancer le service hors de l'écran) ;
+au retour à l'écran, elle relance le service s'il s'est arrêté
+(`suiviActif` du pont). Le passage « libre → en course » relance tout de
+suite au rythme serré.
+
+**Vie privée :** le livreur choisit (interrupteur), la notification
+permanente le lui rappelle, et rien ne part quand il est éteint et libre.
+
+Fichier à coller : `supabase/livreur-disponible.sql` (relançable,
+autonome). Essais : `supabase/tests/99zzz…-cascade-courses.sql` (section
+11), `tools/banc-parcours-livraison.mjs` (section 6c). Le service Android
+est compilé contre des classes de remplacement avant chaque envoi (la
+construction réelle se fait sur GitHub).
+
+## La course au livreur le plus proche, puis à tous (3.70.0)
+
+Avant, une commande payée sonnait chez **tous** les livreurs à la fois.
+Désormais elle part **en cascade** :
+1. le livreur **le plus proche** de la boutique est alerté **seul** (sonnerie
+   insistante, même application fermée). Son alerte lui dit : « Vous êtes
+   parmi les plus proches : touchez « Commande reçue » dans les 30 secondes,
+   sinon elle passe au livreur suivant » ;
+2. **30 secondes** sans réponse : le **deuxième** plus proche est alerté à
+   son tour — le premier peut encore la prendre ; puis le **troisième** ;
+3. aucun des trois ne l'a prise : elle part à **tous les livreurs de
+   BIZZOO** (et à ceux de la boutique qui pouvaient la prendre). Le premier
+   qui touche « Commande reçue » la garde ; les autres apprennent « Déjà pris
+   par … ».
+
+**Qui est « le plus proche » :** parmi les livreurs qui peuvent la prendre
+— ceux de la boutique d'abord, puis ceux de BIZZOO (véhicule ; ceux qui
+l'ont refusée exceptés) —, **libres** (sans course en cours) et dont la
+position est **récente (moins d'une heure)**, par distance à vol d'oiseau
+jusqu'à la boutique — la première qui a une position, en livraison
+groupée ; le **point BIZZOO** si aucune n'en a. **Personne de récent :
+elle part à tous tout de suite** (inutile de faire attendre le client 90
+secondes pour des livreurs dont on ne sait pas où ils sont). Un livreur
+pas encore alerté ne voit pas la course et ne peut pas la prendre ; une
+fois l'étape « tous » passée, elle est ouverte à tous ceux qui peuvent la
+prendre à ce moment (un livreur débloqué ou validé depuis la voit).
+
+**La position du livreur libre** : avant, elle ne bougeait qu'à la
+validation du compte et pendant une course. Désormais, **BIZZOO Admin
+ouvert (et visible), elle part toutes les 3 minutes**
+(`signaler_ma_position`, une écriture au plus toutes les 30 secondes ; elle
+ne valide pas un compte, elle met à jour une position déjà là). C'est ce
+qui rend « le plus proche » juste : un livreur qui n'a pas ouvert
+l'application depuis plus d'une heure attend l'étape « tous ».
+
+**L'écran du livreur** se relit dès qu'une demande lui arrive (la cascade
+vient de l'atteindre), en plus de quand elle part chez un autre.
+
+**Annulée par son livreur** (section suivante) : la cascade repart du plus
+proche, sans lui (« Course à reprendre »). Un livreur suspendu, ou une
+course que la boutique reprend à son livreur (« Confier » vide) : pareil.
+Un livreur suspendu pendant son tour : on passe au suivant sans attendre
+ses 30 secondes.
+
+**L'horloge est dans la base** : la tâche pg_cron `courses-cascade` passe
+toutes les **5 secondes** (`avancer_cascades`) — le délai réel est donc de
+30 à 35 secondes, téléphones éteints ou non. **Sans cette tâche, pas de
+cascade** (`horloge_cascade`) : la course part à tous d'un coup, comme
+avant — jamais bloquée au premier. Une commande en erreur est mise de côté
+sans arrêter les autres. Le journal de pg_cron de cette tâche est vidé
+chaque heure (`courses-cascade-menage`).
+
+**Réglages** (table `cascade_reglage`, lisible par le seul serveur, à
+changer dans l'éditeur SQL de Supabase) : `actif` (éteinte : à tous d'un
+coup, comme avant), `delai_s` (30), `rangs` (3), `fraicheur_min` (60).
+
+En base : tables `courses_cascade` (où en est chaque course : l'ordre, qui
+a été alerté, quand passer au suivant) et `cascade_reglage` ; fonctions
+`lancer_cascade`, `avancer_cascade`, `avancer_cascades`,
+`plus_proches_course`, `tous_livreurs_course`, `course_ouverte_a`…
+`proposer_course` (au paiement), `courses_proposees`, `prendre_course` et
+`reproposer_course` passent par elles. Une commande d'avant la cascade
+(sans ligne dans `courses_cascade`) reste ouverte à tous les candidats.
+
+**À savoir sur les données d'aujourd'hui (29/10/2026) :** aucune position
+de livreur n'a moins d'une heure (elles ne bougeaient pas hors course) :
+tant que les livreurs n'ont pas la nouvelle BIZZOO Admin ouverte, les
+courses partent à tous tout de suite, comme avant. 4 boutiques sur 8 n'ont
+pas de position (on mesure alors depuis le point BIZZOO) : plus elles sont
+renseignées, plus « le plus proche » est juste.
+
+Fichier à coller : `supabase/cascade-courses.sql` (relançable, autonome ; il
+programme la tâche des 5 secondes).
+
+**En ligne depuis le 29/10/2026** (base seulement : les écrans viennent avec BIZZOO Admin 3.70.0). Appliqué par un script réduit aux seuls objets qui changent — les fonctions empruntées par le fichier étaient déjà identiques en ligne —, éprouvé d'abord sur une base jetable (base d'avant + script = base neuve, sans un écart), puis vérifié en ligne : 25 fonctions identiques au dépôt, droits compris ; tâche `courses-cascade` active et sans erreur.
+
+Essais :
+`supabase/tests/99zzz…-cascade-courses.sql` (10 sections),
+`tools/banc-parcours-livraison.mjs` (la position envoyée). Les anciens essais
+des demandes de course tournent cascade éteinte (la règle d'avant).
+
+## Le livreur annule sa course : BIZZOO l'entend, la course repart (3.70.0)
+
+Un livreur qui a pris une course peut l'annuler (« Refuser la course »)
+**tant que le colis n'est pas parti avec lui** — après « Je l'ai prise »,
+la base refuse toujours : le colis est entre ses mains. Désormais :
+- **la course est aussitôt reproposée**, avec la sonnerie insistante des
+  courses, aux livreurs qui pouvaient la prendre (`candidats_course` :
+  ceux de la boutique, ou ceux de BIZZOO), **sauf ceux qui l'ont déjà
+  refusée**. Si **tous** les livreurs de la boutique l'ont refusée, elle
+  passe aux tricycles puis **aux livreurs de BIZZOO** (les refus sont
+  retirés avant de juger un groupe vide). Titre : « Course à reprendre —
+  BZ-… » ; les anciennes demandes passent « lues ». Elle ne repart que si
+  plus personne ne la porte et qu'elle est payée depuis moins de 7 jours,
+  comme l'écran des demandes (`reproposer_course`) ;
+- **le superadministrateur, les administrateurs et les modérateurs de
+  BIZZOO** (comptes sans boutique, quel que soit leur droit « Commandes »)
+  reçoivent une notification **qui sonne, même BIZZOO Admin fermé** :
+  « Course annulée par <livreur> — BZ-… », le motif, puis « reproposée à
+  N livreur(s) », « Aucun autre livreur disponible : confiez-la à la
+  main », ou — une partie déjà en route ou portée par un autre livreur —
+  « confiez à la main la part libérée ». Elle ouvre la commande ; un compte
+  sans le droit « Commandes » l'ouvre dans ses notifications. Une par
+  annulation ; une seconde annulation sonne de nouveau ; un double appui du
+  livreur ne sonne qu'une fois (la commande est verrouillée) ;
+- la boutique reçoit toujours « Commande refusée par le livreur », et le
+  client qui connaissait son livreur, « Votre livreur a changé ».
+
+Même reproposition quand BIZZOO **suspend** un livreur (BIZZOO Personnel →
+Livreurs) : ses courses pas encore parties repartent aux autres.
+
+**Le numéro de la boutique, pour le livreur qui se perd :** les alertes de
+course (proposée, confiée) disent « Tél. boutique : +229 … » après la
+boutique ; sur la fiche de la course, « Appeler la boutique : +229 … » et
+« Écrire à la boutique sur WhatsApp ». L'appel prend le téléphone de la
+boutique (à défaut son WhatsApp) ; WhatsApp prend son numéro WhatsApp (à
+défaut son téléphone) — `fiche_course` rend les deux.
+
+Rien à redéployer côté fonctions Edge : `envoyer-push` envoie déjà toute
+notification qui sonne. Fichier à coller : `supabase/course-annulee.sql`
+(relançable, autonome : il pose aussi `lieu_retrait` et `refus_courses`,
+dans n'importe quel ordre avec `lieu-retrait.sql`). **En ligne depuis le
+29/10/2026** (voir la section de la cascade). Essais : `supabase/tests/99zzz…-refus-course.sql` (sections
+2 bis et 4), `tools/banc-parcours-livraison.mjs`.
+
+## « Faire livrer » : où le livreur récupère la commande (3.70.0)
+
+L'écran **« Faire livrer »** (BIZZOO Admin, commande prise sur WhatsApp)
+a une case de plus, **obligatoire** : **« Où le livreur récupère la
+commande »** — la boutique, son adresse ou un repère, le numéro à appeler.
+- Elle est **proposée** d'après les boutiques des produits choisis (une
+  ligne par boutique : nom — adresse — téléphone, lus sur la fiche de la
+  boutique) ; l'équipe corrige ou complète. Tant qu'on n'y a pas touché,
+  elle suit les produits (« Modifier les produits ») ; vidée, elle les suit
+  de nouveau.
+- Sans elle, ou au-delà de **500 caractères**, l'écran le dit et rien ne
+  part (la base refuse aussi : un texte coupé en silence perdrait la
+  dernière boutique ou le numéro à appeler). La confirmation la reprend.
+
+**Où le livreur la lit :**
+- dans l'alerte de la **course proposée** (`texte_demande`) et de la
+  **course confiée** (`notifier_ligne`) : une ligne « Où récupérer : … »,
+  après celle de la boutique ;
+- sur la fiche de la course, BIZZOO Admin → Livraisons : un bloc
+  **« Où récupérer (précisé par BIZZOO) »**, sous « Récupérer le colis »
+  (la fiche de la boutique reste affichée) ;
+- dans Commandes, la carte d'une commande WhatsApp dit « À récupérer : … »
+  — pour le superadministrateur et les comptes de BIZZOO seulement : le
+  texte nomme toutes les boutiques, et une boutique ne voit que sa part
+  d'une commande partagée.
+
+**Corrigé au passage : l'alerte vide.** Depuis la 3.68.0, la course
+proposée pour une commande « Faire livrer » partait aux livreurs avec un
+texte **vide** : sans distance (frais saisis), la ligne « Véhicule … km »
+valait NULL dans `texte_demande`, et tout le message avec. Elle dit
+désormais « Véhicule : moto », sans kilomètres.
+
+**En base :** colonne `commandes.lieu_retrait` (texte, vide par défaut).
+`faire_livrer` la remplit depuis `client.retrait` (espaces autour retirés,
+500 caractères au plus) **sans changer de signature**, et la rend dans sa
+réponse : si elle y manque (base pas encore mise à jour), l'écran prévient
+que le lieu n'a pas été gardé ; `fiche_course` et
+`fiche_demande` la rendent (`lieu_retrait`). Pour la base, elle reste
+**facultative** : BIZZOO Admin 3.68.0, déjà installé, ne l'envoie pas, et
+sa commande passe comme avant, sans la ligne.
+
+Fichier à coller : `supabase/lieu-retrait.sql` (relançable ; il recopie les
+fonctions qu'il emprunte). **En ligne depuis le 29/10/2026** (base ; la case
+de saisie vient avec BIZZOO Admin 3.70.0). Essais : `supabase/tests/99zzz…-commande-whatsapp.sql`
+(section 9), `tools/banc-faire-livrer.mjs`, `tools/banc-parcours-livraison.mjs`
+(section 6a).
+
+## « Le paiement en ligne n'est pas encore ouvert » à tort (3.70.0)
+
+Un client a vu ce message, et « Envoyer sur WhatsApp », alors que le
+paiement en ligne était ouvert. L'application lisait le réglage UNE fois,
+à l'ouverture : une lecture ratée (réseau faible) ou faite pendant une
+coupure le croyait fermé, et l'écran de commande ne le revérifiait que
+s'il était déjà ouvert — la commande partait sur WhatsApp, sans payer.
+
+- Une lecture ratée ne ferme plus le paiement : on garde le dernier
+  réglage connu, de cette ouverture ou de la précédente (`paiement.js`,
+  « bizzoo-paiement-reglages »).
+- L'écran de commande relit TOUJOURS le réglage, et se redessine s'il a
+  changé (ouvert ou fermé).
+- « Envoyer sur WhatsApp » revérifie d'abord : ouvert, le client paie ici.
+
+Banc : `tools/banc-paiement-ferme.mjs` (11 constats ; l'ancien code en
+rate 5).
+
+## Le client prévenu à chaque étape : notification et SMS (3.70.0)
+
+**Avant**, le client n'apprenait où en était sa commande qu'en ouvrant
+l'application : il était absent quand le livreur arrivait, et l'équipe
+passait sa journée au téléphone.
+
+**1. La notification sonne sur son téléphone, application fermée**
+(Android). Payée, livreur trouvé (nom et numéro), colis prêt, en route,
+livré, article annulé : les notifications que l'acheteur avait déjà dans
+l'application partent désormais aussi en push vers l'application CLIENT
+(jusqu'ici, seul BIZZOO Admin sonnait).
+- La base choisit l'application d'après le lien : `#/commande/…` (au
+  singulier) n'est écrit que pour l'acheteur → application client ; tout
+  le reste → BIZZOO Admin (`push_a_envoyer`, `notification_pousse`).
+- `envoyer-push` envoie ces notifications sur le canal « client » ;
+  l'APK client les affiche dans « Suivi de vos commandes » (son ordinaire,
+  pas la sonnerie des courses), et la touche ouvre le reçu.
+- `client/js/push.js` déclare le téléphone à la connexion
+  (`enregistrer_appareil`, application « client »), le retire à la
+  déconnexion — ou, sans réseau, à la prochaine ouverture
+  (`oublier_jeton_push`, avec le seul jeton). Un téléphone qui REFUSE les
+  notifications n'est pas déclaré : ce client reçoit le SMS à la place.
+- **Il faut l'APK client 3.70.0** : les anciens ne déclarent pas leur
+  téléphone. iPhone et navigateur : pas de push (pas de certificat Apple),
+  d'où les SMS.
+
+**2. Les SMS, pour ceux que la notification ne touche pas** — sans compte,
+commande prise sur WhatsApp, compte sans l'application Android (ou qui
+ne l'a pas ouverte depuis 30 jours). Aux étapes choisies par le
+superadministrateur (**BIZZOO Admin → Réglages → SMS aux clients**) :
+par défaut « payée », « livreur trouvé » (son nom et son numéro),
+« livrée ».
+- **Coupés par défaut**, et seules les commandes payées APRÈS l'allumage
+  sont concernées. Plafonds : 3 par commande, 300 par jour (réglables).
+- La base décide et réserve (`sms_prevoir`, un seul verrou pour les
+  plafonds), écrit dans `sms_commandes` — file, journal et compteur à la
+  fois, jamais lisible par les applications —, puis demande l'envoi à la
+  fonction Edge `envoyer-sms-commande` (pg_net), qui ne croit que le numéro
+  de la ligne (`sms_a_envoyer`, une fois) et rend le verdict
+  (`sms_resultat`, réessayé 3 fois).
+- **Un SMS ne se paie qu'une fois** : on ne réessaie que si rien n'a pu
+  partir (passerelle injoignable, 429/503). Un délai dépassé
+  (`DELAI_DEPASSE`), un 200 sans code, un envoi resté « en cours » sans
+  verdict : peut-être partis, jamais renvoyés. La reprise (pg_cron
+  « sms-commandes-reprise », toutes les 10 min) ne relance que ce qui
+  attend.
+- Texte sans accents ni émoji, 160 caractères au plus (`sms_texte`) ; un
+  livreur qui change (A, puis B, puis A) annonce chaque nouveau livreur.
+- Un SMS qui échoue n'empêche JAMAIS l'étape : déclencheurs à part
+  (`commandes_sms`, `lignes_sms`), erreurs rattrapées.
+
+**3. Le compte, dans BIZZOO Personnel → Suivi des commandes → SMS** :
+envoyés, commandes prévenues, refusés, en attente, retenus par un
+plafond, jour par jour et par étape ; les échecs avec leur commande ;
+**le crédit SMS épuisé en rouge**. Aucun numéro de client
+(`rh_sms_compteur`).
+
+**Mise en ligne, dans cet ordre** : redéployer `envoyer-push`, déployer
+`envoyer-sms-commande` (`--no-verify-jwt` toutes les deux), coller
+`supabase/sms-clients.sql`, puis poser l'adresse :
+`update public.sms_reglages set url = 'https://<projet>.supabase.co/functions/v1/envoyer-sms-commande';`
+Enfin, le superadministrateur allume les SMS dans les Réglages.
+
+**En ligne depuis le 28/10/2026** : `envoyer-push` (version 2) et
+`envoyer-sms-commande` déployées, `supabase/sms-clients.sql` appliqué,
+l'adresse posée ; les 15 fonctions vérifiées identiques au dépôt. Les SMS
+sont COUPÉS jusqu'à ce que le superadministrateur les allume.
+
+Essais : `supabase/tests/99zzz…-sms-clients.sql` (55 constats),
+`tools/eprouver-sms.sh` et `tools/eprouver-push.sh` (fonctions Edge),
+`tools/banc-sms-clients.mjs` (19), `tools/banc-push-client.mjs` (13).
+Revue adversariale : 14 défauts confirmés, tous corrigés (dont le double
+paiement d'un SMS dont le verdict se perd).
+
+## La clôture automatique des commandes, et le menu Incidents (3.69.0)
+
+**Avant**, une commande « Livré et confirmé » restait ouverte tant que
+personne ne cliquait sur « Clôturer » dans BIZZOO Personnel (Suivi →
+fiche de la commande).
+
+**Désormais**, une commande payée dont **tous** les articles sont livrés et
+confirmés par le client (ou annulés) se clôture d'elle-même **24 heures
+après le dernier « Je l'ai reçu »** — le temps qu'un client signale un
+problème. Elle passe la même règle que la clôture à la main
+(`rh_suivi_cloturable`) et reste ouverte, à l'équipe de juger, si :
+
+- un reste à encaisser n'est pas réglé (**nouveau** : la clôture à la main
+  le refuse aussi) ;
+- un incident est ouvert, ou le client conteste la livraison ;
+- un article a échoué, est en retour ou retourné, ou un encaissement est
+  contesté ;
+- l'administration a **rouverte** la commande : la base ne la referme
+  jamais d'elle-même, l'administration la referme à la main.
+
+La chronologie note « Clôturée automatiquement », la fiche aussi ; la
+clôture n'a pas d'auteur (`cloturee_par` vide). Le délai se règle dans
+**Suivi → Réglages → Clôture automatique** (`rh_reglages_suivi.cloture_auto_h`,
+`rh_suivi_regler_cloture`) : 24 par défaut, 0 = tout de suite, vide = à la
+main seulement. `rh_suivi_cloturer_auto()` passe **chaque heure à la
+minute 23 (pg_cron, « rh-suivi-cloture-auto »)** ; personne ne
+l'appelle depuis une application.
+
+**Le menu Incidents** (BIZZOO Personnel, sous « Suivi commandes », pour
+qui suit les commandes) : tous les incidents **ouverts**, quelle que soit
+leur date, et ceux **signalés sur la période** ; filtres (ouverts, résolus,
+tous ; type), recherche, « Signaler un incident » par le **numéro de la
+commande** (`rh_incident_ouvrir` accepte désormais « BZ-… »), « Résoudre »,
+lien vers la fiche. La pastille compte les incidents ouverts
+(`rh_incidents_ouverts_nb`). Liste : `rh_incidents_liste(depuis, jusqu)`.
+
+Fichier à coller : `supabase/cloture-incidents.sql` — **en ligne depuis le
+28/10/2026** (vérifié identique au dépôt ; premier passage : 14 commandes
+clôturées, 4 gardées ouvertes pour un reste à encaisser). Essais :
+`supabase/tests/99zzz…-cloture-incidents.sql` (36 constats),
+`tools/banc-incidents.mjs` (21 constats ; `CAPTURES=<dossier>`).
+
+`tools/fichiers-autonomes.sh` signalait parfois, au hasard, un emprunt
+qui n'existait pas (« printf | grep -q » sous « pipefail » : SIGPIPE) ;
+corrigé.
 
 ## « Faire livrer » : une commande prise sur WhatsApp (3.68.0)
 
@@ -5694,7 +6335,8 @@ impact-informatique-app/
 │   ├── functions/hook-sms-auth/     # Livrer le code de connexion — la signature est le seul contrôle
 │   ├── functions/code-connexion/    # Le code de l'équipe : tiré ici, haché avec la session, jamais rendu
 │   ├── functions/tester-sms/        # Le bouton d'essai, par le chemin de la production
-│   └── functions/rh-messagerie/     # Les mails @bizzoomarket.com du personnel : IMAP, SMTP, mot de passe chiffré
+│   ├── functions/rh-messagerie/     # Les mails @bizzoomarket.com du personnel : IMAP, SMTP, mot de passe chiffré
+│   └── functions/rh-push/           # Les alertes du personnel en Web Push : chiffrées, signées VAPID, une fois
 ├── personnel/                # BIZZOO Personnel : l'application interne des employés (3.61.0)
 ├── client/                   # Application des clients
 │   ├── config.js             # URL + clé publiable du projet Supabase

@@ -68,6 +68,9 @@ alter table public.reversements enable row level security;
 revoke all on public.reversements from anon, authenticated;
 revoke all on sequence public.reversements_id_seq from anon, authenticated;
 
+-- (3.70.0) Lue plus bas : posée ici aussi, comme toute colonne qu'une fonction du fichier lit.
+alter table public.commande_lignes add column if not exists vendeur_id uuid;
+
 -- Qui DEMANDE un reversement et règle le numéro : l'administrateur de la
 -- boutique, ou le superadministrateur. Un modérateur, non : c'est de
 -- l'argent.
@@ -208,7 +211,9 @@ begin
     into gagne, a_venir
     from public.commande_lignes l
     join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
-   where l.boutique_id = cible;
+   where l.boutique_id = cible
+     -- (3.70.0) La part d'un vendeur va au vendeur, pas à la boutique.
+     and l.vendeur_id is null;
   select coalesce(sum(x.montant), 0) into encaisse from public.encaissements x
    where x.boutique_id = cible and x.mode = 'especes' and x.remis_le is not null;
   select coalesce(sum(v.montant) filter (where v.etat = 'valide'), 0),

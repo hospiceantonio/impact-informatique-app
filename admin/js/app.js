@@ -74,6 +74,10 @@
       livreur: true, onglet: "/livraisons" },
     /* (3.64.0) Ses gains : sa part des frais de livraison, ses reversements. */
     { motif: /^\/gains$/, vue: (v) => VueSoldes.gains(v), livreur: true, onglet: "/livraisons" },
+    /* (3.70.0) L'écran du vendeur, et le seul qu'il ait — comme le livreur ;
+       et, pour le superadministrateur, celui de tous les vendeurs. */
+    { motif: /^\/ventes$/, vue: (v) => VueVendeurs.espace(v), vendeur: true },
+    { motif: /^\/vendeurs$/, vue: (v) => VueVendeurs.liste(v), super: true },
     { motif: /^\/client\/([^/]+)$/, vue: (v, m) => VueClients.fiche(v, m[1]), super: true },
     /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
        la base ne montre à chacun que les siens. Masquer reste à
@@ -117,6 +121,8 @@
 
   /** Le compte connecté porte-t-il la marchandise, et rien d'autre ? */
   const estLivreur = () => Supabase.role() === "livreur";
+  /** (3.70.0) Le compte connecté vend ses produits, et ne fait rien d'autre. */
+  const estVendeur = () => Supabase.role() === "vendeur";
 
   function adapterAuRole() {
     const admin = Supabase.estAdmin();
@@ -231,7 +237,17 @@
 
     const route = ROUTES.find((r) => r.motif.test(chemin));
     if (!route) {
-      location.hash = estLivreur() ? "#/livraisons" : "#/";
+      location.hash = estLivreur() ? "#/livraisons" : estVendeur() ? "#/ventes" : "#/";
+      return;
+    }
+    /* (3.70.0) Le vendeur ne va que chez lui : ses ventes, son compte, ses
+       notifications. La base lui refuse déjà le reste. */
+    if (estVendeur() && !route.vendeur && !route.tous && chemin !== "/compte") {
+      location.hash = "#/ventes";
+      return;
+    }
+    if (route.vendeur && !estVendeur()) {
+      location.hash = Supabase.estSuper() ? "#/vendeurs" : "#/";
       return;
     }
 
@@ -318,7 +334,7 @@
        renvoyé aussitôt. La lui laisser, c'est lui offrir des boutons qui
        le repoussent : il n'a qu'un écran, et son compte est dans
        l'en-tête. */
-    document.getElementById("tabbar").style.display = estLivreur() ? "none" : "";
+    document.getElementById("tabbar").style.display = estLivreur() || estVendeur() ? "none" : "";
     /* Le « + » de la barre crée un produit : sans l'habilitation, il ne
        mènerait qu'à un refus (3.59.0). */
     const plus = document.querySelector("#tabbar .tab-cta");
@@ -405,6 +421,11 @@
       return;
     }
 
+    /* (3.70.0) La liste des préfixes des opérateurs, à jour (sans
+       attendre). APRÈS le code SMS : rien n'est lu avant lui. */
+    const cfg = Supabase.configuration();
+    if (cfg) Utils.actualiserPrefixes(cfg.url, cfg.cle);
+
     try {
       await Store.init();
     } catch (err) {
@@ -453,7 +474,9 @@
        — il ouvre désormais une boutique au démarrage, comme le
        superadministrateur — et le livreur de BIZZOO, qui n'en ouvre
        aucune : son seul écran est celui de ses courses. */
-    if (!Supabase.estSuper() && !estLivreur() &&
+    /* (3.70.0) Le vendeur non plus : il n'appartient à aucune boutique, son
+       seul écran est celui de ses ventes. */
+    if (!Supabase.estSuper() && !estLivreur() && !estVendeur() &&
         Store.listerBoutiques().length && !Store.boutiqueCourante()) {
       compteSansBoutique(vue);
       return;

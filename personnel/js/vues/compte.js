@@ -85,6 +85,9 @@ const VueCompte = (() => {
           App.naviguer();
         } }, "Délier") : null));
 
+    const alertes = h("div", { class: "carte pile" }, h("h2", {}, "Alertes sur ce téléphone"), UI.chargement());
+    carteAlertes(alertes);
+
     UI.vider(zone,
       h("div", { class: "carte pile" },
         h("div", { class: "ligne" },
@@ -104,8 +107,105 @@ const VueCompte = (() => {
             h("span", { class: "etire gras" }, UI.mois(f.mois)), h("b", {}, UI.fcfa(f.net)),
             UI.etiquette(...(STATUTS[f.statut] || [f.statut, ""])))))
           : UI.vide("Aucune fiche validée pour l'instant.")),
-      coord, boite, formMdp,
+      coord, alertes, boite, formMdp,
       h("button", { class: "btn btn-danger btn-plein", onclick: () => App.deconnecte() }, UI.icone("sortie", "ic-sm"), "Se déconnecter"));
+  }
+
+  /* ---------- Les alertes poussées sur le téléphone ----------
+     Le navigateur s'abonne auprès de son service de push avec la clé
+     publique de BIZZOO (rh_push_etat), et la base garde l'abonnement
+     (rh_push_abonner). Ce qui part, et quand : la base en décide
+     (types choisis, heures de silence, une fois par alerte). */
+
+  /** La clé publique VAPID (base64url) en octets, comme la veut pushManager. */
+  function octets(cle) {
+    const b = cle.replace(/-/g, "+").replace(/_/g, "/");
+    const brut = atob(b + "===".slice((b.length + 3) % 4));
+    return Uint8Array.from(brut, (c) => c.charCodeAt(0));
+  }
+  const b64 = (tampon) => btoa(String.fromCharCode(...new Uint8Array(tampon))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  async function abonnementActuel() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+    const reg = await navigator.serviceWorker.getRegistration();
+    return reg ? reg.pushManager.getSubscription() : null;
+  }
+
+  async function carteAlertes(carte) {
+    const titre = h("h2", {}, "Alertes sur ce téléphone");
+    let etat;
+    try {
+      etat = await Supabase.rpc("rh_push_etat");
+    } catch (err) {
+      return UI.vider(carte, titre, UI.erreur(err));
+    }
+    const possible = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && window.isSecureContext;
+    const actuel = await abonnementActuel().catch(() => null);
+    const prefs = etat.preferences || { actif: true, types: null, silence_debut: null, silence_fin: null };
+    const types = etat.types || [];
+
+    if (!etat.cle_publique) {
+      return UI.vider(carte, titre, h("p", { class: "doux petit" },
+        "Le service d'alertes n'est pas encore mis en marche par BIZZOO. Vos tâches restent dans « Ma file »."));
+    }
+    if (!possible) {
+      return UI.vider(carte, titre, h("p", { class: "doux petit" },
+        "Ce navigateur ne reçoit pas d'alertes. Sur Android, ouvrez BIZZOO Personnel dans Chrome ; sur iPhone, ajoutez-le d'abord à l'écran d'accueil."));
+    }
+
+    const activer = h("button", { class: "btn", onclick: async () => {
+      await UI.agir(activer, async () => {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") throw new Error("Les notifications sont refusées pour ce site : autorisez-les dans les réglages du navigateur.");
+        const reg = await navigator.serviceWorker.ready;
+        const abo = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: octets(etat.cle_publique) });
+        const j = abo.toJSON();
+        await Supabase.rpc("rh_push_abonner", { v_endpoint: j.endpoint, v_p256dh: j.keys.p256dh || b64(abo.getKey("p256dh")),
+                                                v_auth: j.keys.auth || b64(abo.getKey("auth")) });
+      }, "Alertes activées sur ce téléphone.");
+      carteAlertes(carte);
+    } }, "Activer les alertes sur ce téléphone");
+
+    const couper = actuel ? h("button", { class: "btn btn-second", onclick: async () => {
+      await UI.agir(couper, async () => {
+        await Supabase.rpc("rh_push_desabonner", { v_endpoint: actuel.endpoint });
+        await actuel.unsubscribe();
+      }, "Ce téléphone ne recevra plus d'alertes.");
+      carteAlertes(carte);
+    } }, "Ne plus recevoir ici") : null;
+
+    /* Les choix : en marche, les types, les heures de silence. */
+    const marche = h("input", { type: "checkbox", checked: prefs.actif !== false });
+    const tous = !prefs.types;
+    const cases = types.map((t) => {
+      const c = h("input", { type: "checkbox", value: t.type, checked: tous || prefs.types.includes(t.type) });
+      return h("label", { class: "case petit" }, c, t.libelle);
+    });
+    const heures = (v) => h("select", {}, [h("option", { value: "", selected: v === null || v === undefined }, "—")]
+      .concat(Array.from({ length: 24 }, (_, i) => h("option", { value: i, selected: v === i }, i + " h"))));
+    const debut = heures(prefs.silence_debut), fin = heures(prefs.silence_fin);
+    const enregistrer = h("button", { class: "btn btn-second", onclick: async () => {
+      const coches = cases.map((l) => l.querySelector("input")).filter((c) => c.checked).map((c) => c.value);
+      if (types.length && !coches.length) return UI.echec("Cochez au moins un type d'alerte, ou coupez les alertes.");
+      if ((debut.value === "") !== (fin.value === "")) return UI.echec("Choisissez le début et la fin du silence, ou aucun des deux.");
+      await UI.agir(enregistrer, () => Supabase.rpc("rh_push_regler", {
+        v_actif: marche.checked, v_types: coches.length === types.length ? null : coches,
+        v_silence_debut: debut.value === "" ? null : Number(debut.value), v_silence_fin: fin.value === "" ? null : Number(fin.value),
+      }), "Choix enregistrés.");
+    } }, "Enregistrer mes choix");
+
+    UI.vider(carte, titre,
+      h("p", { class: "doux petit" }, actuel
+        ? "Ce téléphone reçoit les alertes de vos tâches (" + etat.appareils + " appareil(s) abonné(s) en tout). Le message ne contient jamais de montant ni de nom de client."
+        : "Recevez une notification quand une tâche arrive dans votre file, ou quand personne n'a pris celle d'un profil que vous dirigez."),
+      h("div", { class: "actions" }, actuel ? couper : activer),
+      etat.preferences || actuel ? h("div", { class: "pile" },
+        h("label", { class: "case" }, marche, "Alertes en marche"),
+        types.length ? h("div", {}, h("div", { class: "doux petit" }, "Les alertes que je veux recevoir"), cases)
+          : h("p", { class: "doux petit" }, "Aucun type d'alerte n'est confié à votre profil pour l'instant."),
+        h("div", { class: "ligne petit" }, h("span", {}, "Silence de"), debut, h("span", {}, "à"), fin,
+          h("span", { class: "doux" }, "(heure du Bénin)")),
+        h("div", { class: "actions" }, enregistrer)) : null);
   }
 
   return { titre: "Mon compte", afficher };

@@ -32,6 +32,16 @@ const VueCaisse = (() => {
     ];
   }
 
+  /* (3.70.0) Un numéro de téléphone saisi comme référence de transaction :
+     la fenêtre le dit et reste ouverte. Revalidée telle quelle, la
+     référence passe (un n° de reçu peut ressembler à un numéro). */
+  function referenceDouteuse(reference, dejaAvertie, retenir) {
+    const r = String(reference || "").trim();
+    if (!r || r === dejaAvertie || !UI.ressembleTelephone(r)) return null;
+    retenir(r);
+    return UI.alerteTransaction(r);
+  }
+
   /**
    * D'où sort l'argent d'un décaissement ou d'un salaire : la répartition
    * entre compartiments, avec le solde de chacun sous les yeux. Rend
@@ -43,6 +53,7 @@ const VueCaisse = (() => {
     try { comptes = (await Supabase.rpc("rh_caisse")).comptes || []; } catch (_) { /* soldes inconnus : on saisit quand même */ }
     const solde = (c) => { const x = comptes.find((k) => k.compte === c); return x ? Number(x.solde) : null; };
     const premier = COMPTES.find(([c]) => (solde(c) ?? 0) >= montant);
+    let refAvertie = null;
     const v = await UI.formulaire({
       titre, valider: valider || "Confirmer",
       texte: "Montant : " + UI.fcfa(montant) + ". Répartissez-le entre les compartiments de la caisse (espèces seules, ou espèces + Mobile Money…) : le total doit tomber juste.",
@@ -58,7 +69,8 @@ const VueCaisse = (() => {
           if (solde(c) !== null && n > solde(c)) return libelle + " n'a que " + UI.fcfa(solde(c)) + ".";
           total += n;
         }
-        return total === montant ? null : "La répartition fait " + UI.fcfa(total) + " pour " + UI.fcfa(montant) + " : elle doit tomber juste.";
+        if (total !== montant) return "La répartition fait " + UI.fcfa(total) + " pour " + UI.fcfa(montant) + " : elle doit tomber juste.";
+        return referenceDouteuse(x.reference, refAvertie, (r) => { refAvertie = r; });
       },
     });
     if (!v) return null;
@@ -85,6 +97,7 @@ const VueCaisse = (() => {
     const actions = [];
     if (gerer || ceo) {
       actions.push(h("button", { class: "btn btn-vert", onclick: async (ev) => {
+        let refApport = null;
         const v = await UI.formulaire({ titre: "Enregistrer un apport", valider: "Enregistrer", champs: [
           { nom: "provenance", libelle: "Provenance", type: "select", valeur: "ceo", options: [{ valeur: "ceo", libelle: "Du CEO" }, { valeur: "autre", libelle: "D'une autre source" }] },
           { nom: "compte", libelle: "Dans quel compartiment", type: "select", valeur: "especes", options: COMPTES.map(([valeur, libelle]) => ({ valeur, libelle })) },
@@ -92,7 +105,8 @@ const VueCaisse = (() => {
           { nom: "libelle", libelle: "Source ou motif (obligatoire pour une autre source)" },
           { nom: "reference", libelle: "Référence (n° de transaction, de reçu…)" }],
           verifier: (x) => !(Number(x.montant) > 0) || !Number.isInteger(Number(x.montant)) ? "Un montant en francs entiers, positif."
-            : x.provenance === "autre" && x.libelle.length < 3 ? "Nommez la source de cet apport." : null });
+            : x.provenance === "autre" && x.libelle.length < 3 ? "Nommez la source de cet apport."
+            : referenceDouteuse(x.reference, refApport, (r) => { refApport = r; }) });
         if (!v) return;
         await UI.agir(ev.currentTarget, () => Supabase.rpc("rh_caisse_apport", { compte: v.compte, montant: Number(v.montant),
           provenance: v.provenance, libelle: v.libelle, reference: v.reference }), "Apport enregistré.");

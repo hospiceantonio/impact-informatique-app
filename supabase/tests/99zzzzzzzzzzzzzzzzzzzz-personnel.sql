@@ -48,6 +48,51 @@
 --      aussitôt de la même façon ;
 --  26. le menu Livreurs : la liste et la fiche de chacun ; bloqué par
 --      l'administration, un livreur ne reçoit plus aucune course.
+--  27. les contrôles : chaque changement d'un réglage sensible (paiement,
+--      code MoMoPay, numéros de réception) est gardé et attend l'approbation
+--      du CEO, sans jamais bloquer le réglage ; les encaissements qui
+--      attendent, par livreur, montants à l'administration seulement ; la
+--      veille des livreurs (course sans livreur, livreur muet) ; l'historique
+--      s'écrit sur le vrai chemin (rôle authenticated), la pastille compte
+--      les livrés sans déclaration, les écarts sont ceux de la période.
+--  28. l'argent : les paiements à rapprocher (client débité, conflit, « j'ai
+--      payé » sans suite, confirmé à la main) et la note de qui les traite ;
+--      ce que BIZZOO doit payer, réel et ancienneté ; les remboursements dus
+--      après annulation, qui a annulé, le retard, jamais plus que le dû ; le
+--      journal des gestes d'Admin (CEO, « audit », pas l'administration
+--      d'office) ; les codes promo et leurs abus, numéros masqués ; aucun
+--      montant hors de l'administration. Corrections : une commande payée
+--      puis annulée n'est pas un « client débité », « inconnu » suit la
+--      dernière réponse ; la clé « audit » se règle par le CEO et n'ouvre
+--      jamais le journal à l'administration ; un profil « audit » lit les
+--      libellés sans chiffres ; les vrais libellés d'Admin (prix en FCFA,
+--      connexion) ; l'« à venir » des livreurs est celui de leur solde.
+--  29. la qualité : les réclamations rangées (la boutique doit répondre, le
+--      client lit, BIZZOO tranche), les alertes « sans réponse » et
+--      « escalade en attente », le délai de réponse et la chute de la note ;
+--      la fiche qualité des boutiques, feu compris, ventes à l'administration
+--      seule ; la santé du catalogue et « boutique appelée » ; les files
+--      d'attente d'Admin, sans aucun nom ; le service par zone, sans montant ;
+--      la fidélité (cohortes, perdus, comptes supprimés), la liste à relancer
+--      à l'administration seule, numéros masqués ; les seuils dans leurs bornes ;
+--      les zones comptent TOUTES les commandes (plus de 3 000 aussi), le
+--      journal se lit par commande (son index), et une cohorte n'a de taux de
+--      rachat que pour un mois terminé, jamais pour le mois en cours.
+--  30. l'équipe : chaque alerte devient une tâche du profil que le routage
+--      désigne (l'administration seule le règle) ; « je prends », la relance
+--      signée et datée, « terminé », chacun son rôle ; la tâche s'efface quand
+--      l'alerte disparaît, se rouvre si elle revient, remonte au responsable
+--      après le délai ; le client et les montants à l'administration seule ;
+--      les alertes sur le téléphone : abonnement, types choisis, heures de
+--      silence, une seule fois par alerte, rien d'avant l'abonnement, aucun
+--      montant ni client dans le message, l'escalade chez le responsable ;
+--      le bilan du matin, une fois par jour, sans montants pour un responsable.
+--      Corrections : une tâche terminée se rouvre quand son alerte part puis
+--      revient ; une alerte revenue sonne de nouveau (clé d'envoi par
+--      occurrence) ; un profil qui reçoit une tâche par le routage a tout son
+--      délai avant l'escalade ; les envois restés en attente sont rappelés
+--      pendant une heure ; le message porte le lien de la tâche et sa clé,
+--      étiquette de la notification.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -1226,14 +1271,14 @@ reset role; select essai.personne();
 
 select essai.devenir(:RESP::uuid); set role authenticated;
 select essai.egal(public.rh_caisse_acces(), 'consultation', 'le responsable du Marketing consulte, droit reçu');
-select public.rh_caisse('2026-01-01', current_date) as vue_resp \gset
+select public.rh_caisse('2026-01-01', current_date + 1) as vue_resp \gset
 select essai.refuse($$select public.rh_caisse_apport('especes', 1000, 'ceo')$$, 'il consulte seulement');
 reset role; select essai.personne();
 select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(:'vue_resp'::jsonb -> 'mouvements') x
                     where x ->> 'nature' = 'salaire'), :'libelle_sept',
   'en consultation, un salaire ne dit pas de qui il est');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
-select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(public.rh_caisse('2026-01-01', current_date) -> 'mouvements') x
+select essai.egal((select string_agg(x ->> 'libelle', '|') from jsonb_array_elements(public.rh_caisse('2026-01-01', current_date + 1) -> 'mouvements') x
                     where x ->> 'nature' = 'salaire'),
   :'libelle_sept' || ' · ' || (select btrim(prenoms || ' ' || nom) from public.rh_employes where id = :'e_resp'),
   'le CEO, lui, voit de qui');
@@ -1720,6 +1765,1546 @@ select essai.verifie(public.assigner_livreur(:'cmd_bloc', 'bou_informatique', :L
   'et la boutique peut de nouveau lui confier la course');
 reset role; select essai.personne();
 delete from auth.users where id = :LIV_BLOC::uuid;
+
+-- ---------------------------------------------------------
+select essai.titre('27. Les contrôles : réglages sensibles, encaissements, veille des livreurs');
+-- Tout le décor de cette section s'annule à la fin : le paiement, les
+-- réglages et les commandes d'essai redeviennent ce qu'ils étaient.
+begin;
+\set LIV_CTRL '''a0a0a0a0-0013-4000-8000-000000000013'''
+insert into auth.users (id, email) values (:LIV_CTRL::uuid, 'livreur.ctrl@essai.bj') on conflict do nothing;
+insert into public.profils (id, email, role, actif, nom, tel, boutique_id)
+values (:LIV_CTRL::uuid, 'livreur.ctrl@essai.bj', 'livreur', true, 'Kpodo', '0197000013', 'bou_informatique')
+on conflict (id) do update set role = 'livreur', actif = true, nom = 'Kpodo', boutique_id = 'bou_informatique';
+-- Son numéro, posé comme le ferait sa fiche (déclencheurs coupés le temps de cette écriture du décor).
+set session_replication_role = replica;
+update public.profils set tel = '0197000013' where id = :LIV_CTRL::uuid;
+set session_replication_role = origin;
+
+-- Les droits : un employé sans accès, un compte de boutique.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_controles_compteurs() -> 'acces', 'null'::jsonb, 'menu fermé : un employé n''a pas les contrôles');
+select essai.refuse($$select public.rh_audit_reglages_liste()$$, 'ni l''historique des réglages');
+select essai.refuse($$select public.rh_encaissements()$$, 'ni les encaissements');
+select essai.refuse($$select public.rh_audit_approuver(array[1::bigint])$$, 'ni n''approuve');
+select essai.refuse($$select public.rh_controles_regler(1, 1, 1)$$, 'ni ne règle les seuils');
+select essai.refuse($$select public.rh_suivi_regler_veille(30, 15)$$, 'ni la veille des livreurs');
+select essai.refuse($$select * from public.rh_audit_reglages$$, 'la table de l''historique ne se lit pas');
+reset role; select essai.personne();
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.refuse($$select public.rh_encaissements()$$, 'un compte de boutique non plus');
+select essai.refuse($$insert into public.rh_audit_reglages (table_nom, champ) values ('paiement', 'faux')$$,
+  'personne n''écrit dans l''historique à la main');
+reset role; select essai.personne();
+
+-- 1. Un réglage sensible change : le superadministrateur passe le paiement
+--    en mode essai et change le code MoMoPay.
+--    COMME EN PRODUCTION : BIZZOO Admin écrit « paiement » en rôle
+--    authenticated (PATCH paiement?id=eq.1), et une boutique règle son
+--    numéro par regler_reception. L'historique est fermé à authenticated :
+--    seul le mode SECURITY DEFINER du déclencheur permet d'y écrire. En
+--    superutilisateur, l'essai passerait même si ce mode se perdait, et le
+--    déclencheur avalerait l'erreur sans bruit.
+update public.boutiques_reception set tel = '0100000000' where boutique_id = 'bou_informatique';
+update public.rh_audit_reglages set approuve_le = now() where approuve_le is null;
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+update public.paiement set bac_a_sable = not bac_a_sable, momopay_code = '0161234567', maj_le = now() where id = 1;
+reset role; select essai.personne();
+update public.reglages set compte_obligatoire = not compte_obligatoire, maj_le = now() where id = 1;
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select public.regler_reception('bou_informatique', '0197123456', 'MTN', 'Essai Chef') as reception \gset
+reset role; select essai.personne();
+select essai.egal((select momopay_code from public.paiement where id = 1), '0161234567',
+  'le superadministrateur a bien changé le paiement, en rôle authenticated');
+select essai.egal((select count(*)::int from public.rh_audit_reglages
+                    where approuve_le is null and table_nom = 'paiement' and champ in ('bac_a_sable', 'momopay_code')
+                      and par_compte = :ENSEIGNE::uuid and par_nom <> '' and par_nom not like 'Système%'), 2,
+  'chaque champ changé est gardé, avec son auteur (écrit en rôle authenticated)');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'boutiques_reception'
+                              and cible = 'bou_informatique' and champ = 'tel' and apres = '0197123456'
+                              and par_compte = :CHEF::uuid and approuve_le is null),
+  'le numéro réglé par l''administrateur de la boutique est gardé, à son nom');
+select essai.verifie((select p.prosecdef from pg_proc p where p.oid = 'public.rh_audit_reglages_noter()'::regprocedure),
+  'le déclencheur reste SECURITY DEFINER');
+select essai.verifie(not exists (select 1 from public.rh_audit_reglages where champ = 'maj_le'),
+  'la date de mise à jour seule ne compte pas');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'paiement' and champ = 'momopay_code'
+                              and apres = '0161234567' and critique), 'le code MoMoPay : valeur d''avant et d''après, critique');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'reglages' and champ = 'compte_obligatoire'
+                              and par_compte is null and par_nom like 'Système%'), 'un changement sans compte : « Système »');
+select essai.verifie(exists (select 1 from public.rh_audit_reglages where table_nom = 'boutiques_reception'
+                              and cible = 'bou_informatique' and champ = 'tel'), 'le numéro de réception d''une boutique aussi');
+
+-- Le déclencheur avale ses erreurs : un historique impossible n'empêche
+-- pas le réglage.
+select taux_livreur as tl_avant from public.paiement where id = 1 \gset
+alter table public.rh_audit_reglages add constraint essai_historique_impossible check (false) not valid;
+update public.paiement set taux_livreur = taux_livreur + 1 where id = 1;
+alter table public.rh_audit_reglages drop constraint essai_historique_impossible;
+select essai.verifie(not exists (select 1 from public.rh_audit_reglages where champ = 'taux_livreur'),
+  'l''historique a échoué en silence…');
+select essai.egal((select taux_livreur from public.paiement where id = 1), :'tl_avant'::int + 1,
+  '… et le réglage est passé quand même');
+
+-- La table est figée.
+select essai.refuse($$delete from public.rh_audit_reglages$$, 'l''historique ne s''efface pas');
+select essai.refuse($$update public.rh_audit_reglages set apres = 'autre' where champ = 'momopay_code'$$,
+  'ni ne se réécrit');
+
+-- L'administration lit ; le CEO et le superadministrateur approuvent.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_audit_reglages_liste(true) as audit_adm \gset
+select public.rh_controles_compteurs() as compteurs_adm \gset
+select (select array_agg((x ->> 'id')::bigint) from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x) as ids_audit \gset
+select essai.refuse(format($$select public.rh_audit_approuver(%L::bigint[])$$, :'ids_audit'),
+  'l''administration n''approuve pas : elle lit');
+reset role; select essai.personne();
+select essai.egal((:'audit_adm'::jsonb ->> 'approuver')::boolean, false, 'l''écran le lui dit');
+select essai.verifie((:'audit_adm'::jsonb ->> 'a_approuver')::int >= 6, 'les changements attendent leur approbation');
+select essai.egal((select x ->> 'apres' from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x
+                    where x ->> 'champ' = 'momopay_code'), '016…67', 'le code MoMoPay sort tronqué');
+select essai.egal((select x ->> 'apres' from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x
+                    where x ->> 'champ' = 'tel'), '019…56', 'le numéro de réception aussi');
+select essai.verifie(not (:'audit_adm'::jsonb::text like '%0161234567%') and not (:'audit_adm'::jsonb::text like '%0197123456%'),
+  'aucune valeur entière ne sort');
+select essai.verifie((select x ->> 'libelle' from jsonb_array_elements(:'audit_adm'::jsonb -> 'changements') x
+                       where x ->> 'champ' = 'bac_a_sable') like 'Paiement passé en %', 'chaque changement dit ce qu''il veut dire');
+select essai.verifie((:'compteurs_adm'::jsonb ->> 'reglages_a_approuver')::int >= 6
+  and (:'compteurs_adm'::jsonb #>> '{dernier,critique}')::boolean, 'l''alerte rouge de l''accueil et du menu');
+
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_audit_approuver(:'ids_audit'::bigint[]) as approuves \gset
+select essai.refuse(format($$select public.rh_audit_approuver(%L::bigint[])$$, :'ids_audit'), 'on n''approuve pas deux fois');
+select public.rh_controles_compteurs() as compteurs_ceo \gset
+reset role; select essai.personne();
+select essai.verifie(:'approuves'::int >= 6, 'le CEO dit « vu et approuvé »');
+select essai.egal((:'compteurs_ceo'::jsonb ->> 'reglages_a_approuver')::int, 0, 'l''alerte s''éteint');
+select essai.verifie(not exists (select 1 from public.rh_audit_reglages where id = any(:'ids_audit'::bigint[]) and approuve_nom = ''),
+  'chaque approbation garde son auteur');
+select essai.refuse($$update public.rh_audit_reglages set approuve_le = null where champ = 'momopay_code'$$,
+  'une approbation ne se retire pas');
+
+-- 2. Les encaissements à la livraison : un MoMoPay pas vérifié depuis
+--    60 h, des espèces pas rendues depuis 30 h avec un écart.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_enc1 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_enc2 \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_enc1', 'TRX-RH-CTRL1', (select coalesce(acompte, total) from public.commandes where id = :'cmd_enc1'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_enc2', 'TRX-RH-CTRL2', (select coalesce(acompte, total) from public.commandes where id = :'cmd_enc2'), 'feexpay') as p \gset
+insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id, encaisse_le)
+values (:'cmd_enc1', 'bou_informatique', :LIV_CTRL::uuid, 5000, 5000, 'mobile_money', 'MoMoPay — transaction CTRL1', 'CTRL1', now() - interval '60 hours'),
+       (:'cmd_enc2', 'bou_informatique', :LIV_CTRL::uuid, 3000, 2000, 'especes', 'Le client n''avait pas tout', '', now() - interval '30 hours');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_controles_regler(48, 24, 2);
+select essai.refuse($$select public.rh_controles_regler(0, 24, 2)$$, 'un délai hors bornes est refusé');
+-- Trois jours en arrière : les espèces datent de 30 h ; passé minuit, une
+-- période qui commence hier ne les contiendrait plus (écart de la période).
+select public.rh_encaissements(current_date - 3, current_date + 1) as enc_adm \gset
+select x as enc_liv_adm from jsonb_array_elements(:'enc_adm'::jsonb -> 'livreurs') x where x ->> 'id' = :LIV_CTRL \gset
+select public.rh_suivi_commande(:'cmd_enc1') as suivi_enc1 \gset
+select public.rh_suivi_commande(:'cmd_enc2') as suivi_enc2 \gset
+reset role; select essai.personne();
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'en_attente')::int, 2, 'par livreur : ses deux encaissements en attente');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'anciens')::int, 2, 'tous deux au-delà des seuils (48 h MoMoPay, 24 h espèces)');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'ecarts')::int, 1, 'et son écart entre le dû et le déclaré');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'au_plafond')::boolean, true, 'le plafond (2) est atteint : il est signalé');
+select essai.egal((:'enc_liv_adm'::jsonb ->> 'montant')::int, 7000, 'l''administration voit le montant en attente');
+select essai.verifie((:'enc_adm'::jsonb #>> '{totaux,momopay_anciens}')::int >= 1
+  and (:'enc_adm'::jsonb #>> '{totaux,especes_anciennes}')::int >= 1, 'les totaux comptent les anciens');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'enc_adm'::jsonb -> 'lignes') x
+                              where x ->> 'commande' = :'cmd_enc1' and x ->> 'statut' = 'momopay_a_verifier'
+                                and (x ->> 'heures')::int >= 59 and x ->> 'transaction' = 'CTRL1'),
+  'ligne par ligne : MoMoPay à vérifier, son ancienneté et sa transaction');
+select essai.verifie((:'suivi_enc1'::jsonb -> 'alertes') ? 'momopay_non_verifie', 'le suivi lève « MoMoPay pas vérifié »');
+select essai.verifie((:'suivi_enc2'::jsonb -> 'alertes') ? 'encaissement_ecart', 'et « écart d''encaissement »');
+
+-- La logistique : Paramètres ouvre « controles » au profil, sans montants.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"controles":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_controles_compteurs() as compteurs_log \gset
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_log \gset
+select essai.verifie('controles' = any(public.rh_mes_menus()), 'le menu lui est ouvert');
+select essai.refuse($$select public.rh_audit_reglages_liste()$$, 'mais pas l''historique des réglages');
+select essai.refuse($$select public.rh_controles_regler(48, 24, 3)$$, 'ni les seuils');
+reset role; select essai.personne();
+select essai.egal(:'compteurs_log'::jsonb ->> 'acces', 'logistique', 'il entre dans la version sans montants');
+select essai.verifie(:'compteurs_log'::jsonb -> 'reglages_a_approuver' = 'null'::jsonb
+  and :'compteurs_log'::jsonb -> 'dernier' = 'null'::jsonb, 'sans rien des réglages sensibles');
+select essai.verifie((:'compteurs_log'::jsonb ->> 'encaissements_anciens')::int >= 2, 'il voit combien attendent trop');
+select essai.egal((:'enc_log'::jsonb ->> 'montants')::boolean, false, 'l''écran sait qu''il n''a pas les montants');
+select essai.verifie(not (:'enc_log'::jsonb::text ~ '"(du|montant|transaction|montant_a_verifier|montant_especes|montant_non_declare|ecart_total)"'),
+  'aucun montant ni numéro de transaction');
+select essai.egal((select (x ->> 'anciens')::int from jsonb_array_elements(:'enc_log'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 2, 'mais les nombres et l''ancienneté, oui');
+
+-- Les écarts sont ceux de la période : des espèces pas rendues d'il y a
+-- 10 jours, avec un écart, attendent toujours (elles comptent dans ce qui
+-- attend) mais ne gonflent pas les écarts de ces trois jours-ci (trois, pas
+-- deux : passé minuit, l'écart de 30 h sortirait d'une période « depuis hier »).
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_enc3 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_nd \gset
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_encaissements(current_date - 2, current_date + 1) as enc_base \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_enc3', 'TRX-RH-CTRL3', (select coalesce(acompte, total) from public.commandes where id = :'cmd_enc3'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_nd', 'TRX-RH-CTRLND', (select coalesce(acompte, total) from public.commandes where id = :'cmd_nd'), 'feexpay') as p \gset
+insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id, encaisse_le)
+values (:'cmd_enc3', 'bou_informatique', :LIV_CTRL::uuid, 4000, 1000, 'especes', 'Ancien écart', '', now() - interval '10 days');
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_controles_compteurs() as cpt_avant_nd \gset
+select public.rh_encaissements(current_date - 2, current_date + 1) as enc_per \gset
+select public.rh_encaissements(current_date - 15, current_date + 1) as enc_15j \gset
+reset role; select essai.personne();
+select essai.egal((:'enc_per'::jsonb #>> '{totaux,ecarts}')::int, (:'enc_base'::jsonb #>> '{totaux,ecarts}')::int, 'un écart d''il y a 10 jours n''entre pas dans les écarts des 3 derniers jours');
+select essai.egal((select (x ->> 'ecarts')::int from jsonb_array_elements(:'enc_per'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 1, 'ni dans ceux du livreur');
+select essai.egal((select (x ->> 'en_attente')::int from jsonb_array_elements(:'enc_per'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 3, 'mais il attend toujours : il reste dans ce qui attend');
+select essai.egal((:'enc_per'::jsonb #>> '{totaux,ecart_total}')::int, (:'enc_base'::jsonb #>> '{totaux,ecart_total}')::int, 'le total des écarts reste celui de la période');
+select essai.egal((select (x ->> 'ecarts')::int from jsonb_array_elements(:'enc_15j'::jsonb -> 'livreurs') x
+                    where x ->> 'id' = :LIV_CTRL), 2, 'sur 15 jours, il y entre');
+
+-- La pastille compte aussi les livrés sans déclaration, comme l'écran :
+-- une livraison remise alors qu'un reste était dû, sans rien déclarer.
+set session_replication_role = replica;
+update public.commandes set verse = 0, parts = null where id = :'cmd_nd';
+update public.commande_lignes set etat = 'remise', livreur_id = :LIV_CTRL::uuid where commande_id = :'cmd_nd';
+set session_replication_role = origin;
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_controles_compteurs() as cpt_apres_nd \gset
+select public.rh_encaissements(current_date - 1, current_date + 1) as enc_nd \gset
+reset role; select essai.personne();
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'enc_nd'::jsonb -> 'lignes') x
+                              where x ->> 'commande' = :'cmd_nd' and x ->> 'statut' = 'non_declare' and (x ->> 'ancien')::boolean),
+  'l''écran la classe « livré sans déclaration », ancienne');
+select essai.egal((:'cpt_apres_nd'::jsonb ->> 'encaissements_anciens')::int - (:'cpt_avant_nd'::jsonb ->> 'encaissements_anciens')::int, 1,
+  'la pastille et l''accueil la comptent aussi');
+
+-- 3. La veille des livreurs : une course payée que personne ne prend, un
+--    livreur en route qui ne donne plus de position.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_veille1 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1}]'::jsonb) ->> 'id' as cmd_veille2 \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_veille1', 'TRX-RH-VEILLE1', (select coalesce(acompte, total) from public.commandes where id = :'cmd_veille1'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_veille2', 'TRX-RH-VEILLE2', (select coalesce(acompte, total) from public.commandes where id = :'cmd_veille2'), 'feexpay') as p \gset
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse)
+values (:LIV_CTRL::uuid, 6.36, 2.41, 'Akpakpa')
+on conflict (profil_id) do update set latitude = 6.36, longitude = 2.41;
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select public.assigner_livreur(:'cmd_veille2', 'bou_informatique', :LIV_CTRL::uuid) as confiee \gset
+reset role; select essai.personne();
+-- Le décor daté, déclencheurs coupés le temps de ces écritures : payées
+-- il y a 2 h ; la seconde en route depuis 1 h, dernière position il y a 40 min.
+set session_replication_role = replica;
+update public.commandes set paye_le = now() - interval '2 hours' where id in (:'cmd_veille1', :'cmd_veille2');
+update public.commande_lignes set etat = 'en_livraison', recu_le = now() - interval '1 hour' where commande_id = :'cmd_veille2';
+set session_replication_role = origin;
+update public.positions_livreurs set enregistre_le = now() - interval '40 minutes' where profil_id = :LIV_CTRL::uuid;
+
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.refuse($$select public.rh_suivi_regler_veille(30, 15)$$, 'le responsable du suivi ne règle pas la veille');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_suivi_regler_veille(2, 15)$$, 'une veille hors bornes est refusée');
+select public.rh_suivi_regler_veille(30, 15);
+select public.rh_suivi(current_date, current_date) -> 'reglages' as reglages_veille \gset
+select public.rh_suivi_commande(:'cmd_veille1') as veille1 \gset
+select public.rh_suivi_commande(:'cmd_veille2') as veille2 \gset
+select public.rh_suivi_alertes_nb() as nb_muet \gset
+select x as carte_muet from jsonb_array_elements(public.rh_localiser_livreurs() -> 'livreurs') x where x ->> 'id' = :LIV_CTRL \gset
+reset role; select essai.personne();
+select essai.egal((:'reglages_veille'::jsonb ->> 'prise_course_min')::int, 30, 'les seuils de la veille vivent avec ceux du suivi');
+select essai.verifie((:'veille1'::jsonb -> 'alertes') ? 'course_sans_livreur', 'payée depuis 2 h, sans livreur : « course sans livreur »');
+select essai.egal(:'veille2'::jsonb -> 'alertes', '["livreur_muet"]'::jsonb, 'en route, sans position depuis 40 min : « livreur muet »');
+select essai.egal((:'carte_muet'::jsonb ->> 'muet')::boolean, true, 'sur la carte, il est muet (en orange)');
+select essai.egal(:'carte_muet'::jsonb ->> 'tel', '0197000013', 'avec son numéro, pour l''appeler');
+
+-- Il redonne signe de vie : l'alerte tombe, la pastille du suivi aussi.
+update public.positions_livreurs set enregistre_le = now() where profil_id = :LIV_CTRL::uuid;
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_suivi_commande(:'cmd_veille2') as veille2b \gset
+select public.rh_suivi_alertes_nb() as nb_parle \gset
+select x as carte_parle from jsonb_array_elements(public.rh_localiser_livreurs() -> 'livreurs') x where x ->> 'id' = :LIV_CTRL \gset
+reset role; select essai.personne();
+select essai.egal(:'veille2b'::jsonb -> 'alertes', '[]'::jsonb, 'une position fraîche : plus d''alerte');
+select essai.egal(:'nb_muet'::int - :'nb_parle'::int, 1, 'la pastille du suivi la comptait');
+select essai.egal((:'carte_parle'::jsonb ->> 'muet')::boolean, false, 'et la carte ne le dit plus muet');
+select essai.verifie(not (:'carte_muet'::jsonb::text ~ '"(total|prix|montant|frais)"'), 'la carte reste sans montant');
+rollback;
+
+-- ---------------------------------------------------------
+select essai.titre('28. L''argent : paiements à rapprocher, à payer, remboursements, gestes Admin, codes promo');
+-- Tout le décor de cette section s'annule à la fin.
+begin;
+\set LIV_ARG  '''a0a0a0a0-0014-4000-8000-000000000014'''
+\set PARRAIN  '''a0a0a0a0-0015-4000-8000-000000000015'''
+insert into auth.users (id, email) values (:LIV_ARG::uuid, 'livreur.argent@essai.bj'), (:PARRAIN::uuid, 'parrain@essai.bj')
+on conflict do nothing;
+insert into public.profils (id, email, role, actif, nom, tel)
+values (:LIV_ARG::uuid, 'livreur.argent@essai.bj', 'livreur', true, 'Dossou', '0197000014')
+on conflict (id) do update set role = 'livreur', actif = true, nom = 'Dossou';
+insert into public.clients (id, nom, tel) values (:PARRAIN::uuid, 'Parrain Essai', '0197112233')
+on conflict (id) do update set nom = 'Parrain Essai', tel = '0197112233';
+insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id, stock, disponible)
+values ('prod_rh_argent', 'bou_informatique', 'Clavier', 10000, 'sc_hightech_accessoires', 100, true)
+on conflict (id) do update set stock = 100, disponible = true;
+insert into public.produits_prive (produit_id, prix_grossiste) values ('prod_rh_argent', 8000)
+on conflict (produit_id) do update set prix_grossiste = 8000;
+
+-- Les droits : un employé sans accès, un compte de boutique, un visiteur.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_argent_compteurs() as arg_ferme \gset
+select essai.refuse($$select public.rh_paiements()$$, 'un employé sans accès ne lit pas les paiements à rapprocher');
+select essai.refuse($$select public.rh_rapprocher('x', 'regle', 'essai')$$, 'ni n''y note rien');
+select essai.refuse($$select public.rh_dettes()$$, 'ni ce que BIZZOO doit payer');
+select essai.refuse($$select public.rh_remboursements_liste()$$, 'ni les remboursements');
+select essai.refuse($$select public.rh_rembourser('x', 1, 'especes')$$, 'ni n''en note');
+select essai.refuse($$select public.rh_gestes()$$, 'ni le journal des gestes');
+select essai.refuse($$select public.rh_codes_surveillance()$$, 'ni les codes promo');
+select essai.refuse($$select public.rh_argent_regler(30, 5, 7)$$, 'ni ne règle les seuils');
+select essai.refuse($$select * from public.rh_rapprochements$$, 'la table des rapprochements ne se lit pas');
+select essai.refuse($$select * from public.rh_remboursements$$, 'ni celle des remboursements');
+select essai.refuse($$select * from public.rh_annulations$$, 'ni celle des annulations');
+select essai.refuse($$select public.rh_rembourse_du('x')$$, 'le calcul du dû n''est pas appelable à la main');
+reset role; select essai.personne();
+select essai.verifie(:'arg_ferme'::jsonb #> '{onglets,paiements}' = 'null'::jsonb
+  and :'arg_ferme'::jsonb #> '{onglets,dettes}' = 'null'::jsonb
+  and :'arg_ferme'::jsonb #> '{onglets,codes}' = 'null'::jsonb
+  and (:'arg_ferme'::jsonb #>> '{onglets,gestes}')::boolean = false
+  and not (:'arg_ferme'::jsonb ? 'paiements_a_traiter'), 'ses compteurs n''ouvrent aucun onglet d''argent');
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.refuse($$select public.rh_paiements()$$, 'un compte de boutique non plus');
+select essai.refuse($$select public.rh_gestes()$$, 'ni le journal des gestes');
+reset role; select essai.personne();
+set role anon;
+select essai.refuse($$select public.rh_paiements()$$, 'un visiteur n''appelle rien');
+reset role;
+
+-- 1. Les paiements à rapprocher.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_deb \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_conf \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_annonce \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_main \gset
+reset role; select essai.personne();
+-- L'agrégateur a dit « payé » mais la commande est restée « à payer » ; un
+-- versement en conflit ; un « j'ai payé » sans suite depuis 2 h ; une
+-- commande confirmée à la main par le superadministrateur.
+insert into public.versements (commande_id, numero, fournisseur, reseau, transaction_id, attendu, recu, verdict, detail)
+select c.id, c.numero, 'feexpay', 'MOOV', 'TRX-RH-DEB', c.total, c.total, 'payee', 'réponse tardive' from public.commandes c where c.id = :'cmd_deb'
+union all
+select c.id, c.numero, 'feexpay', 'MTN', 'TRX-RH-CONF', c.total, c.total - 1000, 'conflit', 'montant différent' from public.commandes c where c.id = :'cmd_conf';
+select public.marquer_payee(:'cmd_main', 'TRX-RH-MAIN', (select coalesce(acompte, total) from public.commandes where id = :'cmd_main'), 'feexpay') as p \gset
+set session_replication_role = replica;
+update public.commandes set annonce_le = now() - interval '2 hours' where id = :'cmd_annonce';
+update public.commandes set confirme_par = 'enseigne@bizzoo.bj' where id = :'cmd_main';
+set session_replication_role = origin;
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_argent_regler(30, 5, 7);
+select essai.refuse($$select public.rh_argent_regler(2, 5, 7)$$, 'un seuil hors bornes est refusé');
+select public.rh_paiements(current_date - 1, current_date + 1) as pai_adm \gset
+select public.rh_argent_compteurs() as arg_adm \gset
+reset role; select essai.personne();
+select essai.egal((select x ->> 'motif' from jsonb_array_elements(:'pai_adm'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_deb'),
+  'debite_non_paye', 'l''agrégateur a dit « payé », la commande non : « client débité »');
+select essai.egal((select x ->> 'motif' from jsonb_array_elements(:'pai_adm'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_conf'),
+  'conflit', 'le versement en conflit');
+select essai.egal((select x ->> 'motif' from jsonb_array_elements(:'pai_adm'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_annonce'),
+  'annonce_sans_preuve', '« j''ai payé » sans suite depuis 2 h');
+select essai.egal((select (x ->> 'a_traiter')::boolean from jsonb_array_elements(:'pai_adm'::jsonb -> 'lignes') x
+                    where x ->> 'commande' = :'cmd_main' and x ->> 'motif' = 'manuel'), false,
+  'la confirmation à la main est listée pour mémoire, sans rien à traiter');
+select essai.egal((select x ->> 'confirme_par' from jsonb_array_elements(:'pai_adm'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_main'),
+  'enseigne@bizzoo.bj', 'avec qui s''en est porté garant');
+select essai.verifie((select (x ->> 'recu')::int > 0 and x ->> 'tel' = '97666088' and x ->> 'transactions' = 'TRX-RH-DEB'
+                        from jsonb_array_elements(:'pai_adm'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_deb'),
+  'l''administration voit le montant reçu, la transaction et le numéro entier');
+select essai.verifie((:'arg_adm'::jsonb ->> 'paiements_a_traiter')::int >= 3, 'la pastille compte ce qui attend');
+select essai.egal(:'arg_adm'::jsonb #>> '{onglets,paiements}', 'admin', 'l''administration a les montants');
+
+-- La relation client : Paramètres ouvre « paiements » au profil, sans montants.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"paiements":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_paiements(current_date - 1, current_date + 1) as pai_sav \gset
+select essai.verifie('paiements' = any(public.rh_mes_menus()), 'le menu lui est ouvert');
+select essai.refuse(format($$select public.rh_rapprocher(%L, 'regle', 'ok')$$, :'cmd_deb'), 'une note de deux lettres ne dit rien : refusée');
+select essai.refuse(format($$select public.rh_rapprocher(%L, 'confirme', 'Client rappelé')$$, :'cmd_deb'), 'un statut inconnu est refusé');
+select essai.refuse($$select public.rh_rapprocher('cmd_inexistante', 'regle', 'Client rappelé')$$, 'une commande inconnue aussi');
+select public.rh_rapprocher(:'cmd_deb', 'regle', 'Client rappelé : paiement retrouvé chez FeexPay') as note_id \gset
+select essai.refuse(format($$select public.rh_rembourser(%L, 1000, 'especes')$$, :'cmd_deb'), 'sans être de l''administration, il ne note aucun remboursement');
+select essai.refuse($$select public.rh_argent_regler(30, 5, 7)$$, 'ni les seuils');
+reset role; select essai.personne();
+select essai.egal((:'pai_sav'::jsonb ->> 'montants')::boolean, false, 'l''écran sait qu''il n''a pas les montants');
+select essai.verifie(not (:'pai_sav'::jsonb::text ~ '"(total|attendu|recu|transactions|remarque|detail|montant_a_traiter|montant_manuel)"'),
+  'aucun montant, aucune transaction');
+select essai.verifie(not (:'pai_sav'::jsonb::text like '%97666088%'), 'pas le numéro entier du client');
+select essai.egal((select x ->> 'tel' from jsonb_array_elements(:'pai_sav'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_deb'),
+  '•••• 6088', 'ses 4 derniers chiffres seulement');
+select essai.verifie(exists (select 1 from public.rh_rapprochements where id = :'note_id'::bigint and commande_id = :'cmd_deb'
+                              and statut = 'regle' and par = :'e_membre'::uuid and par_nom <> ''),
+  'la note garde qui l''a écrite et quand');
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_paiements(current_date - 1, current_date + 1) as pai_apres \gset
+select public.rh_argent_compteurs() as arg_apres \gset
+reset role; select essai.personne();
+select essai.verifie((select not (x ->> 'a_traiter')::boolean and x #>> '{traitement,statut}' = 'regle'
+                             and x #>> '{traitement,par}' <> '' and x #>> '{traitement,commentaire}' like 'Client rappelé%'
+                        from jsonb_array_elements(:'pai_apres'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_deb'),
+  'réglé : il ne reste plus à traiter, la note se lit avec son auteur');
+select essai.egal((:'arg_adm'::jsonb ->> 'paiements_a_traiter')::int - (:'arg_apres'::jsonb ->> 'paiements_a_traiter')::int, 1,
+  'la pastille descend d''un');
+select essai.egal((select etat from public.commandes where id = :'cmd_deb'), 'a_payer',
+  'la commande n''a pas bougé : la confirmation reste dans Admin');
+
+-- Une commande payée puis annulée n'est pas un « client débité » : son
+-- versement dit « payée », mais elle est déjà dans les remboursements. Une
+-- réponse « inconnue » que l'agrégateur a ensuite refusée est tranchée ;
+-- une réponse restée « inconnue », elle, attend.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_argent_compteurs() as arg_av_annul \gset
+reset role; select essai.personne();
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_pa \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_refus \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_inc \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_pa', 'TRX-RH-PA', (select coalesce(acompte, total) from public.commandes where id = :'cmd_pa'), 'feexpay') as p \gset
+insert into public.versements (commande_id, numero, fournisseur, reseau, transaction_id, attendu, recu, verdict, detail, cree_le)
+select c.id, c.numero, 'feexpay', 'MTN', 'TRX-RH-PA', c.total, c.total, 'payee', 'encaissé', now() - interval '5 minutes'
+  from public.commandes c where c.id = :'cmd_pa'
+union all
+select c.id, c.numero, 'feexpay', 'MTN', 'TRX-RH-REF', c.total, 0, 'inconnue', 'délai dépassé', now() - interval '10 minutes'
+  from public.commandes c where c.id = :'cmd_refus'
+union all
+select c.id, c.numero, 'feexpay', 'MTN', 'TRX-RH-REF', c.total, 0, 'refusee', 'solde insuffisant', now() - interval '2 minutes'
+  from public.commandes c where c.id = :'cmd_refus'
+union all
+select c.id, c.numero, 'feexpay', 'MTN', 'TRX-RH-INC', c.total, 0, 'inconnue', 'délai dépassé', now() - interval '2 minutes'
+  from public.commandes c where c.id = :'cmd_inc';
+update public.commandes set etat = 'annulee' where id = :'cmd_pa';
+select essai.verifie((select etat = 'annulee' and paye_le is not null from public.commandes where id = :'cmd_pa'),
+  'le décor : payée, puis annulée (paye_le reste posé)');
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_paiements(current_date - 1, current_date + 1) as pai_annul \gset
+select public.rh_argent_compteurs() as arg_ap_annul \gset
+reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'pai_annul'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_pa'),
+  'payée puis annulée : pas dans les paiements à rapprocher');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'pai_annul'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_refus'),
+  '« inconnue » puis « refusée » : la dernière réponse tranche, rien à rapprocher');
+select essai.egal((select x ->> 'motif' from jsonb_array_elements(:'pai_annul'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_inc'),
+  'inconnu', 'une réponse restée « inconnue » attend');
+select essai.egal((:'arg_ap_annul'::jsonb ->> 'paiements_a_traiter')::int - (:'arg_av_annul'::jsonb ->> 'paiements_a_traiter')::int, 1,
+  'la pastille ne monte que de celle-là');
+
+-- 2. Les remboursements dus après annulation.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_stats","quantite":1},{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_r1 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_r2 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_rien \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_r1', 'TRX-RH-R1', (select coalesce(acompte, total) from public.commandes where id = :'cmd_r1'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_r2', 'TRX-RH-R2', (select coalesce(acompte, total) from public.commandes where id = :'cmd_r2'), 'feexpay') as p \gset
+select public.marquer_payee(:'cmd_rien', 'TRX-RH-RIEN', (select coalesce(acompte, total) from public.commandes where id = :'cmd_rien'), 'feexpay') as p \gset
+-- Le client a tout payé en ligne, sans frais ni remise : le calcul se lit à l'œil.
+set session_replication_role = replica;
+update public.commandes c set total = s.t, verse = s.t, acompte = s.t, remise = 0, frais_livraison = 0, parts = null, livraison = null
+  from (select l.commande_id, sum(l.prix * l.quantite)::int as t from public.commande_lignes l
+         where l.commande_id in (:'cmd_r1', :'cmd_r2', :'cmd_rien') group by l.commande_id) s
+ where c.id = s.commande_id;
+set session_replication_role = origin;
+select prix * quantite as prix_clavier from public.commande_lignes where commande_id = :'cmd_r1' and produit_id = 'prod_rh_argent' \gset
+select verse as verse_r2 from public.commandes where id = :'cmd_r2' \gset
+
+-- La boutique annule le clavier, après paiement, depuis son compte.
+select essai.devenir(:CHEF::uuid); set role authenticated;
+update public.commande_lignes set etat = 'annulee' where commande_id = :'cmd_r1' and produit_id = 'prod_rh_argent';
+reset role; select essai.personne();
+-- L'enseigne annule une commande entière, hors de tout compte connecté.
+update public.commandes set etat = 'annulee' where id = :'cmd_r2';
+select essai.verifie(exists (select 1 from public.rh_annulations where commande_id = :'cmd_r1' and ligne_id is not null
+                              and apres_paiement and par_compte = :CHEF::uuid and par_nom <> '' and par_nom not like 'Système%'),
+  'l''annulation d''un article est notée, avec son auteur, après paiement');
+select essai.verifie(exists (select 1 from public.rh_annulations where commande_id = :'cmd_r2' and ligne_id is null
+                              and apres_paiement and par_compte is null and par_nom like 'Système%'),
+  'celle d''une commande entière aussi ; sans compte : « Système »');
+
+-- Le déclencheur avale ses erreurs : une trace impossible n'empêche pas l'annulation.
+alter table public.rh_annulations add constraint essai_trace_impossible check (false) not valid;
+update public.commande_lignes set etat = 'annulee' where commande_id = :'cmd_rien';
+alter table public.rh_annulations drop constraint essai_trace_impossible;
+select essai.verifie(not exists (select 1 from public.rh_annulations where commande_id = :'cmd_rien'), 'la trace a échoué en silence…');
+select essai.egal((select etat from public.commande_lignes where commande_id = :'cmd_rien'), 'annulee', '… et l''annulation est passée');
+-- Remise en état : cette commande-là reste servie, rien n'est dû.
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'nouvelle' where commande_id = :'cmd_rien';
+set session_replication_role = origin;
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_remboursements_liste(current_date - 1, current_date + 1) as remb1 \gset
+select essai.refuse(format($$select public.rh_rembourser(%L, %s, 'especes')$$, :'cmd_r1', :'prix_clavier'::int + 1),
+  'on ne rend pas plus que ce qui est dû');
+select essai.refuse(format($$select public.rh_rembourser(%L, 1000, 'mobile_money')$$, :'cmd_r1'),
+  'un remboursement Mobile Money sans référence est refusé');
+select essai.refuse(format($$select public.rh_rembourser(%L, 0, 'especes')$$, :'cmd_r1'), 'un montant nul aussi');
+select essai.refuse(format($$select public.rh_rembourser(%L, 1000, 'cheque')$$, :'cmd_r1'), 'un mode inconnu aussi');
+select essai.refuse(format($$select public.rh_rembourser(%L, 1000, 'especes')$$, :'cmd_rien'), 'rien n''est dû sur une commande servie');
+reset role; select essai.personne();
+select x as r1 from jsonb_array_elements(:'remb1'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_r1' \gset
+select x as r2 from jsonb_array_elements(:'remb1'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_r2' \gset
+select essai.egal((:'r1'::jsonb ->> 'du')::int, :'prix_clavier'::int, 'un article annulé après paiement : son prix est dû au client');
+select essai.egal(:'r1'::jsonb ->> 'statut', 'a_rembourser', 'il entre seul dans la file');
+select essai.verifie(:'r1'::jsonb ->> 'annule_par' <> '' and :'r1'::jsonb ->> 'boutiques' <> '', 'avec qui a annulé, et quelle boutique');
+select essai.egal((:'r1'::jsonb ->> 'en_retard')::boolean, false, 'pas encore en retard');
+select essai.egal((:'r2'::jsonb ->> 'du')::int, :'verse_r2'::int, 'une commande entière annulée : tout ce qui a été versé');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'remb1'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_rien'),
+  'une commande servie n''y est pas');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'remb1'::jsonb -> 'boutiques') x
+                              where (x ->> 'lignes')::int >= 1 and (x ->> 'valeur')::int >= :'prix_clavier'::int),
+  'la statistique compte la boutique qui annule après paiement');
+
+-- Une semaine plus tard, rien n'est noté : alerte.
+update public.rh_annulations set le = now() - interval '10 days' where commande_id = :'cmd_r1';
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_remboursements_liste(current_date - 1, current_date + 1) as remb2 \gset
+select public.rh_argent_compteurs() as arg_retard \gset
+reset role; select essai.personne();
+select essai.egal((select (x ->> 'en_retard')::boolean from jsonb_array_elements(:'remb2'::jsonb -> 'lignes') x
+                    where x ->> 'commande' = :'cmd_r1'), true, 'au-delà de 7 jours : en retard');
+select essai.verifie((:'arg_retard'::jsonb ->> 'remboursements_en_retard')::int >= 1, 'la pastille le compte');
+
+-- Le SAV voit la file, sans montants ; il ne note pas le remboursement.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_remboursements_liste(current_date - 1, current_date + 1) as remb_sav \gset
+reset role; select essai.personne();
+select essai.egal((:'remb_sav'::jsonb ->> 'montants')::boolean, false, 'le SAV lit la file sans les montants');
+select essai.verifie(not (:'remb_sav'::jsonb::text ~ '"(du|rendu|reste|montant|reference|note|valeur|reste_total|rendu_periode)"'),
+  'aucun montant ni référence');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'remb_sav'::jsonb -> 'lignes') x
+                              where x ->> 'commande' = :'cmd_r1' and (x ->> 'en_retard')::boolean and x ->> 'tel' = '•••• 6088'),
+  'mais le retard, et le numéro masqué');
+
+-- L'administration note le remboursement, en deux fois.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_rembourser(:'cmd_r1', 4000, 'especes', '', 'Remis au client en boutique') as rb1 \gset
+select public.rh_remboursements_liste(current_date - 1, current_date + 1) as remb3 \gset
+select public.rh_rembourser(:'cmd_r1', :'prix_clavier'::int - 4000, 'mobile_money', 'MP-REMB-001') as rb2 \gset
+select essai.refuse(format($$select public.rh_rembourser(%L, 1, 'especes')$$, :'cmd_r1'), 'tout rendu : plus rien n''est dû');
+select public.rh_remboursements_liste(current_date - 1, current_date + 1) as remb4 \gset
+reset role; select essai.personne();
+select essai.verifie((select x ->> 'statut' = 'partiel' and (x ->> 'reste')::int = :'prix_clavier'::int - 4000
+                        from jsonb_array_elements(:'remb3'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_r1'),
+  'une partie rendue : « partiel », le reste se lit');
+select essai.verifie((select x ->> 'statut' = 'rembourse' and (x ->> 'reste')::int = 0 and not (x ->> 'en_retard')::boolean
+                             and jsonb_array_length(x -> 'faits') = 2 and x #>> '{faits,1,reference}' = 'MP-REMB-001'
+                        from jsonb_array_elements(:'remb4'::jsonb -> 'lignes') x where x ->> 'commande' = :'cmd_r1'),
+  'tout rendu : remboursé, l''alerte tombe, les deux gestes gardent leur référence');
+select essai.verifie(exists (select 1 from public.rh_remboursements where id = :'rb2'::bigint and par = :'e_admrh'::uuid and par_nom <> ''),
+  'chaque remboursement garde son auteur');
+
+-- 3. Ce que BIZZOO doit payer.
+insert into public.reversements (boutique_id, montant, tel, reseau, etat, demande_par, demande_le)
+values ('bou_informatique', 20000, '0197123456', 'MTN', 'en_attente', 'Chef', now() - interval '8 days');
+insert into public.gains_livreurs (commande_id, livreur_id, frais, taux, montant)
+values (:'cmd_main', :LIV_ARG::uuid, 3750, 80, 3000);
+insert into public.reversements_livreurs (livreur_id, nom_livreur, montant, tel, reseau, etat, demande_le)
+values (:LIV_ARG::uuid, 'Dossou', 2000, '0197000014', 'MOOV', 'en_attente', now() - interval '6 days');
+insert into public.codes_promo (code, libelle, mode, valeur, actif, parrain, commission)
+values ('RHPARRAIN28', 'Code d''un parrain', 'pourcent', 5, true, :PARRAIN::uuid, 10),
+       ('RHPROMO28', 'Promotion d''essai', 'pourcent', 10, true, null, 0);
+insert into public.gains_parrain (parrain, code, base, taux, montant) values (:PARRAIN::uuid, 'RHPARRAIN28', 15000, 10, 1500);
+insert into public.retraits_parrain (parrain, montant, numero, reseau, etat, demande_le)
+values (:PARRAIN::uuid, 1000, '0197112233', 'MTN', 'demande', now() - interval '1 day');
+-- Une course payée que le livreur a en main, pas encore livrée : sa part
+-- des frais est « à venir », comme dans son propre solde.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Cadjèhoun"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_course \gset
+reset role; select essai.personne();
+select public.marquer_payee(:'cmd_course', 'TRX-RH-COURSE', (select coalesce(acompte, total) from public.commandes where id = :'cmd_course'), 'feexpay') as p \gset
+set session_replication_role = replica;
+update public.commandes set frais_livraison = 1000, livraison = null, parts = null where id = :'cmd_course';
+update public.commande_lignes set livreur_id = :LIV_ARG::uuid, etat = 'en_livraison' where commande_id = :'cmd_course';
+set session_replication_role = origin;
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select (public.solde_livreur(:LIV_ARG::uuid) ->> 'a_venir')::int as liv_a_venir \gset
+reset role; select essai.personne();
+select essai.verifie(:'liv_a_venir'::int > 0, 'le décor : le solde du livreur a une course à venir');
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_dettes(current_date - 1, current_date + 1) as det_adm \gset
+select public.rh_argent_compteurs() as arg_det \gset
+reset role; select essai.personne();
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'det_adm'::jsonb -> 'demandes') x
+                              where x ->> 'type' = 'boutique' and (x ->> 'montant')::int = 20000 and (x ->> 'ancienne')::boolean
+                                and (x ->> 'jours')::int >= 8), 'le reversement demandé il y a 8 jours : ancien (seuil 5 j)');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'det_adm'::jsonb -> 'demandes') x
+                              where x ->> 'type' = 'livreur' and x ->> 'nom' = 'Dossou' and (x ->> 'ancienne')::boolean),
+  'les gains demandés par le livreur il y a 6 jours aussi');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'det_adm'::jsonb -> 'demandes') x
+                              where x ->> 'type' = 'parrain' and x ->> 'nom' like 'RHPARRAIN28%' and not (x ->> 'ancienne')::boolean),
+  'le retrait du parrain, d''hier, pas encore');
+select essai.egal((select (x ->> 'disponible')::int from jsonb_array_elements(:'det_adm'::jsonb -> 'comptes') x
+                    where x ->> 'type' = 'livreur' and x ->> 'nom' = 'Dossou'), 1000,
+  'le livreur : 3 000 gagnés, 2 000 demandés, 1 000 encore dus sans demande');
+select essai.egal((select (x ->> 'a_venir')::int from jsonb_array_elements(:'det_adm'::jsonb -> 'comptes') x
+                    where x ->> 'type' = 'livreur' and x ->> 'nom' = 'Dossou'), :'liv_a_venir'::int,
+  'son « à venir » est celui de son solde, pas 0');
+select essai.egal((:'det_adm'::jsonb #>> '{totaux,a_venir_livreurs}')::int >= :'liv_a_venir'::int, true,
+  'et le total des livreurs le compte');
+select essai.verifie((select (x ->> 'disponible')::int = 500 and x ->> 'nom' like '%Parrain Essai%'
+                        from jsonb_array_elements(:'det_adm'::jsonb -> 'comptes') x where x ->> 'type' = 'parrain' and x ->> 'nom' like 'RHPARRAIN28%'),
+  'le parrain : 500 encore dus ; l''administration voit son nom');
+select essai.verifie((:'det_adm'::jsonb #>> '{totaux,reel}')::bigint >= 20000 + 1000 + 1000 + 2000 + 500
+  and (:'det_adm'::jsonb #> '{totaux}') ? 'theorique_periode' and (:'det_adm'::jsonb #> '{totaux}') ? 'verse_periode',
+  'la dette réelle, à côté du théorique et de ce qui a été versé');
+select essai.verifie((:'arg_det'::jsonb ->> 'dettes_anciennes')::int >= 2, 'la pastille compte les demandes anciennes');
+
+-- La clé « caisse » : les nombres et l'ancienneté, sans montants ni nom de parrain.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"caisse":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_dettes(current_date - 1, current_date + 1) as det_caisse \gset
+reset role; select essai.personne();
+select essai.egal((:'det_caisse'::jsonb ->> 'montants')::boolean, false, 'la consultation de caisse lit sans les montants');
+select essai.verifie(not (:'det_caisse'::jsonb::text ~ '"(montant|attente|disponible|a_venir|reel|theorique_periode|verse_periode|attente_boutiques|disponible_boutiques)"'),
+  'aucun montant');
+select essai.verifie(not (:'det_caisse'::jsonb::text like '%Parrain Essai%'), 'ni le nom du parrain, un client');
+select essai.verifie((:'det_caisse'::jsonb #>> '{totaux,anciennes}')::int >= 2, 'mais les demandes et leur ancienneté');
+
+-- 4. Le journal des gestes de BIZZOO Admin. Le décor s'écrit déclencheurs
+--    coupés : journal_verifie signe chaque ligne du compte connecté, et il
+--    n'y en a pas ici.
+set session_replication_role = replica;
+insert into public.journal (fait_le, utilisateur, famille, action, libelle, cible, boutique_id, retour)
+values (now() - interval '1 hour', 'moderateur@essai.bj', 'produit', 'modification', 'Produit modifié : Clavier — 10 000 FCFA', 'Clavier',
+        'bou_informatique', '{"avant":[{"table":"produits","ligne":{"id":"prod_rh_argent"}}]}'),
+       (((current_date - 1)::timestamp + time '23:10') at time zone 'Africa/Porto-Novo', 'moderateur@essai.bj', 'produit',
+        'suppression', 'Produit supprimé : Souris', 'Souris', 'bou_informatique', null),
+       -- Les libellés tels qu'Admin les écrit (store.js, connexion.js).
+       (now() - interval '50 minutes', 'moderateur@essai.bj', 'boutique', 'ajout', 'Reversement demandé : 20000',
+        'bou_informatique', 'bou_informatique', null),
+       (now() - interval '45 minutes', 'moderateur@essai.bj', 'boutique', 'modification', 'Numéro de réception réglé : MTN 0197123456',
+        'bou_informatique', 'bou_informatique', null),
+       (now() - interval '40 minutes', 'moderateur@essai.bj', 'compte', 'connexion', 'Connexion à l''application admin',
+        'moderateur@essai.bj', null, null);
+insert into public.journal (fait_le, utilisateur, famille, action, libelle, cible, boutique_id)
+select date_trunc('hour', now() - interval '3 hours') + make_interval(mins => g), 'rafale@essai.bj', 'categorie', 'modification',
+       'Catégorie renommée', 'Câbles', 'bou_informatique'
+  from generate_series(1, 11) g;
+set session_replication_role = origin;
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_gestes()$$, 'l''administration n''y entre pas d''office : c''est elle que le journal regarde');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_gestes(current_date - 2, current_date + 1) as ges_ceo \gset
+select public.rh_gestes(current_date - 2, current_date + 1, 'produit', true) as ges_filtre \gset
+reset role; select essai.personne();
+select essai.egal((:'ges_ceo'::jsonb ->> 'tout_voir')::boolean, true, 'le CEO et superadministrateur lit tout');
+select essai.verifie((select x -> 'raisons' ? 'argent' and x ? 'retour' from jsonb_array_elements(:'ges_ceo'::jsonb -> 'lignes') x
+                       where x ->> 'libelle' like 'Produit modifié%'), 'un prix changé (« … — 10 000 FCFA ») : geste sensible « argent », avec l''état d''avant');
+select essai.verifie((select x -> 'raisons' ? 'argent' from jsonb_array_elements(:'ges_ceo'::jsonb -> 'lignes') x
+                       where x ->> 'libelle' like 'Numéro de réception%'), 'un numéro de réception réglé : « argent »');
+select essai.verifie((select not (x -> 'raisons' ? 'compte') from jsonb_array_elements(:'ges_ceo'::jsonb -> 'lignes') x
+                       where x ->> 'libelle' like 'Connexion à l''application%'), 'une simple connexion n''est pas un geste « compte »');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'ges_ceo'::jsonb -> 'lignes') x
+                              where x ->> 'libelle' = 'Reversement demandé : 20000')
+  and not (:'ges_ceo'::jsonb ->> 'chiffres_masques')::boolean, 'le CEO lit les chiffres');
+select essai.verifie((select x -> 'raisons' ? 'suppression' and x -> 'raisons' ? 'nuit' from jsonb_array_elements(:'ges_ceo'::jsonb -> 'lignes') x
+                       where x ->> 'libelle' like 'Produit supprimé%'), 'une suppression à 23 h : « suppression » et « nuit »');
+select essai.egal((select count(*)::int from jsonb_array_elements(:'ges_ceo'::jsonb -> 'lignes') x
+                    where x ->> 'qui' = 'rafale@essai.bj' and x -> 'raisons' ? 'rafale'), 11, '11 gestes dans l''heure : « rafale »');
+select essai.verifie((select bool_and(x ->> 'famille' = 'produit' and jsonb_array_length(x -> 'raisons') > 0)
+                        from jsonb_array_elements(:'ges_filtre'::jsonb -> 'lignes') x)
+  and jsonb_array_length(:'ges_filtre'::jsonb -> 'lignes') >= 2, 'les filtres : une famille, les sensibles seulement');
+
+-- La clé « audit » : l'administration ne la règle pas, ni pour elle ni
+-- pour un autre ; l'écran renvoie toutes les clés, une clé inchangée passe.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"audit":"membres"}')$$, :'p_admin'),
+  'l''administration ne s''ouvre pas le journal des gestes');
+select essai.refuse(format($$select public.rh_regler_acces(%L, '{"audit":"responsable"}')$$, :'p_mkt'),
+  'ni ne choisit qui la regarde : « audit » se règle par le CEO');
+select public.rh_regler_acces(:'p_mkt', '{"audit":"ferme","promos":"membres"}');
+reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from public.rh_acces_menus where menu = 'audit' and profil_id in (:'p_admin', :'p_mkt'))
+  and exists (select 1 from public.rh_acces_menus where profil_id = :'p_mkt' and menu = 'promos'),
+  'un enregistrement qui laisse « audit » tel quel passe');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"audit":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_gestes()$$, 'ouvrir « audit » à un autre profil ne l''ouvre pas à l''administration');
+reset role; select essai.personne();
+-- Même posée par une autre voie, la clé sur son propre profil ne lui ouvre rien.
+insert into public.rh_acces_menus (profil_id, menu, qui, modifie_par, modifie_le)
+select :'p_admin', 'audit', 'membres', a.modifie_par, now() from public.rh_acces_menus a
+ where a.profil_id = :'p_mkt' and a.menu = 'audit';
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_gestes()$$, 'son propre profil ouvert à « audit », l''administration n''y entre toujours pas');
+select essai.egal((public.rh_argent_compteurs() #>> '{onglets,gestes}')::boolean, false, 'et ses compteurs ne lui ouvrent pas l''onglet');
+reset role; select essai.personne();
+delete from public.rh_acces_menus where profil_id = :'p_admin' and menu = 'audit';
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_gestes(current_date - 2, current_date + 1) as ges_audit \gset
+select public.rh_argent_compteurs() as arg_audit \gset
+select essai.verifie('audit' = any(public.rh_mes_menus()) and 'promos' = any(public.rh_mes_menus()), 'les menus lui sont ouverts');
+reset role; select essai.personne();
+select essai.egal((:'ges_audit'::jsonb ->> 'tout_voir')::boolean, false, 'ouvert par « audit », il lit le journal…');
+select essai.verifie(jsonb_array_length(:'ges_audit'::jsonb -> 'lignes') >= 13 and not (:'ges_audit'::jsonb::text like '%"retour"%'),
+  '… sans l''état d''avant, réservé au CEO');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'ges_audit'::jsonb -> 'lignes') x
+                                  where coalesce(x ->> 'libelle', '') ~ '[0-9]' or coalesce(x ->> 'cible', '') ~ '[0-9]')
+  and not (:'ges_audit'::jsonb::text ~ '(20000|10 000|0197123456)') and (:'ges_audit'::jsonb ->> 'chiffres_masques')::boolean,
+  '… sans aucun chiffre : ni montant, ni numéro de réception');
+select essai.egal((select count(*)::int from jsonb_array_elements(:'ges_audit'::jsonb -> 'lignes') x
+                    where x ->> 'libelle' = 'Reversement demandé : •••'), 1, 'le geste reste lisible, son montant masqué');
+select essai.verifie((:'arg_audit'::jsonb #>> '{onglets,gestes}')::boolean and :'arg_audit'::jsonb #>> '{onglets,codes}' = 'equipe',
+  'ses compteurs ouvrent les onglets');
+
+-- 5. Les codes promo et le parrainage.
+select essai.devenir(:ACHETEUSE_RH::uuid); set role authenticated;
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Fidjrossè"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_p1 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Fidjrossè"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_p2 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Fidjrossè"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_p3 \gset
+select public.creer_commande('{"nom":"Sika","tel":"97666088","adresse":"Fidjrossè"}'::jsonb,
+  '[{"produit_id":"prod_rh_argent","quantite":1}]'::jsonb) ->> 'id' as cmd_p4 \gset
+reset role; select essai.personne();
+select count(public.marquer_payee(x, 'TRX-RH-' || x, (select coalesce(acompte, total) from public.commandes where id = x), 'feexpay')) as payees
+  from unnest(array[:'cmd_p1', :'cmd_p2', :'cmd_p3', :'cmd_p4']) x \gset
+select essai.egal((select count(*)::int from public.commandes where etat = 'payee'
+                    and id in (:'cmd_p1', :'cmd_p2', :'cmd_p3', :'cmd_p4')), 4, 'les quatre commandes du décor sont payées');
+-- Trois comptes différents, une même adresse, le même code ; et le
+-- parrain qui achète avec son propre code.
+set session_replication_role = replica;
+update public.commandes set code_promo = 'RHPROMO28', remise = 5000, client_adresse = 'Rue 12, Fidjrossè'
+ where id in (:'cmd_p1', :'cmd_p2', :'cmd_p3');
+update public.commandes set client_id = null, client_tel = '0196000001' where id = :'cmd_p2';
+update public.commandes set client_id = null, client_tel = '0196000002' where id = :'cmd_p3';
+update public.commandes set code_promo = 'RHPARRAIN28', remise = 500, client_id = :PARRAIN::uuid, client_tel = '0197112233'
+ where id = :'cmd_p4';
+set session_replication_role = origin;
+
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_codes_surveillance(current_date - 1, current_date + 1) as codes_adm \gset
+reset role; select essai.personne();
+select essai.verifie((select (x ->> 'usages')::int = 3 and (x ->> 'clients')::int = 3 and (x ->> 'cout')::int = 15000
+                             and (x ->> 'signalements')::int >= 1
+                        from jsonb_array_elements(:'codes_adm'::jsonb -> 'codes') x where x ->> 'code' = 'RHPROMO28'),
+  'un code : ses usages, ses clients, son coût, et il est signalé');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'codes_adm'::jsonb -> 'abus') x
+                              where x ->> 'type' = 'meme_lieu' and x ->> 'code' = 'RHPROMO28' and (x ->> 'comptes')::int = 3
+                                and (x ->> 'commandes')::int = 3 and x -> 'numeros' ? '•••• 0001'),
+  'abus probable : même adresse, trois comptes, numéros masqués');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'codes_adm'::jsonb -> 'abus') x
+                              where x ->> 'type' = 'propre_code' and x ->> 'code' = 'RHPARRAIN28'),
+  'abus probable : le parrain use de son propre code');
+select essai.verifie((select (x ->> 'propre_code')::boolean and x ->> 'tel' = '•••• 2233' and x ->> 'nom' = 'Parrain Essai'
+                             and (x ->> 'disponible')::int = 500 and (x ->> 'demandes')::int = 1
+                        from jsonb_array_elements(:'codes_adm'::jsonb -> 'parrains') x where x ->> 'codes' = 'RHPARRAIN28'),
+  'le parrain : commissions, retraits, ce qui lui reste dû');
+select essai.verifie(not (:'codes_adm'::jsonb::text ~ '(0196000001|0196000002|97666088|0197112233)'),
+  'aucun numéro entier, même pour l''administration');
+
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_codes_surveillance(current_date - 1, current_date + 1) as codes_mkt \gset
+reset role; select essai.personne();
+select essai.egal((:'codes_mkt'::jsonb ->> 'montants')::boolean, false, 'le marketing lit les codes sans les montants');
+select essai.verifie(not (:'codes_mkt'::jsonb::text ~ '"(cout|ventes|commissions|remise|valeur|mode|retire|demande|disponible|nom|commissions_periode|commissions_total)"'),
+  'ni coût, ni valeur, ni commissions, ni nom de parrain');
+select essai.verifie((select (x ->> 'usages')::int = 3 from jsonb_array_elements(:'codes_mkt'::jsonb -> 'codes') x where x ->> 'code' = 'RHPROMO28')
+  and jsonb_array_length(:'codes_mkt'::jsonb -> 'abus') >= 2, 'mais les usages et les abus');
+rollback;
+
+-- ---------------------------------------------------------
+select essai.titre('29. La qualité : SAV, fiche des boutiques, catalogue, files d''attente, zones, fidélité');
+-- Tout le décor de cette section s'annule à la fin. Il s'écrit en grande
+-- partie déclencheurs coupés (commandes, lignes, journal datés à la main) :
+-- ce qu'on éprouve ici, ce sont les LECTURES de la qualité, pas le circuit
+-- d'une commande, éprouvé ailleurs.
+begin;
+\set CLI_Q1   '''a0a0a0a0-0016-4000-8000-000000000016'''
+\set CLI_Q2   '''a0a0a0a0-0017-4000-8000-000000000017'''
+\set COMPTE_Q '''a0a0a0a0-0018-4000-8000-000000000018'''
+
+-- Les droits : un employé sans accès, un compte de boutique, un visiteur.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_qualite_compteurs() -> 'acces', 'null'::jsonb, 'menu fermé : un employé n''a pas la qualité');
+select essai.refuse($$select public.rh_satisfaction()$$, 'ni le SAV');
+select essai.refuse($$select public.rh_qualite_boutiques()$$, 'ni la fiche des boutiques');
+select essai.refuse($$select public.rh_catalogue_anomalies()$$, 'ni la santé du catalogue');
+select essai.refuse($$select public.rh_catalogue_appeler('x', 'rupture', true)$$, 'ni ne coche « boutique appelée »');
+select essai.refuse($$select public.rh_files_attente()$$, 'ni les files d''attente');
+select essai.refuse($$select public.rh_statistiques_zones()$$, 'ni les zones');
+select essai.refuse($$select public.rh_statistiques_clients()$$, 'ni la fidélité');
+select essai.refuse($$select public.rh_qualite_regler('{"reponse_h": 30}')$$, 'ni ne règle les seuils');
+select essai.refuse($$select public.rh_notes_releve()$$, 'ni ne relève les notes');
+select essai.refuse($$select * from public.rh_ruptures_suivi$$, 'la table des appels ne se lit pas');
+select essai.refuse($$select * from public.rh_notes_boutiques$$, 'ni celle des notes');
+select essai.refuse($$select * from public.rh_sav_ouvertes()$$, 'le rangement des réclamations n''est pas appelable à la main');
+select essai.refuse($$select * from public.rh_ventes_30j()$$, 'ni les ventes des 30 jours');
+reset role; select essai.personne();
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.refuse($$select public.rh_satisfaction()$$, 'un compte de boutique non plus');
+select essai.refuse($$select public.rh_statistiques_clients()$$, 'ni la fidélité');
+reset role; select essai.personne();
+set role anon;
+select essai.refuse($$select public.rh_qualite_boutiques()$$, 'un visiteur n''appelle rien');
+reset role;
+
+-- Ce que la fidélité comptait AVANT le décor : les essais d'avant ont
+-- laissé leurs clients, on ne mesure que ce que le décor ajoute.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_statistiques_clients() as fid_avant \gset
+select public.rh_qualite_compteurs() as cpt_avant \gset
+reset role; select essai.personne();
+select (date_trunc('month', current_date) - interval '8 months')::date as mois_q \gset
+
+-- Le décor : deux boutiques (l'une sans horaires), leurs produits, deux
+-- clientes qui notent, trois commandes payées il y a 6 h.
+insert into auth.users (id, email) values (:CLI_Q1::uuid, 'cliente.q1@essai.bj'), (:CLI_Q2::uuid, 'cliente.q2@essai.bj'),
+  (:COMPTE_Q::uuid, 'moderateur.q@essai.bj') on conflict do nothing;
+insert into public.clients (id, nom, tel) values (:CLI_Q1::uuid, 'Cliente Un', '0196880001'), (:CLI_Q2::uuid, 'Cliente Deux', '0196880002')
+on conflict (id) do update set nom = excluded.nom, tel = excluded.tel;
+insert into public.boutiques (id, nom, actif) values ('bou_rh_q1', 'Boutique Lente', true);
+insert into public.boutiques (id, nom, actif, ouvertures)
+values ('bou_rh_q2', 'Boutique Modèle', true, '{"lun": {"de": "08:00", "a": "19:00"}}'::jsonb);
+set session_replication_role = replica;
+insert into public.produits (id, boutique_id, nom, prix, stock, sur_commande, appro_le, images, sous_categorie_id, masque, masque_le, code)
+values ('prod_rq_1', 'bou_rh_q1', 'Fer à repasser', 2000, 0, false, null, '{a.jpg}', 'sc_hightech_accessoires', false, null, 'RQ1'),
+       ('prod_rq_2', 'bou_rh_q1', 'Bouilloire', 3000, 0, false, current_date - 5, '{b.jpg}', 'sc_hightech_accessoires', false, null, 'RQ2'),
+       ('prod_rq_3', 'bou_rh_q1', 'Ventilateur', 9000, 5, false, null, '{}', null, false, null, 'RQ3'),
+       ('prod_rq_4', 'bou_rh_q1', 'Radio', 7000, 3, false, null, '{d.jpg}', 'sc_hightech_accessoires', true, now() - interval '40 days', 'RQ4'),
+       ('prod_rq_ok', 'bou_rh_q2', 'Lampe', 4000, 10, false, null, '{e.jpg}', 'sc_hightech_accessoires', false, null, 'RQ5');
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id, livraison)
+values ('cmd_rq_1', 'BZ-RQ1', 'Sika', '97666088', 'Rue 1', 9000, 'payee', now() - interval '6 hours', now() - interval '6 hours',
+        :ACHETEUSE_RH::uuid, '{"distance_km": 4, "vehicule": "moto"}'::jsonb),
+       ('cmd_rq_2', 'BZ-RQ2', 'Sika', '97666088', 'Rue 2', 4000, 'payee', now() - interval '6 hours', now() - interval '6 hours',
+        :ACHETEUSE_RH::uuid, '{"distance_km": 10, "vehicule": "tricycle"}'::jsonb),
+       ('cmd_rq_3', 'BZ-RQ3', 'Sika', '97666088', 'Rue 3', 4000, 'payee', now() - interval '6 hours', now() - interval '6 hours',
+        :ACHETEUSE_RH::uuid, null);
+insert into public.commande_lignes (id, commande_id, boutique_id, produit_id, nom, prix, quantite, etat, confirme_le)
+values ('lig_rq_1', 'cmd_rq_1', 'bou_rh_q1', 'prod_rq_1', 'Fer à repasser', 2000, 3, 'vue', null),
+       ('lig_rq_2', 'cmd_rq_1', 'bou_rh_q1', 'prod_rq_2', 'Bouilloire', 3000, 1, 'annulee', null),
+       ('lig_rq_3', 'cmd_rq_2', 'bou_rh_q2', 'prod_rq_ok', 'Lampe', 4000, 1, 'remise', now() - interval '1 hour'),
+       ('lig_rq_4', 'cmd_rq_3', 'bou_rh_q2', 'prod_rq_ok', 'Lampe', 4000, 1, 'en_livraison', null);
+-- Le journal des étapes : la boutique lente voit sa commande 5 h après le
+-- paiement ; la boutique modèle en 30 min, prépare en 30 min, remet à 3 h.
+insert into public.rh_journal_lignes (commande_id, ligne_id, boutique_id, quoi, valeur, le) values
+  ('cmd_rq_1', 'lig_rq_1', 'bou_rh_q1', 'etat', 'vue', now() - interval '1 hour'),
+  ('cmd_rq_2', 'lig_rq_3', 'bou_rh_q2', 'etat', 'vue', now() - interval '5 hours 30 minutes'),
+  ('cmd_rq_2', 'lig_rq_3', 'bou_rh_q2', 'etat', 'preparee', now() - interval '5 hours'),
+  ('cmd_rq_2', 'lig_rq_3', 'bou_rh_q2', 'etat', 'remise', now() - interval '3 hours');
+-- Les zones, corrigées comme le ferait l'administration ; un échec de livraison.
+insert into public.rh_suivi_commandes (commande_id, zone) values
+  ('cmd_rq_1', 'Quartier Alpha (Commune Essai)'), ('cmd_rq_2', 'Quartier Beta (Commune Essai)'), ('cmd_rq_3', 'Zone Essai Solo');
+insert into public.rh_suivi_lignes (ligne_id, commande_id, statut, motif) values ('lig_rq_4', 'cmd_rq_3', 'echouee', 'Absent');
+-- Le SAV de la boutique lente : une réclamation sans réponse depuis 30 h,
+-- une répondue que le client lit, une escaladée depuis 3 jours, une où le
+-- client a réécrit après la réponse, une tranchée hier.
+insert into public.reclamations (id, client_id, commande_id, boutique_id, sujet, etat, cree_le, repondu_le, escalade_le,
+                                 escalade_motif, decide_le, decision)
+values ('rec_rq_1', :ACHETEUSE_RH::uuid, 'cmd_rq_1', 'bou_rh_q1', 'abime', 'ouverte', now() - interval '30 hours', null, null, '', null, ''),
+       ('rec_rq_2', :ACHETEUSE_RH::uuid, 'cmd_rq_1', 'bou_rh_q1', 'pas_conforme', 'repondue', now() - interval '10 hours',
+        now() - interval '9 hours', null, '', null, ''),
+       ('rec_rq_3', :ACHETEUSE_RH::uuid, 'cmd_rq_1', 'bou_rh_q1', 'incomplet', 'escaladee', now() - interval '80 hours',
+        now() - interval '78 hours', now() - interval '72 hours', 'Toujours rien reçu', null, ''),
+       ('rec_rq_4', :ACHETEUSE_RH::uuid, 'cmd_rq_1', 'bou_rh_q1', 'autre', 'repondue', now() - interval '20 hours',
+        now() - interval '19 hours', null, '', null, ''),
+       ('rec_rq_5', :ACHETEUSE_RH::uuid, 'cmd_rq_1', 'bou_rh_q1', 'non_recu', 'tranchee', now() - interval '60 hours',
+        now() - interval '58 hours', now() - interval '50 hours', 'Rien', now() - interval '26 hours', 'Remboursé');
+insert into public.reclamation_messages (id, reclamation_id, auteur_role, texte, cree_le) values
+  ('msg_rq_1', 'rec_rq_1', 'client', 'Abîmé', now() - interval '30 hours'),
+  ('msg_rq_2', 'rec_rq_2', 'client', 'Pas conforme', now() - interval '10 hours'),
+  ('msg_rq_3', 'rec_rq_2', 'boutique', 'Nous échangeons', now() - interval '9 hours'),
+  ('msg_rq_4', 'rec_rq_4', 'client', 'Question', now() - interval '20 hours'),
+  ('msg_rq_5', 'rec_rq_4', 'boutique', 'Réponse', now() - interval '19 hours'),
+  ('msg_rq_6', 'rec_rq_4', 'client', 'Toujours pas', now() - interval '2 hours');
+-- Les files d'Admin : une demande de boutique, un revendeur, un compte à
+-- valider, un avis et un produit signalés, tous en attente depuis 3 à 4 jours.
+insert into public.demandes (id, boutique_id, type, objet, apres, demande_le)
+values ('dem_rq_1', 'bou_rh_q1', 'reglages', 'Nom', '{}'::jsonb, now() - interval '3 days');
+update public.clients set revendeur_etat = 'en_attente', revendeur_demande_le = now() - interval '4 days' where id = :CLI_Q1::uuid;
+update public.profils set a_valider = true, cree_le = now() - interval '3 days' where id = :COMPTE_Q::uuid;
+-- La fidélité : trois clients venus il y a 8 mois ; le premier a racheté le
+-- mois suivant ; le troisième a supprimé son compte.
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id, compte_supprime)
+values ('cmd_rf_1', 'BZ-RF1', 'Fidèle Un', '0196990001', 'Rue F', 5000, 'payee', :'mois_q'::date + 9, :'mois_q'::date + 9, null, false),
+       ('cmd_rf_2', 'BZ-RF2', 'Fidèle Un', '0196990001', 'Rue F', 7000, 'payee', (:'mois_q'::date + interval '1 month')::date + 9,
+        (:'mois_q'::date + interval '1 month')::date + 9, null, false),
+       ('cmd_rf_3', 'BZ-RF3', 'Passant Deux', '0196990002', 'Rue G', 3000, 'payee', :'mois_q'::date + 11, :'mois_q'::date + 11, null, false),
+       ('cmd_rf_4', 'BZ-RF4', 'Parti Trois', '0196990003', 'Rue H', 2000, 'payee', :'mois_q'::date + 14, :'mois_q'::date + 14, null, true);
+set session_replication_role = origin;
+-- Les avis de la boutique lente, déclencheurs en marche (ils tiennent la
+-- moyenne) : 5 il y a 40 jours, 1 hier — la note tombe de 5 à 3.
+insert into public.avis (id, client_id, boutique_id, note, texte, auteur, cree_le)
+values ('avis_rq_1', :CLI_Q1::uuid, 'bou_rh_q1', 5, 'Bien', 'Cliente Un', now() - interval '40 days'),
+       ('avis_rq_2', :CLI_Q2::uuid, 'bou_rh_q1', 1, 'Lent', 'Cliente Deux', now() - interval '1 day');
+set session_replication_role = replica;
+insert into public.avis_signalements (avis_id, auteur_id, signale_par, cible, motif, cree_le)
+values ('avis_rq_2', :CLI_Q2::uuid, :CHEF::uuid, 'avis', 'haine', now() - interval '3 days');
+insert into public.produits_signalements (produit_id, nom_produit, boutique_id, signale_par, motif, cree_le)
+values ('prod_rq_3', 'Ventilateur', 'bou_rh_q1', :CHEF::uuid, 'contrefacon', now() - interval '3 days');
+set session_replication_role = origin;
+select essai.egal((select note_moyenne from public.boutiques where id = 'bou_rh_q1'), 3.00::numeric(3,2),
+  'le décor : la note de la boutique lente est de 3');
+
+-- 1. Le SAV, vu par l'administration.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_satisfaction(current_date - 5, current_date + 1) as sat_adm \gset
+reset role; select essai.personne();
+select essai.verifie((select x ->> 'colonne' = 'boutique' and x ->> 'alerte' = 'sans_reponse' and x ->> 'client' = 'Sika'
+                        from jsonb_array_elements(:'sat_adm'::jsonb -> 'reclamations') x where x ->> 'id' = 'rec_rq_1'),
+  'sans réponse depuis 30 h : « la boutique doit répondre », en alerte, le client nommé pour l''administration');
+select essai.verifie((select x ->> 'colonne' = 'client' and x -> 'alerte' = 'null'::jsonb
+                        from jsonb_array_elements(:'sat_adm'::jsonb -> 'reclamations') x where x ->> 'id' = 'rec_rq_2'),
+  'répondue : « en attente du client », sans alerte');
+select essai.verifie((select x ->> 'colonne' = 'bizzoo' and x ->> 'alerte' = 'escalade_en_attente' and x ->> 'motif' = 'Toujours rien reçu'
+                        from jsonb_array_elements(:'sat_adm'::jsonb -> 'reclamations') x where x ->> 'id' = 'rec_rq_3'),
+  'escaladée depuis 3 jours : « à trancher par BIZZOO », en alerte, avec son motif');
+select essai.verifie((select x ->> 'colonne' = 'boutique' and x -> 'alerte' = 'null'::jsonb and (x ->> 'heures')::numeric = 2
+                        from jsonb_array_elements(:'sat_adm'::jsonb -> 'reclamations') x where x ->> 'id' = 'rec_rq_4'),
+  'le client a réécrit après la réponse : la boutique doit répondre, compté depuis son dernier message');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'sat_adm'::jsonb -> 'reclamations') x where x ->> 'id' = 'rec_rq_5'),
+  'une réclamation tranchée n''attend plus personne');
+select essai.verifie((select (x ->> 'reclamations')::int = 5 and (x ->> 'repondues')::int = 4
+                             and (x ->> 'delai_reponse_h')::numeric = 1.5 and (x ->> 'sans_reponse')::int = 1
+                             and (x ->> 'escaladees')::int = 2
+                        from jsonb_array_elements(:'sat_adm'::jsonb -> 'boutiques') x where x ->> 'id' = 'bou_rh_q1'),
+  'par boutique : 5 réclamations, 4 répondues en 1,5 h en moyenne, 1 sans réponse, 2 escaladées');
+select essai.verifie((select (x ->> 'note')::numeric = 3 and (x ->> 'note_avant')::numeric = 5 and (x ->> 'variation')::numeric = -2
+                             and (x ->> 'chute')::boolean and x ->> 'source_avant' = 'reconstituee'
+                             and jsonb_array_length(x -> 'semaines') = 8
+                        from jsonb_array_elements(:'sat_adm'::jsonb -> 'boutiques') x where x ->> 'id' = 'bou_rh_q1'),
+  'la note est passée de 5 à 3 en 30 jours : chute signalée, courbe de 8 semaines');
+select essai.verifie((:'sat_adm'::jsonb #>> '{totaux,sans_reponse}')::int >= 1
+                     and (:'sat_adm'::jsonb #>> '{totaux,escalades_en_retard}')::int >= 1
+                     and (:'sat_adm'::jsonb #>> '{totaux,tranchees}')::int >= 1,
+  'les totaux comptent les alertes et les décisions de la période');
+
+-- Le relevé des notes : pg_cron ou l'écran.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.verifie(public.rh_notes_releve() >= 1, 'l''administration relève les notes');
+reset role; select essai.personne();
+select essai.egal((select note from public.rh_notes_boutiques where boutique_id = 'bou_rh_q1'
+                    and semaine = date_trunc('week', now() at time zone 'Africa/Porto-Novo')::date), 3.00::numeric(3,2),
+  'la note de la semaine est gardée');
+
+-- 2. La fiche qualité des boutiques.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_qualite_boutiques(current_date - 3, current_date + 1) as bq_adm \gset
+reset role; select essai.personne();
+select x as bq_lente from jsonb_array_elements(:'bq_adm'::jsonb -> 'boutiques') x where x ->> 'id' = 'bou_rh_q1' \gset
+select x as bq_modele from jsonb_array_elements(:'bq_adm'::jsonb -> 'boutiques') x where x ->> 'id' = 'bou_rh_q2' \gset
+select essai.egal((:'bq_lente'::jsonb ->> 'delai_vue_h')::numeric, 5.0, 'la boutique lente voit ses commandes en 5 h');
+select essai.egal((:'bq_lente'::jsonb ->> 'annulation_pct')::numeric, 50.0, 'elle annule un article sur deux');
+select essai.egal((:'bq_lente'::jsonb ->> 'rupture_pct')::numeric, 66.7, 'deux produits visibles sur trois sont épuisés');
+select essai.verifie(:'bq_lente'::jsonb -> 'problemes' @> '["vue_lente", "annulations", "reclamations", "ruptures", "note", "horaires"]'::jsonb,
+  'ses signaux : vue lente, annulations, réclamations, ruptures, note, pas d''horaires');
+select essai.egal(:'bq_lente'::jsonb ->> 'feu', 'rouge', 'elle est en rouge');
+select essai.egal((:'bq_lente'::jsonb ->> 'ventes')::int, 6000, 'l''administration voit ses ventes, articles annulés exclus');
+select essai.egal(:'bq_modele'::jsonb ->> 'feu', 'vert', 'la boutique modèle est en vert');
+select essai.egal((:'bq_modele'::jsonb ->> 'delai_preparation_h')::numeric, 0.5, 'elle prépare en 30 min');
+select essai.verifie(not (:'bq_adm'::jsonb::text ~ '(prix_bizzoo|taux_marge|benefice)'), 'jamais le prix BIZZOO ni la marge');
+
+-- 3. La santé du catalogue.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_catalogue_anomalies() as cat_adm \gset
+select public.rh_qualite_compteurs() as cpt_decor \gset
+reset role; select essai.personne();
+select essai.verifie((select (x ->> 'vendus_30j')::int = 3 and x -> 'appel' = 'null'::jsonb and x ->> 'boutique' = 'Boutique Lente'
+                        from jsonb_array_elements(:'cat_adm'::jsonb -> 'ruptures') x where x ->> 'id' = 'prod_rq_1'),
+  'épuisé après 3 ventes en 30 jours : une rupture qui coûte, pas encore appelée');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'cat_adm'::jsonb -> 'ruptures') x where x ->> 'id' = 'prod_rq_2'),
+  'un article annulé n''est pas une vente');
+select essai.verifie((select (x ->> 'retard_j')::int = 5 from jsonb_array_elements(:'cat_adm'::jsonb -> 'appro_depasse') x
+                       where x ->> 'id' = 'prod_rq_2'), 'réapprovisionnement dépassé de 5 jours');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'cat_adm'::jsonb -> 'sans_photo') x where x ->> 'id' = 'prod_rq_3')
+                     and exists (select 1 from jsonb_array_elements(:'cat_adm'::jsonb -> 'sans_categorie') x where x ->> 'id' = 'prod_rq_3'),
+  'une fiche sans photo ni catégorie');
+select essai.verifie((select (x ->> 'jours')::int >= 40 from jsonb_array_elements(:'cat_adm'::jsonb -> 'masques') x
+                       where x ->> 'id' = 'prod_rq_4'), 'masqué depuis 40 jours');
+select essai.verifie(not (:'cat_adm'::jsonb::text ~ '"(prix|prix_grossiste|prix_bizzoo)"'), 'aucun prix');
+select essai.egal((:'cpt_decor'::jsonb ->> 'ruptures_a_appeler')::int - (:'cpt_avant'::jsonb ->> 'ruptures_a_appeler')::int, 1,
+  'la pastille compte la rupture à appeler');
+
+-- La clé « qualite » ouvre le menu aux membres du Marketing, sans montants.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_regler_acces(:'p_mkt', '{"qualite":"membres"}');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie('qualite' = any(public.rh_mes_menus()), 'le menu Qualité lui est ouvert');
+select essai.egal(public.rh_qualite_compteurs() ->> 'acces', 'equipe', 'en équipe, sans montants');
+select public.rh_satisfaction(current_date - 5, current_date + 1) as sat_mkt \gset
+select public.rh_qualite_boutiques(current_date - 3, current_date + 1) as bq_mkt \gset
+select essai.refuse($$select public.rh_catalogue_appeler('prod_rq_1', 'rupture_x', true)$$, 'une anomalie inconnue est refusée');
+select essai.refuse($$select public.rh_catalogue_appeler('prod_inconnu', 'rupture', true)$$, 'un produit inconnu aussi');
+select public.rh_catalogue_appeler('prod_rq_1', 'rupture', true, 'Réassort promis lundi');
+select public.rh_catalogue_anomalies() as cat_appel \gset
+select public.rh_qualite_compteurs() as cpt_appel \gset
+select essai.refuse($$select public.rh_qualite_regler('{"reponse_h": 30}')$$, 'il ne règle pas les seuils');
+reset role; select essai.personne();
+select essai.verifie((select x -> 'client' = 'null'::jsonb and x -> 'motif' = 'null'::jsonb
+                        from jsonb_array_elements(:'sat_mkt'::jsonb -> 'reclamations') x where x ->> 'id' = 'rec_rq_3'),
+  'il voit les réclamations sans le nom du client ni le motif');
+select essai.verifie(not (:'sat_mkt'::jsonb::text ~ '(Sika|Toujours rien)'), 'nulle part');
+select essai.verifie((select (x ->> 'delai_vue_h')::numeric = 5.0 and x -> 'ventes' = 'null'::jsonb
+                        from jsonb_array_elements(:'bq_mkt'::jsonb -> 'boutiques') x where x ->> 'id' = 'bou_rh_q1')
+                     and not (:'bq_mkt'::jsonb::text ~ '"ventes": [0-9]'),
+  'la fiche des boutiques : les délais, jamais les ventes');
+select essai.verifie((select x #>> '{appel,par}' = 'Inès ADJOVI' and x #>> '{appel,note}' = 'Réassort promis lundi'
+                        from jsonb_array_elements(:'cat_appel'::jsonb -> 'ruptures') x where x ->> 'id' = 'prod_rq_1'),
+  '« boutique appelée » : qui, et ce qui a été dit');
+select essai.egal((:'cpt_decor'::jsonb ->> 'ruptures_a_appeler')::int - (:'cpt_appel'::jsonb ->> 'ruptures_a_appeler')::int, 1,
+  'appelée, la rupture quitte la pastille');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_catalogue_appeler('prod_rq_1', 'rupture', false);
+select essai.verifie((select x -> 'appel' = 'null'::jsonb from jsonb_array_elements(public.rh_catalogue_anomalies() -> 'ruptures') x
+                       where x ->> 'id' = 'prod_rq_1'), 'décochée, elle redevient à appeler');
+reset role; select essai.personne();
+select essai.egal((select count(*)::int from public.rh_ruptures_suivi where produit_id = 'prod_rq_1'), 0, 'l''appel retiré n''est plus noté');
+
+-- 4. Les files d'attente de décision.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_files_attente() as files_mkt \gset
+reset role; select essai.personne();
+select essai.verifie((select bool_and((x ->> 'nombre')::int >= 1 and (x ->> 'rouge')::boolean
+                                      and (x ->> 'plus_ancienne')::timestamptz <= now() - interval '3 days')
+                        from jsonb_array_elements(:'files_mkt'::jsonb -> 'files') x)
+                     and jsonb_array_length(:'files_mkt'::jsonb -> 'files') = 5,
+  'cinq files (demandes, revendeurs, comptes, avis, produits signalés), toutes en rouge au-delà de 48 h');
+select essai.verifie(not (:'files_mkt'::jsonb::text ~ '(Cliente|Ventilateur|Boutique Lente|0196880001)'),
+  'des nombres et des dates : aucun nom');
+
+-- 5. Le service par zone.
+-- Le volume : 3 000 commandes payées il y a 1 h, plus récentes que celles
+-- du décor. Les zones ne gardaient que les 3 000 plus récentes : le décor
+-- disparaissait des nombres, sans que l'écran le dise.
+set session_replication_role = replica;
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le)
+select 'cmd_rv_' || g, 'BZ-RV' || g, 'Volume', '', 'Rue V', 1000, 'payee', now() - interval '1 hour', now() - interval '1 hour'
+  from generate_series(1, 3000) g;
+insert into public.rh_suivi_commandes (commande_id, zone) select 'cmd_rv_' || g, 'Zone Volume' from generate_series(1, 3000) g;
+set session_replication_role = origin;
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_statistiques_zones(current_date - 1, current_date + 1) as zones_c \gset
+select public.rh_statistiques_zones(current_date - 1, current_date + 1, 'quartier') as zones_q \gset
+select essai.refuse($$select public.rh_statistiques_zones(null, null, 'pays')$$, 'un niveau inconnu est refusé');
+reset role; select essai.personne();
+select essai.verifie((select (x ->> 'commandes')::int = 2 and (x ->> 'livrees')::int = 1 and (x ->> 'delai_moyen_h')::numeric = 5
+                             and (x ->> 'lentes')::int = 1 and (x ->> 'non_recus')::int = 1
+                             and (x ->> 'distance_moyenne_km')::numeric = 7 and (x ->> 'tricycle_pct')::numeric = 50
+                        from jsonb_array_elements(:'zones_c'::jsonb -> 'zones') x where x ->> 'zone' = 'Commune Essai'),
+  'par commune : 2 commandes, 1 livrée en 5 h (lente), 1 non reçue, 7 km en moyenne, moitié en tricycle');
+select essai.verifie((select (x ->> 'echecs')::int = 1 and x -> 'tricycle_pct' = 'null'::jsonb
+                        from jsonb_array_elements(:'zones_c'::jsonb -> 'zones') x where x ->> 'zone' = 'Zone Essai Solo'),
+  'une zone sans commune : son échec de livraison');
+select essai.verifie((select (x ->> 'commandes')::int = 1 from jsonb_array_elements(:'zones_q'::jsonb -> 'zones') x
+                       where x ->> 'zone' = 'Quartier Alpha (Commune Essai)'), 'par quartier : chaque quartier à part');
+select essai.verifie(not (:'zones_c'::jsonb::text ~ '"(total|montant|frais|prix)"'), 'aucun montant');
+select essai.verifie((select (x ->> 'commandes')::int = 3000 and (x ->> 'livrees')::int = 0
+                        from jsonb_array_elements(:'zones_c'::jsonb -> 'zones') x where x ->> 'zone' = 'Zone Volume'),
+  'les 3 000 commandes du volume comptent toutes, sans chasser celles du décor');
+set session_replication_role = replica;
+delete from public.rh_suivi_commandes where commande_id like 'cmd\_rv\_%';
+delete from public.commandes where id like 'cmd\_rv\_%';
+set session_replication_role = origin;
+-- Le journal n'est indexé que par commande : chaque lecture d'un article
+-- dans le journal doit passer par sa commande, sinon elle relit tout le
+-- journal pour chaque article et une période d'un an dépasse le délai.
+select essai.verifie((select bool_and(
+                        (length(p.prosrc) - length(replace(p.prosrc, 'j.ligne_id = l.id', ''))) / length('j.ligne_id = l.id')
+                        = (length(p.prosrc) - length(replace(p.prosrc, 'j.commande_id = l.commande_id and j.ligne_id = l.id', '')))
+                          / length('j.commande_id = l.commande_id and j.ligne_id = l.id')
+                        and p.prosrc like '%j.ligne_id = l.id%')
+                        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                       where n.nspname = 'public' and p.proname in ('rh_qualite_boutiques', 'rh_statistiques_zones'))
+                     and (select count(*) from pg_proc where proname in ('rh_qualite_boutiques', 'rh_statistiques_zones')) = 2,
+  'la fiche des boutiques et les zones lisent le journal par commande (son index)');
+
+-- 6. La fidélité.
+-- Une cliente venue le mois dernier, revenue ce mois-ci : le mois en cours
+-- n'est pas fini, sa cohorte n'a pas encore de taux « le mois suivant ».
+select (date_trunc('month', now() at time zone 'Africa/Porto-Novo') - interval '1 month')::date as mois_prec \gset
+set session_replication_role = replica;
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id)
+values ('cmd_rf_5', 'BZ-RF5', 'Récente Quatre', '0196990004', 'Rue I', 1000, 'payee',
+        (:'mois_prec'::date + interval '10 days 12 hours') at time zone 'Africa/Porto-Novo',
+        (:'mois_prec'::date + interval '10 days 12 hours') at time zone 'Africa/Porto-Novo', null),
+       ('cmd_rf_6', 'BZ-RF6', 'Récente Quatre', '0196990004', 'Rue I', 1000, 'payee', now() - interval '1 minute', now() - interval '1 minute', null);
+set session_replication_role = origin;
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_statistiques_clients() as fid_adm \gset
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_statistiques_clients() as fid_mkt \gset
+reset role; select essai.personne();
+select coalesce((select x from jsonb_array_elements(:'fid_avant'::jsonb -> 'cohortes') x where (x ->> 'mois')::date = :'mois_q'::date),
+                '{"nouveaux": 0, "m1": 0}'::jsonb) as coh_avant \gset
+select x as coh_apres from jsonb_array_elements(:'fid_adm'::jsonb -> 'cohortes') x where (x ->> 'mois')::date = :'mois_q'::date \gset
+select essai.egal((:'coh_apres'::jsonb ->> 'nouveaux')::int - (:'coh_avant'::jsonb ->> 'nouveaux')::int, 3,
+  'trois nouveaux clients le mois de leur premier achat');
+select essai.egal((:'coh_apres'::jsonb ->> 'm1')::int - (:'coh_avant'::jsonb ->> 'm1')::int, 1, 'un seul a racheté le mois suivant');
+select essai.egal((:'fid_adm'::jsonb #>> '{totaux,perdus_90}')::int - (:'fid_avant'::jsonb #>> '{totaux,perdus_90}')::int, 2,
+  'deux clients perdus depuis 90 jours (le compte supprimé à part)');
+select essai.egal((:'fid_adm'::jsonb #>> '{totaux,comptes_supprimes}')::int - (:'fid_avant'::jsonb #>> '{totaux,comptes_supprimes}')::int, 1,
+  'un compte supprimé');
+select essai.verifie((select x ->> 'tel' = '•••• 0001' and (x ->> 'commandes')::int = 2 and x ->> 'derniere_commande' = 'BZ-RF2'
+                        from jsonb_array_elements(:'fid_adm'::jsonb -> 'relance') x where x ->> 'nom' = 'Fidèle Un'),
+  'la liste à relancer de l''administration : nom, numéro masqué, dernière commande');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'fid_adm'::jsonb -> 'relance') x where x ->> 'nom' = 'Parti Trois'),
+  'jamais un compte supprimé');
+select essai.verifie(not (:'fid_adm'::jsonb::text ~ '0196990001'), 'aucun numéro entier, même pour l''administration');
+select essai.verifie(:'fid_mkt'::jsonb -> 'relance' = 'null'::jsonb and not (:'fid_mkt'::jsonb::text ~ '(Fidèle|"valeur": [0-9]|"depense")'),
+  'les autres : les taux, ni la liste, ni la valeur des clients');
+select essai.verifie((select (x ->> 'nouveaux')::int >= 1 and x -> 'm1' = 'null'::jsonb
+                        from jsonb_array_elements(:'fid_adm'::jsonb -> 'cohortes') x where (x ->> 'mois')::date = :'mois_prec'::date),
+  'la cohorte du mois dernier : « à venir » le mois suivant, puisque c''est le mois en cours');
+-- Sur toutes les cohortes : un taux n'existe que pour un mois terminé.
+select essai.verifie(coalesce((select bool_and(
+                        (x -> 'm1' = 'null'::jsonb) = ((x ->> 'mois')::date + interval '1 month' >= :'mois_prec'::date + interval '1 month')
+                        and (x -> 'm2' = 'null'::jsonb) = ((x ->> 'mois')::date + interval '2 months' >= :'mois_prec'::date + interval '1 month')
+                        and (x -> 'm3' = 'null'::jsonb) = ((x ->> 'mois')::date + interval '3 months' >= :'mois_prec'::date + interval '1 month'))
+                        from jsonb_array_elements(:'fid_adm'::jsonb -> 'cohortes') x), false),
+  'aucune cohorte n''a de taux pour le mois en cours, toutes en ont pour un mois fini');
+
+-- Les seuils : l'administration, dans leurs bornes.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select essai.refuse($$select public.rh_qualite_regler('{"reponse_h": 0}')$$, 'un seuil hors bornes est refusé');
+select essai.refuse($$select public.rh_qualite_regler('{"inconnu": 3}')$$, 'un seuil inconnu aussi');
+select essai.refuse($$select public.rh_qualite_regler('{"files_h": {"autre": 5}}')$$, 'une file inconnue aussi');
+select essai.refuse($$select public.rh_qualite_regler('{"annulation_pct": 12.5}')$$, 'un pourcentage entier');
+select public.rh_qualite_regler('{"reponse_h": 40, "files_h": {"demandes": 120}, "note_min": 2.5}');
+select public.rh_satisfaction(current_date - 5, current_date + 1) as sat_regle \gset
+select public.rh_files_attente() as files_regle \gset
+reset role; select essai.personne();
+select essai.verifie((select x -> 'alerte' = 'null'::jsonb from jsonb_array_elements(:'sat_regle'::jsonb -> 'reclamations') x
+                       where x ->> 'id' = 'rec_rq_1'), 'à 40 h, la réclamation de 30 h n''est plus en alerte');
+select essai.verifie((select (x ->> 'seuil_h')::int = 120 and not (x ->> 'rouge')::boolean
+                        from jsonb_array_elements(:'files_regle'::jsonb -> 'files') x where x ->> 'cle' = 'demandes')
+                     and (select (x ->> 'seuil_h')::int = 48 from jsonb_array_elements(:'files_regle'::jsonb -> 'files') x where x ->> 'cle' = 'avis'),
+  'une file se règle seule, les autres gardent leur seuil');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal(public.rh_qualite_compteurs() ->> 'acces', 'admin', 'le CEO, superadministrateur, a tout');
+reset role; select essai.personne();
+rollback;
+
+-- ---------------------------------------------------------
+select essai.titre('30. L''équipe : ma file, les alertes sur le téléphone, le bilan du matin');
+-- Tout le décor de cette section s'annule à la fin. Une seule transaction :
+-- now() y est le même partout ; les heures qui comptent (création d'une
+-- tâche, début d'un abonnement) sont donc reculées à la main.
+begin;
+-- Le décor (déclencheurs coupés) : une boutique qui a un numéro, trois
+-- commandes payées il y a trois jours et jamais vues, un réglage sensible
+-- pas approuvé. Le nom et le numéro de la cliente ne doivent sortir nulle
+-- part hors de l'administration.
+set session_replication_role = replica;
+insert into public.boutiques (id, nom, actif, tel) values ('bou_rd', 'Boutique Endormie', true, '0197112233');
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id)
+values ('cmd_rd_1', 'BZ-RD1', 'Cliente Secrète', '0196000001', 'Rue D', 15000, 'payee', now() - interval '3 days', now() - interval '3 days', :ACHETEUSE_RH::uuid),
+       ('cmd_rd_2', 'BZ-RD2', 'Cliente Secrète', '0196000001', 'Rue D', 15000, 'payee', now() - interval '3 days', now() - interval '3 days', :ACHETEUSE_RH::uuid);
+insert into public.commande_lignes (id, commande_id, boutique_id, produit_id, nom, prix, quantite, etat)
+values ('lig_rd_1', 'cmd_rd_1', 'bou_rd', 'prod_rh_stats', 'Écran', 15000, 1, 'nouvelle'),
+       ('lig_rd_2', 'cmd_rd_2', 'bou_rd', 'prod_rh_stats', 'Écran', 15000, 1, 'nouvelle');
+insert into public.rh_audit_reglages (table_nom, champ, avant, apres, par_nom)
+values ('reglages', 'momopay_code', '111', '222', 'Essai Admin') returning id as reg_rd \gset
+set session_replication_role = origin;
+
+-- Les droits : personne d'autre que le serveur ne recalcule, ne pousse, ne
+-- prépare ; les tables ne se lisent pas ; un employé sans routage n'a pas de file.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_file_compteurs() -> 'acces', 'null'::jsonb, 'aucune alerte confiée à son profil : pas de file');
+select essai.refuse($$select public.rh_ma_file()$$, 'ni de tâches à lire');
+select essai.refuse($$select public.rh_routage_lire()$$, 'il ne lit pas le routage');
+select essai.refuse($$select public.rh_routage_regler('non_vue', null, 30)$$, 'ni ne le règle');
+select essai.refuse($$select public.rh_taches_synchroniser()$$, 'il ne recalcule pas la file');
+select essai.refuse($$select * from public.rh_alertes_courantes()$$, 'ni ne lit les alertes brutes');
+select essai.refuse($$select * from public.rh_alertes_a_pousser()$$, 'ni ce qui doit partir');
+select essai.refuse($$select public.rh_alertes_enregistrer()$$, 'ni ne note un envoi');
+select essai.refuse($$select public.rh_pousser_alertes()$$, 'ni ne pousse');
+select essai.refuse($$select public.rh_push_a_envoyer(1)$$, 'ni ne lit un message à envoyer');
+select essai.refuse($$select public.rh_push_abonnement_mort('https://x')$$, 'ni n''efface un abonnement');
+select essai.refuse($$select public.rh_preparer_bilan()$$, 'ni ne prépare le bilan');
+select essai.refuse($$select public.rh_bilans_lire()$$, 'un membre ne lit pas le bilan');
+select essai.refuse($$select * from public.rh_taches$$, 'la table des tâches ne se lit pas');
+select essai.refuse($$select * from public.rh_routage_alertes$$, 'ni celle du routage');
+select essai.refuse($$select * from public.rh_push_abonnements$$, 'ni celle des abonnements');
+select essai.refuse($$select * from public.rh_alertes_envoyees$$, 'ni celle des envois');
+select essai.refuse($$select * from public.rh_bilans$$, 'ni celle des bilans');
+select essai.refuse($$select * from public.rh_push_reglage$$, 'ni le réglage du push');
+reset role; select essai.personne();
+set role anon;
+select essai.refuse($$select public.rh_ma_file()$$, 'un visiteur n''appelle rien');
+select essai.refuse($$select public.rh_push_etat()$$, 'ni l''état des alertes');
+reset role;
+select essai.devenir(:CHEF::uuid); set role authenticated;
+select essai.egal(public.rh_file_compteurs() -> 'acces', 'null'::jsonb, 'un compte de boutique n''a pas de file');
+select essai.refuse($$select public.rh_push_etat()$$, 'ni d''alertes de l''équipe');
+select essai.refuse($$select public.rh_bilans_lire()$$, 'ni de bilan');
+reset role; select essai.personne();
+
+-- L'administration règle le routage : « pas vue » au Marketing, 30 minutes.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_routage_lire() as routage \gset
+select essai.refuse($$select public.rh_routage_regler('inconnu', null, 30)$$, 'un type inconnu est refusé');
+select essai.refuse(format($$select public.rh_routage_regler('non_vue', %L, 2)$$, :'p_mkt'), 'un délai de 2 minutes aussi');
+select essai.refuse($$select public.rh_routage_regler('non_vue', gen_random_uuid(), 30)$$, 'un profil qui n''existe pas aussi');
+select public.rh_routage_regler('non_vue', :'p_mkt', 30, true);
+reset role; select essai.personne();
+select essai.egal(jsonb_array_length(:'routage'::jsonb -> 'types'), 21, 'les 21 types d''alerte se règlent');
+select essai.egal((select maj_par from public.rh_routage_alertes where type = 'non_vue'), 'Rita HOUNKPE', 'le routage dit qui l''a réglé');
+
+-- La file se calcule : une tâche par alerte, au profil du routage.
+select public.rh_taches_synchroniser() as synchro \gset
+select essai.egal((select profil_id from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_1'), :'p_mkt'::uuid,
+  'la commande jamais vue devient une tâche du Marketing');
+select essai.egal((select etat from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_1'), 'ouverte', 'libre');
+select essai.egal((select boutique_id from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_1'), 'bou_rd', 'avec sa boutique');
+select essai.verifie((select profil_id is null from public.rh_taches where cle = 'reglage:' || :'reg_rd'),
+  'le réglage sensible reste à l''administration (pas de routage)');
+select essai.verifie(exists (select 1 from public.rh_taches where cle = 'suivi:retard_livraison:cmd_rd_1'),
+  'chaque alerte de la commande a sa tâche');
+select essai.verifie(not exists (select 1 from public.rh_taches where libelle ~ 'Secrète|0196000001|15 ?000'),
+  'aucun libellé ne porte le nom, le numéro du client ni un montant');
+select essai.verifie((:'synchro'::jsonb ->> 'creees')::int >= 3, 'le calcul dit ce qu''il a créé');
+select essai.egal((select count(*)::int from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_1'), 1, 'une seule tâche par alerte');
+select public.rh_taches_synchroniser();
+select essai.egal((select count(*)::int from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_1'), 1, 'et le recalcul ne la double pas');
+
+-- Ce que voient le membre, un employé d'un autre profil, l'administration.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_file_compteurs() as cpt_membre \gset
+select public.rh_ma_file() as file_membre \gset
+reset role; select essai.personne();
+select id as t1 from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_1' \gset
+select essai.egal(:'cpt_membre'::jsonb ->> 'acces', 'equipe', 'le Marketing a désormais sa file');
+select essai.verifie((:'cpt_membre'::jsonb ->> 'a_prendre')::int >= 2, 'avec ses tâches libres en pastille');
+select x as tache_membre from jsonb_array_elements(:'file_membre'::jsonb -> 'taches') x where (x ->> 'id')::bigint = :t1 \gset
+select essai.verifie(:'tache_membre'::jsonb ->> 'libelle' like '%BZ-RD1%', 'il lit la tâche, numéro de commande compris');
+select essai.verifie(:'tache_membre'::jsonb -> 'boutiques' @> '[{"nom": "Boutique Endormie", "tel": "0197112233"}]'::jsonb,
+  'avec le numéro de la boutique, pour l''appeler');
+select essai.egal(:'tache_membre'::jsonb -> 'client', 'null'::jsonb, 'jamais le client');
+select essai.verifie(position('Secrète' in :'file_membre') = 0 and position('0196000001' in :'file_membre') = 0
+                     and position('"total"' in :'file_membre') = 0 and position('"prix"' in :'file_membre') = 0,
+  'nulle part dans sa file : ni nom, ni numéro du client, ni montant');
+select essai.verifie(not exists (select 1 from jsonb_array_elements(:'file_membre'::jsonb -> 'taches') x
+                                  where x ->> 'type' <> 'non_vue'), 'il ne voit que les types confiés à son profil');
+select essai.devenir(:AUTRE::uuid); set role authenticated;
+select essai.refuse($$select public.rh_ma_file()$$, 'la Logistique n''a pas de file');
+select essai.refuse(format($$select public.rh_tache_prendre(%s)$$, :t1), 'ni ne prend une tâche du Marketing');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_ma_file() as file_admin \gset
+reset role; select essai.personne();
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'file_admin'::jsonb -> 'taches') x
+                              where x ->> 'id' = :'t1' and x #>> '{client,tel}' = '0196000001'),
+  'l''administration voit tout, le numéro du client compris');
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'file_admin'::jsonb -> 'taches') x
+                              where x ->> 'libelle' like 'Réglage sensible%'), 'et les tâches sans profil');
+
+-- « Je prends », la relance, « Terminé » : chacun son rôle.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_tache_prendre(:t1) as prise \gset
+select essai.refuse(format($$select public.rh_tache_prendre(%s)$$, :t1), 'on ne prend pas deux fois');
+select essai.refuse(format($$select public.rh_tache_relancer(%s, 'ok')$$, :t1), 'une relance dit ce qui a été fait');
+select public.rh_tache_relancer(:t1, 'Boutique appelée : prêt dans 20 min');
+reset role; select essai.personne();
+select essai.egal(:'prise'::jsonb ->> 'prise_nom', 'Inès ADJOVI', 'prise par elle, les autres le voient');
+select essai.egal((select note || ' / ' || par_nom from public.rh_taches_notes where tache_id = :t1),
+  'Boutique appelée : prêt dans 20 min / Inès ADJOVI', 'la relance est signée');
+select essai.verifie((select le is not null from public.rh_taches_notes where tache_id = :t1), 'et datée');
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_tache_prendre(%s)$$, :t1), 'le responsable ne la prend pas sans le dire');
+select public.rh_tache_prendre(:t1, true);
+reset role; select essai.personne();
+select essai.verifie((select note like 'Reprise à Inès ADJOVI%' from public.rh_taches_notes where tache_id = :t1 order by id desc limit 1),
+  'il la reprend, et la note le dit');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_tache_terminer(%s)$$, :t1), 'reprise par son responsable, elle ne la termine plus');
+reset role; select essai.personne();
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_tache_terminer(:t1, 'Livrée');
+select essai.refuse(format($$select public.rh_tache_relancer(%s, 'encore une')$$, :t1), 'une tâche close ne se relance plus');
+reset role; select essai.personne();
+select essai.egal((select etat || '/' || terminee_nom from public.rh_taches where id = :t1), 'terminee/Koffi DOSSOU', 'terminée, et par qui');
+select public.rh_taches_synchroniser();
+select essai.egal((select etat from public.rh_taches where id = :t1), 'terminee', 'l''alerte toujours là, la tâche terminée ne revient pas');
+-- Terminée, puis son alerte part et revient (une file d'Admin, une rupture
+-- reviennent ainsi) : la tâche se rouvre, libre, comme une neuve.
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'vue' where id = 'lig_rd_1';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.egal((select etat || '/' || terminee_nom from public.rh_taches where id = :t1), 'terminee/Koffi DOSSOU',
+  'l''alerte partie, la tâche reste terminée, et par qui');
+select essai.verifie((select disparue_le is not null from public.rh_taches where id = :t1), 'mais on note que l''alerte est partie');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(exists (select 1 from jsonb_array_elements(public.rh_ma_file('terminees') -> 'taches') x where x ->> 'id' = :'t1'),
+  'elle reste rangée avec les tâches closes');
+reset role; select essai.personne();
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'nouvelle' where id = 'lig_rd_1';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser() as synchro_t1 \gset
+select essai.egal((select etat || '/' || occurrence || '/' || terminee_nom || '/' || coalesce(prise_nom, '')
+                     from public.rh_taches where id = :t1), 'ouverte/2//',
+  'l''alerte revenue, la tâche terminée se rouvre, libre : deuxième occurrence');
+select essai.verifie((:'synchro_t1'::jsonb ->> 'rouvertes')::int >= 1, 'le calcul la compte parmi les rouvertes');
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_tache_terminer(:t1, 'Livrée, de nouveau');
+reset role; select essai.personne();
+
+-- Disparue d'elle-même, puis revenue ; l'escalade au responsable.
+select id as t2 from public.rh_taches where cle = 'suivi:non_vue:cmd_rd_2' \gset
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_tache_prendre(:t2);
+reset role; select essai.personne();
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'vue' where id = 'lig_rd_2';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.egal((select etat from public.rh_taches where id = :t2), 'disparue', 'la boutique a vu la commande : la tâche s''efface');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.refuse(format($$select public.rh_tache_terminer(%s)$$, :t2), 'une tâche effacée ne se termine pas');
+select essai.verifie(exists (select 1 from jsonb_array_elements(public.rh_ma_file('terminees') -> 'taches') x where x ->> 'id' = :'t2'),
+  'elle est rangée avec les tâches closes');
+reset role; select essai.personne();
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'nouvelle' where id = 'lig_rd_2';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.egal((select etat || '/' || coalesce(prise_nom, '') from public.rh_taches where id = :t2), 'ouverte/',
+  'l''alerte revenue, la tâche se rouvre, libre');
+update public.rh_taches set cree_le = now() - interval '31 minutes', confiee_le = now() - interval '31 minutes' where id = :t2;
+select public.rh_taches_synchroniser() as synchro2 \gset
+select essai.verifie((select escalade_le is not null from public.rh_taches where id = :t2), 'personne ne l''a prise en 30 min : elle remonte');
+select essai.devenir(:RESP::uuid); set role authenticated;
+select essai.verifie((public.rh_file_compteurs() ->> 'escalades')::int >= 1, 'le responsable du Marketing la voit en escalade');
+reset role; select essai.personne();
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal((public.rh_file_compteurs() ->> 'escalades')::int, 0, 'pas le simple membre');
+reset role; select essai.personne();
+
+-- Le routage change : les tâches libres suivent, les autres non.
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_routage_regler('non_vue', null, 30, true);
+reset role; select essai.personne();
+select essai.verifie((select profil_id is null and escalade_le is null from public.rh_taches where id = :t2),
+  'rendue à l''administration, la tâche libre la suit, son escalade remise à zéro');
+select public.rh_taches_synchroniser();
+select essai.verifie((select escalade_le is null and confiee_le = now() from public.rh_taches where id = :t2),
+  'et le recalcul ne la fait pas remonter : le nouveau profil a tout son délai');
+select essai.egal((select profil_id from public.rh_taches where id = :t1), :'p_mkt'::uuid, 'une tâche close garde son profil');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.egal(public.rh_file_compteurs() -> 'acces', 'null'::jsonb, 'et le Marketing n''a plus de file');
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_routage_regler('non_vue', :'p_mkt', 30, true);
+reset role; select essai.personne();
+
+-- Les alertes sur le téléphone : s'abonner, choisir, une fois par alerte.
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_push_etat() as push_membre \gset
+select essai.refuse($$select public.rh_push_abonner('http://pas-chiffre.essai/x', repeat('B', 87), repeat('a', 22))$$,
+  'un abonnement sans https est refusé');
+select essai.refuse($$select public.rh_push_abonner('https://push.essai/membre', 'court', repeat('a', 22))$$, 'une clé illisible aussi');
+select public.rh_push_abonner('https://push.essai/membre', repeat('B', 87), repeat('a', 22));
+select essai.refuse($$select public.rh_push_regler(true, array['inconnu'], null, null)$$, 'un type inconnu est refusé');
+select essai.refuse($$select public.rh_push_regler(true, null, 22, null)$$, 'un silence sans fin aussi');
+select essai.refuse($$select public.rh_push_regler(true, null, 24, 6)$$, 'une heure hors du jour aussi');
+reset role; select essai.personne();
+select essai.egal(:'push_membre'::jsonb -> 'cle_publique', 'null'::jsonb, 'sans clé publique, l''écran dit que le service n''est pas en marche');
+select essai.verifie(:'push_membre'::jsonb -> 'types' @> '[{"type": "non_vue"}]'::jsonb
+                     and not (:'push_membre'::jsonb -> 'types' @> '[{"type": "reglage_a_approuver"}]'::jsonb),
+  'il ne choisit que parmi les alertes confiées à son profil');
+select essai.egal((select count(*)::int from public.rh_push_preferences where compte = :MEMBRE::uuid and actif), 1,
+  'abonné, ses alertes sont en marche');
+-- Ce qui existait avant l'abonnement ne part pas : la file d'avant est
+-- reculée de deux minutes, l'abonnement d'une.
+update public.rh_taches set cree_le = least(cree_le, now() - interval '2 minutes'),
+                             confiee_le = least(confiee_le, now() - interval '2 minutes');
+update public.rh_push_preferences set depuis = now() - interval '1 minute' where compte = :MEMBRE::uuid;
+set session_replication_role = replica;
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id)
+values ('cmd_rd_3', 'BZ-RD3', 'Cliente Secrète', '0196000001', 'Rue D', 15000, 'payee', now() - interval '3 days', now() - interval '3 days', :ACHETEUSE_RH::uuid);
+insert into public.commande_lignes (id, commande_id, boutique_id, produit_id, nom, prix, quantite, etat)
+values ('lig_rd_3', 'cmd_rd_3', 'bou_rd', 'prod_rh_stats', 'Écran', 15000, 1, 'nouvelle');
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a
+                              where a.p_compte = :MEMBRE::uuid and a.p_cle = 'suivi:non_vue:cmd_rd_3'
+                                and a.p_titre = 'Commande pas vue par la boutique' and a.p_corps like '%BZ-RD3%'
+                                and a.p_lien = '#/suivi/commande/cmd_rd_3'),
+  'la tâche nouvelle part vers le téléphone du membre, avec le lien de la commande dans le Suivi');
+select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a
+                                  where a.p_compte = :MEMBRE::uuid and a.p_cle <> 'suivi:non_vue:cmd_rd_3'),
+  'et rien de ce qui existait avant son abonnement');
+select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a
+                                  where a.p_titre || a.p_corps ~ 'Secrète|0196000001|15 ?000|FCFA'),
+  'aucun message ne porte de montant ni le client');
+select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a where a.p_compte = :AUTRE::uuid),
+  'personne sans abonnement ne reçoit rien');
+select public.rh_alertes_enregistrer() as envois \gset
+select essai.verifie(cardinality(:'envois'::bigint[]) >= 1, 'l''envoi est noté');
+select essai.egal(cardinality(public.rh_alertes_enregistrer()), 0, 'une seconde fois : rien de plus, une alerte part une fois');
+select id as envoi_rd from public.rh_alertes_envoyees where compte = :MEMBRE::uuid and cle = 'suivi:non_vue:cmd_rd_3' \gset
+select public.rh_push_a_envoyer(:envoi_rd) as message \gset
+select essai.verifie(:'message'::jsonb -> 'abonnements' @> '[{"endpoint": "https://push.essai/membre"}]'::jsonb,
+  'la fonction Edge reçoit ses téléphones');
+select essai.egal(public.rh_push_a_envoyer(:envoi_rd), null::jsonb, 'et le message ne se relit pas : il ne part qu''une fois');
+select essai.egal(:'message'::jsonb ->> 'tache', 'suivi:non_vue:cmd_rd_3',
+  'il porte la clé de la tâche, étiquette de la notification');
+insert into public.rh_alertes_envoyees (compte, cle, titre, corps) values (:MEMBRE::uuid, 'escalade:essai:etiquette#3', 'x', 'y')
+returning id as envoi_etiquette \gset
+select essai.egal(public.rh_push_a_envoyer(:envoi_etiquette) ->> 'tache', 'essai:etiquette',
+  'sans « escalade: » ni numéro d''occurrence : l''escalade remplace la notification de la tâche');
+select essai.egal(public.rh_pousser_alertes(), 0, 'sans adresse de la fonction Edge, rien ne part et rien ne casse');
+
+-- L'alerte part, puis revient : elle sonne de nouveau.
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'vue' where id = 'lig_rd_3';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+set session_replication_role = replica;
+update public.commande_lignes set etat = 'nouvelle' where id = 'lig_rd_3';
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a
+                              where a.p_compte = :MEMBRE::uuid and a.p_cle = 'suivi:non_vue:cmd_rd_3#2'),
+  'l''alerte revenue sonne de nouveau chez le membre (deuxième occurrence)');
+select public.rh_alertes_enregistrer();
+select essai.egal((select count(*)::int from public.rh_alertes_envoyees
+                    where compte = :MEMBRE::uuid and cle like 'suivi:non_vue:cmd_rd_3%'), 2,
+  'deux envois pour deux occurrences, pas plus');
+
+-- Un envoi resté en attente (clés VAPID absentes, appel perdu) est rappelé
+-- tant qu'il a moins d'une heure. pg_net est remplacé par une doublure qui
+-- note les numéros appelés ; tout s'annule à la fin de la section.
+create temp table appels_net (id bigint);
+create schema if not exists net;
+create or replace function net.http_post(url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer)
+returns bigint language sql as 'insert into pg_temp.appels_net values ((body ->> ''id'')::bigint) returning 1::bigint';
+update public.rh_push_reglage set url = 'https://essai.invalid/functions/v1/rh-push' where id = 1;
+insert into public.rh_alertes_envoyees (compte, cle, titre, corps) values (:MEMBRE::uuid, 'essai:en_attente', 'x', 'y')
+returning id as envoi_attente \gset
+insert into public.rh_alertes_envoyees (compte, cle, titre, corps, cree_le)
+values (:MEMBRE::uuid, 'essai:trop_vieux', 'x', 'y', now() - interval '2 hours') returning id as envoi_vieux \gset
+select public.rh_pousser_alertes() as appels \gset
+select essai.verifie(exists (select 1 from appels_net where id = :envoi_attente),
+  'un envoi noté mais pas parti est rappelé au passage suivant');
+select essai.verifie(not exists (select 1 from appels_net where id in (:envoi_vieux, :envoi_rd)),
+  'ni celui de plus d''une heure, ni celui déjà parti');
+select essai.egal(:appels::int, (select count(*)::int from appels_net), 'la fonction rend le nombre d''appels');
+update public.rh_push_reglage set url = '' where id = 1;
+
+-- Ses choix : un autre type, puis le silence.
+set session_replication_role = replica;
+insert into public.commandes (id, numero, client_nom, client_tel, client_adresse, total, etat, cree_le, paye_le, client_id)
+values ('cmd_rd_4', 'BZ-RD4', 'Cliente Secrète', '0196000001', 'Rue D', 15000, 'payee', now() - interval '3 days', now() - interval '3 days', :ACHETEUSE_RH::uuid);
+insert into public.commande_lignes (id, commande_id, boutique_id, produit_id, nom, prix, quantite, etat)
+values ('lig_rd_4', 'cmd_rd_4', 'bou_rd', 'prod_rh_stats', 'Écran', 15000, 1, 'nouvelle');
+set session_replication_role = origin;
+select public.rh_taches_synchroniser();
+select extract(hour from now() at time zone 'Africa/Porto-Novo')::int as heure_rd \gset
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_push_regler(true, array['retard_livraison'], null, null);
+reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a where a.p_cle = 'suivi:non_vue:cmd_rd_4'),
+  'un type qu''il n''a pas choisi ne part pas');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_push_regler(true, null, :heure_rd, (:heure_rd + 1) % 24);
+reset role; select essai.personne();
+select essai.verifie(public.rh_push_en_silence(:heure_rd, (:heure_rd + 1) % 24), 'cette heure-ci est dans son silence');
+select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a where a.p_compte = :MEMBRE::uuid),
+  'pendant ses heures de silence, rien ne part');
+select essai.verifie(public.rh_push_en_silence(22, 6, '2026-10-29 23:30:00+01'::timestamptz)
+                     and not public.rh_push_en_silence(22, 6, '2026-10-29 12:00:00+01'::timestamptz),
+  'un silence de 22 h à 6 h passe minuit');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select public.rh_push_regler(true, null, null, null);
+reset role; select essai.personne();
+select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a where a.p_compte = :MEMBRE::uuid and a.p_cle = 'suivi:non_vue:cmd_rd_4'),
+  'le silence levé, l''alerte qui attendait part');
+
+-- L'escalade sonne chez le responsable.
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_push_abonner('https://push.essai/responsable', repeat('C', 87), repeat('b', 22));
+reset role; select essai.personne();
+update public.rh_push_preferences set depuis = now() - interval '1 minute' where compte = :RESP::uuid;
+update public.rh_taches set cree_le = now() - interval '31 minutes', confiee_le = now() - interval '31 minutes'
+ where cle = 'suivi:non_vue:cmd_rd_3';
+select public.rh_taches_synchroniser();
+select essai.verifie(exists (select 1 from public.rh_alertes_a_pousser() a
+                              where a.p_compte = :RESP::uuid and a.p_cle = 'escalade:suivi:non_vue:cmd_rd_3#2'
+                                and a.p_titre like 'Personne ne l''a prise%'),
+  'personne ne l''a prise : le responsable est prévenu');
+select essai.devenir(:MEMBRE::uuid); set role authenticated;
+select essai.verifie(public.rh_push_desabonner('https://push.essai/membre'), 'il désabonne son téléphone');
+select essai.verifie(not public.rh_push_desabonner('https://push.essai/responsable'), 'pas celui d''un autre');
+reset role; select essai.personne();
+select essai.verifie(not exists (select 1 from public.rh_alertes_a_pousser() a where a.p_compte = :MEMBRE::uuid),
+  'sans téléphone abonné, plus rien ne part');
+
+-- Le bilan du matin.
+select public.rh_preparer_bilan() as bilan_rd \gset
+select essai.egal(public.rh_preparer_bilan(), :bilan_rd::bigint, 'un seul bilan par jour');
+select essai.egal((select jour from public.rh_bilans where id = :bilan_rd), (now() at time zone 'Africa/Porto-Novo')::date,
+  'daté du jour, heure du Bénin');
+select essai.verifie((select (chiffres #>> '{alertes,non_vue}')::int >= 4 and (chiffres ->> 'reglages_non_approuves')::int >= 1
+                        and (chiffres -> 'veille') ? 'payees' and (chiffres -> 'file') ? 'escaladees'
+                        from public.rh_bilans where id = :bilan_rd), 'il compte les alertes, les réglages, la veille et la file');
+select essai.verifie((select hebdo = (extract(isodow from jour) = 1) and (chiffres ? 'semaine') = hebdo
+                        from public.rh_bilans where id = :bilan_rd), 'la semaine comparée, seulement le lundi');
+select essai.verifie((select not (chiffres::text ~ 'ventes|montant') and montants ? 'ventes_veille' and montants ? 'momopay_non_verifies'
+                        from public.rh_bilans where id = :bilan_rd), 'les nombres d''un côté, les montants de l''autre');
+select essai.devenir(:RESP::uuid); set role authenticated;
+select public.rh_bilans_lire(5) as bilan_resp \gset
+reset role; select essai.personne();
+select essai.devenir(:ADMRH::uuid); set role authenticated;
+select public.rh_bilans_lire(5) as bilan_adm \gset
+select essai.refuse($$select public.rh_bilans_lire(500)$$, 'pas plus de 90 bilans à la fois');
+reset role; select essai.personne();
+select essai.egal(:'bilan_resp'::jsonb ->> 'acces', 'sans_montants', 'un responsable de profil lit le bilan sans montants');
+select essai.verifie(not (:'bilan_resp'::jsonb #> '{bilans,0}' ? 'montants') and position('ventes' in :'bilan_resp') = 0,
+  'aucun montant ne lui parvient');
+select essai.verifie(:'bilan_adm'::jsonb #> '{bilans,0}' ? 'montants' and (:'bilan_adm'::jsonb ->> 'montants')::boolean,
+  'l''administration a la version complète');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal(public.rh_file_compteurs() ->> 'bilan', 'complet', 'le CEO, superadministrateur, aussi');
+reset role; select essai.personne();
+rollback;
 
 -- ---------------------------------------------------------
 select essai.titre('La sortie d''un employé');

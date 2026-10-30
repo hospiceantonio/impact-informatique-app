@@ -14,6 +14,26 @@
 -- À coller dans Supabase → SQL Editor → New query → Run. Relançable.
 -- =========================================================
 
+-- (3.70.0) Le devis plus bas lit la distance par la route : la grille
+-- et le cache qu'il emprunte, recopiés tels quels.
+create or replace function public.grille_route(x double precision) returns numeric
+language sql immutable as $$
+  select (round((x * 2000)::numeric) / 2000)::numeric(9,4);
+$$;
+
+create table if not exists public.distances_route (
+  o_lat      numeric(9,4) not null,
+  o_lng      numeric(9,4) not null,
+  d_lat      numeric(9,4) not null,
+  d_lng      numeric(9,4) not null,
+  distance_m int not null check (distance_m > 0 and distance_m <= 1000000),
+  cree_le    timestamptz not null default now(),
+  primary key (o_lat, o_lng, d_lat, d_lng)
+);
+create index if not exists distances_route_jour on public.distances_route(cree_le);
+alter table public.distances_route enable row level security;
+revoke all on public.distances_route from public, anon, authenticated;
+
 -- Emprunté par les fonctions plus bas, recopié tel quel.
 create or replace function public.ouvertures_valides(o jsonb) returns boolean
 language sql immutable set search_path = public as $$
@@ -399,6 +419,7 @@ declare
   km    int;
   forf  int;
   prix  int;
+  route_m int;
 begin
   select * into r from public.paiement where id = 1;
   if not found or r.livraison_latitude is null or r.livraison_longitude is null then
@@ -410,13 +431,24 @@ begin
     raise exception 'Position de livraison invalide : touchez « Utiliser ma position ».'
       using errcode = 'P0001';
   end if;
-  -- À vol d'oiseau (formule de haversine, rayon terrestre de 6 371 km),
-  -- multipliée par le coefficient de la route ; au mètre près.
-  dlat := radians(latitude - r.livraison_latitude);
-  dlng := radians(longitude - r.livraison_longitude);
-  a := sin(dlat / 2) ^ 2
-       + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
-  dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  -- (3.70.0) PAR LA ROUTE, quand la fonction serveur « distance-route » l'a
+  -- demandée à Google pour ce client (à 50 m près) : le vrai trajet.
+  select x.distance_m into route_m from public.distances_route x
+   where x.o_lat = public.grille_route(r.livraison_latitude)
+     and x.o_lng = public.grille_route(r.livraison_longitude)
+     and x.d_lat = public.grille_route(latitude)
+     and x.d_lng = public.grille_route(longitude);
+  if route_m is not null then
+    dist := round(route_m / 1000.0, 3);
+  else
+    -- Sinon, à vol d'oiseau (formule de haversine, rayon terrestre de
+    -- 6 371 km), multipliée par le coefficient de la route ; au mètre près.
+    dlat := radians(latitude - r.livraison_latitude);
+    dlng := radians(longitude - r.livraison_longitude);
+    a := sin(dlat / 2) ^ 2
+         + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
+    dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  end if;
   -- Le kilomètre ENTAMÉ compte : 10,001 km facturent un kilomètre de plus.
   km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
   forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
@@ -424,6 +456,8 @@ begin
   return jsonb_build_object(
     'vehicule', v,
     'distance_km', round(dist, 1),
+    -- (3.70.0) « route » : le trajet réel (Google) ; « vol_oiseau » : estimé.
+    'calcul', case when route_m is not null then 'route' else 'vol_oiseau' end,
     'rayon_km', r.livraison_rayon_km,
     'km_factures', km,
     'forfait', forf,
@@ -912,6 +946,9 @@ create trigger profils_faire_livrer_verrou
   before insert or update of peut_faire_livrer on public.profils
   for each row execute function public.profil_faire_livrer_verrou();
 
+-- (3.70.0) Lue par « fiche_course » / « faire_livrer » plus bas.
+alter table public.commandes add column if not exists lieu_retrait text not null default '';
+
 -- (3.68.0) Les frais de livraison sont SAISIS par qui a pris la commande
 -- (BIZZOO l'a décidé pour ces commandes-là) ; la position du client est
 -- facultative. « drop » : la signature a gagné « frais » — l'ancienne,
@@ -954,6 +991,12 @@ begin
   end if;
   if frais is null or frais < 0 or frais > 1000000 then
     raise exception 'Indiquez les frais de livraison convenus avec le client (0 s''il n''y en a pas).'
+      using errcode = 'P0001';
+  end if;
+  -- (3.70.0) Où récupérer : refusé plutôt que coupé en silence — la fin
+  -- coupée, c'est souvent la dernière boutique ou le numéro à appeler.
+  if length(btrim(coalesce(client ->> 'retrait', ''))) > 500 then
+    raise exception 'Où récupérer la commande : 500 caractères au plus. Raccourcissez-le.'
       using errcode = 'P0001';
   end if;
   -- UNE TRANSACTION NE PAIE QU'UNE COMMANDE : ni une autre commande, ni un
@@ -1010,7 +1053,10 @@ begin
 
   perform set_config('bizzoo.interne', 'oui', true);
   update public.commandes
-     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte)
+     set origine = 'whatsapp', saisie_par = moi, client_id = coalesce(client_id, compte),
+         -- (3.70.0) Où le livreur récupère la commande, saisi par l'équipe.
+         -- Facultatif ici : l'écran d'avant la 3.70.0 ne l'envoie pas.
+         lieu_retrait = btrim(coalesce(client ->> 'retrait', ''))
    where id = c.id;
   perform set_config('bizzoo.interne', '', true);
 
@@ -1028,7 +1074,9 @@ begin
   return jsonb_build_object(
     'id', c.id, 'numero', c.numero, 'total', c.total, 'devise', c.devise,
     'frais_livraison', c.frais_livraison, 'livraison', c.livraison,
-    'verse', c.verse, 'client_relie', c.client_id is not null);
+    'verse', c.verse, 'client_relie', c.client_id is not null,
+    -- (3.70.0) Ce qui a été gardé : l'écran sait ainsi que la base est à jour.
+    'lieu_retrait', c.lieu_retrait);
 end $$;
 revoke all on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) from public, anon;
 grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text, bigint, text) to authenticated;

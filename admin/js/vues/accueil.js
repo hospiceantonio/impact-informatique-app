@@ -302,6 +302,14 @@ const VueAccueil = (() => {
                 Utils.echapper(Store.boutiqueCourante().nomBoutique) + " »</div>" +
               '<p class="aide" style="margin:0">Ce que BIZZOO doit à cette boutique.</p>' +
             "</a>"
+          : "") +
+        /* (3.70.0) Les vendeurs des boutiques à vendeurs multiples. */
+        (Store.connaitVendeurs()
+          ? '<a class="carte" href="#/vendeurs" id="ac-vendeurs">' +
+              '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Vendeurs</div>" +
+              '<p class="aide" style="margin:0">Les vendeurs des boutiques à vendeurs multiples : leurs ' +
+                "ventes, leur part, la commission de BIZZOO, l'historique des parts.</p>" +
+            "</a>"
           : "");
     }
 

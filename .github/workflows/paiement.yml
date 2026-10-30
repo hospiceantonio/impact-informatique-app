@@ -14,6 +14,7 @@ on:
       - "tools/eprouver-sms.sh"
       - "tools/eprouver-reversement.sh"
       - "tools/eprouver-live.sh"
+      - "tools/eprouver-rh-push.sh"
       - ".github/workflows/paiement.yml"
   pull_request:
     paths:
@@ -55,3 +56,8 @@ jobs:
       # Firebase ne ressort jamais.
       - name: Forcer les portes du live TikTok
         run: bash tools/eprouver-live.sh
+
+      # BIZZOO Personnel : les alertes partent chiffrées pour chaque navigateur,
+      # signées par la clé VAPID, et rien de ce que l'appel apporte n'est cru.
+      - name: Forcer les portes des alertes du personnel
+        run: bash tools/eprouver-rh-push.sh

@@ -439,7 +439,10 @@ const VueComptes = (() => {
 
   /* ---------- Créer un compte ---------- */
 
-  function ouvrirCreation(apres, livreur) {
+  /* (3.70.0) « vendeur » : le compte d'un vendeur des boutiques à vendeurs
+     multiples — par son numéro, comme un livreur, et sans boutique. */
+  function ouvrirCreation(apres, livreur, vendeur) {
+    const parTel = livreur || vendeur;
     /* LE LIVREUR EST DANS LA LISTE, et il y manquait. On pouvait le
        nommer, mais seulement APRÈS coup : il fallait créer un
        modérateur puis changer son rang dans sa fiche. Personne ne
@@ -450,11 +453,12 @@ const VueComptes = (() => {
        une fois. Et le menu disparaît quand il n'y a pas le choix. */
     /* LES LIVREURS ONT LEUR PROPRE BOUTON (écran « Livreurs ») : ici,
        l'un ou l'autre, jamais mélangés. */
-    const rangs = (livreur ? ["livreur"]
+    const rangs = (livreur ? ["livreur"] : vendeur ? ["vendeur"]
       : ["moderateur", "administrateur", "superadministrateur"])
       .filter((cle) => Store.rolesAttribuables().includes(cle));
     if (!rangs.length) {
       UI.toast(livreur ? "Votre compte ne peut pas créer de livreur."
+        : vendeur ? "Seul le superadministrateur crée un vendeur (et la base doit être à jour)."
         : "Votre compte ne peut pas créer d'autres comptes.", "err");
       return;
     }
@@ -462,13 +466,16 @@ const VueComptes = (() => {
     /* UN LIVREUR ENTRE PAR SON NUMÉRO : numéro, mot de passe, puis un
        code reçu par SMS. Son e-mail est facultatif — s'il en a un, il
        devient sa porte de secours, sans code. L'équipe garde l'e-mail. */
-    const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : "Nouveau compte",
-      (livreur
+    const corps = UI.ouvrirFeuille(livreur ? "Nouveau livreur" : vendeur ? "Nouveau vendeur" : "Nouveau compte",
+      (parTel
         ? UI.champTexte({ id: "nc-tel", label: "Téléphone", type: "tel", obligatoire: true,
             placeholder: "01 97 00 00 00",
-            aide: "C'est avec lui qu'il se connectera : son numéro, son mot de passe, puis " +
-              "un code reçu par SMS. C'est aussi le numéro qu'on appelle quand le client " +
-              "n'est pas chez lui." })
+            aide: vendeur
+              ? "C'est avec lui qu'il se connectera à BIZZOO Admin : son numéro et son mot de passe. " +
+                "Il y verra ses produits, ses ventes et ce qui lui revient."
+              : "C'est avec lui qu'il se connectera : son numéro, son mot de passe, puis " +
+                "un code reçu par SMS. C'est aussi le numéro qu'on appelle quand le client " +
+                "n'est pas chez lui." })
         : UI.champTexte({ id: "nc-email", label: "Adresse email", obligatoire: true,
             type: "email", placeholder: "prenom@exemple.com",
             aide: "C'est avec elle que la personne se connectera." })) +
@@ -482,7 +489,7 @@ const VueComptes = (() => {
          appeler. */
       UI.champTexte({ id: "nc-nom", label: "Nom", placeholder: "Rohim",
         aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
-      (livreur
+      (parTel
         ? UI.champTexte({ id: "nc-email", label: "Adresse e-mail (facultatif)",
             type: "email", placeholder: "prenom@exemple.com",
             aide: "Sa porte de secours : sans son téléphone, il entrera avec cet e-mail " +
@@ -491,7 +498,7 @@ const VueComptes = (() => {
             placeholder: "01 97 00 00 00",
             aide: "C'est là que partira son code de connexion par SMS — et le numéro " +
               "qu'on appelle quand le client n'est pas chez lui." })) +
-      '<div class="champ"' + (livreur ? " hidden" : "") + ">" +
+      '<div class="champ"' + (parTel ? " hidden" : "") + ">" +
         '<label for="nc-role">Rôle</label>' +
         '<select id="nc-role"' + (rangs.length < 2 ? " disabled" : "") + ">" +
           rangs.map((cle, i) =>
@@ -500,7 +507,7 @@ const VueComptes = (() => {
         "</select>" +
         '<div class="aide" id="nc-role-aide">' + Utils.echapper(Store.ROLES[rangs[0]].aide) + "</div>" +
       "</div>" +
-      (Store.listerBoutiques().length
+      (Store.listerBoutiques().length && !vendeur
         ? '<div class="champ" id="nc-zone-boutique">' +
             '<label for="nc-boutique">Boutique confiée <span class="obligatoire">*</span></label>' +
             '<select id="nc-boutique"' + (Supabase.estSuper() || Supabase.estAdminBizzoo() ? "" : " disabled") + ">" +
@@ -525,7 +532,7 @@ const VueComptes = (() => {
         : "") +
       '<div class="btn-rangee" style="margin-top:18px">' +
         '<button type="button" class="btn" id="nc-creer">' + UI.icone("plus") +
-          (livreur ? "Créer le livreur" : "Créer le compte") + "</button>" +
+          (livreur ? "Créer le livreur" : vendeur ? "Créer le vendeur" : "Créer le compte") + "</button>" +
       "</div>" +
       '<div id="nc-resultat"></div>');
 
@@ -571,7 +578,7 @@ const VueComptes = (() => {
         UI.$("#nc-resultat", corps).innerHTML =
           '<p class="aide" style="color:var(--rouge);margin:12px 0 0">' + Utils.echapper(err.message) + "</p>";
         bouton.disabled = false;
-        bouton.innerHTML = UI.icone("plus") + (livreur ? "Créer le livreur" : "Créer le compte");
+        bouton.innerHTML = UI.icone("plus") + (livreur ? "Créer le livreur" : vendeur ? "Créer le vendeur" : "Créer le compte");
       }
     };
   }
@@ -916,5 +923,7 @@ const VueComptes = (() => {
     };
   }
 
-  return { afficher, monCompte, livreurs, validerPosition };
+  return { afficher, monCompte, livreurs, validerPosition,
+    /* (3.70.0) Le compte d'un vendeur, depuis l'écran « Vendeurs ». */
+    creerVendeur: (apres) => ouvrirCreation(apres, false, true) };
 })();

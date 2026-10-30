@@ -74,6 +74,7 @@ globalThis.fetch = async (url, options = {}) => {
     });
     const r = monde.reponsePasserelle();
     if (r.injoignable) throw new Error("réseau");
+    if (r.delai) { const e = new Error("signal timed out"); e.name = "TimeoutError"; throw e; }
     return faireReponse(r);
   }
   if (adresse.endsWith("/rpc/est_super")) {
@@ -95,6 +96,16 @@ globalThis.fetch = async (url, options = {}) => {
     monde.annulations.push(JSON.parse(options.body || "{}"));
     return faireReponse({ statut: 204, corps: "" });
   }
+  /* (3.70.0) La file des SMS d'étape des commandes. */
+  if (adresse.endsWith("/rpc/sms_a_envoyer")) {
+    monde.pris.push({ corps: JSON.parse(options.body || "{}"), entetes: options.headers || {} });
+    return faireReponse({ corps: monde.aEnvoyer(JSON.parse(options.body || "{}")) });
+  }
+  if (adresse.endsWith("/rpc/sms_resultat")) {
+    monde.verdicts.push(JSON.parse(options.body || "{}"));
+    if (monde.verdictsEnPanne > 0) { monde.verdictsEnPanne--; return faireReponse({ statut: 503, corps: "" }); }
+    return faireReponse({ statut: 204, corps: "" });
+  }
   throw new Error("adresse inattendue : " + adresse);
 };
 
@@ -107,6 +118,11 @@ function decor(reglages = {}) {
   monde.appelsGoTrue = [];
   monde.inscriptions = [];
   monde.annulations = [];
+  monde.pris = [];
+  monde.verdicts = [];
+  monde.verdictsEnPanne = reglages.verdictsEnPanne ?? 0;
+  monde.aEnvoyer = reglages.aEnvoyer ??
+    (({ cible }) => ({ id: cible, numero: "22890112233", texte: "BIZZOO : votre commande BZ-0042 est en route." }));
   /* Par défaut, GoTrue reconnaît le jeton de « u-equipe », et la base
      accepte d'inscrire le code. */
   monde.goTrue = reglages.goTrue ??
@@ -138,6 +154,13 @@ await import("../tester-sms/index.ts");
 const essai = portes.pop();
 await import("../code-connexion/index.ts");
 const codeConnexion = portes.pop();
+await import("../envoyer-sms-commande/index.ts");
+const smsCommande = portes.pop();
+const appelerSmsCommande = async (corps) => {
+  const reponse = await smsCommande(new Request("https://fonction.essai/envoyer-sms-commande", {
+    method: "POST", body: typeof corps === "string" ? corps : JSON.stringify(corps) }));
+  return { statut: reponse.status, donnees: await reponse.json().catch(() => null) };
+};
 
 /** Signer un corps comme Supabase Auth le fait. */
 async function signer(corps, { id = "msg_1", quand = Math.floor(Date.now() / 1000) } = {}) {
@@ -566,6 +589,64 @@ decor();
 const prevolCode = await codeConnexion(new Request("https://fonction.essai/code-connexion",
   { method: "OPTIONS" }));
 egal(prevolCode.status, 200, "le contrôle préalable du navigateur reçoit sa réponse");
+
+/* =========================================================
+   (3.70.0) Les SMS d'étape des commandes
+   ========================================================= */
+titre("Un numéro déjà complet n'est pas « réindicatifé »");
+
+decor();
+r = await sms.envoyerSms("22890112233", "Bonjour", "");
+egal(monde.envois[0]?.corps?.to, "22890112233", "un client togolais (indicatif 228) part au bon numéro");
+decor();
+r = await sms.envoyerSms("0197121596", "Bonjour");
+egal(monde.envois[0]?.corps?.to, "2290197121596", "sans indicatif précisé : le Bénin, comme avant");
+
+titre("La file des commandes : la base décide, une seule fois");
+
+decor();
+let es = await appelerSmsCommande({ id: 7 });
+egal(es.statut, 200, "un SMS d'étape part");
+egal(monde.pris[0]?.corps?.cible, 7, "la base est interrogée sur ce numéro de ligne, et lui seul");
+verifie(String(monde.pris[0]?.entetes?.Authorization || "").includes(SECRETS.SUPABASE_SERVICE_ROLE_KEY),
+  "avec la clé de service");
+egal(monde.envois[0]?.corps?.to, "22890112233", "au numéro QUE LA BASE donne, sans rien ajouter devant");
+egal(monde.envois[0]?.corps?.content, "BIZZOO : votre commande BZ-0042 est en route.", "avec le texte de la base");
+egal(monde.verdicts[0]?.ok, true, "et le verdict rendu : envoyé");
+
+decor({ aEnvoyer: () => null });
+es = await appelerSmsCommande({ id: 7, numero: "0100000000", texte: "Faux message" });
+egal(monde.envois.length, 0, "déjà parti (ou forgé) : la base ne rend rien, RIEN ne part — ni numéro ni texte de l'appel");
+egal(es.donnees?.envoye, false, "et la fonction le dit");
+
+decor();
+es = await appelerSmsCommande({ id: "abc" });
+egal(es.statut, 400, "un numéro de ligne qui n'en est pas un : refusé");
+egal(monde.pris.length, 0, "sans même déranger la base");
+
+decor({ reponsePasserelle: () => ({ corps: { status: false, code: "INSUFFICIENT_BALANCE" } }) });
+es = await appelerSmsCommande({ id: 8 });
+egal(monde.verdicts[0]?.ok, false, "crédit épuisé : le verdict est un refus");
+egal(monde.verdicts[0]?.code, "INSUFFICIENT_BALANCE", "avec le code de la passerelle, pour le compteur de Personnel");
+verifie(journal.some((l) => l.includes("INSUFFICIENT_BALANCE")), "et c'est au journal");
+verifie(!journal.some((l) => l.includes("22890112233")), "le journal ne garde jamais le numéro entier du client");
+
+decor({ reponsePasserelle: () => ({ injoignable: true }) });
+es = await appelerSmsCommande({ id: 9 });
+egal(monde.verdicts[0]?.code, "INJOIGNABLE", "passerelle injoignable : la base le saura (et le reprendra)");
+
+decor({ reponsePasserelle: () => ({ delai: true }) });
+es = await appelerSmsCommande({ id: 10 });
+egal(monde.verdicts[0]?.code, "DELAI_DEPASSE",
+  "pas de réponse en 20 s : « délai dépassé », PAS « injoignable » — le SMS est peut-être parti, on ne le repaie pas");
+decor();
+r = await sms.envoyerSms("0197121596", "Bonjour");
+egal(r.code, "SUBMITTED", "(et le transport ordinaire n'a pas changé)");
+
+decor({ verdictsEnPanne: 2 });
+es = await appelerSmsCommande({ id: 11 });
+egal(monde.envois.length, 1, "la base a un hoquet au moment du verdict : le SMS n'est parti qu'UNE fois");
+egal(monde.verdicts.length, 3, "et le verdict est réessayé jusqu'à ce qu'elle l'entende (3 essais)");
 
 /* ========================================================= */
 dire("");

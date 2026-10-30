@@ -29,43 +29,11 @@ const Paiement = (() => {
   let enCours = null;           // la promesse du paiement ouvert
 
   /* ---------- Les opérateurs du Bénin ----------
-     Les préfixes viennent des tables du SDK officiel de FeexPay. On ne
-     s'en sert que pour PROPOSER l'opérateur : le client garde la main,
-     un numéro porté d'un réseau à l'autre ne se devine pas. */
-  const PREFIXES_10 = {
-    MTN: ["0142", "0146", "0150", "0151", "0152", "0153", "0154", "0156", "0157",
-          "0159", "0161", "0162", "0166", "0167", "0169", "0190", "0191", "0192",
-          "0193", "0196", "0197"],
-    MOOV: ["0145", "0155", "0158", "0160", "0163", "0164", "0165", "0168",
-           "0194", "0195", "0198", "0199"],
-    CELTIIS: ["0140", "0141", "0143", "0144", "0147"],
-  };
-  /* L'ancien format à huit chiffres, encore dicté par beaucoup de monde. */
-  const PREFIXES_8 = {
-    MTN: ["04", "05", "06", "44", "45", "46", "54", "55", "56", "64", "65", "66",
-          "74", "75", "76", "84", "85", "86", "94", "95", "96"],
-    MOOV: ["01", "02", "03", "40", "41", "42", "43", "50", "51", "52", "53",
-           "70", "71", "72", "73", "80", "81", "82", "83", "90", "91", "92", "93"],
-  };
-
-  /** L'opérateur que suggère un numéro, ou "" si on ne sait pas. */
-  function operateurDuNumero(tel) {
-    const n = String(tel || "").replace(/\D/g, "").replace(/^229/, "");
-    if (n.length >= 10 && n.startsWith("01")) {
-      const p = n.slice(0, 4);
-      for (const [nom, liste] of Object.entries(PREFIXES_10)) {
-        if (liste.includes(p)) return nom;
-      }
-      return "";
-    }
-    if (n.length >= 8) {
-      const p = n.slice(0, 2);
-      for (const [nom, liste] of Object.entries(PREFIXES_8)) {
-        if (liste.includes(p)) return nom;
-      }
-    }
-    return "";
-  }
+     (3.70.0) Une seule table, dans Utils : l'ancienne table à 8 chiffres
+     d'ici se trompait (« 90 », « 91 » donnés à Moov, « 94 », « 95 » à
+     MTN). On ne s'en sert que pour PROPOSER l'opérateur : le client
+     garde la main. */
+  const operateurDuNumero = (tel) => Utils.reseauDuNumero(tel);
 
   /* ---------- Dialogue avec la base ---------- */
 
@@ -122,6 +90,9 @@ const Paiement = (() => {
    * a pu le changer depuis le démarrage —, et un réseau capricieux à cet
    * instant-là ne doit pas fermer un paiement qui était ouvert.
    */
+  /** (3.70.0) Le dernier réglage lu, gardé pour une ouverture sans réseau. */
+  const CLE_REGLAGES = "bizzoo-paiement-reglages";
+
   async function charger(options) {
     const c = Catalogue.configuration();
     if (!c) return (reglages = { actif: false, clePublique: "", bacASable: true, tauxAcompte: 100,
@@ -149,8 +120,22 @@ const Paiement = (() => {
            ne la connaît pas : null, et rien ne change. */
         livraison: lireLivraison(ligne),
       };
+      try { localStorage.setItem(CLE_REGLAGES, JSON.stringify(reglages)); } catch (_) { /* vide */ }
     } catch (_) {
-      if (options && options.garder && reglages) return reglages;
+      /* (3.70.0) UNE LECTURE RATÉE NE FERME PAS LE PAIEMENT. Un réseau
+         faible à l'ouverture faisait croire le paiement « pas encore
+         ouvert » : la commande partait sur WhatsApp, sans payer, et
+         l'écran ne revérifiait plus jamais. On garde ce qu'on savait — de
+         cette ouverture, ou de la précédente. */
+      if (reglages) return reglages;
+      try {
+        const garde = JSON.parse(localStorage.getItem(CLE_REGLAGES) || "null");
+        if (garde && typeof garde === "object" && "actif" in garde) {
+          reglages = garde;
+          document.dispatchEvent(new CustomEvent("paiement:charge"));
+          return reglages;
+        }
+      } catch (_) { /* vide */ }
       /* Base d'avant le paiement, ou hors connexion : la boutique
          fonctionne comme avant, commande par WhatsApp. */
       reglages = { actif: false, fournisseur: "kkiapay", clePublique: "", bacASable: true,
@@ -191,20 +176,82 @@ const Paiement = (() => {
     return lignes.some((l) => l.produit && l.produit.vehicule === "tricycle") ? "tricycle" : "moto";
   }
 
+  /* ---------- (3.70.0) La distance PAR LA ROUTE ----------
+     La fonction serveur « distance-route » demande le vrai trajet à
+     Google (sa clé ne descend jamais ici) et l'écrit dans la base, qui
+     s'en sert pour figer les frais. Ici, ce n'est qu'un APERÇU : tant
+     qu'elle n'a pas répondu — ou si elle n'a pas de clé —, l'écran
+     montre le vol d'oiseau × coefficient, comme la base le ferait. */
+  const routes = new Map();     // « lat,lng » → km par la route, ou null
+  const routesEnCours = new Map();
+  let routeInactive = false;    // pas de clé, ou fonction absente : on ne redemande plus
+  const cleRoute = (d) => Number(d.latitude).toFixed(6) + "," + Number(d.longitude).toFixed(6);
+
+  function demanderRoute(dest) {
+    if (routeInactive || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) {
+      return Promise.resolve(null);
+    }
+    const k = cleRoute(dest);
+    if (routes.has(k)) return Promise.resolve(routes.get(k));
+    if (routesEnCours.has(k)) return routesEnCours.get(k);
+    const c = Catalogue.configuration();
+    if (!c) return Promise.resolve(null);
+    const arret = new AbortController();
+    const minuteur = setTimeout(() => arret.abort(), 9000);
+    const promesse = fetch(c.url + "/functions/v1/distance-route", {
+      method: "POST",
+      headers: { "apikey": c.cle, "Content-Type": "application/json" },
+      body: JSON.stringify({ latitude: Number(dest.latitude), longitude: Number(dest.longitude) }),
+      signal: arret.signal,
+    }).then(async (r) => {
+      if (r.status === 404) { routeInactive = true; return null; }   // pas encore déployée
+      return r.json().catch(() => null);
+    }).catch(() => null).then((d) => {
+      clearTimeout(minuteur);
+      routesEnCours.delete(k);
+      if (!d) return null;           // réseau : on redemandera
+      if (d.actif === false) { routeInactive = true; return null; }
+      const km = typeof d.distance_km === "number" && d.distance_km > 0 ? d.distance_km : null;
+      routes.set(k, km);
+      if (km !== null) document.dispatchEvent(new CustomEvent("route:maj"));
+      return km;
+    });
+    routesEnCours.set(k, promesse);
+    return promesse;
+  }
+
+  /** Avant de créer la commande : laisser à la distance par la route le
+      temps d'arriver (5 secondes au plus), pour que la base fige les
+      mêmes frais que ceux que l'écran vient de montrer. */
+  function attendreRoute(dest) {
+    return Promise.race([demanderRoute(dest),
+      new Promise((ok) => setTimeout(() => ok(null), 5000))]);
+  }
+
   /** Le devis d'une livraison vers « dest », ou null. */
   function devis(dest, vehicule) {
     const t = tarifs();
     if (!t || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) return null;
     const v = vehicule === "tricycle" ? "tricycle" : "moto";
-    const rad = (d) => d * Math.PI / 180;
-    const dlat = rad(dest.latitude - t.point.latitude);
-    const dlng = rad(dest.longitude - t.point.longitude);
-    const a = Math.sin(dlat / 2) ** 2 +
-      Math.cos(rad(t.point.latitude)) * Math.cos(rad(dest.latitude)) * Math.sin(dlng / 2) ** 2;
-    const dist = Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000;
+    /* (3.70.0) Par la route quand on la connaît ; sinon on la demande, et
+       en attendant, le vol d'oiseau × coefficient. */
+    const parRoute = routes.get(cleRoute(dest));
+    let dist;
+    if (typeof parRoute === "number") {
+      dist = Math.round(parRoute * 1000) / 1000;
+    } else {
+      if (!routes.has(cleRoute(dest))) demanderRoute(dest);
+      const rad = (d) => d * Math.PI / 180;
+      const dlat = rad(dest.latitude - t.point.latitude);
+      const dlng = rad(dest.longitude - t.point.longitude);
+      const a = Math.sin(dlat / 2) ** 2 +
+        Math.cos(rad(t.point.latitude)) * Math.cos(rad(dest.latitude)) * Math.sin(dlng / 2) ** 2;
+      dist = Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000;
+    }
     const km = dist > t.rayon ? Math.ceil(dist - t.rayon) : 0;
     const tarif = t[v];
     return { vehicule: v, distanceKm: Math.round(dist * 10) / 10, rayon: t.rayon, kmFactures: km,
+             calcul: typeof parRoute === "number" ? "route" : "vol_oiseau",
              forfait: tarif.forfait, prixKm: tarif.prixKm, frais: tarif.forfait + km * tarif.prixKm };
   }
 
@@ -492,6 +539,7 @@ const Paiement = (() => {
     /* (3.64.0) Où livrer : la base en tire la distance et les frais. Une
        base d'avant ne connaît pas « destination » : on retombe plus bas. */
     if (ou) {
+      await attendreRoute(ou);
       try {
         return await rpc("creer_commande",
           { client, articles, code: code || "", avec_acompte: true, avec_frais: true,
@@ -635,6 +683,7 @@ const Paiement = (() => {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe, fraisLivraison, apercu,
     livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
+    demanderRoute, attendreRoute,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,

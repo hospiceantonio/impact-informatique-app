@@ -114,9 +114,12 @@ begin
   return jsonb_build_object(
     'id', n.id, 'type', n.type, 'titre', n.titre, 'corps', n.corps, 'lien', n.lien,
     'commande_id', n.commande_id,
+    'application', case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end,
     'jetons', coalesce((select jsonb_agg(a.jeton order by a.maj_le desc)
                           from public.appareils_push a
-                         where a.compte = n.destinataire and a.application = 'admin'), '[]'::jsonb));
+                         where a.compte = n.destinataire
+                           and a.application = case when coalesce(n.lien, '') like '#/commande/%'
+                                                    then 'client' else 'admin' end), '[]'::jsonb));
 end $$;
 revoke all on function public.push_a_envoyer(bigint) from public, anon, authenticated;
 
@@ -140,7 +143,9 @@ begin
   select r.url into adresse from public.push_reglage r where r.id = 1;
   if coalesce(adresse, '') = '' then return null; end if;
   if not exists (select 1 from public.appareils_push a
-                  where a.compte = new.destinataire and a.application = 'admin') then
+                  where a.compte = new.destinataire
+                    and a.application = case when coalesce(new.lien, '') like '#/commande/%'
+                                             then 'client' else 'admin' end) then
     return null;
   end if;
   begin

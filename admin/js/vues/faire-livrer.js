@@ -10,7 +10,9 @@
      1. choisit les produits que le client a commandés ;
      2. touche « Faire livrer » ;
      3. donne le nom, le téléphone et l'adresse du client (sa position si
-        on l'a : elle est facultative), les FRAIS DE LIVRAISON convenus avec
+        on l'a : elle est facultative), OÙ LE LIVREUR RÉCUPÈRE LA COMMANDE
+        (3.70.0 : la boutique, son adresse, qui appeler — proposé d'après
+        les boutiques des produits, à corriger), les FRAIS DE LIVRAISON convenus avec
         lui — BIZZOO l'a décidé ainsi pour ces commandes —, le montant payé
         et la référence de la transaction ;
      4. valide.
@@ -33,6 +35,10 @@ const VueFaireLivrer = (() => {
     panier: [],          // [{ produitId, quantite }]
     recherche: "",
     client: { nom: "", tel: "", adresse: "", note: "" },
+    /* (3.70.0) Où le livreur récupère la commande. Tant qu'on n'y a pas
+       touché, il suit les boutiques des produits choisis. */
+    retrait: "",
+    retraitTouche: false,
     destination: null,
     paiement: { montant: "", reseau: "MTN", transaction: "", frais: "" },
   };
@@ -54,6 +60,23 @@ const VueFaireLivrer = (() => {
     } else if (delta > 0) {
       etat.panier.push({ produitId: id, quantite: 1 });
     }
+  }
+
+  /* (3.70.0) Ce qu'on propose pour « Où récupérer la commande » : une
+     ligne par boutique des produits choisis — son nom, son adresse, son
+     numéro. Ce qui manque à la fiche de la boutique, l'équipe l'ajoute. */
+  function retraitPropose() {
+    const ids = [];
+    for (const a of etat.panier) {
+      const id = (produit(a.produitId) || {}).boutiqueId;
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    return ids.map((id) => {
+      const b = Store.lireBoutique(id) || {};
+      const tel = b.tel || b.whatsapp || "";
+      return [b.nomBoutique || "", b.adresse || "",
+        tel ? "Tél. +" + (b.indicatif || "229") + " " + tel : ""].filter(Boolean).join(" — ");
+    }).filter(Boolean).join("\n");
   }
 
   /* Les coordonnées cachées dans un lien de carte — Google Maps, OSM —
@@ -172,6 +195,7 @@ const VueFaireLivrer = (() => {
     if (carte) { carte.detruire(); carte = null; }
     const c = etat.client;
     const pay = etat.paiement;
+    if (!etat.retraitTouche) etat.retrait = retraitPropose();
     vue.innerHTML =
       '<div class="carte" id="fl-recap">' +
         '<div class="carte-titre">' + UI.icone("boite", "ic-sm") + " Ce que le client a commandé</div>" +
@@ -194,6 +218,19 @@ const VueFaireLivrer = (() => {
         UI.champTexte({ id: "fl-adresse", label: "Adresse de livraison", valeur: c.adresse, obligatoire: true,
           placeholder: "Quartier, rue, repère" }) +
         UI.champTexte({ id: "fl-note", label: "Note pour le livreur (facultatif)", valeur: c.note }) +
+      "</div>" +
+
+      /* (3.70.0) OÙ LE LIVREUR VA CHERCHER LA COMMANDE. Proposé d'après
+         les boutiques des produits ; l'équipe corrige ou complète — un
+         autre point de retrait, un numéro à appeler, un repère. Le
+         livreur le lit dans son alerte et sur la fiche de la course. */
+      '<div class="carte" id="fl-retrait-carte">' +
+        '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Où le livreur récupère la commande</div>" +
+        UI.champZone({ id: "fl-retrait", label: "Boutique où récupérer la commande", valeur: etat.retrait,
+          obligatoire: true, lignes: 3, max: 500,
+          placeholder: "Nom de la boutique, adresse ou repère, numéro à appeler",
+          aide: "Proposé d'après les boutiques des produits : corrigez ou complétez. " +
+            "Le livreur le verra dans son alerte et sur la fiche de la course." }) +
       "</div>" +
 
       /* (3.68.0) LA POSITION EST FACULTATIVE : les frais de ces commandes
@@ -254,6 +291,7 @@ const VueFaireLivrer = (() => {
         nom: UI.$("#fl-nom", vue).value, tel: UI.$("#fl-tel", vue).value,
         adresse: UI.$("#fl-adresse", vue).value, note: UI.$("#fl-note", vue).value,
       };
+      etat.retrait = UI.$("#fl-retrait", vue).value;
       etat.paiement = {
         montant: montantTouche ? UI.$("#fl-montant", vue).value : "",
         reseau: UI.$("#fl-reseau", vue).value,
@@ -261,7 +299,13 @@ const VueFaireLivrer = (() => {
         frais: UI.$("#fl-frais", vue).value,
       };
     };
-    for (const champ of UI.$$("input, select", vue)) champ.addEventListener("change", garder);
+    for (const champ of UI.$$("input, select, textarea", vue)) champ.addEventListener("change", garder);
+    /* Touché : il ne suit plus les produits choisis. Vidé : il les suit
+       de nouveau. */
+    UI.$("#fl-retrait", vue).addEventListener("input", (ev) => {
+      etat.retrait = ev.target.value;
+      etat.retraitTouche = !!ev.target.value.trim();
+    });
     UI.$("#fl-montant", vue).addEventListener("input", () => { montantTouche = true; });
     UI.$("#fl-modifier", vue).onclick = () => { garder(); afficherProduits(vue); };
 
@@ -333,6 +377,26 @@ const VueFaireLivrer = (() => {
       if (etat.destination) ouvrirCarte();
     }
 
+    /* (3.70.0) UN NUMÉRO À LA PLACE DE L'ID. On recopie souvent le
+       numéro du client au lieu de l'ID du SMS de paiement : l'écran le
+       dit pendant la saisie, et le premier « Valider » s'arrête là-dessus.
+       Validé une seconde fois tel quel, il passe (un ID peut ressembler
+       à un numéro). */
+    let transactionAvertie = null;
+    const champTransaction = UI.$("#fl-transaction", vue);
+    if (champTransaction) {
+      const note = document.createElement("p");
+      note.className = "note-saisie";
+      note.hidden = true;
+      champTransaction.insertAdjacentElement("afterend", note);
+      const signaler = () => {
+        note.textContent = Utils.alerteTransaction(champTransaction.value);
+        note.hidden = !note.textContent;
+      };
+      champTransaction.addEventListener("input", signaler);
+      signaler();
+    }
+
     const bouton = UI.$("#fl-valider", vue);
     bouton.onclick = async () => {
       garder();
@@ -347,8 +411,28 @@ const VueFaireLivrer = (() => {
         dit("Le nom, le téléphone et l'adresse du client sont nécessaires.");
         return;
       }
+      if (!etat.retrait.trim()) {
+        dit("Indiquez où le livreur récupère la commande : la boutique, son adresse, qui appeler.");
+        UI.$("#fl-retrait", vue).focus();
+        return;
+      }
+      /* La proposition pour plusieurs boutiques peut dépasser : la base
+         refuserait. Mieux vaut le dire ici, avec le compte. */
+      if (etat.retrait.trim().length > 500) {
+        dit("Où récupérer la commande : 500 caractères au plus (" + etat.retrait.trim().length +
+          " saisis). Raccourcissez-le, par exemple les adresses des boutiques.");
+        UI.$("#fl-retrait", vue).focus();
+        return;
+      }
       if (frais == null) { dit("Indiquez les frais de livraison convenus avec le client (0 s'il n'y en a pas)."); return; }
       if (!etat.paiement.transaction.trim()) { dit("Saisissez la référence de la transaction du client."); return; }
+      if (Utils.ressembleTelephone(etat.paiement.transaction)
+          && etat.paiement.transaction.trim() !== transactionAvertie) {
+        transactionAvertie = etat.paiement.transaction.trim();
+        dit(Utils.alerteTransaction(etat.paiement.transaction));
+        UI.$("#fl-transaction", vue).focus();
+        return;
+      }
       if (!montant) { dit("Indiquez le montant que le client a payé."); return; }
       const tot = total();
       if (tot != null && montant < tot) {
@@ -361,6 +445,7 @@ const VueFaireLivrer = (() => {
         texte: nbArticles() + " article" + (nbArticles() > 1 ? "s" : "") + " pour " + etat.client.nom.trim() +
           ", " + m(frais) + " de livraison, payés " + m(montant) + " (référence " +
           etat.paiement.transaction.trim() + "). " +
+          "À récupérer : " + etat.retrait.trim().replace(/\s*\n\s*/g, " ; ") + ". " +
           "La commande sera enregistrée comme payée et la course partira aux livreurs.",
         bouton: "Faire livrer" });
       if (!ok) return;
@@ -370,14 +455,22 @@ const VueFaireLivrer = (() => {
         const r = await Store.faireLivrer({
           panier: etat.panier, nom: etat.client.nom.trim(), tel: etat.client.tel.trim(),
           adresse: etat.client.adresse.trim(), note: etat.client.note.trim(),
+          retrait: etat.retrait.trim(),
           destination: etat.destination, frais, transaction: etat.paiement.transaction.trim(),
           montant, reseau: etat.paiement.reseau,
         });
         UI.toast("Commande " + ((r && r.numero) || "") + " enregistrée : la course part aux livreurs" +
           (r && r.client_relie ? ", et le client la voit dans son application." : "."), "ok");
+        /* (3.70.0) Une base d'avant ne garde pas le lieu de retrait : la
+           commande est bien enregistrée, mais le livreur ne le lira pas. */
+        if (r && !("lieu_retrait" in r)) {
+          UI.toast("Le lieu de retrait n'a pas été gardé : la base doit être mise à jour " +
+            "(supabase/lieu-retrait.sql). Prévenez le livreur.", "err");
+        }
         /* La saisie suivante repart de zéro. */
         etat.panier = []; etat.recherche = ""; etat.destination = null; etat.etape = "produits";
         etat.client = { nom: "", tel: "", adresse: "", note: "" };
+        etat.retrait = ""; etat.retraitTouche = false;
         etat.paiement = { montant: "", reseau: "MTN", transaction: "", frais: "" };
         /* Ouvrir la commande, si ce compte voit les commandes ; sinon une
            nouvelle saisie. */

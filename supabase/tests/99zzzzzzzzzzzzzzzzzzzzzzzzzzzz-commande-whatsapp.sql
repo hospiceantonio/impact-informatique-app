@@ -14,7 +14,10 @@
 --   5. une transaction ne paie qu'une commande ;
 --   6. la position est facultative, même au kilomètre ; donnée, elle
 --      guide le livreur ; le livreur touche 80 % des frais saisis ;
---   7. le compte obligatoire n'empêche pas l'équipe de la saisir.
+--   7. le compte obligatoire n'empêche pas l'équipe de la saisir ;
+--   9. (3.70.0) où le livreur récupère la commande, saisi par l'équipe :
+--      gardé sur la commande, lu dans sa fiche et dans ses alertes ;
+--      facultatif pour la base (l'écran d'avant ne l'envoie pas).
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -88,6 +91,7 @@ end $$;
 
 \set ART '''[{"produit_id":"prod_wa_a","quantite":1},{"produit_id":"prod_wa_b","quantite":2}]'''
 \set CLI '''{"nom":"Koffi","tel":"0196700099","indicatif":"229","adresse":"Fidjrossè, près du marché"}'''
+\set CLI_R '''{"nom":"Koffi","tel":"0196700099","indicatif":"229","adresse":"Fidjrossè, près du marché","retrait":"  Alpha, Ganhi — demander Rémi\\nBêta : marché Dantokpa  "}'''
 
 select essai.titre('1. Qui peut faire livrer');
 select essai.devenir(:CHEF::uuid); set role authenticated;
@@ -163,7 +167,7 @@ select essai.refuse(format($$select pg_temp.faire(%L::uuid, %L::jsonb, '{"nom":"
   :ADMBZ, :ART), 'sans adresse de livraison : refusé');
 
 select essai.titre('4. La commande WhatsApp, sans position : payée en entier, tracée');
-select pg_temp.faire(:ADMBZ::uuid, :ART::jsonb, :CLI::jsonb, null, 1500, 'mp241027.1530.a12345', 21500) as w1 \gset
+select pg_temp.faire(:ADMBZ::uuid, :ART::jsonb, :CLI_R::jsonb, null, 1500, 'mp241027.1530.a12345', 21500) as w1 \gset
 select essai.egal((select etat || '/' || origine || '/' || (saisie_par = :ADMBZ::uuid) || '/' || total || '/' || verse
                      from public.commandes where id = :'w1'::jsonb ->> 'id'),
   'payee/whatsapp/true/21500/21500', 'payée, « whatsapp », saisie par Awa, 21 500 versés');
@@ -198,6 +202,11 @@ select essai.verifie((select count(*) > 0 from public.notifications
 -- Yao la prend et la remet : 80 % des frais saisis.
 select set_config('bizzoo.livraison', 'oui', false) as r \gset
 update public.commande_lignes set livreur_id = :LIVBZ::uuid, etat = 'en_livraison' where commande_id = :'w1'::jsonb ->> 'id';
+select essai.verifie((select count(*) > 0 from public.notifications
+                       where commande_id = :'w1'::jsonb ->> 'id' and type = 'course_confiee'
+                         and destinataire = :LIVBZ::uuid
+                         and corps like '%Où récupérer : Alpha, Ganhi — demander Rémi' || E'\n' || 'Bêta : marché Dantokpa' || E'\n' || '%'),
+  '(3.70.0) confiée à Yao : son alerte dit où récupérer la commande');
 update public.commande_lignes set etat = 'remise' where commande_id = :'w1'::jsonb ->> 'id';
 select set_config('bizzoo.livraison', '', false) as r \gset
 select essai.egal((select frais || '/' || montant from public.gains_livreurs
@@ -251,6 +260,34 @@ select essai.egal((select x ->> 'source' from public.rh_suivi_donnees(null, null
 select essai.egal((select x ->> 'source' from public.rh_suivi_donnees(null, null,
                      (select id from public.commandes where origine = 'application' order by cree_le desc limit 1)) x),
   'Depuis APP', 'une commande passée dans l''application : « Depuis APP »');
+
+select essai.titre('9. Où le livreur récupère la commande (3.70.0)');
+select essai.egal((select lieu_retrait from public.commandes where id = :'w1'::jsonb ->> 'id'),
+  'Alpha, Ganhi — demander Rémi' || E'\n' || 'Bêta : marché Dantokpa',
+  'gardé sur la commande, sans les espaces autour, lignes comprises');
+select essai.egal((public.fiche_course(:'w1'::jsonb ->> 'id', 'bou_informatique') ->> 'lieu_retrait'),
+  'Alpha, Ganhi — demander Rémi' || E'\n' || 'Bêta : marché Dantokpa', 'sur la fiche de la course');
+select essai.egal((public.fiche_demande(:'w1'::jsonb ->> 'id') ->> 'lieu_retrait'),
+  'Alpha, Ganhi — demander Rémi' || E'\n' || 'Bêta : marché Dantokpa', 'et sur la fiche de la demande, une seule fois');
+-- Sans distance (frais saisis), l'alerte proposée sortait VIDE avant la
+-- 3.70.0 : la ligne « Véhicule » valait NULL, et tout le texte avec.
+select essai.verifie((select count(*) > 0 from public.notifications
+                       where commande_id = :'w1'::jsonb ->> 'id' and type = 'course_proposee'
+                         and destinataire = :LIVBZ::uuid
+                         and corps like '%Récupérer : %' || E'\n' || 'Où récupérer : Alpha, Ganhi — demander Rémi%'
+                         and corps like '%Véhicule : moto' || E'\n' || 'Frais de livraison : %'),
+  'la course proposée aux livreurs le dit, après la boutique — et l''alerte n''est plus vide');
+select essai.egal((select lieu_retrait from public.commandes where id = :'w3'::jsonb ->> 'id'), '',
+  'non saisi (l''écran d''avant la 3.70.0) : la commande passe, sans lieu');
+select essai.verifie(public.texte_demande(public.fiche_demande(:'w3'::jsonb ->> 'id')) not like '%Où récupérer%',
+  'et l''alerte n''a pas de ligne vide « Où récupérer »');
+select essai.refuse($$select pg_temp.faire('d7d7d7d7-0000-0000-0000-000000000001'::uuid,
+  '[{"produit_id":"prod_wa_b","quantite":1}]'::jsonb,
+  jsonb_build_object('nom', 'Koffi', 'tel', '0196700099', 'adresse', 'Fidjrossè', 'retrait', repeat('x', 501)),
+  null, 1000, 'MP-LONG-1', 5000)$$,
+  'plus de 500 caractères : refusé, plutôt que coupé en silence');
+select essai.egal((:'w1'::jsonb ->> 'lieu_retrait'), 'Alpha, Ganhi — demander Rémi' || E'\n' || 'Bêta : marché Dantokpa',
+  'la réponse rend le lieu gardé : l''écran sait que la base est à jour');
 
 -- Le décor rendu.
 update public.paiement set livraison_latitude = null, livraison_longitude = null where id = 1;

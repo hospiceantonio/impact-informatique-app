@@ -11,6 +11,27 @@
 -- par rh_localiser_livreurs, avec la distance jusqu'au client.
 -- =========================================================
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.profils add column if not exists disponible boolean not null default true;
+
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+alter table public.suivis_livreurs add column if not exists jeton_hash_precedent text;
+alter table public.suivis_livreurs add column if not exists precedent_expire_le timestamptz;
+
 -- ---------- Les aides (copies de schema.sql) ----------
 create or replace function public.coord_valable(valeur double precision, borne double precision)
 returns double precision
@@ -109,12 +130,27 @@ begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur ouvre un suivi de position.' using errcode = '42501';
   end if;
+  -- (3.70.0) Rien à suivre — ni course, ni « disponible » — : pas de jeton,
+  -- et « Localiser un livreur » ne le montre pas suivi.
+  if not public.livreur_en_course(moi)
+     and not exists (select 1 from public.profils p
+                      where p.id = moi and p.disponible and not p.courses_bloquees) then
+    delete from public.suivis_livreurs where profil_id = moi;
+    return jsonb_build_object('jeton', null, 'en_course', false, 'disponible', false);
+  end if;
   jeton := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-  insert into public.suivis_livreurs (profil_id, jeton_hash, expire_le, cree_le)
+  insert into public.suivis_livreurs as s (profil_id, jeton_hash, expire_le, cree_le)
   values (moi, encode(sha256(convert_to(jeton, 'UTF8')), 'hex'), now() + interval '16 hours', now())
   on conflict (profil_id) do update
-     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now();
+     set jeton_hash = excluded.jeton_hash, expire_le = excluded.expire_le, cree_le = now(),
+         -- (3.70.0) L'ancien reste bon 10 minutes, s'il l'était encore.
+         jeton_hash_precedent = case when s.expire_le > now() then s.jeton_hash end,
+         precedent_expire_le = case when s.expire_le > now() then now() + interval '10 minutes' end;
   return jsonb_build_object('jeton', jeton, 'en_course', public.livreur_en_course(moi),
+                            -- (3.70.0) Libre mais disponible (et pas suspendu) : le
+                            -- téléphone suit aussi. Une base d'avant ne le dit pas.
+                            'disponible', coalesce((select p.disponible and not p.courses_bloquees
+                                                      from public.profils p where p.id = moi), true),
                             'expire_le', now() + interval '16 hours');
 end $$;
 
@@ -132,8 +168,11 @@ declare
   derniere timestamptz;
 begin
   select s.profil_id into qui from public.suivis_livreurs s
-   where s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-     and s.expire_le > now();
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      -- (3.70.0) L'ancien jeton, 10 minutes après un renouvellement.
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
   if qui is null then
     raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
   end if;
@@ -180,7 +219,7 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'rh_acces_menus_menu') then
     alter table public.rh_acces_menus add constraint rh_acces_menus_menu check (menu in ('mails',
-      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'stats_commandes',
+      'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse', 'stats_commandes',
       'stats_boutiques', 'stats_produits', 'stats_livraisons', 'stats_livreurs', 'stats_sav', 'employes'));
   end if;
 end $$;
@@ -194,13 +233,23 @@ create or replace function public.rh_localiser_livreurs() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   coef numeric := coalesce((select livraison_coef from public.paiement where id = 1), 1.3);
+  seuil int;
 begin
   if not public.rh_menu_ouvert('livreurs') then
     raise exception 'Votre compte n''a pas accès à la localisation des livreurs';
   end if;
+  -- Le seuil du « livreur muet » vit dans les réglages du suivi : sans
+  -- eux (fichier rejoué seul sur une base plus ancienne), 15 minutes.
+  begin
+    select (to_jsonb(r) ->> 'position_min')::int into seuil from public.rh_reglages_suivi r where r.id;
+  exception when others then
+    seuil := null;
+  end;
+  seuil := coalesce(seuil, 15);
   return jsonb_build_object(
     'coef', coef,
     'maintenant', now(),
+    'seuil_muet_min', seuil,
     'livreurs', (select coalesce(jsonb_agg(x.l order by (x.l ->> 'en_course')::boolean desc, x.l ->> 'nom'), '[]')
       from (
         select jsonb_build_object(
@@ -213,8 +262,17 @@ begin
               'latitude', pl.latitude, 'longitude', pl.longitude, 'precision', pl.precision_m,
               'adresse', pl.adresse, 'le', pl.enregistre_le) end,
           'en_course', public.livreur_en_course(p.id),
+          -- (3.70.0) Actif : un jeton valable ET une position de moins de
+          -- 15 minutes — un téléphone éteint ne passe plus pour suivi.
           'suivi_actif', exists (select 1 from public.suivis_livreurs s
-                                  where s.profil_id = p.id and s.expire_le > now()),
+                                  where s.profil_id = p.id and s.expire_le > now())
+                         and coalesce(pl.enregistre_le > now() - interval '15 minutes', false),
+          -- En route vers un client, et rien reçu de son téléphone depuis
+          -- le seuil (compté depuis la course acceptée s'il n'a jamais rien envoyé).
+          'muet', exists (select 1 from public.commande_lignes l
+                            join public.commandes c on c.id = l.commande_id
+                           where l.livreur_id = p.id and c.etat = 'payee' and l.etat = 'en_livraison'
+                             and now() - greatest(pl.enregistre_le, l.recu_le, c.paye_le) > make_interval(mins => seuil)),
           'courses', (select coalesce(jsonb_agg(jsonb_build_object(
               'commande', k.commande_id, 'numero', k.numero, 'client', k.client_nom,
               'adresse', k.client_adresse, 'etat', k.etat, 'boutique', k.boutique,
@@ -251,6 +309,12 @@ revoke all on function public.rh_localiser_livreurs() from public, anon;
 grant execute on function public.rh_localiser_livreurs() to authenticated, service_role;
 
 -- ---------- Les menus réglables, « livreurs » compris (copies de schema.sql) ----------
+create or replace function public.rh_est_ceo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.rh_employes
+                  where compte_id = auth.uid() and etat = 'actif' and ceo);
+$$;
+
 create or replace function public.rh_regler_acces(cible uuid, choix jsonb) returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -267,10 +331,18 @@ begin
     raise exception 'Réglage illisible';
   end if;
   for k, v in select e.key, e.value #>> '{}' from jsonb_each(choix) as e loop
-    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    if k not in ('mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse',
                  'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                  'stats_livreurs', 'stats_sav', 'employes') then
       raise exception 'Menu inconnu : %', k;
+    end if;
+    -- Le journal des gestes regarde l'administration : elle ne choisit pas
+    -- qui la regarde. L'écran renvoie toutes les clés à chaque
+    -- enregistrement : seule une clé « audit » qui CHANGE est refusée.
+    if k = 'audit' and not (public.rh_est_ceo() or public.est_super())
+       and coalesce(nullif(v, 'ferme'), '') is distinct from
+           coalesce((select a.qui from public.rh_acces_menus a where a.profil_id = cible and a.menu = 'audit'), '') then
+      raise exception 'Seul le CEO ouvre ou ferme le journal des gestes : c''est l''administration qu''il regarde';
     end if;
     if v is null or v = 'ferme' then
       delete from public.rh_acces_menus where profil_id = cible and menu = k;
@@ -289,7 +361,7 @@ end $$;
 create or replace function public.rh_mes_menus() returns text[]
 language sql stable security definer set search_path = public as $$
   select coalesce(array_agg(x.m order by x.n), '{}')
-    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'caisse',
+    from unnest(array['mails', 'discussions', 'missions', 'rapports', 'depenses', 'suivi', 'livreurs', 'controles', 'paiements', 'audit', 'promos', 'qualite', 'caisse',
                       'stats_commandes', 'stats_boutiques', 'stats_produits', 'stats_livraisons',
                       'stats_livreurs', 'stats_sav', 'employes']) with ordinality as x(m, n)
    where public.rh_menu_ouvert(x.m);
@@ -466,8 +538,17 @@ language plpgsql stable security definer set search_path = public as $$
 declare
   r public.rh_reglages_suivi;
   maintenant timestamptz := now();
+  -- Les seuils de la veille et des encaissements (personnel-controles.sql)
+  -- se lisent par to_jsonb : sur une base où leurs colonnes manquent
+  -- encore, la valeur de départ vaut, au lieu d'une erreur.
+  v_prise_min int;
+  v_position_min int;
+  v_momopay_h int;
 begin
   select * into r from public.rh_reglages_suivi where id;
+  v_prise_min := coalesce((to_jsonb(r) ->> 'prise_course_min')::int, 30);
+  v_position_min := coalesce((to_jsonb(r) ->> 'position_min')::int, 15);
+  v_momopay_h := coalesce((to_jsonb(r) ->> 'momopay_h')::int, 48);
   return query
   with cmd as (
     select c.* from public.commandes c
@@ -572,6 +653,27 @@ begin
         union all
         select 'encaissement_conteste' where exists (select 1 from public.encaissements e
                                                      where e.commande_id = c.id and e.conteste_le is not null)
+        union all
+        -- Payée (ou préparée) et personne n'a pris la course : la demande
+        -- part à tous les livreurs au paiement, elle devrait trouver preneur.
+        select 'course_sans_livreur' where exists (select 1 from lig2 x where x.commande_id = c.id
+                                 and x.etat in ('nouvelle', 'vue', 'preparee') and x.livreur_id is null
+                                 and maintenant - coalesce(x.preparee_le, c.paye_le) > make_interval(mins => v_prise_min))
+        union all
+        -- En route, et son téléphone n'envoie plus rien : compté depuis sa
+        -- dernière position, ou depuis qu'il a accepté la course.
+        select 'livreur_muet' where exists (select 1 from lig2 x
+                                 left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
+                                 where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
+                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
+                                       > make_interval(mins => v_position_min))
+        union all
+        select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null
+                                   and maintenant - e.encaisse_le > make_interval(hours => v_momopay_h))
+        union all
+        select 'encaissement_ecart' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.montant <> e.du)
       ) al)
     end)
   from cmd c

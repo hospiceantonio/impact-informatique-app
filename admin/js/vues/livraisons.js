@@ -64,7 +64,7 @@ const VueLivraisons = (() => {
 
   /* Un lieu de la fiche : qui, où (ouvre la carte), et le numéro
      appelable. */
-  function htmlLieu(titre, icone, nom, adresse, tel, indicatif, lat, lng, sansAdresse) {
+  function htmlLieu(titre, icone, nom, adresse, tel, indicatif, lat, lng, sansAdresse, boutique, whatsapp) {
     const complet = tel ? "+" + indicatif + " " + tel : "";
     return (
       '<div class="lv-lieu">' +
@@ -77,8 +77,34 @@ const VueLivraisons = (() => {
           : '<div class="aide">' + Utils.echapper(sansAdresse) + "</div>") +
         (complet
           ? '<a class="lv-tel" href="tel:+' + Utils.echapper(indicatif + tel) + '">' +
-            UI.icone("tel", "ic-sm") + Utils.echapper(complet) + "</a>"
-          : "") +
+            UI.icone("tel", "ic-sm") +
+            /* (3.70.0) LE NUMÉRO DE LA BOUTIQUE, nommé comme tel : perdu en
+               route, le livreur l'appelle — ou lui écrit sur WhatsApp. */
+            (boutique ? "Appeler la boutique : " : "") + Utils.echapper(complet) + "</a>" +
+            (boutique
+              ? '<a class="lv-tel lv-wa" target="_blank" rel="noopener" href="' +
+                Utils.echapper(Utils.lienWhatsApp(whatsapp || tel, "Bonjour, je suis le livreur BIZZOO" +
+                  (nom ? " pour " + nom : "") + " : ", indicatif)) + '">' +
+                UI.icone("whatsapp", "ic-sm") + "Écrire à la boutique sur WhatsApp</a>"
+              : "")
+          : boutique
+            ? '<div class="aide">Numéro de la boutique non renseigné : appelez BIZZOO.</div>'
+            : "") +
+      "</div>"
+    );
+  }
+
+  /* (3.70.0) OÙ RÉCUPÉRER LA COMMANDE, tel que l'équipe l'a saisi dans
+     « Faire livrer » : la commande a été prise sur WhatsApp, et c'est
+     là qu'on a dit au livreur où passer. Il s'ajoute à la fiche de la
+     boutique ; rien pour une commande passée dans l'application. */
+  function htmlLieuSaisi(f) {
+    const texte = String((f && f.lieu_retrait) || "").trim();
+    if (!texte) return "";
+    return (
+      '<div class="lv-lieu lv-lieu-saisi">' +
+        '<div class="lv-lieu-titre">' + UI.icone("magasin", "ic-sm") + "Où récupérer (précisé par BIZZOO)</div>" +
+        '<div class="lv-note" style="white-space:pre-line">' + Utils.echapper(texte) + "</div>" +
       "</div>"
     );
   }
@@ -219,7 +245,8 @@ const VueLivraisons = (() => {
         htmlMontants(c) +
         htmlLieu("Récupérer le colis", "magasin", r.boutique || c.nomBoutique, r.adresse,
           r.tel, r.indicatif || "229", r.latitude, r.longitude,
-          "Adresse non renseignée : appelez la boutique.") +
+          "Adresse non renseignée : appelez la boutique.", true, r.whatsapp) +
+        htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
@@ -271,13 +298,17 @@ const VueLivraisons = (() => {
           htmlLieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
                                        : "Récupérer le colis",
             "magasin", r.boutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
-            "Adresse non renseignée : appelez la boutique.")).join("") +
+            "Adresse non renseignée : appelez la boutique.", true, r.whatsapp)).join("") +
+        htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
         '<button type="button" class="btn lv-prendre">' + UI.icone("check") + "Commande reçue</button>" +
-        '<div class="aide" style="margin:6px 0 0">Proposée à plusieurs livreurs : le premier qui ' +
-          "touche « Commande reçue » la prend. Le client reçoit alors votre nom et votre numéro.</div>" +
+        /* (3.70.0) La course va d'abord au plus proche, puis aux suivants :
+           qui tarde la laisse passer. */
+        '<div class="aide" style="margin:6px 0 0">Touchez vite « Commande reçue » : sans réponse, ' +
+          "elle passe au livreur suivant, puis à tous. Le premier qui la prend la garde, et le client " +
+          "reçoit alors votre nom et votre numéro.</div>" +
       "</div>"
     );
   }
@@ -302,6 +333,102 @@ const VueLivraisons = (() => {
       "</div>";
   }
 
+  /* ---------- (3.70.0) « Disponible pour les courses » ----------
+     Allumé, le téléphone envoie sa position même application fermée
+     (toutes les 3 minutes, notification « Disponible pour les courses ») :
+     les nouvelles courses vont d'abord au livreur le plus proche. Éteint
+     — en fin de journée —, plus de position hors course, et il ne fait plus
+     partie des trois plus proches. */
+  const disponible = () => {
+    const p = Supabase.compte();
+    return !p || p.disponible !== false;
+  };
+  /* null pendant une relecture : l'interrupteur ne rejoue alors rien, la
+     relecture s'en charge (une liste vide arrêterait le suivi d'une course). */
+  let dernieresCourses = null;
+
+  /* L'APK 3.70.0 et au-delà (son pont sait dire si le service tourne) : la
+     seule qui suit le livreur libre application fermée. */
+  const apk = () => typeof SuiviPosition !== "undefined" && SuiviPosition.natif() &&
+    typeof (window.AndroidPont || {}).suiviActif === "function";
+  const pontAndroid = () => (typeof window.AndroidPont !== "undefined" ? window.AndroidPont : null);
+  /* Les deux réglages du téléphone qui empêchent Android de couper le suivi
+     (APK 3.70.0) : faux s'ils manquent. */
+  const reglageManquant = (methode) => {
+    const p = pontAndroid();
+    if (!p || typeof p[methode] !== "function") return false;
+    try { return !p[methode](); } catch (_) { return false; }
+  };
+
+  function htmlDisponible() {
+    const batterie = apk() && disponible() && reglageManquant("sansEconomieBatterie");
+    const toujours = apk() && disponible() && reglageManquant("positionToujours");
+    return (
+      '<div class="carte lv-dispo" id="lv-dispo">' +
+        UI.interrupteur({ id: "lv-dispo-inter", label: "Disponible pour les courses", actif: disponible(),
+          aide: !disponible()
+            ? "Vous ne recevez plus les courses en premier, et votre position n'est plus envoyée hors course."
+            : apk()
+              ? "BIZZOO voit votre position, même application fermée, pour vous proposer les courses les plus proches. Éteignez en fin de journée."
+              : "BIZZOO voit votre position tant que cette page reste ouverte. Avec l'application BIZZOO Admin, elle part même application fermée." }) +
+        (batterie || toujours
+          ? '<div class="lv-dispo-reglages">' +
+              '<p class="aide" style="margin:8px 0">Pour qu\'Android ne coupe pas votre position quand l\'application est fermée :</p>' +
+              (toujours ? '<button type="button" class="btn btn-clair btn-petit" id="lv-dispo-toujours">' +
+                UI.icone("carte", "ic-sm") + "Position : « Toujours autoriser »</button>" : "") +
+              (batterie ? '<button type="button" class="btn btn-clair btn-petit" id="lv-dispo-batterie">' +
+                UI.icone("check", "ic-sm") + "Ne pas limiter la batterie de BIZZOO</button>" : "") +
+            "</div>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  function brancherDisponible(vue) {
+    const inter = UI.$("#lv-dispo-inter", vue);
+    if (!inter) return;
+    const regler = (id, methode) => {
+      const b = UI.$(id, vue);
+      if (!b) return;
+      b.onclick = () => {
+        const p = pontAndroid();
+        try { if (p && typeof p[methode] === "function") p[methode](); } catch (_) { /* refusé */ }
+        /* Au retour des réglages (ou de la boîte de dialogue, qui ne cache
+           pas la page), la carte se relit et dit ce qui reste. */
+        const relire = () => {
+          if (document.hidden) return;
+          document.removeEventListener("visibilitychange", relire);
+          const carte = UI.$("#lv-dispo", vue);
+          if (carte && carte.isConnected) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
+        };
+        document.addEventListener("visibilitychange", relire);
+        setTimeout(relire, 6000);
+        setTimeout(relire, 20000);
+      };
+    };
+    regler("#lv-dispo-toujours", "demanderPositionToujours");
+    regler("#lv-dispo-batterie", "demanderSansEconomieBatterie");
+    inter.onchange = async () => {
+      const voulu = inter.checked;
+      inter.disabled = true;
+      try {
+        await Store.reglerDisponibilite(voulu);
+        UI.toast(voulu ? "Disponible : les courses proches vous arrivent en premier."
+                       : "Vous n'êtes plus disponible pour les courses.");
+        if (typeof SuiviPosition !== "undefined") {
+          if (dernieresCourses !== null) SuiviPosition.mettreAJour(dernieresCourses, voulu);
+          if (voulu) SuiviPosition.presence(); else SuiviPosition.arreterPresence();
+        }
+      } catch (err) {
+        inter.checked = !voulu;
+        UI.toast(err.message, "err");
+      }
+      inter.disabled = false;
+      const carte = UI.$("#lv-dispo", vue);
+      if (carte) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
+    };
+  }
+
   async function afficher(vue) {
     vueOuverte = vue;
     UI.entete({ titre: "Mes courses", sous: "Ce que vous avez à porter",
@@ -315,6 +442,7 @@ const VueLivraisons = (() => {
 
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>' +
       "Lecture de vos courses…</div>";
+    dernieresCourses = null;
 
     const rafraichir = UI.$("#lv-rafraichir");
     if (rafraichir) rafraichir.onclick = () => afficher(vue);
@@ -331,8 +459,14 @@ const VueLivraisons = (() => {
       /* La sonnerie suit ce que l'écran montre (3.59.0) : « Commande
          reçue » touchée, l'écran se relit, et elle s'arrête. */
       Notifs.majAlerte(courses, demandes);
-      /* Sa position suit, tant qu'une course est en cours (Localiser un livreur). */
-      if (typeof SuiviPosition !== "undefined") SuiviPosition.mettreAJour(courses);
+      dernieresCourses = courses;
+      /* Sa position suit, tant qu'une course est en cours (Localiser un livreur)
+         — (3.70.0) et, s'il est disponible, même libre et application fermée :
+         c'est elle qui fait de lui « le plus proche » d'une nouvelle course. */
+      if (typeof SuiviPosition !== "undefined") {
+        SuiviPosition.mettreAJour(courses, disponible());
+        if (disponible()) SuiviPosition.presence(); else SuiviPosition.arreterPresence();
+      }
     } catch (err) {
       vue.innerHTML =
         '<div class="carte"><div class="carte-titre">Courses indisponibles</div>' +
@@ -368,12 +502,14 @@ const VueLivraisons = (() => {
 
     if (!courses.length && !demandes.length) {
       if (aRendre || htmlDejaPrises()) {
-        vue.innerHTML = monSolde + aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
+        vue.innerHTML = htmlDisponible() + monSolde + aRendre + htmlDejaPrises() + UI.vide("voiture", "Aucune course pour l'instant",
           "Dès qu'une commande vous est proposée ou confiée, elle apparaît ici.");
+        brancherDisponible(vue);
         return;
       }
-      vue.innerHTML = monSolde + UI.vide("voiture", "Aucune course pour l'instant",
+      vue.innerHTML = htmlDisponible() + monSolde + UI.vide("voiture", "Aucune course pour l'instant",
         "Dès que la boutique vous confie une commande préparée, elle apparaît ici.");
+      brancherDisponible(vue);
       return;
     }
 
@@ -384,7 +520,7 @@ const VueLivraisons = (() => {
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
     const aFaire = courses.filter((c) => c.etat !== "remise").length;
-    vue.innerHTML = monSolde + aRendre + htmlDejaPrises() +
+    vue.innerHTML = htmlDisponible() + monSolde + aRendre + htmlDejaPrises() +
       (demandes.length
         ? '<div class="titre-section" id="lv-demandes">' +
             (demandes.length > 1 ? demandes.length + " demandes de course" : "1 demande de course") +
@@ -394,6 +530,7 @@ const VueLivraisons = (() => {
         (aFaire ? aFaire + " course" + (aFaire > 1 ? "s" : "") + " à faire"
                 : "Rien à faire pour l'instant") + "</div>" +
       courses.map(htmlCourse).join("");
+    brancherDisponible(vue);
 
     for (const b of UI.$$(".lv-prendre", vue)) {
       b.onclick = async () => {
@@ -414,14 +551,14 @@ const VueLivraisons = (() => {
         const carte = b.closest(".lv-course");
         const motif = await UI.demanderTexte({
           titre: "Refuser la course",
-          texte: "La boutique sera prévenue et pourra la confier à un autre livreur. " +
-            "La demande repart aussi vers les autres livreurs.",
+          texte: "La boutique et BIZZOO seront prévenus, et la course sera aussitôt " +
+            "reproposée aux autres livreurs disponibles.",
           libelle: "Pourquoi ? (facultatif)", bouton: "Refuser la course", danger: true });
         if (motif === null) return;
         b.disabled = true;
         try {
           await Store.refuserCourse(carte.dataset.commande, motif);
-          UI.toast("Course refusée : la boutique est prévenue.");
+          UI.toast("Course annulée : BIZZOO et la boutique sont prévenus.");
           afficher(vue);
         } catch (err) {
           UI.toast(err.message, "err");
@@ -492,8 +629,8 @@ const VueLivraisons = (() => {
             "</div>" +
             '<p class="aide" style="margin:12px 0">Le client paie ce montant à ce code MoMoPay depuis ' +
               "son téléphone, et valide avec son code secret. <strong>Pas d'espèces.</strong> Il reçoit " +
-              "un SMS de confirmation : recopiez ici le numéro de la transaction.</p>" +
-            '<div class="champ"><label for="lv-transaction">Numéro de la transaction (SMS du client)</label>' +
+              "un SMS de confirmation : recopiez ici l'ID de la transaction (pas son numéro de téléphone).</p>" +
+            '<div class="champ"><label for="lv-transaction">ID de la transaction (SMS du client)</label>' +
               '<input id="lv-transaction" autocomplete="off" autocapitalize="characters" maxlength="40" ' +
                 'placeholder="Exemple : 1234567890"></div>' +
             '<button type="button" class="btn" id="lv-remettre">' + UI.icone("check") +
@@ -507,11 +644,34 @@ const VueLivraisons = (() => {
 
     const bouton = UI.$("#lv-remettre", corps);
     if (!bouton) return;
+    /* (3.70.0) Le numéro du client recopié à la place de l'ID du SMS :
+       dit pendant la saisie, et le premier appui s'arrête là-dessus.
+       Appuyé une seconde fois tel quel, il passe. */
+    let transactionAvertie = null;
+    const champTx = UI.$("#lv-transaction", corps);
+    let noteTx = null;
+    if (champTx) {
+      noteTx = document.createElement("p");
+      noteTx.className = "note-saisie";
+      noteTx.hidden = true;
+      champTx.insertAdjacentElement("afterend", noteTx);
+      champTx.addEventListener("input", () => {
+        noteTx.textContent = Utils.alerteTransaction(champTx.value);
+        noteTx.hidden = !noteTx.textContent;
+      });
+    }
     bouton.onclick = async () => {
       const champ = UI.$("#lv-transaction", corps);
       const transaction = champ ? champ.value.trim() : "";
       if (du > 0 && transaction.replace(/[^A-Za-z0-9]/g, "").length < 4) {
-        UI.toast("Saisissez le numéro de la transaction, lu sur le SMS du client.", "err");
+        UI.toast("Saisissez l'ID de la transaction, lu sur le SMS du client.", "err");
+        if (champ) champ.focus();
+        return;
+      }
+      if (du > 0 && Utils.ressembleTelephone(transaction) && transaction !== transactionAvertie) {
+        transactionAvertie = transaction;
+        UI.toast("C'est un numéro de téléphone, pas l'ID de la transaction : vérifiez le SMS du client.", "err");
+        if (noteTx) { noteTx.textContent = Utils.alerteTransaction(transaction); noteTx.hidden = false; }
         if (champ) champ.focus();
         return;
       }

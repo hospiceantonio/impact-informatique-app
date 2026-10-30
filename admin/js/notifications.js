@@ -136,9 +136,12 @@ const Notifs = (() => {
     if (!estLivreur()) { Son.arreterAlerte(); return; }
     try {
       const [courses, demandes] = await Promise.all([Store.mesLivraisons(), Store.coursesProposees()]);
+      /* (3.70.0) Une demande qui ARRIVE — la cascade vient d'atteindre ce
+         livreur — se montre aussitôt : il n'a que 30 secondes. */
+      const nouvelles = (demandes || []).filter((d) => !demandesVues.has(d.commandeId));
       /* Une demande vient de partir chez un autre : l'écran des courses,
          s'il est ouvert, se relit — la carte disparaît sous ses yeux. */
-      if (majAlerte(courses, demandes).length) {
+      if (majAlerte(courses, demandes).length || nouvelles.length) {
         window.dispatchEvent(new CustomEvent("bizzoo:courses"));
       }
     } catch (_) {

@@ -38,6 +38,20 @@ alter table public.rh_profils drop constraint if exists rh_profils_statistiques_
 alter table public.rh_profils add constraint rh_profils_statistiques_check
   check (statistiques <@ array['commandes', 'livraisons', 'sav', 'suivi']::text[]);
 
+-- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
 -- Qui est connecté : recopié de personnel.sql, pour que ce fichier se suffise.
 create or replace function public.rh_moi() returns uuid
 language sql stable security definer set search_path = public as $$
@@ -567,8 +581,17 @@ language plpgsql stable security definer set search_path = public as $$
 declare
   r public.rh_reglages_suivi;
   maintenant timestamptz := now();
+  -- Les seuils de la veille et des encaissements (personnel-controles.sql)
+  -- se lisent par to_jsonb : sur une base où leurs colonnes manquent
+  -- encore, la valeur de départ vaut, au lieu d'une erreur.
+  v_prise_min int;
+  v_position_min int;
+  v_momopay_h int;
 begin
   select * into r from public.rh_reglages_suivi where id;
+  v_prise_min := coalesce((to_jsonb(r) ->> 'prise_course_min')::int, 30);
+  v_position_min := coalesce((to_jsonb(r) ->> 'position_min')::int, 15);
+  v_momopay_h := coalesce((to_jsonb(r) ->> 'momopay_h')::int, 48);
   return query
   with cmd as (
     select c.* from public.commandes c
@@ -673,6 +696,27 @@ begin
         union all
         select 'encaissement_conteste' where exists (select 1 from public.encaissements e
                                                      where e.commande_id = c.id and e.conteste_le is not null)
+        union all
+        -- Payée (ou préparée) et personne n'a pris la course : la demande
+        -- part à tous les livreurs au paiement, elle devrait trouver preneur.
+        select 'course_sans_livreur' where exists (select 1 from lig2 x where x.commande_id = c.id
+                                 and x.etat in ('nouvelle', 'vue', 'preparee') and x.livreur_id is null
+                                 and maintenant - coalesce(x.preparee_le, c.paye_le) > make_interval(mins => v_prise_min))
+        union all
+        -- En route, et son téléphone n'envoie plus rien : compté depuis sa
+        -- dernière position, ou depuis qu'il a accepté la course.
+        select 'livreur_muet' where exists (select 1 from lig2 x
+                                 left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
+                                 where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
+                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
+                                       > make_interval(mins => v_position_min))
+        union all
+        select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null
+                                   and maintenant - e.encaisse_le > make_interval(hours => v_momopay_h))
+        union all
+        select 'encaissement_ecart' where exists (select 1 from public.encaissements e
+                                 where e.commande_id = c.id and e.montant <> e.du)
       ) al)
     end)
   from cmd c
@@ -1089,18 +1133,26 @@ returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
   nouveau bigint;
+  cible   text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
   end if;
-  if not exists (select 1 from public.commandes c where c.id = commande) then
-    raise exception 'Commande introuvable';
+  -- (3.69.0) La commande, par son identifiant ou par son numéro (« BZ-… »),
+  -- comme on le lit au client : le menu Incidents n'a que lui.
+  select c.id into cible from public.commandes c where c.id = commande;
+  if cible is null then
+    select min(c.id) into cible from public.commandes c
+     where upper(c.numero) = upper(btrim(coalesce(commande, '')));
+  end if;
+  if cible is null then
+    raise exception 'Commande introuvable : vérifiez son numéro';
   end if;
   if length(btrim(coalesce(description, ''))) = 0 then
     raise exception 'Décrivez l''incident';
   end if;
   insert into public.rh_incidents (commande_id, boutique_id, livreur_id, type, description, cree_par)
-  values (commande, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
+  values (cible, nullif(boutique, ''), livreur, type, btrim(description), public.rh_moi())
   returning id into nouveau;
   return nouveau;
 end $$;
@@ -1124,6 +1176,28 @@ begin
 end $$;
 
 /**
+ * Ce qui empêche de clôturer une commande, ou rien (null) : un incident
+ * ouvert, un client qui conteste, un article qui n'a pas fini son
+ * parcours (confirmé, annulé, échoué ou retourné), un reste à encaisser.
+ * La même règle pour la clôture à la main et pour la clôture automatique.
+ */
+create or replace function public.rh_suivi_cloturable(d jsonb) returns text
+language sql stable set search_path = public as $$
+  select case
+    when d ->> 'cloturee_le' is not null then 'Cette commande est déjà clôturée'
+    when (d ->> 'incidents_ouverts')::int > 0 then 'Un incident reste ouvert : résolvez-le avant de clôturer'
+    when exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10)
+      then 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer'
+    when d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
+                                             where (l ->> 'rang')::int not in (8, 9, 11, 13))
+      then 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)'
+    -- (3.69.0) L'argent d'abord : un reste dû à la livraison doit être encaissé.
+    when coalesce((d ->> 'reste')::bigint, 0) > 0
+      then 'Un reste à encaisser n''est pas réglé : encaissez-le avant de clôturer'
+  end;
+$$;
+
+/**
  * Clôturer : le suivi est terminé. REFUSÉ tant qu'un incident reste
  * ouvert, qu'un client conteste encore, ou qu'un article n'a pas fini
  * son parcours (confirmé, annulé, échoué ou retourné).
@@ -1132,6 +1206,7 @@ create or replace function public.rh_suivi_cloturer(commande text) returns void
 language plpgsql security definer set search_path = public as $$
 declare
   d jsonb;
+  refus text;
 begin
   if public.rh_suivi_acces() is null then
     raise exception 'Votre compte n''a pas accès au suivi des commandes';
@@ -1140,18 +1215,9 @@ begin
   if d is null then
     raise exception 'Commande introuvable';
   end if;
-  if d ->> 'cloturee_le' is not null then
-    raise exception 'Cette commande est déjà clôturée';
-  end if;
-  if (d ->> 'incidents_ouverts')::int > 0 then
-    raise exception 'Un incident reste ouvert : résolvez-le avant de clôturer';
-  end if;
-  if exists (select 1 from jsonb_array_elements(d -> 'lignes') l where (l ->> 'rang')::int = 10) then
-    raise exception 'Le client conteste encore la livraison : la réclamation doit être réglée avant de clôturer';
-  end if;
-  if d ->> 'etat' = 'payee' and exists (select 1 from jsonb_array_elements(d -> 'lignes') l
-                                         where (l ->> 'rang')::int not in (8, 9, 11, 13)) then
-    raise exception 'Un article n''a pas fini son parcours (livré et confirmé, annulé, échoué ou retourné)';
+  refus := public.rh_suivi_cloturable(d);
+  if refus is not null then
+    raise exception '%', refus;
   end if;
   insert into public.rh_suivi_commandes as s (commande_id, cloturee_le, cloturee_par, maj_par, maj_le)
   values (commande, now(), public.rh_moi(), public.rh_moi(), now())

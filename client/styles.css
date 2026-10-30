@@ -2359,3 +2359,7 @@ a.pub-carte:active{transform:scale(.98)}
   border:1px solid var(--trait);background:var(--bleu-50)}
 .co-carte[hidden]{display:none}
 .co-carte .leaflet-control-attribution{font-size:9px}
+
+/* (3.70.0) L'opérateur suit le numéro : la note qui le dit. */
+.co-mm-note{margin:6px 0 0;font-weight:600;color:var(--orange-texte)}
+.co-mm-note[hidden]{display:none}

@@ -25,6 +25,11 @@ set client_min_messages = notice;
 \set Z3 '''aeae0000-0000-0000-0000-000000000003'''
 \set LB '''aeae0000-0000-0000-0000-000000000004'''
 
+-- (3.70.0) Ces essais éprouvent qui PEUT prendre la course : on la fait
+-- partir à tous d'un coup (cascade éteinte, la règle d'avant). La cascade
+-- au plus proche a ses propres essais (…-cascade-courses.sql).
+update public.cascade_reglage set actif = false where id = 1;
+
 select essai.titre('Le décor : trois livreurs de BIZZOO, un livreur de boutique');
 insert into auth.users (id, email) values (:Z1::uuid, 'z1.prise@essai.bj'), (:Z2::uuid, 'z2.prise@essai.bj'),
   (:Z3::uuid, 'z3.prise@essai.bj'), (:LB::uuid, 'lb.prise@essai.bj')

@@ -5,6 +5,8 @@
     <bool name="notifications_actives">false</bool>
     <!-- Sonner chez le livreur et la boutique, application fermée (3.65.0). -->
     <bool name="push_equipe">true</bool>
+    <!-- Les notifications d'acheteur sont pour l'application client. -->
+    <bool name="push_client">false</bool>
     <!-- La position du livreur pendant ses courses (Localiser un livreur). -->
     <bool name="suivi_position">true</bool>
 </resources>

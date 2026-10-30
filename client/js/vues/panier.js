@@ -777,10 +777,20 @@ const VuePanier = (() => {
 
     const boutonWa = UI.$("#co-whatsapp");
     if (boutonWa) {
-      boutonWa.onclick = () => {
+      boutonWa.onclick = async () => {
         const client = lire();
         if (!verifier(client)) return;
         garderCoordonnees(client);
+        /* (3.70.0) Une dernière vérification : si le paiement en ligne est
+           ouvert, la commande se paie ici — pas par WhatsApp. */
+        boutonWa.disabled = true;
+        try { await Paiement.charger({ garder: true }); } catch (_) { /* on garde ce qu'on a */ }
+        boutonWa.disabled = false;
+        if (Paiement.disponible()) {
+          UI.toast("Le paiement en ligne est ouvert : vous pouvez payer votre commande ici.", "ok");
+          commander(vue);
+          return;
+        }
         const groupes = Panier.parBoutique();
         UI.$("#co-liens").innerHTML =
           '<div class="carte">' +
@@ -805,11 +815,14 @@ const VuePanier = (() => {
     /* Les réglages déjà connus se relisent à côté : si le taux a changé
        entre-temps, le total et le bouton suivent. Une relecture qui échoue
        garde ce qui était connu. */
-    if (reglagesConnus && enLigne) {
+    /* (3.70.0) MÊME PAIEMENT « FERMÉ », on relit : il a pu s'ouvrir
+       depuis l'ouverture de l'application (ou la lecture d'alors a pu
+       échouer). Ouvert ou fermé entre-temps : l'écran se redessine. */
+    if (reglagesConnus) {
       Paiement.charger({ garder: true }).then(() => {
-        if (Paiement.tauxAcompte() !== tauxLu && location.hash === "#/commande") {
-          rafraichirTotal(vue, devise, boutonPayer);
-        }
+        if (location.hash !== "#/commande") return;
+        if (Paiement.disponible() !== enLigne) { commander(vue); return; }
+        if (enLigne && Paiement.tauxAcompte() !== tauxLu) rafraichirTotal(vue, devise, boutonPayer);
       }).catch(() => { /* on garde ce qu'on a */ });
     }
   }
@@ -822,6 +835,9 @@ const VuePanier = (() => {
      être livré ailleurs. Les frais suivent, en aperçu : la base les
      recalcule et les fige en créant la commande. */
   let carteOu = null;
+  /* (3.70.0) La distance par la route arrive après coup : l'écran se
+     redessine. Un seul écouteur à la fois, celui de l'écran ouvert. */
+  let ecouteRoute = null;
 
   function etatOuLivrer(devise) {
     const ap = Paiement.apercu(promo.remise || 0);
@@ -831,7 +847,8 @@ const VuePanier = (() => {
     }
     return '<div class="co-ou-etat co-ou-ok">' + UI.icone("check", "ic-sm") +
       "<span>Livraison " + (ap.vehicule === "tricycle" ? "en tricycle" : "à moto") + " · " +
-      String(ap.devis.distanceKm).replace(".", ",") + " km · <strong>" +
+      String(ap.devis.distanceKm).replace(".", ",") + " km" +
+      (ap.devis.calcul === "route" ? " par la route" : "") + " · <strong>" +
       Utils.echapper(Utils.fmtMontant(ap.devis.frais, devise)) + "</strong></span></div>";
   }
 
@@ -862,6 +879,9 @@ const VuePanier = (() => {
       if (etat) etat.innerHTML = etatOuLivrer(devise);
       rafraichirTotal(vue, devise, boutonPayer);
     };
+    if (ecouteRoute) document.removeEventListener("route:maj", ecouteRoute);
+    ecouteRoute = () => { if (etat && etat.isConnected) maj(); };
+    document.addEventListener("route:maj", ecouteRoute);
     const choisir = (d, recentrer) => {
       Paiement.choisirDestination(d);
       if (carteOu) carteOu.placer(d, recentrer);
@@ -1116,6 +1136,7 @@ const VuePanier = (() => {
       '<div class="champ" style="margin:14px 0 0"><label for="co-mm-tel">Numéro qui paie</label>' +
         '<input id="co-mm-tel" type="tel" inputmode="tel" placeholder="01 97 00 00 00" value="' +
           Utils.echapper(c.tel) + '">' +
+        '<p class="aide co-mm-note" id="co-mm-note" hidden></p>' +
         '<p class="aide" style="margin:6px 0 0">Ce peut être un autre numéro que le vôtre — ' +
           "celui d'un proche qui règle pour vous.</p></div>"
     );
@@ -1131,28 +1152,50 @@ const VuePanier = (() => {
     };
   }
 
-  /** L'opérateur se met à jour pendant qu'on tape, sans jamais forcer. */
+  /** L'opérateur suit le numéro : un numéro MTN tapé avec « Moov »
+      choisi repasse sur MTN, et on le dit. (3.70.0) Choisir ensuite un
+      autre opérateur reste possible — un numéro porté garde son préfixe —
+      mais l'écran prévient. */
   function brancherMobileMoney() {
     const lignes = UI.$$("#co-operateurs .pay-methode");
+    const champ = UI.$("#co-mm-tel");
+    const note = UI.$("#co-mm-note");
+    const dire = (texte) => {
+      if (!note) return;
+      note.textContent = texte;
+      note.hidden = !texte;
+    };
     const choisir = (ligne) => {
       for (const autre of lignes) {
         autre.classList.toggle("active", autre === ligne);
         autre.setAttribute("aria-checked", String(autre === ligne));
       }
     };
+    const nom = (r) => Utils.NOM_OPERATEUR[r] || r;
     for (const ligne of lignes) {
       ligne.onclick = () => {
         choisir(ligne);
+        const devine = champ ? Paiement.operateurDuNumero(champ.value) : "";
+        dire(devine && devine !== ligne.dataset.reseau
+          ? "Ce numéro est un numéro " + nom(devine) + ". Payez-vous vraiment avec " +
+            nom(ligne.dataset.reseau) + " ?"
+          : "");
         Pixel.infosPaiement(Panier.lignes(), aRegler(), Panier.devise(), ligne.dataset.reseau);
       };
     }
-    const champ = UI.$("#co-mm-tel");
     if (!champ) return;
     champ.oninput = () => {
       const devine = Paiement.operateurDuNumero(champ.value);
-      if (!devine) return;   // porté d'un réseau à l'autre : on ne devine pas
+      if (!devine) { dire(""); return; }   // pas encore complet, ou inconnu
+      const actif = lignes.find((l) => l.classList.contains("active"));
       const ligne = lignes.find((l) => l.dataset.reseau === devine);
-      if (ligne) choisir(ligne);
+      if (!ligne) return;
+      if (actif && actif !== ligne) {
+        dire("Opérateur corrigé : ce numéro est un numéro " + nom(devine) + ".");
+      } else {
+        dire("");
+      }
+      choisir(ligne);
     };
   }
 

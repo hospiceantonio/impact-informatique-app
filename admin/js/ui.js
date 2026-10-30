@@ -644,11 +644,11 @@ const UI = (() => {
     );
   }
 
-  function champZone({ id, label, valeur, aide, lignes, placeholder }) {
+  function champZone({ id, label, valeur, obligatoire, aide, lignes, placeholder, max }) {
     return (
       '<div class="champ">' +
-        '<label for="' + id + '">' + e(label) + "</label>" +
-        '<textarea id="' + id + '" rows="' + (lignes || 4) + '"' +
+        '<label for="' + id + '">' + e(label) + (obligatoire ? ' <span class="obligatoire">*</span>' : "") + "</label>" +
+        '<textarea id="' + id + '" rows="' + (lignes || 4) + '"' + (max ? ' maxlength="' + max + '"' : "") +
           (placeholder ? ' placeholder="' + e(placeholder) + '"' : "") + ">" +
           e(valeur || "") + "</textarea>" +
         (aide ? '<div class="aide">' + e(aide) + "</div>" : "") +

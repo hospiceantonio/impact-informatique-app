@@ -57,6 +57,147 @@ end $$;
 create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
 revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
+-- (3.70.0) Lue par « candidats_course » plus bas (déjà là sur une base en service).
+create table if not exists public.refus_courses (
+  id          bigserial primary key,
+  commande_id text not null references public.commandes(id) on delete cascade,
+  boutique_id text not null references public.boutiques(id) on delete cascade,
+  livreur_id  uuid references public.profils(id) on delete set null,
+  motif       text not null default '',
+  refuse_le   timestamptz not null default now()
+);
+create index if not exists refus_courses_commande on public.refus_courses(commande_id, refuse_le desc);
+alter table public.refus_courses enable row level security;
+revoke all on public.refus_courses from anon, authenticated;
+revoke all on sequence public.refus_courses_id_seq from anon, authenticated;
+
+-- (3.70.0) Lues par la cascade des courses plus bas (déjà là sur une base en service).
+create table if not exists public.cascade_reglage (
+  id            int primary key default 1 check (id = 1),
+  actif         boolean not null default true,
+  delai_s       int not null default 30 check (delai_s between 10 and 600),
+  rangs         int not null default 3 check (rangs between 1 and 10),
+  fraicheur_min int not null default 120 check (fraicheur_min between 5 and 1440)
+);
+insert into public.cascade_reglage (id) values (1) on conflict (id) do nothing;
+alter table public.cascade_reglage enable row level security;
+revoke all on public.cascade_reglage from anon, authenticated;
+
+-- Où en est la course : qui a été alerté, dans quel ordre, et quand passer
+-- au suivant. Une ligne par commande ; un nouveau tour (course annulée par
+-- son livreur) la remet à zéro.
+create table if not exists public.courses_cascade (
+  commande_id text primary key references public.commandes(id) on delete cascade,
+  ordre       uuid[] not null default '{}',
+  etape       int not null default 0,
+  tous        boolean not null default false,
+  alertes     uuid[] not null default '{}',
+  prochaine   timestamptz,
+  lancee_le   timestamptz not null default now(),
+  reprise     boolean not null default false
+);
+create index if not exists courses_cascade_prochaine on public.courses_cascade (prochaine)
+  where prochaine is not null;
+alter table public.courses_cascade enable row level security;
+revoke all on public.courses_cascade from anon, authenticated;
+
+-- Le point d'où l'on mesure : la boutique où récupérer (la première qui a
+-- une position, en livraison groupée), sinon le point BIZZOO.
+
+-- (3.70.0) Le devis plus bas lit la distance par la route : la grille
+-- et le cache qu'il emprunte, recopiés tels quels.
+create or replace function public.grille_route(x double precision) returns numeric
+language sql immutable as $$
+  select (round((x * 2000)::numeric) / 2000)::numeric(9,4);
+$$;
+
+create table if not exists public.distances_route (
+  o_lat      numeric(9,4) not null,
+  o_lng      numeric(9,4) not null,
+  d_lat      numeric(9,4) not null,
+  d_lng      numeric(9,4) not null,
+  distance_m int not null check (distance_m > 0 and distance_m <= 1000000),
+  cree_le    timestamptz not null default now(),
+  primary key (o_lat, o_lng, d_lat, d_lng)
+);
+create index if not exists distances_route_jour on public.distances_route(cree_le);
+alter table public.distances_route enable row level security;
+revoke all on public.distances_route from public, anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.horloge_cascade()
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare ok boolean := false;
+begin
+  if to_regclass('cron.job') is null then return false; end if;
+  execute 'select exists (select 1 from cron.job where jobname = ''courses-cascade'' and active)' into ok;
+  return coalesce(ok, false);
+exception when others then
+  return false;
+end $$;
+revoke all on function public.horloge_cascade() from public, anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.tous_livreurs_course(commande text)
+returns uuid[]
+language plpgsql stable security definer set search_path = public as $$
+declare besoin text;
+begin
+  select c.livraison ->> 'vehicule' into besoin from public.commandes c where c.id = commande;
+  return coalesce((
+    select array_agg(distinct x.id order by x.id) from (
+      select unnest(public.candidats_course(commande)) as id
+      union
+      select p.id from public.profils p
+       where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
+         and (besoin is null or besoin not in ('moto', 'tricycle')
+              or p.vehicule = besoin or (besoin = 'moto' and p.vehicule = 'tricycle'))
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id)) x), '{}');
+end $$;
+revoke all on function public.tous_livreurs_course(text) from public, anon, authenticated;
+
+-- (3.70.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.alertes_course(commande text)
+returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce((select k.alertes from public.courses_cascade k where k.commande_id = commande),
+                  public.candidats_course(commande));
+$$;
+revoke all on function public.alertes_course(text) from public, anon, authenticated;
+
+create or replace function public.course_ouverte_a(commande text, qui uuid)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare k public.courses_cascade%rowtype;
+begin
+  select * into k from public.courses_cascade x where x.commande_id = commande;
+  if not found then
+    return qui = any(public.candidats_course(commande));
+  end if;
+  if exists (select 1 from public.profils p where p.id = qui and (p.courses_bloquees or not p.actif))
+     or exists (select 1 from public.refus_courses r where r.commande_id = commande and r.livreur_id = qui) then
+    return false;
+  end if;
+  if qui = any(k.alertes) then return true; end if;
+  -- Étape « tous » passée (ou cascade arrêtée) : ouverte à ceux qui peuvent
+  -- la prendre MAINTENANT — un livreur débloqué ou validé depuis la voit.
+  if k.tous or k.prochaine is null then
+    -- Cascade éteinte (ou sans horloge) : à ceux qui pouvaient la prendre,
+    -- comme avant ; allumée : à tous les livreurs de BIZZOO aussi.
+    if coalesce((select r.actif from public.cascade_reglage r where r.id = 1), true)
+       and public.horloge_cascade() then
+      return qui = any(public.tous_livreurs_course(commande))
+          or qui = any(public.candidats_course(commande));
+    end if;
+    return qui = any(public.candidats_course(commande));
+  end if;
+  return false;
+end $$;
+revoke all on function public.course_ouverte_a(text, uuid) from public, anon, authenticated;
+
 create or replace function public.livraison_active() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select p.livraison_latitude is not null and p.livraison_longitude is not null
@@ -79,6 +220,7 @@ declare
   km    int;
   forf  int;
   prix  int;
+  route_m int;
 begin
   select * into r from public.paiement where id = 1;
   if not found or r.livraison_latitude is null or r.livraison_longitude is null then
@@ -90,13 +232,24 @@ begin
     raise exception 'Position de livraison invalide : touchez « Utiliser ma position ».'
       using errcode = 'P0001';
   end if;
-  -- À vol d'oiseau (formule de haversine, rayon terrestre de 6 371 km),
-  -- multipliée par le coefficient de la route ; au mètre près.
-  dlat := radians(latitude - r.livraison_latitude);
-  dlng := radians(longitude - r.livraison_longitude);
-  a := sin(dlat / 2) ^ 2
-       + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
-  dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  -- (3.70.0) PAR LA ROUTE, quand la fonction serveur « distance-route » l'a
+  -- demandée à Google pour ce client (à 50 m près) : le vrai trajet.
+  select x.distance_m into route_m from public.distances_route x
+   where x.o_lat = public.grille_route(r.livraison_latitude)
+     and x.o_lng = public.grille_route(r.livraison_longitude)
+     and x.d_lat = public.grille_route(latitude)
+     and x.d_lng = public.grille_route(longitude);
+  if route_m is not null then
+    dist := round(route_m / 1000.0, 3);
+  else
+    -- Sinon, à vol d'oiseau (formule de haversine, rayon terrestre de
+    -- 6 371 km), multipliée par le coefficient de la route ; au mètre près.
+    dlat := radians(latitude - r.livraison_latitude);
+    dlng := radians(longitude - r.livraison_longitude);
+    a := sin(dlat / 2) ^ 2
+         + cos(radians(r.livraison_latitude)) * cos(radians(latitude)) * sin(dlng / 2) ^ 2;
+    dist := round((2 * 6371 * asin(least(1, sqrt(a))) * r.livraison_coef)::numeric, 3);
+  end if;
   -- Le kilomètre ENTAMÉ compte : 10,001 km facturent un kilomètre de plus.
   km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
   forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
@@ -104,6 +257,8 @@ begin
   return jsonb_build_object(
     'vehicule', v,
     'distance_km', round(dist, 1),
+    -- (3.70.0) « route » : le trajet réel (Google) ; « vol_oiseau » : estimé.
+    'calcul', case when route_m is not null then 'route' else 'vol_oiseau' end,
     'rayon_km', r.livraison_rayon_km,
     'km_factures', km,
     'forfait', forf,
@@ -213,7 +368,11 @@ begin
         from public.profils p
        where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id = boutiques[1]
          and (v is null or p.vehicule = v)
-         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+         and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+         -- (3.70.0) Ceux qui l'ont refusée ne comptent plus : si toute la
+         -- boutique l'a refusée, elle passe aux tricycles, puis à BIZZOO.
+         and not exists (select 1 from public.refus_courses r
+                          where r.commande_id = commande and r.livreur_id = p.id);
       if qui is not null then return qui; end if;
     end loop;
   end if;
@@ -222,7 +381,9 @@ begin
       from public.profils p
      where p.role = 'livreur' and p.actif and not p.courses_bloquees and p.boutique_id is null
        and (v is null or p.vehicule = v)
-       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id);
+       and exists (select 1 from public.positions_livreurs pl where pl.profil_id = p.id)
+       and not exists (select 1 from public.refus_courses r
+                        where r.commande_id = commande and r.livreur_id = p.id);
     if qui is not null then return qui; end if;
   end loop;
   return '{}';
@@ -273,7 +434,8 @@ begin
   if not found then
     raise exception 'Cette commande n''attend pas de livreur';
   end if;
-  if not (moi = any(public.candidats_course(commande))) then
+  -- (3.70.0) Ouverte à ceux que la cascade a déjà alertés.
+  if not public.course_ouverte_a(commande, moi) then
     raise exception 'Cette course n''est pas proposée à votre compte';
   end if;
   if exists (select 1 from public.refus_courses rc
@@ -314,8 +476,10 @@ begin
      set lue_le = now()
    where n.commande_id = commande and n.type = 'course_proposee'
      and n.destinataire <> moi and n.lue_le is null;
+  -- (3.70.0) La cascade s'arrête : la course a son livreur.
+  update public.courses_cascade k set prochaine = null where k.commande_id = commande;
   perform public.notifier(
-    array(select x from unnest(public.candidats_course(commande)) as x where x <> moi),
+    array(select x from unnest(public.alertes_course(commande)) as x where x <> moi),
     'course_prise',
     'Déjà pris par ' || preneur,
     'Commande ' || coalesce(numero, '') || ' — ' || preneur || ' a pris la course. Elle n''est plus disponible.',

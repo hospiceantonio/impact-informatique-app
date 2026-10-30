@@ -26,20 +26,10 @@ const VueSolde = (() => {
   };
   const RESEAUX = [["mtn", "MTN Mobile Money"], ["moov", "Moov Money"], ["celtiis", "Celtiis Cash"]];
   const NOM_RESEAU = Object.fromEntries(RESEAUX);
-  /* Les préfixes béninois (ceux du SDK de FeexPay) : pour PROPOSER le
-     réseau d'un numéro, jamais pour l'interdire — un numéro porté garde
-     son préfixe. */
-  const PREFIXES = {
-    mtn: ["0142", "0146", "0150", "0151", "0152", "0153", "0154", "0156", "0157", "0159", "0161", "0162", "0166",
-          "0167", "0169", "0190", "0191", "0192", "0193", "0196", "0197"],
-    moov: ["0145", "0155", "0158", "0160", "0163", "0164", "0165", "0168", "0194", "0195", "0198", "0199"],
-    celtiis: ["0140", "0141", "0143", "0144", "0147"],
-  };
-  const reseauDuNumero = (tel) => {
-    const n = String(tel || "").replace(/\D/g, "").replace(/^229(?=01)/, "");
-    const p = (n.length === 8 ? "01" + n : n).slice(0, 4);
-    return Object.keys(PREFIXES).find((r) => PREFIXES[r].includes(p)) || "mtn";
-  };
+  /* Le réseau que suggère un numéro (la table commune, UI.reseauDuNumero) :
+     pour PROPOSER, jamais pour interdire — un numéro porté garde son
+     préfixe. */
+  const reseauDuNumero = (tel) => (UI.reseauDuNumero(tel) || "MTN").toLowerCase();
   const etiquette = (table, s) => UI.etiquette(...(table[s] || [s, ""]));
   const numero = (r) => "R-" + String(r.numero).padStart(4, "0");
 
@@ -65,6 +55,13 @@ const VueSolde = (() => {
           { nom: "reseau", libelle: "Réseau", type: "select", valeur: reseauDuNumero(c.telephone),
             options: RESEAUX.map(([v, l]) => ({ valeur: v, libelle: l })) },
         ],
+        /* (3.70.0) Le réseau suit le numéro tapé : un numéro MTN avec
+           « Moov » choisi repasse sur MTN. On peut le rechoisir ensuite. */
+        quandSaisie: (nom, champs) => {
+          if (nom !== "telephone" || !champs.reseau) return;
+          const op = UI.reseauDuNumero(champs.telephone.value);
+          if (op) champs.reseau.value = op.toLowerCase();
+        },
         verifier: (x) => {
           const n = Number(x.montant);
           if (!Number.isInteger(n) || n <= 0) return "Un montant en francs entiers, positif.";
