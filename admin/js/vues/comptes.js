@@ -245,6 +245,12 @@ const VueComptes = (() => {
           '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
         "</div>"
         : "") +
+      /* (3.72.0) Le nom de son compte MoMo, comparé avant chaque reversement. */
+      (compte.role === "livreur" && compte.momoNom !== undefined
+        ? UI.champTexte({ id: "cp-momo-nom", label: "Nom du compte MoMo", valeur: compte.momoNom,
+            placeholder: "Tel qu'il s'affiche chez MoMo",
+            aide: "Avant de lui reverser ses gains, on vérifie que MoMo affiche bien ce nom." })
+        : "") +
       /* (3.63.0) UN COMPTE À VALIDER : seul le superadministrateur
          l'active, et l'activer le valide. Son créateur le voit attendre. */
       (compte.aValider && !Supabase.estSuper()
@@ -306,7 +312,7 @@ const VueComptes = (() => {
       "</div>");
 
     const selecteur = UI.$("#cp-role", corps);
-    const champBoutiqueMenu = UI.$("#cp-boutique", corps);
+    const champBoutiqueMenu = UI.cherchable(UI.$("#cp-boutique", corps), { placeholder: "Rechercher une boutique…" });
     const zoneEnseigne = UI.$("#cp-zone-enseigne", corps);
 
     /* Les deux menus décident ensemble de ce qu'on voit : un compte
@@ -417,6 +423,10 @@ const VueComptes = (() => {
         if (champVehicule && champVehicule.value !== (compte.vehicule || "moto")) {
           await Store.majCompte(compte.id, { vehicule: champVehicule.value });
         }
+        const champMomo = UI.$("#cp-momo-nom", corps);
+        if (champMomo && champMomo.value.trim() !== (compte.momoNom || "")) {
+          await Store.majCompte(compte.id, { momoNom: champMomo.value });
+        }
         /* Les interrupteurs d'enseigne, s'ils sont à l'écran. On
            n'envoie que ce qui a bougé : le journal raconte alors
            précisément quel droit a été donné ou retiré. */
@@ -524,6 +534,15 @@ const VueComptes = (() => {
           "</select>" +
           '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
         "</div>" : "") +
+      /* (3.72.0) LE NOM DU COMPTE MOMO, noté par l'équipe : avant de lui
+         reverser ses gains, on le compare au nom que MoMo affiche. Le
+         livreur ne peut pas le changer lui-même. */
+      (livreur
+        ? UI.champTexte({ id: "nc-momo-nom", label: "Nom du compte MoMo", obligatoire: true,
+            placeholder: "Tel qu'il s'affiche chez MoMo",
+            aide: "Le nom du titulaire du compte Mobile Money qui recevra ses gains. Avant chaque " +
+              "reversement, on vérifie que MoMo affiche bien ce nom." })
+        : "") +
       (livreur
         ? '<p class="aide" style="margin:12px 0 0">À sa première connexion à BIZZOO Admin, le ' +
             "livreur devra <strong>valider son compte en enregistrant sa position</strong> " +
@@ -536,6 +555,8 @@ const VueComptes = (() => {
       "</div>" +
       '<div id="nc-resultat"></div>');
 
+    /* (3.72.0) Les boutiques par ordre alphabétique, et un champ pour la trouver. */
+    UI.cherchable(UI.$("#nc-boutique", corps), { placeholder: "Rechercher une boutique…" });
     const selecteur = UI.$("#nc-role", corps);
     const zoneBoutique = UI.$("#nc-zone-boutique", corps);
     selecteur.onchange = () => {
@@ -548,6 +569,12 @@ const VueComptes = (() => {
 
     UI.$("#nc-creer", corps).onclick = async () => {
       const bouton = UI.$("#nc-creer", corps);
+      const champMomo = UI.$("#nc-momo-nom", corps);
+      if (champMomo && champMomo.value.trim().length < 2) {
+        UI.toast("Saisissez le nom du compte MoMo du livreur.", "err");
+        champMomo.focus();
+        return;
+      }
       bouton.disabled = true;
       bouton.textContent = "Création…";
       try {
@@ -564,6 +591,11 @@ const VueComptes = (() => {
         if (livreur && champVehicule && champVehicule.value === "tricycle" && compte.id) {
           try { await Store.majCompte(compte.id, { vehicule: "tricycle" }); }
           catch (err) { UI.toast("Livreur créé, mais son véhicule n'a pas pu être réglé : " + err.message, "err"); }
+        }
+        /* (3.72.0) Son nom de compte MoMo, juste après : le compte naît sans. */
+        if (champMomo && compte.id) {
+          try { await Store.majCompte(compte.id, { momoNom: champMomo.value }); }
+          catch (err) { UI.toast("Livreur créé, mais le nom du compte MoMo n'a pas pu être enregistré : " + err.message, "err"); }
         }
         UI.fermerFeuille();
         if (compte.aValider) {
@@ -793,7 +825,10 @@ const VueComptes = (() => {
         '<p class="aide" style="margin:0">' + Utils.echapper(err.message) + "</p></div>";
       return;
     }
-    const liste = comptes.filter((c) => c.role === "livreur");
+    /* (3.72.0) Par ordre alphabétique : on cherche un nom, pas un rang. */
+    const nomDe = (c) => String(c.nom || c.email || c.tel || "");
+    const liste = comptes.filter((c) => c.role === "livreur")
+      .sort((a, b) => nomDe(a).localeCompare(nomDe(b), "fr", { sensitivity: "base" }));
     const valides = positions ? liste.filter((c) => positions[c.id]).length : 0;
     const ligne = (c) => {
       const p = positions && positions[c.id];
@@ -816,7 +851,8 @@ const VueComptes = (() => {
         ? '<div class="livreur-position">' + UI.icone("voiture", "ic-sm") +
             " En tricycle : il reçoit aussi les commandes de gros colis.</div>"
         : "";
-      return '<div class="livreur-bloc">' + (gere || (chezMoi && !c.bizzoo) ? htmlLigne(c, false) : ligneLecture(c)) +
+      return '<div class="livreur-bloc" data-cherche="' +
+        Utils.echapper(Utils.sansAccent([c.nom, c.email, c.tel].filter(Boolean).join(" "))) + '">' + (gere || (chezMoi && !c.bizzoo) ? htmlLigne(c, false) : ligneLecture(c)) +
         etat + vehicule + "</div>";
     };
     vue.innerHTML =
@@ -827,6 +863,11 @@ const VueComptes = (() => {
           "<strong>BIZZOO</strong> et alors pour toutes. Il <strong>valide son compte en " +
           "enregistrant sa position</strong> à sa première connexion" +
           (positions ? " — " + valides + " sur " + liste.length + " l'ont fait" : "") + ".</p>" +
+        (liste.length > 5
+          ? '<input type="search" class="recherche-liste" id="lv-chercher" autocomplete="off" ' +
+              'placeholder="Rechercher un livreur : nom, numéro…" aria-label="Rechercher un livreur">' +
+            '<div class="aide recherche-liste-vide" id="lv-aucun" hidden>Aucun livreur ne correspond.</div>'
+          : "") +
         (liste.length ? liste.map(ligne).join("")
           : '<p class="aide" style="margin:0">Aucun livreur pour l\'instant.</p>') +
         (gere || chezMoi
@@ -839,6 +880,18 @@ const VueComptes = (() => {
           : '<p class="aide" style="margin:12px 0 0">Un nouveau livreur se demande à BIZZOO : ' +
               "le superadministrateur ou un administrateur de BIZZOO le crée.</p>") +
       "</div>";
+    const chercher = UI.$("#lv-chercher", vue);
+    if (chercher) {
+      chercher.oninput = () => {
+        const q = Utils.sansAccent(chercher.value.trim());
+        let vus = 0;
+        for (const bloc of UI.$$(".livreur-bloc[data-cherche]", vue)) {
+          bloc.hidden = !!q && !bloc.dataset.cherche.includes(q);
+          if (!bloc.hidden) vus++;
+        }
+        UI.$("#lv-aucun", vue).hidden = vus > 0;
+      };
+    }
     if (!gere && !chezMoi) return;
     UI.$("#lv-nouveau", vue).onclick = () => ouvrirCreation(() => livreurs(vue), true);
     for (const bouton of UI.$$("[data-compte]", vue)) {

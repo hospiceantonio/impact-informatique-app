@@ -141,6 +141,15 @@ titre("2. Livreurs : leur liste, leur position, leur bouton");
   }));
   ok(/Nouveau livreur/.test(f.titre) && f.role === "livreur" && f.cache,
     "« Créer un livreur » : le rang est fixé à livreur, sans menu");
+  /* (3.72.0) Le nom du compte MoMo, obligatoire à la création. */
+  ok(!!(await o.page.$("#nc-momo-nom")), "(3.72.0) le formulaire demande le « Nom du compte MoMo »");
+  await o.page.fill("#nc-tel", "0197123456");
+  await o.page.fill("#nc-mdp", "secret123");
+  await o.page.click("#nc-creer");
+  await pause(400);
+  ok(/nom du compte MoMo/.test(await o.page.evaluate(() => document.body.innerText)) &&
+     !!(await o.page.$("#nc-momo-nom")),
+    "(3.72.0) sans lui, rien ne part : on le demande");
   await o.page.evaluate(() => UI.fermerFeuille());
   await o.page.click('[data-compte="' + LIV_OK + '"]');
   await pause(500);

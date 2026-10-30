@@ -70,6 +70,11 @@ const VueSuivi = (() => {
   const SOURCES = ["Depuis APP", "Par whatsapp"];
   const sourceDe = (c) => (c && c.source === "Par whatsapp" ? "Par whatsapp" : "Depuis APP");
 
+  /** (3.72.0) Le nombre de produits d'une commande : la somme des quantités
+      de ses articles, sans ceux qui ont été annulés. */
+  const nbProduits = (c) => (Array.isArray(c.lignes) ? c.lignes : [])
+    .filter((l) => l.etat !== "annulee")
+    .reduce((n, l) => n + (Number(l.quantite) || 0), 0);
   /* ---------- La période ---------- */
 
   const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -153,6 +158,8 @@ const VueSuivi = (() => {
         cellule: (c) => sourceDe(c) === "Par whatsapp" ? h("span", { class: "source-whatsapp" }, "Par whatsapp") : "Depuis APP" },
       { titre: "Client / téléphone / zone", cle: (c) => c.client.nom || "", classe: "moyen",
         cellule: (c) => [h("div", {}, c.client.nom || "—"), h("div", { class: "doux tres-petit" }, [c.client.tel, zoneDe(c)].filter(Boolean).join(" · "))] },
+      /* (3.72.0) Combien de produits porte la course (quantités, sans les annulés). */
+      { titre: "Nombre de produits", cle: nbProduits, cellule: (c) => String(nbProduits(c)), classe: "nombre" },
       { titre: "Articles commandés", cle: (c) => c.articles || "", cellule: (c) => c.articles || "—", classe: "large" },
       { titre: "Marchand", cle: (c) => c.marchands || "", cellule: (c) => c.marchands || "—", classe: "moyen" },
       ...(r.montants ? [
@@ -311,7 +318,8 @@ const VueSuivi = (() => {
       colonnes: [
         { titre: "N° commande", largeur: 13 }, { titre: "Date / heure de passation", largeur: 20 },
         { titre: "Source", largeur: 13 },
-        { titre: "Client / téléphone / zone", largeur: 34 }, { titre: "Articles commandés", largeur: 34 },
+        { titre: "Client / téléphone / zone", largeur: 34 }, { titre: "Nombre de produits", largeur: 11, type: "nombre" },
+        { titre: "Articles commandés", largeur: 34 },
         { titre: "Marchand / numéro", largeur: 28 }, { titre: "Frais de livraison (FCFA)", largeur: 14, type: "fcfa" },
         { titre: "Total commande (FCFA)", largeur: 14, type: "fcfa" }, { titre: "Reste à encaisser (FCFA)", largeur: 14, type: "fcfa" },
         { titre: "Livreur / contact", largeur: 28 }, { titre: "Statut", largeur: 24 },
@@ -320,7 +328,7 @@ const VueSuivi = (() => {
       lignes: commandes.map((c) => [
         c.numero || c.id, dateSuivi(c.cree_le), sourceDe(c),
         [c.client.nom, c.client.tel, zone(c)].filter(Boolean).join(" / "),
-        c.articles, c.marchands,
+        nbProduits(c), c.articles, c.marchands,
         m ? Number(c.frais) : "", m ? Number(c.total) : "", m ? Number(c.reste) : "",
         c.livreurs || "—", c.statut, c.confirmation, delai(c.delai_h), observations(c)]),
     };
@@ -392,7 +400,8 @@ const VueSuivi = (() => {
     UI.vider(zone,
       onglets("alertes"),
       h("p", { class: "doux petit" }, "Les commandes des 60 derniers jours qui demandent une action. Délais réglés : vue " +
-        r.reglages.vue_h + " h, préparation " + r.reglages.preparation_h + " h, livraison " + r.reglages.livraison_h +
+        r.reglages.vue_h + " h, préparation " + (r.reglages.preparation_min != null
+          ? r.reglages.preparation_min + " min" : r.reglages.preparation_h + " h") + ", livraison " + r.reglages.livraison_h +
         " h, confirmation " + r.reglages.confirmation_h + " h ; course sans livreur " + (r.reglages.prise_course_min ?? 30) +
         " min, livreur sans position " + (r.reglages.position_min ?? 15) + " min."),
       Object.keys(parType).length ? h("div", { class: "tuiles" }, Object.entries(parType).map(([a, n]) =>
@@ -540,6 +549,9 @@ const VueSuivi = (() => {
     const r = await Supabase.rpc("rh_suivi", { depuis: iso(new Date()), jusqu: iso(new Date()) });
     if (!zone.isConnected) return;
     const g = r.reglages;
+    /* (3.72.0) La préparation se règle en minutes, dans son propre cadre :
+       une base d'avant ne connaît pas ce réglage, et garde l'heure. */
+    const enMinutes = "preparation_min" in g;
     const champ = (nom, libelle, aide) => {
       const e = h("input", { type: "number", min: 1, max: 720, value: g[nom], required: true });
       e.name = nom;
@@ -549,7 +561,7 @@ const VueSuivi = (() => {
       h("h2", {}, "Délais des alertes (en heures)"),
       h("div", { class: "formulaire" },
         champ("vue_h", "Le marchand doit voir la commande", "après le paiement"),
-        champ("preparation_h", "Le marchand doit l'avoir préparée", "après l'avoir vue"),
+        enMinutes ? null : champ("preparation_h", "Le marchand doit l'avoir préparée", "après l'avoir vue"),
         champ("livraison_h", "Le colis doit être livré", "après le paiement"),
         champ("confirmation_h", "Le client doit confirmer", "après la livraison déclarée")),
       h("div", { class: "actions" }, h("button", { class: "btn", type: "submit" }, "Enregistrer")));
@@ -557,7 +569,8 @@ const VueSuivi = (() => {
       ev.preventDefault();
       const v = (n) => Number(form.querySelector("[name=" + n + "]").value);
       await UI.agir(ev.submitter, () => Supabase.rpc("rh_suivi_regler", {
-        vue_h: v("vue_h"), preparation_h: v("preparation_h"), livraison_h: v("livraison_h"), confirmation_h: v("confirmation_h") }),
+        vue_h: v("vue_h"), preparation_h: enMinutes ? g.preparation_h : v("preparation_h"),
+        livraison_h: v("livraison_h"), confirmation_h: v("confirmation_h") }),
         "Délais enregistrés.");
       App.rafraichir();
     });
@@ -581,6 +594,30 @@ const VueSuivi = (() => {
         v_prise_course_min: v("prise_course_min"), v_position_min: v("position_min") }), "Veille enregistrée.");
       App.rafraichir();
     });
+    /* (3.72.0) LE DÉLAI DE PRÉPARATION : de « vue » (la boutique a reçu la
+       commande) à « préparée ». Passé ce délai, la boutique reçoit une
+       alerte qui sonne, et la commande passe « Préparation en retard ». */
+    let formPreparation = null;
+    if (enMinutes) {
+      const minutes = h("input", { type: "number", min: 5, max: 10080, required: true,
+        value: g.preparation_min ?? (Number(g.preparation_h) || 24) * 60 });
+      minutes.name = "preparation_min";
+      formPreparation = h("form", { class: "carte pile", id: "form-preparation" },
+        h("h2", {}, "Délai de préparation (en minutes)"),
+        h("p", { class: "doux petit" }, "Du moment où la boutique a reçu la commande (« Vue ») à « Préparée ». " +
+          "Passé ce délai, la boutique et BIZZOO reçoivent une alerte qui sonne, et la commande passe " +
+          "« Préparation en retard » dans le suivi et dans la file de l'équipe."),
+        h("div", { class: "formulaire" },
+          h("label", { class: "champ" }, h("span", {}, "La boutique doit avoir préparé la commande"), minutes,
+            h("small", {}, "après l'avoir reçue — de 5 minutes à 7 jours (10 080 minutes)"))),
+        h("div", { class: "actions" }, h("button", { class: "btn", type: "submit" }, "Enregistrer")));
+      formPreparation.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        await UI.agir(ev.submitter, () => Supabase.rpc("rh_suivi_regler_preparation", { v_minutes: Number(minutes.value) }),
+          "Délai de préparation : " + minutes.value + " minutes.");
+        App.rafraichir();
+      });
+    }
     const nom = h("input", { required: true, placeholder: "Ex. : Bidossessi" });
     const commune = h("input", { placeholder: "Ex. : Abomey-Calavi" });
     const formZone = h("form", { class: "carte pile" },
@@ -616,7 +653,7 @@ const VueSuivi = (() => {
           v === "" ? "Clôture à la main seulement." : "Clôture automatique : " + v + " h après la confirmation du client.");
       });
     }
-    UI.vider(zone, onglets("reglages"), form, formVeille, formCloture, formZone);
+    UI.vider(zone, onglets("reglages"), form, formPreparation, formVeille, formCloture, formZone);
   }
 
   /* ---------- La fiche d'une commande ---------- */

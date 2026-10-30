@@ -163,12 +163,16 @@ titre("1. « Créer un livreur » : son numéro, un mot de passe, l'e-mail facul
   await o.page.fill("#nc-mdp", "secret-essai");
   await o.page.fill("#nc-nom", "Bio");
   await o.page.fill("#nc-email", "pas-une-adresse");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await o.page.$("#nc-momo-nom")) await o.page.fill("#nc-momo-nom", "Titulaire MoMo");
   await o.page.click("#nc-creer");
   await pause(600);
   ok(!o.note.signup.length && /adresse email valide/.test(await texte(o.page)),
     "un e-mail mal formé, même facultatif, est refusé");
 
   await o.page.fill("#nc-email", "");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await o.page.$("#nc-momo-nom")) await o.page.fill("#nc-momo-nom", "Titulaire MoMo");
   await o.page.click("#nc-creer");
   await pause(1200);
   const s = (o.note.signup[0] || {}).corps || {};
@@ -189,6 +193,8 @@ titre("1. « Créer un livreur » : son numéro, un mot de passe, l'e-mail facul
   await o.page.fill("#nc-tel", "0196000333");
   await o.page.fill("#nc-mdp", "secret-essai");
   await o.page.fill("#nc-email", "Bio@Essai.bj");
+  /* (3.72.0) Le nom du compte MoMo d'un livreur, obligatoire. */
+  if (await o.page.$("#nc-momo-nom")) await o.page.fill("#nc-momo-nom", "Titulaire MoMo");
   await o.page.click("#nc-creer");
   await pause(1200);
   ok((o.note.profils[0] || {}).email === "bio@essai.bj" && !((o.note.signup[0] || {}).corps || {}).email,

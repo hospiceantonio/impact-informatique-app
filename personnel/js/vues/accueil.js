@@ -190,5 +190,5 @@ const VueAccueil = (() => {
       h("div", { class: "carte" }, h("h2", {}, "Raccourcis"), h("div", { class: "actions" }, raccourcis)));
   }
 
-  return { titre: "Accueil", afficher };
+  return { titre: "Dashboard", afficher };
 })();

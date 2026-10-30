@@ -994,6 +994,14 @@ const Store = (() => {
       mode: mode || "aucun", motif: motif || "" });
   }
 
+  /** (3.72.0) Une commande groupée se remet EN ENTIER : toutes ses
+      boutiques d'un coup, et le client paie le reste en une fois. */
+  async function remettreCommande(commande, montant, mode, motif) {
+    return Supabase.rpc("remettre_commande", {
+      commande, montant: Math.max(0, Math.round(Number(montant) || 0)),
+      mode: mode || "aucun", motif: motif || "" });
+  }
+
   /** (3.70.0) Le livreur se dit disponible pour les courses, ou non. */
   async function reglerDisponibilite(dispo) {
     const r = await Supabase.rpc("regler_disponibilite", { dispo: !!dispo });
@@ -1083,7 +1091,20 @@ const Store = (() => {
     Supabase.rpc("demander_reversement_livreur", { montant: Math.round(Number(montant) || 0) });
   async function reversementsLivreurs() {
     const lignes = await Supabase.rpcLecture("reversements_livreurs_liste", {});
+    /* (3.72.0) Le nom du compte MoMo noté par l'équipe, pour le comparer
+       à celui que MoMo affiche avant d'envoyer. Le livreur ne le lit pas
+       (sa fiche lui reste fermée) : seul le superadministrateur en a besoin. */
+    const momo = {};
+    const ids = [...new Set((lignes || []).map((l) => l.livreur_id).filter(Boolean))];
+    if (ids.length && Supabase.estSuper()) {
+      try {
+        const fiches = await Supabase.requete("GET", "profils?select=id,momo_nom&id=in.(" +
+          ids.map(encodeURIComponent).join(",") + ")", undefined, { avecSession: true });
+        for (const f of fiches || []) momo[f.id] = String(f.momo_nom || "");
+      } catch (_) { /* une base d'avant : pas de nom à comparer */ }
+    }
     return (lignes || []).map((l) => ({
+      momoNom: momo[l.livreur_id] || "",
       id: l.id, livreurId: l.livreur_id, nomBoutique: l.nom_livreur || "Livreur", montant: Number(l.montant) || 0,
       tel: l.tel || "", reseau: l.reseau || "", titulaire: l.titulaire || "", etat: l.etat,
       demandePar: "", demandeLe: l.demande_le || "", decidePar: l.decide_par || "",
@@ -1312,6 +1333,10 @@ const Store = (() => {
       /* (3.64.0) Le véhicule d'un livreur. Une base d'avant n'a pas la
          colonne : undefined, et l'écran ne le propose pas. */
       vehicule: l.vehicule === undefined ? undefined : (l.vehicule === "tricycle" ? "tricycle" : "moto"),
+      /* (3.72.0) Le nom du compte MoMo d'un livreur, noté par l'équipe :
+         c'est lui qu'on compare au nom affiché par MoMo avant de lui
+         reverser ses gains. Une base d'avant : undefined, rien à l'écran. */
+      momoNom: l.momo_nom === undefined ? undefined : String(l.momo_nom || ""),
     };
   }
 
@@ -1505,6 +1530,10 @@ const Store = (() => {
       ligne.boutique_id = maj.boutiqueId || null;
       delete ligne.boutiqueId;
     }
+    if (maj.momoNom !== undefined) {
+      ligne.momo_nom = String(maj.momoNom || "").trim().slice(0, 80);
+      delete ligne.momoNom;
+    }
     for (const [ici, enBase] of [["peutCommandes", "peut_commandes"],
                                  ["peutBoutiques", "peut_boutiques"],
                                  ["peutFinances", "peut_finances"],
@@ -1533,6 +1562,10 @@ const Store = (() => {
     } else if (maj.vehicule !== undefined) {
       journaliser("compte", "modification",
         (c.nom || c.email || c.tel) + " livre " + (maj.vehicule === "tricycle" ? "en tricycle" : "à moto"),
+        c.email, retour, c.boutiqueId || null);
+    } else if (maj.momoNom !== undefined) {
+      journaliser("compte", "modification",
+        "Nom du compte MoMo de " + (c.nom || c.email || c.tel) + " : " + (ligne.momo_nom || "(effacé)"),
         c.email, retour, c.boutiqueId || null);
     } else if (maj.peutModifier !== undefined) {
       journaliser("compte", "modification",
@@ -4217,7 +4250,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition, reglerDisponibilite,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
-    remettreCourse, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
+    remettreCourse, remettreCommande, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

@@ -5528,6 +5528,67 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Une commande groupée, une seule course (3.72.0)
+
+Une commande de plusieurs boutiques n'a qu'un livreur depuis la 3.64.0.
+Il la remettait pourtant boutique par boutique : plusieurs cartes, plusieurs
+« Remettre le colis », et autant de paiements MoMoPay pour le client.
+
+- **L'écran du livreur** (BIZZOO Admin → Livraisons) montre UNE carte par
+  commande : « Livraison groupée : N boutiques, une seule course ». Un seul
+  « Commande reçue » accepte toute la commande ; chaque boutique a son lieu
+  de retrait, ses articles et son « Colis récupéré ici » ; une fois tous
+  les colis récupérés, un seul « Je l'ai remise ».
+- **Un seul paiement** : `remettre_commande(commande, montant, mode, motif)`
+  remet tout ce que le livreur porte d'un coup. Le client paie le reste de
+  toute la commande en une fois ; la même transaction MoMoPay est notée sur
+  la part de chaque boutique, pour son montant — le solde des boutiques ne
+  change pas de règle. Elle refuse tant qu'un colis n'est pas récupéré.
+- **Plus de commande coupée en deux** : un livreur qui a déjà récupéré une
+  partie ne peut plus refuser le reste (`refuser_course`).
+- Le client voit son livreur une seule fois (« Le même livreur apporte
+  toute la commande »).
+- BIZZOO Admin 3.71.0 continue de remettre boutique par boutique.
+
+Fichier : `supabase/course-unique.sql`. Essais :
+`supabase/tests/…-course-unique.sql`, `tools/banc-course-unique.mjs`.
+
+## Le nom du compte MoMo d'un livreur (3.72.0)
+
+À la création d'un livreur, l'équipe note le **nom du compte MoMo** qui
+recevra ses gains (champ obligatoire ; modifiable dans sa fiche). Le
+livreur ne peut pas le changer lui-même. Dans **Reversements**, chaque
+demande d'un livreur rappelle ce nom : on vérifie que MoMo affiche bien ce
+nom avant d'envoyer ; s'il diffère de celui que le livreur a donné, ou s'il
+manque, l'écran le dit. Colonne `profils.momo_nom` (`supabase/nom-momo.sql`).
+
+## Le délai de préparation, et son alerte (3.72.0)
+
+De « Vue » (la boutique a reçu la commande) à « Préparée » : le délai se
+règle **en minutes** dans BIZZOO Personnel → Suivi des commandes →
+Réglages (`rh_suivi_regler_preparation`, de 5 minutes à 7 jours). Passé ce
+délai, **la boutique et BIZZOO** (superadministrateurs, comptes qui suivent
+les commandes) reçoivent une alerte qui sonne, une fois par commande
+(`alerter_preparations`, pg_cron chaque minute) ; le suivi la marque
+« Préparation en retard » et l'équipe la retrouve dans sa file. Tant que le
+délai en minutes n'est pas réglé, celui en heures d'avant s'applique.
+Fichier : `supabase/delai-preparation.sql`.
+
+## Petites choses (3.72.0)
+
+- BIZZOO Personnel : le menu « Accueil » s'appelle « Dashboard ».
+- Suivi des commandes : une colonne **« Nombre de produits »** (les
+  quantités, sans les articles annulés) avant « Articles commandés », à
+  l'écran et dans l'Excel.
+- **Les listes qui se cherchent** : là où l'on choisit une boutique, un
+  produit, un vendeur ou un secteur (création et fiche d'un compte, fiche
+  produit, slider, statistiques, fiche boutique), la liste est rangée par
+  ordre alphabétique avec un champ « Rechercher… » au-dessus. Les pages
+  « Livreurs » et « Boutiques » de l'admin ont aussi leur champ (et l'ordre
+  alphabétique pour choisir la boutique ouverte) ; côté client, « Nos
+  boutiques » a un champ et un rangement « A → Z ».
+  Banc : `tools/banc-listes-cherchables.mjs`.
+
 ## Les boutiques à vendeurs multiples (3.70.0)
 
 Une boutique est **à vendeur unique** (comme avant, rien ne change) ou

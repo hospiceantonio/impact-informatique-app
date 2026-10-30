@@ -1895,6 +1895,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .carte-livreurs{display:block;text-decoration:none;color:inherit;border:1.5px solid var(--bleu, #0B5CF5)}
 .livreur-bloc{padding-bottom:6px;border-bottom:1px solid var(--trait, #eee);margin-bottom:6px}
 .livreur-bloc:last-of-type{border-bottom:0}
+.livreur-bloc[hidden]{display:none}
 .livreur-position{font-size:12.5px;line-height:1.45;margin:2px 0 4px 44px}
 .livreur-position-ok{color:var(--vert, #1E8E3E)}
 .livreur-position-manque{color:#8A5B00}
@@ -2001,6 +2002,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .sd-ligne-haut{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sd-boutique{font-size:13px;font-weight:600}
 .sd-refus{color:var(--rouge)}
+.sd-momo{margin:6px 0 0;padding:8px 10px;border-radius:10px;background:var(--orange-clair);color:var(--orange-fonce);font-size:.88rem}
+.sd-momo-ecart{color:var(--rouge);font-weight:600;margin-top:4px}
 
 /* =========================================================
    La livraison au kilomètre (3.64.0)
@@ -2046,3 +2049,11 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:10px 0;font:inherit;color:inherit;cursor:pointer}
 .vv-vendeur:first-child{border-top:0}
 .pr-vendeur-note{margin:6px 0 0;font-size:.88rem}
+
+/* (3.72.0) Le champ qui cherche dans une liste (boutiques, produits, vendeurs). */
+.recherche-liste{width:100%;margin:0 0 6px;min-height:44px;padding:8px 12px;border:1.5px solid var(--trait);
+  border-radius:12px;font-size:15px;background:var(--blanc);color:var(--encre)}
+.recherche-liste:focus{outline:none;border-color:var(--bleu)}
+.recherche-liste-vide{margin-top:4px;color:var(--rouge-fonce)}
+.recherche-liste-vide[hidden]{display:none}
+.bq-trouvable[hidden]{display:none!important}

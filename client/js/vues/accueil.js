@@ -522,6 +522,8 @@ const VueAccueil = (() => {
 
   const FILTRES_BOUTIQUES = [
     { cle: "toutes", nom: "Toutes" },
+    /* (3.72.0) Par ordre alphabétique. */
+    { cle: "az", nom: "A → Z" },
     { cle: "top", nom: "Top" },
     { cle: "proches", nom: "Proches de moi" },
   ];
@@ -540,7 +542,10 @@ const VueAccueil = (() => {
 
   async function boutiques(vue) {
     UI.entete({ titre: "Nos boutiques", retour: true, actions: UI.boutonRecherche() });
+    /* (3.72.0) UN CHAMP POUR LA TROUVER, par son nom ou son secteur. */
     vue.innerHTML =
+      '<div class="recherche-boite bou-chercher"><input id="bou-chercher" type="search" autocomplete="off" ' +
+        'placeholder="Rechercher une boutique…" aria-label="Rechercher une boutique"></div>' +
       '<div class="puces puces-da" id="bou-filtres">' +
         FILTRES_BOUTIQUES.map((f) =>
           '<button type="button" class="puce' + (f.cle === rangement ? " active" : "") +
@@ -575,6 +580,7 @@ const VueAccueil = (() => {
           ? notees.map((b) => ligneBoutique(b)).join("")
           : '<p class="aide" style="margin:0">Aucune boutique n\'a encore reçu d\'avis. ' +
             "Les mieux notées apparaîtront ici.</p>";
+        filtrer();
         return;
       }
 
@@ -606,11 +612,30 @@ const VueAccueil = (() => {
                   "adresse sur la carte.</p>") +
               ailleurs.map((b) => ligneBoutique(b)).join("")
             : "");
+        filtrer();
         return;
       }
 
+      if (cle === "az") liste.sort((x, y) => String(x.nom || "").localeCompare(String(y.nom || ""), "fr", { sensitivity: "base" }));
       zone.innerHTML = liste.map((b) => ligneBoutique(b)).join("");
+      filtrer();
     }
+
+    const champ = UI.$("#bou-chercher", vue);
+    function filtrer() {
+      const q = Utils.sansAccent(champ.value.trim());
+      let vues = 0;
+      for (const l of UI.$$(".bou-ligne", zone)) {
+        l.hidden = !!q && !Utils.sansAccent(l.textContent).includes(q);
+        if (!l.hidden) vues++;
+      }
+      let vide = UI.$("#bou-aucune", zone);
+      if (q && !vues) {
+        if (!vide) zone.insertAdjacentHTML("beforeend", '<p class="aide" id="bou-aucune" style="margin:0">' +
+          "Aucune boutique ne correspond à votre recherche.</p>");
+      } else if (vide) vide.remove();
+    }
+    champ.oninput = filtrer;
 
     for (const p of puces) {
       p.onclick = () => {

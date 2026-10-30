@@ -97,7 +97,7 @@ const App = (() => {
   function menu() {
     const c = compteurs();
     return [
-      { route: "accueil", libelle: "Accueil", icone: "accueil" },
+      { route: "accueil", libelle: "Dashboard", icone: "accueil" },
       /* Les alertes confiées à mon profil par le routage (l'administration voit tout). */
       { route: "file", libelle: "Ma file", icone: "check", pour: () => !!file.acces,
         pastille: (file.a_prendre || 0) + (file.a_moi || 0) },

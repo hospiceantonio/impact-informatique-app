@@ -184,6 +184,10 @@ language sql stable security definer set search_path = public as $$
    limit 1;
 $$;
 
+-- (3.72.0) Le délai de préparation en minutes, que la fonction lit.
+alter table public.rh_reglages_suivi add column if not exists preparation_min int
+  check (preparation_min is null or preparation_min between 5 and 10080);
+
 /**
  * Le suivi d'une liste de commandes : une ligne JSON par commande,
  * articles et marchands compris, alertes calculées. Interne : les
@@ -293,7 +297,9 @@ begin
                                  and maintenant - c.paye_le > make_interval(hours => r.vue_h)
         union all
         select 'retard_preparation' where exists (select 1 from lig2 x where x.commande_id = c.id and x.etat = 'vue'
-                                 and maintenant - coalesce(x.vue_le, c.paye_le) > make_interval(hours => r.preparation_h))
+                                 -- (3.72.0) En minutes quand il est réglé ainsi.
+                                 and maintenant - coalesce(x.vue_le, c.paye_le)
+                                     > make_interval(mins => coalesce(r.preparation_min, r.preparation_h * 60)))
         union all
         select 'retard_livraison' where exists (select 1 from lig2 x where x.commande_id = c.id and x.rang < 6)
                                  and maintenant - c.paye_le > make_interval(hours => r.livraison_h)
