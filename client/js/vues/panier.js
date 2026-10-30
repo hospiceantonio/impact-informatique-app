@@ -2059,12 +2059,23 @@ const VuePanier = (() => {
     } catch (_) {
       return;
     }
+    /* (3.72.0) Une commande groupée n'a qu'un livreur : il se présente une
+       fois, les autres boutiques renvoient à lui. */
+    const vus = new Set();
     for (const l of Array.isArray(liste) ? liste : []) {
       const zone = UI.$$("[data-livreur-pour]", vue)
         .find((z) => z.dataset.livreurPour === String(l.boutique_id || ""));
       if (!zone) continue;
       const nom = String(l.nom || "").trim() || "Votre livreur";
       const tel = String(l.telephone || "").trim();
+      const qui = nom + "|" + tel;
+      if (vus.has(qui)) {
+        zone.innerHTML = '<p class="aide re-livreur-meme" style="margin:0">' + UI.icone("compte", "ic-sm") +
+          " Le même livreur, " + Utils.echapper(nom) + ", apporte toute la commande.</p>";
+        zone.hidden = false;
+        continue;
+      }
+      vus.add(qui);
       const indicatif = String(l.indicatif || "229");
       const appel = tel ? Utils.lienTel(tel, indicatif) : "";
       const message = "Bonjour " + nom + ", je suis le client de la commande " +

@@ -277,6 +277,108 @@ const VueLivraisons = (() => {
     );
   }
 
+  /* (3.72.0) UNE COMMANDE GROUPÉE, UNE SEULE COURSE. « mes_livraisons() »
+     rend une ligne par boutique ; le livreur, lui, porte UNE commande :
+     une carte, un « Commande reçue », un colis à récupérer par boutique,
+     puis une seule remise — et un seul paiement MoMoPay pour le client. */
+  function grouperCourses(courses) {
+    const ordre = [];
+    const parCommande = new Map();
+    for (const c of courses) {
+      if (!parCommande.has(c.commandeId)) { parCommande.set(c.commandeId, []); ordre.push(c.commandeId); }
+      parCommande.get(c.commandeId).push(c);
+    }
+    return ordre.map((id) => parCommande.get(id));
+  }
+
+  /** Les montants de toute la commande, pour la carte et la remise. */
+  function ficheCommande(parts) {
+    const f = parts[0].fiche;
+    const somme = (cle) => parts.reduce((s, p) => s + (Number(p.fiche && p.fiche[cle]) || 0), 0);
+    const encaisses = parts.map((p) => p.fiche && p.fiche.encaisse).filter((e) => e && typeof e === "object");
+    return Object.assign({}, f, {
+      a_encaisser: somme("a_encaisser"),
+      deja_paye: somme("deja_paye"),
+      encaisse: encaisses.length === parts.length
+        ? { montant: encaisses.reduce((s, e) => s + (Number(e.montant) || 0), 0),
+            mode: (encaisses.find((e) => e.mode === "mobile_money") || encaisses[0]).mode,
+            transaction: (encaisses.find((e) => e.transaction) || {}).transaction || "",
+            remis_le: encaisses[0].remis_le }
+        : null,
+    });
+  }
+
+  function htmlGroupe(parts) {
+    const c0 = parts[0];
+    const f = ficheCommande(parts);
+    const l = f.livraison || {};
+    const aAccepter = parts.some((p) => !p.recuLe &&
+      (p.etat === "preparee" || EN_PREPARATION.includes(p.etat)));
+    const toutesRemises = parts.every((p) => p.etat === "remise");
+    const toutesParties = parts.every((p) => p.etat === "en_livraison");
+    const dejaRecupere = parts.some((p) => p.etat === "en_livraison" || p.etat === "remise");
+    const etat = aAccepter ? { mot: "Nouvelle", classe: "badge-nouvelle" }
+      : toutesRemises ? ETATS.remise
+      : toutesParties ? ETATS.en_livraison
+      : parts.some((p) => p.etat === "preparee") ? ETATS.preparee
+      : dejaRecupere ? { mot: "En cours", classe: "badge-commande" }
+      : ETATS.nouvelle;
+    return (
+      '<div class="carte lv-course lv-groupee' + (aAccepter ? " lv-nouvelle" : "") +
+        '" data-commande="' + Utils.echapper(c0.commandeId) +
+        '" data-boutique="' + Utils.echapper(c0.boutiqueId) + '">' +
+        '<div class="lv-haut">' +
+          "<div><strong>" + Utils.echapper(f.numero || c0.numero || c0.commandeId) + "</strong>" +
+            '<div class="aide">Livraison groupée : ' + parts.length + " boutiques, une seule course</div></div>" +
+          '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.mot) + "</span>" +
+        "</div>" +
+        htmlMontants({ fiche: f, etat: toutesRemises ? "remise" : "en_livraison" }) +
+        parts.map((p, i) => {
+          const r = (p.fiche && p.fiche.retrait) || {};
+          return '<div class="lv-retrait" data-boutique="' + Utils.echapper(p.boutiqueId) + '">' +
+            htmlLieu("Récupérer (" + (i + 1) + "/" + parts.length + ")", "magasin", r.boutique || p.nomBoutique,
+              r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
+              "Adresse non renseignée : appelez la boutique.", true, r.whatsapp) +
+            '<div class="lv-articles">' +
+              p.articles.map((a) =>
+                "<div>" + Utils.echapper(a.nom || "") +
+                  (a.code ? ' <span class="code-produit">' + Utils.echapper(a.code) + "</span>" : "") +
+                  " <strong>× " + (Number(a.quantite) || 1) + "</strong></div>").join("") +
+            "</div>" +
+            (p.etat === "en_livraison" || p.etat === "remise"
+              ? '<div class="aide lv-recupere-ok">' + UI.icone("check", "ic-sm") + "Colis récupéré</div>"
+              : EN_PREPARATION.includes(p.etat)
+                ? '<div class="aide lv-attente">La boutique prépare le colis.</div>'
+              : aAccepter
+                ? '<div class="aide">Colis prêt.</div>'
+                : '<button type="button" class="btn btn-clair lv-recupere">' + UI.icone("check") +
+                  "Colis récupéré ici</button>") +
+          "</div>";
+        }).join("") +
+        htmlLieuSaisi(f) +
+        htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
+          l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
+        (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
+        (aAccepter
+          ? '<button type="button" class="btn lv-recu">' + UI.icone("check") + "Commande reçue</button>" +
+            '<div class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
+            "toute la commande : le client reçoit votre nom et votre numéro.</div>"
+          : toutesRemises
+            ? '<div class="aide" style="margin:10px 0 0">Remise. Le client confirmera ' +
+              "la réception depuis son application.</div>"
+          : toutesParties
+            ? '<button type="button" class="btn lv-remettre-tout">' + UI.icone("check") +
+              "Je l'ai remise</button>"
+            : '<div class="aide lv-attente" style="margin:10px 0 0">Récupérez le colis de chaque boutique, ' +
+              "puis livrez toute la commande en une fois.</div>") +
+        (!dejaRecupere
+          ? '<button type="button" class="btn btn-clair btn-danger-clair lv-refuser">' +
+            UI.icone("fermer") + "Refuser la course</button>"
+          : "") +
+      "</div>"
+    );
+  }
+
   /* Une demande ouverte : proposée à plusieurs livreurs, au premier qui
      la prend. Groupée, un lieu de retrait par boutique. */
   function htmlDemande(d) {
@@ -519,7 +621,9 @@ const VueLivraisons = (() => {
     courses.sort((a, b) => (rang[a.etat] ?? 3) - (rang[b.etat] ?? 3) ||
       (a.recuLe ? 1 : 0) - (b.recuLe ? 1 : 0));
 
-    const aFaire = courses.filter((c) => c.etat !== "remise").length;
+    /* (3.72.0) Une commande groupée : une seule course, une seule carte. */
+    const groupes = grouperCourses(courses);
+    const aFaire = groupes.filter((g) => g.some((c) => c.etat !== "remise")).length;
     vue.innerHTML = htmlDisponible() + monSolde + aRendre + htmlDejaPrises() +
       (demandes.length
         ? '<div class="titre-section" id="lv-demandes">' +
@@ -529,7 +633,7 @@ const VueLivraisons = (() => {
       '<div class="titre-section">' +
         (aFaire ? aFaire + " course" + (aFaire > 1 ? "s" : "") + " à faire"
                 : "Rien à faire pour l'instant") + "</div>" +
-      courses.map(htmlCourse).join("");
+      groupes.map((g) => (g.length > 1 ? htmlGroupe(g) : htmlCourse(g[0]))).join("");
     brancherDisponible(vue);
 
     for (const b of UI.$$(".lv-prendre", vue)) {
@@ -582,6 +686,34 @@ const VueLivraisons = (() => {
       };
     }
 
+    /* (3.72.0) Le colis d'une boutique de la commande groupée, récupéré. */
+    for (const b of UI.$$(".lv-recupere", vue)) {
+      b.onclick = async () => {
+        const carte = b.closest(".lv-course");
+        const retrait = b.closest(".lv-retrait");
+        b.disabled = true;
+        try {
+          await Store.avancerLivraison(carte.dataset.commande, retrait.dataset.boutique, "en_livraison");
+          UI.toast("Colis récupéré.");
+          afficher(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
+
+    /* (3.72.0) Toute la commande groupée, remise d'un coup. */
+    for (const b of UI.$$(".lv-remettre-tout", vue)) {
+      b.onclick = () => {
+        const carte = b.closest(".lv-course");
+        const parts = courses.filter((x) => x.commandeId === carte.dataset.commande);
+        if (parts.length && parts.every((p) => p.fiche)) {
+          ouvrirRemise(vue, Object.assign({}, parts[0], { fiche: ficheCommande(parts) }), parts);
+        }
+      };
+    }
+
     for (const b of UI.$$(".lv-avancer", vue)) {
       b.onclick = async () => {
         const carte = b.closest(".lv-course");
@@ -611,7 +743,9 @@ const VueLivraisons = (() => {
      MoMoPay de BIZZOO et le montant, en très grand, pour qu'il les tape
      sur son téléphone. Puis le numéro de la transaction, lu sur le SMS
      qu'il reçoit : sans lui, la base ne laisse pas remettre le colis. */
-  function ouvrirRemise(vue, c) {
+  function ouvrirRemise(vue, c, parts) {
+    /* (3.72.0) Une commande groupée : toutes ses boutiques en une remise. */
+    const groupee = Array.isArray(parts) && parts.length > 1;
     const f = c.fiche;
     const du = Math.max(0, Number(f.a_encaisser) || 0);
     const momo = f.momopay && typeof f.momopay === "object" ? f.momopay : {};
@@ -677,7 +811,11 @@ const VueLivraisons = (() => {
       }
       bouton.disabled = true;
       try {
-        await Store.remettreCourse(c.commandeId, c.boutiqueId, du, du > 0 ? "mobile_money" : "aucun", transaction);
+        if (groupee) {
+          await Store.remettreCommande(c.commandeId, du, du > 0 ? "mobile_money" : "aucun", transaction);
+        } else {
+          await Store.remettreCourse(c.commandeId, c.boutiqueId, du, du > 0 ? "mobile_money" : "aucun", transaction);
+        }
         UI.fermerFeuille();
         UI.toast(du > 0 ? "Colis remis : " + montant(du, f.devise) + " payés par MoMoPay." : "Colis remis.");
         afficher(vue);

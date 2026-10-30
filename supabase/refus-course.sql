@@ -1013,6 +1013,14 @@ begin
     end if;
     raise exception 'Cette course ne vous est pas confiée';
   end if;
+  -- (3.72.0) UNE COMMANDE GROUPÉE EST UNE SEULE COURSE. Un colis déjà
+  -- récupéré dans une boutique : refuser le reste couperait la commande
+  -- entre deux livreurs. Il la livre en entier, ou BIZZOO la reconfie.
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.livreur_id = moi and l.etat = 'en_livraison') then
+    raise exception 'Vous avez déjà récupéré une partie de cette commande : livrez-la en entier, ou appelez BIZZOO.'
+      using errcode = 'P0001';
+  end if;
   select coalesce(nullif(p.nom, ''), 'Le livreur') into porteur from public.profils p where p.id = moi;
   select c0.numero, c0.client_id into c from public.commandes c0 where c0.id = commande;
   -- Le client savait-il déjà qui viendrait ?

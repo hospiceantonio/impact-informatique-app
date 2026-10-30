@@ -994,6 +994,14 @@ const Store = (() => {
       mode: mode || "aucun", motif: motif || "" });
   }
 
+  /** (3.72.0) Une commande groupée se remet EN ENTIER : toutes ses
+      boutiques d'un coup, et le client paie le reste en une fois. */
+  async function remettreCommande(commande, montant, mode, motif) {
+    return Supabase.rpc("remettre_commande", {
+      commande, montant: Math.max(0, Math.round(Number(montant) || 0)),
+      mode: mode || "aucun", motif: motif || "" });
+  }
+
   /** (3.70.0) Le livreur se dit disponible pour les courses, ou non. */
   async function reglerDisponibilite(dispo) {
     const r = await Supabase.rpc("regler_disponibilite", { dispo: !!dispo });
@@ -4217,7 +4225,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition, reglerDisponibilite,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
-    remettreCourse, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
+    remettreCourse, remettreCommande, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

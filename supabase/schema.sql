@@ -5417,6 +5417,14 @@ begin
     end if;
     raise exception 'Cette course ne vous est pas confiée';
   end if;
+  -- (3.72.0) UNE COMMANDE GROUPÉE EST UNE SEULE COURSE. Un colis déjà
+  -- récupéré dans une boutique : refuser le reste couperait la commande
+  -- entre deux livreurs. Il la livre en entier, ou BIZZOO la reconfie.
+  if exists (select 1 from public.commande_lignes l
+              where l.commande_id = commande and l.livreur_id = moi and l.etat = 'en_livraison') then
+    raise exception 'Vous avez déjà récupéré une partie de cette commande : livrez-la en entier, ou appelez BIZZOO.'
+      using errcode = 'P0001';
+  end if;
   select coalesce(nullif(p.nom, ''), 'Le livreur') into porteur from public.profils p where p.id = moi;
   select c0.numero, c0.client_id into c from public.commandes c0 where c0.id = commande;
   -- Le client savait-il déjà qui viendrait ?
@@ -23658,3 +23666,133 @@ begin
 end $$;
 revoke all on function public.parts_vendeurs_historique_liste() from public, anon;
 grant execute on function public.parts_vendeurs_historique_liste() to authenticated;
+
+-- =========================================================
+-- (3.72.0) UNE COMMANDE GROUPÉE, UNE SEULE COURSE
+--
+-- Une commande de plusieurs boutiques n'a qu'un livreur (3.64.0), mais
+-- il la remettait boutique par boutique : autant de « Remettre le
+-- colis », et autant de paiements MoMoPay pour le client — chacun avec
+-- son propre ID de transaction. Désormais il remet LA COMMANDE : tout ce
+-- qu'il porte, d'un coup, et le client paie le reste en UNE fois. La
+-- même transaction est notée sur la part de chaque boutique, chacune pour
+-- son montant : le solde des boutiques ne change pas de règle.
+-- =========================================================
+create or replace function public.remettre_commande(
+  commande text, montant bigint, mode text, motif text default '')
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  moi      uuid := auth.uid();
+  trans    text := upper(left(regexp_replace(coalesce(motif, ''), '[^A-Za-z0-9.-]', '', 'g'), 40));
+  c        record;
+  part     record;
+  du       bigint := 0;
+  combien  int := 0;
+  n        int;
+  attente  text;
+  porteur  text;
+begin
+  if moi is null or not public.est_livreur() then
+    raise exception 'Cette course ne vous est pas confiée';
+  end if;
+  -- Un appel à la fois par commande : un double appui ne remet pas deux fois.
+  perform 1 from public.commandes c0 where c0.id = commande for update;
+  if not exists (select 1 from public.commande_lignes l
+                  where l.commande_id = commande and l.livreur_id = moi and l.etat = 'en_livraison') then
+    raise exception 'Rien à remettre ici : cette course n''en est pas là.';
+  end if;
+  -- Tous les colis d'abord : une commande ne se remet pas à moitié.
+  select string_agg(distinct coalesce(b.nom, 'une boutique'), ', ') into attente
+    from public.commande_lignes l left join public.boutiques b on b.id = l.boutique_id
+   where l.commande_id = commande and l.livreur_id = moi
+     and l.etat in ('nouvelle', 'vue', 'preparee');
+  if attente is not null then
+    raise exception 'Récupérez d''abord le colis de : %.', attente using errcode = 'P0001';
+  end if;
+  select c0.numero, c0.client_id, coalesce(nullif(c0.devise, ''), 'FCFA') as devise
+    into c from public.commandes c0 where c0.id = commande;
+
+  -- Le reste dû : la somme des parts des boutiques qu'il porte.
+  select coalesce(sum(r.a_encaisser), 0) into du
+    from public.restes_par_boutique(commande) r
+   where r.boutique_id in (select l.boutique_id from public.commande_lignes l
+                            where l.commande_id = commande and l.livreur_id = moi
+                              and l.etat = 'en_livraison');
+  if du > 0 then
+    if coalesce(mode, '') <> 'mobile_money' then
+      raise exception 'Plus d''espèces : le client paie % par MoMoPay. Mettez l''application à jour.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if coalesce(montant, 0) <> du then
+      raise exception 'Le client doit payer exactement % par MoMoPay.',
+        public.montant_lisible(du, c.devise) using errcode = 'P0001';
+    end if;
+    if length(trans) < 4 then
+      raise exception 'Saisissez le numéro de la transaction MoMoPay, lu sur le SMS du client.'
+        using errcode = 'P0001';
+    end if;
+    if exists (select 1 from public.encaissements x
+                where x.mode = 'mobile_money' and x.transaction_id = trans) then
+      raise exception 'Cette transaction MoMoPay a déjà servi pour une autre commande : vérifiez le SMS du client.'
+        using errcode = 'P0001';
+    end if;
+  end if;
+
+  for part in
+    select l.boutique_id, coalesce((select r.a_encaisser from public.restes_par_boutique(commande) r
+                                     where r.boutique_id = l.boutique_id), 0) as du
+      from public.commande_lignes l
+     where l.commande_id = commande and l.livreur_id = moi and l.etat = 'en_livraison'
+     group by l.boutique_id
+  loop
+    perform set_config('bizzoo.livraison', 'oui', true);
+    update public.commande_lignes l
+       set etat = 'remise', recu_le = coalesce(l.recu_le, now())
+     where l.commande_id = commande and l.boutique_id = part.boutique_id
+       and l.livreur_id = moi and l.etat = 'en_livraison';
+    get diagnostics n = row_count;
+    perform set_config('bizzoo.livraison', '', true);
+    combien := combien + n;
+    if part.du > 0 then
+      -- Payé par MoMoPay : « remis_le » reste vide tant que BIZZOO n'a pas
+      -- retrouvé la transaction dans son compte.
+      insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, motif, transaction_id)
+      values (commande, part.boutique_id, moi, part.du, part.du, 'mobile_money',
+              'MoMoPay — transaction ' || trans, trans)
+      on conflict (commande_id, boutique_id) do nothing;
+      perform public.notifier(public.equipe_de(part.boutique_id), 'reste_encaisse',
+        'MoMoPay à vérifier : ' || public.montant_lisible(part.du, c.devise),
+        'Commande ' || coalesce(c.numero, '') || ' — transaction ' || trans || ' (toute la commande : ' ||
+          public.montant_lisible(du, c.devise) || ').',
+        '#/caisse', commande, part.boutique_id, true);
+    else
+      insert into public.encaissements (commande_id, boutique_id, livreur_id, du, montant, mode, remis_le)
+      values (commande, part.boutique_id, moi, 0, 0, 'aucun', now())
+      on conflict (commande_id, boutique_id) do nothing;
+    end if;
+  end loop;
+
+  if du > 0 then
+    select coalesce(nullif(p.nom, ''), 'votre livreur') into porteur from public.profils p where p.id = moi;
+    if c.client_id is not null then
+      perform public.notifier(array[c.client_id], 'reste_encaisse',
+        'Reste payé : ' || public.montant_lisible(du, c.devise),
+        'Commande ' || coalesce(c.numero, '') || '.' ||
+          E'\nPayé par MoMoPay (transaction ' || trans || '), remis par ' || porteur || '.' ||
+          E'\nSi ce n''est pas exact, signalez-le depuis votre commande.',
+        '#/commande/' || commande, commande, null, true);
+    end if;
+    perform public.notifier(public.enseigne_des_commandes() || public.les_superadmins(), 'reste_encaisse',
+      'MoMoPay à vérifier : ' || public.montant_lisible(du, c.devise),
+      'Commande ' || coalesce(c.numero, '') || ' — transaction ' || trans || ', remise par ' || porteur || '.' ||
+        E'\nÀ retrouver dans le compte MoMoPay de BIZZOO.',
+      '#/caisse', commande, null, true);
+  end if;
+
+  return jsonb_build_object('lignes', combien, 'du', du, 'montant', du,
+    'mode', case when du > 0 then 'mobile_money' else 'aucun' end,
+    'transaction', case when du > 0 then trans end);
+end $$;
+revoke all on function public.remettre_commande(text, bigint, text, text) from public, anon;
+grant execute on function public.remettre_commande(text, bigint, text, text) to authenticated;
