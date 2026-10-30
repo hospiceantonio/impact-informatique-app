@@ -245,6 +245,12 @@ const VueComptes = (() => {
           '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
         "</div>"
         : "") +
+      /* (3.72.0) Le nom de son compte MoMo, comparé avant chaque reversement. */
+      (compte.role === "livreur" && compte.momoNom !== undefined
+        ? UI.champTexte({ id: "cp-momo-nom", label: "Nom du compte MoMo", valeur: compte.momoNom,
+            placeholder: "Tel qu'il s'affiche chez MoMo",
+            aide: "Avant de lui reverser ses gains, on vérifie que MoMo affiche bien ce nom." })
+        : "") +
       /* (3.63.0) UN COMPTE À VALIDER : seul le superadministrateur
          l'active, et l'activer le valide. Son créateur le voit attendre. */
       (compte.aValider && !Supabase.estSuper()
@@ -417,6 +423,10 @@ const VueComptes = (() => {
         if (champVehicule && champVehicule.value !== (compte.vehicule || "moto")) {
           await Store.majCompte(compte.id, { vehicule: champVehicule.value });
         }
+        const champMomo = UI.$("#cp-momo-nom", corps);
+        if (champMomo && champMomo.value.trim() !== (compte.momoNom || "")) {
+          await Store.majCompte(compte.id, { momoNom: champMomo.value });
+        }
         /* Les interrupteurs d'enseigne, s'ils sont à l'écran. On
            n'envoie que ce qui a bougé : le journal raconte alors
            précisément quel droit a été donné ou retiré. */
@@ -524,6 +534,15 @@ const VueComptes = (() => {
           "</select>" +
           '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
         "</div>" : "") +
+      /* (3.72.0) LE NOM DU COMPTE MOMO, noté par l'équipe : avant de lui
+         reverser ses gains, on le compare au nom que MoMo affiche. Le
+         livreur ne peut pas le changer lui-même. */
+      (livreur
+        ? UI.champTexte({ id: "nc-momo-nom", label: "Nom du compte MoMo", obligatoire: true,
+            placeholder: "Tel qu'il s'affiche chez MoMo",
+            aide: "Le nom du titulaire du compte Mobile Money qui recevra ses gains. Avant chaque " +
+              "reversement, on vérifie que MoMo affiche bien ce nom." })
+        : "") +
       (livreur
         ? '<p class="aide" style="margin:12px 0 0">À sa première connexion à BIZZOO Admin, le ' +
             "livreur devra <strong>valider son compte en enregistrant sa position</strong> " +
@@ -548,6 +567,12 @@ const VueComptes = (() => {
 
     UI.$("#nc-creer", corps).onclick = async () => {
       const bouton = UI.$("#nc-creer", corps);
+      const champMomo = UI.$("#nc-momo-nom", corps);
+      if (champMomo && champMomo.value.trim().length < 2) {
+        UI.toast("Saisissez le nom du compte MoMo du livreur.", "err");
+        champMomo.focus();
+        return;
+      }
       bouton.disabled = true;
       bouton.textContent = "Création…";
       try {
@@ -564,6 +589,11 @@ const VueComptes = (() => {
         if (livreur && champVehicule && champVehicule.value === "tricycle" && compte.id) {
           try { await Store.majCompte(compte.id, { vehicule: "tricycle" }); }
           catch (err) { UI.toast("Livreur créé, mais son véhicule n'a pas pu être réglé : " + err.message, "err"); }
+        }
+        /* (3.72.0) Son nom de compte MoMo, juste après : le compte naît sans. */
+        if (champMomo && compte.id) {
+          try { await Store.majCompte(compte.id, { momoNom: champMomo.value }); }
+          catch (err) { UI.toast("Livreur créé, mais le nom du compte MoMo n'a pas pu être enregistré : " + err.message, "err"); }
         }
         UI.fermerFeuille();
         if (compte.aValider) {

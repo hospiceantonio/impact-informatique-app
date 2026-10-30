@@ -46,6 +46,19 @@ const VueSoldes = (() => {
         (r.titulaire ? " (" + e(r.titulaire) + ")" : "") +
         " — demandé le " + e(Utils.fmtDateHeure(r.demandeLe)) +
         (r.demandePar ? " par " + e(r.demandePar) : "") + "</div>" +
+      /* (3.72.0) Le nom du compte MoMo noté à la création du livreur : MoMo
+         doit afficher ce nom-là avant qu'on envoie. */
+      (r.livreur && r.etat === "en_attente"
+        ? (r.momoNom
+          ? '<div class="sd-momo" data-momo>' + UI.icone("compte", "ic-sm") + " Nom du compte MoMo : <strong>" +
+              e(r.momoNom) + "</strong> — vérifiez que MoMo affiche ce nom avant d'envoyer." +
+              (r.titulaire && Utils.sansAccent(r.titulaire).replace(/[^a-z0-9]+/g, " ").trim() !== Utils.sansAccent(r.momoNom).replace(/[^a-z0-9]+/g, " ").trim()
+                ? '<div class="sd-momo-ecart">' + UI.icone("alerte", "ic-sm") + " Le livreur a indiqué « " +
+                    e(r.titulaire) + " » : ce n'est pas le nom enregistré.</div>"
+                : "") + "</div>"
+          : '<div class="sd-momo sd-momo-ecart" data-momo>' + UI.icone("alerte", "ic-sm") +
+              " Aucun nom de compte MoMo enregistré pour ce livreur : notez-le dans sa fiche (Livreurs).</div>")
+        : "") +
       (r.etat === "valide"
         ? '<div class="aide">Envoyé le ' + e(Utils.fmtDateHeure(r.decideLe)) + " — référence " +
             "<strong>" + e(r.reference) + "</strong></div>"

@@ -2001,6 +2001,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .sd-ligne-haut{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sd-boutique{font-size:13px;font-weight:600}
 .sd-refus{color:var(--rouge)}
+.sd-momo{margin:6px 0 0;padding:8px 10px;border-radius:10px;background:var(--orange-clair);color:var(--orange-fonce);font-size:.88rem}
+.sd-momo-ecart{color:var(--rouge);font-weight:600;margin-top:4px}
 
 /* =========================================================
    La livraison au kilomètre (3.64.0)

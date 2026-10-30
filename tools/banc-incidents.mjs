@@ -31,7 +31,7 @@ const INCIDENTS = [
     auteur: "Awa Essai", resolu_le: "2026-10-20T12:00:00Z", resolution: "Client rappelé", resolu_par: "Awa Essai", cloturee: true },
 ];
 const appels = [];
-let reglages = { vue_h: 2, preparation_h: 4, livraison_h: 24, confirmation_h: 24, cloture_auto_h: 24 };
+let reglages = { vue_h: 2, preparation_h: 4, livraison_h: 24, confirmation_h: 24, cloture_auto_h: 24, preparation_min: null };
 const COMMANDE = { id: "c-3", numero: "BZ-0103", cree_le: "2026-10-20T07:00:00Z", paye_le: "2026-10-20T07:01:00Z",
   etat: "payee", source: "Depuis APP", client: { nom: "Mariam", tel: "0196700001", zone: "Akpakpa", adresse: "Akpakpa", zone_corrigee: false },
   lignes: [], articles: "", marchands: "", livreurs: "", frais: 1000, total: 6000, reste: 0, rang: 14, statut: "Clôturée",
@@ -44,7 +44,7 @@ const REPONSES = {
   rh_activation: null, rh_paie_a_jour: 0,
   rh_incidents_ouverts_nb: 2,
   rh_incidents_liste: { periode: { depuis: "2026-09-29", jusqu: "2026-10-28" }, incidents: INCIDENTS },
-  rh_incident_ouvrir: 14, rh_incident_resoudre: null, rh_suivi_regler_cloture: null,
+  rh_incident_ouvrir: 14, rh_incident_resoudre: null, rh_suivi_regler_cloture: null, rh_suivi_regler_preparation: null, rh_suivi_regler: null,
   rh_suivi: () => ({ periode: { depuis: "2026-10-28", jusqu: "2026-10-28" }, montants: true, reglages, commandes: [] }),
   rh_suivi_commande: () => ({ ...COMMANDE, montants: true, incidents: [], reclamations: [], refus: [],
     journal: [{ le: "2026-10-21T12:23:00Z", quoi: "suivi", valeur: "cloturee_auto" }] }),
@@ -145,6 +145,24 @@ if (process.env.CAPTURES) {
   await page.locator("form", { hasText: "Clôture automatique" }).screenshot({ path: process.env.CAPTURES + "/reglage-cloture.png" });
 }
 
+titre("(3.72.0) Le délai de préparation, en minutes");
+{
+  const cadre = page.locator("#form-preparation");
+  ok(await cadre.count() === 1, "un cadre « Délai de préparation (en minutes) »");
+  ok(await cadre.locator("input").inputValue() === "240", "pas encore réglé : les 4 heures d'avant, soit 240 minutes");
+  ok(await page.locator("form", { hasText: "Délais des alertes" }).locator("input[name=preparation_h]").count() === 0,
+    "l'heure de préparation quitte le cadre des heures");
+  await cadre.locator("input").fill("30");
+  await cadre.getByRole("button", { name: "Enregistrer" }).click();
+  await page.waitForTimeout(300);
+  ok(dernier("rh_suivi_regler_preparation") && dernier("rh_suivi_regler_preparation").corps.v_minutes === 30,
+    "« Enregistrer » : rh_suivi_regler_preparation(30)");
+  await page.locator("form", { hasText: "Délais des alertes" }).getByRole("button", { name: "Enregistrer" }).click();
+  await page.waitForTimeout(300);
+  ok(dernier("rh_suivi_regler") && dernier("rh_suivi_regler").corps.preparation_h === 4,
+    "les délais en heures gardent l'heure de préparation telle quelle");
+}
+
 titre("Une base d'avant");
 reglages = { vue_h: 2, preparation_h: 4, livraison_h: 24, confirmation_h: 24 };
 await page.goto(BASE + "#/suivi/bilan");
@@ -153,6 +171,8 @@ await page.goto(BASE + "#/suivi/reglages");
 await page.waitForFunction(() => document.body.innerText.includes("Délais des alertes"));
 await page.waitForTimeout(200);
 ok(await page.locator("form h2", { hasText: "Clôture automatique" }).count() === 0, "sans le réglage en base : pas de cadre");
+ok(await page.locator("#form-preparation").count() === 0 &&
+   await page.locator("input[name=preparation_h]").count() === 1, "(3.72.0) ni le cadre en minutes : l'heure, comme avant");
 
 titre("La fiche");
 await page.goto(BASE + "#/suivi/commande/c-3");

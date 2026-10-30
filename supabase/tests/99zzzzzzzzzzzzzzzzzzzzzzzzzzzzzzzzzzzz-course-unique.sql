@@ -9,7 +9,8 @@
 --   4. puis remet TOUT d'un coup : le client paie le reste en UNE fois,
 --      la même transaction notée sur chaque boutique pour sa part ;
 --   5. la transaction ne resservira pas ; rien de dû : remise directe ;
---   6. il n'a pas cette course : refusé.
+--   6. il n'a pas cette course : refusé ;
+--   7. le nom du compte MoMo : noté par l'équipe, jamais par le livreur.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -187,6 +188,19 @@ select essai.devenir(:CU1::uuid); set role authenticated;
 select essai.refuse(format($$select public.remettre_commande(%L, 0, 'aucun', '')$$, :'c4'),
   'une course qu''il n''a pas : refusé');
 reset role; select essai.personne();
+
+select essai.titre('7. Le nom du compte MoMo : l''équipe le note, le livreur ne le change pas');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+update public.profils set momo_nom = 'CODJO KOFFI' where id = :CU1::uuid;
+reset role; select essai.personne();
+select essai.egal((select momo_nom from public.profils where id = :CU1::uuid), 'CODJO KOFFI',
+  'le superadministrateur note le nom du compte MoMo');
+select essai.devenir(:CU1::uuid); set role authenticated;
+select essai.sans_effet(format($$update public.profils set momo_nom = 'AUTRE NOM' where id = %L$$, :CU1),
+  'le livreur ne le change pas lui-même');
+reset role; select essai.personne();
+select essai.refuse(format($$update public.profils set momo_nom = repeat('x', 81) where id = %L$$, :CU1),
+  'plus de 80 caractères : refusé');
 
 -- Le décor rendu.
 update public.paiement set livraison_latitude = null, livraison_longitude = null where id = 1;

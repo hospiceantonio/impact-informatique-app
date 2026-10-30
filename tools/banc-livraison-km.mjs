@@ -507,6 +507,9 @@ titre("7. Le superadministrateur tranche la demande d'un livreur");
     decider_reversement_livreur: "valide" } });
   await page.waitForTimeout(600);
   ok(/Livreur — Lamine/.test(await page.evaluate(() => document.body.innerText)), "la demande de Lamine, marquée « Livreur »");
+  ok(/Aucun nom de compte MoMo enregistré/.test(await page.evaluate(() =>
+       (document.querySelector("[data-momo]") || {}).innerText || "")),
+    "(3.72.0) sans nom de compte MoMo noté : on le dit avant d'envoyer");
   await page.click('[data-valider="7"]');
   await page.waitForTimeout(400);
   await page.fill("#saisie-motif", "MTN-778899").catch(() => {});

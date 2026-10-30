@@ -688,6 +688,13 @@ alter table public.profils add column if not exists courses_bloquees boolean not
 -- position même application fermée, et la cascade peut le choisir parmi
 -- les plus proches ; éteint, ni l'un ni l'autre.
 alter table public.profils add column if not exists disponible boolean not null default true;
+-- (3.72.0) Le nom du compte MoMo d'un livreur, noté par l'équipe à sa
+-- création : avant de lui reverser ses gains, on vérifie que MoMo affiche
+-- ce nom-là. Le livreur ne l'écrit pas (sa fiche ne lui est pas ouverte en
+-- écriture) : c'est ce qui en fait une vérification.
+alter table public.profils add column if not exists momo_nom text not null default '';
+alter table public.profils drop constraint if exists profils_momo_nom;
+alter table public.profils add constraint profils_momo_nom check (length(momo_nom) <= 80);
 -- (3.63.0) Qui l'a créé, et s'il attend sa validation : les règles de
 -- « profils », plus bas, les lisent. Posées ici, avant elles — la suite
 -- du fichier les répète là où elles sont expliquées.
@@ -14786,6 +14793,12 @@ insert into public.rh_reglages_suivi (id) values (true) on conflict (id) do noth
 -- l'ai reçu » du client. Vide : la clôture reste manuelle.
 alter table public.rh_reglages_suivi add column if not exists cloture_auto_h int default 24
   check (cloture_auto_h is null or cloture_auto_h between 0 and 720);
+-- (3.72.0) LE DÉLAI DE PRÉPARATION, EN MINUTES : de « vue » (la boutique a
+-- reçu la commande) à « préparée ». Passé ce délai, la boutique reçoit
+-- une alerte sur son téléphone, et le suivi la marque « Préparation en
+-- retard ». Vide : le délai en heures d'avant (« preparation_h »).
+alter table public.rh_reglages_suivi add column if not exists preparation_min int
+  check (preparation_min is null or preparation_min between 5 and 10080);
 
 -- ---------- Les zones ----------
 -- Communes (toutes) et quartiers ou arrondissements connus du
@@ -15209,7 +15222,9 @@ begin
                                  and maintenant - c.paye_le > make_interval(hours => r.vue_h)
         union all
         select 'retard_preparation' where exists (select 1 from lig2 x where x.commande_id = c.id and x.etat = 'vue'
-                                 and maintenant - coalesce(x.vue_le, c.paye_le) > make_interval(hours => r.preparation_h))
+                                 -- (3.72.0) En minutes quand il est réglé ainsi.
+                                 and maintenant - coalesce(x.vue_le, c.paye_le)
+                                     > make_interval(mins => coalesce(r.preparation_min, r.preparation_h * 60)))
         union all
         select 'retard_livraison' where exists (select 1 from lig2 x where x.commande_id = c.id and x.rang < 6)
                                  and maintenant - c.paye_le > make_interval(hours => r.livraison_h)
@@ -23796,3 +23811,88 @@ begin
 end $$;
 revoke all on function public.remettre_commande(text, bigint, text, text) from public, anon;
 grant execute on function public.remettre_commande(text, bigint, text, text) to authenticated;
+
+-- =========================================================
+-- (3.72.0) LA PRÉPARATION EN RETARD : un délai réglable, une alerte
+--
+-- De « vue » (la boutique a reçu la commande) à « préparée » : le délai
+-- se règle en minutes (BIZZOO Personnel → Suivi → Réglages). Passé ce
+-- délai, la boutique et BIZZOO reçoivent une alerte qui sonne, une fois
+-- par commande ; le suivi la marque « Préparation en retard » et la
+-- confie à la file de l'équipe, comme avant.
+-- =========================================================
+create or replace function public.rh_suivi_regler_preparation(v_minutes int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.rh_est_admin() then
+    raise exception 'Seule l''administration règle les délais';
+  end if;
+  if coalesce(v_minutes, 0) not between 5 and 10080 then
+    raise exception 'Le délai de préparation : de 5 minutes à 7 jours (10 080 minutes)';
+  end if;
+  update public.rh_reglages_suivi
+     set preparation_min = v_minutes,
+         -- L'ancien réglage en heures suit, arrondi au-dessus : un écran
+         -- d'avant affiche un délai qui ne ment pas.
+         preparation_h = least(720, greatest(1, ceil(v_minutes / 60.0)::int))
+   where id;
+end $$;
+revoke all on function public.rh_suivi_regler_preparation(int) from public, anon;
+grant execute on function public.rh_suivi_regler_preparation(int) to authenticated, service_role;
+
+-- L'alerte à la boutique et à BIZZOO. Une fois par commande et par boutique (l'index
+-- « notifications_une_fois » y veille) ; seulement les commandes payées,
+-- des trois derniers jours. Passe chaque minute (pg_cron).
+create or replace function public.alerter_preparations() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  r       public.rh_reglages_suivi;
+  minutes int;
+  x       record;
+  n       int := 0;
+begin
+  select * into r from public.rh_reglages_suivi where id;
+  minutes := coalesce(r.preparation_min, r.preparation_h * 60, 1440);
+  for x in
+    select l.commande_id, l.boutique_id, c.numero,
+           (select coalesce(nullif(b.nom, ''), l.boutique_id) from public.boutiques b where b.id = l.boutique_id) as nom_boutique,
+           min(coalesce((select max(j.le) from public.rh_journal_lignes j
+                          where j.ligne_id = l.id and j.quoi = 'etat' and j.valeur = 'vue'), c.paye_le)) as vue_le
+      from public.commande_lignes l
+      join public.commandes c on c.id = l.commande_id
+     where c.etat = 'payee' and l.etat = 'vue' and l.boutique_id is not null
+       and c.paye_le > now() - interval '3 days'
+     group by l.commande_id, l.boutique_id, c.numero
+  loop
+    continue when now() - x.vue_le <= make_interval(mins => minutes);
+    n := n + public.notifier(public.equipe_de(x.boutique_id), 'preparation_en_retard',
+      'Préparation en retard — ' || coalesce(x.numero, ''),
+      'Commande ' || coalesce(x.numero, '') || ' reçue il y a plus de ' ||
+        case when minutes < 120 then minutes || ' minutes' else round(minutes / 60.0, 1) || ' heures' end ||
+        ', toujours pas préparée. Préparez-la et touchez « Marquer préparée » : le livreur attend.',
+      '#/commandes/' || x.commande_id, x.commande_id, x.boutique_id, true);
+    -- BIZZOO aussi : ses superadministrateurs et les comptes qui suivent
+    -- les commandes, pour relancer la boutique.
+    n := n + public.notifier(public.enseigne_des_commandes() || public.les_superadmins(), 'preparation_en_retard',
+      'Préparation en retard — ' || coalesce(x.numero, '') || ' · ' || x.nom_boutique,
+      x.nom_boutique || ' a reçu la commande ' || coalesce(x.numero, '') || ' il y a plus de ' ||
+        case when minutes < 120 then minutes || ' minutes' else round(minutes / 60.0, 1) || ' heures' end ||
+        ', et ne l''a pas encore préparée. Relancez la boutique.',
+      '#/commandes/' || x.commande_id, x.commande_id, x.boutique_id, true);
+  end loop;
+  return n;
+end $$;
+revoke all on function public.alerter_preparations() from public, anon, authenticated;
+grant execute on function public.alerter_preparations() to service_role;
+
+-- Chaque minute. Sans pg_cron, rien ne casse : le suivi de Personnel
+-- montre toujours la préparation en retard.
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('preparations-en-retard', '* * * * *', 'select public.alerter_preparations()');
+  end if;
+exception when others then
+  raise notice 'Alerte de préparation non programmée (%) : le suivi la montre toujours', sqlerrm;
+end $$;

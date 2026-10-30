@@ -24,7 +24,8 @@ const ligne = (id, boutique) => ({ id, commande_id: "", nom: "Casque", code: "",
 const commande = (id, numero, source, minute) => {
   const c = { id, numero, cree_le: "2026-10-28T09:" + minute + ":00Z", paye_le: "2026-10-28T09:" + minute + ":30Z",
     etat: "payee", client: { nom: "Client " + numero, tel: "0196700099", zone: "Fidjrossè", adresse: "Fidjrossè", zone_corrigee: false },
-    lignes: [ligne("l-" + id, "Boutique A")], articles: "1 × Casque", marchands: "Boutique A / 0196000001", livreurs: "",
+    lignes: [ligne("l-" + id, "Boutique A"), { ...ligne("l2-" + id, "Boutique A"), quantite: 2 },
+      { ...ligne("l3-" + id, "Boutique A"), quantite: 5, etat: "annulee" }], articles: "1 × Casque", marchands: "Boutique A / 0196000001", livreurs: "",
     frais: 1500, total: 13500, reste: 0, rang: 2, statut: "Vue par le marchand", confirmation: "Non", delai_h: null,
     observations: "", incidents_ouverts: 0, cloturee_le: null, alertes: [] };
   if (source !== undefined) c.source = source;
@@ -72,6 +73,11 @@ titre("Le tableau");
 const entetes = await page.$$eval("table thead th", (t) => t.map((x) => x.textContent.trim()));
 const iDate = entetes.findIndex((t) => /Date/.test(t));
 ok(entetes[iDate + 1] === "Source", "une colonne « Source », juste après la date (" + entetes.join(" | ") + ")");
+/* (3.72.0) Le nombre de produits de la course, juste avant les articles. */
+const iArt = entetes.indexOf("Articles commandés");
+ok(iArt > 0 && entetes[iArt - 1] === "Nombre de produits", "(3.72.0) « Nombre de produits », juste avant « Articles commandés »");
+ok(await page.$$eval("table tbody tr", (lignes, i) => lignes[0].children[i].textContent.trim(), iArt - 1) === "3",
+  "(3.72.0) 1 + 2 produits, l'annulé ne compte pas : 3");
 const sourceDe = (numero) => page.$$eval("table tbody tr", (lignes, [num, i]) => {
   const tr = lignes.find((l) => l.textContent.includes(num));
   return tr ? tr.children[i].textContent.trim() : null;
