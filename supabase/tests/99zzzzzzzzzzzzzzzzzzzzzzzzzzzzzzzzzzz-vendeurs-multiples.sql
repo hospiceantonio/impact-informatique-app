@@ -192,6 +192,9 @@ select essai.egal((public.solde_vendeur() ->> 'disponible')::int, 3640, 'demand�
 select essai.refuse(format($$select public.decider_reversement_vendeur(%s, true, 'MP0001')$$, :dem),
   'il ne valide pas lui-même');
 reset role; select essai.personne();
+select essai.verifie(exists (select 1 from public.notifications where type = 'reception_reglee'
+                    and lien = '#/vendeurs/' || :V1),
+  '(3.73.0) la notification du numéro mène à SON espace, pas aux reversements');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.refuse(format($$select public.decider_reversement_vendeur(%s, true, '')$$, :dem),
   'sans référence de transaction : refusé');

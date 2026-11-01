@@ -5545,6 +5545,14 @@ L'écran **Comptes** de l'admin ne mélange plus tout :
 Bancs : `tools/banc-listes-cherchables.mjs` (section 4),
 `tools/banc-vendeurs-multiples.mjs` (section 5).
 
+**« Numéro de réception » mène à la bonne fiche.** La notification menait à
+Reversements, où l'on lisait la demande en attente d'un autre. Elle mène
+désormais à la fiche du livreur (qui montre son numéro de réception, et
+signale un nom différent de celui du compte MoMo enregistré), à l'espace du
+vendeur (`#/vendeurs/<id>`), ou au solde de la boutique. Les notifications
+déjà reçues sont redirigées par l'application. Fichier :
+`supabase/lien-reception.sql`.
+
 ## Une commande groupée, une seule course (3.72.0)
 
 Une commande de plusieurs boutiques n'a qu'un livreur depuis la 3.64.0.

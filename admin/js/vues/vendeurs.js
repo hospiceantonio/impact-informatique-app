@@ -133,7 +133,7 @@ const VueVendeurs = (() => {
   }
 
   /* ---------- 2. Le tableau du superadministrateur ---------- */
-  async function liste(vue) {
+  async function liste(vue, ouvrirId) {
     UI.entete({ titre: "Vendeurs", sous: "Boutiques à vendeurs multiples", retour: true });
     if (!Supabase.estSuper()) {
       vue.innerHTML = UI.vide("magasin", "Réservé au superadministrateur",
@@ -222,6 +222,12 @@ const VueVendeurs = (() => {
         const c = compteDe(b.dataset.compte);
         if (c) VueComptes.ficheCompte(c, () => liste(vue));
       };
+    }
+    /* (3.73.0) « #/vendeurs/<id> » : son espace s'ouvre de lui-même. */
+    if (ouvrirId) {
+      const b = UI.$('[data-vendeur="' + CSS.escape(ouvrirId) + '"]', vue);
+      if (b) b.click();
+      else UI.toast("Ce vendeur n'est plus dans la liste.", "err");
     }
     const chercher = UI.$("#vv-chercher", vue);
     if (chercher) {

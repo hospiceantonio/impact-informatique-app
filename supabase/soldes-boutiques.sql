@@ -264,7 +264,8 @@ begin
     'Numéro de réception changé — ' || coalesce((select b.nom from public.boutiques b where b.id = cible), cible),
     qui || ' a réglé le numéro de réception : ' || res || ' ' || national ||
       coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
-    '#/reversements', null, cible, false);
+    -- (3.73.0) Le solde de la boutique, où ce numéro se lit (plus les reversements).
+    '#/solde', null, cible, false);
   return jsonb_build_object('tel', national, 'reseau', res);
 end $$;
 revoke all on function public.regler_reception(text, text, text, text) from public, anon;

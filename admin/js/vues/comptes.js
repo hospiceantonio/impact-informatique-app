@@ -248,6 +248,12 @@ const VueComptes = (() => {
           '<div class="aide">Une commande en tricycle (gros colis) n\'est proposée qu\'aux livreurs en tricycle.</div>' +
         "</div>"
         : "") +
+      /* (3.73.0) SON NUMÉRO DE RÉCEPTION, tel qu'il l'a réglé : là où partent
+         ses gains. Le superadministrateur le lit (la base le lui réserve). */
+      (compte.role === "livreur" && Supabase.estSuper()
+        ? '<div class="sd-momo" id="cp-reception" data-reception>' + UI.icone("tel", "ic-sm") +
+            " Numéro de réception : lecture…</div>"
+        : "") +
       /* (3.72.0) Le nom de son compte MoMo, comparé avant chaque reversement. */
       (compte.role === "livreur" && compte.momoNom !== undefined
         ? UI.champTexte({ id: "cp-momo-nom", label: "Nom du compte MoMo", valeur: compte.momoNom,
@@ -314,6 +320,23 @@ const VueComptes = (() => {
           UI.icone("poubelle") + "Supprimer définitivement</button>" +
       "</div>");
 
+    const zoneReception = UI.$("#cp-reception", corps);
+    if (zoneReception) {
+      Store.soldeLivreur(compte.id).then((sl) => {
+        const r = sl && sl.reception;
+        const plier = (t) => Utils.sansAccent(t).replace(/[^a-z0-9]+/g, " ").trim();
+        zoneReception.innerHTML = UI.icone("tel", "ic-sm") + (r
+          ? " Numéro de réception : <strong>" + Utils.echapper(r.reseau + " " + r.tel) + "</strong>" +
+              (r.titulaire ? " (" + Utils.echapper(r.titulaire) + ")" : "") +
+              (r.majLe ? " — réglé le " + Utils.echapper(Utils.fmtDateHeure(r.majLe)) : "") +
+              (r.titulaire && compte.momoNom && plier(r.titulaire) !== plier(compte.momoNom)
+                ? '<div class="sd-momo-ecart">' + UI.icone("alerte", "ic-sm") + " Le nom donné (« " +
+                    Utils.echapper(r.titulaire) + " ») n'est pas le nom du compte MoMo enregistré (« " +
+                    Utils.echapper(compte.momoNom) + " »).</div>"
+                : "")
+          : " Aucun numéro de réception réglé pour l'instant.");
+      }).catch(() => { zoneReception.remove(); });
+    }
     const selecteur = UI.$("#cp-role", corps);
     const champBoutiqueMenu = UI.cherchable(UI.$("#cp-boutique", corps), { placeholder: "Rechercher une boutique…" });
     const zoneEnseigne = UI.$("#cp-zone-enseigne", corps);
@@ -878,7 +901,7 @@ const VueComptes = (() => {
      eux : pour quelle boutique ils portent, leur numéro, et s'ils ont
      VALIDÉ leur compte en enregistrant leur position. */
 
-  async function livreurs(vue) {
+  async function livreurs(vue, ouvrirId) {
     UI.entete({ titre: "Livreurs", retour: true, sous: "Qui porte, et d'où" });
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des livreurs…</div>';
     /* DEUX REGARDS (3.59.0). Le superadministrateur et l'administrateur
@@ -978,6 +1001,12 @@ const VueComptes = (() => {
     }
     if (!gere && !chezMoi) return;
     UI.$("#lv-nouveau", vue).onclick = () => ouvrirCreation(() => livreurs(vue), true);
+    /* (3.73.0) « #/livreurs/<id> » : sa fiche s'ouvre d'elle-même. */
+    if (ouvrirId) {
+      const compte = liste.find((c) => c.id === ouvrirId);
+      if (compte && (gere || (chezMoi && !compte.bizzoo))) ouvrirFiche(compte, () => livreurs(vue));
+      else if (!compte) UI.toast("Ce livreur n'est plus dans la liste.", "err");
+    }
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {
         const compte = liste.find((c) => c.id === bouton.dataset.compte);

@@ -1068,7 +1068,9 @@ begin
     'Numéro de réception d''un livreur — ' || public.nom_du_compte(),
     public.nom_du_compte() || ' a réglé son numéro de réception : ' || res || ' ' || national ||
       coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
-    '#/reversements', null, null, false);
+    -- (3.73.0) Sa fiche, où ce numéro se lit — pas les reversements, où
+    -- l'on tombait sur la demande d'un autre.
+    '#/livreurs/' || moi, null, null, false);
   return jsonb_build_object('tel', national, 'reseau', res);
 end $$;
 revoke all on function public.regler_reception_livreur(text, text, text) from public, anon;

@@ -78,6 +78,9 @@
        et, pour le superadministrateur, celui de tous les vendeurs. */
     { motif: /^\/ventes$/, vue: (v) => VueVendeurs.espace(v), vendeur: true },
     { motif: /^\/vendeurs$/, vue: (v) => VueVendeurs.liste(v), super: true },
+    /* (3.73.0) Un vendeur précis : son espace s'ouvre (la notification de
+       son numéro de réception y mène). */
+    { motif: /^\/vendeurs\/([^/]+)$/, vue: (v, m) => VueVendeurs.liste(v, m[1]), super: true },
     { motif: /^\/client\/([^/]+)$/, vue: (v, m) => VueClients.fiche(v, m[1]), super: true },
     /* Les avis : toute l'équipe les lit et y répond pour SA boutique —
        la base ne montre à chacun que les siens. Masquer reste à
@@ -108,6 +111,10 @@
       adminBizzoo: true },
     /* Les livreurs, à part de l'équipe : leur bouton, leur liste. */
     { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
+    /* (3.73.0) Un livreur précis : sa fiche s'ouvre, avec son numéro de
+       réception (la notification de ce numéro y mène). */
+    { motif: /^\/livreurs\/([^/]+)$/, vue: (v, m) => VueComptes.livreurs(v, m[1]), admin: true, horsEnseigne: true,
       adminBizzoo: true },
     { motif: /^\/compte$/, vue: (v) => VueComptes.monCompte(v), onglet: "/compte" },
     { motif: /^\/reglages$/, vue: (v, m, p) => VueReglages.afficher(v, p), onglet: "/reglages", admin: true },
