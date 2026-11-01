@@ -51,6 +51,15 @@ const App = (() => {
   let alertesSuivi = 0;
   /* (3.69.0) Les incidents ouverts : la pastille du menu Incidents. */
   let incidentsOuverts = 0;
+  /* (3.73.0) Les demandes de reversement qui attendent : la pastille du
+     menu Reversements (superadministrateur seul). */
+  let reversementsEnAttente = 0;
+  async function compterReversements() {
+    if (!estSuper()) return 0;
+    const listes = await Promise.all(["reversements_liste", "reversements_livreurs_liste", "reversements_vendeurs_liste"]
+      .map((f) => Supabase.rpc(f, f === "reversements_liste" ? { cible: null } : {}).catch(() => [])));
+    return listes.reduce((n, l) => n + (l || []).filter((r) => r.etat === "en_attente").length, 0);
+  }
   let alertesVue = null;
   /** Le suivi dit combien de commandes en alerte il affiche. */
   function alertesAffichees(n) {
@@ -85,6 +94,7 @@ const App = (() => {
     incidents: VueIncidents,
     livreurs: VueLocaliser,
     controles: VueControles,
+    reversements: VueReversements,
     "liste-livreurs": VueLivreurs,
     qualite: VueQualite,
     file: VueFile,
@@ -132,6 +142,10 @@ const App = (() => {
       { route: "qualite", libelle: "Qualité", icone: "etoile", pour: () => !!qualite.acces,
         pastille: (qualite.sav_sans_reponse || 0) + (qualite.sav_escalades || 0) + (qualite.ruptures_a_appeler || 0)
           + (qualite.files_en_retard || 0) },
+      /* (3.73.0) Les demandes de reversement (boutiques, livreurs, vendeurs) :
+         le superadministrateur seul — la base ne les rend qu'à lui. */
+      { route: "reversements", libelle: "Reversements", icone: "argent", pour: estSuper,
+        pastille: reversementsEnAttente },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* L'administration (montants) et les responsables de profil (nombres). */
       { route: "bilans", libelle: "Bilan du matin", icone: "rapport", pour: () => !!file.bilan },
@@ -277,6 +291,7 @@ const App = (() => {
         alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => alertesSuivi);
         incidentsOuverts = await Supabase.rpc("rh_incidents_ouverts_nb").catch(() => incidentsOuverts);
       }
+      if (tableau && tableau.moi) reversementsEnAttente = await compterReversements().catch(() => reversementsEnAttente);
       if (tableau && tableau.moi) dessinerMenus();
     } catch (err) {
       if (err && err.deconnecte) deconnecte();
@@ -359,6 +374,7 @@ const App = (() => {
       alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);
       incidentsOuverts = await Supabase.rpc("rh_incidents_ouverts_nb").catch(() => 0);
     }
+    reversementsEnAttente = await compterReversements().catch(() => 0);
     dessinerMenus();
     /* La paie de fin de mois se rattrape à l'ouverture si personne ne
        l'a faite (et si pg_cron n'est pas là pour la faire). */

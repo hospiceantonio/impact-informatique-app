@@ -5528,6 +5528,22 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Les reversements dans BIZZOO Personnel (3.73.0)
+
+Un menu **« Reversements »**, visible du **superadministrateur seul**, avec
+une pastille qui compte les demandes à traiter. L'écran rassemble les
+demandes d'argent des **boutiques**, des **livreurs** et des **vendeurs** :
+à traiter d'abord, puis déjà traitées ; filtres par état et par
+demandeur, recherche. Pour un livreur, le nom du compte MoMo enregistré
+est rappelé, et un nom différent de celui qu'il a donné est signalé.
+« Envoyé » note la référence de la transaction (un numéro de téléphone
+recopié à sa place est signalé), « Refuser » un motif — par les mêmes
+fonctions que BIZZOO Admin (`decider_reversement`,
+`decider_reversement_livreur`, `decider_reversement_vendeur`). La base ne
+rend ces listes qu'au superadministrateur et refuse à tout autre de
+trancher ; pour un autre compte, ni le menu ni l'écran.
+Banc : `tools/banc-personnel-reversements.mjs`.
+
 ## Chaque sorte de compte à sa place (3.73.0)
 
 L'écran **Comptes** de l'admin ne mélange plus tout :
