@@ -155,7 +155,82 @@ const VueProduit = (() => {
     return { specs, texte: reste.join("\n") };
   }
 
+  /* ---------- (3.73.0) Balayer d'un produit à l'autre du rayon ----------
+     Sur la fiche, un geste vers la gauche ouvre le produit suivant du même
+     rayon, vers la droite le précédent — dans l'ordre de l'écran du rayon.
+     Les flèches de la petite barre sous la photo font la même chose (et
+     disent où l'on en est : « 3 / 12 »).
+
+     La fiche suivante REMPLACE la précédente dans l'historique : « Retour »
+     ramène à la liste d'où l'on venait, pas à travers tous les produits
+     balayés. Un geste commencé sur les photos (qui défilent déjà de côté),
+     sur une rangée de produits, un champ ou une vidéo n'est pas un
+     balayage ; ni un geste parti du bord de l'écran (le retour d'Android). */
+  let balayage = null;        // { marqueur, rayon, rang } de la fiche affichée
+  let entree = "";            // d'où arrive la fiche suivante : "droite" | "gauche"
+  let ecoute = false;
+
+  function ouvrirVoisin(sens) {
+    if (!balayage || !balayage.marqueur.isConnected) return;
+    const cible = balayage.rayon[balayage.rang + sens];
+    if (!cible) {
+      UI.toast(sens > 0 ? "C'est le dernier produit de ce rayon" : "C'est le premier produit de ce rayon");
+      return;
+    }
+    entree = sens > 0 ? "droite" : "gauche";
+    location.replace("#/produit/" + encodeURIComponent(cible.id));
+  }
+
+  function ecouterBalayage() {
+    if (ecoute) return;
+    ecoute = true;
+    let depart = null;
+    document.addEventListener("touchstart", (ev) => {
+      depart = null;
+      if (!balayage || !balayage.marqueur.isConnected || ev.touches.length !== 1) return;
+      const t = ev.touches[0];
+      const bord = 24;
+      if (t.clientX < bord || t.clientX > window.innerWidth - bord) return;
+      const cible = ev.target instanceof Element ? ev.target : null;
+      if (!cible || !cible.closest("#vue") ||
+          cible.closest("#fiche-carrousel, .p-rangee, input, textarea, select, video, .visionneuse")) return;
+      depart = { x: t.clientX, y: t.clientY, le: Date.now() };
+    }, { passive: true });
+    document.addEventListener("touchend", (ev) => {
+      if (!depart || !ev.changedTouches.length) return;
+      const t = ev.changedTouches[0];
+      const dx = t.clientX - depart.x;
+      const dy = t.clientY - depart.y;
+      const duree = Date.now() - depart.le;
+      depart = null;
+      const visionneuse = document.getElementById("visionneuse");
+      if (visionneuse && !visionneuse.hidden) return;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy) || duree > 800) return;
+      ouvrirVoisin(dx < 0 ? 1 : -1);
+    }, { passive: true });
+    document.addEventListener("touchcancel", () => { depart = null; }, { passive: true });
+  }
+
+  /** La petite barre sous la photo : ‹  3 / 12 · Le rayon  › */
+  function barreRayon(p, rayon, rang) {
+    if (rayon.length < 2) return "";
+    const sc = p.sousCategorieId ? Catalogue.sousCategorie(p.categorieId, p.sousCategorieId) : null;
+    const cat = Catalogue.categorie(p.categorieId);
+    const nom = (sc && sc.nom) || (cat && cat.nom) || "ce rayon";
+    return '<div class="fiche-rayon" id="fiche-rayon">' +
+      '<button type="button" class="btn-ic fiche-rayon-fleche" id="p-precedent" aria-label="Produit précédent du rayon"' +
+        (rang === 0 ? " disabled" : "") + ">" + UI.icone("chevron", "ic-sm ic-gauche") + "</button>" +
+      '<div class="fiche-rayon-texte"><b id="p-rang">' + (rang + 1) + " / " + rayon.length + "</b> · " +
+        Utils.echapper(nom) + '<span class="fiche-rayon-aide">Balayez pour voir les autres produits du rayon</span></div>' +
+      '<button type="button" class="btn-ic fiche-rayon-fleche" id="p-suivant" aria-label="Produit suivant du rayon"' +
+        (rang === rayon.length - 1 ? " disabled" : "") + ">" + UI.icone("chevron", "ic-sm") + "</button>" +
+    "</div>";
+  }
+
   async function afficher(vue, id) {
+    const sens = entree;
+    entree = "";
+    balayage = null;
     const p = Catalogue.produit(id);
     if (!p) {
       UI.entete({ titre: "Produit", retour: true });
@@ -212,6 +287,10 @@ const VueProduit = (() => {
     let html = "";
 
     html += carrousel(p);
+
+    const rayon = Catalogue.rayonDuProduit(p);
+    const rang = rayon.findIndex((x) => x.id === p.id);
+    html += barreRayon(p, rayon, rang);
 
     const lu = lireSpecifications(p.description);
     const dejaDedans = Panier.quantiteDe(p.id);
@@ -353,6 +432,23 @@ const VueProduit = (() => {
     }
 
     vue.innerHTML = html;
+
+    /* Le rayon : le geste et les flèches. La fiche arrivée par un geste
+       glisse depuis le côté d'où on l'a tirée. */
+    const marqueur = UI.$("#fiche-rayon", vue);
+    if (marqueur) {
+      balayage = { marqueur, rayon, rang };
+      ecouterBalayage();
+      UI.$("#p-precedent", vue).onclick = () => ouvrirVoisin(-1);
+      UI.$("#p-suivant", vue).onclick = () => ouvrirVoisin(1);
+    }
+    if (sens) {
+      vue.classList.remove("fiche-entre-droite", "fiche-entre-gauche");
+      void vue.offsetWidth;
+      vue.classList.add("fiche-entre-" + sens);
+      vue.addEventListener("animationend", () =>
+        vue.classList.remove("fiche-entre-droite", "fiche-entre-gauche"), { once: true });
+    }
 
     /* (3.64.0) Le tarif de la livraison : les réglages du paiement
        arrivent parfois après l'écran, au démarrage — il se pose alors

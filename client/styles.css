@@ -922,6 +922,23 @@ a.pub-carte:active{transform:scale(.98)}
 .fiche-carrousel::-webkit-scrollbar{display:none}
 .fiche-carrousel .fiche-img{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;border-radius:0;box-shadow:none}
 .fiche-points{margin-top:10px}
+/* (3.73.0) Balayer d'un produit à l'autre du rayon : la petite barre
+   sous la photo, et la fiche qui glisse depuis le côté tiré. */
+.fiche-rayon{display:flex;align-items:center;gap:8px;padding:6px;border-radius:var(--r);background:var(--blanc);border:1px solid var(--trait)}
+.fiche-rayon-texte{flex:1;min-width:0;text-align:center;font-size:12.5px;color:var(--encre-douce);line-height:1.35}
+.fiche-rayon-texte b{color:var(--encre)}
+.fiche-rayon-aide{display:block;font-size:11.5px;opacity:.8}
+.fiche-rayon-fleche{flex:none}
+.fiche-rayon-fleche[disabled]{opacity:.3}
+.ic-gauche{transform:rotate(180deg)}
+/* Un geste vers la droite ouvre le produit précédent : le navigateur ne
+   doit pas le prendre pour « page précédente » (Chrome, écrans tactiles). */
+html,body{overscroll-behavior-x:none}
+@keyframes fiche-depuis-droite{from{transform:translateX(42px);opacity:.25}to{transform:none;opacity:1}}
+@keyframes fiche-depuis-gauche{from{transform:translateX(-42px);opacity:.25}to{transform:none;opacity:1}}
+.vue.fiche-entre-droite{animation:fiche-depuis-droite .22s ease-out}
+.vue.fiche-entre-gauche{animation:fiche-depuis-gauche .22s ease-out}
+@media (prefers-reduced-motion:reduce){.vue.fiche-entre-droite,.vue.fiche-entre-gauche{animation:none}}
 /* Le nom, le prix, la note : sans carte autour, comme sur la DA. */
 .fiche-infos{display:flex;flex-direction:column;gap:9px;padding:4px 2px 2px}
 .fiche-badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}

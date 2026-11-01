@@ -5528,6 +5528,28 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Balayer d'un produit à l'autre du rayon (3.73.0)
+
+Sur la fiche d'un produit (appli client), un geste **vers la gauche**
+ouvre le produit **suivant du même rayon**, vers la droite le
+**précédent** — dans l'ordre de l'écran du rayon (du moins cher au plus
+cher), dans la boutique où l'on est. Une petite barre sous la photo dit
+où l'on en est (« ‹ 3 / 12 · Accessoires › ») ; ses flèches font la même
+chose. Au bout du rayon, on le dit et l'on reste ; un produit seul dans
+son rayon n'a pas de barre.
+
+- La fiche suivante **remplace** la précédente dans l'historique :
+  « Retour » ramène à la liste d'où l'on venait, en une fois.
+- Un geste sur les **photos** fait défiler les photos ; sur une rangée de
+  produits, un champ ou une vidéo, rien ; un geste parti du **bord** de
+  l'écran est laissé au « retour » d'Android ; un geste surtout vertical
+  reste un défilement.
+- `overscroll-behavior-x: none` : Chrome ne prend pas le geste vers la
+  droite pour « page précédente ».
+
+`Catalogue.rayonDuProduit(p)`, `client/js/vues/produit.js`. Banc :
+`tools/banc-balayer-rayon.mjs` (de vrais gestes tactiles).
+
 ## Les reversements dans BIZZOO Personnel (3.73.0)
 
 Un menu **« Reversements »**, visible du **CEO** et des membres du profil

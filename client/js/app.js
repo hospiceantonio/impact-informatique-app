@@ -161,6 +161,8 @@ const App = { evenementInstallation: null };
       ecranQuitte = ecran;
     }
     UI.fermerVisionneuse();
+    /* (3.73.0) Le glissé d'une fiche balayée ne survit pas à l'écran suivant. */
+    if (vue) vue.classList.remove("fiche-entre-droite", "fiche-entre-gauche");
     VueAccueil.arreterSlider();
     /* (3.70.0) Une vraie arrivée (pas un redessin) : les boutiques de
        l'accueil seront tirées au sort de nouveau. */
