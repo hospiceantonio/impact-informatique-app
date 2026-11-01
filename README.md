@@ -5528,6 +5528,34 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Chaque notification mène à l'écran exact (3.73.0)
+
+Toucher une notification — sur le téléphone, application fermée, ou
+dans la cloche de l'application — ouvre ce qu'elle annonce, pas une
+liste ni l'accueil :
+
+| Notification | Écran ouvert |
+|---|---|
+| Nouvelle course (livreur) | **cette course**, amenée sous les yeux et marquée (`#/livraisons/<commande>`) ; déjà prise : on le dit |
+| Rupture de stock, stock à vérifier | la **fiche du produit** (`#/produit/<id>`) ; plusieurs d'un coup : le stock filtré |
+| Reversement demandé | **cette demande**, marquée (`#/reversements/livreur-7`, `boutique-…`, `vendeur-…`) |
+| Compte à valider, compte validé | la **fiche du compte** (`#/comptes/<id>`) |
+| Nouveau produit (appli client) | la **fiche du produit**, plus l'accueil |
+| Commande, course, reçu… | la commande (déjà le cas) ; `#/commande/<id>` ouvert dans Admin mène à `#/commandes/<id>` |
+
+Une fois l'élément montré, l'adresse redevient celle de la liste : le
+rafraîchissement en direct et « Retour » marchent comme d'habitude.
+
+Côté Android, le lien d'une notification n'était accepté que sans
+paramètres : `#/stock?filtre=rupture` était refusé et l'application
+s'ouvrait sur l'accueil. Les caractères `? = & . : %` passent désormais
+(le lien n'est jamais qu'affecté à `location.hash`, entre guillemets
+JSON). Déjà sur l'écran visé, la touche le redessine quand même.
+
+SQL : `supabase/notifications-precises.sql`. Essai :
+`supabase/tests/99z…z-notifications-precises.sql`. Banc :
+`tools/banc-notifications-precises.mjs`.
+
 ## Balayer d'un produit à l'autre du rayon (3.73.0)
 
 Sur la fiche d'un produit (appli client), un geste **vers la gauche**

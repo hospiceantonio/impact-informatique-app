@@ -650,7 +650,7 @@ const VueComptes = (() => {
 
   /* ---------- L'équipe (administrateur) ---------- */
 
-  async function afficher(vue) {
+  async function afficher(vue, ouvrirId) {
     UI.entete({ titre: "Comptes", retour: true, sous: "Qui peut modifier la boutique" });
 
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture de l\'équipe…</div>';
@@ -824,6 +824,14 @@ const VueComptes = (() => {
         const compte = comptes.find((c) => c.id === bouton.dataset.compte);
         if (compte) ouvrirFiche(compte, () => afficher(vue));
       };
+    }
+    /* (3.73.0) « #/comptes/<id> » — la notification « Compte à valider » :
+       sa fiche s'ouvre d'elle-même, et l'adresse redevient la liste. */
+    if (ouvrirId) {
+      const compte = comptes.find((c) => c.id === ouvrirId);
+      if (compte) ouvrirFiche(compte, () => afficher(vue));
+      else UI.toast("Ce compte n'est plus dans la liste.", "err");
+      try { history.replaceState(history.state, "", "#/comptes"); } catch (_) { /* sans importance */ }
     }
   }
 

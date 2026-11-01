@@ -257,11 +257,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Seulement une adresse interne (« #/… ») : rien d'autre ne s'ouvre d'une notification. */
+    /**
+     * Seulement une adresse interne (« #/… ») : rien d'autre ne s'ouvre d'une
+     * notification. (3.73.0) Les paramètres d'un écran passent aussi
+     * (« #/stock?filtre=rupture ») : refusés jusqu'ici, ils renvoyaient à
+     * l'accueil au lieu de l'écran annoncé. Le lien n'est jamais qu'affecté
+     * à location.hash, entre guillemets JSON : il ne peut rien exécuter.
+     */
     private static String lienDe(Intent intention) {
         if (intention == null) return null;
         String lien = intention.getStringExtra(EXTRA_LIEN);
-        if (lien == null || !lien.matches("#/[A-Za-z0-9_/\\-]{0,120}")) return null;
+        if (lien == null || !lien.matches("#/[A-Za-z0-9_/\\-.:?=&%]{0,200}")) return null;
         return lien;
     }
 
@@ -269,7 +275,12 @@ public class MainActivity extends Activity {
         if (!pageChargee || lienEnAttente == null || vueWeb == null) return;
         final String lien = lienEnAttente;
         lienEnAttente = null;
-        vueWeb.evaluateJavascript("location.hash = " + org.json.JSONObject.quote(lien) + ";", null);
+        /* (3.73.0) Déjà sur cet écran : on le redessine quand même — la
+           notification annonce du nouveau, l'écran doit le montrer. */
+        String cible = org.json.JSONObject.quote(lien);
+        vueWeb.evaluateJavascript("if (location.hash === " + cible + ") "
+                + "window.dispatchEvent(new HashChangeEvent('hashchange')); "
+                + "else location.hash = " + cible + ";", null);
     }
 
     @Override

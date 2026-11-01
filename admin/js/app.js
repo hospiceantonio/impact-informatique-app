@@ -30,6 +30,10 @@
        entière plutôt que sur un écran vide. */
     { motif: /^\/commandes\/([^/]+)$/, vue: (v, m) => VueCommandes.afficher(v, m[1]),
       commandes: true },
+    /* (3.73.0) « #/commande/<id> » est l'adresse du reçu dans l'appli
+       client ; une notification qui la porterait ici mène à la commande. */
+    { motif: /^\/commande\/([^/]+)$/, vue: (v, m) => { location.replace("#/commandes/" + m[1]); },
+      commandes: true },
     /* Les notifications. Ouvertes à tous les rangs, LIVREUR COMPRIS :
        c'est lui qui attend le plus une nouvelle course, et lui qui a le
        moins de raisons de rouvrir un écran toutes les cinq minutes. */
@@ -64,6 +68,12 @@
        rend que ce que le compte tient. */
     { motif: /^\/solde$/, vue: (v) => VueSoldes.afficher(v) },
     { motif: /^\/reversements$/, vue: (v) => VueSoldes.reversements(v), super: true },
+    /* (3.73.0) Une demande précise (« boutique-12 », « livreur-7 »…) : la
+       notification « Reversement demandé » y mène. */
+    { motif: /^\/reversements\/([a-z]+-\d+)$/, vue: async (v, m) => {
+      await VueSoldes.reversements(v);
+      viser('[data-cle="' + m[1] + '"]', "#/reversements", "Cette demande n'est plus dans la liste.");
+    }, super: true },
     /* Les codes promo : l'enseigne seule. Une remise sort de SA marge —
        on ne laisse pas quelqu'un d'autre l'engager. */
     { motif: /^\/codes$/, vue: (v) => VueCodes.afficher(v), super: true },
@@ -72,6 +82,13 @@
        rien à faire ici, il confie les courses depuis les commandes. */
     { motif: /^\/livraisons$/, vue: (v) => VueLivraisons.afficher(v),
       livreur: true, onglet: "/livraisons" },
+    /* (3.73.0) Une course précise : la notification « Nouvelle course » y
+       mène — la carte de CETTE course, sous les yeux. */
+    { motif: /^\/livraisons\/([^/]+)$/, vue: async (v, m) => {
+      await VueLivraisons.afficher(v);
+      viser('.lv-course[data-commande="' + CSS.escape(m[1]) + '"]', "#/livraisons",
+        "Cette course n'est plus à prendre : un autre livreur l'a prise, ou elle a été annulée.");
+    }, livreur: true, onglet: "/livraisons" },
     /* (3.64.0) Ses gains : sa part des frais de livraison, ses reversements. */
     { motif: /^\/gains$/, vue: (v) => VueSoldes.gains(v), livreur: true, onglet: "/livraisons" },
     /* (3.70.0) L'écran du vendeur, et le seul qu'il ait — comme le livreur ;
@@ -108,6 +125,10 @@
     /* (3.63.0) L'administrateur de BIZZOO y crée des modérateurs, que le
        superadministrateur valide. */
     { motif: /^\/comptes$/, vue: (v) => VueComptes.afficher(v), admin: true, horsEnseigne: true,
+      adminBizzoo: true },
+    /* (3.73.0) Un compte précis : « Compte à valider », « Compte validé »
+       y mènent — sa fiche s'ouvre. */
+    { motif: /^\/comptes\/([^/]+)$/, vue: (v, m) => VueComptes.afficher(v, m[1]), admin: true, horsEnseigne: true,
       adminBizzoo: true },
     /* Les livreurs, à part de l'équipe : leur bouton, leur liste. */
     { motif: /^\/livreurs$/, vue: (v) => VueComptes.livreurs(v), admin: true, horsEnseigne: true,
@@ -190,6 +211,25 @@
   function naviguer() {
     file = file.then(dessinerEcran).catch((err) => { console.error(err); });
     return file;
+  }
+
+  /* (3.73.0) UNE NOTIFICATION MÈNE À UN ÉLÉMENT D'UNE LISTE — une course,
+     une demande de reversement. Une fois l'écran dessiné (et remis en
+     haut), on l'amène sous les yeux et on le marque un instant ; puis
+     l'adresse redevient celle de la liste, pour que l'écran se rafraîchisse
+     comme d'habitude sans y revenir sans cesse. */
+  function viser(selecteur, adresseListe, absent) {
+    setTimeout(() => {
+      const el = document.querySelector(selecteur);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("vise");
+        setTimeout(() => el.classList.remove("vise"), 3000);
+      } else if (absent) {
+        UI.toast(absent, "err");
+      }
+      try { history.replaceState(history.state, "", adresseListe); } catch (_) { /* sans importance */ }
+    }, 80);
   }
 
   /* ---------- Le suivi des commandes en direct (3.59.0) ----------

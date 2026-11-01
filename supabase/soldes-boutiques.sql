@@ -341,7 +341,8 @@ begin
     'Reversement demandé : ' || public.montant_lisible(montant, solde ->> 'devise'),
     coalesce((select b.nom from public.boutiques b where b.id = cible), cible) || ' — à envoyer sur ' ||
       r.reseau || ' ' || r.tel || coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '. Demandé par ' || qui || '.',
-    '#/reversements', null, cible, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/boutique-' || nouv, null, cible, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement(text, bigint) from public, anon;

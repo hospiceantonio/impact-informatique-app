@@ -1075,6 +1075,10 @@ declare
   epuises  jsonb := '{}'::jsonb;
   manques  jsonb := '{}'::jsonb;
   ratees   jsonb := '{}'::jsonb;
+  -- (3.73.0) Les produits eux-mêmes : un seul produit épuisé (ou à
+  -- vérifier), la notification ouvre SA fiche ; plusieurs, la liste.
+  epuises_ids jsonb := '{}'::jsonb;
+  ratees_ids  jsonb := '{}'::jsonb;
   b        text;
   liste    text;
 begin
@@ -1131,12 +1135,16 @@ begin
       elsif pris > 0 and avant - pris = 0 then
         epuises := jsonb_set(epuises, array[l.boutique],
           coalesce(epuises -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+        epuises_ids := jsonb_set(epuises_ids, array[l.boutique],
+          coalesce(epuises_ids -> l.boutique, '[]'::jsonb) || to_jsonb(l.produit_id));
       end if;
     exception when others then
       -- Le produit refuse l'écriture — un rayon devenu incohérent, par
       -- exemple. Le paiement, lui, passe : on le dit à qui peut corriger.
       ratees := jsonb_set(ratees, array[l.boutique],
         coalesce(ratees -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+      ratees_ids := jsonb_set(ratees_ids, array[l.boutique],
+        coalesce(ratees_ids -> l.boutique, '[]'::jsonb) || to_jsonb(l.produit_id));
       raise warning 'commande_stock(%) : % — %', new.id, l.nom, sqlerrm;
     end;
   end loop;
@@ -1159,7 +1167,9 @@ begin
         'stock_epuise', 'Rupture de stock',
         liste || ' : plus aucune pièce après la commande ' || numero ||
           '. Vos clients voient « En rupture ».',
-        '#/stock?filtre=rupture', new.id, nullif(b, ''), false);
+        case when jsonb_array_length(epuises_ids -> b) = 1
+                then '#/produit/' || (epuises_ids -> b ->> 0) else '#/stock?filtre=rupture' end,
+           new.id, nullif(b, ''), false);
     end loop;
     for b in select jsonb_object_keys(ratees) loop
       select string_agg(x, ', ') into liste from jsonb_array_elements_text(ratees -> b) x;
@@ -1168,7 +1178,9 @@ begin
         'stock_a_verifier', 'Stock à vérifier',
         'Commande ' || numero || ' payée, mais le stock de ' || liste ||
           ' n''a pas pu être décompté. Corrigez-le à la main.',
-        '#/stock', new.id, nullif(b, ''), true);
+        case when jsonb_array_length(ratees_ids -> b) = 1
+                then '#/produit/' || (ratees_ids -> b ->> 0) else '#/stock' end,
+           new.id, nullif(b, ''), true);
     end loop;
   exception when others then
     raise warning 'commande_stock(%) notifications : %', new.id, sqlerrm;

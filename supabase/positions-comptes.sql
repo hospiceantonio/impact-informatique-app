@@ -442,7 +442,8 @@ begin
   update public.courses_cascade k set alertes = k.alertes || qui where k.commande_id = commande;
   return public.notifier(qui, 'course_proposee', titre,
     coalesce(nullif(entete, '') || E'\n', '') || public.texte_demande(f),
-    '#/livraisons', commande, null, true);
+    -- (3.73.0) La touche ouvre CETTE course, pas la liste.
+    '#/livraisons/' || commande, commande, null, true);
 end $$;
 revoke all on function public.alerter_course(text, uuid[], text, text) from public, anon, authenticated;
 

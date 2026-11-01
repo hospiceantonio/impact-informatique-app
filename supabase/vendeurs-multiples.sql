@@ -654,7 +654,8 @@ begin
     'Versement demandé par un vendeur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
       coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
-    '#/reversements', null, null, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/vendeur-' || nouv, null, null, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement_vendeur(bigint) from public, anon;

@@ -203,7 +203,8 @@ begin
   update public.courses_cascade k set alertes = k.alertes || qui where k.commande_id = commande;
   return public.notifier(qui, 'course_proposee', titre,
     coalesce(nullif(entete, '') || E'\n', '') || public.texte_demande(f),
-    '#/livraisons', commande, null, true);
+    -- (3.73.0) La touche ouvre CETTE course, pas la liste.
+    '#/livraisons/' || commande, commande, null, true);
 end $$;
 revoke all on function public.alerter_course(text, uuid[], text, text) from public, anon, authenticated;
 
@@ -1147,7 +1148,8 @@ begin
     'Reversement demandé par un livreur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
       coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
-    '#/reversements', null, null, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/livreur-' || nouv, null, null, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement_livreur(bigint) from public, anon;

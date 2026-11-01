@@ -173,8 +173,11 @@ public class VerificateurCatalogue extends Worker {
                 : (nouveau ? nom : nom + " vient d'être mis à jour")
                   + (prix > 0 ? " — " + montant(prix) : "");
 
+        /* (3.73.0) La touche ouvre la fiche de CE produit, plus l'accueil. */
         Intent ouverture = new Intent(contexte, MainActivity.class);
-        ouverture.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        String id = produit.optString("id", "");
+        if (id.matches("[A-Za-z0-9_\\-]{1,80}")) ouverture.putExtra(MainActivity.EXTRA_LIEN, "#/produit/" + id);
+        ouverture.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         PendingIntent action = PendingIntent.getActivity(contexte, 0, ouverture, drapeaux);
