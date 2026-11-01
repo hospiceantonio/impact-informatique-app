@@ -5530,7 +5530,8 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
 
 ## Les reversements dans BIZZOO Personnel (3.73.0)
 
-Un menu **« Reversements »**, visible du **superadministrateur seul**, avec
+Un menu **« Reversements »**, visible du **CEO** et des membres du profil
+**« Comptabilité »** seuls (`rh_reversements_acces`), avec
 une pastille qui compte les demandes à traiter. L'écran rassemble les
 demandes d'argent des **boutiques**, des **livreurs** et des **vendeurs** :
 à traiter d'abord, puis déjà traitées ; filtres par état et par
@@ -5540,8 +5541,19 @@ est rappelé, et un nom différent de celui qu'il a donné est signalé.
 recopié à sa place est signalé), « Refuser » un motif — par les mêmes
 fonctions que BIZZOO Admin (`decider_reversement`,
 `decider_reversement_livreur`, `decider_reversement_vendeur`). La base ne
-rend ces listes qu'au superadministrateur et refuse à tout autre de
-trancher ; pour un autre compte, ni le menu ni l'écran.
+rend ces listes qu'au CEO, à la comptabilité et au superadministrateur
+(qui garde BIZZOO Admin → Reversements), et refuse à tout autre de
+trancher ; la décision porte le nom de l'employé. Le nom MoMo vient de
+`noms_momo`. Pour un autre compte — administration comprise, et même un
+superadministrateur qui n'est pas le CEO —, ni le menu ni l'écran.
+
+Le profil **« Comptabilité »** est posé vide (`rh_profils.comptabilite`) :
+le CEO y range le comptable depuis sa fiche. **Seul le CEO** marque un
+profil « comptabilité » et y fait entrer ou sortir un employé
+(déclencheurs `rh_profils_comptabilite`, `rh_employes_comptabilite`) :
+sans cela, l'administration pourrait s'y placer elle-même.
+SQL : `supabase/reversements-comptabilite.sql`. Essai :
+`supabase/tests/99z…z-reversements-comptabilite.sql`.
 Banc : `tools/banc-personnel-reversements.mjs`.
 
 ## Chaque sorte de compte à sa place (3.73.0)

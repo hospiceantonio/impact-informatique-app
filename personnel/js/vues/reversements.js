@@ -1,13 +1,14 @@
 /* =========================================================
    Reversements (3.73.0) — les demandes d'argent des boutiques, des
-   livreurs et des vendeurs, au superadministrateur seul.
+   livreurs et des vendeurs, au CEO et au profil « Comptabilité ».
 
    #/reversements : ce qui attend, puis ce qui est tranché ; filtres par
    état et par demandeur, recherche. « Envoyé » note la référence de la
    transaction Mobile Money, « Refuser » un motif — les mêmes fonctions
-   que BIZZOO Admin → Reversements. La base ne rend ces listes qu'au
-   superadministrateur et refuse à tout autre de trancher : le menu
-   n'est qu'une porte, la serrure est en base.
+   que BIZZOO Admin → Reversements. La base ne rend ces listes qu'au CEO,
+   à la comptabilité (rh_reversements_acces) et au superadministrateur,
+   et refuse à tout autre de trancher : le menu n'est qu'une porte, la
+   serrure est en base. Seul le CEO place quelqu'un dans la comptabilité.
    ========================================================= */
 const VueReversements = (() => {
   const { h } = UI;
@@ -34,7 +35,7 @@ const VueReversements = (() => {
     const ids = [...new Set(liste.filter((r) => r.qui === "livreur" && r.livreur_id).map((r) => r.livreur_id))];
     if (ids.length) {
       try {
-        const fiches = await Supabase.lire("profils?select=id,momo_nom&id=in.(" + ids.map(encodeURIComponent).join(",") + ")");
+        const fiches = await Supabase.rpc("noms_momo", { ids });
         const noms = new Map((fiches || []).map((f) => [f.id, f.momo_nom || ""]));
         for (const r of liste) if (r.qui === "livreur") r.momo_nom = noms.get(r.livreur_id) || "";
       } catch (_) { /* une base d'avant : pas de nom à comparer */ }
@@ -44,9 +45,9 @@ const VueReversements = (() => {
   }
 
   async function afficher(zone) {
-    if (!App.estSuper()) {
+    if (!App.traiteReversements()) {
       UI.vider(zone, h("div", { class: "carte pile" }, h("h2", {}, "Reversements"),
-        UI.vide("Réservé au superadministrateur de BIZZOO.")));
+        UI.vide("Réservé au CEO et à la comptabilité. Le CEO place le comptable dans le profil « Comptabilité » (menu Profils).")));
       return;
     }
     UI.vider(zone, UI.chargement());
@@ -141,7 +142,7 @@ const VueReversements = (() => {
       h("div", { class: "carte pile" },
         h("h2", {}, "Reversements"),
         h("p", { class: "doux petit" }, "Les demandes d'argent des boutiques, des livreurs et des vendeurs. Envoyez l'argent " +
-          "sur le numéro indiqué, puis notez la référence de la transaction. Réservé au superadministrateur."),
+          "sur le numéro indiqué, puis notez la référence de la transaction. Réservé au CEO et à la comptabilité."),
         resume,
         h("div", { class: "barre-compacte" }, recherche, choixEtat, choixQui)),
       corps);

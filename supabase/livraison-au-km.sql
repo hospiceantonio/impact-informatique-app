@@ -110,6 +110,43 @@ revoke all on public.courses_cascade from anon, authenticated;
 -- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
 alter table public.profils add column if not exists disponible boolean not null default true;
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.rh_est_ceo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.rh_employes
+                  where compte_id = auth.uid() and etat = 'actif' and ceo);
+$$;
+
+create or replace function public.rh_mon_nom() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select btrim(coalesce(e.prenoms, '') || ' ' || coalesce(e.nom, ''))
+                     from public.rh_employes e where e.compte_id = auth.uid() and e.etat = 'actif'), '');
+$$;
+revoke all on function public.rh_mon_nom() from public, anon;
+grant execute on function public.rh_mon_nom() to authenticated, service_role;
+
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.decideur_reversement() returns text
+language sql stable security definer set search_path = public as $$
+  select case when public.est_super() then public.nom_du_compte()
+              else coalesce(nullif(public.rh_mon_nom(), ''), public.nom_du_compte()) end;
+$$;
+revoke all on function public.decideur_reversement() from public, anon, authenticated;
+
+create or replace function public.rh_reversements_acces() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.rh_est_ceo() or exists (
+    select 1 from public.rh_employes e join public.rh_profils p on p.id = e.profil_id
+     where e.compte_id = auth.uid() and e.etat = 'actif' and p.comptabilite);
+exception when undefined_table or undefined_column then
+  -- Une base d'avant BIZZOO Personnel ou d'avant la comptabilité :
+  -- personne n'y a l'accès, et les listes restent au superadministrateur.
+  return false;
+end $$;
+revoke all on function public.rh_reversements_acces() from public, anon;
+grant execute on function public.rh_reversements_acces() to authenticated;
+
 -- (3.70.0) Le devis plus bas lit la distance par la route : la grille
 -- et le cache qu'il emprunte, recopiés tels quels.
 create or replace function public.grille_route(x double precision) returns numeric
@@ -1124,12 +1161,13 @@ returns table (id bigint, livreur_id uuid, nom_livreur text, montant bigint, tel
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
-  if moi is null or not (public.est_super() or public.est_livreur()) then return; end if;
+  -- (3.73.0) Le CEO et la comptabilité aussi (BIZZOO Personnel).
+  if moi is null or not (public.est_super() or public.rh_reversements_acces() or public.est_livreur()) then return; end if;
   return query
     select v.id, v.livreur_id, v.nom_livreur, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
            v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif
       from public.reversements_livreurs v
-     where public.est_super() or v.livreur_id = moi
+     where public.est_super() or public.rh_reversements_acces() or v.livreur_id = moi
      order by (v.etat = 'en_attente') desc, v.demande_le desc
      limit 200;
 end $$;
@@ -1145,8 +1183,10 @@ declare
   ref text := left(trim(coalesce(reference, '')), 60);
   pourquoi text := left(trim(coalesce(motif, '')), 300);
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un reversement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un reversement.';
   end if;
   select * into v from public.reversements_livreurs where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -1158,7 +1198,7 @@ begin
   end if;
   update public.reversements_livreurs
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   perform public.notifier(array[v.livreur_id], 'reversement_decide',

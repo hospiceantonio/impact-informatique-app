@@ -52,10 +52,15 @@ const App = (() => {
   /* (3.69.0) Les incidents ouverts : la pastille du menu Incidents. */
   let incidentsOuverts = 0;
   /* (3.73.0) Les demandes de reversement qui attendent : la pastille du
-     menu Reversements (superadministrateur seul). */
+     menu Reversements, réservé au CEO et aux membres du profil
+     « Comptabilité ». La base le dit (rh_reversements_acces) et elle seule
+     rend les listes : le menu n'est qu'une porte. */
   let reversementsEnAttente = 0;
+  let accesReversements = false;
+  const traiteReversements = () => accesReversements;
   async function compterReversements() {
-    if (!estSuper()) return 0;
+    accesReversements = await Supabase.rpc("rh_reversements_acces").then((v) => v === true).catch(() => false);
+    if (!accesReversements) return 0;
     const listes = await Promise.all(["reversements_liste", "reversements_livreurs_liste", "reversements_vendeurs_liste"]
       .map((f) => Supabase.rpc(f, f === "reversements_liste" ? { cible: null } : {}).catch(() => [])));
     return listes.reduce((n, l) => n + (l || []).filter((r) => r.etat === "en_attente").length, 0);
@@ -144,7 +149,7 @@ const App = (() => {
           + (qualite.files_en_retard || 0) },
       /* (3.73.0) Les demandes de reversement (boutiques, livreurs, vendeurs) :
          le superadministrateur seul — la base ne les rend qu'à lui. */
-      { route: "reversements", libelle: "Reversements", icone: "argent", pour: estSuper,
+      { route: "reversements", libelle: "Reversements", icone: "argent", pour: traiteReversements,
         pastille: reversementsEnAttente },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* L'administration (montants) et les responsables de profil (nombres). */
@@ -406,7 +411,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, file: () => file, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, file: () => file, estCeo, estAdmin, estSuper, traiteReversements, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer, alertesAffichees,
   };
 })();

@@ -1,12 +1,14 @@
 /* =========================================================
    Banc — les reversements dans BIZZOO Personnel (3.73.0)
 
-   Le menu « Reversements » : au superadministrateur seul, avec sa
-   pastille. L'écran : les demandes des boutiques, des livreurs et des
+   Le menu « Reversements » : au CEO et au profil « Comptabilité » seuls
+   (rh_reversements_acces), avec sa pastille — un superadministrateur
+   qui n'est ni l'un ni l'autre ne l'a pas. L'écran : les demandes des boutiques, des livreurs et des
    vendeurs ensemble, à traiter d'abord ; le nom du compte MoMo d'un
    livreur (et l'écart avec celui qu'il a donné) ; « Envoyé » avec la
    référence, « Refuser » avec un motif, chacun par la bonne fonction.
-   Un autre compte n'a ni le menu ni l'écran.
+   Le nom MoMo vient de noms_momo. Un autre compte n'a ni le menu ni
+   l'écran.
 
    La base est simulée : seules les réponses de Supabase sont jouées.
    ========================================================= */
@@ -32,14 +34,16 @@ const VENDEURS = [
   { id: 9, vendeur_id: "v1", nom_vendeur: "AZERTY", montant: 3283, tel: "0195943189", reseau: "MOOV", titulaire: "Lawani",
     etat: "en_attente", demande_le: "2026-10-30T19:02:00Z", decide_par: "", decide_le: null, reference: "", motif: "" }];
 
-async function ouvrir(superadmin) {
+async function ouvrir(acces, superadmin = false) {
   const appels = [];
   const REPONSES = {
     etat_connexion: { equipe: false },
     rh_tableau_de_bord: { moi: { id: "e1", prenoms: "Awa", nom: "Essai", administration: true, profil: "Administrateur", super: superadmin } },
     rh_caisse_acces: null, rh_compteurs_solde: {}, rh_mes_menus: [], rh_suivi_alertes_nb: 0, rh_activation: null, rh_paie_a_jour: 0,
-    reversements_liste: superadmin ? BOUTIQUES : [], reversements_livreurs_liste: superadmin ? LIVREURS : [],
-    reversements_vendeurs_liste: superadmin ? VENDEURS : [],
+    rh_reversements_acces: acces,
+    reversements_liste: acces || superadmin ? BOUTIQUES : [], reversements_livreurs_liste: acces || superadmin ? LIVREURS : [],
+    reversements_vendeurs_liste: acces || superadmin ? VENDEURS : [],
+    noms_momo: acces ? [{ id: L1, momo_nom: "ROHIM KOFFI" }] : [],
     decider_reversement: "valide", decider_reversement_livreur: "valide", decider_reversement_vendeur: "refuse",
   };
   const navigateur = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ["--no-sandbox"] });
@@ -57,7 +61,6 @@ async function ouvrir(superadmin) {
     try { corps = JSON.parse(route.request().postData() || "{}"); } catch (_) { /* vide */ }
     if (nom) appels.push({ nom, corps });
     let valeur = nom && nom in REPONSES ? REPONSES[nom] : (nom ? null : []);
-    if (!nom && u.pathname.endsWith("/profils")) valeur = [{ id: L1, momo_nom: "ROHIM KOFFI" }];
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(valeur) });
   });
   await page.goto(BASE + "#/reversements");
@@ -65,9 +68,11 @@ async function ouvrir(superadmin) {
   return { navigateur, page, erreurs, appels };
 }
 
-titre("1. Le superadministrateur : le menu, la pastille, les demandes");
+titre("1. La comptabilité (ou le CEO) : le menu, la pastille, les demandes");
 {
   const { navigateur, page, erreurs, appels } = await ouvrir(true);
+  const nm = appels.find((x) => x.nom === "noms_momo");
+  ok(nm && JSON.stringify(nm.corps.ids) === JSON.stringify([L1]), "le nom MoMo : demandé par noms_momo, pour le seul livreur");
   const lien = page.locator("#menu-lateral a[data-route='reversements']");
   ok(await lien.count() === 1, "« Reversements » est au menu");
   ok((await lien.innerText()).includes("3"), "sa pastille : 3 demandes à traiter");
@@ -107,11 +112,11 @@ titre("1. Le superadministrateur : le menu, la pastille, les demandes");
   await navigateur.close();
 }
 
-titre("2. Un autre compte : ni le menu, ni l'écran");
+titre("2. Un autre compte — même superadministrateur : ni le menu, ni l'écran");
 {
-  const { navigateur, page, erreurs } = await ouvrir(false);
+  const { navigateur, page, erreurs } = await ouvrir(false, true);
   ok(await page.locator("#menu-lateral a[data-route='reversements']").count() === 0, "pas de menu « Reversements »");
-  ok(/n'y a pas accès|Réservé au superadministrateur/.test(await page.evaluate(() => document.body.innerText)) &&
+  ok(/n'y a pas accès|Réservé au CEO/.test(await page.evaluate(() => document.body.innerText)) &&
      await page.locator(".element.reversement").count() === 0, "l'adresse tapée à la main : « votre compte n'y a pas accès »");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await navigateur.close();

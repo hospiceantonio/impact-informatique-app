@@ -8271,7 +8271,10 @@ returns table (id bigint, boutique_id text, nom_boutique text, montant bigint, t
                decide_le timestamptz, reference text, motif text, devise text)
 language plpgsql stable security definer set search_path = public as $$
 begin
-  if not (public.est_super() or (cible is not null and public.tient_la_caisse(cible))) then
+  -- (3.73.0) Toutes les boutiques : le superadministrateur, et dans BIZZOO
+  -- Personnel le CEO et la comptabilité (rh_reversements_acces).
+  if not (public.est_super() or (cible is null and public.rh_reversements_acces())
+          or (cible is not null and public.tient_la_caisse(cible))) then
     return;
   end if;
   return query
@@ -8299,8 +8302,10 @@ declare
   pourquoi text := left(trim(coalesce(motif, '')), 300);
   dev text;
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un reversement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un reversement.';
   end if;
   select * into v from public.reversements where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -8312,7 +8317,7 @@ begin
   end if;
   update public.reversements
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   dev := coalesce((select nullif(b.devise, '') from public.boutiques b where b.id = v.boutique_id), 'FCFA');
@@ -8671,12 +8676,13 @@ returns table (id bigint, livreur_id uuid, nom_livreur text, montant bigint, tel
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
-  if moi is null or not (public.est_super() or public.est_livreur()) then return; end if;
+  -- (3.73.0) Le CEO et la comptabilité aussi (BIZZOO Personnel).
+  if moi is null or not (public.est_super() or public.rh_reversements_acces() or public.est_livreur()) then return; end if;
   return query
     select v.id, v.livreur_id, v.nom_livreur, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
            v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif
       from public.reversements_livreurs v
-     where public.est_super() or v.livreur_id = moi
+     where public.est_super() or public.rh_reversements_acces() or v.livreur_id = moi
      order by (v.etat = 'en_attente') desc, v.demande_le desc
      limit 200;
 end $$;
@@ -8692,8 +8698,10 @@ declare
   ref text := left(trim(coalesce(reference, '')), 60);
   pourquoi text := left(trim(coalesce(motif, '')), 300);
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un reversement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un reversement.';
   end if;
   select * into v from public.reversements_livreurs where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -8705,7 +8713,7 @@ begin
   end if;
   update public.reversements_livreurs
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   perform public.notifier(array[v.livreur_id], 'reversement_decide',
@@ -23580,12 +23588,13 @@ returns table (id bigint, vendeur_id uuid, nom_vendeur text, montant bigint, tel
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
-  if moi is null or not (public.est_super() or public.est_vendeur()) then return; end if;
+  -- (3.73.0) Le CEO et la comptabilité aussi (BIZZOO Personnel).
+  if moi is null or not (public.est_super() or public.rh_reversements_acces() or public.est_vendeur()) then return; end if;
   return query
     select v.id, v.vendeur_id, v.nom_vendeur, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
            v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif
       from public.reversements_vendeurs v
-     where public.est_super() or v.vendeur_id = moi
+     where public.est_super() or public.rh_reversements_acces() or v.vendeur_id = moi
      order by (v.etat = 'en_attente') desc, v.demande_le desc
      limit 200;
 end $$;
@@ -23601,8 +23610,10 @@ declare
   ref text := left(trim(coalesce(reference, '')), 60);
   pourquoi text := left(trim(coalesce(motif, '')), 300);
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un versement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un versement.';
   end if;
   select * into v from public.reversements_vendeurs where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -23614,7 +23625,7 @@ begin
   end if;
   update public.reversements_vendeurs
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   perform public.notifier(array[v.vendeur_id], 'reversement_decide',
@@ -23900,3 +23911,96 @@ begin
 exception when others then
   raise notice 'Alerte de préparation non programmée (%) : le suivi la montre toujours', sqlerrm;
 end $$;
+
+-- =========================================================
+-- (3.73.0) LES REVERSEMENTS DANS BIZZOO PERSONNEL : LE CEO ET LA COMPTABILITÉ
+--
+-- Les demandes d'argent des boutiques, des livreurs et des vendeurs se
+-- traitent aussi dans BIZZOO Personnel (menu « Reversements »), par le CEO
+-- et par les membres du profil marqué « comptabilité » — et par personne
+-- d'autre, administration comprise. Le superadministrateur garde BIZZOO
+-- Admin → Reversements, comme avant.
+--
+-- Le profil « Comptabilité » est posé, vide : le CEO y placera le comptable.
+-- Seul le CEO marque un profil « comptabilité », et seul lui y fait
+-- entrer ou en fait sortir un employé : sinon l'administration pourrait
+-- s'y placer elle-même, et le menu ne serait plus réservé.
+-- =========================================================
+alter table public.rh_profils add column if not exists comptabilite boolean not null default false;
+
+/** Le compte connecté traite-t-il les reversements dans Personnel ? */
+create or replace function public.rh_reversements_acces() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.rh_est_ceo() or exists (
+    select 1 from public.rh_employes e join public.rh_profils p on p.id = e.profil_id
+     where e.compte_id = auth.uid() and e.etat = 'actif' and p.comptabilite);
+exception when undefined_table or undefined_column then
+  -- Une base d'avant BIZZOO Personnel ou d'avant la comptabilité :
+  -- personne n'y a l'accès, et les listes restent au superadministrateur.
+  return false;
+end $$;
+revoke all on function public.rh_reversements_acces() from public, anon;
+grant execute on function public.rh_reversements_acces() to authenticated;
+
+/** Qui tranche, en clair : son nom de compte BIZZOO, ou d'employé. */
+create or replace function public.decideur_reversement() returns text
+language sql stable security definer set search_path = public as $$
+  select case when public.est_super() then public.nom_du_compte()
+              else coalesce(nullif(public.rh_mon_nom(), ''), public.nom_du_compte()) end;
+$$;
+revoke all on function public.decideur_reversement() from public, anon, authenticated;
+
+/** Le nom du compte MoMo des livreurs d'une liste, à qui traite les reversements. */
+create or replace function public.noms_momo(ids uuid[])
+returns table (id uuid, momo_nom text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (public.est_super() or public.rh_reversements_acces()) then return; end if;
+  return query select p.id, p.momo_nom from public.profils p where p.id = any(ids) and p.role = 'livreur';
+end $$;
+revoke all on function public.noms_momo(uuid[]) from public, anon;
+grant execute on function public.noms_momo(uuid[]) to authenticated;
+
+-- Seul le CEO marque un profil « comptabilité ». (Sans compte connecté :
+-- une mise à jour de la base, qui passe.)
+create or replace function public.rh_profil_comptabilite_verrou() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (tg_op = 'INSERT' and new.comptabilite) or (tg_op = 'UPDATE' and new.comptabilite is distinct from old.comptabilite) then
+    if auth.uid() is not null and not public.rh_est_ceo() then
+      raise exception 'Seul le CEO décide quel profil traite les reversements (comptabilité).';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists rh_profils_comptabilite on public.rh_profils;
+create trigger rh_profils_comptabilite
+  before insert or update on public.rh_profils
+  for each row execute function public.rh_profil_comptabilite_verrou();
+
+-- Seul le CEO fait entrer un employé dans un profil « comptabilité », ou
+-- l'en fait sortir.
+create or replace function public.rh_employe_comptabilite_verrou() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (tg_op = 'INSERT' or new.profil_id is distinct from old.profil_id)
+     and auth.uid() is not null and not public.rh_est_ceo()
+     and exists (select 1 from public.rh_profils p
+                  where p.comptabilite
+                    and (p.id = new.profil_id or (tg_op = 'UPDATE' and p.id = old.profil_id))) then
+    raise exception 'Seul le CEO place un employé dans le profil Comptabilité, ou l''en retire.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists rh_employes_comptabilite on public.rh_employes;
+create trigger rh_employes_comptabilite
+  before insert or update of profil_id on public.rh_employes
+  for each row execute function public.rh_employe_comptabilite_verrou();
+
+-- Le profil « Comptabilité », vide : le CEO y placera le comptable.
+insert into public.rh_profils (nom, description, comptabilite)
+select 'Comptabilité', 'Traite les demandes de reversement (BIZZOO Personnel → Reversements).', true
+ where not exists (select 1 from public.rh_profils where lower(nom) = lower('Comptabilité'));
+update public.rh_profils set comptabilite = true
+ where lower(nom) = lower('Comptabilité') and not comptabilite;
