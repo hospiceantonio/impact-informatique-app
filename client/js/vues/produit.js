@@ -301,7 +301,7 @@ const VueProduit = (() => {
        mais le client en a besoin : il vient après, plus discret. */
     html +=
       '<div class="fiche-infos">' +
-        '<h2 class="fiche-nom">' + Utils.echapper(p.nom) + "</h2>" +
+        '<h2 class="fiche-nom" translate="no">' + Utils.echapper(p.nom) + "</h2>" +
         '<div class="fiche-prix-ligne">' +
           UI.prixHtml(p, { grand: true }) +
           (remise !== null ? '<span class="badge badge-promo">-' + remise + "&nbsp;%</span>" : "") +
@@ -360,7 +360,7 @@ const VueProduit = (() => {
       html +=
         '<div class="carte">' +
           '<div class="carte-titre">Spécifications</div>' +
-          '<dl class="fiche-specs">' + lu.specs.map((s) =>
+          '<dl class="fiche-specs" translate="no">' + lu.specs.map((s) =>
             "<dt>" + Utils.echapper(s.cle) + "</dt><dd>" + Utils.echapper(s.valeur) + "</dd>").join("") +
           "</dl>" +
         "</div>";
@@ -380,7 +380,7 @@ const VueProduit = (() => {
       html +=
         '<div class="carte">' +
           '<div class="carte-titre">Description</div>' +
-          '<div class="fiche-description">' + Utils.paragraphes(lu.texte) + "</div>" +
+          '<div class="fiche-description" translate="no">' + Utils.paragraphes(lu.texte) + "</div>" +
         "</div>";
     }
 

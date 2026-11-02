@@ -189,8 +189,10 @@ const App = (() => {
           : [];
         return [titre, lien, sous];
       }),
-      h("div", { class: "pied" }, UI.nomComplet(moi()), h("br"), h("span", { class: "tres-petit" },
-        estCeo() ? "CEO" : estAdmin() ? "Administration" : (moi() && moi().profil) || "")));
+      h("div", { class: "pied" }, h("span", { translate: "no" }, UI.nomComplet(moi())), h("br"), h("span", { class: "tres-petit" },
+        estCeo() ? "CEO" : estAdmin() ? "Administration" : (moi() && moi().profil) || ""),
+        /* (3.73.0) La langue, au pied du menu. */
+        h("div", { "data-langue": "", style: { marginTop: "10px" } })));
 
     /* Sur téléphone, cinq onglets : les quatre premiers, puis « Plus ». */
     const onglets = document.getElementById("onglets");
@@ -224,7 +226,9 @@ const App = (() => {
       const items = menu().filter((m) => !["accueil", "mails", "discussions", "missions"].includes(m.route));
       UI.vider(zone, h("div", { class: "liste" }, items.map((m) =>
         h("a", { class: "element", href: "#/" + m.route }, UI.icone(m.icone),
-          h("span", { class: "etire gras" }, m.libelle), pastille(m.pastille), UI.icone("chevron", "ic-sm")))));
+          h("span", { class: "etire gras" }, m.libelle), pastille(m.pastille), UI.icone("chevron", "ic-sm")))),
+        /* (3.73.0) La langue : Français / English (js/langue.js pose le bouton). */
+        h("div", { class: "carte", "data-langue": "", style: { marginTop: "14px" } }));
     },
   };
 

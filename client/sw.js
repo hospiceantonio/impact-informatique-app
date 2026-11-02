@@ -22,6 +22,8 @@ const FICHIERS = [
   "./manifest.webmanifest",
   "./config.js",
   "./demo-catalogue.json",
+  "./js/traductions-en.js",
+  "./js/langue.js",
   "./js/utils.js",
   "./js/pixel.js",
   "./js/droits-compte.js",

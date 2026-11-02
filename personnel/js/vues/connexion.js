@@ -16,7 +16,9 @@ const VueConnexion = (() => {
         h("div", { class: "marque" }, h("img", { src: "icons/icon-192.png", alt: "" }),
           h("h1", { style: { fontSize: "20px" } }, "BIZZOO Personnel"),
           h("p", { class: "doux petit" }, "L'espace interne des employés de BIZZOO")),
-        ...contenu));
+        ...contenu),
+      /* (3.73.0) La langue, avant même de se connecter. */
+      h("div", { class: "carte", "data-langue": "", style: { marginTop: "12px" } }));
   }
 
   /** Le numéro, puis le mot de passe ; ou, à défaut, un code par SMS. */

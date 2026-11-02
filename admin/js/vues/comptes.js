@@ -872,6 +872,8 @@ const VueComptes = (() => {
         '<div id="mc-resultat"></div>' +
       "</div>" +
 
+      /* (3.73.0) La langue : Français / English (js/langue.js pose le bouton). */
+      '<div class="carte" data-langue id="mc-langue"></div>' +
       '<div class="carte">' +
         '<div class="carte-titre">Quitter</div>' +
         '<button type="button" class="btn btn-clair" id="mc-deconnexion">Se déconnecter</button>' +

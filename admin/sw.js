@@ -19,6 +19,8 @@ const FICHIERS = [
   "./polices/poppins-700.woff2",
   "./manifest.webmanifest",
   "./config.js",
+  "./js/traductions-en.js",
+  "./js/langue.js",
   "./js/utils.js",
   "./js/droits-compte.js",
   "./legal/confidentialite.html",
