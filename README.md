@@ -5528,6 +5528,27 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Des histogrammes qu'on sait lire (BIZZOO Personnel, 3.73.0)
+
+Statistiques → Commandes, « Commandes payées par jour » n'avait ni axe
+ni valeurs : des barres sans échelle, une seule date. Désormais :
+
+- un **axe des valeurs gradué** (0, la moitié, le haut — arrondis à 1, 2,
+  2,5 ou 5 × 10ⁿ) et ses lignes de repère ;
+- le **nombre au-dessus de chaque barre** (jusqu'à 31 barres), la
+  **date sous chaque barre** (une sur deux, trois… au-delà de 12) ;
+- les **jours sans commande comptent**, à zéro : ils manquaient, et deux
+  barres voisines pouvaient être à une semaine d'écart ;
+- un **résumé** : total, moyenne par jour, meilleur jour ;
+- **toucher une barre** : le jour en toutes lettres, le nombre de
+  commandes, le montant (pour qui voit l'argent) ;
+- pour qui voit l'argent, **Nombre / Montant** bascule le graphe en FCFA
+  (« 250 k », « 1,2 M » sur l'axe).
+
+Les barres par mois (coût employeur, décaissé, résultat) suivent la même
+règle ; un mois en perte descend sous la ligne du zéro, en rouge, avec
+sa valeur. Banc : `tools/banc-statistiques-graphe.mjs`.
+
 ## Chaque notification mène à l'écran exact (3.73.0)
 
 Toucher une notification — sur le téléphone, application fermée, ou
