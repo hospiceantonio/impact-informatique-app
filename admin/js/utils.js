@@ -3,7 +3,11 @@
    ========================================================= */
 const Utils = (() => {
 
-  const MOIS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+  /* (3.73.0) Les mois dans la langue de l'application (js/langue.js). */
+  const EN = !!(window.Langue && window.Langue.enAnglais());
+  const MOIS = EN
+    ? ["January","February","March","April","May","June","July","August","September","October","November","December"]
+    : ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 
   const pad = (n, len = 2) => String(n).padStart(len, "0");
 
@@ -65,7 +69,7 @@ const Utils = (() => {
     const d = new Date(horodatage);
     if (isNaN(d)) return "—";
     return d.getDate() + " " + MOIS[d.getMonth()] + " " + d.getFullYear() +
-      " à " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+      (EN ? " at " : " à ") + pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
 
   function fmtDate(horodatage) {

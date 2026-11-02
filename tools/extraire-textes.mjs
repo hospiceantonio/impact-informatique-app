@@ -29,8 +29,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const app = process.argv[2];
 const construire = process.argv.includes("--construire");
-if (!["client", "admin", "personnel", "vitrine"].includes(app)) {
-  console.error("Usage : node tools/extraire-textes.mjs client|admin|personnel|vitrine [--construire]");
+if (!["client", "admin", "personnel", "vitrine", "serveur"].includes(app)) {
+  console.error("Usage : node tools/extraire-textes.mjs client|admin|personnel|vitrine|serveur [--construire]");
   process.exit(2);
 }
 const I18N = path.join(RACINE, "i18n");
@@ -38,6 +38,22 @@ fs.mkdirSync(I18N, { recursive: true });
 const lireJson = (f, defaut) => {
   try { return JSON.parse(fs.readFileSync(path.join(I18N, f), "utf8")); } catch (_) { return defaut; }
 };
+
+/* ---------- Le dictionnaire des fonctions Edge ----------
+   Les notifications et les alertes que la base envoie sur les téléphones
+   (envoyer-push, rh-push) : textes communs et motifs, rien d'autre. */
+if (app === "serveur") {
+  const exact = lireJson("commun.en.json", {});
+  const motifs = lireJson("commun.motifs.json", []);
+  for (const [m] of motifs) new RegExp(m, "u");
+  const sortie = path.join(RACINE, "supabase", "functions", "_partage", "traductions-en.ts");
+  fs.writeFileSync(sortie,
+    "/* Fabriqué par tools/extraire-textes.mjs serveur, à partir de i18n/commun.*. Ne pas modifier à la main. */\n" +
+    "export const EXACT: Record<string, string> = " + JSON.stringify(exact) + ";\n" +
+    "export const MOTIFS: [string, string][] = " + JSON.stringify(motifs) + ";\n");
+  console.log(path.relative(RACINE, sortie) + " : " + Object.keys(exact).length + " textes, " + motifs.length + " motifs.");
+  process.exit(0);
+}
 
 /* ---------- Construire le dictionnaire ---------- */
 if (construire) {
@@ -48,9 +64,10 @@ if (construire) {
   const tout = lireJson("en.json", {});
   const siens = Object.keys(lireJson(app + ".textes.json", {}));
   const exact = { ...Object.fromEntries(siens.filter((k) => tout[k]).map((k) => [k, tout[k]])),
-    ...lireJson("commun.en.json", {}), ...lireJson(app + ".en.json", {}) };
+    ...(app === "vitrine" ? {} : lireJson("commun.en.json", {})), ...lireJson(app + ".en.json", {}) };
   for (const [k, v] of Object.entries(exact)) if (!v || typeof v !== "string" || v === k) delete exact[k];
-  const motifs = [...lireJson(app + ".motifs.json", []), ...lireJson("commun.motifs.json", [])];
+  /* La vitrine n'affiche aucune notification : pas de textes communs. */
+  const motifs = [...lireJson(app + ".motifs.json", []), ...(app === "vitrine" ? [] : lireJson("commun.motifs.json", []))];
   for (const [m] of motifs) new RegExp(m, "u");          // un motif cassé arrête tout, ici
   const sortie = app === "vitrine" ? path.join(RACINE, "vitrine", "traductions-en.js")
     : path.join(RACINE, app, "js", "traductions-en.js");

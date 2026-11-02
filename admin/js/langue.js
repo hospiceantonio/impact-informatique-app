@@ -52,6 +52,14 @@
   const courante = lireChoix() || langueAppareil();
   const enAnglais = courante === "en";
 
+  /* L'application Android écrit elle-même quelques textes (canaux de
+     notification, messages de position) : elle suit la langue de la page. */
+  const direAuTelephone = (l) => {
+    try { if (window.AndroidPont && typeof window.AndroidPont.langue === "function") window.AndroidPont.langue(l); }
+    catch (_) { /* une application d'avant : rien à dire */ }
+  };
+  direAuTelephone(courante);
+
   /* ---------- Les dates et les nombres ---------- */
   if (enAnglais) {
     const versAnglais = (loc) => {
@@ -126,6 +134,21 @@
   /** La traduction d'un texte (ou le texte lui-même si rien ne s'applique). */
   function traduire(texte) {
     if (!enAnglais || !texte || !preparer()) return texte;
+    /* Un texte de plusieurs lignes : d'abord en entier (un paragraphe écrit
+       sur plusieurs lignes dans le HTML), sinon ligne par ligne (une alerte
+       de course, une notification). */
+    if (texte.includes("\n")) {
+      const plat = texte.trim().replace(/[\s\u00a0\u202f]+/g, " ");
+      if (exact.has(plat)) return traduireUn(texte);
+      /* Des retours à la ligne suivis d'espaces : la mise en page du HTML,
+         pas des lignes — le paragraphe se traduit d'un bloc. */
+      if (/\n[ \t]/.test(texte.trim())) return traduireUn(texte);
+      return texte.split("\n").map(traduireUn).join("\n");
+    }
+    return traduireUn(texte);
+  }
+
+  function traduireUn(texte) {
     const debut = texte.match(/^\s*/)[0];
     const fin = texte.match(/\s*$/)[0];
     /* Les espaces insécables (« Retour à&nbsp;Bizzoo ») comptent comme des
@@ -292,6 +315,7 @@
   function choisir(langue) {
     if (!LANGUES.includes(langue)) return;
     try { localStorage.setItem(CLE, langue); } catch (_) { /* tant pis : la session seule */ }
+    direAuTelephone(langue);
     for (const f of rappels) {
       try { f(langue); } catch (_) { /* un rappel qui échoue n'empêche pas le changement */ }
     }

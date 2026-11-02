@@ -8862,6 +8862,8 @@ begin
   return jsonb_build_object(
     'id', n.id, 'type', n.type, 'titre', n.titre, 'corps', n.corps, 'lien', n.lien,
     'commande_id', n.commande_id,
+    -- (3.73.0) La langue du destinataire : la fonction Edge traduit.
+    'langue', public.langue_du_compte(n.destinataire),
     'application', case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end,
     'jetons', coalesce((select jsonb_agg(a.jeton order by a.maj_le desc)
                           from public.appareils_push a
@@ -9044,6 +9046,7 @@ declare
   etat_x text := 'a_envoyer';
   code_x text := '';
   nouveau bigint;
+  en     boolean;
 begin
   select * into r from public.sms_reglages where id = 1;
   if not found or not r.actif or r.url = '' or not (l_etape = any(r.etapes)) then
@@ -9101,7 +9104,38 @@ begin
   end if;
 
   num := coalesce(nullif(c.numero, ''), c.id);
-  if l_etape = 'commande_payee' then
+  -- (3.73.0) Le client qui a choisi l'anglais reçoit ses SMS en anglais.
+  en := public.langue_du_compte(c.client_id) = 'en';
+  if en then
+    if l_etape = 'commande_payee' then
+      select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
+      msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
+                  then 'BIZZOO: your order ' || num || ' is registered and paid. We are preparing it.'
+                  else 'BIZZOO: your order ' || num || ' is confirmed. We are preparing it.' end
+          || case when reste > 0 then ' Balance to pay on delivery: ' || reste || ' FCFA.' else '' end
+          || ' We will send you your delivery rider''s name.';
+    elsif l_etape = 'course_acceptee' then
+      select coalesce(nullif(btrim(p.nom), ''), 'Your delivery rider') as nom,
+             regexp_replace(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g'), '^229', '') as tel
+        into liv
+        from public.profils p where p.id::text = la_cle;
+      if not found then
+        return null;
+      end if;
+      msg := 'BIZZOO: ' || liv.nom || ' is delivering your order ' || num || '.'
+          || case when liv.tel <> '' then ' Their number: ' || liv.tel || '.' else '' end
+          || ' Keep your phone nearby.';
+    elsif l_etape = 'commande_en_livraison' then
+      msg := 'BIZZOO: your order ' || num || ' is on its way. Keep your phone nearby.';
+    elsif l_etape = 'commande_remise' then
+      msg := 'BIZZOO: your order ' || num || ' has been delivered. Thank you for your trust!';
+    elsif l_etape = 'commande_annulee' then
+      msg := 'BIZZOO: one or more items of your order ' || num
+          || ' were cancelled. Open your receipt or contact us for details.';
+    else
+      return null;
+    end if;
+  elsif l_etape = 'commande_payee' then
     select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
     msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
                 then 'BIZZOO : votre commande ' || num || ' est enregistree et payee. Nous la preparons.'
@@ -22809,6 +22843,8 @@ begin
   end if;
   return jsonb_build_object(
     'id', s.id, 'titre', s.titre, 'corps', s.corps, 'lien', s.lien,
+    -- (3.73.0) La langue de l'employé : la fonction Edge traduit.
+    'langue', public.langue_du_compte(s.compte),
     'tache', regexp_replace(regexp_replace(s.cle, '^escalade:', ''), '#[0-9]+\Z', ''),
     'abonnements', coalesce((select jsonb_agg(jsonb_build_object('endpoint', a.endpoint, 'p256dh', a.p256dh, 'auth', a.auth)
                                               order by a.cree_le desc)
@@ -24020,3 +24056,57 @@ select 'Comptabilité', 'Traite les demandes de reversement (BIZZOO Personnel �
  where not exists (select 1 from public.rh_profils where lower(nom) = lower('Comptabilité'));
 update public.rh_profils set comptabilite = true
  where lower(nom) = lower('Comptabilité') and not comptabilite;
+
+
+-- =========================================================
+-- (3.73.0) DEUX LANGUES : LA LANGUE DE CHAQUE COMPTE
+--
+-- Les trois applications parlent français et anglais (js/langue.js). La
+-- base retient la langue de chaque compte — client, équipe, employé — pour
+-- que ce qui part hors de l'application parle comme lui :
+--   - les notifications sur le téléphone (envoyer-push, rh-push) : la
+--     fonction Edge traduit le titre et le texte ;
+--   - les SMS au client (sms_prevoir) : écrits directement en anglais.
+-- La langue n'est rien de sensible ; chacun ne règle que la sienne. Sans
+-- choix connu : le français, comme avant.
+-- =========================================================
+create table if not exists public.langues_comptes (
+  compte     uuid primary key references auth.users(id) on delete cascade,
+  langue     text not null default 'fr' check (langue in ('fr', 'en')),
+  modifie_le timestamptz not null default now()
+);
+alter table public.langues_comptes enable row level security;
+drop policy if exists "langue lecture" on public.langues_comptes;
+create policy "langue lecture" on public.langues_comptes
+  for select to authenticated using (compte = auth.uid());
+revoke all on table public.langues_comptes from public, anon, authenticated;
+grant select on table public.langues_comptes to authenticated;
+grant all on table public.langues_comptes to service_role;
+
+/** La langue d'un compte : 'en' s'il l'a choisie, sinon 'fr'. */
+create or replace function public.langue_du_compte(qui uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select l.langue from public.langues_comptes l where l.compte = qui), 'fr');
+$$;
+revoke all on function public.langue_du_compte(uuid) from public, anon, authenticated;
+grant execute on function public.langue_du_compte(uuid) to service_role;
+
+/** L'application dit la langue du compte connecté (au choix FR/EN, à la connexion). */
+create or replace function public.regler_langue(langue text) returns text
+language plpgsql security definer set search_path = public as $$
+declare l text := lower(btrim(coalesce(langue, '')));
+begin
+  if auth.uid() is null then
+    raise exception 'Connectez-vous d''abord.';
+  end if;
+  if l not in ('fr', 'en') then
+    raise exception 'Langue inconnue : fr ou en.';
+  end if;
+  insert into public.langues_comptes as x (compte, langue, modifie_le)
+  values (auth.uid(), l, now())
+  on conflict (compte) do update set langue = excluded.langue, modifie_le = now()
+   where x.langue is distinct from excluded.langue;
+  return l;
+end $$;
+revoke all on function public.regler_langue(text) from public, anon;
+grant execute on function public.regler_langue(text) to authenticated;

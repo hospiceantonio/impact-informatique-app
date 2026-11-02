@@ -31,6 +31,7 @@
    ========================================================= */
 
 import { envoyerAuJeton, jetonAcces, lireCompte } from "../_partage/fcm.ts";
+import { traduire } from "../_partage/langue.ts";
 
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -40,7 +41,7 @@ const json = (corps: unknown, statut = 200) =>
 
 type APousser = {
   id: number; type: string; titre: string; corps: string; lien: string;
-  commande_id: string | null; jetons: string[]; application?: string;
+  commande_id: string | null; jetons: string[]; application?: string; langue?: string;
 };
 
 /** Les courses sonnent jusqu'à ce qu'on les touche ; le reste, une fois. */
@@ -96,8 +97,9 @@ Deno.serve(async (requete) => {
     genre: n.type,
     canal: client ? "client" : course ? "courses" : "commandes",
     id: String(n.id),
-    titre: n.titre || "BIZZOO",
-    corps: n.corps || "",
+    /* (3.73.0) Dans la langue du destinataire (langues_comptes). */
+    titre: traduire(n.titre || "BIZZOO", n.langue),
+    corps: traduire(n.corps || "", n.langue),
     lien: n.lien || "",
     commande: n.commande_id || "",
   };

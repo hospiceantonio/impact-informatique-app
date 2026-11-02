@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
                     startActivity(new Intent(Intent.ACTION_VIEW, url));
                 } catch (ActivityNotFoundException e) {
                     Toast.makeText(MainActivity.this,
-                            "Aucune application pour ouvrir ce lien.", Toast.LENGTH_SHORT).show();
+                            Textes.t(MainActivity.this, "Aucune application pour ouvrir ce lien.", "No app can open this link."), Toast.LENGTH_SHORT).show();
                 }
                 return true;
             }
@@ -428,7 +428,7 @@ public class MainActivity extends Activity {
         if (plusieurs) galerie.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
 
         Intent choix = Intent.createChooser(galerie,
-                video ? "Vidéo du produit" : "Photo du produit");
+                video ? Textes.t(MainActivity.this, "Vidéo du produit", "Product video") : Textes.t(MainActivity.this, "Photo du produit", "Product photo"));
 
         if (video) {
             /* Filmer directement, sans passer par la galerie. */
@@ -588,6 +588,12 @@ public class MainActivity extends Activity {
     /* ---------- Pont JavaScript : enregistrer un fichier ---------- */
 
     private class PontAndroid {
+        /** (3.73.0) La langue de la page (FR / EN), pour les textes du téléphone. */
+        @JavascriptInterface
+        public void langue(String langue) {
+            Textes.retenir(MainActivity.this, langue);
+        }
+
         @JavascriptInterface
         public void enregistrerFichier(String nom, String base64, String type) {
             enregistrer(nom, base64, type, true);
@@ -613,17 +619,17 @@ public class MainActivity extends Activity {
                     try (OutputStream sortie = getContentResolver().openOutputStream(uri)) {
                         sortie.write(octets);
                     }
-                    if (annoncer) annoncer("Fichier enregistré dans Téléchargements : " + nom);
+                    if (annoncer) annoncer(Textes.t(MainActivity.this, "Fichier enregistré dans Téléchargements : ", "File saved to Downloads: ") + nom);
                 } else {
                     File dossier = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
                     File fichier = new File(dossier, nom);
                     try (FileOutputStream sortie = new FileOutputStream(fichier)) {
                         sortie.write(octets);
                     }
-                    if (annoncer) annoncer("Fichier enregistré : " + fichier.getAbsolutePath());
+                    if (annoncer) annoncer(Textes.t(MainActivity.this, "Fichier enregistré : ", "File saved: ") + fichier.getAbsolutePath());
                 }
             } catch (Exception e) {
-                annoncer("Enregistrement impossible : " + e.getMessage());
+                annoncer(Textes.t(MainActivity.this, "Enregistrement impossible : ", "Couldn't save: ") + e.getMessage());
             }
         }
 
@@ -664,9 +670,9 @@ public class MainActivity extends Activity {
                     envoi.setType("text/plain");
                     envoi.putExtra(Intent.EXTRA_SUBJECT, titre);
                     envoi.putExtra(Intent.EXTRA_TEXT, texte);
-                    startActivity(Intent.createChooser(envoi, "Partager"));
+                    startActivity(Intent.createChooser(envoi, Textes.t(MainActivity.this, "Partager", "Share")));
                 } catch (Exception e) {
-                    annoncer("Impossible de partager : " + e.getMessage());
+                    annoncer(Textes.t(MainActivity.this, "Impossible de partager : ", "Couldn't share: ") + e.getMessage());
                 }
             });
         }
@@ -682,9 +688,9 @@ public class MainActivity extends Activity {
                         startActivity(vers);
                         return;
                     }
-                    annoncer("BIZZOO Admin n'est pas installée sur ce téléphone.");
+                    annoncer(Textes.t(MainActivity.this, "BIZZOO Admin n'est pas installée sur ce téléphone.", "BIZZOO Admin isn't installed on this phone."));
                 } catch (Exception e) {
-                    annoncer("Impossible d'ouvrir l'espace vendeur : " + e.getMessage());
+                    annoncer(Textes.t(MainActivity.this, "Impossible d'ouvrir l'espace vendeur : ", "Couldn't open the vendor area: ") + e.getMessage());
                 }
             });
         }

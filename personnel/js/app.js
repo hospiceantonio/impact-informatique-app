@@ -56,6 +56,8 @@ const App = (() => {
      « Comptabilité ». La base le dit (rh_reversements_acces) et elle seule
      rend les listes : le menu n'est qu'une porte. */
   let reversementsEnAttente = 0;
+  /* (3.73.0) Le choix FR/EN se dit à la base, une fois par page. */
+  let langueSuivie = false;
   let accesReversements = false;
   const traiteReversements = () => accesReversements;
   async function compterReversements() {
@@ -378,6 +380,15 @@ const App = (() => {
     }
     menus = [];
     alertesSuivi = 0;
+    /* (3.73.0) La base retient la langue de l'employé : ses alertes
+       partent dans cette langue. Une base d'avant : rien de grave. */
+    if (window.Langue) {
+      Supabase.rpc("regler_langue", { langue: Langue.courante() }).catch(() => {});
+      if (!langueSuivie) {
+        langueSuivie = true;
+        Langue.surChoix((l) => { Supabase.rpc("regler_langue", { langue: l }).catch(() => {}); });
+      }
+    }
     await chargerMenus();
     if (voitSuivi()) {
       alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);

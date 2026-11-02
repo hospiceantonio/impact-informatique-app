@@ -381,10 +381,12 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
         Notification.Builder constructeur;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager gestionnaire = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            NotificationChannel canal = new NotificationChannel(CANAL, "Position pour les courses",
+            NotificationChannel canal = new NotificationChannel(CANAL, Textes.t(this, "Position pour les courses", "Location for deliveries"),
                     NotificationManager.IMPORTANCE_LOW);
-            canal.setDescription("Pendant vos courses, et tant que vous êtes disponible, BIZZOO voit où vous êtes "
-                    + "pour vous proposer les courses les plus proches.");
+            canal.setDescription(Textes.t(this, "Pendant vos courses, et tant que vous êtes disponible, BIZZOO voit où vous êtes "
+                    + "pour vous proposer les courses les plus proches.",
+                    "During your deliveries, and while you're available, BIZZOO sees where you are "
+                    + "to offer you the nearest deliveries."));
             canal.setShowBadge(false);
             if (gestionnaire != null) gestionnaire.createNotificationChannel(canal);
             constructeur = new Notification.Builder(this, CANAL);
@@ -398,10 +400,13 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return constructeur
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(enCourse ? "Course en cours" : "Disponible pour les courses")
+                .setContentTitle(enCourse ? Textes.t(this, "Course en cours", "Delivery in progress")
+                        : Textes.t(this, "Disponible pour les courses", "Available for deliveries"))
                 .setContentText(enCourse
-                        ? "BIZZOO suit votre position jusqu'à la fin de vos courses."
-                        : "BIZZOO vous propose les courses les plus proches. Livraisons → « Disponible » pour arrêter.")
+                        ? Textes.t(this, "BIZZOO suit votre position jusqu'à la fin de vos courses.",
+                            "BIZZOO follows your location until your deliveries are done.")
+                        : Textes.t(this, "BIZZOO vous propose les courses les plus proches. Livraisons → « Disponible » pour arrêter.",
+                            "BIZZOO offers you the nearest deliveries. Deliveries → “Available” to stop."))
                 .setContentIntent(PendingIntent.getActivity(this, NUMERO, ouverture, drapeaux))
                 .setOngoing(true)
                 .build();
@@ -420,8 +425,9 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         gestionnaire.notify(NUMERO_INTERRUPTION, constructeur
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Position interrompue")
-                .setContentText("Ouvrez BIZZOO Admin pour rester disponible pour les courses.")
+                .setContentTitle(Textes.t(this, "Position interrompue", "Location stopped"))
+                .setContentText(Textes.t(this, "Ouvrez BIZZOO Admin pour rester disponible pour les courses.",
+                        "Open BIZZOO Admin to stay available for deliveries."))
                 .setContentIntent(PendingIntent.getActivity(this, NUMERO_INTERRUPTION, ouverture, drapeaux))
                 .setAutoCancel(true)
                 .build());

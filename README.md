@@ -5528,6 +5528,83 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Deux langues : français et anglais (3.73.0)
+
+Les trois applications (client, Admin, Personnel), la vitrine et les pages
+légales parlent **français et anglais**.
+
+**Quelle langue.** Celle choisie au bouton **FR / EN** (retenue sur
+l'appareil), sinon celle du téléphone ou du navigateur : l'anglais s'il
+est en anglais, le français dans tous les autres cas. Le bouton est à la
+connexion et dans « Mon compte » (client, Admin), au pied du menu et dans
+« Plus » (Personnel), en haut à droite des pages du site.
+
+**Comment c'est traduit.** Les applications écrivent toujours leurs écrans
+en français. `js/langue.js` (un seul fichier : l'original est
+`client/js/langue.js`, recopié par `tools/synchroniser-langue.sh`) traduit
+à l'affichage chaque texte et les attributs lus (placeholder, title,
+aria-label, alt) avec le dictionnaire de l'application
+(`js/traductions-en.js`) :
+
+1. le texte entier ;
+2. sinon un **motif** (phrase à trous : « Commande BZ-0042 — il part
+   bientôt. ») ;
+3. sinon les **morceaux** connus — seulement si le texte en est presque
+   entièrement fait : une phrase écrite par quelqu'un ne sort jamais
+   mi-française, mi-anglaise.
+
+Un texte de plusieurs lignes (une alerte de course) se traduit ligne par
+ligne. Les dates et les nombres passent au format anglais (`fr-FR` →
+`en-GB`), les noms de mois aussi.
+
+**Ce qui n'est jamais traduit** : ce que les gens écrivent — nom et
+description d'un produit, messages, mails, noms — marqué
+`translate="no"`, et les champs de saisie.
+
+**Les textes de la base.** Chaque compte a sa langue (`langues_comptes`,
+réglée par l'application avec `regler_langue` à la connexion et au
+bouton) :
+
+- les **notifications sur le téléphone** : `push_a_envoyer` et
+  `rh_push_a_envoyer` rendent la langue du destinataire ; `envoyer-push`
+  et `rh-push` traduisent le titre et le texte
+  (`supabase/functions/_partage/langue.ts`) ;
+- les **SMS au client** : `sms_prevoir` les écrit en anglais pour un
+  client anglophone ;
+- dans la cloche des applications, les mêmes motifs les traduisent.
+
+**L'application Android** écrit elle-même quelques textes (canaux de
+notification, position des livreurs, enregistrement d'un fichier) :
+`Textes.java`, selon la langue que la page lui dit (`AndroidPont.langue`),
+sinon celle du téléphone.
+
+**Ajouter ou modifier un texte.** Écrire le français dans l'application,
+comme toujours, puis :
+
+```bash
+# acorn (lecteur de JavaScript) : npm install acorn dans un dossier à part
+ACORN=<dossier>/node_modules/acorn/dist/acorn.mjs node tools/extraire-textes.mjs client   # (admin, personnel, vitrine)
+# traduire ce que liste i18n/client.a-traduire.json dans i18n/en.json, puis :
+node tools/extraire-textes.mjs client --construire
+node tools/extraire-textes.mjs serveur        # si une notification de la base a changé (i18n/commun.*)
+bash tools/synchroniser-langue.sh             # si langue.js a changé
+```
+
+Une notification nouvelle de la base : son titre et son texte vont dans
+`i18n/commun.en.json` (texte fixe) ou `i18n/commun.motifs.json` (phrase à
+trous). `tools/banc-deux-langues.mjs` parcourt les trois applications en
+anglais et refuse tout texte français oublié, ou un dictionnaire pas à
+jour.
+
+SQL : `supabase/deux-langues.sql`. Essais :
+`supabase/tests/99z…z-deux-langues.sql`, `tools/eprouver-push.sh`
+(section 4 bis). Banc : `tools/banc-deux-langues.mjs`.
+
+**Les bancs tournent en français.** Chromium sans écran se croit en
+anglais (`en-US`) : les applications s'y ouvriraient en anglais. Lancer
+les bancs avec `LANG=fr_FR.UTF-8 LANGUAGE=fr` devant `node`, comme sur un
+téléphone béninois.
+
 ## Des histogrammes qu'on sait lire (BIZZOO Personnel, 3.73.0)
 
 Statistiques → Commandes, « Commandes payées par jour » n'avait ni axe

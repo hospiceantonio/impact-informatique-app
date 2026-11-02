@@ -148,6 +148,25 @@ decor({ fcm: () => reponse({ error: { code: 500, message: "Internal error" } }, 
 r = await appeler({ id: 501 });
 verifie(!monde.morts.length, "une panne de Firebase n'efface aucun téléphone");
 
+titre("4 bis. (3.73.0) Dans la langue du destinataire");
+decor({ notification: () => reponse({ ...COURSE, id: 504, type: "commande_preparee", langue: "en",
+  titre: "Votre colis est prêt", corps: "Commande BZ-000104 — il part bientôt.", lien: "#/commande/cmd_en" }) });
+r = await appeler({ id: 504 });
+const me = (monde.fcm[0] || {}).corps?.message || {};
+verifie(me.data && me.data.titre === "Your package is ready" && me.data.corps === "Order BZ-000104 — it's leaving soon.",
+  "un compte en anglais reçoit « Your package is ready — Order BZ-000104 — it's leaving soon. »");
+decor({ notification: () => reponse({ ...COURSE, id: 505, langue: "en", titre: "Nouvelle course — BZ-000105",
+  corps: "Récupérer : Alpha — Tél. boutique : +229 0197111222\nLivrer à : Afi — Fidjrossè\nDéjà payé : 4 000 FCFA\nRien à récupérer : tout est payé." }) });
+r = await appeler({ id: 505 });
+const mc = (monde.fcm[0] || {}).corps?.message || {};
+verifie(mc.data && mc.data.titre === "New delivery — BZ-000105" &&
+  mc.data.corps === "Pick up: Alpha — Shop phone: +229 0197111222\nDeliver to: Afi — Fidjrossè\nAlready paid: 4 000 FCFA\nNothing to collect: everything is paid.",
+  "l'alerte de course, ligne par ligne ; les noms et adresses restent tels quels");
+decor({ notification: () => reponse({ ...COURSE, id: 506, titre: "Votre colis est prêt", corps: "Commande BZ-000106 — il part bientôt." }) });
+r = await appeler({ id: 506 });
+const mf = (monde.fcm[0] || {}).corps?.message || {};
+verifie(mf.data && mf.data.titre === "Votre colis est prêt", "sans langue choisie : en français, comme avant");
+
 titre("5. Sans compte de service");
 const garde = SECRETS.FIREBASE_COMPTE_SERVICE;
 SECRETS.FIREBASE_COMPTE_SERVICE = "";

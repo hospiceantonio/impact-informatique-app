@@ -207,6 +207,8 @@
   /* Pour quel compte la position est-elle déjà validée ? Demandé une fois
      par compte : un autre livreur qui se connecte est redemandé. */
   let positionValideePour = "";
+  /* (3.73.0) Le choix FR/EN se dit à la base, une fois par page. */
+  let langueSuivie = false;
 
   function naviguer() {
     file = file.then(dessinerEcran).catch((err) => { console.error(err); });
@@ -510,6 +512,15 @@
     }
     /* (3.65.0) Ce téléphone sonne pour ce compte, application fermée. */
     if (typeof Push !== "undefined") Push.declarer();
+    /* (3.73.0) La base retient la langue du compte : ses notifications
+       partent dans cette langue. Une base d'avant : rien de grave. */
+    if (window.Langue) {
+      Supabase.rpc("regler_langue", { langue: Langue.courante() }).catch(() => {});
+      if (!langueSuivie) {
+        langueSuivie = true;
+        Langue.surChoix((l) => { Supabase.rpc("regler_langue", { langue: l }).catch(() => {}); });
+      }
+    }
     /* Un compte de boutique dont la boutique n'existe pas n'a de prise sur
        rien : mieux vaut un écran qui l'explique qu'une application à
        moitié morte — ou pire, des produits créés hors de toute boutique.

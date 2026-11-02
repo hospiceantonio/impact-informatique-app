@@ -37,6 +37,7 @@
    ========================================================= */
 
 import { type Abonnement, envoyerWebPush, lireClesVapid } from "../_partage/webpush.ts";
+import { traduire } from "../_partage/langue.ts";
 
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -44,7 +45,7 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const json = (corps: unknown, statut = 200) =>
   new Response(JSON.stringify(corps), { status: statut, headers: { "Content-Type": "application/json" } });
 
-type APousser = { id: number; titre: string; corps: string; lien: string; tache?: string; abonnements: Abonnement[] };
+type APousser = { id: number; titre: string; corps: string; lien: string; tache?: string; langue?: string; abonnements: Abonnement[] };
 
 async function base(fonction: string, corps: unknown): Promise<unknown> {
   const r = await fetch(BASE + "/rest/v1/rpc/" + fonction, {
@@ -90,8 +91,9 @@ Deno.serve(async (requete) => {
   /* 2. LE WEB PUSH. */
   /* « tache » : l'étiquette de la notification — les alertes d'une même
      tâche se remplacent sur le téléphone au lieu de s'empiler. */
-  const donnees = { titre: n.titre || "BIZZOO Personnel", corps: n.corps || "", lien: n.lien || "#/file", id: n.id,
-                    tache: n.tache || "" };
+  /* (3.73.0) Dans la langue de l'employé (langues_comptes). */
+  const donnees = { titre: traduire(n.titre || "BIZZOO Personnel", n.langue), corps: traduire(n.corps || "", n.langue),
+                    lien: n.lien || "#/file", id: n.id, tache: n.tache || "" };
   let envoyees = 0;
   const echecs: string[] = [];
   for (const a of abonnements) {

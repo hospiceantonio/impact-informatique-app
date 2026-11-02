@@ -26,6 +26,14 @@
 alter table public.commande_lignes add column if not exists livreur_id uuid;
 alter table public.commande_lignes add column if not exists recu_le timestamptz;
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.langue_du_compte(qui uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select l.langue from public.langues_comptes l where l.compte = qui), 'fr');
+$$;
+revoke all on function public.langue_du_compte(uuid) from public, anon, authenticated;
+grant execute on function public.langue_du_compte(uuid) to service_role;
+
 -- Empruntées par les fonctions plus bas, recopiées telles quelles.
 create or replace function public.restes_par_boutique(cible text)
 returns table (boutique_id text, a_encaisser bigint)
@@ -195,6 +203,8 @@ begin
   return jsonb_build_object(
     'id', n.id, 'type', n.type, 'titre', n.titre, 'corps', n.corps, 'lien', n.lien,
     'commande_id', n.commande_id,
+    -- (3.73.0) La langue du destinataire : la fonction Edge traduit.
+    'langue', public.langue_du_compte(n.destinataire),
     'application', case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end,
     'jetons', coalesce((select jsonb_agg(a.jeton order by a.maj_le desc)
                           from public.appareils_push a
@@ -378,6 +388,7 @@ declare
   etat_x text := 'a_envoyer';
   code_x text := '';
   nouveau bigint;
+  en     boolean;
 begin
   select * into r from public.sms_reglages where id = 1;
   if not found or not r.actif or r.url = '' or not (l_etape = any(r.etapes)) then
@@ -435,7 +446,38 @@ begin
   end if;
 
   num := coalesce(nullif(c.numero, ''), c.id);
-  if l_etape = 'commande_payee' then
+  -- (3.73.0) Le client qui a choisi l'anglais reçoit ses SMS en anglais.
+  en := public.langue_du_compte(c.client_id) = 'en';
+  if en then
+    if l_etape = 'commande_payee' then
+      select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
+      msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
+                  then 'BIZZOO: your order ' || num || ' is registered and paid. We are preparing it.'
+                  else 'BIZZOO: your order ' || num || ' is confirmed. We are preparing it.' end
+          || case when reste > 0 then ' Balance to pay on delivery: ' || reste || ' FCFA.' else '' end
+          || ' We will send you your delivery rider''s name.';
+    elsif l_etape = 'course_acceptee' then
+      select coalesce(nullif(btrim(p.nom), ''), 'Your delivery rider') as nom,
+             regexp_replace(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g'), '^229', '') as tel
+        into liv
+        from public.profils p where p.id::text = la_cle;
+      if not found then
+        return null;
+      end if;
+      msg := 'BIZZOO: ' || liv.nom || ' is delivering your order ' || num || '.'
+          || case when liv.tel <> '' then ' Their number: ' || liv.tel || '.' else '' end
+          || ' Keep your phone nearby.';
+    elsif l_etape = 'commande_en_livraison' then
+      msg := 'BIZZOO: your order ' || num || ' is on its way. Keep your phone nearby.';
+    elsif l_etape = 'commande_remise' then
+      msg := 'BIZZOO: your order ' || num || ' has been delivered. Thank you for your trust!';
+    elsif l_etape = 'commande_annulee' then
+      msg := 'BIZZOO: one or more items of your order ' || num
+          || ' were cancelled. Open your receipt or contact us for details.';
+    else
+      return null;
+    end if;
+  elsif l_etape = 'commande_payee' then
     select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
     msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
                 then 'BIZZOO : votre commande ' || num || ' est enregistree et payee. Nous la preparons.'
