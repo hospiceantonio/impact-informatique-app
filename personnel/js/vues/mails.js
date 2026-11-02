@@ -113,7 +113,7 @@ const VueMails = (() => {
             h("div", { class: "ligne" },
               h("span", { class: "titre etire coupe" }, envoyes ? "À : " + nomDe(m.a) : nomDe(m.de)),
               h("span", { class: "doux tres-petit" }, UI.quand(m.date))),
-            h("div", { class: "coupe petit" + (m.lu ? " doux" : " gras") }, m.sujet || "(sans objet)")),
+            h("div", { class: "coupe petit" + (m.lu ? " doux" : " gras"), translate: m.sujet ? "no" : null }, m.sujet || "(sans objet)")),
           m.pieces ? UI.icone("trombone", "ic-sm") : null))),
       pagination(dossier, recherche, page, r.total, r.par_page));
   }
@@ -173,7 +173,7 @@ const VueMails = (() => {
     UI.vider(zone,
       h("div", { class: "carte pile" },
         h("div", { class: "mail-entete pile" },
-          h("h2", { style: { fontSize: "17px", marginBottom: 0 } }, m.sujet || "(sans objet)"),
+          h("h2", { style: { fontSize: "17px", marginBottom: 0 }, translate: m.sujet ? "no" : null }, m.sujet || "(sans objet)"),
           h("div", { class: "petit" }, h("b", {}, "De : "), listeAdresses(m.de)),
           h("div", { class: "petit doux" }, h("b", {}, "À : "), listeAdresses(m.a)),
           m.cc.length ? h("div", { class: "petit doux" }, h("b", {}, "Cc : "), listeAdresses(m.cc)) : null,

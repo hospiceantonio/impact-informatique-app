@@ -1116,6 +1116,21 @@ const Catalogue = (() => {
     return memeSc.concat(memeCat).slice(0, n);
   }
 
+  /**
+   * (3.73.0) LE RAYON D'UN PRODUIT, dans l'ordre de l'écran du rayon (du
+   * moins cher au plus cher) : la fiche se balaie vers le suivant ou le
+   * précédent. Le rayon, c'est la sous-catégorie ; un produit rangé sans
+   * sous-catégorie suit ceux de sa catégorie qui n'en ont pas non plus.
+   * Le produit lui-même en fait partie, pour savoir où il se place.
+   */
+  function rayonDuProduit(p) {
+    if (!p || !p.categorieId) return [];
+    const liste = produits().filter((x) => x.categorieId === p.categorieId &&
+      (x.sousCategorieId || "") === (p.sousCategorieId || ""));
+    if (!liste.some((x) => x.id === p.id)) liste.push(p);
+    return liste.sort(parPrixCroissant);
+  }
+
   /* ---------- Images ---------- */
 
   /** Les images du catalogue sont des URL complètes ; on tolère les anciens chemins. */
@@ -1135,7 +1150,7 @@ const Catalogue = (() => {
     boutiques, multiBoutiques, boutiqueChoisie, choisirBoutique,
     quitterBoutique, nombreParBoutique,
     categories, categorie, sousCategories, sousCategorie,
-    produits, produit, produitsDeCategorie,
+    produits, produit, produitsDeCategorie, rayonDuProduit,
     categoriesBizzoo, categoriesEnAvant, rayonsDeLaCategorie,
     rayonsDeLaBoutique, produitsDeLEnseigne,
     slides, slidesGeneral, publicites, misEnAvant,

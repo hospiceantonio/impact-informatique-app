@@ -69,7 +69,9 @@ const VueConnexion = (() => {
         '<button type="button" class="btn" id="cx-connecter">Se connecter</button>' +
         '<div class="aide" id="cx-erreur" style="color:var(--rouge-fonce);text-align:center"></div>' +
         '<div class="aide" style="text-align:center">Mot de passe oublié ? Écrivez à <a href="mailto:contact@bizzoomarket.com">contact@bizzoomarket.com</a> pour retrouver l’accès à votre compte.</div>' +
-      "</div>";
+      "</div>" +
+      /* (3.73.0) La langue, avant même de se connecter. */
+      '<div class="carte" data-langue id="cx-langue"></div>';
 
     const lancer = async () => {
       const bouton = UI.$("#cx-connecter");

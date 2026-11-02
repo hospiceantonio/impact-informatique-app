@@ -34,6 +34,14 @@
 -- ---------- Les aides (copies de schema.sql) ----------
 -- (les fonctions qu'il emprunte, recopiées telles quelles)
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.langue_du_compte(qui uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select l.langue from public.langues_comptes l where l.compte = qui), 'fr');
+$$;
+revoke all on function public.langue_du_compte(uuid) from public, anon, authenticated;
+grant execute on function public.langue_du_compte(uuid) to service_role;
+
 create or replace function public.rh_moi() returns uuid
 language sql stable security definer set search_path = public as $$
   select id from public.rh_employes where compte_id = auth.uid() and etat = 'actif';
@@ -1543,6 +1551,8 @@ begin
   end if;
   return jsonb_build_object(
     'id', s.id, 'titre', s.titre, 'corps', s.corps, 'lien', s.lien,
+    -- (3.73.0) La langue de l'employé : la fonction Edge traduit.
+    'langue', public.langue_du_compte(s.compte),
     'tache', regexp_replace(regexp_replace(s.cle, '^escalade:', ''), '#[0-9]+\Z', ''),
     'abonnements', coalesce((select jsonb_agg(jsonb_build_object('endpoint', a.endpoint, 'p256dh', a.p256dh, 'auth', a.auth)
                                               order by a.cree_le desc)

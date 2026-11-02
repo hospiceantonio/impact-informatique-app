@@ -48,10 +48,24 @@ const VueNotifications = (() => {
   const famille = (type) => FAMILLES[String(type || "").replace(/_avant_\d+$/, "")] ||
     { nom: "Autres", icone: "cloche" };
 
+  /* (3.73.0) « NUMÉRO DE RÉCEPTION » MENAIT AUX REVERSEMENTS, où l'on lisait la
+     demande d'un autre. Les nouvelles mènent à la fiche de la personne ;
+     celles d'avant, à son écran : livreurs, vendeurs, ou le solde de la
+     boutique. */
+  function lienDe(n) {
+    if (n.type === "reception_reglee" && (n.lien || "") === "#/reversements") {
+      if (/d'un livreur/.test(n.titre || "")) return "#/livreurs";
+      if (/d'un vendeur/.test(n.titre || "")) return "#/vendeurs";
+      if (n.boutiqueId) return "#/solde";
+    }
+    return n.lien || "#/";
+  }
+
   function htmlUne(n) {
     return (
       '<a class="notif' + (n.lue ? " notif-lue" : "") + '" href="' +
-        e(n.lien || "#/") + '" data-notif="' + e(String(n.id)) + '">' +
+        e(lienDe(n)) + '" data-notif="' + e(String(n.id)) + '"' +
+        (n.type === "reception_reglee" && n.boutiqueId ? ' data-boutique-solde="' + e(n.boutiqueId) + '"' : "") + ">" +
         '<span class="notif-rond">' + UI.icone(famille(n.type).icone, "ic-sm") + "</span>" +
         '<span class="notif-corps">' +
           '<span class="notif-titre">' + e(n.titre) + "</span>" +
@@ -90,7 +104,11 @@ const VueNotifications = (() => {
 
   function brancher(vue) {
     for (const a of UI.$$("[data-notif]", vue)) {
-      a.addEventListener("click", () => { Notifs.marquerLue(a.dataset.notif); });
+      a.addEventListener("click", () => {
+        Notifs.marquerLue(a.dataset.notif);
+        /* Le numéro d'une boutique se lit dans SON solde : on l'ouvre d'abord. */
+        if (a.dataset.boutiqueSolde) { try { Store.choisirBoutique(a.dataset.boutiqueSolde); } catch (_) { /* elle reste */ } }
+      });
     }
     const tout = UI.$("#notif-tout-lu", vue);
     if (tout) {

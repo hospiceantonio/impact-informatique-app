@@ -71,6 +71,43 @@ revoke all on sequence public.reversements_id_seq from anon, authenticated;
 -- (3.70.0) Lue plus bas : posée ici aussi, comme toute colonne qu'une fonction du fichier lit.
 alter table public.commande_lignes add column if not exists vendeur_id uuid;
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.rh_est_ceo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.rh_employes
+                  where compte_id = auth.uid() and etat = 'actif' and ceo);
+$$;
+
+create or replace function public.rh_mon_nom() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select btrim(coalesce(e.prenoms, '') || ' ' || coalesce(e.nom, ''))
+                     from public.rh_employes e where e.compte_id = auth.uid() and e.etat = 'actif'), '');
+$$;
+revoke all on function public.rh_mon_nom() from public, anon;
+grant execute on function public.rh_mon_nom() to authenticated, service_role;
+
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.decideur_reversement() returns text
+language sql stable security definer set search_path = public as $$
+  select case when public.est_super() then public.nom_du_compte()
+              else coalesce(nullif(public.rh_mon_nom(), ''), public.nom_du_compte()) end;
+$$;
+revoke all on function public.decideur_reversement() from public, anon, authenticated;
+
+create or replace function public.rh_reversements_acces() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.rh_est_ceo() or exists (
+    select 1 from public.rh_employes e join public.rh_profils p on p.id = e.profil_id
+     where e.compte_id = auth.uid() and e.etat = 'actif' and p.comptabilite);
+exception when undefined_table or undefined_column then
+  -- Une base d'avant BIZZOO Personnel ou d'avant la comptabilité :
+  -- personne n'y a l'accès, et les listes restent au superadministrateur.
+  return false;
+end $$;
+revoke all on function public.rh_reversements_acces() from public, anon;
+grant execute on function public.rh_reversements_acces() to authenticated;
+
 -- Qui DEMANDE un reversement et règle le numéro : l'administrateur de la
 -- boutique, ou le superadministrateur. Un modérateur, non : c'est de
 -- l'argent.
@@ -264,7 +301,8 @@ begin
     'Numéro de réception changé — ' || coalesce((select b.nom from public.boutiques b where b.id = cible), cible),
     qui || ' a réglé le numéro de réception : ' || res || ' ' || national ||
       coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
-    '#/reversements', null, cible, false);
+    -- (3.73.0) Le solde de la boutique, où ce numéro se lit (plus les reversements).
+    '#/solde', null, cible, false);
   return jsonb_build_object('tel', national, 'reseau', res);
 end $$;
 revoke all on function public.regler_reception(text, text, text, text) from public, anon;
@@ -303,7 +341,8 @@ begin
     'Reversement demandé : ' || public.montant_lisible(montant, solde ->> 'devise'),
     coalesce((select b.nom from public.boutiques b where b.id = cible), cible) || ' — à envoyer sur ' ||
       r.reseau || ' ' || r.tel || coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '. Demandé par ' || qui || '.',
-    '#/reversements', null, cible, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/boutique-' || nouv, null, cible, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement(text, bigint) from public, anon;
@@ -317,7 +356,10 @@ returns table (id bigint, boutique_id text, nom_boutique text, montant bigint, t
                decide_le timestamptz, reference text, motif text, devise text)
 language plpgsql stable security definer set search_path = public as $$
 begin
-  if not (public.est_super() or (cible is not null and public.tient_la_caisse(cible))) then
+  -- (3.73.0) Toutes les boutiques : le superadministrateur, et dans BIZZOO
+  -- Personnel le CEO et la comptabilité (rh_reversements_acces).
+  if not (public.est_super() or (cible is null and public.rh_reversements_acces())
+          or (cible is not null and public.tient_la_caisse(cible))) then
     return;
   end if;
   return query
@@ -345,8 +387,10 @@ declare
   pourquoi text := left(trim(coalesce(motif, '')), 300);
   dev text;
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un reversement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un reversement.';
   end if;
   select * into v from public.reversements where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -358,7 +402,7 @@ begin
   end if;
   update public.reversements
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   dev := coalesce((select nullif(b.devise, '') from public.boutiques b where b.id = v.boutique_id), 'FCFA');

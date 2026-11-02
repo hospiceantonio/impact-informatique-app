@@ -51,6 +51,22 @@ const App = (() => {
   let alertesSuivi = 0;
   /* (3.69.0) Les incidents ouverts : la pastille du menu Incidents. */
   let incidentsOuverts = 0;
+  /* (3.73.0) Les demandes de reversement qui attendent : la pastille du
+     menu Reversements, réservé au CEO et aux membres du profil
+     « Comptabilité ». La base le dit (rh_reversements_acces) et elle seule
+     rend les listes : le menu n'est qu'une porte. */
+  let reversementsEnAttente = 0;
+  /* (3.73.0) Le choix FR/EN se dit à la base, une fois par page. */
+  let langueSuivie = false;
+  let accesReversements = false;
+  const traiteReversements = () => accesReversements;
+  async function compterReversements() {
+    accesReversements = await Supabase.rpc("rh_reversements_acces").then((v) => v === true).catch(() => false);
+    if (!accesReversements) return 0;
+    const listes = await Promise.all(["reversements_liste", "reversements_livreurs_liste", "reversements_vendeurs_liste"]
+      .map((f) => Supabase.rpc(f, f === "reversements_liste" ? { cible: null } : {}).catch(() => [])));
+    return listes.reduce((n, l) => n + (l || []).filter((r) => r.etat === "en_attente").length, 0);
+  }
   let alertesVue = null;
   /** Le suivi dit combien de commandes en alerte il affiche. */
   function alertesAffichees(n) {
@@ -85,6 +101,7 @@ const App = (() => {
     incidents: VueIncidents,
     livreurs: VueLocaliser,
     controles: VueControles,
+    reversements: VueReversements,
     "liste-livreurs": VueLivreurs,
     qualite: VueQualite,
     file: VueFile,
@@ -132,6 +149,10 @@ const App = (() => {
       { route: "qualite", libelle: "Qualité", icone: "etoile", pour: () => !!qualite.acces,
         pastille: (qualite.sav_sans_reponse || 0) + (qualite.sav_escalades || 0) + (qualite.ruptures_a_appeler || 0)
           + (qualite.files_en_retard || 0) },
+      /* (3.73.0) Les demandes de reversement (boutiques, livreurs, vendeurs) :
+         le superadministrateur seul — la base ne les rend qu'à lui. */
+      { route: "reversements", libelle: "Reversements", icone: "argent", pour: traiteReversements,
+        pastille: reversementsEnAttente },
       { route: "statistiques", libelle: "Statistiques", icone: "stats", pour: voitStatistiques },
       /* L'administration (montants) et les responsables de profil (nombres). */
       { route: "bilans", libelle: "Bilan du matin", icone: "rapport", pour: () => !!file.bilan },
@@ -170,8 +191,10 @@ const App = (() => {
           : [];
         return [titre, lien, sous];
       }),
-      h("div", { class: "pied" }, UI.nomComplet(moi()), h("br"), h("span", { class: "tres-petit" },
-        estCeo() ? "CEO" : estAdmin() ? "Administration" : (moi() && moi().profil) || "")));
+      h("div", { class: "pied" }, h("span", { translate: "no" }, UI.nomComplet(moi())), h("br"), h("span", { class: "tres-petit" },
+        estCeo() ? "CEO" : estAdmin() ? "Administration" : (moi() && moi().profil) || ""),
+        /* (3.73.0) La langue, au pied du menu. */
+        h("div", { "data-langue": "", style: { marginTop: "10px" } })));
 
     /* Sur téléphone, cinq onglets : les quatre premiers, puis « Plus ». */
     const onglets = document.getElementById("onglets");
@@ -205,7 +228,9 @@ const App = (() => {
       const items = menu().filter((m) => !["accueil", "mails", "discussions", "missions"].includes(m.route));
       UI.vider(zone, h("div", { class: "liste" }, items.map((m) =>
         h("a", { class: "element", href: "#/" + m.route }, UI.icone(m.icone),
-          h("span", { class: "etire gras" }, m.libelle), pastille(m.pastille), UI.icone("chevron", "ic-sm")))));
+          h("span", { class: "etire gras" }, m.libelle), pastille(m.pastille), UI.icone("chevron", "ic-sm")))),
+        /* (3.73.0) La langue : Français / English (js/langue.js pose le bouton). */
+        h("div", { class: "carte", "data-langue": "", style: { marginTop: "14px" } }));
     },
   };
 
@@ -277,6 +302,7 @@ const App = (() => {
         alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => alertesSuivi);
         incidentsOuverts = await Supabase.rpc("rh_incidents_ouverts_nb").catch(() => incidentsOuverts);
       }
+      if (tableau && tableau.moi) reversementsEnAttente = await compterReversements().catch(() => reversementsEnAttente);
       if (tableau && tableau.moi) dessinerMenus();
     } catch (err) {
       if (err && err.deconnecte) deconnecte();
@@ -354,11 +380,21 @@ const App = (() => {
     }
     menus = [];
     alertesSuivi = 0;
+    /* (3.73.0) La base retient la langue de l'employé : ses alertes
+       partent dans cette langue. Une base d'avant : rien de grave. */
+    if (window.Langue) {
+      Supabase.rpc("regler_langue", { langue: Langue.courante() }).catch(() => {});
+      if (!langueSuivie) {
+        langueSuivie = true;
+        Langue.surChoix((l) => { Supabase.rpc("regler_langue", { langue: l }).catch(() => {}); });
+      }
+    }
     await chargerMenus();
     if (voitSuivi()) {
       alertesSuivi = await Supabase.rpc("rh_suivi_alertes_nb").catch(() => 0);
       incidentsOuverts = await Supabase.rpc("rh_incidents_ouverts_nb").catch(() => 0);
     }
+    reversementsEnAttente = await compterReversements().catch(() => 0);
     dessinerMenus();
     /* La paie de fin de mois se rattrape à l'ouverture si personne ne
        l'a faite (et si pg_cron n'est pas là pour la faire). */
@@ -390,7 +426,7 @@ const App = (() => {
   demarrer();
 
   return {
-    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, file: () => file, estCeo, estAdmin, estSuper, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
+    moi, compteurs, compteursSolde: () => compteursSolde, controles: () => controles, argent: () => argent, file: () => file, estCeo, estAdmin, estSuper, traiteReversements, peutDecaisser, responsableDe, estResponsable, ouvert, sousMenusStatistiques,
     rafraichir, naviguer, titre, deconnecte, demarrer, alertesAffichees,
   };
 })();

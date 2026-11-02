@@ -257,6 +257,9 @@ select essai.refuse($$select public.demander_reversement_livreur(500)$$, 'une de
 select essai.refuse(format($$select public.decider_reversement_livreur(%s, true, 'REF-0001')$$, :dem),
   'il ne valide pas lui-même');
 reset role; select essai.personne();
+select essai.egal((select lien from public.notifications where type = 'reception_reglee'
+                    and destinataire = :ENSEIGNE::uuid and lien like '#/livreurs/%' order by id desc limit 1),
+  '#/livreurs/' || :BZM, '(3.73.0) la notification du numéro mène à SA fiche, pas aux reversements');
 select essai.egal((select tel || '/' || reseau from public.reversements_livreurs where id = :dem), '0197500002/MTN',
   'le numéro, ramené à dix chiffres, voyage avec la demande');
 select essai.egal((select count(*)::int from public.notifications

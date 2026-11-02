@@ -34,7 +34,9 @@ const VueSoldes = (() => {
 
   function htmlDemande(r, avecBoutique) {
     const etat = ETATS[r.etat] || ETATS.en_attente;
-    return '<div class="sd-ligne" data-reversement="' + e(String(r.id)) + '">' +
+    /* (3.73.0) « livreur-7 » : la notification de la demande y mène. */
+    const cle = (r.livreur ? "livreur" : r.vendeur ? "vendeur" : "boutique") + "-" + r.id;
+    return '<div class="sd-ligne" data-reversement="' + e(String(r.id)) + '" data-cle="' + e(cle) + '">' +
       '<div class="sd-ligne-haut">' +
         "<strong>" + e(m(r.montant, r.devise)) + "</strong>" +
         '<span class="badge ' + etat.classe + '">' + e(etat.mot) + "</span>" +

@@ -222,7 +222,7 @@ const VueDiscussions = (() => {
         conteneur.append(h("div", { class: "bulle" + (mien ? " moi" : "") },
           !mien && genre !== "d" ? h("div", { class: "auteur" }, UI.nomComplet(auteur)) : null,
           m.piece ? h("div", { class: "piece" }, lecteur(m, liens[m.piece])) : null,
-          m.texte ? h("div", { class: "pre" }, m.texte) : null,
+          m.texte ? h("div", { class: "pre", translate: "no" }, m.texte) : null,
           h("div", { class: "heure" }, UI.dateHeure(m.cree_le))));
         dernier = Math.max(dernier, m.id);
       }

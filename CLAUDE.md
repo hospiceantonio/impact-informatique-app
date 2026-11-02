@@ -163,3 +163,14 @@ Les 18 bancs :
   - on l'exécute dans l'éditeur SQL de Supabase, ou avec le connecteur Supabase s'il est branché.
 - Les fonctions Edge (paiement FeexPay, hook SMS) sont dans `supabase/functions/`. Leurs essais : `tools/eprouver-paiement.sh` et `tools/eprouver-sms.sh`.
 - `apk/` est écrit par GitHub : ne jamais y toucher à la main.
+
+## Deux langues (depuis 3.73.0)
+
+Les applications s'écrivent en français ; l'anglais vient du dictionnaire
+(README, « Deux langues »). Tout texte d'écran ajouté ou modifié se traduit
+avant la livraison : `tools/extraire-textes.mjs <app>` liste ce qui manque
+(`i18n/<app>.a-traduire.json`), on l'ajoute à `i18n/en.json`, puis
+`--construire`. Une notification nouvelle de la base va dans
+`i18n/commun.*`, puis `tools/extraire-textes.mjs serveur`. Ce que les gens
+écrivent (produits, messages, noms) se marque `translate="no"`.
+`tools/banc-deux-langues.mjs` refuse un texte français oublié.

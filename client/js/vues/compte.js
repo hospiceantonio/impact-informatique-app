@@ -36,6 +36,8 @@ const VueCompte = (() => {
           "Bonjour " + (maison.nom || "BIZZOO") + ", je souhaite un renseignement.", maison.indicatif)
       : "";
     return (
+      /* (3.73.0) La langue : Français / English (js/langue.js pose le bouton). */
+      '<div class="carte" data-langue id="cp-langue"></div>' +
       '<div class="carte cp-bizzoo">' +
         '<a class="ligne-info" href="#/infos">' +
           '<span class="rond-bleu">' + UI.icone("infos") + "</span>" +

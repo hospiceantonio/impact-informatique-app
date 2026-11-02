@@ -5528,6 +5528,207 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Deux langues : français et anglais (3.73.0)
+
+Les trois applications (client, Admin, Personnel), la vitrine et les pages
+légales parlent **français et anglais**.
+
+**Quelle langue.** Celle choisie au bouton **FR / EN** (retenue sur
+l'appareil), sinon celle du téléphone ou du navigateur : l'anglais s'il
+est en anglais, le français dans tous les autres cas. Le bouton est à la
+connexion et dans « Mon compte » (client, Admin), au pied du menu et dans
+« Plus » (Personnel), en haut à droite des pages du site.
+
+**Comment c'est traduit.** Les applications écrivent toujours leurs écrans
+en français. `js/langue.js` (un seul fichier : l'original est
+`client/js/langue.js`, recopié par `tools/synchroniser-langue.sh`) traduit
+à l'affichage chaque texte et les attributs lus (placeholder, title,
+aria-label, alt) avec le dictionnaire de l'application
+(`js/traductions-en.js`) :
+
+1. le texte entier ;
+2. sinon un **motif** (phrase à trous : « Commande BZ-0042 — il part
+   bientôt. ») ;
+3. sinon les **morceaux** connus — seulement si le texte en est presque
+   entièrement fait : une phrase écrite par quelqu'un ne sort jamais
+   mi-française, mi-anglaise.
+
+Un texte de plusieurs lignes (une alerte de course) se traduit ligne par
+ligne. Les dates et les nombres passent au format anglais (`fr-FR` →
+`en-GB`), les noms de mois aussi.
+
+**Ce qui n'est jamais traduit** : ce que les gens écrivent — nom et
+description d'un produit, messages, mails, noms — marqué
+`translate="no"`, et les champs de saisie.
+
+**Les textes de la base.** Chaque compte a sa langue (`langues_comptes`,
+réglée par l'application avec `regler_langue` à la connexion et au
+bouton) :
+
+- les **notifications sur le téléphone** : `push_a_envoyer` et
+  `rh_push_a_envoyer` rendent la langue du destinataire ; `envoyer-push`
+  et `rh-push` traduisent le titre et le texte
+  (`supabase/functions/_partage/langue.ts`) ;
+- les **SMS au client** : `sms_prevoir` les écrit en anglais pour un
+  client anglophone ;
+- dans la cloche des applications, les mêmes motifs les traduisent.
+
+**L'application Android** écrit elle-même quelques textes (canaux de
+notification, position des livreurs, enregistrement d'un fichier) :
+`Textes.java`, selon la langue que la page lui dit (`AndroidPont.langue`),
+sinon celle du téléphone.
+
+**Ajouter ou modifier un texte.** Écrire le français dans l'application,
+comme toujours, puis :
+
+```bash
+# acorn (lecteur de JavaScript) : npm install acorn dans un dossier à part
+ACORN=<dossier>/node_modules/acorn/dist/acorn.mjs node tools/extraire-textes.mjs client   # (admin, personnel, vitrine)
+# traduire ce que liste i18n/client.a-traduire.json dans i18n/en.json, puis :
+node tools/extraire-textes.mjs client --construire
+node tools/extraire-textes.mjs serveur        # si une notification de la base a changé (i18n/commun.*)
+bash tools/synchroniser-langue.sh             # si langue.js a changé
+```
+
+Une notification nouvelle de la base : son titre et son texte vont dans
+`i18n/commun.en.json` (texte fixe) ou `i18n/commun.motifs.json` (phrase à
+trous). `tools/banc-deux-langues.mjs` parcourt les trois applications en
+anglais et refuse tout texte français oublié, ou un dictionnaire pas à
+jour.
+
+SQL : `supabase/deux-langues.sql`. Essais :
+`supabase/tests/99z…z-deux-langues.sql`, `tools/eprouver-push.sh`
+(section 4 bis). Banc : `tools/banc-deux-langues.mjs`.
+
+**Les bancs tournent en français.** Chromium sans écran se croit en
+anglais (`en-US`) : les applications s'y ouvriraient en anglais. Lancer
+les bancs avec `LANG=fr_FR.UTF-8 LANGUAGE=fr` devant `node`, comme sur un
+téléphone béninois.
+
+## Des histogrammes qu'on sait lire (BIZZOO Personnel, 3.73.0)
+
+Statistiques → Commandes, « Commandes payées par jour » n'avait ni axe
+ni valeurs : des barres sans échelle, une seule date. Désormais :
+
+- un **axe des valeurs gradué** (0, la moitié, le haut — arrondis à 1, 2,
+  2,5 ou 5 × 10ⁿ) et ses lignes de repère ;
+- le **nombre au-dessus de chaque barre** (jusqu'à 31 barres), la
+  **date sous chaque barre** (une sur deux, trois… au-delà de 12) ;
+- les **jours sans commande comptent**, à zéro : ils manquaient, et deux
+  barres voisines pouvaient être à une semaine d'écart ;
+- un **résumé** : total, moyenne par jour, meilleur jour ;
+- **toucher une barre** : le jour en toutes lettres, le nombre de
+  commandes, le montant (pour qui voit l'argent) ;
+- pour qui voit l'argent, **Nombre / Montant** bascule le graphe en FCFA
+  (« 250 k », « 1,2 M » sur l'axe).
+
+Les barres par mois (coût employeur, décaissé, résultat) suivent la même
+règle ; un mois en perte descend sous la ligne du zéro, en rouge, avec
+sa valeur. Banc : `tools/banc-statistiques-graphe.mjs`.
+
+## Chaque notification mène à l'écran exact (3.73.0)
+
+Toucher une notification — sur le téléphone, application fermée, ou
+dans la cloche de l'application — ouvre ce qu'elle annonce, pas une
+liste ni l'accueil :
+
+| Notification | Écran ouvert |
+|---|---|
+| Nouvelle course (livreur) | **cette course**, amenée sous les yeux et marquée (`#/livraisons/<commande>`) ; déjà prise : on le dit |
+| Rupture de stock, stock à vérifier | la **fiche du produit** (`#/produit/<id>`) ; plusieurs d'un coup : le stock filtré |
+| Reversement demandé | **cette demande**, marquée (`#/reversements/livreur-7`, `boutique-…`, `vendeur-…`) |
+| Compte à valider, compte validé | la **fiche du compte** (`#/comptes/<id>`) |
+| Nouveau produit (appli client) | la **fiche du produit**, plus l'accueil |
+| Commande, course, reçu… | la commande (déjà le cas) ; `#/commande/<id>` ouvert dans Admin mène à `#/commandes/<id>` |
+
+Une fois l'élément montré, l'adresse redevient celle de la liste : le
+rafraîchissement en direct et « Retour » marchent comme d'habitude.
+
+Côté Android, le lien d'une notification n'était accepté que sans
+paramètres : `#/stock?filtre=rupture` était refusé et l'application
+s'ouvrait sur l'accueil. Les caractères `? = & . : %` passent désormais
+(le lien n'est jamais qu'affecté à `location.hash`, entre guillemets
+JSON). Déjà sur l'écran visé, la touche le redessine quand même.
+
+SQL : `supabase/notifications-precises.sql`. Essai :
+`supabase/tests/99z…z-notifications-precises.sql`. Banc :
+`tools/banc-notifications-precises.mjs`.
+
+## Balayer d'un produit à l'autre du rayon (3.73.0)
+
+Sur la fiche d'un produit (appli client), un geste **vers la gauche**
+ouvre le produit **suivant du même rayon**, vers la droite le
+**précédent** — dans l'ordre de l'écran du rayon (du moins cher au plus
+cher), dans la boutique où l'on est. Une petite barre sous la photo dit
+où l'on en est (« ‹ 3 / 12 · Accessoires › ») ; ses flèches font la même
+chose. Au bout du rayon, on le dit et l'on reste ; un produit seul dans
+son rayon n'a pas de barre.
+
+- La fiche suivante **remplace** la précédente dans l'historique :
+  « Retour » ramène à la liste d'où l'on venait, en une fois.
+- Un geste sur les **photos** fait défiler les photos ; sur une rangée de
+  produits, un champ ou une vidéo, rien ; un geste parti du **bord** de
+  l'écran est laissé au « retour » d'Android ; un geste surtout vertical
+  reste un défilement.
+- `overscroll-behavior-x: none` : Chrome ne prend pas le geste vers la
+  droite pour « page précédente ».
+
+`Catalogue.rayonDuProduit(p)`, `client/js/vues/produit.js`. Banc :
+`tools/banc-balayer-rayon.mjs` (de vrais gestes tactiles).
+
+## Les reversements dans BIZZOO Personnel (3.73.0)
+
+Un menu **« Reversements »**, visible du **CEO** et des membres du profil
+**« Comptabilité »** seuls (`rh_reversements_acces`), avec
+une pastille qui compte les demandes à traiter. L'écran rassemble les
+demandes d'argent des **boutiques**, des **livreurs** et des **vendeurs** :
+à traiter d'abord, puis déjà traitées ; filtres par état et par
+demandeur, recherche. Pour un livreur, le nom du compte MoMo enregistré
+est rappelé, et un nom différent de celui qu'il a donné est signalé.
+« Envoyé » note la référence de la transaction (un numéro de téléphone
+recopié à sa place est signalé), « Refuser » un motif — par les mêmes
+fonctions que BIZZOO Admin (`decider_reversement`,
+`decider_reversement_livreur`, `decider_reversement_vendeur`). La base ne
+rend ces listes qu'au CEO, à la comptabilité et au superadministrateur
+(qui garde BIZZOO Admin → Reversements), et refuse à tout autre de
+trancher ; la décision porte le nom de l'employé. Le nom MoMo vient de
+`noms_momo`. Pour un autre compte — administration comprise, et même un
+superadministrateur qui n'est pas le CEO —, ni le menu ni l'écran.
+
+Le profil **« Comptabilité »** est posé vide (`rh_profils.comptabilite`) :
+le CEO y range le comptable depuis sa fiche. **Seul le CEO** marque un
+profil « comptabilité » et y fait entrer ou sortir un employé
+(déclencheurs `rh_profils_comptabilite`, `rh_employes_comptabilite`) :
+sans cela, l'administration pourrait s'y placer elle-même.
+SQL : `supabase/reversements-comptabilite.sql`. Essai :
+`supabase/tests/99z…z-reversements-comptabilite.sql`.
+Banc : `tools/banc-personnel-reversements.mjs`.
+
+## Chaque sorte de compte à sa place (3.73.0)
+
+L'écran **Comptes** de l'admin ne mélange plus tout :
+
+- **une section par rang** : les administrateurs, les modérateurs, et les
+  superadministrateurs pour qui les voit — chacune avec sa liste (par ordre
+  alphabétique), son champ de recherche et son bouton (« Créer un
+  administrateur », « Créer un modérateur »), le rang fixé d'avance ;
+- **les livreurs, les vendeurs et les revendeurs ont leur écran** : une
+  carte y mène depuis Comptes. Les **vendeurs** ne sont plus dans la liste
+  de l'équipe ; leur écran (« Vendeurs ») gère aussi leur compte — un
+  crayon ouvre leur fiche (nom, numéro, mot de passe, actif), où ils restent
+  vendeurs, sans boutique —, avec une recherche et l'ordre alphabétique.
+
+Bancs : `tools/banc-listes-cherchables.mjs` (section 4),
+`tools/banc-vendeurs-multiples.mjs` (section 5).
+
+**« Numéro de réception » mène à la bonne fiche.** La notification menait à
+Reversements, où l'on lisait la demande en attente d'un autre. Elle mène
+désormais à la fiche du livreur (qui montre son numéro de réception, et
+signale un nom différent de celui du compte MoMo enregistré), à l'espace du
+vendeur (`#/vendeurs/<id>`), ou au solde de la boutique. Les notifications
+déjà reçues sont redirigées par l'application. Fichier :
+`supabase/lien-reception.sql`.
+
 ## Une commande groupée, une seule course (3.72.0)
 
 Une commande de plusieurs boutiques n'a qu'un livreur depuis la 3.64.0.

@@ -114,8 +114,8 @@ public class ServiceNotifications extends FirebaseMessagingService {
         String titre = valeur(donnees, "titre");
         String corps = valeur(donnees, "corps");
         notifierLive(this,
-                titre.isEmpty() ? "Une boutique est en live sur TikTok" : titre,
-                corps.isEmpty() ? "Touchez pour regarder le live." : corps,
+                titre.isEmpty() ? Textes.t(this, "Une boutique est en live sur TikTok", "A shop is live on TikTok") : titre,
+                corps.isEmpty() ? Textes.t(this, "Touchez pour regarder le live.", "Tap to watch the live.") : corps,
                 lien, valeur(donnees, "boutique"));
     }
 
@@ -163,11 +163,13 @@ public class ServiceNotifications extends FirebaseMessagingService {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             String id = course ? CANAL_COURSES : CANAL_COMMANDES;
             NotificationChannel canal = new NotificationChannel(id,
-                    course ? "Courses à livrer" : "Commandes de la boutique",
+                    course ? Textes.t(contexte, "Courses à livrer", "Deliveries to make") : Textes.t(contexte, "Commandes de la boutique", "Shop orders"),
                     NotificationManager.IMPORTANCE_HIGH);
             canal.setDescription(course
-                    ? "Sonne jusqu'à ce que vous touchiez la notification : une course vous attend."
-                    : "Sonne à chaque commande payée pour votre boutique.");
+                    ? Textes.t(contexte, "Sonne jusqu'à ce que vous touchiez la notification : une course vous attend.",
+                        "Rings until you tap the notification: a delivery is waiting for you.")
+                    : Textes.t(contexte, "Sonne à chaque commande payée pour votre boutique.",
+                        "Rings for every paid order for your shop."));
             canal.setSound(son, new AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .setUsage(course ? AudioAttributes.USAGE_NOTIFICATION_RINGTONE
@@ -225,8 +227,9 @@ public class ServiceNotifications extends FirebaseMessagingService {
         Notification.Builder constructeur;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel canal = new NotificationChannel(CANAL_SUIVI,
-                    "Suivi de vos commandes", NotificationManager.IMPORTANCE_HIGH);
-            canal.setDescription("Votre commande est payée, votre livreur arrive, votre colis est livré.");
+                    Textes.t(contexte, "Suivi de vos commandes", "Your order updates"), NotificationManager.IMPORTANCE_HIGH);
+            canal.setDescription(Textes.t(contexte, "Votre commande est payée, votre livreur arrive, votre colis est livré.",
+                    "Your order is paid, your delivery rider is coming, your package is delivered."));
             canal.enableVibration(true);
             canal.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
             gestionnaire.createNotificationChannel(canal);
@@ -291,8 +294,9 @@ public class ServiceNotifications extends FirebaseMessagingService {
                peut couper ce seul canal dans les réglages du téléphone sans
                perdre les nouveautés du catalogue. */
             NotificationChannel canal = new NotificationChannel(CANAL_LIVES,
-                    "Lives TikTok des boutiques", NotificationManager.IMPORTANCE_HIGH);
-            canal.setDescription("Prévient quand une boutique BIZZOO passe en direct sur TikTok.");
+                    Textes.t(contexte, "Lives TikTok des boutiques", "Shops' TikTok lives"), NotificationManager.IMPORTANCE_HIGH);
+            canal.setDescription(Textes.t(contexte, "Prévient quand une boutique BIZZOO passe en direct sur TikTok.",
+                    "Lets you know when a BIZZOO shop goes live on TikTok."));
             gestionnaire.createNotificationChannel(canal);
             constructeur = new Notification.Builder(contexte, CANAL_LIVES);
         } else {

@@ -369,3 +369,28 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
 }
 /* (3.68.0) Une commande prise sur WhatsApp, dans le suivi. */
 .source-whatsapp{color:var(--vert-fonce);font-weight:600}
+
+/* (3.73.0) Les histogrammes des statistiques : un axe gradué, des repères,
+   la valeur sur chaque barre, la date dessous, le détail au toucher. */
+.graphe-resume{margin:0 0 10px}
+.graphe-cadre{display:flex;align-items:flex-start;gap:6px}
+.graphe-axe{position:relative;flex:none;width:46px;margin-top:18px}
+.graphe-axe span{position:absolute;right:0;transform:translateY(-50%);font-size:11px;color:var(--encre-douce);white-space:nowrap}
+.graphe-defile{flex:1;min-width:0;overflow-x:auto;padding-top:18px}
+.graphe-trace{position:relative;display:flex;gap:3px;min-width:100%}
+.graphe-reperes{position:absolute;left:0;right:0;top:0;pointer-events:none}
+.graphe-ligne{position:absolute;left:0;right:0;border-top:1px dashed var(--trait)}
+.graphe-ligne.zero{border-top:1px solid var(--encre-douce)}
+.graphe-colonne{flex:1 0 14px;min-width:14px;max-width:44px;display:flex;flex-direction:column;align-items:stretch;
+  padding:0;border:0;background:none;cursor:pointer;font:inherit;color:inherit}
+.graphe-zone{position:relative}
+.graphe-barre{position:absolute;left:2px;right:2px;background:var(--bleu);border-radius:4px 4px 0 0}
+.graphe-barre.negative{background:var(--rouge);border-radius:0 0 4px 4px}
+.graphe-colonne:hover .graphe-barre{filter:brightness(1.15)}
+.graphe-colonne.choisie .graphe-barre{background:var(--orange)}
+.graphe-valeur{position:absolute;left:-6px;right:-6px;text-align:center;font-size:10.5px;font-weight:600;color:var(--encre);white-space:nowrap;line-height:14px}
+.graphe-date{height:16px;margin-top:4px;font-size:10.5px;color:var(--encre-douce);text-align:center;white-space:nowrap;overflow:visible}
+.graphe-detail{margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--bleu-50);color:var(--encre)}
+.graphe-choix{display:inline-flex;border:1px solid var(--trait);border-radius:10px;overflow:hidden}
+.graphe-choix button{border:0;background:none;padding:5px 10px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--encre-douce)}
+.graphe-choix button.actif{background:var(--bleu);color:#fff}

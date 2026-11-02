@@ -58,6 +58,14 @@ revoke all on public.push_reglage from anon, authenticated;
 
 alter table public.notifications add column if not exists push_le timestamptz;
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.langue_du_compte(qui uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select l.langue from public.langues_comptes l where l.compte = qui), 'fr');
+$$;
+revoke all on function public.langue_du_compte(uuid) from public, anon, authenticated;
+grant execute on function public.langue_du_compte(uuid) to service_role;
+
 -- Le téléphone se déclare. Un jeton passe d'un compte à l'autre quand on
 -- change de compte sur le même téléphone : il suit le dernier connecté.
 create or replace function public.enregistrer_appareil(jeton text, application text default 'admin')
@@ -114,6 +122,8 @@ begin
   return jsonb_build_object(
     'id', n.id, 'type', n.type, 'titre', n.titre, 'corps', n.corps, 'lien', n.lien,
     'commande_id', n.commande_id,
+    -- (3.73.0) La langue du destinataire : la fonction Edge traduit.
+    'langue', public.langue_du_compte(n.destinataire),
     'application', case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end,
     'jetons', coalesce((select jsonb_agg(a.jeton order by a.maj_le desc)
                           from public.appareils_push a

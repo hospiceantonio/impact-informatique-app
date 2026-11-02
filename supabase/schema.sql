@@ -4680,7 +4680,8 @@ begin
   update public.courses_cascade k set alertes = k.alertes || qui where k.commande_id = commande;
   return public.notifier(qui, 'course_proposee', titre,
     coalesce(nullif(entete, '') || E'\n', '') || public.texte_demande(f),
-    '#/livraisons', commande, null, true);
+    -- (3.73.0) La touche ouvre CETTE course, pas la liste.
+    '#/livraisons/' || commande, commande, null, true);
 end $$;
 revoke all on function public.alerter_course(text, uuid[], text, text) from public, anon, authenticated;
 
@@ -7860,6 +7861,10 @@ declare
   epuises  jsonb := '{}'::jsonb;
   manques  jsonb := '{}'::jsonb;
   ratees   jsonb := '{}'::jsonb;
+  -- (3.73.0) Les produits eux-mêmes : un seul produit épuisé (ou à
+  -- vérifier), la notification ouvre SA fiche ; plusieurs, la liste.
+  epuises_ids jsonb := '{}'::jsonb;
+  ratees_ids  jsonb := '{}'::jsonb;
   b        text;
   liste    text;
 begin
@@ -7916,12 +7921,16 @@ begin
       elsif pris > 0 and avant - pris = 0 then
         epuises := jsonb_set(epuises, array[l.boutique],
           coalesce(epuises -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+        epuises_ids := jsonb_set(epuises_ids, array[l.boutique],
+          coalesce(epuises_ids -> l.boutique, '[]'::jsonb) || to_jsonb(l.produit_id));
       end if;
     exception when others then
       -- Le produit refuse l'écriture — un rayon devenu incohérent, par
       -- exemple. Le paiement, lui, passe : on le dit à qui peut corriger.
       ratees := jsonb_set(ratees, array[l.boutique],
         coalesce(ratees -> l.boutique, '[]'::jsonb) || to_jsonb(l.nom));
+      ratees_ids := jsonb_set(ratees_ids, array[l.boutique],
+        coalesce(ratees_ids -> l.boutique, '[]'::jsonb) || to_jsonb(l.produit_id));
       raise warning 'commande_stock(%) : % — %', new.id, l.nom, sqlerrm;
     end;
   end loop;
@@ -7944,7 +7953,9 @@ begin
         'stock_epuise', 'Rupture de stock',
         liste || ' : plus aucune pièce après la commande ' || numero ||
           '. Vos clients voient « En rupture ».',
-        '#/stock?filtre=rupture', new.id, nullif(b, ''), false);
+        case when jsonb_array_length(epuises_ids -> b) = 1
+                then '#/produit/' || (epuises_ids -> b ->> 0) else '#/stock?filtre=rupture' end,
+           new.id, nullif(b, ''), false);
     end loop;
     for b in select jsonb_object_keys(ratees) loop
       select string_agg(x, ', ') into liste from jsonb_array_elements_text(ratees -> b) x;
@@ -7953,7 +7964,9 @@ begin
         'stock_a_verifier', 'Stock à vérifier',
         'Commande ' || numero || ' payée, mais le stock de ' || liste ||
           ' n''a pas pu être décompté. Corrigez-le à la main.',
-        '#/stock', new.id, nullif(b, ''), true);
+        case when jsonb_array_length(ratees_ids -> b) = 1
+                then '#/produit/' || (ratees_ids -> b ->> 0) else '#/stock' end,
+           new.id, nullif(b, ''), true);
     end loop;
   exception when others then
     raise warning 'commande_stock(%) notifications : %', new.id, sqlerrm;
@@ -8217,7 +8230,8 @@ begin
     'Numéro de réception changé — ' || coalesce((select b.nom from public.boutiques b where b.id = cible), cible),
     qui || ' a réglé le numéro de réception : ' || res || ' ' || national ||
       coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
-    '#/reversements', null, cible, false);
+    -- (3.73.0) Le solde de la boutique, où ce numéro se lit (plus les reversements).
+    '#/solde', null, cible, false);
   return jsonb_build_object('tel', national, 'reseau', res);
 end $$;
 revoke all on function public.regler_reception(text, text, text, text) from public, anon;
@@ -8256,7 +8270,8 @@ begin
     'Reversement demandé : ' || public.montant_lisible(montant, solde ->> 'devise'),
     coalesce((select b.nom from public.boutiques b where b.id = cible), cible) || ' — à envoyer sur ' ||
       r.reseau || ' ' || r.tel || coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '. Demandé par ' || qui || '.',
-    '#/reversements', null, cible, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/boutique-' || nouv, null, cible, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement(text, bigint) from public, anon;
@@ -8270,7 +8285,10 @@ returns table (id bigint, boutique_id text, nom_boutique text, montant bigint, t
                decide_le timestamptz, reference text, motif text, devise text)
 language plpgsql stable security definer set search_path = public as $$
 begin
-  if not (public.est_super() or (cible is not null and public.tient_la_caisse(cible))) then
+  -- (3.73.0) Toutes les boutiques : le superadministrateur, et dans BIZZOO
+  -- Personnel le CEO et la comptabilité (rh_reversements_acces).
+  if not (public.est_super() or (cible is null and public.rh_reversements_acces())
+          or (cible is not null and public.tient_la_caisse(cible))) then
     return;
   end if;
   return query
@@ -8298,8 +8316,10 @@ declare
   pourquoi text := left(trim(coalesce(motif, '')), 300);
   dev text;
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un reversement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un reversement.';
   end if;
   select * into v from public.reversements where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -8311,7 +8331,7 @@ begin
   end if;
   update public.reversements
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   dev := coalesce((select nullif(b.devise, '') from public.boutiques b where b.id = v.boutique_id), 'FCFA');
@@ -8614,7 +8634,9 @@ begin
     'Numéro de réception d''un livreur — ' || public.nom_du_compte(),
     public.nom_du_compte() || ' a réglé son numéro de réception : ' || res || ' ' || national ||
       coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
-    '#/reversements', null, null, false);
+    -- (3.73.0) Sa fiche, où ce numéro se lit — pas les reversements, où
+    -- l'on tombait sur la demande d'un autre.
+    '#/livreurs/' || moi, null, null, false);
   return jsonb_build_object('tel', national, 'reseau', res);
 end $$;
 revoke all on function public.regler_reception_livreur(text, text, text) from public, anon;
@@ -8654,7 +8676,8 @@ begin
     'Reversement demandé par un livreur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
       coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
-    '#/reversements', null, null, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/livreur-' || nouv, null, null, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement_livreur(bigint) from public, anon;
@@ -8668,12 +8691,13 @@ returns table (id bigint, livreur_id uuid, nom_livreur text, montant bigint, tel
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
-  if moi is null or not (public.est_super() or public.est_livreur()) then return; end if;
+  -- (3.73.0) Le CEO et la comptabilité aussi (BIZZOO Personnel).
+  if moi is null or not (public.est_super() or public.rh_reversements_acces() or public.est_livreur()) then return; end if;
   return query
     select v.id, v.livreur_id, v.nom_livreur, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
            v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif
       from public.reversements_livreurs v
-     where public.est_super() or v.livreur_id = moi
+     where public.est_super() or public.rh_reversements_acces() or v.livreur_id = moi
      order by (v.etat = 'en_attente') desc, v.demande_le desc
      limit 200;
 end $$;
@@ -8689,8 +8713,10 @@ declare
   ref text := left(trim(coalesce(reference, '')), 60);
   pourquoi text := left(trim(coalesce(motif, '')), 300);
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un reversement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un reversement.';
   end if;
   select * into v from public.reversements_livreurs where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -8702,7 +8728,7 @@ begin
   end if;
   update public.reversements_livreurs
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   perform public.notifier(array[v.livreur_id], 'reversement_decide',
@@ -8836,6 +8862,8 @@ begin
   return jsonb_build_object(
     'id', n.id, 'type', n.type, 'titre', n.titre, 'corps', n.corps, 'lien', n.lien,
     'commande_id', n.commande_id,
+    -- (3.73.0) La langue du destinataire : la fonction Edge traduit.
+    'langue', public.langue_du_compte(n.destinataire),
     'application', case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end,
     'jetons', coalesce((select jsonb_agg(a.jeton order by a.maj_le desc)
                           from public.appareils_push a
@@ -9018,6 +9046,7 @@ declare
   etat_x text := 'a_envoyer';
   code_x text := '';
   nouveau bigint;
+  en     boolean;
 begin
   select * into r from public.sms_reglages where id = 1;
   if not found or not r.actif or r.url = '' or not (l_etape = any(r.etapes)) then
@@ -9075,7 +9104,38 @@ begin
   end if;
 
   num := coalesce(nullif(c.numero, ''), c.id);
-  if l_etape = 'commande_payee' then
+  -- (3.73.0) Le client qui a choisi l'anglais reçoit ses SMS en anglais.
+  en := public.langue_du_compte(c.client_id) = 'en';
+  if en then
+    if l_etape = 'commande_payee' then
+      select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
+      msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
+                  then 'BIZZOO: your order ' || num || ' is registered and paid. We are preparing it.'
+                  else 'BIZZOO: your order ' || num || ' is confirmed. We are preparing it.' end
+          || case when reste > 0 then ' Balance to pay on delivery: ' || reste || ' FCFA.' else '' end
+          || ' We will send you your delivery rider''s name.';
+    elsif l_etape = 'course_acceptee' then
+      select coalesce(nullif(btrim(p.nom), ''), 'Your delivery rider') as nom,
+             regexp_replace(regexp_replace(coalesce(p.tel, ''), '\D', '', 'g'), '^229', '') as tel
+        into liv
+        from public.profils p where p.id::text = la_cle;
+      if not found then
+        return null;
+      end if;
+      msg := 'BIZZOO: ' || liv.nom || ' is delivering your order ' || num || '.'
+          || case when liv.tel <> '' then ' Their number: ' || liv.tel || '.' else '' end
+          || ' Keep your phone nearby.';
+    elsif l_etape = 'commande_en_livraison' then
+      msg := 'BIZZOO: your order ' || num || ' is on its way. Keep your phone nearby.';
+    elsif l_etape = 'commande_remise' then
+      msg := 'BIZZOO: your order ' || num || ' has been delivered. Thank you for your trust!';
+    elsif l_etape = 'commande_annulee' then
+      msg := 'BIZZOO: one or more items of your order ' || num
+          || ' were cancelled. Open your receipt or contact us for details.';
+    else
+      return null;
+    end if;
+  elsif l_etape = 'commande_payee' then
     select coalesce(sum(greatest(0, x.a_encaisser)), 0) into reste from public.restes_par_boutique(c.id) x;
     msg := case when to_jsonb(c) ->> 'origine' = 'whatsapp'
                 then 'BIZZOO : votre commande ' || num || ' est enregistree et payee. Nous la preparons.'
@@ -11720,7 +11780,7 @@ begin
         coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Un nouveau compte') ||
           ', créé par ' || coalesce(public.nom_du_createur(auth.uid()), 'un administrateur de BIZZOO') ||
           '. Activez-le dans Comptes pour le valider.',
-        '#/comptes', null, null, false);
+        '#/comptes/' || new.id, null, null, false);
     end if;
     return new;
   end if;
@@ -11738,7 +11798,7 @@ begin
         'Compte validé',
         coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Le compte') ||
           ' a été validé : il peut travailler.',
-        '#/comptes', null, null, false);
+        '#/comptes/' || new.id, null, null, false);
     end if;
   else
     new.a_valider := old.a_valider;
@@ -22783,6 +22843,8 @@ begin
   end if;
   return jsonb_build_object(
     'id', s.id, 'titre', s.titre, 'corps', s.corps, 'lien', s.lien,
+    -- (3.73.0) La langue de l'employé : la fonction Edge traduit.
+    'langue', public.langue_du_compte(s.compte),
     'tache', regexp_replace(regexp_replace(s.cle, '^escalade:', ''), '#[0-9]+\Z', ''),
     'abonnements', coalesce((select jsonb_agg(jsonb_build_object('endpoint', a.endpoint, 'p256dh', a.p256dh, 'auth', a.auth)
                                               order by a.cree_le desc)
@@ -23522,7 +23584,8 @@ begin
     'Numéro de réception d''un vendeur — ' || public.nom_du_compte(),
     public.nom_du_compte() || ' a réglé son numéro de réception : ' || res || ' ' || national ||
       coalesce(' (' || nullif(trim(coalesce(titulaire, '')), '') || ')', '') || '.',
-    '#/reversements', null, null, false);
+    -- (3.73.0) Son espace, où ce numéro se lit.
+    '#/vendeurs/' || moi, null, null, false);
   return jsonb_build_object('tel', national, 'reseau', res);
 end $$;
 revoke all on function public.regler_reception_vendeur(text, text, text) from public, anon;
@@ -23562,7 +23625,8 @@ begin
     'Versement demandé par un vendeur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
       coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
-    '#/reversements', null, null, true);
+    -- (3.73.0) La touche ouvre CETTE demande.
+    '#/reversements/vendeur-' || nouv, null, null, true);
   return nouv;
 end $$;
 revoke all on function public.demander_reversement_vendeur(bigint) from public, anon;
@@ -23576,12 +23640,13 @@ returns table (id bigint, vendeur_id uuid, nom_vendeur text, montant bigint, tel
 language plpgsql stable security definer set search_path = public as $$
 declare moi uuid := auth.uid();
 begin
-  if moi is null or not (public.est_super() or public.est_vendeur()) then return; end if;
+  -- (3.73.0) Le CEO et la comptabilité aussi (BIZZOO Personnel).
+  if moi is null or not (public.est_super() or public.rh_reversements_acces() or public.est_vendeur()) then return; end if;
   return query
     select v.id, v.vendeur_id, v.nom_vendeur, v.montant, v.tel, v.reseau, v.titulaire, v.etat,
            v.demande_le, v.decide_par, v.decide_le, v.reference, v.motif
       from public.reversements_vendeurs v
-     where public.est_super() or v.vendeur_id = moi
+     where public.est_super() or public.rh_reversements_acces() or v.vendeur_id = moi
      order by (v.etat = 'en_attente') desc, v.demande_le desc
      limit 200;
 end $$;
@@ -23597,8 +23662,10 @@ declare
   ref text := left(trim(coalesce(reference, '')), 60);
   pourquoi text := left(trim(coalesce(motif, '')), 300);
 begin
-  if not public.est_super() then
-    raise exception 'Seul le superadministrateur valide un versement.';
+  -- (3.73.0) Le superadministrateur, et dans BIZZOO Personnel le CEO et la
+  -- comptabilité (rh_reversements_acces).
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Seuls le superadministrateur, le CEO et la comptabilité valident un versement.';
   end if;
   select * into v from public.reversements_vendeurs where id = cible for update;
   if not found then raise exception 'Demande introuvable.'; end if;
@@ -23610,7 +23677,7 @@ begin
   end if;
   update public.reversements_vendeurs
      set etat = case when accord then 'valide' else 'refuse' end,
-         decide_par = public.nom_du_compte(), decide_le = now(),
+         decide_par = public.decideur_reversement(), decide_le = now(),
          reference = case when accord then ref else '' end, motif = pourquoi
    where id = cible;
   perform public.notifier(array[v.vendeur_id], 'reversement_decide',
@@ -23896,3 +23963,150 @@ begin
 exception when others then
   raise notice 'Alerte de préparation non programmée (%) : le suivi la montre toujours', sqlerrm;
 end $$;
+
+-- =========================================================
+-- (3.73.0) LES REVERSEMENTS DANS BIZZOO PERSONNEL : LE CEO ET LA COMPTABILITÉ
+--
+-- Les demandes d'argent des boutiques, des livreurs et des vendeurs se
+-- traitent aussi dans BIZZOO Personnel (menu « Reversements »), par le CEO
+-- et par les membres du profil marqué « comptabilité » — et par personne
+-- d'autre, administration comprise. Le superadministrateur garde BIZZOO
+-- Admin → Reversements, comme avant.
+--
+-- Le profil « Comptabilité » est posé, vide : le CEO y placera le comptable.
+-- Seul le CEO marque un profil « comptabilité », et seul lui y fait
+-- entrer ou en fait sortir un employé : sinon l'administration pourrait
+-- s'y placer elle-même, et le menu ne serait plus réservé.
+-- =========================================================
+alter table public.rh_profils add column if not exists comptabilite boolean not null default false;
+
+/** Le compte connecté traite-t-il les reversements dans Personnel ? */
+create or replace function public.rh_reversements_acces() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return public.rh_est_ceo() or exists (
+    select 1 from public.rh_employes e join public.rh_profils p on p.id = e.profil_id
+     where e.compte_id = auth.uid() and e.etat = 'actif' and p.comptabilite);
+exception when undefined_table or undefined_column then
+  -- Une base d'avant BIZZOO Personnel ou d'avant la comptabilité :
+  -- personne n'y a l'accès, et les listes restent au superadministrateur.
+  return false;
+end $$;
+revoke all on function public.rh_reversements_acces() from public, anon;
+grant execute on function public.rh_reversements_acces() to authenticated;
+
+/** Qui tranche, en clair : son nom de compte BIZZOO, ou d'employé. */
+create or replace function public.decideur_reversement() returns text
+language sql stable security definer set search_path = public as $$
+  select case when public.est_super() then public.nom_du_compte()
+              else coalesce(nullif(public.rh_mon_nom(), ''), public.nom_du_compte()) end;
+$$;
+revoke all on function public.decideur_reversement() from public, anon, authenticated;
+
+/** Le nom du compte MoMo des livreurs d'une liste, à qui traite les reversements. */
+create or replace function public.noms_momo(ids uuid[])
+returns table (id uuid, momo_nom text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (public.est_super() or public.rh_reversements_acces()) then return; end if;
+  return query select p.id, p.momo_nom from public.profils p where p.id = any(ids) and p.role = 'livreur';
+end $$;
+revoke all on function public.noms_momo(uuid[]) from public, anon;
+grant execute on function public.noms_momo(uuid[]) to authenticated;
+
+-- Seul le CEO marque un profil « comptabilité ». (Sans compte connecté :
+-- une mise à jour de la base, qui passe.)
+create or replace function public.rh_profil_comptabilite_verrou() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (tg_op = 'INSERT' and new.comptabilite) or (tg_op = 'UPDATE' and new.comptabilite is distinct from old.comptabilite) then
+    if auth.uid() is not null and not public.rh_est_ceo() then
+      raise exception 'Seul le CEO décide quel profil traite les reversements (comptabilité).';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists rh_profils_comptabilite on public.rh_profils;
+create trigger rh_profils_comptabilite
+  before insert or update on public.rh_profils
+  for each row execute function public.rh_profil_comptabilite_verrou();
+
+-- Seul le CEO fait entrer un employé dans un profil « comptabilité », ou
+-- l'en fait sortir.
+create or replace function public.rh_employe_comptabilite_verrou() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (tg_op = 'INSERT' or new.profil_id is distinct from old.profil_id)
+     and auth.uid() is not null and not public.rh_est_ceo()
+     and exists (select 1 from public.rh_profils p
+                  where p.comptabilite
+                    and (p.id = new.profil_id or (tg_op = 'UPDATE' and p.id = old.profil_id))) then
+    raise exception 'Seul le CEO place un employé dans le profil Comptabilité, ou l''en retire.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists rh_employes_comptabilite on public.rh_employes;
+create trigger rh_employes_comptabilite
+  before insert or update of profil_id on public.rh_employes
+  for each row execute function public.rh_employe_comptabilite_verrou();
+
+-- Le profil « Comptabilité », vide : le CEO y placera le comptable.
+insert into public.rh_profils (nom, description, comptabilite)
+select 'Comptabilité', 'Traite les demandes de reversement (BIZZOO Personnel → Reversements).', true
+ where not exists (select 1 from public.rh_profils where lower(nom) = lower('Comptabilité'));
+update public.rh_profils set comptabilite = true
+ where lower(nom) = lower('Comptabilité') and not comptabilite;
+
+
+-- =========================================================
+-- (3.73.0) DEUX LANGUES : LA LANGUE DE CHAQUE COMPTE
+--
+-- Les trois applications parlent français et anglais (js/langue.js). La
+-- base retient la langue de chaque compte — client, équipe, employé — pour
+-- que ce qui part hors de l'application parle comme lui :
+--   - les notifications sur le téléphone (envoyer-push, rh-push) : la
+--     fonction Edge traduit le titre et le texte ;
+--   - les SMS au client (sms_prevoir) : écrits directement en anglais.
+-- La langue n'est rien de sensible ; chacun ne règle que la sienne. Sans
+-- choix connu : le français, comme avant.
+-- =========================================================
+create table if not exists public.langues_comptes (
+  compte     uuid primary key references auth.users(id) on delete cascade,
+  langue     text not null default 'fr' check (langue in ('fr', 'en')),
+  modifie_le timestamptz not null default now()
+);
+alter table public.langues_comptes enable row level security;
+drop policy if exists "langue lecture" on public.langues_comptes;
+create policy "langue lecture" on public.langues_comptes
+  for select to authenticated using (compte = auth.uid());
+revoke all on table public.langues_comptes from public, anon, authenticated;
+grant select on table public.langues_comptes to authenticated;
+grant all on table public.langues_comptes to service_role;
+
+/** La langue d'un compte : 'en' s'il l'a choisie, sinon 'fr'. */
+create or replace function public.langue_du_compte(qui uuid) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select l.langue from public.langues_comptes l where l.compte = qui), 'fr');
+$$;
+revoke all on function public.langue_du_compte(uuid) from public, anon, authenticated;
+grant execute on function public.langue_du_compte(uuid) to service_role;
+
+/** L'application dit la langue du compte connecté (au choix FR/EN, à la connexion). */
+create or replace function public.regler_langue(langue text) returns text
+language plpgsql security definer set search_path = public as $$
+declare l text := lower(btrim(coalesce(langue, '')));
+begin
+  if auth.uid() is null then
+    raise exception 'Connectez-vous d''abord.';
+  end if;
+  if l not in ('fr', 'en') then
+    raise exception 'Langue inconnue : fr ou en.';
+  end if;
+  insert into public.langues_comptes as x (compte, langue, modifie_le)
+  values (auth.uid(), l, now())
+  on conflict (compte) do update set langue = excluded.langue, modifie_le = now()
+   where x.langue is distinct from excluded.langue;
+  return l;
+end $$;
+revoke all on function public.regler_langue(text) from public, anon;
+grant execute on function public.regler_langue(text) to authenticated;

@@ -161,6 +161,8 @@ const App = { evenementInstallation: null };
       ecranQuitte = ecran;
     }
     UI.fermerVisionneuse();
+    /* (3.73.0) Le glissé d'une fiche balayée ne survit pas à l'écran suivant. */
+    if (vue) vue.classList.remove("fiche-entre-droite", "fiche-entre-gauche");
     VueAccueil.arreterSlider();
     /* (3.70.0) Une vraie arrivée (pas un redessin) : les boutiques de
        l'accueil seront tirées au sort de nouveau. */
@@ -564,7 +566,18 @@ const App = { evenementInstallation: null };
           if (Compte.connecte()) Push.declarer();
           else Push.demarrer();
         }
+        /* (3.73.0) La base retient la langue du compte : ses notifications
+           et ses SMS partent dans cette langue. Une base d'avant ne connaît
+           pas regler_langue : rien de grave. */
+        if (Compte.connecte() && window.Langue) {
+          Compte.rpc("regler_langue", { langue: Langue.courante() }).catch(() => {});
+        }
       };
+      if (window.Langue) {
+        Langue.surChoix((l) => {
+          if (Compte.connecte()) Compte.rpc("regler_langue", { langue: l }).catch(() => {});
+        });
+      }
       /* La cloche vit dans la barre du haut, redessinée à chaque écran :
          on passe par un événement plutôt que d'aller la chercher. */
       Notifs.surChangement(() =>

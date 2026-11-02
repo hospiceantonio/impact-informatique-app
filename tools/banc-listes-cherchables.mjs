@@ -6,7 +6,9 @@
      1. « Créer un livreur » : la boutique se cherche ;
      2. la page « Livreurs » : par ordre alphabétique, et un champ ;
      3. la page « Boutiques » : le choix de la boutique ouverte, A → Z,
-        et un champ.
+        et un champ ;
+     4. « Comptes » : une section par rang (administrateurs, modérateurs),
+        et des cartes vers les livreurs, les vendeurs, les revendeurs.
    ========================================================= */
 let chromium;
 try {
@@ -78,6 +80,10 @@ async function ouvrirAdmin(moi, { hash = "", positions = { [LIV_OK]: true }, anc
     if (c === "rpc/enregistrer_ma_position") { positions[moi] = true; return d({ ok: true }); }
     if (c === "rpc/revendeurs") return d(revendeurs);
     if (c === "rpc/mes_livraisons") return d([]);
+    /* (3.73.0) Le numéro de réception d'un livreur, lu dans sa fiche. */
+    if (c === "rpc/solde_livreur") return d({ gagne: 0, a_venir: 0, reverse: 0, en_attente: 0, disponible: 0,
+      reception: { tel: "0167332135", reseau: "MTN", titulaire: "ROHIM K.", maj_le: "2026-10-31T09:00:00Z" } });
+    if (c.startsWith("notifications")) return d(NOTIFS);
     if (c.startsWith("rpc/")) return d(null);
     if (c.startsWith("positions_livreurs")) {
       if (ancienne) return d({ code: "42P01", message: "relation \"public.positions_livreurs\" does not exist" }, 404);
@@ -99,6 +105,10 @@ async function ouvrirAdmin(moi, { hash = "", positions = { [LIV_OK]: true }, anc
   if (hash) { await page.evaluate((h) => { location.hash = h; }, hash); await pause(1500); }
   return { ctx, page, erreurs, appels };
 }
+/* (3.73.0) Une notification d'avant : elle menait aux reversements. */
+const NOTIFS = [{ id: 1, type: "reception_reglee", titre: "Numéro de réception d'un livreur — Rohim",
+  corps: "Rohim a réglé son numéro de réception : MTN 0167332135.", lien: "#/reversements",
+  cree_le: "2026-10-31T09:00:00Z", lue_le: null, commande_id: null, boutique_id: null, sonne: false }];
 const texte = (page) => page.evaluate(() => document.getElementById("vue").innerText.replace(/\s+/g, " "));
 const options = (page, sel) => page.$$eval(sel + " option", (o) => o.map((x) => x.textContent.trim()));
 
@@ -164,6 +174,44 @@ titre("3. La page « Boutiques » : la boutique ouverte, A → Z, et un champ");
   ok(await o.page.$eval("#bq-aucune", (n) => !n.hidden), "rien : « Aucune boutique ne correspond »");
   ok(!o.erreurs.length, "aucune erreur JavaScript" + (o.erreurs.length ? " : " + o.erreurs[0] : ""));
   await o.ctx.close();
+}
+
+titre("4. « Comptes » : une section par rang, des cartes vers les autres");
+{
+  const o = await ouvrirAdmin(SUPER, { hash: "#/comptes" });
+  const sections = await o.page.$$eval(".cp-section", (c) => c.map((x) => x.id));
+  ok(sections.includes("cp-section-administrateur") && sections.includes("cp-section-moderateur"),
+    "des sections « Les administrateurs » et « Les modérateurs » (" + sections.join(", ") + ")");
+  const modos = await o.page.$eval("#cp-section-moderateur", (c) => c.innerText);
+  ok(/Awa/.test(modos) && !/Rohim|Zinsou/.test(modos), "les modérateurs à part, sans livreur");
+  ok(!!(await o.page.$('a[href="#/livreurs"]')) && !!(await o.page.$("#cp-revendeurs")),
+    "des cartes vers les livreurs et les revendeurs");
+  await o.page.click('[data-creer-rang="moderateur"]');
+  await pause(500);
+  const f = await o.page.evaluate(() => ({
+    titre: document.body.innerText.includes("Nouveau modérateur"),
+    rangs: [...document.querySelectorAll("#nc-role option")].map((x) => x.value) }));
+  ok(f.titre && f.rangs.length === 1 && f.rangs[0] === "moderateur", "« Créer un modérateur » : le rang est fixé");
+  ok(!o.erreurs.length, "aucune erreur JavaScript" + (o.erreurs.length ? " : " + o.erreurs[0] : ""));
+  await o.ctx.close();
+}
+
+titre("5. « Numéro de réception » mène à la bonne fiche (3.73.0)");
+{
+  const o = await ouvrirAdmin(SUPER, { hash: "#/notifications" });
+  const lien = await o.page.$eval("[data-notif]", (a) => a.getAttribute("href")).catch(() => "");
+  ok(lien === "#/livreurs", "une notification d'avant ne mène plus aux reversements, mais aux livreurs (" + lien + ")");
+  await o.ctx.close();
+  const f = await ouvrirAdmin(SUPER, { hash: "#/livreurs/" + LIV_OK });
+  await pause(800);
+  const fiche = await f.page.evaluate(() => ({
+    nom: (document.querySelector("#cp-nom") || {}).value,
+    reception: (document.querySelector("#cp-reception") || {}).innerText || "" }));
+  ok(fiche.nom === "Rohim", "« #/livreurs/<id> » ouvre la fiche de ce livreur (" + fiche.nom + ")");
+  ok(/MTN 0167332135/.test(fiche.reception) && /ROHIM K\./.test(fiche.reception),
+    "sa fiche montre SON numéro de réception (« " + fiche.reception.trim() + " »)");
+  ok(!f.erreurs.length, "aucune erreur JavaScript" + (f.erreurs.length ? " : " + f.erreurs[0] : ""));
+  await f.ctx.close();
 }
 
 await nav.close();

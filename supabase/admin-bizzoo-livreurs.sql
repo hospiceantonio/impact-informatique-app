@@ -249,7 +249,7 @@ begin
         coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Un nouveau compte') ||
           ', créé par ' || coalesce(public.nom_du_createur(auth.uid()), 'un administrateur de BIZZOO') ||
           '. Activez-le dans Comptes pour le valider.',
-        '#/comptes', null, null, false);
+        '#/comptes/' || new.id, null, null, false);
     end if;
     return new;
   end if;
@@ -267,7 +267,7 @@ begin
         'Compte validé',
         coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Le compte') ||
           ' a été validé : il peut travailler.',
-        '#/comptes', null, null, false);
+        '#/comptes/' || new.id, null, null, false);
     end if;
   else
     new.a_valider := old.a_valider;

@@ -76,6 +76,9 @@ reset role; select essai.personne();
 select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :ENSEIGNE::uuid and type = 'reception_reglee' and boutique_id = 'bou_solde'), 1,
   'BIZZOO est prévenu du changement de numéro');
+select essai.egal((select lien from public.notifications where destinataire = :ENSEIGNE::uuid
+                    and type = 'reception_reglee' and boutique_id = 'bou_solde'), '#/solde',
+  '(3.73.0) et la notification mène au solde de la boutique');
 
 select essai.titre('3. La demande de reversement');
 select essai.devenir(:CHEFS::uuid); set role authenticated;

@@ -128,7 +128,7 @@ const VueStatistiques = (() => {
     const PAGES = { commandes, boutiques, produits, livraisons, livreurs, sav };
     const donnees = s[sous.rubrique];
     if (!donnees) blocs.push(UI.vide("Votre compte n'a pas accès à cette rubrique."));
-    else blocs.push(...PAGES[sous.cle](donnees, s.droits));
+    else blocs.push(...PAGES[sous.cle](donnees, s.droits, s.periode));
     UI.vider(corps, blocs);
   }
 
@@ -155,9 +155,100 @@ const VueStatistiques = (() => {
           h("td", { class: i === 0 ? "" : "nombre" }, v)))))));
   }
 
+  /* ---------- (3.73.0) Un histogramme qu'on sait lire ----------
+     Un axe des valeurs gradué (0, la moitié, le haut) avec ses lignes de
+     repère, la valeur au-dessus de chaque barre, la date (ou le mois)
+     dessous, un résumé — total, moyenne, meilleur — et, au toucher d'une
+     barre, son détail en clair. Les valeurs négatives (un résultat en
+     perte) descendent sous la ligne du zéro, en rouge.
+
+     points : [{ court, long, valeur, detail }] ; format : la valeur pour
+     l'axe et les étiquettes (compacte), detailVide : la phrase d'aide. */
+  const compact = (v) => {
+    const a = Math.abs(v);
+    const t = a >= 1e9 ? (a / 1e9).toFixed(a >= 1e10 ? 0 : 1) + " Md"
+      : a >= 1e6 ? (a / 1e6).toFixed(a >= 1e7 ? 0 : 1) + " M"
+      : a >= 1e4 ? Math.round(a / 1e3) + " k" : UI.entier(a);
+    return (v < 0 ? "−" : "") + t.replace(".", ",");
+  };
+  /** Le haut de l'axe : 1, 2, 2,5 ou 5 fois une puissance de dix. */
+  function arrondiHaut(v) {
+    if (v <= 0) return 0;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const k of [1, 2, 2.5, 5, 10]) if (k * p >= v) return k * p;
+    return 10 * p;
+  }
+
+  function graphe({ titre, points, format = (v) => UI.entier(v), etiquette = format, resume, aide, haut = 150, outils }) {
+    const valeurs = points.map((p) => Number(p.valeur || 0));
+    let max = arrondiHaut(Math.max(0, ...valeurs));
+    const min = -arrondiHaut(Math.max(0, ...valeurs.map((v) => -v)));
+    if (!max && !min) max = 1;
+    const etendue = max - min;
+    const zero = haut * max / etendue;                 // du haut jusqu'à la ligne du zéro
+    const y = (v) => zero - v / etendue * haut;
+    const reperes = (min < 0 ? [min, 0, max] : [0, max / 2, max]).filter((v, i, t) => t.indexOf(v) === i);
+    const pas = Math.max(1, Math.ceil(points.length / 12));          // une date sur « pas »
+    const valeursVisibles = points.length <= 31;
+    const detail = h("div", { class: "graphe-detail petit", "aria-live": "polite" }, aide || "Touchez une barre pour son détail.");
+
+    let choisie = null;
+    const colonnes = points.map((p, i) => {
+      const v = valeurs[i];
+      const hauteur = Math.abs(v) / etendue * haut;
+      const barre = h("div", { class: "graphe-barre" + (v < 0 ? " negative" : ""),
+        style: { top: (v < 0 ? zero : zero - hauteur) + "px", height: Math.max(v ? 2 : 0, hauteur) + "px" } });
+      const chiffre = valeursVisibles && v ? h("div", { class: "graphe-valeur",
+        style: { top: (v < 0 ? zero + hauteur + 2 : zero - hauteur - 16) + "px" } }, etiquette(v)) : null;
+      const colonne = h("button", { type: "button", class: "graphe-colonne", "aria-label": p.long + " : " + p.detail,
+        onclick: () => {
+          if (choisie) choisie.classList.remove("choisie");
+          colonne.classList.add("choisie");
+          choisie = colonne;
+          UI.vider(detail, h("b", {}, p.long), " — " + p.detail);
+        } },
+        h("div", { class: "graphe-zone", style: { height: haut + "px" } }, barre, chiffre),
+        h("div", { class: "graphe-date" }, i % pas === 0 || i === points.length - 1 ? p.court : ""));
+      return colonne;
+    });
+
+    return h("div", { class: "carte graphe" },
+      h("div", { class: "ligne", style: { marginBottom: "4px", flexWrap: "wrap", gap: "8px" } },
+        h("h3", { class: "etire" }, titre), outils || null),
+      resume ? h("p", { class: "doux petit graphe-resume" }, resume) : null,
+      h("div", { class: "graphe-cadre" },
+        h("div", { class: "graphe-axe", style: { height: haut + "px" } },
+          reperes.map((v) => h("span", { style: { top: y(v) + "px" } }, format(v)))),
+        h("div", { class: "graphe-defile" },
+          h("div", { class: "graphe-trace" },
+            h("div", { class: "graphe-reperes", style: { height: haut + "px" } },
+              reperes.map((v) => h("div", { class: "graphe-ligne" + (v === 0 ? " zero" : ""), style: { top: y(v) + "px" } }))),
+            colonnes))),
+      detail);
+  }
+
+  /** Du premier au dernier jour de la période : un jour sans commande compte, à zéro. */
+  function joursComplets(jours, periode) {
+    const parJour = new Map(jours.map((j) => [String(j.jour).slice(0, 10), j]));
+    const isoLocal = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const aujourdhui = isoLocal(new Date());
+    let debut = (periode && periode.depuis) || (jours[0] && jours[0].jour);
+    let fin = (periode && periode.jusqu) || (jours[jours.length - 1] && jours[jours.length - 1].jour);
+    if (!debut || !fin) return jours;
+    debut = String(debut).slice(0, 10);
+    fin = String(fin).slice(0, 10) > aujourdhui ? aujourdhui : String(fin).slice(0, 10);
+    const sortie = [];
+    const [a, m, j] = debut.split("-").map(Number);
+    for (let d = new Date(a, m - 1, j); isoLocal(d) <= fin && sortie.length < 400; d.setDate(d.getDate() + 1)) {
+      const cle = isoLocal(d);
+      sortie.push(parJour.get(cle) || { jour: cle, payees: 0, montant: 0 });
+    }
+    return sortie.length ? sortie : jours;
+  }
+
   /* ---------- Commandes ---------- */
 
-  function commandes(c, droits) {
+  function commandes(c, droits, periode) {
     const tuiles = [
       tuile(nombre(c.payees), "commandes payées"),
       tuile(nombre(c.articles), "articles vendus"),
@@ -177,23 +268,42 @@ const VueStatistiques = (() => {
       tuiles.push(tuile(montant(c.reverse_boutiques), "reversé aux boutiques", true));
     }
     const sortie = [h("div", { class: "tuiles" }, tuiles)];
-    if (c.par_jour.length) sortie.push(courbe(c.par_jour, droits.argent));
+    if (c.par_jour.length) sortie.push(courbe(joursComplets(c.par_jour, periode), droits.argent));
     else sortie.push(UI.vide("Aucune commande payée sur cette période."));
     return sortie;
   }
 
-  /** Des barres, une par jour : le nombre de commandes payées. */
-  function courbe(jours, argent) {
-    const max = Math.max(1, ...jours.map((j) => j.payees));
-    return h("div", { class: "carte" },
-      h("h3", { style: { marginBottom: "10px" } }, "Commandes payées par jour"),
-      h("div", { style: { display: "flex", alignItems: "flex-end", gap: "3px", height: "140px", overflowX: "auto" } },
-        jours.map((j) => h("div", {
-          title: UI.date(j.jour) + " : " + j.payees + " commande(s)" + (argent && j.montant !== null ? " · " + UI.fcfa(j.montant) : ""),
-          style: { flex: "1 0 10px", minWidth: "10px", maxWidth: "36px", height: Math.max(4, Math.round(j.payees / max * 130)) + "px",
-                   background: "var(--bleu)", borderRadius: "4px 4px 0 0" } }))),
-      h("div", { class: "ligne tres-petit doux", style: { justifyContent: "space-between", marginTop: "4px" } },
-        h("span", {}, UI.date(jours[0].jour)), h("span", {}, UI.date(jours[jours.length - 1].jour))));
+  /** Des barres, une par jour : le nombre de commandes payées (ou, pour
+      qui voit l'argent, le montant encaissé — au choix). */
+  function courbe(jours, argent, mode = "nombre") {
+    const enMontant = argent && mode === "montant";
+    const jourCourt = (iso) => UI.enDate(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+    const jourLong = (iso) => {
+      const t = UI.enDate(iso).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    };
+    const points = jours.map((j) => ({
+      court: jourCourt(j.jour), long: jourLong(j.jour),
+      valeur: enMontant ? Number(j.montant || 0) : Number(j.payees || 0),
+      detail: (j.payees ? j.payees + " commande" + (j.payees > 1 ? "s" : "") + " payée" + (j.payees > 1 ? "s" : "") : "aucune commande payée") +
+        (argent && j.montant ? " · " + UI.fcfa(j.montant) : "") }));
+    const total = points.reduce((t, p) => t + p.valeur, 0);
+    const meilleur = points.reduce((m, p) => (p.valeur > m.valeur ? p : m), points[0]);
+    const unite = (v) => (enMontant ? UI.fcfa(v) : UI.entier(v) + " commande" + (v > 1 ? "s" : ""));
+    const moyenne = total / Math.max(1, points.length);
+    const resume = "Total : " + unite(total) + " · moyenne : " +
+      (enMontant ? UI.fcfa(Math.round(moyenne)) : String(Math.round(moyenne * 10) / 10).replace(".", ",")) + " par jour" +
+      (meilleur && meilleur.valeur ? " · meilleur jour : " + meilleur.court + " (" + unite(meilleur.valeur) + ")" : "") +
+      " — sur " + points.length + " jour" + (points.length > 1 ? "s" : "") + ".";
+    let carte;
+    const outils = argent ? h("div", { class: "graphe-choix", role: "group", "aria-label": "Afficher" },
+      [["nombre", "Nombre"], ["montant", "Montant"]].map(([cle, libelle]) => h("button", { type: "button",
+        class: cle === mode ? "actif" : "", "aria-pressed": String(cle === mode),
+        onclick: () => { if (cle !== mode) carte.replaceWith(courbe(jours, argent, cle)); } }, libelle))) : null;
+    carte = graphe({ titre: enMontant ? "Montant encaissé par jour (FCFA)" : "Commandes payées par jour", points,
+      format: enMontant ? compact : (v) => UI.entier(v), etiquette: enMontant ? compact : (v) => String(v),
+      resume, outils, aide: "Touchez une barre pour voir le jour, le nombre de commandes" + (argent ? " et le montant." : ".") });
+    return carte;
   }
 
   /* ---------- Boutiques qui vendent le plus ---------- */
@@ -284,24 +394,13 @@ const VueStatistiques = (() => {
     h("b", { style: { fontSize: "17px", color: couleur === "rouge" ? "var(--rouge-fonce)" : couleur === "vert" ? "var(--vert-fonce)" : null } }, fcfa(v)),
     h("span", {}, libelle));
 
-  /** Des barres, une par mois ; négatives en rouge, sous la ligne. */
+  /** Des barres, une par mois ; négatives en rouge, sous la ligne du zéro. */
   function barresMois(titre, lignes, cle) {
-    const valeurs = lignes.map((l) => Number(l[cle] || 0));
-    const max = Math.max(1, ...valeurs.map(Math.abs));
-    const negatif = valeurs.some((v) => v < 0);
-    const haut = negatif ? 70 : 130;
-    return h("div", { class: "carte" },
-      h("h3", { style: { marginBottom: "10px" } }, titre),
-      h("div", { style: { display: "flex", gap: "4px", overflowX: "auto" } }, lignes.map((l, i) => {
-        const v = valeurs[i];
-        const barre = h("div", { title: UI.mois(l.mois) + " : " + fcfa(v),
-          style: { height: Math.max(v ? 3 : 0, Math.round(Math.abs(v) / max * haut)) + "px", width: "100%",
-                   background: v < 0 ? "var(--rouge)" : "var(--bleu)", borderRadius: v < 0 ? "0 0 4px 4px" : "4px 4px 0 0" } });
-        return h("div", { style: { flex: "1 0 28px", minWidth: "28px", maxWidth: "56px", display: "flex", flexDirection: "column", alignItems: "center" } },
-          h("div", { style: { height: haut + "px", width: "100%", display: "flex", alignItems: "flex-end" } }, v >= 0 ? barre : null),
-          negatif ? h("div", { style: { height: haut + "px", width: "100%", borderTop: "1px solid var(--trait)" } }, v < 0 ? barre : null) : null,
-          h("div", { class: "tres-petit doux", style: { marginTop: "4px", whiteSpace: "nowrap" } }, moisCourt(l.mois)));
-      })));
+    const points = lignes.map((l) => ({ court: moisCourt(l.mois), long: UI.mois(l.mois),
+      valeur: Number(l[cle] || 0), detail: fcfa(Number(l[cle] || 0)) }));
+    const total = points.reduce((t, p) => t + p.valeur, 0);
+    return graphe({ titre: titre + " (FCFA)", points, format: compact, etiquette: compact,
+      resume: points.length > 1 ? "Total : " + fcfa(total) + " · moyenne : " + fcfa(Math.round(total / points.length)) + " par mois." : null });
   }
 
   /** Un tableau, et le même en Excel. */

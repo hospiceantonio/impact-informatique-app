@@ -30,6 +30,7 @@ const VueProfils = (() => {
             h("div", { class: "gras" }, p.nom),
             h("div", { class: "petit doux" }, membres(p).length + " membre(s) · Responsable : " +
               (p.responsable_id ? nom(p.responsable_id) : "aucun"))),
+          p.comptabilite ? UI.etiquette("Reversements", "vert") : null,
           UI.icone("chevron", "ic-sm"))))
         : UI.vide("Aucun profil. Créez le premier (ex. : Administration, Marketing, Logistique, Commercial)."));
   }
@@ -59,6 +60,10 @@ const VueProfils = (() => {
       h("div", { class: "carte pile" },
         h("h2", { style: { marginBottom: 0 } }, p.nom),
         p.description ? h("p", { class: "doux pre" }, p.description) : null,
+        /* (3.73.0) Le profil « Comptabilité » ouvre le menu Reversements à
+           ses membres ; seul le CEO y fait entrer ou sortir quelqu'un. */
+        p.comptabilite ? h("p", { class: "petit", "data-comptabilite": "" }, UI.etiquette("Reversements", "vert"),
+          " Ses membres traitent les demandes de reversement (menu Reversements). Seul le CEO y range un employé ou l'en retire.") : null,
         h("label", { class: "champ" }, h("span", {}, "Responsable du profil"), choix,
           h("small", {}, "Pour nommer quelqu'un, rangez-le d'abord dans ce profil (fiche de l'employé).")),
         h("div", { class: "actions" },

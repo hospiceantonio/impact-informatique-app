@@ -158,8 +158,9 @@ public class VerificateurCatalogue extends Worker {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel canal = new NotificationChannel(CANAL,
-                    "Nouveautés du catalogue", NotificationManager.IMPORTANCE_DEFAULT);
-            canal.setDescription("Prévient quand la boutique ajoute ou met à jour des produits.");
+                    Textes.t(contexte, "Nouveautés du catalogue", "Catalog updates"), NotificationManager.IMPORTANCE_DEFAULT);
+            canal.setDescription(Textes.t(contexte, "Prévient quand la boutique ajoute ou met à jour des produits.",
+                    "Lets you know when the shop adds or updates products."));
             gestionnaire.createNotificationChannel(canal);
         }
 
@@ -167,14 +168,18 @@ public class VerificateurCatalogue extends Worker {
         boolean nouveau = produit.optString("cree_le", "").equals(produit.optString("modifie_le", ""));
         long prix = produit.optLong("prix", 0);
 
-        String titre = nouveau ? "Nouveau dans la boutique" : "Catalogue mis à jour";
+        String titre = nouveau ? Textes.t(contexte, "Nouveau dans la boutique", "New in the shop")
+                : Textes.t(contexte, "Catalogue mis à jour", "Catalog updated");
         String texte = nom.isEmpty()
-                ? "De nouveaux articles vous attendent."
-                : (nouveau ? nom : nom + " vient d'être mis à jour")
+                ? Textes.t(contexte, "De nouveaux articles vous attendent.", "New items are waiting for you.")
+                : (nouveau ? nom : nom + Textes.t(contexte, " vient d'être mis à jour", " has just been updated"))
                   + (prix > 0 ? " — " + montant(prix) : "");
 
+        /* (3.73.0) La touche ouvre la fiche de CE produit, plus l'accueil. */
         Intent ouverture = new Intent(contexte, MainActivity.class);
-        ouverture.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        String id = produit.optString("id", "");
+        if (id.matches("[A-Za-z0-9_\\-]{1,80}")) ouverture.putExtra(MainActivity.EXTRA_LIEN, "#/produit/" + id);
+        ouverture.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         PendingIntent action = PendingIntent.getActivity(contexte, 0, ouverture, drapeaux);
