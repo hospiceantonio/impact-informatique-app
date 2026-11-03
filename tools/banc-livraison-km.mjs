@@ -532,7 +532,7 @@ titre("7. Le superadministrateur tranche la demande d'un livreur");
 }
 
 /* ------------------------------------------------------------------ */
-titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique");
+titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique (commande groupée)");
 {
   /* Alpha (sans position : le point BIZZOO) → Bêta (6,40) → client (6,458) :
      en ligne droite vers le nord, 13,4 km × … : 4 km au-delà des 10.
@@ -544,7 +544,8 @@ titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique"
   ok(/Livraison à moto 13,4 km/.test(km) && /1 800 FCFA$/.test(km), "deux boutiques, 13,4 km : 1 800 FCFA (" + km + ")");
   ok(/Alpha → Bêta → vous/.test(km), "l'ordre de passage : « Alpha → Bêta → vous »");
   ok(/dont 400 FCFA pour 2 boutiques/.test(km), "« dont 400 FCFA pour 2 boutiques »");
-  ok(/plus 200 FCFA par boutique\./.test(await texte(page, "#pa-tarif")), "le tarif dit « plus 200 FCFA par boutique »");
+  ok(/Commande de plusieurs boutiques : \+ 200 FCFA par boutique\./.test(await texte(page, "#pa-tarif")),
+    "le tarif dit « Commande de plusieurs boutiques : + 200 FCFA par boutique »");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -565,6 +566,25 @@ titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique"
   await page.waitForTimeout(600);
   ok(serveur.routes.some((c) => c.origine && c.origine.latitude === 6.40 && c.latitude === LOIN.latitude),
     "le tronçon Bêta → client est demandé à la route (" + serveur.routes.length + " tronçon(s))");
+  await ctx.close();
+}
+
+/* ------------------------------------------------------------------ */
+{
+  /* (3.74.1) Une seule boutique : de la boutique au client, forfait + km,
+     sans supplément. Bêta (6,40) → client (6,458) : 8,4 km, le forfait. */
+  const { page, ctx } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
+    panier: [{ produitId: "prod_b", quantite: 1 }], extra: { livraison_supplement_boutique: 200 } });
+  const km = await texte(page, ".pa-km");
+  ok(/Livraison à moto 8,4 km/.test(km) && /1 000 FCFA$/.test(km) && !/dont/.test(km),
+    "une seule boutique : de la boutique au client, 8,4 km, 1 000 FCFA, sans supplément (" + km + ")");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrirClient({ hash: "#/panier",
+    panier: [{ produitId: "prod_b", quantite: 1 }], extra: { livraison_supplement_boutique: 200 } });
+  const r = await recap(page);
+  ok(contient(r, "Livraison à moto selon la distance dès " + F(1000)), "une seule boutique : « dès 1 000 », sans supplément");
   await ctx.close();
 }
 

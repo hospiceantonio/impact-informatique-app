@@ -5543,11 +5543,14 @@ La distance d'une livraison ne part plus du point BIZZOO. Elle suit le
 |---|---|
 | Jusqu'à 10 km (le rayon) | le forfait du véhicule (moto 1 000, tricycle 4 000) |
 | Au-delà | le prix du km, par km **entamé** (moto 100, tricycle 500) |
-| Chaque boutique de la commande | **+ 200 FCFA** (dès la première) |
+| Commande groupée (2 boutiques ou plus) | **+ 200 FCFA par boutique** |
 
 Exemple : deux boutiques, 13 km en tout, à moto : 1 000 + 3 × 100 +
-2 × 200 = **1 700 FCFA**. Une seule boutique à 8 km : 1 000 + 200 =
-1 200 FCFA.
+2 × 200 = **1 700 FCFA**.
+
+**(3.74.1) Une seule boutique** : la distance va de la boutique au
+client, et c'est le forfait + les km au-delà, **sans supplément**. Une
+boutique à 8 km : 1 000 FCFA ; à 13 km : 1 300 FCFA.
 
 - **L'ordre** : toutes les possibilités jusqu'à 7 boutiques (le plus court
   gagne) ; au-delà, de la plus proche en plus proche, en essayant chaque
@@ -5566,7 +5569,7 @@ Exemple : deux boutiques, 13 km en tout, à moto : 1 000 + 3 × 100 +
 
 - **Le client** : « Livraison à moto 13 km — Alpha → Bêta → vous — dont
   400 FCFA pour 2 boutiques — 1 700 FCFA » ; avant de donner sa position,
-  « dès 1 400 » (forfait + boutiques).
+  « dès 1 400 » (forfait + boutiques) ; une seule boutique : « dès 1 000 ».
 - **Le livreur** : l'alerte dit « Itinéraire : Alpha → Bêta → client »,
   les frais de la course, « Votre gain » et « Part BIZZOO ». Sa course
   montre l'itinéraire à suivre (chaque boutique et la distance jusqu'à la

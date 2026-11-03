@@ -343,7 +343,8 @@ const VuePanier = (() => {
         fmt(d.frais) + "</span></div>";
     }
     const nb = (typeof Panier !== "undefined" ? Panier.parBoutique() : []).filter((g) => g.boutique && g.boutique.id).length;
-    const des = t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait + nb * (t.supplement || 0) : 0;
+    /* (3.74.1) Le supplément : commande groupée seulement. */
+    const des = t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait + (nb > 1 ? nb * (t.supplement || 0) : 0) : 0;
     return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
       " <small>selon la distance</small></span><span>dès " + fmt(des) + "</span></div>";
   }

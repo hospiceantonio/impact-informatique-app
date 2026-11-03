@@ -3174,7 +3174,9 @@ grant execute on function public.devis_livraison(double precision, double precis
 -- proche, depuis chaque boutique de départ). Les frais :
 --   forfait du véhicule jusqu'au rayon (10 km)
 --   + prix du km au-delà, par km ENTAMÉ
---   + « livraison_supplement_boutique » (200 FCFA) PAR BOUTIQUE.
+--   + « livraison_supplement_boutique » (200 FCFA) PAR BOUTIQUE, pour une
+--     commande GROUPÉE seulement (3.74.1) : une seule boutique, c'est
+--     boutique → client, forfait + km, sans supplément.
 -- Exemple : deux boutiques, 13 km en tout, à moto : 1 000 + 3 × 100 +
 -- 2 × 200 = 1 700 FCFA.
 --
@@ -3379,7 +3381,9 @@ begin
   km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
   forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
   prix := case when v = 'tricycle' then r.tricycle_prix_km else r.moto_prix_km end;
-  sup  := coalesce(r.livraison_supplement_boutique, 0);
+  -- (3.74.1) Le supplément ne vaut que pour une commande GROUPÉE (deux
+  -- boutiques ou plus) ; une seule boutique : forfait + km, sans plus.
+  sup  := case when n > 1 then coalesce(r.livraison_supplement_boutique, 0) else 0 end;
   return jsonb_build_object(
     'vehicule', v,
     'distance_km', round(dist, 1),

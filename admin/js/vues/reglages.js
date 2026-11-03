@@ -289,8 +289,9 @@ const VueReglages = (() => {
            chaque boutique ajoute ce supplément. Absent d'une base d'avant. */
         (l.supplement == null ? "" :
           champ("km-supplement", "Supplément par boutique", l.supplement, "FCFA",
-            "La distance va de boutique en boutique, puis au client, dans l'ordre le plus court. " +
-            "Chaque boutique de la commande ajoute ce montant (2 boutiques : 2 fois).")) +
+            "Commande groupée (2 boutiques ou plus) : la distance va de boutique en boutique, puis au client, " +
+            "dans l'ordre le plus court, et chaque boutique ajoute ce montant (2 boutiques : 2 fois). " +
+            "Une seule boutique : de la boutique au client, sans supplément.")) +
       "</div>" +
       '<div class="btn-rangee" style="margin-top:6px">' +
         '<button type="button" class="btn" id="km-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +

@@ -365,7 +365,8 @@ const Paiement = (() => {
     dist = Math.round(dist * 1000) / 1000;
     const km = dist > t.rayon ? Math.ceil(Math.round((dist - t.rayon) * 1000) / 1000) : 0;
     const tarif = t[v];
-    const sup = t.supplement || 0;
+    /* (3.74.1) Le supplément : commande groupée seulement (2 boutiques ou plus). */
+    const sup = n > 1 ? (t.supplement || 0) : 0;
     return { vehicule: v, distanceKm: Math.round(dist * 10) / 10, rayon: t.rayon, kmFactures: km,
              calcul: routesOk === w ? "route" : routesOk === 0 ? "vol_oiseau" : "mixte",
              forfait: tarif.forfait, prixKm: tarif.prixKm,
@@ -382,7 +383,7 @@ const Paiement = (() => {
     return "Livraison " + (v === "tricycle" ? "en tricycle" : "à moto") + " : " + f(t[v].forfait) +
       " jusqu'à " + String(t.rayon).replace(".", ",") + " km, " + f(t[v].prixKm) + " par km au-delà" +
       /* (3.74.0) Le supplément de chaque boutique de la tournée. */
-      (t.supplement > 0 ? ", plus " + f(t.supplement) + " par boutique." : ".");
+      (t.supplement > 0 ? ". Commande de plusieurs boutiques : + " + f(t.supplement) + " par boutique." : ".");
   }
 
   /* Où livrer : gardé sur le téléphone, pour ne pas le redemander à

@@ -6485,5 +6485,7 @@
  "October": "October",
  "November": "November",
  "December": "December",
- "at": "at"
+ "at": "at",
+ ". Commande de plusieurs boutiques : +": ". Order from several shops: +",
+ "Commande groupée (2 boutiques ou plus) : la distance va de boutique en boutique, puis au client, dans l'ordre le plus court, et chaque boutique ajoute ce montant (2 boutiques : 2 fois). Une seule boutique : de la boutique au client, sans supplément.": "Grouped order (2 shops or more): the distance runs from shop to shop, then to the customer, in the shortest order, and each shop adds this amount (2 shops: twice). A single shop: from the shop to the customer, no surcharge."
 }
