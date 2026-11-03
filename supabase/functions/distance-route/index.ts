@@ -74,6 +74,14 @@ type Connue = {
   plafond_atteint?: boolean;
 };
 
+/** À vol d'oiseau, en km (haversine) : de quoi refuser un trajet absurde. */
+function volOiseauKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+  const rad = (x: number) => x * Math.PI / 180;
+  const h = Math.sin(rad(b.latitude - a.latitude) / 2) ** 2 +
+    Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(rad(b.longitude - a.longitude) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** Le trajet selon Google, en mètres ; null si Google ne le donne pas. */
 async function trajetGoogle(o: { latitude: number; longitude: number },
                             d: { latitude: number; longitude: number }): Promise<number | null> {
@@ -114,18 +122,32 @@ Deno.serve(async (requete) => {
   if (!cleGoogle()) return json({ actif: false });
   if (!BASE || !SERVICE) return json({ actif: false, message: "Fonction mal réglée." }, 500);
 
-  const corps = await requete.json().catch(() => ({})) as { latitude?: unknown; longitude?: unknown };
+  const corps = await requete.json().catch(() => ({})) as {
+    latitude?: unknown; longitude?: unknown; origine?: { latitude?: unknown; longitude?: unknown } };
   const latitude = Number(corps.latitude);
   const longitude = Number(corps.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
       Math.abs(latitude) > 90 || Math.abs(longitude) > 180 || (latitude === 0 && longitude === 0)) {
     return json({ actif: true, distance_km: null, message: "Position invalide." }, 400);
   }
+  /* (3.74.0) Un TRONÇON de tournée : d'une boutique (ou du point BIZZOO)
+     vers une autre boutique ou le client. La base n'accepte comme départ
+     qu'une boutique ou le point BIZZOO. */
+  const o = corps.origine && typeof corps.origine === "object"
+    ? { latitude: Number(corps.origine.latitude), longitude: Number(corps.origine.longitude) } : null;
+  if (o && (!Number.isFinite(o.latitude) || !Number.isFinite(o.longitude) ||
+            Math.abs(o.latitude) > 90 || Math.abs(o.longitude) > 180)) {
+    return json({ actif: true, distance_km: null, message: "Position invalide." }, 400);
+  }
 
   try {
-    const connue = await base("route_connue", { latitude, longitude }) as Connue | null;
-    if (!connue || !connue.point || !connue.origine) return json({ actif: false });
+    const connue = (o
+      ? await base("route_connue_trajet", { de_lat: o.latitude, de_lng: o.longitude, a_lat: latitude, a_lng: longitude })
+      : await base("route_connue", { latitude, longitude })) as Connue | null;
+    if (connue && o && connue.vol_oiseau_km === undefined) connue.vol_oiseau_km = volOiseauKm(o, { latitude, longitude });
+    if (!connue || !connue.point) return json({ actif: false });
     if (connue.invalide) return json({ actif: true, distance_km: null, message: "Position invalide." }, 400);
+    if (!connue.origine) return json({ actif: false });
     if (connue.distance_m) {
       return json({ actif: true, distance_km: Math.round(connue.distance_m) / 1000, cache: true });
     }
@@ -138,7 +160,12 @@ Deno.serve(async (requete) => {
     }
     const m = await trajetGoogle(connue.origine, { latitude, longitude });
     if (!m) return json({ actif: true, distance_km: null, message: "Google n'a pas rendu de trajet." });
-    await base("enregistrer_route", { latitude, longitude, distance_m: m });
+    if (o) {
+      await base("enregistrer_route_trajet", { de_lat: o.latitude, de_lng: o.longitude,
+                                               a_lat: latitude, a_lng: longitude, distance_m: m });
+    } else {
+      await base("enregistrer_route", { latitude, longitude, distance_m: m });
+    }
     return json({ actif: true, distance_km: m / 1000, cache: false });
   } catch (err) {
     console.error("distance-route :", err instanceof Error ? err.message : err);

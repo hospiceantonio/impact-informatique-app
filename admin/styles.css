@@ -1712,6 +1712,10 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   color:var(--encre-tres-douce);
 }
 .lv-recu{margin-top:12px;width:100%;justify-content:center}
+/* (3.74.0) La tournée : les boutiques dans l'ordre de passage, puis le client. */
+.lv-tournee{margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--fond);border:1px solid var(--trait);font-size:13px}
+.lv-tournee ol{margin:4px 0 4px 18px;padding:0;line-height:1.6}
+.lv-tournee .aide{font-size:12px}
 
 /* ---------- L'essai de la passerelle SMS ----------
    Le verdict en clair, et la réponse brute repliée en dessous :

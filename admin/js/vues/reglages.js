@@ -285,6 +285,12 @@ const VueReglages = (() => {
       '<div class="champ-duo">' +
         champ("km-taux", "Part du livreur", l.tauxLivreur, "%",
           "Sur les frais de chaque commande ; le reste revient à BIZZOO.") +
+        /* (3.74.0) La tournée : de boutique en boutique, puis au client ;
+           chaque boutique ajoute ce supplément. Absent d'une base d'avant. */
+        (l.supplement == null ? "" :
+          champ("km-supplement", "Supplément par boutique", l.supplement, "FCFA",
+            "La distance va de boutique en boutique, puis au client, dans l'ordre le plus court. " +
+            "Chaque boutique de la commande ajoute ce montant (2 boutiques : 2 fois).")) +
       "</div>" +
       '<div class="btn-rangee" style="margin-top:6px">' +
         '<button type="button" class="btn" id="km-enregistrer">' + UI.icone("check") + "Enregistrer</button>" +
@@ -417,6 +423,7 @@ const VueReglages = (() => {
         motoForfait: UI.$("#km-moto-forfait").value, motoPrixKm: UI.$("#km-moto-km").value,
         tricycleForfait: UI.$("#km-tri-forfait").value, tricyclePrixKm: UI.$("#km-tri-km").value,
         tauxLivreur: UI.$("#km-taux").value,
+        supplement: UI.$("#km-supplement") ? UI.$("#km-supplement").value : undefined,
       });
       const bouton = UI.$("#km-enregistrer");
       bouton.onclick = () => unEnvoi(bouton, async () => {

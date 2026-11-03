@@ -416,6 +416,22 @@
   "Nobody took it: $1"
  ],
  [
+  "^Itinéraire : (.+) → client$",
+  "Route: $1 → customer"
+ ],
+ [
+  "^Part BIZZOO : (.+)$",
+  "BIZZOO's share: $1"
+ ],
+ [
+  "^dont (.+?) pour (\\d+) boutiques$",
+  "including $1 for $2 shops"
+ ],
+ [
+  "^dont (.+?) pour 1 boutique$",
+  "including $1 for 1 shop"
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

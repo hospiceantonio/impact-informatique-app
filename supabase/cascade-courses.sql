@@ -367,7 +367,15 @@ begin
     -- (3.64.0) Le véhicule, la distance, et ce que le livreur y gagne.
     'trajet', case when c.livraison is null then null
                    else jsonb_build_object('vehicule', c.livraison ->> 'vehicule',
-                                           'distance_km', c.livraison -> 'distance_km') end,
+                                           'distance_km', c.livraison -> 'distance_km',
+                                           -- (3.74.0) La tournée : l'ordre des boutiques,
+                                           -- et de quoi se composent les frais.
+                                           'tournee', c.livraison -> 'tournee',
+                                           'forfait', c.livraison -> 'forfait',
+                                           'km_factures', c.livraison -> 'km_factures',
+                                           'prix_km', c.livraison -> 'prix_km',
+                                           'supplements', c.livraison -> 'supplements',
+                                           'nb_boutiques', c.livraison -> 'nb_boutiques') end,
     -- (3.66.0) Au kilomètre ou à l'ancien tarif : sa part des frais.
     'gain', public.gain_livreur(c.id),
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),
@@ -475,9 +483,17 @@ declare
   paye     numeric := 0;
   reste    numeric := 0;
 begin
-  for b in select distinct l.boutique_id from public.commande_lignes l
-            where l.commande_id = commande and l.etat <> 'annulee' and l.boutique_id is not null
-            order by 1 loop
+  -- (3.74.0) Les boutiques dans l'ordre de la tournée, quand la commande en
+  -- a une : le livreur les lit dans l'ordre où il doit passer.
+  for b in select x.boutique_id from (
+             select distinct l.boutique_id from public.commande_lignes l
+              where l.commande_id = commande and l.etat <> 'annulee' and l.boutique_id is not null) x
+            order by (select e.o from public.commandes c,
+                        jsonb_array_elements(case when jsonb_typeof(c.livraison -> 'tournee') = 'array'
+                                                  then c.livraison -> 'tournee' else '[]'::jsonb end)
+                          with ordinality e(v, o)
+                       where c.id = commande and e.v ->> 'boutique_id' = x.boutique_id) nulls last,
+                     x.boutique_id loop
     f := public.fiche_course(commande, b);
     if f is null then continue; end if;
     premiere := coalesce(premiere, f);
@@ -566,6 +582,14 @@ begin
   if coalesce(f ->> 'lieu_retrait', '') <> '' then
     texte := texte || 'Où récupérer : ' || (f ->> 'lieu_retrait') || E'\n';
   end if;
+  -- (3.74.0) Le trajet à suivre, boutique après boutique, choisi par BIZZOO.
+  if jsonb_typeof(f -> 'trajet' -> 'tournee') = 'array'
+     and jsonb_array_length(f -> 'trajet' -> 'tournee') > 0 then
+    texte := texte || 'Itinéraire : ' ||
+      (select string_agg(coalesce(nullif(e ->> 'nom', ''), 'boutique'), ' → ' order by o)
+         from jsonb_array_elements(f -> 'trajet' -> 'tournee') with ordinality x(e, o)) ||
+      ' → client' || E'\n';
+  end if;
   return texte ||
     'Livrer à : ' || coalesce(nullif(f -> 'livraison' ->> 'nom', ''), 'le client') ||
       coalesce(nullif(' — ' || (f -> 'livraison' ->> 'adresse'), ' — '), ' (adresse à demander)') || E'\n' ||
@@ -579,7 +603,10 @@ begin
          else '' end ||
     'Frais de livraison : ' || public.montant_lisible((f ->> 'frais')::numeric, f ->> 'devise') || E'\n' ||
     case when (f ->> 'gain') is not null
-         then 'Votre gain : ' || public.montant_lisible((f ->> 'gain')::numeric, f ->> 'devise') || E'\n'
+         then 'Votre gain : ' || public.montant_lisible((f ->> 'gain')::numeric, f ->> 'devise') || E'\n' ||
+              -- (3.74.0) Ce qui revient à BIZZOO, pour que tout soit clair.
+              'Part BIZZOO : ' || public.montant_lisible(greatest(0, (f ->> 'frais')::numeric
+                                   - (f ->> 'gain')::numeric), f ->> 'devise') || E'\n'
          else '' end ||
     'Déjà payé : ' || public.montant_lisible((f ->> 'deja_paye')::numeric, f ->> 'devise') || E'\n' ||
     case when (f ->> 'a_encaisser')::numeric > 0

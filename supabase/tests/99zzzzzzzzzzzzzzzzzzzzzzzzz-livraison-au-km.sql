@@ -63,6 +63,10 @@ insert into public.produits (id, boutique_id, nom, prix, sous_categorie_id, stoc
   ('prod_km_frigo', 'bou_informatique', 'Réfrigérateur', 150000, 'sc_hightech_accessoires', 50, true)
 on conflict (id) do update set stock = 50, disponible = true;
 update public.paiement set livraison_latitude = null, livraison_longitude = null where id = 1;
+-- (3.74.0) Sans le supplément par boutique : cet essai garde le tarif
+-- d'origine (forfait + km) ; la tournée et son supplément ont le leur
+-- (…-tournee.sql).
+update public.paiement set livraison_supplement_boutique = 0 where id = 1;
 select essai.egal((select vehicule from public.produits where id = 'prod_km_a'), 'moto',
   'un produit naît « moto »');
 
