@@ -626,10 +626,31 @@ const Paiement = (() => {
          va appeler. Sa phrase à lui, même maladroite, dit au moins où
          chercher. */
       const details = typeof donnees.details === "string" ? donnees.details.trim() : "";
-      throw new Error((donnees.erreur || "Le paiement n'a pas pu s'ouvrir.") +
+      const erreur = new Error((donnees.erreur || "Le paiement n'a pas pu s'ouvrir.") +
                       (details ? " — " + details : ""));
+      /* (3.75.0) Un produit parti en rupture : l'écran le dit, durablement. */
+      if (donnees.rupture) {
+        erreur.rupture = true;
+        erreur.manquants = Array.isArray(donnees.manquants) ? donnees.manquants : [];
+      }
+      throw erreur;
     }
     return donnees;
+  }
+
+  /** (3.75.0) Les produits d'une commande à payer partis en rupture depuis,
+      et les autres (pour refaire le panier). Une base d'avant ne connaît
+      pas la fonction : rien ne manque, comme avant. */
+  async function manquants(commande, tel) {
+    const c = Catalogue.configuration();
+    if (!c) return { manquants: [], autres: [] };
+    try {
+      const d = await rpc("manquants_commande", { cible: commande, tel: tel || "" });
+      return { manquants: Array.isArray(d && d.manquants) ? d.manquants : [],
+               autres: Array.isArray(d && d.autres) ? d.autres : [] };
+    } catch (_) {
+      return { manquants: [], autres: [] };
+    }
   }
 
   /** Lance la demande de paiement. Le client valide ensuite sur son téléphone. */
@@ -804,7 +825,7 @@ const Paiement = (() => {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe, fraisLivraison, apercu,
     livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
-    demanderRoute, attendreRoute,
+    demanderRoute, attendreRoute, manquants,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,

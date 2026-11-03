@@ -831,13 +831,19 @@ begin
                 'confiez à la main la part libérée.'
            else 'Aucun autre livreur disponible : confiez-la à la main.' end;
   perform public.notifier(public.enseigne_des_commandes() || public.les_superadmins(),
-    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    'course_annulee_livreur',
+    -- (3.75.0) Après « Commande reçue », on le dit : il était en route.
+    case when annonce then 'Course annulée après acceptation par ' else 'Course annulée par ' end ||
+      porteur || ' — ' || coalesce(c.numero, ''),
     texte, '#/commandes/' || commande, commande, null, true);
   perform public.notifier(
     coalesce((select array_agg(p.id) from public.profils p
                where p.actif and p.boutique_id is null and not p.peut_commandes
                  and p.role in ('administrateur', 'moderateur')), '{}'::uuid[]),
-    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    'course_annulee_livreur',
+    -- (3.75.0) Après « Commande reçue », on le dit : il était en route.
+    case when annonce then 'Course annulée après acceptation par ' else 'Course annulée par ' end ||
+      porteur || ' — ' || coalesce(c.numero, ''),
     texte, '#/notifications', commande, null, true);
 
   if annonce and c.client_id is not null then

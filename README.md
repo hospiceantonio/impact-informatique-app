@@ -5531,6 +5531,81 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Rupture sur une commande en attente, temps de préparation, localisation coupée (3.75.0)
+
+### Une commande en attente dont un produit est parti en rupture
+
+Le client commande, ne peut pas payer (réseau, refus), revient plus tard :
+entre-temps, un produit est parti. Avant, le bouton « Payer » ne menait
+nulle part. Désormais :
+
+- le reçu demande à la base ce qui manque (`manquants_commande`, par le
+  numéro de la commande et le téléphone du client, ou son compte) et
+  affiche **« Rupture de stock »**, la liste (« Casque — plus que 1 en
+  stock (2 commandés) »), sans bouton « Payer » ;
+- **« Refaire mon panier sans ce produit »** remet le reste au panier (et
+  ce qui reste du produit manquant) ;
+- la fonction de paiement `feexpay` **refuse** d'encaisser une telle
+  commande (409, « Rupture de stock : « Casque » n'est plus disponible… ») :
+  FeexPay n'est pas appelé, aucun téléphone ne sonne.
+
+Manque : un produit retiré, ou plus assez de pièces — sauf « sur commande »
+ou en approvisionnement, comme à la commande.
+
+### Le temps de préparation (Personnel, Suivi des commandes)
+
+Une colonne **« Préparation (vue → préparée) »** : le temps de chaque
+marchand entre « Commande vue » et « Préparée » — « 14 min » ; en rouge
+« 34 min ⚠ > 20 min » au-delà du délai réglé ; « en cours · 8 min » ;
+« pas encore vue ». L'export Excel l'a aussi (et, par article, « Préparé
+par le marchand » et « Préparation (min) »).
+
+Le délai se règle dans **Personnel → Suivi → Réglages → Délai de
+préparation** (en minutes). Réglé à 20 min, il fait aussi sonner la
+boutique (et BIZZOO) quand une commande vue n'est pas préparée à temps.
+
+### Le livreur coupe sa localisation pendant une course
+
+Avant, le téléphone renvoyait sa dernière position toutes les 2 minutes
+même localisation coupée : la base le croyait suivi. Désormais :
+
+- l'application Android dit si la localisation est allumée, et l'âge de
+  la position (`position_livreur(…, localisation, age_s)`) ; elle prévient
+  la base dès que la localisation est coupée ou rallumée ;
+- chaque minute, `alerter_localisations` (pg_cron) regarde les livreurs en
+  course (après « Commande reçue ») : **localisation coupée depuis plus
+  d'une minute**, ou **plus aucune position mesurée depuis 15 min** (le
+  seuil de la veille, Personnel) → une notification **qui sonne** à
+  BIZZOO (« Localisation coupée — Sika », avec son numéro) et au livreur
+  (« Réactivez votre localisation ») ; une seule par épisode ;
+  « Localisation rétablie » quand elle revient ;
+- Personnel : « Livreur en route sans position » se fie à la position
+  mesurée (le battement du téléphone ne la rajeunit plus).
+
+Il faut la **version 3.75.0 de l'APK** : une APK d'avant ne dit ni que
+la localisation est coupée, ni l'âge de sa position (elle la renvoie
+comme neuve à chaque battement) ; avec elle, seul un téléphone qui ne
+parle plus du tout déclenche l'alerte, au bout de 15 min.
+
+### Une course annulée après « Commande reçue »
+
+Elle sonnait déjà chez BIZZOO ; son titre le dit désormais : **« Course
+annulée après acceptation par Moussa — BZ-… »** (avant acceptation :
+« Course annulée par … »). La course repart toujours seule vers les
+autres livreurs.
+
+### Mise en service
+
+`supabase/suivi-rupture-localisation.sql`, puis redéployer la fonction
+`feexpay`, puis la version 3.75.0 des applications.
+
+Les essais : `supabase/tests/99zzz…-suivi-rupture-localisation.sql`
+(rupture, temps de préparation, localisation coupée puis rétablie,
+position figée, annulation après acceptation) ;
+`tools/banc-rupture-preparation.mjs` (le reçu du client, la colonne de
+Personnel) ; `tools/eprouver-paiement.sh` (la fonction refuse et ne fait
+pas sonner).
+
 ## La tournée : de boutique en boutique, puis au client (3.74.0)
 
 La distance d'une livraison ne part plus du point BIZZOO. Elle suit le

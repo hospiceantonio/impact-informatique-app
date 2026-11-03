@@ -5830,13 +5830,19 @@ begin
                 'confiez à la main la part libérée.'
            else 'Aucun autre livreur disponible : confiez-la à la main.' end;
   perform public.notifier(public.enseigne_des_commandes() || public.les_superadmins(),
-    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    'course_annulee_livreur',
+    -- (3.75.0) Après « Commande reçue », on le dit : il était en route.
+    case when annonce then 'Course annulée après acceptation par ' else 'Course annulée par ' end ||
+      porteur || ' — ' || coalesce(c.numero, ''),
     texte, '#/commandes/' || commande, commande, null, true);
   perform public.notifier(
     coalesce((select array_agg(p.id) from public.profils p
                where p.actif and p.boutique_id is null and not p.peut_commandes
                  and p.role in ('administrateur', 'moderateur')), '{}'::uuid[]),
-    'course_annulee_livreur', 'Course annulée par ' || porteur || ' — ' || coalesce(c.numero, ''),
+    'course_annulee_livreur',
+    -- (3.75.0) Après « Commande reçue », on le dit : il était en route.
+    case when annonce then 'Course annulée après acceptation par ' else 'Course annulée par ' end ||
+      porteur || ' — ' || coalesce(c.numero, ''),
     texte, '#/notifications', commande, null, true);
 
   if annonce and c.client_id is not null then
@@ -7289,11 +7295,73 @@ begin
     -- Pour que l'Edge Function refuse une relance AVANT d'appeler
     -- l'agrégateur : sinon le téléphone sonnerait quand même, et c'est
     -- seulement en rangeant la référence qu'on s'apercevrait du frein.
-    'tentative_le', c.tentative_le);
+    'tentative_le', c.tentative_le,
+    -- (3.75.0) Les produits partis en rupture depuis la commande : la
+    -- fonction refuse alors de faire payer ce qu'on ne livrera pas.
+    'manquants', case when c.etat = 'a_payer' then public.manquants_de_commande(c.id) else '[]'::jsonb end);
 end $$;
 
 revoke all on function public.commande_pour_paiement(text, text)
   from public, anon, authenticated;
+
+-- ---------- (3.75.0) UNE COMMANDE EN ATTENTE DONT UN PRODUIT EST EN RUPTURE ----------
+-- Le client a commandé, n'a pas pu payer (réseau, refus), et revient plus
+-- tard : entre-temps, un produit est parti. Le paiement ne vérifiait rien,
+-- et le client restait devant un bouton qui ne menait nulle part. Désormais
+-- la base dit QUELS produits manquent ; l'application le montre, et la
+-- fonction de paiement refuse d'encaisser une commande qu'on ne pourra pas
+-- livrer.
+--
+-- Manque : un produit retiré (masqué, effacé), ou plus assez de pièces —
+-- sauf « sur commande » ou en approvisionnement, comme à la commande
+-- (« creer_commande »). Le stock d'une commande à payer n'est pas encore
+-- pris : on compare à ce qui reste.
+create or replace function public.manquants_de_commande(cible text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'produit_id', x.pid, 'nom', x.nom, 'demande', x.q, 'reste', x.reste) order by x.nom), '[]'::jsonb)
+    from (
+      select l.produit_id as pid, min(coalesce(nullif(p.nom, ''), l.nom)) as nom, sum(l.quantite)::int as q,
+             case when p.id is null or coalesce(p.masque, false) then 0
+                  else greatest(coalesce(p.stock, 0), 0) end as reste,
+             (p.id is null or coalesce(p.masque, false)) as retire,
+             (coalesce(p.sur_commande, false) or (p.appro_le is not null and p.appro_le >= current_date)) as sans_plafond
+        from public.commande_lignes l
+        left join public.produits p on p.id = l.produit_id
+       where l.commande_id = cible and l.etat <> 'annulee'
+       group by l.produit_id, p.id, p.masque, p.stock, p.sur_commande, p.appro_le
+    ) x
+   where x.retire or (not x.sans_plafond and x.q > x.reste);
+$$;
+revoke all on function public.manquants_de_commande(text) from public, anon, authenticated;
+
+-- Pour l'application : la commande (son numéro et le téléphone du client,
+-- ou le compte connecté) ; les produits qui manquent, et les autres, pour
+-- refaire le panier sans ceux-là. Rien pour une commande déjà payée.
+create or replace function public.manquants_commande(cible text, tel text default '')
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare c public.commandes%rowtype;
+begin
+  select * into c from public.commandes x
+   where x.id = coalesce(cible, '') and not x.compte_supprime
+     and ((auth.uid() is not null and x.client_id = auth.uid())
+          or (coalesce(tel, '') <> '' and x.client_tel = regexp_replace(tel, '\D', '', 'g')));
+  if not found or c.etat <> 'a_payer' then
+    return jsonb_build_object('manquants', '[]'::jsonb, 'autres', '[]'::jsonb);
+  end if;
+  return jsonb_build_object(
+    'manquants', public.manquants_de_commande(c.id),
+    'autres', coalesce((select jsonb_agg(jsonb_build_object('produit_id', y.pid, 'quantite', y.q) order by y.pid)
+                          from (select l.produit_id as pid, sum(l.quantite)::int as q
+                                  from public.commande_lignes l
+                                 where l.commande_id = c.id and l.etat <> 'annulee' and l.produit_id is not null
+                                   and not exists (select 1 from jsonb_array_elements(public.manquants_de_commande(c.id)) m
+                                                    where m ->> 'produit_id' = l.produit_id)
+                                 group by l.produit_id) y), '[]'::jsonb));
+end $$;
+revoke all on function public.manquants_commande(text, text) from public;
+grant execute on function public.manquants_commande(text, text) to anon, authenticated;
 
 -- ---------- Retrouver une commande par la référence de l'agrégateur ----------
 -- Le webhook de FeexPay ne connaît pas nos numéros de commande : il nous
@@ -15588,8 +15656,23 @@ begin
                  'prix', x.prix, 'etat', x.etat, 'rang', x.rang, 'statut', public.rh_statut_libelle(x.rang),
                  'terrain', x.terrain, 'terrain_motif', coalesce(x.terrain_motif, ''),
                  'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel, 'livreur_id', x.livreur_id,
-                 'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le)
+                 'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le,
+                 -- (3.75.0) Quand le marchand a touché « Préparée ».
+                 'preparee_le', x.preparee_le)
                order by x.boutique_nom, x.nom) from lig2 x where x.commande_id = c.id), '[]'),
+    -- (3.75.0) LE TEMPS DE PRÉPARATION de chaque marchand : de « Commande
+    -- vue » à « Préparée » (tous ses articles), en minutes ; le délai réglé
+    -- (preparation_min, 20 min convenues avec les marchands) pour juger.
+    'preparation', coalesce((select jsonb_agg(jsonb_build_object(
+                     'boutique', coalesce(y.bn, y.bid), 'vue_le', y.v, 'preparee_le', y.p,
+                     'minutes', case when y.v is not null and y.p is not null
+                                     then greatest(0, round(extract(epoch from (y.p - y.v)) / 60))::int end)
+                   order by y.bn)
+                   from (select x.boutique_id as bid, min(x.boutique_nom) as bn, min(x.vue_le) as v,
+                                case when bool_and(x.preparee_le is not null) then max(x.preparee_le) end as p
+                           from lig2 x where x.commande_id = c.id and x.etat <> 'annulee'
+                          group by x.boutique_id) y), '[]'),
+    'preparation_seuil_min', coalesce(r.preparation_min, r.preparation_h * 60),
     'articles', coalesce((select string_agg(x.quantite || ' × ' || x.nom
                                             || case when x.etat = 'annulee' then ' (annulé)' else '' end, ' ; '
                                             order by x.boutique_nom, x.nom)
@@ -15656,8 +15739,13 @@ begin
         select 'livreur_muet' where exists (select 1 from lig2 x
                                  left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
                                  where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
-                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
-                                       > make_interval(mins => v_position_min))
+                                   -- (3.75.0) La position MESURÉE (« fix_le ») : le battement
+                                   -- du téléphone ne la rajeunit plus ; localisation coupée :
+                                   -- tout de suite.
+                                   and ((to_jsonb(pp) ->> 'localisation_coupee_le') is not null
+                                        or maintenant - greatest(coalesce((to_jsonb(pp) ->> 'fix_le')::timestamptz, pp.enregistre_le),
+                                                                 x.recu_le, c.paye_le)
+                                           > make_interval(mins => v_position_min)))
         union all
         select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
                                  where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null
@@ -17194,68 +17282,8 @@ grant execute on function public.position_en_course(text, double precision, doub
 -- dit lequel des deux, pour que le téléphone règle son rythme : toutes les
 -- 20 secondes en course, toutes les 3 minutes libre. C'est cette position
 -- qui fait « le plus proche » dans la cascade des courses.
-create or replace function public.position_livreur(jeton text, lat double precision,
-  lng double precision, precision_m int default null)
-returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare
-  qui uuid;
-  p   public.profils%rowtype;
-  la  double precision := public.coord_valable(lat, 90);
-  lo  double precision := public.coord_valable(lng, 180);
-  en_course boolean;
-  derniere timestamptz;
-  pas      interval;
-begin
-  select s.profil_id into qui from public.suivis_livreurs s
-   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-          and s.expire_le > now())
-      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-          and s.precedent_expire_le > now());
-  if qui is null then
-    raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
-  end if;
-  -- Le service travaille encore avec l'ancien jeton (le nouveau attend que
-  -- la page revienne à l'écran) : il le garde tant qu'il s'en sert.
-  update public.suivis_livreurs set precedent_expire_le = now() + interval '10 minutes'
-   where profil_id = qui
-     and jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
-     and precedent_expire_le < now() + interval '5 minutes';
-  select * into p from public.profils x where x.id = qui;
-  if not found or not p.actif or p.role <> 'livreur' then
-    delete from public.suivis_livreurs where profil_id = qui;
-    return jsonb_build_object('continuer', false, 'en_course', false);
-  end if;
-  en_course := public.livreur_en_course(qui);
-  if not en_course and (not coalesce(p.disponible, true) or p.courses_bloquees) then
-    -- Le suivi s'arrête : « Localiser un livreur » ne le montre plus actif.
-    delete from public.suivis_livreurs where profil_id = qui;
-    return jsonb_build_object('continuer', false, 'en_course', false);
-  end if;
-  -- APPLICATION FERMÉE DES JOURS DURANT : tant que le téléphone se manifeste,
-  -- le jeton ne meurt pas (16 heures après le dernier signe ; une écriture
-  -- par heure au plus).
-  update public.suivis_livreurs set expire_le = now() + interval '16 hours'
-   where profil_id = qui and expire_le < now() + interval '15 hours';
-  if la is null or lo is null or (la = 0 and lo = 0) then
-    return jsonb_build_object('continuer', true, 'en_course', en_course);
-  end if;
-  -- Pas plus d'une écriture toutes les 5 secondes en course, toutes les 30
-  -- secondes libre. Seule une position déjà là (compte validé) se met à jour.
-  select pl.enregistre_le into derniere from public.positions_livreurs pl where pl.profil_id = qui;
-  pas := case when en_course then interval '5 seconds' else interval '30 seconds' end;
-  if derniere is not null and derniere < now() - pas then
-    update public.positions_livreurs
-       set latitude = la, longitude = lo, precision_m = greatest(0, position_livreur.precision_m),
-           enregistre_le = now()
-     where profil_id = qui;
-  end if;
-  return jsonb_build_object('continuer', true, 'en_course', en_course);
-end $$;
--- Sans session : le jeton fait foi.
-revoke all on function public.position_livreur(text, double precision, double precision, int) from public;
-grant execute on function public.position_livreur(text, double precision, double precision, int)
-  to anon, authenticated;
+-- (3.75.0) Remplacée plus bas (« LE LIVREUR COUPE SA LOCALISATION ») par une
+-- version qui reçoit aussi l'état de la localisation et l'âge de la mesure.
 
 -- (3.70.0) Le téléphone cesse de suivre (la page l'a arrêté, ou le livreur
 -- se déconnecte) : la base l'oublie aussi. Sans « tout », seulement s'il
@@ -24453,3 +24481,203 @@ begin
 end $$;
 revoke all on function public.regler_langue(text) from public, anon;
 grant execute on function public.regler_langue(text) to authenticated;
+
+-- =========================================================
+-- (3.75.0) LE LIVREUR COUPE SA LOCALISATION PENDANT UNE COURSE
+--
+-- Le téléphone renvoyait sa dernière position toutes les 2 minutes (le
+-- « battement ») même localisation coupée : la base croyait le livreur
+-- suivi, et rien ne sonnait. Désormais :
+--   - l'application dit si la localisation est active, et l'âge de la
+--     position qu'elle envoie (« fix_le » : quand le téléphone l'a VRAIMENT
+--     mesurée ; « enregistre_le » ne dit plus que « le téléphone parle ») ;
+--   - chaque minute, « alerter_localisations » regarde les livreurs en
+--     course : localisation coupée depuis plus d'une minute, ou plus aucune
+--     position mesurée depuis le seuil de la veille (15 min) → une
+--     notification QUI SONNE à BIZZOO, et une au livreur (« Réactivez votre
+--     localisation ») ; une seule par épisode, et « Localisation rétablie »
+--     quand elle revient.
+-- =========================================================
+alter table public.positions_livreurs add column if not exists fix_le timestamptz;
+alter table public.positions_livreurs add column if not exists localisation_coupee_le timestamptz;
+
+create table if not exists public.alertes_localisation (
+  livreur    uuid primary key references public.profils(id) on delete cascade,
+  raison     text not null check (raison in ('coupee', 'muette')),
+  commande   text,
+  alerte_le  timestamptz not null default now()
+);
+alter table public.alertes_localisation enable row level security;
+revoke all on public.alertes_localisation from public, anon, authenticated;
+
+-- La position envoyée par le téléphone, avec (3.75.0) l'état de sa
+-- localisation et l'âge de la mesure. Les applications d'avant n'envoient
+-- ni l'un ni l'autre : « null », la mesure est réputée fraîche, comme avant.
+drop function if exists public.position_livreur(text, double precision, double precision, int);
+create or replace function public.position_livreur(jeton text, lat double precision,
+  lng double precision, precision_m int default null, localisation boolean default null, age_s int default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  qui uuid;
+  p   public.profils%rowtype;
+  la  double precision := public.coord_valable(lat, 90);
+  lo  double precision := public.coord_valable(lng, 180);
+  en_course boolean;
+  derniere timestamptz;
+  pas      interval;
+begin
+  select s.profil_id into qui from public.suivis_livreurs s
+   where (s.jeton_hash = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.expire_le > now())
+      or (s.jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+          and s.precedent_expire_le > now());
+  if qui is null then
+    raise exception 'Suivi expiré : ouvrez BIZZOO Admin pour le reprendre.' using errcode = '42501';
+  end if;
+  -- Le service travaille encore avec l'ancien jeton (le nouveau attend que
+  -- la page revienne à l'écran) : il le garde tant qu'il s'en sert.
+  update public.suivis_livreurs set precedent_expire_le = now() + interval '10 minutes'
+   where profil_id = qui
+     and jeton_hash_precedent = encode(sha256(convert_to(coalesce(jeton, ''), 'UTF8')), 'hex')
+     and precedent_expire_le < now() + interval '5 minutes';
+  select * into p from public.profils x where x.id = qui;
+  if not found or not p.actif or p.role <> 'livreur' then
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false, 'en_course', false);
+  end if;
+  en_course := public.livreur_en_course(qui);
+  if not en_course and (not coalesce(p.disponible, true) or p.courses_bloquees) then
+    -- Le suivi s'arrête : « Localiser un livreur » ne le montre plus actif.
+    delete from public.suivis_livreurs where profil_id = qui;
+    return jsonb_build_object('continuer', false, 'en_course', false);
+  end if;
+  -- APPLICATION FERMÉE DES JOURS DURANT : tant que le téléphone se manifeste,
+  -- le jeton ne meurt pas (16 heures après le dernier signe ; une écriture
+  -- par heure au plus).
+  update public.suivis_livreurs set expire_le = now() + interval '16 hours'
+   where profil_id = qui and expire_le < now() + interval '15 hours';
+  -- (3.75.0) La localisation du téléphone : coupée, ou revenue. Retenu
+  -- aussitôt, sans attendre une position valable.
+  if localisation is not null then
+    update public.positions_livreurs
+       set localisation_coupee_le = case when localisation then null else now() end
+     where profil_id = qui
+       and ((localisation and localisation_coupee_le is not null)
+            or (not localisation and localisation_coupee_le is null));
+  end if;
+  if la is null or lo is null or (la = 0 and lo = 0) then
+    return jsonb_build_object('continuer', true, 'en_course', en_course);
+  end if;
+  -- Pas plus d'une écriture toutes les 5 secondes en course, toutes les 30
+  -- secondes libre. Seule une position déjà là (compte validé) se met à jour.
+  select pl.enregistre_le into derniere from public.positions_livreurs pl where pl.profil_id = qui;
+  pas := case when en_course then interval '5 seconds' else interval '30 seconds' end;
+  if derniere is not null and derniere < now() - pas then
+    update public.positions_livreurs
+       set latitude = la, longitude = lo, precision_m = greatest(0, position_livreur.precision_m),
+           enregistre_le = now(),
+           -- (3.75.0) Quand la position a vraiment été mesurée.
+           fix_le = now() - make_interval(secs => greatest(0, least(coalesce(age_s, 0), 864000)))
+     where profil_id = qui;
+  end if;
+  return jsonb_build_object('continuer', true, 'en_course', en_course);
+end $$;
+-- Sans session : le jeton fait foi.
+revoke all on function public.position_livreur(text, double precision, double precision, int, boolean, int) from public;
+grant execute on function public.position_livreur(text, double precision, double precision, int, boolean, int)
+  to anon, authenticated;
+
+-- Chaque minute (pg_cron) : les livreurs en course dont BIZZOO ne voit plus
+-- la position. Une alerte par épisode ; « rétablie » quand elle revient.
+-- Les notifications ne portent pas la commande : l'index « une fois par
+-- commande » tairait sinon un second épisode pendant la même course.
+create or replace function public.alerter_localisations() returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  seuil   int := coalesce((select (to_jsonb(r) ->> 'position_min')::int from public.rh_reglages_suivi r limit 1), 15);
+  x       record;
+  raison  text;
+  n       int := 0;
+  equipe  uuid[];
+  autres  uuid[];
+begin
+  equipe := public.enseigne_des_commandes() || public.les_superadmins();
+  autres := coalesce((select array_agg(p.id) from public.profils p
+                       where p.actif and p.boutique_id is null and not p.peut_commandes
+                         and p.role in ('administrateur', 'moderateur')), '{}'::uuid[]);
+  -- Ceux qui ne sont plus en course : l'épisode est clos, sans bruit.
+  delete from public.alertes_localisation a where not public.livreur_en_course(a.livreur);
+  for x in
+    select pr.id, coalesce(nullif(btrim(pr.nom), ''), 'Un livreur') as nom,
+           regexp_replace(regexp_replace(coalesce(pr.tel, ''), '\D', '', 'g'), '^229', '') as tel,
+           pl.localisation_coupee_le as coupee,
+           coalesce(pl.fix_le, pl.enregistre_le) as mesure,
+           a.raison as deja,
+           (select c.numero from public.commande_lignes l join public.commandes c on c.id = l.commande_id
+             where l.livreur_id = pr.id and c.etat = 'payee'
+               and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+             order by l.recu_le desc nulls last limit 1) as numero,
+           (select c.id from public.commande_lignes l join public.commandes c on c.id = l.commande_id
+             where l.livreur_id = pr.id and c.etat = 'payee'
+               and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison')
+             order by l.recu_le desc nulls last limit 1) as commande
+      from public.profils pr
+      join public.positions_livreurs pl on pl.profil_id = pr.id
+      left join public.alertes_localisation a on a.livreur = pr.id
+     where pr.role = 'livreur' and public.livreur_en_course(pr.id)
+       -- Seulement après « Commande reçue » : avant, il n'est pas en route.
+       and exists (select 1 from public.commande_lignes l join public.commandes c on c.id = l.commande_id
+                    where l.livreur_id = pr.id and c.etat = 'payee' and l.recu_le is not null
+                      and l.etat in ('nouvelle', 'vue', 'preparee', 'en_livraison'))
+  loop
+    raison := case
+      when x.coupee is not null and x.coupee < now() - interval '1 minute' then 'coupee'
+      when x.mesure is null or x.mesure < now() - make_interval(mins => seuil) then 'muette'
+      else null end;
+    if raison is not null and x.deja is null then
+      insert into public.alertes_localisation (livreur, raison, commande) values (x.id, raison, x.commande)
+      on conflict (livreur) do nothing;
+      perform public.notifier(equipe, 'livreur_sans_localisation',
+        case when raison = 'coupee' then 'Localisation coupée — ' else 'Livreur sans position — ' end || x.nom,
+        case when raison = 'coupee'
+             then x.nom || ' a coupé la localisation de son téléphone pendant la course ' || coalesce(x.numero, '') || '.'
+             else 'Aucune position de ' || x.nom || ' depuis plus de ' || seuil || ' min, pendant la course ' ||
+                  coalesce(x.numero, '') || '.' end ||
+        case when x.tel <> '' then E'\nAppelez-le : ' || x.tel || '.' else '' end,
+        '#/livreurs/' || x.id, null, null, true);
+      if cardinality(autres) > 0 then
+        perform public.notifier(autres, 'livreur_sans_localisation',
+          case when raison = 'coupee' then 'Localisation coupée — ' else 'Livreur sans position — ' end || x.nom,
+          case when raison = 'coupee'
+               then x.nom || ' a coupé la localisation de son téléphone pendant la course ' || coalesce(x.numero, '') || '.'
+               else 'Aucune position de ' || x.nom || ' depuis plus de ' || seuil || ' min, pendant la course ' ||
+                    coalesce(x.numero, '') || '.' end,
+          '#/notifications', null, null, true);
+      end if;
+      perform public.notifier(array[x.id], 'localisation_a_reactiver', 'Réactivez votre localisation',
+        'Course ' || coalesce(x.numero, '') || ' : BIZZOO ne voit plus où vous êtes. ' ||
+        'Activez la localisation de votre téléphone.', '#/livraisons', null, null, true);
+      n := n + 1;
+    elsif raison is null and x.deja is not null then
+      delete from public.alertes_localisation where livreur = x.id;
+      perform public.notifier(equipe, 'livreur_localisation_retablie', 'Localisation rétablie — ' || x.nom,
+        'BIZZOO voit de nouveau ' || x.nom || ' (course ' || coalesce(x.numero, '') || ').',
+        '#/livreurs/' || x.id, null, null, false);
+    end if;
+  end loop;
+  return n;
+end $$;
+revoke all on function public.alerter_localisations() from public, anon, authenticated;
+
+-- Chaque minute. Sans pg_cron, rien ne casse : Personnel montre toujours
+-- « Livreur en route sans position ».
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('localisations-livreurs', '* * * * *', 'select public.alerter_localisations()');
+  end if;
+exception when others then
+  raise notice 'Alerte de localisation non programmée (%) : Personnel la montre toujours', sqlerrm;
+end $$;

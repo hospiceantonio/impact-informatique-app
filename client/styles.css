@@ -1406,6 +1406,8 @@ html,body{overscroll-behavior-x:none}
 }
 .re-echec-tete .ic{flex:none;margin-top:1px}
 .re-echec-tete p{margin:0}
+/* (3.75.0) Les produits partis en rupture, sur une commande en attente. */
+.re-rupture-liste{margin:8px 0 10px 22px;padding:0;font-size:13.5px;line-height:1.55}
 .re-attente-boutons{margin-top:14px}
 
 /* « Un compte est nécessaire » : un avis, pas une alarme — on le dit

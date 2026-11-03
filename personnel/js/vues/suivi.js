@@ -171,6 +171,9 @@ const VueSuivi = (() => {
       { titre: "Livreur", cle: (c) => c.livreurs || "", cellule: (c) => c.livreurs || "—", classe: "moyen" },
       { titre: "Statut", cle: (c) => c.rang, cellule: (c) => etiquetteStatut(c) },
       { titre: "Confirmation client", cle: (c) => c.confirmation || "", cellule: (c) => c.confirmation || "—" },
+      /* (3.75.0) Le temps de préparation de chaque marchand, de « Commande
+         vue » à « Préparée », jugé sur le délai réglé (20 min convenues). */
+      { titre: "Préparation (vue → préparée)", cle: (c) => preparationMax(c), cellule: (c) => cellulePreparation(c), classe: "moyen" },
       { titre: "Délai de livraison", cle: (c) => (c.delai_h === null || c.delai_h === undefined ? -1 : Number(c.delai_h)),
         cellule: (c) => delai(c.delai_h), classe: "nombre" },
       { titre: "Observations / alertes", cle: (c) => c.alertes.length,
@@ -304,6 +307,44 @@ const VueSuivi = (() => {
     dessiner();
   }
 
+  /* ---------- (3.75.0) Le temps de préparation ---------- */
+  const minutesDepuis = (t) => Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
+  /** Le temps de préparation de chaque marchand, lisible : « 14 min », « en
+      cours · 12 min », « pas encore vue ». */
+  function etapesPreparation(c) {
+    const seuil = Number(c.preparation_seuil_min) || 0;
+    return (Array.isArray(c.preparation) ? c.preparation : []).map((p) => {
+      let texte, retard = false, minutes = null;
+      if (p.minutes !== null && p.minutes !== undefined) {
+        minutes = Number(p.minutes);
+        texte = dureeMinutes(minutes);
+        retard = seuil > 0 && minutes > seuil;
+      } else if (p.vue_le && c.rang > 0 && c.rang < 6) {
+        minutes = minutesDepuis(p.vue_le);
+        texte = "en cours · " + dureeMinutes(minutes);
+        retard = seuil > 0 && minutes > seuil;
+      } else if (!p.vue_le) {
+        texte = "pas encore vue";
+      } else {
+        texte = "non marquée « préparée »";
+      }
+      return { boutique: p.boutique || "", texte, retard, minutes, seuil };
+    });
+  }
+  const dureeMinutes = (m) => (m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min");
+  const preparationMax = (c) => etapesPreparation(c).reduce((t, p) => Math.max(t, p.minutes === null ? -1 : p.minutes), -1);
+  function cellulePreparation(c) {
+    const etapes = etapesPreparation(c);
+    if (!etapes.length) return "—";
+    const plusieurs = etapes.length > 1;
+    return etapes.map((p) => h("div", { class: "petit", style: p.retard ? { color: "var(--rouge-fonce)", fontWeight: "700" } : {},
+      title: p.seuil ? "Délai convenu : " + dureeMinutes(p.seuil) : "" },
+      (plusieurs ? p.boutique + " : " : "") + p.texte + (p.retard ? " ⚠ > " + dureeMinutes(p.seuil) : "")));
+  }
+  /** Pour l'export : « Alpha : 14 min ; Bêta : 32 min (> 20 min) ». */
+  const textePreparation = (c) => etapesPreparation(c).map((p) =>
+    (etapesPreparation(c).length > 1 ? p.boutique + " : " : "") + p.texte + (p.retard ? " (> " + dureeMinutes(p.seuil) + ")" : "")).join(" ; ") || "—";
+
   /* ---------- L'export Excel ---------- */
 
   async function exporter(commandes, r, periode) {
@@ -323,14 +364,15 @@ const VueSuivi = (() => {
         { titre: "Marchand / numéro", largeur: 28 }, { titre: "Frais de livraison (FCFA)", largeur: 14, type: "fcfa" },
         { titre: "Total commande (FCFA)", largeur: 14, type: "fcfa" }, { titre: "Reste à encaisser (FCFA)", largeur: 14, type: "fcfa" },
         { titre: "Livreur / contact", largeur: 28 }, { titre: "Statut", largeur: 24 },
-        { titre: "Confirmation client", largeur: 12 }, { titre: "Délai de livraison", largeur: 12 },
+        { titre: "Confirmation client", largeur: 12 }, { titre: "Préparation (vue → préparée)", largeur: 26 },
+        { titre: "Délai de livraison", largeur: 12 },
         { titre: "Observations / incidents", largeur: 40 }],
       lignes: commandes.map((c) => [
         c.numero || c.id, dateSuivi(c.cree_le), sourceDe(c),
         [c.client.nom, c.client.tel, zone(c)].filter(Boolean).join(" / "),
         nbProduits(c), c.articles, c.marchands,
         m ? Number(c.frais) : "", m ? Number(c.total) : "", m ? Number(c.reste) : "",
-        c.livreurs || "—", c.statut, c.confirmation, delai(c.delai_h), observations(c)]),
+        c.livreurs || "—", c.statut, c.confirmation, textePreparation(c), delai(c.delai_h), observations(c)]),
     };
     /* Une ligne par marchand d'une même commande : la traçabilité du document. */
     const detail = {
@@ -343,7 +385,9 @@ const VueSuivi = (() => {
         { titre: "Article", largeur: 26 }, { titre: "Code", largeur: 10 }, { titre: "Quantité", largeur: 9, type: "nombre" },
         ...(m ? [{ titre: "Prix unitaire (FCFA)", largeur: 13, type: "fcfa" }, { titre: "Montant (FCFA)", largeur: 13, type: "fcfa" }] : []),
         { titre: "Statut de l'article", largeur: 24 }, { titre: "Livreur", largeur: 20 }, { titre: "Contact livreur", largeur: 15 },
-        { titre: "Vu par le marchand", largeur: 18 }, { titre: "Déclaré livré", largeur: 18 }, { titre: "Confirmé par le client", largeur: 18 },
+        { titre: "Vu par le marchand", largeur: 18 }, { titre: "Préparé par le marchand", largeur: 18 },
+        { titre: "Préparation (min)", largeur: 11, type: "nombre" },
+        { titre: "Déclaré livré", largeur: 18 }, { titre: "Confirmé par le client", largeur: 18 },
         { titre: "Délai vu → reçu (h)", largeur: 12, type: "heures" }, { titre: "Statut de la commande", largeur: 24 },
         { titre: "Alertes", largeur: 30 }],
       lignes: commandes.flatMap((c) => c.lignes.map((l) => {
@@ -352,6 +396,8 @@ const VueSuivi = (() => {
           c.client.zone || "", c.client.adresse, l.boutique, l.boutique_tel, l.nom, l.code || "", Number(l.quantite),
           ...(m ? [Number(l.prix), Number(l.prix) * Number(l.quantite)] : []),
           l.statut, l.livreur || "", l.livreur_tel || "", l.vue_le ? dateSuivi(l.vue_le) : "",
+          l.preparee_le ? dateSuivi(l.preparee_le) : "",
+          l.vue_le && l.preparee_le ? Math.max(0, Math.round((new Date(l.preparee_le) - new Date(l.vue_le)) / 60000)) : "",
           l.remise_le ? dateSuivi(l.remise_le) : "", l.confirme_le ? dateSuivi(l.confirme_le) : "", dh, c.statut,
           c.alertes.map((a) => (ALERTES[a] || [a])[0]).join(" ; ")];
       })),

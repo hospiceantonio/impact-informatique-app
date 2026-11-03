@@ -92,6 +92,9 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
     /* (3.70.0) En course (rythme serré) ou libre et disponible (rythme lâche). */
     private volatile boolean enCourse = false;
     private volatile boolean ancienneBase = false;
+    /* (3.75.0) Une base d'avant ne connaît pas « localisation » ni « age_s » :
+       on renvoie alors la position sans eux. */
+    private volatile boolean baseSansLocalisation = false;
 
     /** Démarrer (ou relancer avec un nouveau jeton) depuis la page. */
     static void demarrer(Context contexte, String url, String cle, String jeton) {
@@ -285,8 +288,32 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
     }
 
     @Override public void onStatusChanged(String fournisseur, int etat, Bundle extras) { }
-    @Override public void onProviderEnabled(String fournisseur) { }
-    @Override public void onProviderDisabled(String fournisseur) { }
+
+    /* (3.75.0) LA LOCALISATION COUPÉE OU RALLUMÉE : la base le sait aussitôt
+       (elle alerte BIZZOO si c'est pendant une course), et l'écoute reprend
+       sur les fournisseurs revenus. */
+    @Override public void onProviderEnabled(String fournisseur) { signalerLocalisation(); }
+    @Override public void onProviderDisabled(String fournisseur) { signalerLocalisation(); }
+
+    private void signalerLocalisation() {
+        horloge.post(() -> {
+            if (detruit || arrete) return;
+            ecouter();
+            envoyer(derniere != null ? derniere : new Location("aucune"));
+        });
+    }
+
+    /** La localisation du téléphone est-elle allumée (GPS ou réseau) ? */
+    private boolean localisationActive() {
+        if (localisation == null) localisation = (LocationManager) getSystemService(LOCATION_SERVICE);
+        if (localisation == null) return true;
+        try {
+            return localisation.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                    || localisation.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        } catch (Exception e) {
+            return true;
+        }
+    }
 
     private void envoyer(final Location position) {
         if (detruit || arrete) return;
@@ -297,6 +324,12 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
         final double lat = position.getLatitude();
         final double lng = position.getLongitude();
         final int precision = Math.round(position.getAccuracy());
+        /* (3.75.0) L'état de la localisation, et l'âge de la position : le
+           battement renvoie la dernière connue, qui peut dater. */
+        final boolean active = localisationActive();
+        final long ageS = position.getElapsedRealtimeNanos() > 0
+                ? Math.max(0, (SystemClock.elapsedRealtimeNanos() - position.getElapsedRealtimeNanos()) / 1_000_000_000L)
+                : 864_000L;
         /* (3.70.0) Le jeton de CET envoi : si la page en a donné un nouveau
            entre-temps, le refus de l'ancien ne coupe pas le service. */
         final String jetonEnvoye = jeton;
@@ -314,6 +347,10 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                 corps.put("lat", lat);
                 corps.put("lng", lng);
                 corps.put("precision_m", precision);
+                if (!ancienneBase && !baseSansLocalisation) {
+                    corps.put("localisation", active);
+                    corps.put("age_s", ageS);
+                }
                 connexion = (HttpURLConnection) new URL(url + "/rest/v1/rpc/"
                         + (ancienneBase ? "position_en_course" : "position_livreur")).openConnection();
                 connexion.setRequestMethod("POST");
@@ -326,6 +363,13 @@ public class ServiceSuiviPosition extends Service implements LocationListener {
                     sortie.write(corps.toString().getBytes(StandardCharsets.UTF_8));
                 }
                 int statut = connexion.getResponseCode();
+                if (statut == 404 && !ancienneBase && !baseSansLocalisation) {
+                    /* (3.75.0) Base d'avant : « position_livreur » sans les deux
+                       nouveaux champs. On renvoie tout de suite, sans eux. */
+                    baseSansLocalisation = true;
+                    horloge.post(() -> envoyer(position));
+                    return;
+                }
                 if (statut == 404 && !ancienneBase) {
                     /* Base d'avant la 3.70.0 : pas de « position_livreur ». Elle
                        ne suit que les courses : même point, tout de suite, à

@@ -603,8 +603,23 @@ begin
                  'prix', x.prix, 'etat', x.etat, 'rang', x.rang, 'statut', public.rh_statut_libelle(x.rang),
                  'terrain', x.terrain, 'terrain_motif', coalesce(x.terrain_motif, ''),
                  'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel, 'livreur_id', x.livreur_id,
-                 'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le)
+                 'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le,
+                 -- (3.75.0) Quand le marchand a touché « Préparée ».
+                 'preparee_le', x.preparee_le)
                order by x.boutique_nom, x.nom) from lig2 x where x.commande_id = c.id), '[]'),
+    -- (3.75.0) LE TEMPS DE PRÉPARATION de chaque marchand : de « Commande
+    -- vue » à « Préparée » (tous ses articles), en minutes ; le délai réglé
+    -- (preparation_min, 20 min convenues avec les marchands) pour juger.
+    'preparation', coalesce((select jsonb_agg(jsonb_build_object(
+                     'boutique', coalesce(y.bn, y.bid), 'vue_le', y.v, 'preparee_le', y.p,
+                     'minutes', case when y.v is not null and y.p is not null
+                                     then greatest(0, round(extract(epoch from (y.p - y.v)) / 60))::int end)
+                   order by y.bn)
+                   from (select x.boutique_id as bid, min(x.boutique_nom) as bn, min(x.vue_le) as v,
+                                case when bool_and(x.preparee_le is not null) then max(x.preparee_le) end as p
+                           from lig2 x where x.commande_id = c.id and x.etat <> 'annulee'
+                          group by x.boutique_id) y), '[]'),
+    'preparation_seuil_min', coalesce(r.preparation_min, r.preparation_h * 60),
     'articles', coalesce((select string_agg(x.quantite || ' × ' || x.nom
                                             || case when x.etat = 'annulee' then ' (annulé)' else '' end, ' ; '
                                             order by x.boutique_nom, x.nom)
@@ -671,8 +686,13 @@ begin
         select 'livreur_muet' where exists (select 1 from lig2 x
                                  left join public.positions_livreurs pp on pp.profil_id = x.livreur_id
                                  where x.commande_id = c.id and x.etat = 'en_livraison' and x.livreur_id is not null
-                                   and maintenant - greatest(pp.enregistre_le, x.recu_le, c.paye_le)
-                                       > make_interval(mins => v_position_min))
+                                   -- (3.75.0) La position MESURÉE (« fix_le ») : le battement
+                                   -- du téléphone ne la rajeunit plus ; localisation coupée :
+                                   -- tout de suite.
+                                   and ((to_jsonb(pp) ->> 'localisation_coupee_le') is not null
+                                        or maintenant - greatest(coalesce((to_jsonb(pp) ->> 'fix_le')::timestamptz, pp.enregistre_le),
+                                                                 x.recu_le, c.paye_le)
+                                           > make_interval(mins => v_position_min)))
         union all
         select 'momopay_non_verifie' where exists (select 1 from public.encaissements e
                                  where e.commande_id = c.id and e.mode = 'mobile_money' and e.remis_le is null

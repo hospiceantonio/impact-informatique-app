@@ -405,8 +405,14 @@ end $$;
 revoke all on function public.signaler_ma_position(double precision, double precision, int) from public, anon;
 grant execute on function public.signaler_ma_position(double precision, double precision, int) to authenticated;
 
+-- (3.75.0) La version d'aujourd'hui reçoit aussi l'état de la localisation
+-- et l'âge de la mesure (supabase/localisation-livreur.sql) : ses colonnes,
+-- et l'ancienne signature retirée, pour que rejouer ce fichier la pose.
+alter table public.positions_livreurs add column if not exists fix_le timestamptz;
+alter table public.positions_livreurs add column if not exists localisation_coupee_le timestamptz;
+drop function if exists public.position_livreur(text, double precision, double precision, int);
 create or replace function public.position_livreur(jeton text, lat double precision,
-  lng double precision, precision_m int default null)
+  lng double precision, precision_m int default null, localisation boolean default null, age_s int default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -448,6 +454,15 @@ begin
   -- par heure au plus).
   update public.suivis_livreurs set expire_le = now() + interval '16 hours'
    where profil_id = qui and expire_le < now() + interval '15 hours';
+  -- (3.75.0) La localisation du téléphone : coupée, ou revenue. Retenu
+  -- aussitôt, sans attendre une position valable.
+  if localisation is not null then
+    update public.positions_livreurs
+       set localisation_coupee_le = case when localisation then null else now() end
+     where profil_id = qui
+       and ((localisation and localisation_coupee_le is not null)
+            or (not localisation and localisation_coupee_le is null));
+  end if;
   if la is null or lo is null or (la = 0 and lo = 0) then
     return jsonb_build_object('continuer', true, 'en_course', en_course);
   end if;
@@ -458,13 +473,15 @@ begin
   if derniere is not null and derniere < now() - pas then
     update public.positions_livreurs
        set latitude = la, longitude = lo, precision_m = greatest(0, position_livreur.precision_m),
-           enregistre_le = now()
+           enregistre_le = now(),
+           -- (3.75.0) Quand la position a vraiment été mesurée.
+           fix_le = now() - make_interval(secs => greatest(0, least(coalesce(age_s, 0), 864000)))
      where profil_id = qui;
   end if;
   return jsonb_build_object('continuer', true, 'en_course', en_course);
 end $$;
-revoke all on function public.position_livreur(text, double precision, double precision, int) from public;
-grant execute on function public.position_livreur(text, double precision, double precision, int)
+revoke all on function public.position_livreur(text, double precision, double precision, int, boolean, int) from public;
+grant execute on function public.position_livreur(text, double precision, double precision, int, boolean, int)
   to anon, authenticated;
 
 create or replace function public.regler_disponibilite(dispo boolean)
