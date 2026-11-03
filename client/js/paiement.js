@@ -157,6 +157,9 @@ const Paiement = (() => {
       coef: n(ligne.livraison_coef, 1.3),
       moto: { forfait: n(ligne.moto_forfait, 1000), prixKm: n(ligne.moto_prix_km, 100) },
       tricycle: { forfait: n(ligne.tricycle_forfait, 4000), prixKm: n(ligne.tricycle_prix_km, 500) },
+      /* (3.74.0) Le supplément de chaque boutique de la tournée. Une base
+         d'avant ne le connaît pas : 0, comme elle compte. */
+      supplement: n(ligne.livraison_supplement_boutique, 0),
     };
   }
 
@@ -181,17 +184,23 @@ const Paiement = (() => {
      Google (sa clé ne descend jamais ici) et l'écrit dans la base, qui
      s'en sert pour figer les frais. Ici, ce n'est qu'un APERÇU : tant
      qu'elle n'a pas répondu — ou si elle n'a pas de clé —, l'écran
-     montre le vol d'oiseau × coefficient, comme la base le ferait. */
-  const routes = new Map();     // « lat,lng » → km par la route, ou null
+     montre le vol d'oiseau × coefficient, comme la base le ferait.
+     (3.74.0) Un TRONÇON à la fois : d'une boutique à l'autre, puis au
+     client. */
+  const routes = new Map();     // « départ>arrivée » → km par la route, ou null
   const routesEnCours = new Map();
   let routeInactive = false;    // pas de clé, ou fonction absente : on ne redemande plus
-  const cleRoute = (d) => Number(d.latitude).toFixed(6) + "," + Number(d.longitude).toFixed(6);
+  const fixe = (v) => Number(v).toFixed(6);
+  const cleRoute = (o, d) => fixe(o.latitude) + "," + fixe(o.longitude) + ">" + fixe(d.latitude) + "," + fixe(d.longitude);
+  const valable = (d) => !!d && isFinite(d.latitude) && isFinite(d.longitude);
+  /* La grille de la base (0,0005°, ≈ 55 m) : deux points dans la même case
+     sont le même endroit. */
+  const grille = (x) => Math.round(Number(x) * 2000) / 2000;
+  const memeCase = (a, b) => grille(a.latitude) === grille(b.latitude) && grille(a.longitude) === grille(b.longitude);
 
-  function demanderRoute(dest) {
-    if (routeInactive || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) {
-      return Promise.resolve(null);
-    }
-    const k = cleRoute(dest);
+  function demanderRoute(origine, dest) {
+    if (routeInactive || !valable(origine) || !valable(dest)) return Promise.resolve(null);
+    const k = cleRoute(origine, dest);
     if (routes.has(k)) return Promise.resolve(routes.get(k));
     if (routesEnCours.has(k)) return routesEnCours.get(k);
     const c = Catalogue.configuration();
@@ -201,7 +210,8 @@ const Paiement = (() => {
     const promesse = fetch(c.url + "/functions/v1/distance-route", {
       method: "POST",
       headers: { "apikey": c.cle, "Content-Type": "application/json" },
-      body: JSON.stringify({ latitude: Number(dest.latitude), longitude: Number(dest.longitude) }),
+      body: JSON.stringify({ origine: { latitude: Number(origine.latitude), longitude: Number(origine.longitude) },
+                             latitude: Number(dest.latitude), longitude: Number(dest.longitude) }),
       signal: arret.signal,
     }).then(async (r) => {
       if (r.status === 404) { routeInactive = true; return null; }   // pas encore déployée
@@ -220,39 +230,147 @@ const Paiement = (() => {
     return promesse;
   }
 
-  /** Avant de créer la commande : laisser à la distance par la route le
-      temps d'arriver (5 secondes au plus), pour que la base fige les
-      mêmes frais que ceux que l'écran vient de montrer. */
+  /** Un tronçon, en km au mètre près : par la route si on la connaît (on la
+      demande sinon), à vol d'oiseau × coefficient en attendant. */
+  function troncon(t, o, d) {
+    if (memeCase(o, d)) return { km: 0, route: true };
+    const k = cleRoute(o, d);
+    const parRoute = routes.get(k);
+    if (typeof parRoute === "number") return { km: Math.round(parRoute * 1000) / 1000, route: true };
+    if (!routes.has(k)) demanderRoute(o, d);
+    const rad = (x) => x * Math.PI / 180;
+    const dlat = rad(d.latitude - o.latitude);
+    const dlng = rad(d.longitude - o.longitude);
+    const a = Math.sin(dlat / 2) ** 2 +
+      Math.cos(rad(o.latitude)) * Math.cos(rad(d.latitude)) * Math.sin(dlng / 2) ** 2;
+    return { km: Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000, route: false };
+  }
+
+  /** Les boutiques du panier, une fois chacune, dans l'ordre de leur
+      identifiant — celui de la base, pour départager deux trajets égaux. */
+  function boutiquesPanier() {
+    const groupes = typeof Panier !== "undefined" ? Panier.parBoutique() : [];
+    const vues = new Map();
+    for (const g of groupes) if (g.boutique && g.boutique.id) vues.set(g.boutique.id, g.boutique);
+    return [...vues.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** Les étapes de la tournée : chaque boutique, à sa position — ou au
+      point BIZZOO si elle n'en a pas. */
+  function etapes(t, boutiques) {
+    return boutiques.map((b) => {
+      const ok = b && typeof b.latitude === "number" && typeof b.longitude === "number" &&
+        isFinite(b.latitude) && isFinite(b.longitude) && !(b.latitude === 0 && b.longitude === 0) &&
+        Math.abs(b.latitude) <= 90 && Math.abs(b.longitude) <= 180;
+      return { boutique: b, nom: (b && b.nom) || "", sansPosition: !ok,
+               latitude: ok ? b.latitude : t.point.latitude, longitude: ok ? b.longitude : t.point.longitude };
+    });
+  }
+
+  /** L'ordre le plus court, comme la base : toutes les possibilités jusqu'à
+      7 étapes (algorithme de Heap, la première à égalité) ; au-delà, de la
+      plus proche en plus proche depuis chaque départ. */
+  function meilleurOrdre(d, w) {
+    const cout = (a) => {
+      let c = 0;
+      for (let k = 0; k < w - 1; k++) c += d[a[k]][a[k + 1]];
+      return Math.round((c + d[a[w - 1]][w]) * 1000) / 1000;
+    };
+    let a = Array.from({ length: w }, (_, i) => i);
+    let meil = a.slice();
+    let best = null;
+    if (w <= 7) {
+      const c = new Array(w).fill(0);
+      for (;;) {
+        const x = cout(a);
+        if (best === null || x < best) { best = x; meil = a.slice(); }
+        let i = 1;
+        while (i < w && c[i] >= i) { c[i] = 0; i++; }
+        if (i >= w) break;
+        const j = i % 2 === 0 ? 0 : c[i];
+        [a[j], a[i]] = [a[i], a[j]];
+        c[i]++;
+      }
+    } else {
+      for (let s = 0; s < w; s++) {
+        const libre = new Array(w).fill(true);
+        a = [s]; libre[s] = false;
+        for (let k = 1; k < w; k++) {
+          let m = null;
+          for (let j = 0; j < w; j++) {
+            if (libre[j] && (m === null || d[a[k - 1]][j] < d[a[k - 1]][m])) m = j;
+          }
+          a.push(m); libre[m] = false;
+        }
+        const x = cout(a);
+        if (best === null || x < best) { best = x; meil = a.slice(); }
+      }
+    }
+    return meil;
+  }
+
+  /** Avant de créer la commande : laisser à chaque tronçon par la route le
+      temps d'arriver (5 secondes au plus), pour que la base fige les mêmes
+      frais que ceux que l'écran vient de montrer. */
   function attendreRoute(dest) {
-    return Promise.race([demanderRoute(dest),
+    const t = tarifs();
+    if (!t || !valable(dest)) return Promise.resolve(null);
+    const bs = etapes(t, boutiquesPanier());
+    const points = bs.length ? bs : [t.point];
+    const attentes = [];
+    for (const o of points) {
+      for (const d of points.concat([dest])) {
+        if (o !== d && !memeCase(o, d)) attentes.push(demanderRoute(o, d));
+      }
+    }
+    return Promise.race([Promise.all(attentes),
       new Promise((ok) => setTimeout(() => ok(null), 5000))]);
   }
 
-  /** Le devis d'une livraison vers « dest », ou null. */
-  function devis(dest, vehicule) {
+  /**
+   * (3.74.0) Le devis de la TOURNÉE vers « dest », ou null : de boutique en
+   * boutique, dans l'ordre le plus court, puis au client. Le forfait du
+   * véhicule jusqu'au rayon, le km entamé au-delà, et le supplément de
+   * chaque boutique. Sans boutique (panier vide), du point BIZZOO, sans
+   * supplément — comme la base (« devis_tournee »).
+   */
+  function devis(dest, vehicule, boutiques) {
     const t = tarifs();
-    if (!t || !dest || !isFinite(dest.latitude) || !isFinite(dest.longitude)) return null;
+    if (!t || !valable(dest)) return null;
     const v = vehicule === "tricycle" ? "tricycle" : "moto";
-    /* (3.70.0) Par la route quand on la connaît ; sinon on la demande, et
-       en attendant, le vol d'oiseau × coefficient. */
-    const parRoute = routes.get(cleRoute(dest));
-    let dist;
-    if (typeof parRoute === "number") {
-      dist = Math.round(parRoute * 1000) / 1000;
-    } else {
-      if (!routes.has(cleRoute(dest))) demanderRoute(dest);
-      const rad = (d) => d * Math.PI / 180;
-      const dlat = rad(dest.latitude - t.point.latitude);
-      const dlng = rad(dest.longitude - t.point.longitude);
-      const a = Math.sin(dlat / 2) ** 2 +
-        Math.cos(rad(t.point.latitude)) * Math.cos(rad(dest.latitude)) * Math.sin(dlng / 2) ** 2;
-      dist = Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000;
+    const bs = etapes(t, boutiques || boutiquesPanier());
+    const n = bs.length;
+    const pts = n ? bs : [{ latitude: t.point.latitude, longitude: t.point.longitude }];
+    const w = pts.length;
+    /* Les tronçons : d[i][j], j = w étant le client. */
+    const d = [], r = [];
+    for (let i = 0; i < w; i++) {
+      d.push([]); r.push([]);
+      for (let j = 0; j <= w; j++) {
+        if (i === j) { d[i].push(0); r[i].push(true); continue; }
+        const x = troncon(t, pts[i], j < w ? pts[j] : dest);
+        d[i].push(x.km); r[i].push(x.route);
+      }
     }
-    const km = dist > t.rayon ? Math.ceil(dist - t.rayon) : 0;
+    const ordre = meilleurOrdre(d, w);
+    let dist = 0, routesOk = 0;
+    const tournee = [];
+    ordre.forEach((i, k) => {
+      const j = k < w - 1 ? ordre[k + 1] : w;
+      dist += d[i][j];
+      if (r[i][j]) routesOk++;
+      if (n) tournee.push({ boutique: bs[i].boutique, nom: bs[i].nom, sansPosition: bs[i].sansPosition,
+                            versSuivanteKm: Math.round(d[i][j] * 10) / 10 });
+    });
+    dist = Math.round(dist * 1000) / 1000;
+    const km = dist > t.rayon ? Math.ceil(Math.round((dist - t.rayon) * 1000) / 1000) : 0;
     const tarif = t[v];
+    const sup = t.supplement || 0;
     return { vehicule: v, distanceKm: Math.round(dist * 10) / 10, rayon: t.rayon, kmFactures: km,
-             calcul: typeof parRoute === "number" ? "route" : "vol_oiseau",
-             forfait: tarif.forfait, prixKm: tarif.prixKm, frais: tarif.forfait + km * tarif.prixKm };
+             calcul: routesOk === w ? "route" : routesOk === 0 ? "vol_oiseau" : "mixte",
+             forfait: tarif.forfait, prixKm: tarif.prixKm,
+             supplementBoutique: sup, nbBoutiques: n, supplements: n * sup, tournee,
+             frais: tarif.forfait + km * tarif.prixKm + n * sup };
   }
 
   /** « Livraison tricycle : 4 000 F jusqu'à 10 km, 500 F par km au-delà. » */
@@ -262,7 +380,9 @@ const Paiement = (() => {
     const v = vehicule === "tricycle" ? "tricycle" : "moto";
     const f = (n) => Utils.fmtMontant(n, devise || "FCFA");
     return "Livraison " + (v === "tricycle" ? "en tricycle" : "à moto") + " : " + f(t[v].forfait) +
-      " jusqu'à " + String(t.rayon).replace(".", ",") + " km, " + f(t[v].prixKm) + " par km au-delà.";
+      " jusqu'à " + String(t.rayon).replace(".", ",") + " km, " + f(t[v].prixKm) + " par km au-delà" +
+      /* (3.74.0) Le supplément de chaque boutique de la tournée. */
+      (t.supplement > 0 ? ", plus " + f(t.supplement) + " par boutique." : ".");
   }
 
   /* Où livrer : gardé sur le téléphone, pour ne pas le redemander à

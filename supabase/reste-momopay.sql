@@ -529,7 +529,15 @@ begin
     -- (3.64.0) Le véhicule, la distance, et ce que le livreur y gagne.
     'trajet', case when c.livraison is null then null
                    else jsonb_build_object('vehicule', c.livraison ->> 'vehicule',
-                                           'distance_km', c.livraison -> 'distance_km') end,
+                                           'distance_km', c.livraison -> 'distance_km',
+                                           -- (3.74.0) La tournée : l'ordre des boutiques,
+                                           -- et de quoi se composent les frais.
+                                           'tournee', c.livraison -> 'tournee',
+                                           'forfait', c.livraison -> 'forfait',
+                                           'km_factures', c.livraison -> 'km_factures',
+                                           'prix_km', c.livraison -> 'prix_km',
+                                           'supplements', c.livraison -> 'supplements',
+                                           'nb_boutiques', c.livraison -> 'nb_boutiques') end,
     -- (3.66.0) Au kilomètre ou à l'ancien tarif : sa part des frais.
     'gain', public.gain_livreur(c.id),
     'deja_paye', greatest(0, coalesce(part, 0) - coalesce(reste, 0)),

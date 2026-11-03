@@ -65,6 +65,11 @@ const BOUTIQUES = [
   { id: "bou_a", nom: "Alpha", categorie_id: "cat_hightech", icone: "magasin", couleur: "#0047D9",
     devise: "FCFA", indicatif: "229", whatsapp: "97000001", actif: true, ordre: 1,
     mode_paiement: "acompte", taux_acompte: 10, frais_livraison: 1500 },
+  /* (3.74.0) Une seconde boutique, SUR LA CARTE, entre le point BIZZOO et
+     le client (Alpha n'a pas de position : elle compte depuis le point). */
+  { id: "bou_b", nom: "Bêta", categorie_id: "cat_hightech", icone: "magasin", couleur: "#0047D9",
+    devise: "FCFA", indicatif: "229", whatsapp: "97000002", actif: true, ordre: 2,
+    mode_paiement: "acompte", taux_acompte: 10, frais_livraison: 1500, latitude: 6.40, longitude: 2.4183 },
 ];
 const PRODUITS = [
   { id: "prod_1", boutique_id: "bou_a", nom: "Ordinateur", code: "0001", prix: 300000,
@@ -73,11 +78,14 @@ const PRODUITS = [
   { id: "prod_frigo", boutique_id: "bou_a", nom: "Réfrigérateur", code: "0002", prix: 200000,
     categorie_id: "cat_hightech", sous_categorie_id: "sc_x", stock: 5, disponible: true, images: [],
     vehicule: "tricycle", cree_le: "2026-09-01T08:00:00Z", modifie_le: "2026-09-01T08:00:00Z" },
+  { id: "prod_b", boutique_id: "bou_b", nom: "Lampe", code: "0003", prix: 10000,
+    categorie_id: "cat_hightech", sous_categorie_id: "sc_x", stock: 5, disponible: true, images: [],
+    vehicule: "moto", cree_le: "2026-09-01T08:00:00Z", modifie_le: "2026-09-01T08:00:00Z" },
 ];
 const CLIENT = { nom: "Koffi", tel: "0197000000", indicatif: "229", adresse: "Godomey" };
 
 async function ouvrirClient({ hash = "#/panier", panier = [{ produitId: "prod_1", quantite: 1 }],
-                              km = true, destination = null, geo = LOIN, route = null } = {}) {
+                              km = true, destination = null, geo = LOIN, route = null, extra = {} } = {}) {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 1400 }, serviceWorkers: "block",
     permissions: ["geolocation"], geolocation: geo });
   const page = await ctx.newPage();
@@ -132,7 +140,7 @@ async function ouvrirClient({ hash = "#/panier", panier = [{ produitId: "prod_1"
     if (c.startsWith("paiement")) {
       return d([{ id: 1, actif: true, fournisseur: "feexpay", cle_publique: "", bac_a_sable: false,
         taux_acompte: 10, frais_livraison: 1000,
-        ...(km ? REGLAGES_KM : { livraison_latitude: null, livraison_longitude: null }) }]);
+        ...(km ? REGLAGES_KM : { livraison_latitude: null, livraison_longitude: null }), ...extra }]);
     }
     if (c.startsWith("produits")) return d(PRODUITS);
     if (c.startsWith("boutiques")) return d(BOUTIQUES);
@@ -519,6 +527,94 @@ titre("7. Le superadministrateur tranche la demande d'un livreur");
   ok(!!appel && appel.corps.cible === 7 && appel.corps.accord === true && appel.corps.reference === "MTN-778899",
     "« Envoyé » appelle decider_reversement_livreur, avec la référence (" + JSON.stringify(appel && appel.corps) + ")");
   ok(!serveur.appels.some((a) => a.fn === "decider_reversement"), "pas la fonction des boutiques");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+/* ------------------------------------------------------------------ */
+titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique");
+{
+  /* Alpha (sans position : le point BIZZOO) → Bêta (6,40) → client (6,458) :
+     en ligne droite vers le nord, 13,4 km × … : 4 km au-delà des 10.
+     1 000 + 4 × 100 + 2 × 200 = 1 800 FCFA. */
+  const { page, ctx, erreurs } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
+    panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_b", quantite: 1 }],
+    extra: { livraison_supplement_boutique: 200 } });
+  const km = await texte(page, ".pa-km");
+  ok(/Livraison à moto 13,4 km/.test(km) && /1 800 FCFA$/.test(km), "deux boutiques, 13,4 km : 1 800 FCFA (" + km + ")");
+  ok(/Alpha → Bêta → vous/.test(km), "l'ordre de passage : « Alpha → Bêta → vous »");
+  ok(/dont 400 FCFA pour 2 boutiques/.test(km), "« dont 400 FCFA pour 2 boutiques »");
+  ok(/plus 200 FCFA par boutique\./.test(await texte(page, "#pa-tarif")), "le tarif dit « plus 200 FCFA par boutique »");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await ouvrirClient({ hash: "#/panier",
+    panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_b", quantite: 1 }],
+    extra: { livraison_supplement_boutique: 200 } });
+  const r = await recap(page);
+  ok(contient(r, "Livraison à moto selon la distance dès " + F(1400)),
+    "sans position du client : « dès 1 400 » (forfait + 2 boutiques) (" + r.join(" | ") + ")");
+  await ctx.close();
+}
+{
+  /* Chaque tronçon se demande à la fonction « distance-route », avec son départ. */
+  const { page, ctx, serveur } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
+    panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_b", quantite: 1 }],
+    extra: { livraison_supplement_boutique: 200 }, route: () => ({ actif: true, distance_km: null }) });
+  await page.waitForTimeout(600);
+  ok(serveur.routes.some((c) => c.origine && c.origine.latitude === 6.40 && c.latitude === LOIN.latitude),
+    "le tronçon Bêta → client est demandé à la route (" + serveur.routes.length + " tronçon(s))");
+  await ctx.close();
+}
+
+/* ------------------------------------------------------------------ */
+titre("9. (3.74.0) Le livreur lit l'itinéraire, les frais, la part de BIZZOO");
+{
+  const course = { commande_id: "cmd_t", numero: "BZ-000202", boutique_id: "bou_b", nom_boutique: "Bêta",
+    client_nom: "Koffi", client_tel: "97666005", client_indicatif: "229", client_adresse: "Godomey",
+    note: "", etat: "en_livraison", articles: [{ nom: "Lampe", code: "0003", quantite: 1 }],
+    paye_le: "2026-11-03T08:00:00Z", a_encaisser: 0, recu_le: "2026-11-03T08:05:00Z",
+    fiche: { numero: "BZ-000202",
+      retrait: { boutique: "Bêta", adresse: "Akpakpa", tel: "0197111333", indicatif: "229" },
+      livraison: { nom: "Koffi", adresse: "Godomey", note: "", tel: "97666005", indicatif: "229",
+        latitude: LOIN.latitude, longitude: LOIN.longitude },
+      devise: "FCFA", frais: 1700, deja_paye: 21700, a_encaisser: 0,
+      trajet: { vehicule: "moto", distance_km: 13, forfait: 1000, km_factures: 3, prix_km: 100,
+        supplements: 400, nb_boutiques: 2,
+        tournee: [{ boutique_id: "bou_a", nom: "Alpha", sans_position: false, vers_suivante_km: 4 },
+                  { boutique_id: "bou_b", nom: "Bêta", sans_position: true, vers_suivante_km: 9 }] },
+      gain: 1360 } };
+  const { page, ctx, erreurs } = await ouvrirAdmin({ moi: PORTEUR, hash: "#/livraisons", rpc: {
+    mes_livraisons: [course], courses_proposees: [], ma_caisse: null, mon_compte_livreur: { livreur: true },
+    solde_livreur: { gagne: 0, a_venir: 1360, reverse: 0, en_attente: 0, disponible: 0, taux: 80, devise: "FCFA",
+      reception: null, courses: [] } } });
+  await page.waitForSelector(".lv-course", { timeout: 6000 }).catch(() => {});
+  const tour = await texte(page, '[data-lv="tournee"]');
+  ok(/Itinéraire à suivre/.test(tour) && /Alpha.*4 km.*Bêta.*9 km.*Client/.test(tour),
+    "l'itinéraire : Alpha (→ 4 km), Bêta (→ 9 km), puis le client (" + tour + ")");
+  ok(/position non renseignée/.test(tour), "une boutique sans position est signalée");
+  ok(/Frais facturés : forfait 1 000 FCFA \+ 3 km × 100 FCFA \+ 2 boutiques : 400 FCFA/.test(tour),
+    "de quoi se composent les frais : forfait + km + boutiques");
+  ok(/Moto · 13 km en tout/.test(await texte(page, '[data-lv="trajet"]')), "« Moto · 13 km en tout »");
+  ok(/Frais de livraison : 1 700 FCFA/.test(await texte(page, '[data-lv="frais"]')), "les frais facturés : 1 700 FCFA");
+  ok(/Votre gain : 1 360 FCFA/.test(await texte(page, '[data-lv="gain"]')), "son gain : 1 360 FCFA");
+  ok(/Part BIZZOO : 340 FCFA/.test(await texte(page, '[data-lv="part-bizzoo"]')), "la part de BIZZOO : 340 FCFA");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  /* Le superadministrateur règle le supplément. */
+  const paiement = { id: 1, actif: true, fournisseur: "feexpay", cle_publique: "", bac_a_sable: false,
+    taux_acompte: 10, frais_livraison: 1000, ...REGLAGES_KM, livraison_supplement_boutique: 200 };
+  const { page, ctx, serveur, erreurs } = await ouvrirAdmin({ moi: SUPER, hash: "#/reglages", paiement });
+  await page.waitForSelector("#km-supplement", { timeout: 6000 }).catch(() => {});
+  ok((await page.inputValue("#km-supplement").catch(() => "")) === "200", "Réglages : « Supplément par boutique » 200 FCFA");
+  await page.fill("#km-supplement", "250");
+  await page.click("#km-enregistrer");
+  await page.waitForTimeout(800);
+  const envoi = serveur.ecritures.find((e) => e.chemin.startsWith("paiement"));
+  ok(envoi && envoi.corps.livraison_supplement_boutique === 250, "250 FCFA part vers la base");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

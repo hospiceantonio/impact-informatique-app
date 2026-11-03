@@ -994,7 +994,9 @@ with controles(rang, element, ok) as (values
     and exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = 'creer_commande'
-         and p.pronargs = 6 and p.prosrc like '%devis_livraison%')),
+         and p.pronargs = 6
+         -- (3.74.0) La tournée a pris la suite du point BIZZOO.
+         and (p.prosrc like '%devis_livraison%' or p.prosrc like '%devis_tournee%'))),
   -- Le solde des livreurs : 80 % des frais, reversés comme aux boutiques.
   (151, 'Le solde des livreurs et leurs reversements (solde_livreur, reversements_livreurs)', exists (
       select 1 from information_schema.tables

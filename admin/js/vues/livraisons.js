@@ -113,6 +113,40 @@ const VueLivraisons = (() => {
      qu'il réclame avant de remettre le colis. */
   const MODES = { especes: "espèces", mobile_money: "MoMoPay" };
 
+  /* (3.74.0) LA TOURNÉE : le trajet que BIZZOO a choisi, le plus court —
+     chaque boutique dans l'ordre, puis le client — et de quoi se composent
+     les frais facturés au client. */
+  function htmlTournee(f) {
+    const t = f.trajet || {};
+    const etapes = Array.isArray(t.tournee) ? t.tournee : [];
+    if (!etapes.length) return "";
+    const km = (v) => String(Math.round(Number(v) * 10) / 10).replace(".", ",") + " km";
+    const n = (v) => Number(v) || 0;
+    const detail = [];
+    if (t.forfait != null) detail.push("forfait " + montant(n(t.forfait), f.devise));
+    if (n(t.km_factures) > 0) detail.push(n(t.km_factures) + " km × " + montant(n(t.prix_km), f.devise));
+    if (n(t.supplements) > 0) {
+      detail.push(n(t.nb_boutiques) + (n(t.nb_boutiques) > 1 ? " boutiques" : " boutique") + " : " +
+        montant(n(t.supplements), f.devise));
+    }
+    return (
+      '<div class="lv-tournee" data-lv="tournee">' +
+        '<div class="lv-lieu-titre">' + UI.icone("magasin", "ic-sm") + "Itinéraire à suivre</div>" +
+        "<ol>" +
+          etapes.map((e) =>
+            "<li><strong>" + Utils.echapper(e.nom || "Boutique") + "</strong>" +
+              (e.sans_position ? ' <span class="aide">(position non renseignée)</span>' : "") +
+              (e.vers_suivante_km != null ? ' <span class="aide">→ ' + km(e.vers_suivante_km) + "</span>" : "") +
+            "</li>").join("") +
+          "<li><strong>Client</strong></li>" +
+        "</ol>" +
+        (detail.length
+          ? '<div class="aide" data-lv="frais-detail">Frais facturés : ' + Utils.echapper(detail.join(" + ")) + "</div>"
+          : "") +
+      "</div>"
+    );
+  }
+
   function htmlMontants(c) {
     const f = c.fiche;
     const remise = c.etat === "remise";
@@ -150,12 +184,19 @@ const VueLivraisons = (() => {
           ? '<div class="lv-ligne-montant" data-lv="trajet">' + UI.icone("voiture", "ic-sm") +
               (f.trajet.vehicule === "tricycle" ? "Tricycle" : "Moto") +
               (f.trajet.distance_km != null
-                ? " · " + Utils.echapper(String(f.trajet.distance_km).replace(".", ",")) + " km depuis BIZZOO"
-                : "") + "</div>"
+                ? " · " + Utils.echapper(String(f.trajet.distance_km).replace(".", ",")) + " km" +
+                  (Array.isArray(f.trajet.tournee) && f.trajet.tournee.length ? " en tout" : " depuis BIZZOO")
+                : "") + "</div>" + htmlTournee(f)
           : "") +
         (f.gain != null
           ? '<div class="lv-ligne-montant lv-gain" data-lv="gain">Votre gain : <strong>' +
-              Utils.echapper(montant(f.gain, f.devise)) + "</strong></div>"
+              Utils.echapper(montant(f.gain, f.devise)) + "</strong></div>" +
+            /* (3.74.0) Ce qui revient à BIZZOO : la course est claire d'un
+               coup d'œil — frais facturés = son gain + la part de BIZZOO. */
+            (f.frais > 0
+              ? '<div class="lv-ligne-montant" data-lv="part-bizzoo">Part BIZZOO : <strong>' +
+                  Utils.echapper(montant(Math.max(0, f.frais - f.gain), f.devise)) + "</strong></div>"
+              : "")
           : "") +
       "</div>"
     );

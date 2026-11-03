@@ -329,13 +329,23 @@ const VuePanier = (() => {
     const mot = ap.vehicule === "tricycle" ? "en tricycle" : "à moto";
     const t = Paiement.tarifs();
     if (ap.devis) {
+      /* (3.74.0) La tournée : l'ordre des boutiques, et le supplément de
+         chacune, pour que le client voie d'où vient le montant. */
+      const d = ap.devis;
+      const tour = d.tournee && d.tournee.length > 1
+        ? '<div class="pa-tournee">' + Utils.echapper(d.tournee.map((e) => e.nom || "Boutique").join(" → ") +
+            " → vous") + "</div>" : "";
+      const sup = d.supplements > 0
+        ? '<div class="pa-tournee">dont ' + fmt(d.supplements) + " pour " + d.nbBoutiques +
+            (d.nbBoutiques > 1 ? " boutiques" : " boutique") + "</div>" : "";
       return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
-        " <small>" + String(ap.devis.distanceKm).replace(".", ",") + " km</small></span><span>" +
-        fmt(ap.devis.frais) + "</span></div>";
+        " <small>" + String(d.distanceKm).replace(".", ",") + " km</small>" + tour + sup + "</span><span>" +
+        fmt(d.frais) + "</span></div>";
     }
+    const nb = (typeof Panier !== "undefined" ? Panier.parBoutique() : []).filter((g) => g.boutique && g.boutique.id).length;
+    const des = t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait + nb * (t.supplement || 0) : 0;
     return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
-      " <small>selon la distance</small></span><span>dès " +
-      fmt(t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait : 0) + "</span></div>";
+      " <small>selon la distance</small></span><span>dès " + fmt(des) + "</span></div>";
   }
 
   /** « (moto, 13,4 km) » : le véhicule et la distance figés sur la commande. */

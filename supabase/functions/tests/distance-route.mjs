@@ -43,6 +43,14 @@ globalThis.fetch = async (url, o = {}) => {
     monde.connue.push({ cle: o.headers.Authorization, corps: JSON.parse(o.body) });
     return monde.base_connue();
   }
+  if (a === SECRETS.SUPABASE_URL + "/rest/v1/rpc/route_connue_trajet") {
+    monde.connue.push({ cle: o.headers.Authorization, corps: JSON.parse(o.body), trajet: true });
+    return monde.base_connue();
+  }
+  if (a === SECRETS.SUPABASE_URL + "/rest/v1/rpc/enregistrer_route_trajet") {
+    monde.ecrites.push({ cle: o.headers.Authorization, corps: JSON.parse(o.body), trajet: true });
+    return reponse({ ok: true });
+  }
   if (a === SECRETS.SUPABASE_URL + "/rest/v1/rpc/enregistrer_route") {
     monde.ecrites.push({ cle: o.headers.Authorization, corps: JSON.parse(o.body) });
     return reponse({ ok: true });
@@ -140,6 +148,24 @@ verifie(r.statut === 200 && r.d.distance_km === null && !monde.ecrites.length, "
 decor({ connue: () => reponse("", 500) });
 r = await appeler(CLIENT);
 verifie(r.statut === 200 && r.d.distance_km === null && !monde.google.length, "la base en panne : idem");
+
+titre("5 bis. (3.74.0) Un tronçon de tournée : d'une boutique au client");
+const BOUTIQUE = { latitude: 6.3650, longitude: 2.4100 };
+decor({ connue: () => reponse({ point: true, origine: BOUTIQUE, distance_m: null, plafond_atteint: false }) });
+r = await appeler({ origine: BOUTIQUE, latitude: CLIENT.latitude, longitude: CLIENT.longitude });
+verifie(monde.connue[0] && monde.connue[0].trajet && monde.connue[0].corps.de_lat === BOUTIQUE.latitude &&
+  monde.connue[0].corps.a_lng === CLIENT.longitude, "route_connue_trajet(boutique → client)");
+verifie(monde.google[0] && monde.google[0].corps.origin.location.latLng.latitude === BOUTIQUE.latitude,
+  "Google mesure depuis la boutique, pas depuis le point BIZZOO");
+verifie(monde.ecrites.length === 1 && monde.ecrites[0].trajet && monde.ecrites[0].corps.distance_m === 7340 &&
+  monde.ecrites[0].corps.de_lng === BOUTIQUE.longitude, "enregistrer_route_trajet(boutique → client, 7340 m)");
+verifie(r.d.distance_km === 7.34, "7,34 km rendus à l'écran");
+decor({ connue: () => reponse({ point: true, invalide: true }) });
+r = await appeler({ origine: { latitude: 6.0, longitude: 1.0 }, latitude: CLIENT.latitude, longitude: CLIENT.longitude });
+verifie(r.statut === 400 && !monde.google.length, "un départ qui n'est ni une boutique ni le point BIZZOO : refusé, Google pas appelé");
+decor();
+r = await appeler({ origine: { latitude: 95, longitude: 1 }, latitude: CLIENT.latitude, longitude: CLIENT.longitude });
+verifie(r.statut === 400 && !monde.connue.length, "un départ impossible : refusé sans même demander à la base");
 
 titre("6. Les clés ne fuient pas");
 verifie(!journal.some((l) => l.includes(SECRETS.SUPABASE_SERVICE_ROLE_KEY) || l.includes(SECRETS.GOOGLE_MAPS_KEY)),

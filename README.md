@@ -5436,6 +5436,9 @@ Les frais de livraison ne dépendent plus de la boutique mais de la
 | Moto | 1 000 FCFA | 100 FCFA |
 | Tricycle | 4 000 FCFA | 500 FCFA |
 
+- **(3.74.0)** La distance suit désormais la tournée, de boutique en
+  boutique, puis au client, plus 200 FCFA par boutique : voir « La
+  tournée » plus bas. Ce qui suit décrit la 3.64.0.
 - **La distance** : à vol d'oiseau du point BIZZOO au client, × 1,3 (le
   coefficient de la route). Le kilomètre **entamé** compte : 10,1 km
   facturent 11 km. Pas de distance maximale.
@@ -5527,6 +5530,75 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   reçu, une base sans point BIZZOO, les Réglages, l'écran du livreur et
   « Mes gains », la décision du superadministrateur.
 
+
+## La tournée : de boutique en boutique, puis au client (3.74.0)
+
+La distance d'une livraison ne part plus du point BIZZOO. Elle suit le
+**vrai trajet du livreur** : boutique A → boutique B → … → client, dans
+**l'ordre le plus court**, que l'application choisit elle-même.
+
+### Le tarif
+
+| | |
+|---|---|
+| Jusqu'à 10 km (le rayon) | le forfait du véhicule (moto 1 000, tricycle 4 000) |
+| Au-delà | le prix du km, par km **entamé** (moto 100, tricycle 500) |
+| Chaque boutique de la commande | **+ 200 FCFA** (dès la première) |
+
+Exemple : deux boutiques, 13 km en tout, à moto : 1 000 + 3 × 100 +
+2 × 200 = **1 700 FCFA**. Une seule boutique à 8 km : 1 000 + 200 =
+1 200 FCFA.
+
+- **L'ordre** : toutes les possibilités jusqu'à 7 boutiques (le plus court
+  gagne) ; au-delà, de la plus proche en plus proche, en essayant chaque
+  boutique de départ.
+- **Chaque tronçon** : par la route quand Google l'a mesuré (la fonction
+  `distance-route` reçoit maintenant un `origine`), sinon à vol d'oiseau ×
+  le coefficient de la route.
+- **Une boutique sans position** sur la carte compte depuis le point
+  BIZZOO : la commande passe toujours. Complétez la position des boutiques
+  (fiche de la boutique, « Position ») pour des frais justes.
+- Le point BIZZOO reste ce qui **met la livraison au km en service**.
+- Le supplément se règle dans **Réglages → BIZZOO → Livraison au
+  kilomètre → Supplément par boutique** (0 : aucun).
+
+### Ce que voient le client et le livreur
+
+- **Le client** : « Livraison à moto 13 km — Alpha → Bêta → vous — dont
+  400 FCFA pour 2 boutiques — 1 700 FCFA » ; avant de donner sa position,
+  « dès 1 400 » (forfait + boutiques).
+- **Le livreur** : l'alerte dit « Itinéraire : Alpha → Bêta → client »,
+  les frais de la course, « Votre gain » et « Part BIZZOO ». Sa course
+  montre l'itinéraire à suivre (chaque boutique et la distance jusqu'à la
+  suivante), le détail des frais facturés (forfait + km + boutiques), son
+  gain et la part de BIZZOO. Les boutiques à récupérer sont listées dans
+  l'ordre de passage.
+
+### Dans la base
+
+- `devis_tournee(boutiques, latitude, longitude, vehicule)` : le devis ;
+  `creer_commande` l'appelle et fige la tournée dans `commandes.livraison`
+  (`tournee`, `supplements`, `nb_boutiques`…).
+- `distance_trajet(…)` : un tronçon ; `route_connue_trajet` /
+  `enregistrer_route_trajet` : pour la fonction serveur seulement — le
+  départ doit être une boutique ou le point BIZZOO.
+- `paiement.livraison_supplement_boutique` (200 par défaut, de 0 à 100 000).
+- `devis_livraison` (point BIZZOO → client) reste, pour les applications
+  d'avant.
+
+Mise en service : `supabase/livraison-tournee.sql`, puis redéployer la
+fonction `distance-route`, puis la version 3.74.0 des applications. Une
+application d'avant montre encore l'ancien aperçu, mais la base fige et
+fait payer le montant de la tournée.
+
+Les essais : `supabase/tests/99zzz…-tournee.sql` (l'exemple du gérant,
+l'ordre qui s'inverse, le supplément réglable, la boutique sans position,
+trois et huit boutiques, la commande et l'alerte du livreur) ;
+`tools/banc-livraison-km.mjs`, sections 8 et 9 (panier, tarif, tronçons
+demandés à la route, course du livreur, Réglages) ;
+`tools/eprouver-distance-route.sh`, section 5 bis. L'aperçu du client et
+la base ont été comparés sur 60 cas tirés au hasard (de 1 à 9 boutiques,
+avec et sans position) : mêmes frais, même ordre, même distance.
 
 ## Deux langues : français et anglais (3.73.0)
 

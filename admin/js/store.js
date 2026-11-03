@@ -2724,6 +2724,9 @@ const Store = (() => {
         motoForfait: Number(l.moto_forfait), motoPrixKm: Number(l.moto_prix_km),
         tricycleForfait: Number(l.tricycle_forfait), tricyclePrixKm: Number(l.tricycle_prix_km),
         tauxLivreur: Number(l.taux_livreur),
+        /* (3.74.0) Le supplément par boutique de la tournée ; null sur une
+           base d'avant (l'écran ne le propose pas). */
+        supplement: l.livraison_supplement_boutique == null ? null : Number(l.livraison_supplement_boutique),
       },
     };
   }
@@ -2751,6 +2754,8 @@ const Store = (() => {
       tricycle_forfait: entier(m.tricycleForfait, 0, 1000000, "Le forfait tricycle n'est pas un montant valable."),
       tricycle_prix_km: entier(m.tricyclePrixKm, 0, 100000, "Le prix du km en tricycle n'est pas valable."),
       taux_livreur: entier(m.tauxLivreur, 0, 100, "La part du livreur va de 0 à 100 %."),
+      ...(m.supplement === undefined ? {} : {
+        livraison_supplement_boutique: entier(m.supplement, 0, 100000, "Le supplément par boutique n'est pas un montant valable.") }),
       livraison_adresse: String(m.adresse || "").trim().slice(0, 200),
       livraison_latitude: m.point ? Number(m.point.latitude) : null,
       livraison_longitude: m.point ? Number(m.point.longitude) : null,

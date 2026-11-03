@@ -2364,6 +2364,8 @@ html,body{overscroll-behavior-x:none}
 }
 .fiche-livraison[hidden]{display:none}
 .pa-recap-tarif{margin:-2px 0 0;font-size:11.5px;color:var(--encre-douce, #556)}
+/* (3.74.0) La tournée sous la ligne de livraison : l'ordre des boutiques, le supplément. */
+.pa-tournee{font-size:11.5px;font-weight:400;color:var(--encre-douce, #556);margin-top:2px;line-height:1.35}
 /* « Où livrer ? » : l'état d'abord — orange tant qu'on ne sait pas,
    vert quand les frais sont connus —, puis les deux gestes, puis la carte. */
 .co-ou .btn-rangee{margin-top:10px}

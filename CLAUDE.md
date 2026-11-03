@@ -174,3 +174,13 @@ avant la livraison : `tools/extraire-textes.mjs <app>` liste ce qui manque
 `i18n/commun.*`, puis `tools/extraire-textes.mjs serveur`. Ce que les gens
 écrivent (produits, messages, noms) se marque `translate="no"`.
 `tools/banc-deux-langues.mjs` refuse un texte français oublié.
+
+## La tournée (depuis 3.74.0)
+
+Les frais de livraison se calculent à DEUX endroits qui doivent rester
+identiques : `devis_tournee` dans la base (c'est elle qui fige et fait
+payer) et `devis` dans `client/js/paiement.js` (l'aperçu). Même ordre des
+boutiques (identifiant, tri « C »), même algorithme (Heap jusqu'à 7, puis
+de proche en proche), mêmes arrondis (chaque tronçon au mètre, le km
+entamé). Toucher à l'un, c'est toucher à l'autre, puis éprouver les deux
+(`…-tournee.sql`, `banc-livraison-km.mjs` sections 8 et 9).

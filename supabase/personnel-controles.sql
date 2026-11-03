@@ -397,6 +397,7 @@ language sql immutable set search_path = public as $$
     when t = 'paiement' and c = 'tricycle_prix_km' then 'Tarif de livraison changé : prix au km en tricycle'
     when t = 'paiement' and c = 'livraison_coef' then 'Coefficient de la route changé'
     when t = 'paiement' and c = 'livraison_rayon_km' then 'Rayon de livraison changé (km)'
+    when t = 'paiement' and c = 'livraison_supplement_boutique' then 'Tarif de livraison changé : supplément par boutique'
     when t = 'paiement' and c in ('livraison_latitude', 'livraison_longitude', 'livraison_adresse') then 'Point de départ des livraisons changé'
     when t = 'reglages' and c = 'compte_obligatoire' then
       case when ap = 'true' then 'Compte obligatoire pour commander' else 'Commande sans compte de nouveau permise' end
