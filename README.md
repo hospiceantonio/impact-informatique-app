@@ -7419,6 +7419,12 @@ Une fonction serveur, **`lieu`**, parle à OpenStreetMap (libre, sans clé) :
 - **« chercher »** « Tempé » → les lieux de ce nom au Bénin, le Grand
   Cotonou d'abord.
 
+OpenStreetMap refuse (HTTP 403) les adresses d'où partent les fonctions
+serveur, mais répond à la base : la question passe donc **par la base**
+(`lieu_source_demander` dépose la requête par pg_net, `lieu_source_reponse`
+rend la réponse — vers OpenStreetMap seulement, pour la seule fonction
+serveur).
+
 Elle range ce qu'on lui a dit en base (`lieux_noms`, à 50 m près) : un
 quartier nommé une fois l'est pour tout le monde, et OpenStreetMap n'est
 pas redemandé. Un plafond (2 000 questions nouvelles par jour) respecte

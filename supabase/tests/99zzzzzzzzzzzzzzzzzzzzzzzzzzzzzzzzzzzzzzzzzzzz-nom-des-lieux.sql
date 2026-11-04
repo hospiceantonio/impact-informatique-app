@@ -52,6 +52,19 @@ select essai.refuse($$insert into public.lieux_noms (lat_g, lng_g, nom) values (
 select essai.refuse($$update public.lieux_recherches set n = 0$$, 'ni ne remet le compteur à zéro');
 reset role; select essai.personne();
 
+select essai.titre('2 bis. La question à OpenStreetMap passe par la base : vers lui seul');
+set role anon;
+select essai.refuse($$select public.lieu_source_demander('/reverse?lat=6.4&lon=2.3')$$, 'un visiteur ne pose pas de question');
+select essai.refuse($$select public.lieu_source_reponse(1)$$, 'ni ne lit les réponses');
+reset role;
+select essai.devenir(:SUPER::uuid); set role authenticated;
+select essai.refuse($$select public.lieu_source_demander('/reverse?lat=6.4&lon=2.3')$$, 'un compte connecté non plus');
+reset role; select essai.personne();
+select essai.refuse($$select public.lieu_source_demander('@evil.example/x')$$, 'une autre adresse : refusée');
+select essai.refuse($$select public.lieu_source_demander('/status')$$, 'une autre question : refusée');
+select essai.refuse($$select public.lieu_source_demander('/search?q=a b')$$, 'un caractère non codé : refusé');
+select essai.verifie(public.lieu_source_reponse(null) is null, 'pas de demande : pas de réponse');
+
 select essai.titre('3. Le plafond du jour');
 insert into public.lieux_recherches (jour, n) values (current_date, 1999)
 on conflict (jour) do update set n = 1999;

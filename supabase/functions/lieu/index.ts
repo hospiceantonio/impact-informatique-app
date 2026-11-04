@@ -9,7 +9,9 @@
      « chercher » « Agla » → les lieux de ce nom au Bénin, pour poser
                   l'épingle sans la promener sur la carte.
 
-   La source : OpenStreetMap (Nominatim), libre et sans clé. Ses règles :
+   La source : OpenStreetMap (Nominatim), libre et sans clé — interrogée
+   PAR LA BASE (pg_net) : il refuse les adresses des fonctions serveur.
+   Ses règles :
    une application qui se nomme (User-Agent), pas plus d'une question par
    seconde, et rien de ce qu'il a déjà dit redemandé — d'où LE CACHE EN
    BASE (« lieux_noms », à 50 m près) : un quartier nommé une fois l'est
@@ -25,8 +27,6 @@
 
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const SOURCE = "https://nominatim.openstreetmap.org";
-const AGENT = "BIZZOO/3.76 (bizzoomarket.com)";
 
 /* Le Bénin, large : au-delà, ce n'est pas une livraison BIZZOO. */
 const BENIN = { latMin: 6.0, latMax: 12.6, lngMin: 0.6, lngMax: 4.0 };
@@ -74,13 +74,31 @@ const dansLeBenin = (lat: number, lng: number) =>
   Number.isFinite(lat) && Number.isFinite(lng) &&
   lat >= BENIN.latMin && lat <= BENIN.latMax && lng >= BENIN.lngMin && lng <= BENIN.lngMax;
 
-async function source(chemin: string): Promise<unknown> {
-  const r = await fetch(SOURCE + chemin, {
-    headers: { "User-Agent": AGENT, "Accept-Language": "fr" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!r.ok) throw new Error("source : HTTP " + r.status);
-  return await r.json();
+/* (3.76.0) OpenStreetMap refuse (HTTP 403) les adresses d'où partent les
+   fonctions serveur, et répond à celles de la base. La question passe donc
+   par la base (pg_net) : on la dépose, puis on vient lire la réponse. */
+const ATTENTE_MS = 9000;
+const PAS_MS = 250;
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Un composant d'adresse sans rien que la base refuserait (« ' ( ) ! * ~ »). */
+export const coder = (x: string) =>
+  encodeURIComponent(x).replace(/[!'()*~]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+
+export async function source(chemin: string, demander = base, attente = ATTENTE_MS, pas = PAS_MS): Promise<unknown> {
+  const id = await demander("lieu_source_demander", { chemin });
+  if (typeof id !== "number") throw new Error("source : question non déposée");
+  const fin = Date.now() + attente;
+  while (Date.now() < fin) {
+    await pause(pas);
+    const r = await demander("lieu_source_reponse", { demande: id }) as
+      { statut?: number | null; corps?: string | null; erreur?: string | null } | null;
+    if (!r) continue;                                    // pas encore là
+    if (r.erreur) throw new Error("source : " + r.erreur);
+    if (r.statut !== 200) throw new Error("source : HTTP " + r.statut);
+    return JSON.parse(String(r.corps || "null"));
+  }
+  throw new Error("source : pas de réponse en " + Math.round(attente / 1000) + " s");
 }
 
 Deno.serve(async (requete) => {
@@ -112,7 +130,7 @@ Deno.serve(async (requete) => {
       const connu = await base("lieu_connu", { latitude: 6.37, longitude: 2.39 }) as { plafond_atteint?: boolean } | null;
       if (connu && connu.plafond_atteint) return json({ resultats: [], message: "Plafond du jour atteint." });
       const r = await source("/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=bj&viewbox=" + PREFERE +
-        "&bounded=0&q=" + encodeURIComponent(q)) as { lat?: string; lon?: string; name?: string; address?: Adresse;
+        "&bounded=0&q=" + coder(q)) as { lat?: string; lon?: string; name?: string; address?: Adresse;
           display_name?: string }[] | null;
       const resultats = (Array.isArray(r) ? r : []).map((x) => ({
         nom: nomDuLieu(x.address, x.name) || String(x.display_name || "").split(",").slice(0, 3).join(","),

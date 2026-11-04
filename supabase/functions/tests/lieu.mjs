@@ -45,9 +45,21 @@ globalThis.fetch = async (url, o = {}) => {
     monde.base.push({ fn: "compter_recherche_lieu" });
     return reponse(1);
   }
-  if (a.startsWith("https://nominatim.openstreetmap.org/")) {
-    monde.source.push({ url: a, agent: o.headers && o.headers["User-Agent"] });
-    return monde.osm(a);
+  /* (3.76.0) OpenStreetMap refuse les fonctions serveur : la question
+     passe par la base (pg_net), qui la pose, puis rend la réponse. */
+  if (a === SECRETS.SUPABASE_URL + "/rest/v1/rpc/lieu_source_demander") {
+    const chemin = JSON.parse(o.body).chemin;
+    const url = "https://nominatim.openstreetmap.org" + chemin;
+    monde.source.push({ url, cle: o.headers.Authorization });
+    const id = ++monde.dernier;
+    const rep = await monde.osm(url);
+    monde.reponses.set(id, { statut: rep.status, corps: await rep.text(), attente: monde.attente });
+    return reponse(id);
+  }
+  if (a === SECRETS.SUPABASE_URL + "/rest/v1/rpc/lieu_source_reponse") {
+    const r = monde.reponses.get(JSON.parse(o.body).demande);
+    if (!r || r.attente-- > 0) return reponse("null");      // pas encore là
+    return reponse({ statut: r.statut, corps: r.corps, erreur: null });
   }
   throw new Error("adresse inattendue : " + a);
 };
@@ -55,7 +67,8 @@ globalThis.fetch = async (url, o = {}) => {
 const INVERSE = { address: { quarter: "Sèdomey", suburb: "Togoudo", town: "Godomey", county: "Abomey-Calavi",
   country: "Bénin" }, name: "" };
 function decor(r = {}) {
-  monde.base = []; monde.source = [];
+  monde.base = []; monde.source = []; monde.reponses = new Map(); monde.dernier = monde.dernier || 0;
+  monde.attente = r.attente ?? 1;
   monde.connu = r.connu ?? (() => reponse({ nom: null, plafond_atteint: false }));
   monde.osm = r.osm ?? ((a) => reponse(a.includes("/reverse") ? INVERSE : [
     { lat: "6.3793", lon: "2.4020", name: "Agla", display_name: "Agla, 13ᵉ Arrondissement, Cotonou, Littoral, Bénin",
@@ -86,8 +99,9 @@ verifie(r.d.nom === "Sèdomey, Togoudo, Godomey" && r.d.cache === true && !monde
 verifie(r.cors === "*", "le navigateur peut l'appeler (CORS)");
 decor();
 r = await appeler({ action: "nommer", ...ICI });
-verifie(monde.source.length === 1 && /\/reverse\?/.test(monde.source[0].url) && /BIZZOO/.test(monde.source[0].agent || ""),
-  "inconnu : OpenStreetMap, avec un User-Agent qui nomme l'application");
+verifie(monde.source.length === 1 && /\/reverse\?/.test(monde.source[0].url) &&
+  monde.source[0].cle === "Bearer " + SECRETS.SUPABASE_SERVICE_ROLE_KEY,
+  "inconnu : la question à OpenStreetMap passe par la base, avec la clé de service");
 verifie(r.d.nom === "Sèdomey, Togoudo, Godomey", "« Sèdomey, Togoudo, Godomey » (" + r.d.nom + ")");
 const note = monde.base.find((b) => b.fn === "noter_lieu");
 verifie(note && note.corps.nom === "Sèdomey, Togoudo, Godomey" && note.cle === "Bearer " + SECRETS.SUPABASE_SERVICE_ROLE_KEY,
@@ -130,6 +144,19 @@ verifie(r.statut === 200 && r.d.nom === null && !monde.base.some((b) => b.fn ===
 decor({ connu: () => reponse("", 500) });
 r = await appeler({ action: "chercher", q: "Agla" });
 verifie(r.statut === 200 && Array.isArray(r.d.resultats) && !r.d.resultats.length, "base en panne : une liste vide, sans erreur 500");
+
+titre("5 bis. La réponse qui ne vient pas ; un nom tapé avec des parenthèses");
+decor({ attente: 1e9 });
+const debut = Date.now();
+let refus = null;
+try { await module.source("/reverse?format=jsonv2&lat=6.4&lon=2.3", undefined, 600, 50); } catch (e) { refus = e; }
+verifie(refus && /pas de réponse/.test(refus.message) && Date.now() - debut < 2000,
+  "pas de réponse dans le délai : abandon, sans attendre indéfiniment");
+verifie(module.coder("Akpakpa (Dodomè)!") === "Akpakpa%20%28Dodom%C3%A8%29%21",
+  "les parenthèses et « ! » sont codées : la base ne refuse pas la question");
+decor();
+r = await appeler({ action: "chercher", q: "Agla (Cotonou)" });
+verifie(/q=Agla%20%28Cotonou%29$/.test(monde.source[0].url), "la recherche part codée (" + monde.source[0].url.slice(-24) + ")");
 
 titre("6. Les clés ne fuient pas");
 verifie(!journal.some((l) => l.includes(SECRETS.SUPABASE_SERVICE_ROLE_KEY)), "la clé de service n'est dans aucun journal");

@@ -313,6 +313,47 @@ end $$;
 revoke all on function public.compter_recherche_lieu() from public, anon, authenticated;
 grant execute on function public.compter_recherche_lieu() to service_role;
 
+-- (3.76.0) LA QUESTION À OPENSTREETMAP PASSE PAR LA BASE. OpenStreetMap
+-- refuse (HTTP 403) les adresses d'où partent les fonctions serveur, et
+-- répond à celles de la base : la fonction « lieu » dépose sa question ici
+-- (pg_net), puis vient lire la réponse. Seulement vers OpenStreetMap, et
+-- seulement ses deux questions ; personne d'autre que la fonction serveur.
+create or replace function public.lieu_source_demander(chemin text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  c  text := coalesce(chemin, '');
+  id bigint;
+begin
+  if c !~ '^/(reverse|search)\?[A-Za-z0-9_.,=&%+\-]*\Z' or length(c) > 600 then
+    raise exception 'Question refusée.' using errcode = 'P0001';
+  end if;
+  if to_regprocedure('net.http_get(text,jsonb,jsonb,integer)') is null then
+    raise exception 'pg_net absent.' using errcode = 'P0001';
+  end if;
+  execute format('select net.http_get(%L, ''{}''::jsonb, %L::jsonb, 8000)',
+                 'https://nominatim.openstreetmap.org' || c,
+                 '{"User-Agent": "BIZZOO/3.76 (bizzoomarket.com)", "Accept-Language": "fr"}')
+     into id;
+  return id;
+end $$;
+revoke all on function public.lieu_source_demander(text) from public, anon, authenticated;
+grant execute on function public.lieu_source_demander(text) to service_role;
+
+-- La réponse, quand elle est là (null tant qu'elle ne l'est pas).
+create or replace function public.lieu_source_reponse(demande bigint) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  r jsonb;
+begin
+  if demande is null or to_regclass('net._http_response') is null then return null; end if;
+  execute format('select jsonb_build_object(''statut'', status_code, ''corps'', content, ''erreur'', error_msg)
+                    from net._http_response where id = %s', demande)
+     into r;
+  return r;
+end $$;
+revoke all on function public.lieu_source_reponse(bigint) from public, anon, authenticated;
+grant execute on function public.lieu_source_reponse(bigint) to service_role;
+
 -- ---------- « Faire livrer » : les frais au kilomètre ----------
 -- Le devis de l'écran « Faire livrer » : ce que valent les articles, au
 -- prix du catalogue, et le véhicule (le tricycle dès qu'un produit
