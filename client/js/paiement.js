@@ -365,7 +365,8 @@ const Paiement = (() => {
     dist = Math.round(dist * 1000) / 1000;
     const km = dist > t.rayon ? Math.ceil(Math.round((dist - t.rayon) * 1000) / 1000) : 0;
     const tarif = t[v];
-    const sup = t.supplement || 0;
+    /* (3.74.1) Le supplément : commande groupée seulement (2 boutiques ou plus). */
+    const sup = n > 1 ? (t.supplement || 0) : 0;
     return { vehicule: v, distanceKm: Math.round(dist * 10) / 10, rayon: t.rayon, kmFactures: km,
              calcul: routesOk === w ? "route" : routesOk === 0 ? "vol_oiseau" : "mixte",
              forfait: tarif.forfait, prixKm: tarif.prixKm,
@@ -382,7 +383,7 @@ const Paiement = (() => {
     return "Livraison " + (v === "tricycle" ? "en tricycle" : "à moto") + " : " + f(t[v].forfait) +
       " jusqu'à " + String(t.rayon).replace(".", ",") + " km, " + f(t[v].prixKm) + " par km au-delà" +
       /* (3.74.0) Le supplément de chaque boutique de la tournée. */
-      (t.supplement > 0 ? ", plus " + f(t.supplement) + " par boutique." : ".");
+      (t.supplement > 0 ? ". Commande de plusieurs boutiques : + " + f(t.supplement) + " par boutique." : ".");
   }
 
   /* Où livrer : gardé sur le téléphone, pour ne pas le redemander à
@@ -625,10 +626,31 @@ const Paiement = (() => {
          va appeler. Sa phrase à lui, même maladroite, dit au moins où
          chercher. */
       const details = typeof donnees.details === "string" ? donnees.details.trim() : "";
-      throw new Error((donnees.erreur || "Le paiement n'a pas pu s'ouvrir.") +
+      const erreur = new Error((donnees.erreur || "Le paiement n'a pas pu s'ouvrir.") +
                       (details ? " — " + details : ""));
+      /* (3.75.0) Un produit parti en rupture : l'écran le dit, durablement. */
+      if (donnees.rupture) {
+        erreur.rupture = true;
+        erreur.manquants = Array.isArray(donnees.manquants) ? donnees.manquants : [];
+      }
+      throw erreur;
     }
     return donnees;
+  }
+
+  /** (3.75.0) Les produits d'une commande à payer partis en rupture depuis,
+      et les autres (pour refaire le panier). Une base d'avant ne connaît
+      pas la fonction : rien ne manque, comme avant. */
+  async function manquants(commande, tel) {
+    const c = Catalogue.configuration();
+    if (!c) return { manquants: [], autres: [] };
+    try {
+      const d = await rpc("manquants_commande", { cible: commande, tel: tel || "" });
+      return { manquants: Array.isArray(d && d.manquants) ? d.manquants : [],
+               autres: Array.isArray(d && d.autres) ? d.autres : [] };
+    } catch (_) {
+      return { manquants: [], autres: [] };
+    }
   }
 
   /** Lance la demande de paiement. Le client valide ensuite sur son téléphone. */
@@ -803,7 +825,7 @@ const Paiement = (() => {
     charger, disponible, bacASable, connu, fournisseur, operateurDuNumero,
     tauxAcompte, acompteDe, fraisLivraison, apercu,
     livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
-    demanderRoute, attendreRoute,
+    demanderRoute, attendreRoute, manquants,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
     signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,

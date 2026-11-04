@@ -5531,6 +5531,81 @@ se comporte comme avant tant que le point BIZZOO n'est pas réglé.
   « Mes gains », la décision du superadministrateur.
 
 
+## Rupture sur une commande en attente, temps de préparation, localisation coupée (3.75.0)
+
+### Une commande en attente dont un produit est parti en rupture
+
+Le client commande, ne peut pas payer (réseau, refus), revient plus tard :
+entre-temps, un produit est parti. Avant, le bouton « Payer » ne menait
+nulle part. Désormais :
+
+- le reçu demande à la base ce qui manque (`manquants_commande`, par le
+  numéro de la commande et le téléphone du client, ou son compte) et
+  affiche **« Rupture de stock »**, la liste (« Casque — plus que 1 en
+  stock (2 commandés) »), sans bouton « Payer » ;
+- **« Refaire mon panier sans ce produit »** remet le reste au panier (et
+  ce qui reste du produit manquant) ;
+- la fonction de paiement `feexpay` **refuse** d'encaisser une telle
+  commande (409, « Rupture de stock : « Casque » n'est plus disponible… ») :
+  FeexPay n'est pas appelé, aucun téléphone ne sonne.
+
+Manque : un produit retiré, ou plus assez de pièces — sauf « sur commande »
+ou en approvisionnement, comme à la commande.
+
+### Le temps de préparation (Personnel, Suivi des commandes)
+
+Une colonne **« Préparation (vue → préparée) »** : le temps de chaque
+marchand entre « Commande vue » et « Préparée » — « 14 min » ; en rouge
+« 34 min ⚠ > 20 min » au-delà du délai réglé ; « en cours · 8 min » ;
+« pas encore vue ». L'export Excel l'a aussi (et, par article, « Préparé
+par le marchand » et « Préparation (min) »).
+
+Le délai se règle dans **Personnel → Suivi → Réglages → Délai de
+préparation** (en minutes). Réglé à 20 min, il fait aussi sonner la
+boutique (et BIZZOO) quand une commande vue n'est pas préparée à temps.
+
+### Le livreur coupe sa localisation pendant une course
+
+Avant, le téléphone renvoyait sa dernière position toutes les 2 minutes
+même localisation coupée : la base le croyait suivi. Désormais :
+
+- l'application Android dit si la localisation est allumée, et l'âge de
+  la position (`position_livreur(…, localisation, age_s)`) ; elle prévient
+  la base dès que la localisation est coupée ou rallumée ;
+- chaque minute, `alerter_localisations` (pg_cron) regarde les livreurs en
+  course (après « Commande reçue ») : **localisation coupée depuis plus
+  d'une minute**, ou **plus aucune position mesurée depuis 15 min** (le
+  seuil de la veille, Personnel) → une notification **qui sonne** à
+  BIZZOO (« Localisation coupée — Sika », avec son numéro) et au livreur
+  (« Réactivez votre localisation ») ; une seule par épisode ;
+  « Localisation rétablie » quand elle revient ;
+- Personnel : « Livreur en route sans position » se fie à la position
+  mesurée (le battement du téléphone ne la rajeunit plus).
+
+Il faut la **version 3.75.0 de l'APK** : une APK d'avant ne dit ni que
+la localisation est coupée, ni l'âge de sa position (elle la renvoie
+comme neuve à chaque battement) ; avec elle, seul un téléphone qui ne
+parle plus du tout déclenche l'alerte, au bout de 15 min.
+
+### Une course annulée après « Commande reçue »
+
+Elle sonnait déjà chez BIZZOO ; son titre le dit désormais : **« Course
+annulée après acceptation par Moussa — BZ-… »** (avant acceptation :
+« Course annulée par … »). La course repart toujours seule vers les
+autres livreurs.
+
+### Mise en service
+
+`supabase/suivi-rupture-localisation.sql`, puis redéployer la fonction
+`feexpay`, puis la version 3.75.0 des applications.
+
+Les essais : `supabase/tests/99zzz…-suivi-rupture-localisation.sql`
+(rupture, temps de préparation, localisation coupée puis rétablie,
+position figée, annulation après acceptation) ;
+`tools/banc-rupture-preparation.mjs` (le reçu du client, la colonne de
+Personnel) ; `tools/eprouver-paiement.sh` (la fonction refuse et ne fait
+pas sonner).
+
 ## La tournée : de boutique en boutique, puis au client (3.74.0)
 
 La distance d'une livraison ne part plus du point BIZZOO. Elle suit le
@@ -5543,11 +5618,14 @@ La distance d'une livraison ne part plus du point BIZZOO. Elle suit le
 |---|---|
 | Jusqu'à 10 km (le rayon) | le forfait du véhicule (moto 1 000, tricycle 4 000) |
 | Au-delà | le prix du km, par km **entamé** (moto 100, tricycle 500) |
-| Chaque boutique de la commande | **+ 200 FCFA** (dès la première) |
+| Commande groupée (2 boutiques ou plus) | **+ 200 FCFA par boutique** |
 
 Exemple : deux boutiques, 13 km en tout, à moto : 1 000 + 3 × 100 +
-2 × 200 = **1 700 FCFA**. Une seule boutique à 8 km : 1 000 + 200 =
-1 200 FCFA.
+2 × 200 = **1 700 FCFA**.
+
+**(3.74.1) Une seule boutique** : la distance va de la boutique au
+client, et c'est le forfait + les km au-delà, **sans supplément**. Une
+boutique à 8 km : 1 000 FCFA ; à 13 km : 1 300 FCFA.
 
 - **L'ordre** : toutes les possibilités jusqu'à 7 boutiques (le plus court
   gagne) ; au-delà, de la plus proche en plus proche, en essayant chaque
@@ -5566,7 +5644,7 @@ Exemple : deux boutiques, 13 km en tout, à moto : 1 000 + 3 × 100 +
 
 - **Le client** : « Livraison à moto 13 km — Alpha → Bêta → vous — dont
   400 FCFA pour 2 boutiques — 1 700 FCFA » ; avant de donner sa position,
-  « dès 1 400 » (forfait + boutiques).
+  « dès 1 400 » (forfait + boutiques) ; une seule boutique : « dès 1 000 ».
 - **Le livreur** : l'alerte dit « Itinéraire : Alpha → Bêta → client »,
   les frais de la course, « Votre gain » et « Part BIZZOO ». Sa course
   montre l'itinéraire à suivre (chaque boutique et la distance jusqu'à la

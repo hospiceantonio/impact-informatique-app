@@ -89,6 +89,7 @@ function rpcFaux(nom, p) {
     return {
       id: c.id, numero: c.numero, etat: c.etat, total: c.total, devise: c.devise,
       nom: c.nom, tel: c.tel, reference: c.reference, tentative_le: c.tentative_le,
+      ...(c.manquants ? { manquants: c.manquants } : {}),
     };
   }
   if (nom === "commande_par_reference") {
@@ -485,6 +486,22 @@ egal(monde.feexAppels.length, 0,
 decor({ tentative_le: new Date(Date.now() - 60000).toISOString() });
 await appeler(paiement, PAYER);
 egal(monde.feexAppels.length, 1, "passé le délai, la demande repart");
+
+/* =========================================================
+   (3.75.0) Un produit parti en rupture : on ne fait pas payer
+   ========================================================= */
+titre("Un produit parti en rupture : on ne fait pas payer");
+
+decor({ manquants: [{ produit_id: "p1", nom: "Casque", demande: 2, reste: 1 }] });
+const rupture = await appeler(paiement, PAYER);
+egal(rupture.statut, 409, "la base dit qu'il manque un produit : refusé");
+verifie(rupture.donnees.rupture === true && /Rupture de stock : « Casque » n'est plus disponible/.test(rupture.donnees.erreur || ""),
+  "et le client lit pourquoi : « Rupture de stock : « Casque » n'est plus disponible… »");
+egal(monde.feexAppels.length, 0, "FeexPay n'est pas appelé : aucun téléphone ne sonne");
+
+decor({ manquants: [] });
+await appeler(paiement, PAYER);
+egal(monde.feexAppels.length, 1, "rien ne manque : la demande part, comme avant");
 
 /* =========================================================
    Le numéro de la commande fait office de mot de passe

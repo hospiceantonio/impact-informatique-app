@@ -343,7 +343,8 @@ const VuePanier = (() => {
         fmt(d.frais) + "</span></div>";
     }
     const nb = (typeof Panier !== "undefined" ? Panier.parBoutique() : []).filter((g) => g.boutique && g.boutique.id).length;
-    const des = t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait + nb * (t.supplement || 0) : 0;
+    /* (3.74.1) Le supplément : commande groupée seulement. */
+    const des = t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait + (nb > 1 ? nb * (t.supplement || 0) : 0) : 0;
     return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
       " <small>selon la distance</small></span><span>dès " + fmt(des) + "</span></div>";
   }
@@ -1461,7 +1462,56 @@ const VuePanier = (() => {
       } else {
         poserAttente(vue, commande, id, "arretee", {});
       }
+      verifierRupture(vue, commande, id);
     }
+  }
+
+  /* (3.75.0) UNE COMMANDE EN ATTENTE DONT UN PRODUIT EST PARTI EN RUPTURE.
+     La base dit lesquels ; on le montre au lieu d'un bouton « Payer » qui
+     ne mènerait nulle part, et l'on propose de refaire le panier sans eux.
+     Pendant une attente (le client a peut-être déjà validé), on ne touche
+     pas à la carte : elle passera à la rupture si FeexPay répond « rien ». */
+  async function verifierRupture(vue, commande, id) {
+    if (typeof Paiement.manquants !== "function") return;
+    const r = await Paiement.manquants(commande.id, commande.client && commande.client.tel);
+    if (!r.manquants.length || location.hash !== "#/commande/" + id) return;
+    commande._rupture = r;
+    const carte = UI.$("#re-attente", vue);
+    const etat = carte ? carte.dataset.etat : "";
+    if (!carte || etat === "echec" || etat === "rien" || etat === "arretee") {
+      poserAttente(vue, commande, id, "rupture", {});
+    }
+  }
+
+  function carteRupture(commande) {
+    const r = commande._rupture;
+    const n = r.manquants.length;
+    const liste = r.manquants.map((m) => "<li><strong>" + Utils.echapper(m.nom || "Un produit") + "</strong>" +
+      (Number(m.reste) > 0 ? " — plus que " + Number(m.reste) + " en stock (" + Number(m.demande) + " commandé" +
+        (Number(m.demande) > 1 ? "s" : "") + ")" : " — en rupture de stock") + "</li>").join("");
+    const refaire = r.autres.length || r.manquants.some((m) => Number(m.reste) > 0);
+    return '<div class="carte re-attente re-attente-echec re-rupture" id="re-attente" data-etat="rupture">' +
+      '<div class="re-echec-tete">' + UI.icone("alerte", "ic-sm") + "<p><strong>Rupture de stock.</strong> " +
+        (n > 1 ? "Ces produits ne sont plus disponibles" : "Ce produit n'est plus disponible") +
+        " depuis votre commande : elle ne peut plus être payée. Rien n'a été débité.</p></div>" +
+      '<ul class="re-rupture-liste">' + liste + "</ul>" +
+      '<div class="btn-rangee re-attente-boutons">' +
+        (refaire ? '<button type="button" class="btn" data-attente="refaire">Refaire mon panier sans ' +
+          (n > 1 ? "ces produits" : "ce produit") + "</button>" : "") +
+        '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
+      "</div></div>";
+  }
+
+  /** Le panier refait : les autres produits, et ce qui reste des manquants. */
+  function refaireSansRupture(commande) {
+    const r = commande._rupture;
+    let n = 0;
+    for (const a of r.autres) { Panier.ajouter(a.produit_id, Number(a.quantite) || 1); n++; }
+    for (const m of r.manquants) {
+      if (Number(m.reste) > 0 && m.produit_id) { Panier.ajouter(m.produit_id, Number(m.reste)); n++; }
+    }
+    UI.toast(n ? "Votre panier est prêt, sans les produits en rupture" : "Plus aucun produit de cette commande n'est disponible");
+    location.hash = n ? "#/panier" : "#/";
   }
 
   /* -----------------------------------------------------
@@ -1488,6 +1538,11 @@ const VuePanier = (() => {
   let attenteEnCours = null;
 
   function carteAttente(commande, etat, info) {
+    /* (3.75.0) Un produit en rupture : plus de « Payer », on dit pourquoi. */
+    if ((etat === "echec" || etat === "rien" || etat === "rupture" || etat === "arretee") &&
+        commande._rupture && commande._rupture.manquants.length) {
+      return carteRupture(commande);
+    }
     const feexpay = Paiement.fournisseur() === "feexpay";
     if (etat === "attente") {
       return '<div class="carte pa-avertissement re-attente" id="re-attente" data-etat="attente">' +
@@ -1567,6 +1622,8 @@ const VuePanier = (() => {
         carte.remove();
       } else if (quoi === "payer") {
         relancerPaiement(vue, commande, id, b);
+      } else if (quoi === "refaire") {
+        refaireSansRupture(commande);
       }
     });
   }
@@ -1704,6 +1761,12 @@ const VuePanier = (() => {
       bouton.disabled = false;
       bouton.innerHTML = libelle;
       UI.toast(err.message || "Le paiement n'a pas pu s'ouvrir", "err");
+      /* (3.75.0) La fonction de paiement a trouvé un produit en rupture. */
+      if (err.rupture) {
+        const r = await Paiement.manquants(commande.id, commande.client && commande.client.tel);
+        commande._rupture = r.manquants.length ? r : { manquants: err.manquants || [], autres: [] };
+        if (commande._rupture.manquants.length) poserAttente(vue, commande, id, "rupture", {});
+      }
       return;
     }
     if (location.hash !== "#/commande/" + id) return;

@@ -5,7 +5,8 @@
 --   1. la distance suit le trajet boutique A → boutique B → client, dans
 --      l'ordre le plus court, que la base choisit ; l'exemple du gérant :
 --      deux boutiques, 13 km, à moto = 1 000 + 3 × 100 + 2 × 200 = 1 700 ;
---   2. 200 FCFA par boutique, dès la première ; réglable (0 : aucun) ;
+--   2. 200 FCFA par boutique pour une commande GROUPÉE seulement (3.74.1) ;
+--      une seule boutique : boutique → client, forfait + km ; réglable ;
 --   3. une boutique sans position compte depuis le point BIZZOO ;
 --   4. sans boutique : du point BIZZOO, sans supplément, comme avant ;
 --   5. trois boutiques : le meilleur des six ordres ; huit boutiques : de
@@ -72,14 +73,17 @@ select essai.egal((select string_agg(e ->> 'boutique_id', ' → ' order by o)
   'bou_essai_voisine → bou_informatique', 'B → A → client devient le plus court : l''ordre s''inverse');
 select essai.egal((:'d'::jsonb ->> 'frais')::int, 1400, '1 + 8 = 9 km : 1 000 + 0 + 400 = 1 400 FCFA');
 
-select essai.titre('2. Le supplément : dès la première boutique, et réglable');
-select essai.egal((public.devis_tournee(array['bou_informatique'], 6.45, 2.46, 'moto') ->> 'frais')::int, 1200,
-  'une boutique à 8 km : 1 000 + 200 = 1 200 FCFA');
+select essai.titre('2. Le supplément : commande groupée seulement, et réglable');
+select public.devis_tournee(array['bou_informatique'], 6.45, 2.46, 'moto') as d \gset
+select essai.egal((:'d'::jsonb ->> 'frais')::int, 1000,
+  'une seule boutique à 8 km : boutique → client, le forfait seul (1 000 FCFA, sans supplément)');
+select essai.egal((:'d'::jsonb ->> 'supplements')::int, 0, 'aucun supplément pour une seule boutique');
+select essai.egal((:'d'::jsonb ->> 'distance_km')::numeric, 8.0, 'la distance : de la boutique au client (8 km)');
 select essai.egal((public.devis_tournee(array['bou_informatique', 'bou_essai_voisine'], 6.45, 2.46, 'tricycle') ->> 'frais')::int,
   4400, 'en tricycle : 4 000 + 0 + 400 = 4 400 FCFA');
 update public.paiement set livraison_supplement_boutique = 0 where id = 1;
-select essai.egal((public.devis_tournee(array['bou_informatique'], 6.45, 2.46, 'moto') ->> 'frais')::int, 1000,
-  'supplément réglé à 0 : le forfait seul');
+select essai.egal((public.devis_tournee(array['bou_informatique', 'bou_essai_voisine'], 6.45, 2.46, 'moto') ->> 'frais')::int, 1000,
+  'supplément réglé à 0 : deux boutiques, 9 km, le forfait seul');
 update public.paiement set livraison_supplement_boutique = 200 where id = 1;
 select essai.refuse($$update public.paiement set livraison_supplement_boutique = -5 where id = 1$$,
   'un supplément négatif est refusé');
@@ -109,8 +113,8 @@ select essai.egal((:'d'::jsonb ->> 'distance_km')::numeric,
   (public.devis_livraison(6.45, 2.46, 'moto') ->> 'distance_km')::numeric,
   'la même distance que depuis le point BIZZOO');
 select essai.egal((:'d'::jsonb ->> 'frais')::int,
-  (public.devis_livraison(6.45, 2.46, 'moto') ->> 'frais')::int + 200,
-  'les frais d''avant, plus le supplément de la boutique');
+  (public.devis_livraison(6.45, 2.46, 'moto') ->> 'frais')::int,
+  'les frais d''avant : une seule boutique, pas de supplément');
 select pg_temp.placer('bou_essai_voisine', 6.4100, 2.4300);
 
 select essai.titre('4. Sans boutique : du point BIZZOO, sans supplément');

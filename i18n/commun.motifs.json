@@ -432,6 +432,70 @@
   "including $1 for 1 shop"
  ],
  [
+  "^Localisation coupée — (.+)$",
+  "Location turned off — $1"
+ ],
+ [
+  "^Livreur sans position — (.+)$",
+  "Rider without location — $1"
+ ],
+ [
+  "^(.+?) a coupé la localisation de son téléphone pendant la course (.*?)\\.$",
+  "$1 turned off their phone's location during delivery $2."
+ ],
+ [
+  "^Aucune position de (.+?) depuis plus de (\\d+) min, pendant la course (.*?)\\.$",
+  "No location from $1 for more than $2 min, during delivery $3."
+ ],
+ [
+  "^Appelez-le : (.+?)\\.$",
+  "Call them: $1."
+ ],
+ [
+  "^Course (.*?) : BIZZOO ne voit plus où vous êtes\\. Activez la localisation de votre téléphone\\.$",
+  "Delivery $1: BIZZOO can no longer see where you are. Turn on your phone's location."
+ ],
+ [
+  "^Localisation rétablie — (.+)$",
+  "Location restored — $1"
+ ],
+ [
+  "^BIZZOO voit de nouveau (.+?) \\(course (.*?)\\)\\.$",
+  "BIZZOO can see $1 again (delivery $2)."
+ ],
+ [
+  "^Course annulée après acceptation par (.+?) — (.*)$",
+  "Delivery cancelled after acceptance by $1 — $2"
+ ],
+ [
+  "^Rupture de stock : (.+) n'est plus disponible\\. Cette commande ne peut plus être payée : refaites votre panier sans ce produit\\.$",
+  "Out of stock: $1 is no longer available. This order can no longer be paid: rebuild your cart without this product."
+ ],
+ [
+  "^Rupture de stock : (.+) ne sont plus disponibles\\. Cette commande ne peut plus être payée : refaites votre panier sans ces produits\\.$",
+  "Out of stock: $1 are no longer available. This order can no longer be paid: rebuild your cart without these products."
+ ],
+ [
+  "^— plus que (\\d+) en stock \\((\\d+) commandés?\\)$",
+  "— only $1 in stock ($2 ordered)"
+ ],
+ [
+  "^en cours · (.+)$",
+  "in progress · $1"
+ ],
+ [
+  "^Délai convenu : (.+)$",
+  "Agreed time: $1"
+ ],
+ [
+  "^(.+?) : pas encore vue$",
+  "$1: not seen yet"
+ ],
+ [
+  "^(.+?) : en cours · (.+)$",
+  "$1: in progress · $2"
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

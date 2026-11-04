@@ -622,6 +622,20 @@ Deno.serve(async (requete: Request): Promise<Response> => {
     if (commande["etat"] !== "a_payer") {
       return repondre({ etat: commande["etat"], deja: true });
     }
+    /* (3.75.0) UN PRODUIT EST PARTI EN RUPTURE depuis la commande : on ne
+       fait pas payer ce qu'on ne pourra pas livrer, et on dit pourquoi —
+       sinon le client reste devant un bouton qui ne mène nulle part. */
+    const manquants = Array.isArray(commande["manquants"])
+      ? (commande["manquants"] as { nom?: string }[]) : [];
+    if (manquants.length) {
+      const noms = manquants.map((m) => "« " + (m.nom || "un produit") + " »").join(", ");
+      return repondre({
+        erreur: "Rupture de stock : " + noms + (manquants.length > 1 ? " ne sont plus disponibles." : " n'est plus disponible.") +
+          " Cette commande ne peut plus être payée : refaites votre panier sans " +
+          (manquants.length > 1 ? "ces produits." : "ce produit."),
+        rupture: true, manquants,
+      }, 409);
+    }
     return await payer(commande, String(corps["numero"] ?? tel), String(corps["reseau"] ?? ""));
   }
 

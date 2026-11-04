@@ -429,7 +429,7 @@ begin
   for b in select x.id, x.nom, x.latitude, x.longitude
              from public.boutiques x
             where x.id = any(coalesce(boutiques, '{}'))
-            order by x.id loop
+            order by x.id collate "C" loop
     ids  := ids || b.id;
     noms := noms || coalesce(b.nom, '');
     if b.latitude is null or b.longitude is null or (b.latitude = 0 and b.longitude = 0)
@@ -529,7 +529,9 @@ begin
   km := case when dist > r.livraison_rayon_km then ceil(dist - r.livraison_rayon_km)::int else 0 end;
   forf := case when v = 'tricycle' then r.tricycle_forfait else r.moto_forfait end;
   prix := case when v = 'tricycle' then r.tricycle_prix_km else r.moto_prix_km end;
-  sup  := coalesce(r.livraison_supplement_boutique, 0);
+  -- (3.74.1) Le supplément ne vaut que pour une commande GROUPÉE (deux
+  -- boutiques ou plus) ; une seule boutique : forfait + km, sans plus.
+  sup  := case when n > 1 then coalesce(r.livraison_supplement_boutique, 0) else 0 end;
   return jsonb_build_object(
     'vehicule', v,
     'distance_km', round(dist, 1),

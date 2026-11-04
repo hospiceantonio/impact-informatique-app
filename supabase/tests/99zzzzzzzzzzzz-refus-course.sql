@@ -113,9 +113,9 @@ select essai.egal((select count(*)::int from public.notifications
 select essai.titre('2 bis. (3.70.0) BIZZOO l''entend, et la course repart toute seule');
 select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :ENSEIGNE::uuid and commande_id = :'cmd' and type = 'course_annulee_livreur'
-                      and sonne and titre like 'Course annulée par Moussa%' and corps like '%Ma moto est en panne%'
+                      and sonne and titre like 'Course annulée après acceptation par Moussa%' and corps like '%Ma moto est en panne%'
                       and lien = '#/commandes/' || :'cmd'), 1,
-  'le superadministrateur : « Course annulée par Moussa », avec le motif, et ça sonne');
+  'le superadministrateur : « Course annulée après acceptation par Moussa » (3.75.0 : il avait accepté), avec le motif, et ça sonne');
 select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :MODBZ::uuid and commande_id = :'cmd' and type = 'course_annulee_livreur' and sonne
                       and lien = '#/notifications'), 1,
@@ -177,7 +177,7 @@ select essai.egal((select count(*)::int from public.notifications
   'un second refus prévient encore la boutique');
 select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :ENSEIGNE::uuid and commande_id = :'cmd'
-                      and type = 'course_annulee_livreur' and titre like 'Course annulée par Nadia%'), 1,
+                      and type = 'course_annulee_livreur' and titre ~ '^Course annulée (après acceptation )?par Nadia'), 1,
   '(3.70.0) un second refus sonne encore chez BIZZOO');
 select essai.verifie((select count(*) from public.notifications
                        where destinataire = :ENSEIGNE::uuid and commande_id = :'cmd'

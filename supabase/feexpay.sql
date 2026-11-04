@@ -57,6 +57,26 @@ end $$;
 create unique index if not exists gains_livreurs_une_fois on public.gains_livreurs(commande_id, livreur_id);
 revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.manquants_de_commande(cible text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'produit_id', x.pid, 'nom', x.nom, 'demande', x.q, 'reste', x.reste) order by x.nom), '[]'::jsonb)
+    from (
+      select l.produit_id as pid, min(coalesce(nullif(p.nom, ''), l.nom)) as nom, sum(l.quantite)::int as q,
+             case when p.id is null or coalesce(p.masque, false) then 0
+                  else greatest(coalesce(p.stock, 0), 0) end as reste,
+             (p.id is null or coalesce(p.masque, false)) as retire,
+             (coalesce(p.sur_commande, false) or (p.appro_le is not null and p.appro_le >= current_date)) as sans_plafond
+        from public.commande_lignes l
+        left join public.produits p on p.id = l.produit_id
+       where l.commande_id = cible and l.etat <> 'annulee'
+       group by l.produit_id, p.id, p.masque, p.stock, p.sur_commande, p.appro_le
+    ) x
+   where x.retire or (not x.sans_plafond and x.q > x.reste);
+$$;
+revoke all on function public.manquants_de_commande(text) from public, anon, authenticated;
+
 -- (3.70.0) Le devis plus bas lit la distance par la route : la grille
 -- et le cache qu'il emprunte, recopiés tels quels.
 create or replace function public.grille_route(x double precision) returns numeric
@@ -715,7 +735,10 @@ begin
     -- Pour que l'Edge Function refuse une relance AVANT d'appeler
     -- l'agrégateur : sinon le téléphone sonnerait quand même, et c'est
     -- seulement en rangeant la référence qu'on s'apercevrait du frein.
-    'tentative_le', c.tentative_le);
+    'tentative_le', c.tentative_le,
+    -- (3.75.0) Les produits partis en rupture depuis la commande : la
+    -- fonction refuse alors de faire payer ce qu'on ne livrera pas.
+    'manquants', case when c.etat = 'a_payer' then public.manquants_de_commande(c.id) else '[]'::jsonb end);
 end $$;
 
 revoke all on function public.commande_pour_paiement(text, text)
