@@ -226,7 +226,7 @@ await page.waitForSelector("#fl-total", { timeout: 4000 }).catch(() => {});
 const serre = (s) => s.replace(/\s+/g, "");
 ok(/Articles20000FCFA/.test(serre(await texte(page, "#fl-devis"))) && /àsaisir/.test(serre(await texte(page, "#fl-devis"))) &&
    (await texte(page, "#fl-total")) === "—", "les articles (20 000, de la base) ; les frais restent à saisir");
-ok(/Où livrer \(facultatif\)/.test(await texte(page, "#fl-position")) &&
+ok(/Où livrer/.test(await texte(page, "#fl-position")) &&
    /Aucune position/.test(await texte(page, "#fl-position-etat")), "la position est facultative");
 ok(/touchera 80 %/.test(await texte(page, "#fl-livraison")), "« le livreur en touchera 80 % » est dit à la saisie des frais");
 /* (3.70.0) Où le livreur récupère la commande : proposé d'après les

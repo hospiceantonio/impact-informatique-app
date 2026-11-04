@@ -5,7 +5,7 @@
    banc regarde l'écran du livreur :
 
      1. deux boutiques : UNE carte, un seul « Commande reçue » ;
-     2. acceptée : un « Colis récupéré ici » par boutique prête ;
+     2. acceptée : un « Colis récupéré chez … » par boutique prête ;
         « Refuser » tant que rien n'est récupéré ;
      3. un colis récupéré : plus de refus, « récupérez le reste » ;
      4. tout récupéré : UNE remise, le reste de toute la commande en un
@@ -141,7 +141,8 @@ titre("2. Acceptée : un colis à récupérer par boutique prête");
   const { page, ctx, erreurs, serveur } = await ouvrir([
     partie("bou_a", "Alpha", { etat: "preparee" }),
     partie("bou_b", "Bêta", { etat: "vue" })]);
-  ok(await page.$$eval(".lv-recupere", (n) => n.length) === 1, "« Colis récupéré ici » chez Alpha, prête");
+  ok(await page.$$eval(".lv-recupere", (n) => n.length) === 1 && /Colis récupéré chez Alpha/.test(await texte(page, ".lv-recupere")),
+    "« Colis récupéré chez Alpha » : un bouton, pour la boutique prête");
   ok(/La boutique prépare le colis/.test(await texte(page, '.lv-retrait[data-boutique="bou_b"]')),
     "Bêta prépare encore : on le dit");
   ok(await page.$(".lv-refuser") !== null, "rien de récupéré : il peut encore refuser");

@@ -7406,3 +7406,99 @@ impact-informatique-app/
   Un logo refusé laisse son fichier dans le stockage — orphelin, sans
   conséquence : mieux vaut un fichier de trop qu'une image manquante si
   la demande est finalement approuvée.
+
+
+## Le nom des lieux, les frais de « Faire livrer », le bon du livreur, le premier SMS (3.76.0)
+
+### Chercher un lieu par son nom, et le nom du lieu de l'épingle
+
+Une fonction serveur, **`lieu`**, parle à OpenStreetMap (libre, sans clé) :
+
+- **« nommer »** un point de la carte → « Sèdomey, Togoudo, Godomey » : le
+  quartier, l'arrondissement, la ville ;
+- **« chercher »** « Tempé » → les lieux de ce nom au Bénin, le Grand
+  Cotonou d'abord.
+
+OpenStreetMap refuse (HTTP 403) les adresses d'où partent les fonctions
+serveur, mais répond à la base : la question passe donc **par la base**
+(`lieu_source_demander` dépose la requête par pg_net, `lieu_source_reponse`
+rend la réponse — vers OpenStreetMap seulement, pour la seule fonction
+serveur).
+
+Elle range ce qu'on lui a dit en base (`lieux_noms`, à 50 m près) : un
+quartier nommé une fois l'est pour tout le monde, et OpenStreetMap n'est
+pas redemandé. Un plafond (2 000 questions nouvelles par jour) respecte
+ses règles d'usage. Personne d'autre que la fonction serveur n'y lit ni
+n'écrit. Le téléphone garde aussi les noms déjà lus.
+
+La recherche d'OpenStreetMap trouve la plupart des quartiers (Agla,
+Godomey, Cadjèhoun, Womey…), pas tous : à défaut, on touche la carte. Le
+nom d'un point, lui, est presque toujours juste.
+
+### L'application des clients : l'adresse est celle de l'épingle
+
+Dans « Où livrer ? » : **« Quartier : Tempé, Agla… »** + « Chercher » — le
+lieu touché pose l'épingle et les frais suivent. Sous l'état des frais :
+**« Livrer à : Tempé, Godomey »**, et un champ facultatif **« Un repère
+pour le livreur »** (« portail bleu, après la pharmacie »), gardé sur le
+téléphone.
+
+La commande porte désormais **le lieu de l'épingle et le repère**
+(« Tempé, Godomey — Portail bleu… ») — avant, elle portait l'adresse du
+compte (« Ita ») même quand l'épingle était à Womé, là où les frais
+avaient été comptés. L'adresse du compte, elle, ne change pas. Sans nom
+de lieu (hors connexion), le repère, sinon l'adresse saisie, comme avant.
+
+### « Faire livrer » : les frais se calculent
+
+La carte « Où livrer » a la même recherche. Le point posé (cherché, collé
+ou touché) donne **les frais au kilomètre, calculés par la base comme pour
+une commande de l'application** (`devis_faire_livrer` lit désormais la
+destination et rend `livraison`, le devis de `devis_tournee`) :
+
+- la case « Frais de livraison » les reprend (« Calculés : 1 600 FCFA —
+  15,2 km : 600 FCFA jusqu'à 6 km + 10 km × 100 FCFA ») ;
+- elle reste **modifiable** : l'équipe peut convenir d'autre chose avec le
+  client ; « Reprendre ce montant » revient au calcul ;
+- l'adresse vide prend le nom du lieu ; une adresse tapée n'est pas
+  remplacée ;
+- la distance par la route est demandée à `distance-route`, comme côté
+  client.
+
+Sans point, les frais restent à saisir, comme avant.
+
+### Le bon du livreur
+
+- Sous chaque boutique et sous le client : **le quartier et la ville**
+  (« Missèbo, Cotonou »), lus sur la carte — sauf quand l'adresse le dit
+  déjà. Le livreur sait où il va sans ouvrir Maps.
+- Une adresse qui n'est qu'un lien de carte n'est plus recopiée : « Voir
+  sur la carte ».
+- Commande groupée : **« Colis récupéré chez Alpha »**, un bouton par
+  boutique — on ne confirme que le colis qu'on a en main ; puis « Reste à
+  récupérer : Bêta ». (Les données de la base le montraient déjà : chaque
+  boutique était marquée séparément ; le libellé « ici » prêtait à
+  confusion.)
+
+### Un compte créé par l'équipe : plus de premier SMS inutile
+
+Créer un livreur, un vendeur ou un revendeur depuis l'administration
+inscrivait son numéro chez Supabase Auth, qui envoyait aussitôt un code —
+inutile : c'est le code reçu à la **première connexion** qui sert. Le
+compte est désormais créé avec `sans_premier_sms`, et le crochet
+`hook-sms-auth` ne l'envoie pas (seulement dans la minute et demie qui
+suit la création, numéro pas encore confirmé). Un SMS payé de moins par
+compte.
+
+### Mise en service
+
+1. `supabase/nom-des-lieux.sql` (tables, fonctions, `devis_faire_livrer`) ;
+2. `supabase functions deploy lieu --no-verify-jwt` ;
+3. redéployer `hook-sms-auth` ;
+4. la version 3.76.0 des applications.
+
+Les essais : `supabase/tests/99zzz…-nom-des-lieux.sql` (le cache à 50 m,
+les droits, le plafond, les frais de « Faire livrer ») ;
+`tools/eprouver-lieu.sh` (la fonction `lieu`, sans OpenStreetMap) ;
+`tools/eprouver-sms.sh` (le premier code non envoyé) ;
+`tools/banc-lieux.mjs` (le client, « Faire livrer », le bon du livreur).

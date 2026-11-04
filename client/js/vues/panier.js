@@ -863,21 +863,65 @@ const VuePanier = (() => {
       Utils.echapper(Utils.fmtMontant(ap.devis.frais, devise)) + "</strong></span></div>";
   }
 
+  /* (3.76.0) Le repère du client (« portail bleu… »), gardé sur ce
+     téléphone d'une commande à l'autre. */
+  const CLE_REPERE = "bizzoo-repere";
+  function repereGarde() {
+    try { return localStorage.getItem(CLE_REPERE) || ""; } catch (_) { return ""; }
+  }
+  function garderRepere(v) {
+    try { localStorage.setItem(CLE_REPERE, String(v || "").trim().slice(0, 120)); } catch (_) { /* privée */ }
+  }
+
+  function htmlLieuOu() {
+    const d = Paiement.destination();
+    if (!d) return "";
+    const nom = Lieu.connu(d);
+    return UI.icone("lieu", "ic-sm") + "<span>Livrer à : " +
+      (nom ? "<strong>" + Utils.echapper(nom) + "</strong>"
+           : '<span class="aide">l\'épingle posée sur la carte</span>') + "</span>";
+  }
+
+  /**
+   * (3.76.0) L'adresse que la commande portera, au kilomètre : le lieu de
+   * l'épingle et le repère — plus l'adresse du compte, qui pouvait dire
+   * « Ita » quand l'épingle était à Womé. Sans nom de lieu (hors
+   * connexion), le repère, sinon ce que le client avait donné.
+   */
+  function adresseDeLEpingle(adresseSaisie) {
+    const d = Paiement.destination();
+    if (!d) return adresseSaisie;
+    const nom = Lieu.connu(d);
+    const repere = String((UI.$("#co-repere") || {}).value || "").trim().slice(0, 120);
+    const morceaux = [nom, repere].filter(Boolean);
+    return morceaux.length ? morceaux.join(" — ") : adresseSaisie;
+  }
+
   function blocOuLivrer(devise) {
     return (
       '<div class="carte co-ou" id="co-ou">' +
         '<div class="carte-titre">Où livrer ?</div>' +
         '<div id="co-ou-etat">' + etatOuLivrer(devise) + "</div>" +
+        /* (3.76.0) Le nom du lieu de l'épingle : c'est l'adresse que la
+           commande portera, et que le livreur lira sur son bon. */
+        '<p class="co-ou-lieu" id="co-ou-lieu"' + (Paiement.destination() ? "" : " hidden") + ">" +
+          htmlLieuOu() + "</p>" +
         '<div class="btn-rangee">' +
           '<button type="button" class="btn btn-clair" id="co-ma-position">' + UI.icone("lieu", "ic-sm") +
             "Utiliser ma position</button>" +
           '<button type="button" class="btn btn-clair" id="co-sur-carte">Choisir sur la carte</button>' +
         "</div>" +
+        /* (3.76.0) Un lieu par son nom : « Tempé », et l'épingle y va. */
+        '<div id="co-ou-chercher"></div>' +
         '<div class="co-carte" id="co-carte"' + (Paiement.destination() ? "" : " hidden") + "></div>" +
         '<p class="aide" style="margin:8px 0 0">Livré ailleurs ? Déplacez l\'épingle, touchez la carte, ' +
           "ou collez un lien de carte :</p>" +
         '<input id="co-ou-lien" type="text" inputmode="url" autocomplete="off" ' +
           'placeholder="Lien Google Maps ou coordonnées" style="margin-top:6px">' +
+        '<div class="champ" style="margin:12px 0 0"><label for="co-repere">Un repère pour le livreur ' +
+          "<small>(facultatif)</small></label>" +
+          '<input id="co-repere" type="text" maxlength="120" autocomplete="off" ' +
+            'placeholder="Ex. : portail bleu, après la pharmacie" value="' + Utils.echapper(repereGarde()) + '"></div>' +
         '<p class="aide" style="margin:6px 0 0">' + Utils.echapper(Paiement.phraseTarif(Paiement.vehiculePanier(), devise)) + "</p>" +
       "</div>"
     );
@@ -886,8 +930,25 @@ const VuePanier = (() => {
   function brancherOuLivrer(vue, devise, boutonPayer) {
     const etat = UI.$("#co-ou-etat", vue);
     const zone = UI.$("#co-carte", vue);
+    const ligneLieu = UI.$("#co-ou-lieu", vue);
+    /* (3.76.0) Le nom du lieu suit l'épingle ; il arrive après coup. */
+    const nommerOu = () => {
+      if (!ligneLieu) return;
+      const d = Paiement.destination();
+      ligneLieu.hidden = !d;
+      ligneLieu.innerHTML = htmlLieuOu();
+      if (d && !Lieu.connu(d)) {
+        Lieu.nommer(d).then(() => {
+          const ici = Paiement.destination();
+          if (ligneLieu.isConnected && ici && ici.latitude === d.latitude && ici.longitude === d.longitude) {
+            ligneLieu.innerHTML = htmlLieuOu();
+          }
+        });
+      }
+    };
     const maj = () => {
       if (etat) etat.innerHTML = etatOuLivrer(devise);
+      nommerOu();
       rafraichirTotal(vue, devise, boutonPayer);
     };
     if (ecouteRoute) document.removeEventListener("route:maj", ecouteRoute);
@@ -917,6 +978,15 @@ const VuePanier = (() => {
     /* Une carte d'un écran précédent ne survit pas à son écran. */
     if (carteOu) { carteOu.detruire(); carteOu = null; }
     if (Paiement.destination()) montrerCarte();
+    nommerOu();
+
+    /* (3.76.0) Chercher un lieu par son nom. */
+    Lieu.monterRecherche(UI.$("#co-ou-chercher", vue), async (x) => {
+      await montrerCarte();
+      choisir({ latitude: x.latitude, longitude: x.longitude }, true);
+    }, { id: "co-lieu-q" });
+    const repere = UI.$("#co-repere", vue);
+    if (repere) repere.addEventListener("change", () => garderRepere(repere.value));
 
     const boutonPos = UI.$("#co-ma-position", vue);
     if (boutonPos) {
@@ -1249,6 +1319,16 @@ const VuePanier = (() => {
     }
 
     garderCoordonnees(client);
+    /* (3.76.0) L'adresse de la commande est celle de l'épingle : le
+       livreur va là où les frais ont été comptés. Le nom attendu au plus
+       deux secondes ; sans lui, le repère ou l'adresse saisie. */
+    if (ou) {
+      garderRepere((UI.$("#co-repere") || {}).value || "");
+      if (!Lieu.connu(ou)) {
+        await Promise.race([Lieu.nommer(ou), new Promise((r) => setTimeout(r, 2000))]);
+      }
+      client.adresse = adresseDeLEpingle(client.adresse);
+    }
     /* Le moyen de paiement est arrêté : celui qu'on a choisi, ou celui
        qu'on a gardé. Le module ne le dit qu'une fois par écran. */
     Pixel.infosPaiement(Panier.lignes(), aRegler(), Panier.devise(), mm ? mm.reseau : "kkiapay");

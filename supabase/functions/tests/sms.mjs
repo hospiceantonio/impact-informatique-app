@@ -383,6 +383,41 @@ const connexionSimple = JSON.stringify({
 h = await appelerHook(connexionSimple, await signer(connexionSimple));
 egal(monde.envois[0]?.corps.to, "2290197121596", "une connexion ordinaire ne change rien");
 
+titre("(3.76.0) Un compte créé par l'équipe : pas de premier code");
+decor();
+const creeParEquipe = JSON.stringify({
+  user: { id: "u5", phone: "2290196222222", created_at: new Date(Date.now() - 3000).toISOString(),
+          phone_confirmed_at: null, user_metadata: { compte: "equipe", sans_premier_sms: true } },
+  sms: { otp: "100200", phone: "2290196222222" },
+});
+h = await appelerHook(creeParEquipe, await signer(creeParEquipe));
+egal(h.statut, 200, "l'inscription d'un livreur créé par l'administration : acceptée");
+egal(monde.envois.length, 0, "mais aucun SMS ne part : personne n'attend ce code");
+decor();
+const premiereConnexion = JSON.stringify({
+  user: { id: "u5", phone: "2290196222222", created_at: new Date(Date.now() - 3600_000).toISOString(),
+          phone_confirmed_at: null, user_metadata: { compte: "equipe", sans_premier_sms: true } },
+  sms: { otp: "300400", phone: "2290196222222" },
+});
+h = await appelerHook(premiereConnexion, await signer(premiereConnexion));
+egal(monde.envois[0]?.corps.to, "2290196222222", "sa première connexion, une heure après : le code part");
+decor();
+const clientSeul = JSON.stringify({
+  user: { id: "u6", phone: "2290196333333", created_at: new Date().toISOString(), phone_confirmed_at: null,
+          user_metadata: { compte: "client" } },
+  sms: { otp: "500600", phone: "2290196333333" },
+});
+h = await appelerHook(clientSeul, await signer(clientSeul));
+egal(monde.envois.length, 1, "un client qui s'inscrit lui-même reçoit son code tout de suite, comme avant");
+decor();
+const dejaConfirme = JSON.stringify({
+  user: { id: "u7", phone: "2290196444444", created_at: new Date().toISOString(),
+          phone_confirmed_at: new Date().toISOString(), user_metadata: { sans_premier_sms: true } },
+  sms: { otp: "700800", phone: "2290196444444" },
+});
+h = await appelerHook(dejaConfirme, await signer(dejaConfirme));
+egal(monde.envois.length, 1, "un numéro déjà confirmé : le code part toujours");
+
 titre("Ce que le hook dit, et ce qu'il tait");
 
 decor({ reponsePasserelle: () => ({ corps: { status: false, code: "INSUFFICIENT_BALANCE" } }) });

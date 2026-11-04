@@ -2388,3 +2388,24 @@ html,body{overscroll-behavior-x:none}
 /* (3.72.0) Nos boutiques : le champ pour en trouver une. */
 .bou-chercher{margin:0 0 10px}
 .bou-ligne[hidden]{display:none}
+
+/* (3.76.0) Chercher un lieu par son nom (« Tempé ») : l'épingle y va.
+   Puis le nom du lieu de l'épingle, et le repère du client. */
+.lieu-recherche{display:flex;gap:8px;margin-top:10px}
+.lieu-recherche input{flex:1 1 auto;width:auto;min-width:0;margin:0}
+.lieu-recherche .btn{flex:none;width:auto;margin:0;padding-left:16px;padding-right:16px}
+.lieu-resultats{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.lieu-resultats:empty{display:none}
+.lieu-resultat{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;
+  padding:9px 12px;border:1px solid var(--trait);border-radius:var(--r-sm);background:#fff;
+  font:inherit;color:var(--encre);cursor:pointer}
+.lieu-resultat strong{font-size:13.5px}
+.lieu-resultat span{font-size:12px;color:var(--encre-moyenne);line-height:1.35}
+.lieu-msg{margin:4px 0 0;display:flex;align-items:center;gap:8px}
+.co-ou-lieu{display:flex;align-items:flex-start;gap:6px;margin:10px 0 0;font-size:13px;line-height:1.4}
+.co-ou-lieu > .ic{flex:none;margin-top:2px}
+.co-ou-lieu[hidden]{display:none}
+.co-ou-lieu strong{color:var(--encre)}
+/* Une icône et son texte, sur la même ligne. */
+.lieu-ligne{display:flex;align-items:flex-start;gap:6px}
+.lieu-ligne > .ic{flex:none;margin-top:2px}

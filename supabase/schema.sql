@@ -7633,10 +7633,11 @@ grant execute on function public.faire_livrer(jsonb, jsonb, jsonb, bigint, text,
 
 -- Le devis de l'écran « Faire livrer » : ce que valent les articles, au
 -- prix du catalogue, et le véhicule (le tricycle dès qu'un produit
--- l'exige). Les frais, eux, sont saisis par l'équipe. Rien n'est écrit :
--- pas de commande d'essai, donc pas de numéro « BZ- » perdu, qui ferait
--- croire au point qu'une commande manque. (« destination » n'est plus
--- lue ; elle reste dans la signature pour ne pas en changer.)
+-- l'exige). Rien n'est écrit : pas de commande d'essai, donc pas de numéro
+-- « BZ- » perdu, qui ferait croire au point qu'une commande manque.
+-- (3.76.0) Avec le point de livraison (« destination ») : les frais au
+-- kilomètre, calculés comme pour une commande de l'application
+-- (« livraison ») ; l'équipe les retrouve dans la case, modifiables.
 create or replace function public.devis_faire_livrer(articles jsonb, destination jsonb default null)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -7644,6 +7645,10 @@ declare
   sous   bigint;
   devise text;
   tri    boolean;
+  bouts  text[];
+  lat    double precision;
+  lng    double precision;
+  liv    jsonb;
 begin
   if auth.uid() is null or not public.peut_faire_livrer() then
     raise exception 'Réservé aux comptes qui ont le droit « Faire livrer ».' using errcode = 'P0001';
@@ -7658,12 +7663,28 @@ begin
   )
   select coalesce(sum(coalesce(p.prix, 0) * a.q), 0)::bigint,
          min(coalesce(nullif(b.devise, ''), 'FCFA')),
-         bool_or(p.vehicule = 'tricycle')
-    into sous, devise, tri
+         bool_or(p.vehicule = 'tricycle'),
+         array_agg(distinct p.boutique_id) filter (where p.boutique_id is not null)
+    into sous, devise, tri, bouts
     from a join public.produits p on p.id = a.id
     left join public.boutiques b on b.id = p.boutique_id;
+  -- Le point de livraison : lu s'il est un vrai point, ignoré sinon (les
+  -- frais restent alors à saisir, comme avant).
+  if destination is not null and jsonb_typeof(destination) = 'object' then
+    begin
+      lat := (destination ->> 'latitude')::double precision;
+      lng := (destination ->> 'longitude')::double precision;
+      if lat between -90 and 90 and lng between -180 and 180 and not (lat = 0 and lng = 0) then
+        liv := public.devis_tournee(bouts, lat, lng,
+                 case when coalesce(tri, false) then 'tricycle' else 'moto' end);
+      end if;
+    exception when others then
+      liv := null;
+    end;
+  end if;
   return jsonb_build_object('sous_total', sous, 'devise', coalesce(devise, 'FCFA'),
-    'vehicule', case when coalesce(tri, false) then 'tricycle' else 'moto' end);
+    'vehicule', case when coalesce(tri, false) then 'tricycle' else 'moto' end,
+    'livraison', liv);
 end $$;
 revoke all on function public.devis_faire_livrer(jsonb, jsonb) from public, anon;
 grant execute on function public.devis_faire_livrer(jsonb, jsonb) to authenticated;
@@ -24681,3 +24702,119 @@ begin
 exception when others then
   raise notice 'Alerte de localisation non programmée (%) : Personnel la montre toujours', sqlerrm;
 end $$;
+
+-- =========================================================
+-- (3.76.0) LE NOM DES LIEUX : « Sèdomey, Togoudo, Godomey »
+--
+-- La fonction serveur « lieu » demande à OpenStreetMap le nom du quartier
+-- d'un point (pour le bon du livreur, et l'adresse de livraison), et
+-- cherche un lieu par son nom (pour poser l'épingle). Elle range ici ce
+-- qu'on lui a dit, à 50 m près : un quartier nommé une fois l'est pour
+-- tout le monde, et la source n'est pas redemandée. Un plafond par jour
+-- protège la source (ses règles d'usage).
+--
+-- Personne d'autre que la fonction serveur n'y lit ni n'écrit.
+-- =========================================================
+create table if not exists public.lieux_noms (
+  lat_g   numeric(9,4) not null,
+  lng_g   numeric(9,4) not null,
+  nom     text not null check (length(nom) between 1 and 200),
+  cree_le timestamptz not null default now(),
+  primary key (lat_g, lng_g)
+);
+create index if not exists lieux_noms_jour on public.lieux_noms(cree_le);
+alter table public.lieux_noms enable row level security;
+revoke all on public.lieux_noms from public, anon, authenticated;
+
+create table if not exists public.lieux_recherches (
+  jour date primary key default current_date,
+  n    int not null default 0
+);
+alter table public.lieux_recherches enable row level security;
+revoke all on public.lieux_recherches from public, anon, authenticated;
+
+-- Le nom déjà connu d'un point (ou null), et si le plafond du jour est atteint.
+create or replace function public.lieu_connu(latitude double precision, longitude double precision)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  n text;
+  plafond constant int := 2000;   -- questions nouvelles à la source par jour, au plus
+begin
+  select x.nom into n from public.lieux_noms x
+   where x.lat_g = public.grille_route(latitude) and x.lng_g = public.grille_route(longitude);
+  return jsonb_build_object('nom', n,
+    'plafond_atteint', n is null and
+      (select count(*) from public.lieux_noms x where x.cree_le > now() - interval '1 day')
+      + coalesce((select r.n from public.lieux_recherches r where r.jour = current_date), 0) >= plafond);
+end $$;
+revoke all on function public.lieu_connu(double precision, double precision) from public, anon, authenticated;
+grant execute on function public.lieu_connu(double precision, double precision) to service_role;
+
+-- Le nom qu'a rendu la source.
+create or replace function public.noter_lieu(latitude double precision, longitude double precision, nom text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if latitude is null or longitude is null or coalesce(btrim(nom), '') = '' then return false; end if;
+  insert into public.lieux_noms as x (lat_g, lng_g, nom)
+  values (public.grille_route(latitude), public.grille_route(longitude), left(btrim(nom), 200))
+  on conflict (lat_g, lng_g) do update set nom = excluded.nom, cree_le = now();
+  return true;
+end $$;
+revoke all on function public.noter_lieu(double precision, double precision, text) from public, anon, authenticated;
+grant execute on function public.noter_lieu(double precision, double precision, text) to service_role;
+
+-- Une recherche par nom de plus, aujourd'hui.
+create or replace function public.compter_recherche_lieu() returns int
+language plpgsql security definer set search_path = public as $$
+declare v int;
+begin
+  insert into public.lieux_recherches as r (jour, n) values (current_date, 1)
+  on conflict (jour) do update set n = r.n + 1
+  returning n into v;
+  return v;
+end $$;
+revoke all on function public.compter_recherche_lieu() from public, anon, authenticated;
+grant execute on function public.compter_recherche_lieu() to service_role;
+
+-- (3.76.0) LA QUESTION À OPENSTREETMAP PASSE PAR LA BASE. OpenStreetMap
+-- refuse (HTTP 403) les adresses d'où partent les fonctions serveur, et
+-- répond à celles de la base : la fonction « lieu » dépose sa question ici
+-- (pg_net), puis vient lire la réponse. Seulement vers OpenStreetMap, et
+-- seulement ses deux questions ; personne d'autre que la fonction serveur.
+create or replace function public.lieu_source_demander(chemin text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  c  text := coalesce(chemin, '');
+  id bigint;
+begin
+  if c !~ '^/(reverse|search)\?[A-Za-z0-9_.,=&%+\-]*\Z' or length(c) > 600 then
+    raise exception 'Question refusée.' using errcode = 'P0001';
+  end if;
+  if to_regprocedure('net.http_get(text,jsonb,jsonb,integer)') is null then
+    raise exception 'pg_net absent.' using errcode = 'P0001';
+  end if;
+  execute format('select net.http_get(%L, ''{}''::jsonb, %L::jsonb, 8000)',
+                 'https://nominatim.openstreetmap.org' || c,
+                 '{"User-Agent": "BIZZOO/3.76 (bizzoomarket.com)", "Accept-Language": "fr"}')
+     into id;
+  return id;
+end $$;
+revoke all on function public.lieu_source_demander(text) from public, anon, authenticated;
+grant execute on function public.lieu_source_demander(text) to service_role;
+
+-- La réponse, quand elle est là (null tant qu'elle ne l'est pas).
+create or replace function public.lieu_source_reponse(demande bigint) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  r jsonb;
+begin
+  if demande is null or to_regclass('net._http_response') is null then return null; end if;
+  execute format('select jsonb_build_object(''statut'', status_code, ''corps'', content, ''erreur'', error_msg)
+                    from net._http_response where id = %s', demande)
+     into r;
+  return r;
+end $$;
+revoke all on function public.lieu_source_reponse(bigint) from public, anon, authenticated;
+grant execute on function public.lieu_source_reponse(bigint) to service_role;

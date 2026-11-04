@@ -40,6 +40,11 @@ const VueFaireLivrer = (() => {
     retrait: "",
     retraitTouche: false,
     destination: null,
+    /* (3.76.0) Les frais suivent le point de livraison tant qu'on ne les
+       a pas tapés soi-même ; l'adresse prend le nom du lieu tant qu'elle
+       n'a pas été saisie. */
+    fraisTouche: false,
+    adresseAuto: "",
     paiement: { montant: "", reseau: "MTN", transaction: "", frais: "" },
   };
   let produits = [];
@@ -233,13 +238,14 @@ const VueFaireLivrer = (() => {
             "Le livreur le verra dans son alerte et sur la fiche de la course." }) +
       "</div>" +
 
-      /* (3.68.0) LA POSITION EST FACULTATIVE : les frais de ces commandes
-         ne se comptent pas à la distance. Donnée, elle montre au livreur
-         où aller. */
+      /* (3.68.0) LA POSITION EST FACULTATIVE. Donnée, elle montre au
+         livreur où aller — et (3.76.0) elle calcule les frais au
+         kilomètre, comme pour une commande de l'application. */
       '<div class="carte" id="fl-position">' +
-        '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Où livrer (facultatif)</div>" +
-        '<p class="aide" style="margin:0 0 8px">Pour aider le livreur à trouver le client : collez le lien de ' +
-          "localisation qu'il vous a envoyé sur WhatsApp, ou touchez la carte.</p>" +
+        '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Où livrer</div>" +
+        '<p class="aide" style="margin:0 0 8px">Cherchez le quartier du client, collez le lien de localisation ' +
+          "qu'il vous a envoyé sur WhatsApp, ou touchez la carte : les frais de livraison se calculent.</p>" +
+        '<div id="fl-chercher" style="margin-bottom:10px"></div>' +
         UI.champTexte({ id: "fl-lien", label: "Lien de carte ou coordonnées",
           placeholder: "https://maps.google.com/… ou 6.3702, 2.4289" }) +
         '<button type="button" class="btn btn-clair btn-petit" id="fl-sur-carte">' + UI.icone("carte", "ic-sm") +
@@ -254,8 +260,9 @@ const VueFaireLivrer = (() => {
         '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Les frais de livraison</div>" +
         UI.champMontant({ id: "fl-frais", label: "Frais de livraison", obligatoire: true,
           valeur: pay.frais === "" || pay.frais == null ? "" : Number(String(pay.frais).replace(/\D/g, "")) || 0,
-          aide: "Ceux convenus avec le client (0 s'il n'y en a pas). Le livreur qui prendra la course en touchera " +
-            tauxLivreur + " %." }) +
+          aide: "Calculés d'après le point de livraison, ou ceux convenus avec le client (0 s'il n'y en a pas). " +
+            "Le livreur qui prendra la course en touchera " + tauxLivreur + " %." }) +
+        '<div class="aide" id="fl-frais-calcul" style="margin-top:6px"></div>' +
       "</div>" +
 
       '<div class="carte" id="fl-devis"><p class="aide" style="margin:0">Calcul du total…</p></div>' +
@@ -330,30 +337,131 @@ const VueFaireLivrer = (() => {
       const montant = UI.$("#fl-montant", vue);
       if (tot != null && montant && !montantTouche) montant.value = Utils.fmtNombre(tot);
     };
-    UI.$("#fl-frais", vue).addEventListener("input", peindreTotal);
-    (async () => {
-      const zone = UI.$("#fl-devis", vue);
-      try {
-        devis = await Store.devisFaireLivrer(etat.panier);
-        peindreTotal();
-      } catch (err) {
-        if (zone.isConnected) zone.innerHTML = '<p class="aide" style="margin:0;color:var(--rouge)">' + e(err.message) + "</p>";
+    UI.$("#fl-frais", vue).addEventListener("input", (ev) => {
+      etat.fraisTouche = !!String(ev.target.value || "").trim();
+      peindreCalcul();
+      peindreTotal();
+    });
+
+    /* (3.76.0) LES FRAIS CALCULÉS : la base les compte d'après le point
+       de livraison, comme pour une commande de l'application. La case
+       les reprend tant qu'on ne l'a pas tapée soi-même. */
+    const peindreCalcul = () => {
+      const zone = UI.$("#fl-frais-calcul", vue);
+      if (!zone) return;
+      const l = devis && devis.livraison;
+      if (!l) {
+        zone.innerHTML = etat.destination
+          ? "Frais non calculés : saisissez ceux convenus avec le client."
+          : "Posez le point de livraison (plus haut) pour calculer les frais.";
+        return;
       }
-    })();
+      const detail = String(l.distanceKm).replace(".", ",") + " km" +
+        (l.calcul === "route" ? " par la route" : "") + " : " +
+        m(l.forfait, devis.devise) + " jusqu'à " + l.rayonKm + " km" +
+        (l.kmFactures ? " + " + l.kmFactures + " km × " + m(l.prixKm, devis.devise) : "") +
+        (l.supplements ? " + " + m(l.supplements, devis.devise) + " (" + l.nbBoutiques + " boutiques)" : "");
+      const saisi = fraisSaisis();
+      zone.innerHTML = '<span class="lieu-ligne">' + UI.icone("check", "ic-sm") + "<span>Calculés : <strong>" +
+        e(m(l.frais, devis.devise)) + "</strong> — " + e(detail) +
+        (etat.fraisTouche && saisi !== l.frais
+          ? ' <button type="button" class="lien-texte" id="fl-reprendre">Reprendre ce montant</button>' : "") +
+        "</span></span>";
+      const reprendre = UI.$("#fl-reprendre", zone);
+      if (reprendre) {
+        reprendre.onclick = () => {
+          etat.fraisTouche = false;
+          appliquerCalcul();
+        };
+      }
+    };
+    const appliquerCalcul = () => {
+      const l = devis && devis.livraison;
+      const champ = UI.$("#fl-frais", vue);
+      if (l && champ && !etat.fraisTouche) {
+        champ.value = Utils.fmtNombre(l.frais);
+        etat.paiement.frais = champ.value;
+      }
+      peindreCalcul();
+      peindreTotal();
+    };
+
+    /* La distance par la route : la fonction serveur la demande et la
+       range en base ; le devis suivant la lit. Une fois par point. */
+    let routesDemandees = "";
+    const demanderRoutes = async (l) => {
+      const ou = etat.destination;
+      if (!l || !ou || l.calcul === "route") return false;
+      const k = ou.latitude.toFixed(5) + "," + ou.longitude.toFixed(5);
+      if (routesDemandees === k) return false;
+      routesDemandees = k;
+      const points = l.tournee.map((t) => ({ latitude: Number(t.latitude), longitude: Number(t.longitude) }))
+        .filter((t) => isFinite(t.latitude) && isFinite(t.longitude));
+      if (!points.length) return false;
+      const etapes = points.concat([{ latitude: ou.latitude, longitude: ou.longitude }]);
+      let nouvelle = false;
+      for (let i = 0; i + 1 < etapes.length; i++) {
+        try {
+          const d = await Supabase.fonctionEdge("distance-route", {
+            origine: etapes[i], latitude: etapes[i + 1].latitude, longitude: etapes[i + 1].longitude });
+          if (d && d.actif === false) return nouvelle;
+          if (d && typeof d.distance_km === "number" && d.distance_km > 0) nouvelle = true;
+        } catch (_) { return nouvelle; }
+      }
+      return nouvelle;
+    };
+
+    let tourDevis = 0;
+    const chargerDevis = async () => {
+      const zone = UI.$("#fl-devis", vue);
+      const tour = ++tourDevis;
+      try {
+        const d = await Store.devisFaireLivrer(etat.panier, etat.destination);
+        if (tour !== tourDevis || !vue.isConnected) return;
+        devis = d;
+        appliquerCalcul();
+        if (await demanderRoutes(d.livraison) && tour === tourDevis) chargerDevis();
+      } catch (err) {
+        if (zone && zone.isConnected) zone.innerHTML = '<p class="aide" style="margin:0;color:var(--rouge)">' + e(err.message) + "</p>";
+      }
+    };
+    chargerDevis();
 
     {
       const etatPos = UI.$("#fl-position-etat", vue);
       const dire = () => {
+        const nom = etat.destination ? Lieu.connu(etat.destination) : "";
         etatPos.innerHTML = etat.destination
-          ? UI.icone("check", "ic-sm") + " Position : " + e(etat.destination.latitude.toFixed(5)) + ", " +
-            e(etat.destination.longitude.toFixed(5))
-          : "Aucune position : le livreur s'aidera de l'adresse et du téléphone.";
+          ? '<span class="lieu-ligne">' + UI.icone("check", "ic-sm") + "<span>" +
+            (nom ? "Livrer à : <strong>" + e(nom) + "</strong> · " : "Position : ") +
+            e(etat.destination.latitude.toFixed(5)) + ", " + e(etat.destination.longitude.toFixed(5)) + "</span></span>"
+          : "Aucune position : le livreur s'aidera de l'adresse et du téléphone, et les frais sont à saisir.";
+      };
+      /* (3.76.0) Le nom du lieu : affiché, et repris dans l'adresse tant
+         qu'on n'y a rien tapé soi-même. */
+      const nommer = (p) => {
+        Lieu.nommer(p).then((nom) => {
+          if (!nom || !vue.isConnected || etat.destination !== p) return;
+          dire();
+          const champ = UI.$("#fl-adresse", vue);
+          if (champ && (!champ.value.trim() || champ.value === etat.adresseAuto)) {
+            champ.value = nom;
+            etat.adresseAuto = nom;
+            etat.client.adresse = nom;
+          }
+        });
       };
       const poser = (p, recentrer) => {
         etat.destination = { latitude: p.latitude, longitude: p.longitude };
         if (carte) carte.placer(etat.destination, recentrer);
         dire();
+        nommer(etat.destination);
+        chargerDevis();
       };
+      Lieu.monterRecherche(UI.$("#fl-chercher", vue), async (x) => {
+        await ouvrirCarte();
+        poser({ latitude: x.latitude, longitude: x.longitude }, true);
+      }, { id: "fl-lieu-q", indication: "Quartier du client : Tempé, Agla…" });
       const ouvrirCarte = async () => {
         const zone = UI.$("#fl-carte", vue);
         zone.hidden = false;
