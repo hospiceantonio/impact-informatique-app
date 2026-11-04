@@ -1468,7 +1468,9 @@ const Store = (() => {
        pour un acheteur — la base ne lui poserait pas de fiche. */
     const cree = parNumero
       ? await Supabase.creerCompteTelephone(tel, motDePasse,
-          { compte: "equipe", nom: String(nom || "").trim() })
+          /* (3.76.0) Pas de code à la création : la première connexion
+             du livreur en demande un, le seul qui serve. */
+          { compte: "equipe", nom: String(nom || "").trim(), sans_premier_sms: true })
       : await Supabase.creerCompte(adresse, motDePasse);
     /* LE NOM ET LE NUMÉRO SONT POSÉS ICI, à la création, et pas
        laissés pour plus tard. « Plus tard » n'arrive pas : le compte
@@ -1510,7 +1512,7 @@ const Store = (() => {
     if (!(Supabase.estSuper() || Supabase.estAdminBizzoo() || Supabase.estAdmin())) {
       throw new Error("Seul un administrateur crée un compte revendeur.");
     }
-    const cree = await Supabase.creerCompteTelephone(t, motDePasse, { compte: "client", nom: n });
+    const cree = await Supabase.creerCompteTelephone(t, motDePasse, { compte: "client", nom: n, sans_premier_sms: true });
     await Supabase.rpc("creer_fiche_revendeur", {
       cible: cree.id, nom: n, tel: t, message: String(commerce || "").trim(),
       adresse: String(adresse || "").trim(),
@@ -2598,12 +2600,31 @@ const Store = (() => {
      (saisis) ; la BASE fait tout le reste — prix, stock, paiement, course
      aux livreurs — comme pour une commande passée dans l'application. */
   const articlesPour = (panier) => panier.map((a) => ({ produit_id: a.produitId, quantite: a.quantite }));
-  async function devisFaireLivrer(panier) {
-    const d = await Supabase.rpc("devis_faire_livrer", { articles: articlesPour(panier), destination: null });
+  /* (3.76.0) Avec le point de livraison, la base calcule aussi les frais
+     au kilomètre (« livraison »), comme pour une commande de
+     l'application ; une base d'avant ne les donne pas : null. */
+  async function devisFaireLivrer(panier, destination) {
+    const ou = destination && isFinite(destination.latitude) && isFinite(destination.longitude)
+      ? { latitude: Number(destination.latitude), longitude: Number(destination.longitude) } : null;
+    const d = await Supabase.rpc("devis_faire_livrer", { articles: articlesPour(panier), destination: ou });
+    const l = d && d.livraison && typeof d.livraison === "object" ? d.livraison : null;
     return {
       sousTotal: Number(d && d.sous_total) || 0,
       devise: (d && d.devise) || "FCFA",
       vehicule: d && d.vehicule === "tricycle" ? "tricycle" : "moto",
+      livraison: l && isFinite(Number(l.frais)) ? {
+        frais: Math.round(Number(l.frais)),
+        distanceKm: Number(l.distance_km) || 0,
+        kmFactures: Number(l.km_factures) || 0,
+        rayonKm: Number(l.rayon_km) || 0,
+        forfait: Number(l.forfait) || 0,
+        prixKm: Number(l.prix_km) || 0,
+        nbBoutiques: Number(l.nb_boutiques) || 0,
+        supplements: Number(l.supplements) || 0,
+        calcul: l.calcul || "vol_oiseau",
+        tournee: Array.isArray(l.tournee) ? l.tournee : [],
+        destination: l.destination || ou,
+      } : null,
     };
   }
   async function faireLivrer(m) {

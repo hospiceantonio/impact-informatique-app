@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v132";
+const VERSION = "impact-client-v133";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -49,6 +49,7 @@ const FICHIERS = [
   "./js/live.js",
   "./js/ui.js",
   "./js/carte.js",
+  "./js/lieu.js",
   /* La carte de la livraison au kilomètre (3.64.0) : Leaflet, embarqué. */
   "./vendor/leaflet/leaflet.js",
   "./vendor/leaflet/leaflet.css",

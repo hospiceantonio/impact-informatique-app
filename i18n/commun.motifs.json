@@ -496,6 +496,26 @@
   "$1: in progress · $2"
  ],
  [
+  "^Colis récupéré chez (.+?)\\. Reste à récupérer : (.+)\\.$",
+  "Parcel collected at $1. Still to collect: $2."
+ ],
+ [
+  "^Colis récupéré chez (.+?)\\. Tous les colis sont récupérés : livrez le client\\.$",
+  "Parcel collected at $1. All parcels are collected: deliver to the customer."
+ ],
+ [
+  "^Colis récupéré chez (.+)$",
+  "Parcel collected at $1"
+ ],
+ [
+  "^— ([\\d,.]+) km par la route : (.+?) jusqu'à ([\\d,.]+) km(.*)$",
+  "— $1 km by road: $2 up to $3 km$4"
+ ],
+ [
+  "^— ([\\d,.]+) km : (.+?) jusqu'à ([\\d,.]+) km(.*)$",
+  "— $1 km: $2 up to $3 km$4"
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

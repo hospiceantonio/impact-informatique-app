@@ -184,3 +184,14 @@ boutiques (identifiant, tri « C »), même algorithme (Heap jusqu'à 7, puis
 de proche en proche), mêmes arrondis (chaque tronçon au mètre, le km
 entamé). Toucher à l'un, c'est toucher à l'autre, puis éprouver les deux
 (`…-tournee.sql`, `banc-livraison-km.mjs` sections 8 et 9).
+
+## Le nom des lieux (depuis 3.76.0)
+
+`client/js/lieu.js` et `admin/js/lieu.js` sont LE MÊME fichier : on modifie
+l'un, on recopie l'autre (`cp client/js/lieu.js admin/js/lieu.js`). Il ne
+parle qu'à la fonction serveur `lieu` (OpenStreetMap derrière, cache en
+base `lieux_noms`) : jamais à OpenStreetMap directement — ses règles
+d'usage (une question par seconde, pas de recherche à chaque lettre) se
+tiennent côté serveur. La recherche part sur « Chercher » ou Entrée.
+Au kilomètre, l'adresse d'une commande du client est le lieu de
+l'épingle (+ le repère), pas l'adresse du compte.

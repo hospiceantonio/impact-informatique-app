@@ -64,6 +64,16 @@ function messageDuCode(code: string): string {
     ". Il expire dans quelques minutes. Ne le communiquez a personne.";
 }
 
+/** Le code de l'inscription d'un compte créé par l'équipe : inutile. */
+export function sansPremierSms(u: { created_at?: string; phone_confirmed_at?: string | null;
+                                    user_metadata?: Record<string, unknown> } | undefined,
+                               maintenant = Date.now()): boolean {
+  if (!u || u.phone_confirmed_at) return false;
+  if (!u.user_metadata || u.user_metadata["sans_premier_sms"] !== true) return false;
+  const ne = Date.parse(String(u.created_at || ""));
+  return Number.isFinite(ne) && maintenant - ne >= 0 && maintenant - ne < 90_000;
+}
+
 Deno.serve(async (requete) => {
   if (requete.method !== "POST") {
     return new Response("Méthode non permise", { status: 405 });
@@ -86,7 +96,8 @@ Deno.serve(async (requete) => {
   }
 
   let charge: {
-    user?: { phone?: string; new_phone?: string };
+    user?: { phone?: string; new_phone?: string; created_at?: string; phone_confirmed_at?: string | null;
+             user_metadata?: Record<string, unknown> };
     sms?: { otp?: string; phone?: string };
   };
   try {
@@ -119,6 +130,19 @@ Deno.serve(async (requete) => {
       }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     );
+  }
+
+  /* (3.76.0) LE PREMIER CODE D'UN COMPTE CRÉÉ PAR L'ADMINISTRATION NE PART
+     PAS. Quand l'équipe crée un livreur, un vendeur ou un revendeur, GoTrue
+     envoie aussitôt un code au numéro — que personne n'attend : le livreur
+     n'a pas encore son téléphone en main, et sa première connexion en
+     demande un autre, le seul qui serve. Ce premier SMS ne faisait que
+     coûter. L'application marque ces comptes (« sans_premier_sms ») ; on
+     tait le code de l'inscription elle-même — un compte de moins de 90
+     secondes, jamais confirmé. Les codes suivants partent normalement. */
+  if (sansPremierSms(charge?.user)) {
+    console.log("hook-sms-auth : code d'inscription non envoyé (compte créé par l'équipe) …" + numero.slice(-4));
+    return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
   const envoi = await envoyerSms(numero, messageDuCode(code));

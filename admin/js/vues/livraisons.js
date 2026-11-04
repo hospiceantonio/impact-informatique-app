@@ -66,15 +66,22 @@ const VueLivraisons = (() => {
      appelable. */
   function htmlLieu(titre, icone, nom, adresse, tel, indicatif, lat, lng, sansAdresse, boutique, whatsapp) {
     const complet = tel ? "+" + indicatif + " " + tel : "";
+    /* (3.76.0) Une adresse qui n'est qu'un lien de carte ne se lit pas :
+       « Voir sur la carte », et le quartier en clair à côté. */
+    const texte = /^\s*https?:\/\//i.test(String(adresse || "")) ? "" : String(adresse || "").trim();
+    const situe = lat != null && lng != null && isFinite(lat) && isFinite(lng) && !(Number(lat) === 0 && Number(lng) === 0);
     return (
       '<div class="lv-lieu">' +
         '<div class="lv-lieu-titre">' + UI.icone(icone, "ic-sm") + Utils.echapper(titre) + "</div>" +
         '<div class="lv-nom">' + Utils.echapper(nom || "(sans nom)") + "</div>" +
-        (adresse || (lat != null && lng != null)
-          ? '<a class="lv-ou" href="' + lienCarte(adresse, lat, lng) +
+        (adresse || situe
+          ? '<a class="lv-ou" href="' + lienCarte(adresse, situe ? lat : null, situe ? lng : null) +
             '" target="_blank" rel="noopener">' + UI.icone("carte", "ic-sm") +
-            Utils.echapper(adresse || "Voir sur la carte") + "</a>"
+            Utils.echapper(texte || "Voir sur la carte") + "</a>"
           : '<div class="aide">' + Utils.echapper(sansAdresse) + "</div>") +
+        /* (3.76.0) LE QUARTIER ET LA VILLE, lus sur la carte (« Sèdomey,
+           Togoudo, Godomey ») : le livreur sait où il va sans ouvrir Maps. */
+        (situe ? htmlQuartier(lat, lng, texte) : "") +
         (complet
           ? '<a class="lv-tel" href="tel:+' + Utils.echapper(indicatif + tel) + '">' +
             UI.icone("tel", "ic-sm") +
@@ -92,6 +99,32 @@ const VueLivraisons = (() => {
             : "") +
       "</div>"
     );
+  }
+
+  /* (3.76.0) Le quartier d'un point : connu tout de suite s'il l'a déjà
+     été sur ce téléphone, sinon demandé après l'affichage (nommerLieux).
+     Rien quand l'adresse le dit déjà. */
+  function htmlQuartier(lat, lng, texte) {
+    const nom = typeof Lieu !== "undefined" ? Lieu.connu({ latitude: lat, longitude: lng }) : "";
+    if (nom && dejaDit(texte, nom)) return "";
+    return '<span class="lv-quartier" data-lieu-lat="' + Number(lat) + '" data-lieu-lng="' + Number(lng) +
+      '" data-lieu-texte="' + Utils.echapper(texte) + '"' + (nom ? "" : " hidden") + ">" +
+      (nom ? UI.icone("maison", "ic-sm") + "<span>" + Utils.echapper(nom) + "</span>" : "") + "</span>";
+  }
+  const sansAccent = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const dejaDit = (texte, nom) => !!texte && sansAccent(texte).includes(sansAccent(String(nom).split(",")[0]));
+
+  /** Les quartiers pas encore connus de l'écran, un par un. */
+  async function nommerLieux(vue) {
+    if (typeof Lieu === "undefined") return;
+    for (const el of UI.$$(".lv-quartier[hidden]", vue)) {
+      const p = { latitude: Number(el.dataset.lieuLat), longitude: Number(el.dataset.lieuLng) };
+      const nom = await Lieu.nommer(p);
+      if (!el.isConnected) return;
+      if (!nom || dejaDit(el.dataset.lieuTexte, nom)) continue;
+      el.innerHTML = UI.icone("maison", "ic-sm") + "<span>" + Utils.echapper(nom) + "</span>";
+      el.hidden = false;
+    }
   }
 
   /* (3.70.0) OÙ RÉCUPÉRER LA COMMANDE, tel que l'équipe l'a saisi dans
@@ -387,13 +420,18 @@ const VueLivraisons = (() => {
                   " <strong>× " + (Number(a.quantite) || 1) + "</strong></div>").join("") +
             "</div>" +
             (p.etat === "en_livraison" || p.etat === "remise"
-              ? '<div class="aide lv-recupere-ok">' + UI.icone("check", "ic-sm") + "Colis récupéré</div>"
+              ? '<div class="aide lv-recupere-ok">' + UI.icone("check", "ic-sm") + "Colis récupéré chez " +
+                Utils.echapper(r.boutique || p.nomBoutique || "cette boutique") + "</div>"
               : EN_PREPARATION.includes(p.etat)
                 ? '<div class="aide lv-attente">La boutique prépare le colis.</div>'
               : aAccepter
                 ? '<div class="aide">Colis prêt.</div>'
-                : '<button type="button" class="btn btn-clair lv-recupere">' + UI.icone("check") +
-                  "Colis récupéré ici</button>") +
+                /* (3.76.0) Un bouton PAR BOUTIQUE, qui la nomme : on ne
+                   confirme que le colis qu'on a en main. */
+                : '<button type="button" class="btn btn-clair lv-recupere" data-nom="' +
+                  Utils.echapper(r.boutique || p.nomBoutique || "") + '">' + UI.icone("check") +
+                  "Colis récupéré chez " + Utils.echapper(r.boutique || p.nomBoutique || "cette boutique") +
+                  "</button>") +
           "</div>";
         }).join("") +
         htmlLieuSaisi(f) +
@@ -676,6 +714,7 @@ const VueLivraisons = (() => {
                 : "Rien à faire pour l'instant") + "</div>" +
       groupes.map((g) => (g.length > 1 ? htmlGroupe(g) : htmlCourse(g[0]))).join("");
     brancherDisponible(vue);
+    nommerLieux(vue);
 
     for (const b of UI.$$(".lv-prendre", vue)) {
       b.onclick = async () => {
@@ -735,7 +774,14 @@ const VueLivraisons = (() => {
         b.disabled = true;
         try {
           await Store.avancerLivraison(carte.dataset.commande, retrait.dataset.boutique, "en_livraison");
-          UI.toast("Colis récupéré.");
+          /* (3.76.0) Ce qui reste à récupérer, nommé. */
+          const reste = courses.filter((x) => x.commandeId === carte.dataset.commande &&
+            x.boutiqueId !== retrait.dataset.boutique && x.etat !== "en_livraison" && x.etat !== "remise");
+          const nomDe = (x) => (x.fiche && x.fiche.retrait && x.fiche.retrait.boutique) || x.nomBoutique || "une boutique";
+          UI.toast("Colis récupéré chez " + (b.dataset.nom || "cette boutique") + "." +
+            (reste.length
+              ? " Reste à récupérer : " + reste.map(nomDe).join(", ") + "."
+              : " Tous les colis sont récupérés : livrez le client."), "ok");
           afficher(vue);
         } catch (err) {
           UI.toast(err.message, "err");

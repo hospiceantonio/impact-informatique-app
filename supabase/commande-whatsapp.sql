@@ -1306,6 +1306,10 @@ declare
   sous   bigint;
   devise text;
   tri    boolean;
+  bouts  text[];
+  lat    double precision;
+  lng    double precision;
+  liv    jsonb;
 begin
   if auth.uid() is null or not public.peut_faire_livrer() then
     raise exception 'Réservé aux comptes qui ont le droit « Faire livrer ».' using errcode = 'P0001';
@@ -1320,12 +1324,28 @@ begin
   )
   select coalesce(sum(coalesce(p.prix, 0) * a.q), 0)::bigint,
          min(coalesce(nullif(b.devise, ''), 'FCFA')),
-         bool_or(p.vehicule = 'tricycle')
-    into sous, devise, tri
+         bool_or(p.vehicule = 'tricycle'),
+         array_agg(distinct p.boutique_id) filter (where p.boutique_id is not null)
+    into sous, devise, tri, bouts
     from a join public.produits p on p.id = a.id
     left join public.boutiques b on b.id = p.boutique_id;
+  -- Le point de livraison : lu s'il est un vrai point, ignoré sinon (les
+  -- frais restent alors à saisir, comme avant).
+  if destination is not null and jsonb_typeof(destination) = 'object' then
+    begin
+      lat := (destination ->> 'latitude')::double precision;
+      lng := (destination ->> 'longitude')::double precision;
+      if lat between -90 and 90 and lng between -180 and 180 and not (lat = 0 and lng = 0) then
+        liv := public.devis_tournee(bouts, lat, lng,
+                 case when coalesce(tri, false) then 'tricycle' else 'moto' end);
+      end if;
+    exception when others then
+      liv := null;
+    end;
+  end if;
   return jsonb_build_object('sous_total', sous, 'devise', coalesce(devise, 'FCFA'),
-    'vehicule', case when coalesce(tri, false) then 'tricycle' else 'moto' end);
+    'vehicule', case when coalesce(tri, false) then 'tricycle' else 'moto' end,
+    'livraison', liv);
 end $$;
 revoke all on function public.devis_faire_livrer(jsonb, jsonb) from public, anon;
 grant execute on function public.devis_faire_livrer(jsonb, jsonb) to authenticated;
