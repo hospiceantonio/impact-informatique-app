@@ -540,7 +540,7 @@ titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique 
   ok(/Livraison à moto 13,4 km/.test(km) && /1 800 FCFA$/.test(km), "deux boutiques, 13,4 km : 1 800 FCFA (" + km + ")");
   ok(/Alpha → Bêta → vous/.test(km), "l'ordre de passage : « Alpha → Bêta → vous »");
   ok(/dont 400 FCFA pour 2 boutiques/.test(km), "« dont 400 FCFA pour 2 boutiques »");
-  ok(/Commande de plusieurs boutiques : \+ 200 FCFA par boutique\./.test(await texte(page, "#co-ou")),
+  ok(/Commande de plusieurs boutiques : \+ 200 FCFA par boutique ou vendeur\./.test(await texte(page, "#co-ou")),
     "le tarif dit « Commande de plusieurs boutiques : + 200 FCFA par boutique »");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();

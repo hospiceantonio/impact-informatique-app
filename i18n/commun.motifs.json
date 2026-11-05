@@ -516,6 +516,14 @@
   "— $1 km: $2 up to $3 km$4"
  ],
  [
+  "^Colis récupéré chez les (\\d+) vendeurs$",
+  "Parcel collected from the $1 sellers"
+ ],
+ [
+  "^Vendeur (\\d+)/(\\d+)$",
+  "Seller $1/$2"
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

@@ -132,6 +132,127 @@ const VueVendeurs = (() => {
     }
   }
 
+  /* ---------- (3.78.0) Le lieu d'un vendeur ----------
+     Un vendeur est une vraie boutique sur le terrain : son commerce, son
+     numéro, son adresse écrite, SA position, ses jours et heures. Ce
+     qu'on lui commande se récupère chez lui — jamais à la position de la
+     boutique multivendeur, qui ne sert qu'à l'identifier. */
+  function positionDuLien(texte) {
+    const t = String(texte || "");
+    const trouve = t.match(/(-?\d{1,3}\.\d{3,})[,\s/@]+(-?\d{1,3}\.\d{3,})/);
+    if (!trouve) return null;
+    const p = { latitude: Number(trouve[1]), longitude: Number(trouve[2]) };
+    return Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 ? p : null;
+  }
+
+  async function feuilleLieu(id, nomCompte, apres) {
+    const corps = UI.ouvrirFeuille("Le lieu de " + (nomCompte || "ce vendeur"),
+      '<div class="chargement"><span class="chargement-rond"></span>Lecture…</div>');
+    let l;
+    try {
+      l = await Store.lieuVendeur(id);
+    } catch (err) {
+      corps.innerHTML = '<p class="aide" style="margin:0">' + e(err.message) +
+        " — la base est-elle à jour (supabase/lieux-vendeurs.sql) ?</p>";
+      return;
+    }
+    let pos = l.latitude != null ? { latitude: l.latitude, longitude: l.longitude } : null;
+    let carte = null;
+    corps.innerHTML =
+      '<p class="aide" style="margin:0 0 10px">Ce que le client commande chez ce vendeur se récupère <strong>chez ' +
+        "lui</strong> : les frais de livraison partent de sa position, et le livreur reçoit son adresse et son " +
+        "numéro. La position de la boutique multivendeur ne le remplace jamais.</p>" +
+      UI.champTexte({ id: "vl-nom", label: "Nom de son commerce", valeur: l.nom || nomCompte || "",
+        placeholder: "Ex. : Pagnes Afi" }) +
+      UI.champTexte({ id: "vl-tel", label: "Numéro de sa boutique", valeur: l.tel, type: "tel",
+        placeholder: "01 00 00 00 00", aide: "Celui que le livreur appellera pour récupérer le colis." }) +
+      UI.champZone({ id: "vl-adresse", label: "Adresse écrite", valeur: l.adresse, lignes: 2, max: 300,
+        placeholder: "Quartier, rue, repère (ex. : Dantokpa, allée 4, porte bleue)" }) +
+      '<div class="champ"><label>Sa position <span class="obligatoire">*</span></label>' +
+        '<div id="vl-chercher"></div>' +
+        '<div class="btn-rangee" style="margin-top:8px">' +
+          '<button type="button" class="btn btn-clair btn-petit" id="vl-ici">' + UI.icone("carte", "ic-sm") +
+            "Je suis chez lui : ma position</button>" +
+        "</div>" +
+        UI.champTexte({ id: "vl-lien", label: "Ou un lien de carte / des coordonnées",
+          placeholder: "https://maps.google.com/… ou 6.3702, 2.4289" }) +
+        '<div class="km-carte" id="vl-carte"></div>' +
+        '<div class="aide" id="vl-etat" style="margin-top:6px"></div>' +
+      "</div>" +
+      UI.champsHoraires("vl", l.ouvertures,
+        "En dehors de ces heures, ses produits ne sont pas visibles des clients, et on ne peut pas lui commander.") +
+      '<button type="button" class="btn" id="vl-enregistrer">' + UI.icone("check") + "Enregistrer son lieu</button>" +
+      '<div id="vl-erreur"></div>';
+
+    const etat = UI.$("#vl-etat", corps);
+    const dire = () => {
+      if (!pos) {
+        etat.innerHTML = '<span class="lieu-ligne" style="color:var(--rouge)">' + UI.icone("alerte", "ic-sm") +
+          "<span>Position manquante : touchez la carte, cherchez le quartier, ou collez un lien.</span></span>";
+        return;
+      }
+      const nom = typeof Lieu !== "undefined" ? Lieu.connu(pos) : "";
+      etat.innerHTML = '<span class="lieu-ligne">' + UI.icone("check", "ic-sm") + "<span>" +
+        (nom ? "<strong>" + e(nom) + "</strong> · " : "") +
+        e(pos.latitude.toFixed(5)) + ", " + e(pos.longitude.toFixed(5)) + "</span></span>";
+      if (!nom && typeof Lieu !== "undefined") {
+        const ici = pos;
+        Lieu.nommer(ici).then((n) => { if (n && pos === ici && etat.isConnected) dire(); });
+      }
+    };
+    const poser = (p, recentrer) => {
+      pos = { latitude: Number(Number(p.latitude).toFixed(6)), longitude: Number(Number(p.longitude).toFixed(6)) };
+      if (carte) carte.placer(pos, recentrer);
+      dire();
+    };
+    try {
+      carte = await Carte.monter(UI.$("#vl-carte", corps), { position: pos, deplace: (p) => poser(p, false) });
+    } catch (_) {
+      UI.$("#vl-carte", corps).innerHTML = '<p class="aide" style="padding:12px">La carte ne s\'affiche pas sans ' +
+        "connexion : collez un lien de carte.</p>";
+    }
+    dire();
+    if (typeof Lieu !== "undefined") {
+      Lieu.monterRecherche(UI.$("#vl-chercher", corps), (x) => poser(x, true),
+        { id: "vl-lieu-q", indication: "Quartier du vendeur : Dantokpa, Missèbo…" });
+    }
+    UI.$("#vl-lien", corps).addEventListener("change", (ev) => {
+      const p = positionDuLien(ev.target.value);
+      if (!p) { UI.toast("Ce lien ne contient pas de position", "err"); return; }
+      poser(p, true);
+      ev.target.value = "";
+    });
+    UI.$("#vl-ici", corps).onclick = () => {
+      if (!navigator.geolocation) { UI.toast("Position indisponible sur cet appareil", "err"); return; }
+      navigator.geolocation.getCurrentPosition(
+        (r) => poser({ latitude: r.coords.latitude, longitude: r.coords.longitude }, true),
+        () => UI.toast("Position introuvable : activez la localisation, ou touchez la carte.", "err"),
+        { enableHighAccuracy: true, timeout: 15000 });
+    };
+    UI.$("#vl-enregistrer", corps).onclick = async () => {
+      const bouton = UI.$("#vl-enregistrer", corps);
+      const zone = UI.$("#vl-erreur", corps);
+      zone.innerHTML = "";
+      try {
+        UI.$("#vl-erreur", corps).innerHTML = "";
+        if (!pos) throw new Error("Posez la position du vendeur : c'est d'elle que partent les frais de livraison.");
+        const ouvertures = UI.lireHoraires(corps, "vl");
+        bouton.disabled = true;
+        await Store.enregistrerLieuVendeur(id, {
+          nom: UI.$("#vl-nom", corps).value.trim(), tel: UI.$("#vl-tel", corps).value,
+          adresse: UI.$("#vl-adresse", corps).value.trim(),
+          latitude: pos.latitude, longitude: pos.longitude, ouvertures,
+        });
+        UI.fermerFeuille();
+        UI.toast("Lieu du vendeur enregistré.", "ok");
+        if (typeof apres === "function") apres();
+      } catch (err) {
+        bouton.disabled = false;
+        zone.innerHTML = '<p class="aide" style="color:var(--rouge);margin:10px 0 0">' + e(err.message) + "</p>";
+      }
+    };
+  }
+
   /* ---------- 2. Le tableau du superadministrateur ---------- */
   async function liste(vue, ouvrirId) {
     UI.entete({ titre: "Vendeurs", sous: "Boutiques à vendeurs multiples", retour: true });
@@ -141,12 +262,12 @@ const VueVendeurs = (() => {
       return;
     }
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des vendeurs…</div>';
-    let vendeurs, historique, comptes;
+    let vendeurs, historique, comptes, lieux;
     try {
       /* (3.72.0) Les comptes aussi : les vendeurs se gèrent ici, comme les
          livreurs dans leur écran — plus dans la liste de l'équipe. */
-      [vendeurs, historique, comptes] = await Promise.all([Store.ventesVendeurs(), Store.historiqueParts(),
-        Store.listerComptes().catch(() => [])]);
+      [vendeurs, historique, comptes, lieux] = await Promise.all([Store.ventesVendeurs(), Store.historiqueParts(),
+        Store.listerComptes().catch(() => []), Store.lieuxVendeurs()]);
     } catch (err) {
       vue.innerHTML = '<div class="carte"><p class="aide" style="margin:0">' + e(err.message) +
         " — la base est-elle à jour (supabase/vendeurs-multiples.sql) ?</p></div>";
@@ -183,6 +304,12 @@ const VueVendeurs = (() => {
       (vendeurs.length
         ? '<div class="carte" id="vv-liste">' + vendeurs.map((v) =>
             '<div class="vv-rangee" data-cherche="' + e(Utils.sansAccent([v.nom, v.tel].filter(Boolean).join(" "))) + '">' +
+            /* (3.78.0) Son lieu : où le livreur récupère ce qu'on lui commande. */
+            (lieux
+              ? '<button type="button" class="btn-ic btn-ic-clair vv-lieu" data-lieu="' + e(v.id) +
+                  '" data-nom="' + e(v.nom) + '" aria-label="Le lieu de ' + e(v.nom) + '">' +
+                  UI.icone("carte", "ic-sm") + "</button>"
+              : "") +
             (compteDe(v.id)
               ? '<button type="button" class="btn-ic btn-ic-clair vv-compte" data-compte="' + e(v.id) +
                   '" aria-label="Modifier le compte de ' + e(v.nom) + '">' + UI.icone("crayon", "ic-sm") + "</button>"
@@ -190,6 +317,14 @@ const VueVendeurs = (() => {
             '<button type="button" class="sd-ligne vv-vendeur" data-vendeur="' + e(v.id) + '">' +
               '<div class="sd-ligne-haut"><strong>' + e(v.nom) + "</strong>" +
                 (v.actif ? "<span>" + e(v.tel) + "</span>" : '<span class="badge badge-rupture">Inactif</span>') + "</div>" +
+              (lieux
+                ? (lieux.get(v.id) && lieux.get(v.id).position
+                    ? '<div class="aide lieu-ligne">' + UI.icone("carte", "ic-sm") + "<span>" +
+                        e(lieux.get(v.id).adresse || "Position enregistrée") +
+                        (lieux.get(v.id).horaires ? "" : " · horaires manquants") + "</span></div>"
+                    : '<div class="aide vv-sans-lieu lieu-ligne" style="color:var(--rouge)">' + UI.icone("alerte", "ic-sm") +
+                        "<span>Position manquante : les frais partent du point BIZZOO en attendant.</span></div>")
+                : "") +
               '<div class="aide">' + e(String(v.produits)) + " produit" + (v.produits > 1 ? "s" : "") +
                 " · ventes " + e(m(v.ventes)) + " · sa part " + e(m(v.part)) +
                 " · BIZZOO " + e(m(v.commission)) + "</div>" +
@@ -215,7 +350,15 @@ const VueVendeurs = (() => {
           : '<p class="aide" style="margin:0">Aucun changement pour l\'instant.</p>') +
       "</details>";
 
-    UI.$("#vv-nouveau", vue).onclick = () => VueComptes.creerVendeur(() => liste(vue));
+    /* (3.78.0) Créé : son lieu tout de suite — numéro, adresse, position,
+       horaires. */
+    UI.$("#vv-nouveau", vue).onclick = () => VueComptes.creerVendeur((compte) => {
+      liste(vue);
+      if (compte && compte.id) feuilleLieu(compte.id, compte.nom || "", () => liste(vue));
+    });
+    for (const b of UI.$$("[data-lieu]", vue)) {
+      b.onclick = () => feuilleLieu(b.dataset.lieu, b.dataset.nom, () => liste(vue));
+    }
     /* (3.72.0) Le compte : nom, numéro, mot de passe, actif ou non. */
     for (const b of UI.$$("[data-compte]", vue)) {
       b.onclick = () => {
@@ -256,5 +399,5 @@ const VueVendeurs = (() => {
     }
   }
 
-  return { espace, liste };
+  return { espace, liste, feuilleLieu };
 })();

@@ -7530,3 +7530,37 @@ tout reste comme avant : l'adresse se tape au formulaire.
 Rien en base. Bancs : `banc-livraison-km` (le panier, « à calculer »),
 `banc-lieux` (« Vos coordonnées », le point en dernier recours),
 `banc-connexion-sms` (Mon compte).
+
+
+## Le lieu de chaque vendeur (3.78.0)
+
+Les vendeurs d'une boutique multivendeur (ceux qui ont accepté 10 ou 15 %)
+sont de vraies boutiques sur le terrain, avec leur adresse et leurs
+heures. Avant, une commande chez eux partait de la position générale de la
+boutique multivendeur. Désormais :
+
+- **chaque vendeur a son lieu** (`vendeurs_lieux`) : nom du commerce,
+  numéro, adresse écrite, position, jours et heures. Le superadministrateur
+  le règle dans **Vendeurs** (bouton carte sur chaque vendeur ; la fiche
+  s'ouvre d'elle-même après la création d'un vendeur) : position cherchée
+  par quartier, collée (lien Google Maps), touchée sur la carte, ou « Je
+  suis chez lui : ma position ». Un vendeur sans position est signalé
+  « Position manquante » ;
+- **les frais partent de la position du vendeur** : chaque vendeur est un
+  arrêt de la tournée, avec son supplément (2 vendeurs = 2 × 200 FCFA) —
+  comme deux boutiques. Sans position encore : le point BIZZOO, jamais la
+  position de la boutique multivendeur ;
+- **le bon du livreur** : « Marché … — boutique multivendeur », puis chaque
+  vendeur, avec son adresse écrite, son numéro, sa position (« Voir sur la
+  carte ») et ce qu'il y prend ; « Colis récupéré chez les 2 vendeurs » ;
+- **les heures du vendeur** : fermé, ses produits disparaissent de
+  l'application, la fiche dit « Vendeur fermé en ce moment — il ouvre … »,
+  le panier attend, et la base refuse la commande ;
+- « Faire livrer » compte de même.
+
+Mise en service : `supabase/lieux-vendeurs.sql`, puis la version 3.78.0
+des applications, puis le lieu de chaque vendeur dans **Vendeurs**.
+
+Essais : `supabase/tests/99zzz…-lieux-vendeurs.sql` (droits, horaires,
+tournée par vendeur, bon du livreur, « Faire livrer ») ;
+`tools/banc-lieux-vendeurs.mjs` (Vendeurs, client, livreur).

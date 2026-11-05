@@ -93,6 +93,31 @@ revoke all on public.courses_cascade from anon, authenticated;
 -- (3.70.0) Lues par les fonctions plus bas (déjà là sur une base en service).
 alter table public.profils add column if not exists disponible boolean not null default true;
 
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.vendeurs_retrait(commande text, boutique text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'vendeur_id', l.vendeur_id,
+             'nom', coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'Vendeur'),
+             'adresse', coalesce(vl.adresse, ''), 'tel', coalesce(nullif(vl.tel, ''), v.tel, ''),
+             'indicatif', coalesce(vl.indicatif, '229'),
+             'latitude', vl.latitude, 'longitude', vl.longitude,
+             'articles', l.articles) order by l.vendeur_id)
+      from (select x.vendeur_id,
+                   jsonb_agg(jsonb_build_object('nom', coalesce(x.nom, ''), 'quantite', x.quantite)
+                             order by x.id) as articles
+              from public.commande_lignes x
+             where x.commande_id = commande and x.boutique_id = boutique and x.vendeur_id is not null
+               and x.etat <> 'annulee'
+             group by x.vendeur_id) l
+      join public.boutiques b on b.id = boutique and b.vendeurs = 'multiples'
+      left join public.profils v on v.id = l.vendeur_id
+      left join public.vendeurs_lieux vl on vl.vendeur_id = l.vendeur_id), '[]'::jsonb);
+end $$;
+revoke all on function public.vendeurs_retrait(text, text) from public, anon, authenticated;
+
 -- (3.70.0) Le devis plus bas lit la distance par la route : la grille
 -- et le cache qu'il emprunte, recopiés tels quels.
 create or replace function public.grille_route(x double precision) returns numeric
@@ -862,7 +887,10 @@ begin
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
       -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
       'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
-      'latitude', b.latitude, 'longitude', b.longitude),
+      'latitude', b.latitude, 'longitude', b.longitude,
+      -- (3.78.0) Boutique à vendeurs multiples : chaque vendeur chez qui
+      -- récupérer, avec SON lieu, son numéro et ses articles.
+      'vendeurs', public.vendeurs_retrait(commande, boutique)),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
       'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),

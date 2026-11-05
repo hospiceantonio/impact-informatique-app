@@ -638,7 +638,7 @@ const VueComptes = (() => {
         } else {
           UI.toast(nomRole(compte.role) + " ajouté : " + (compte.email || compte.tel || compte.nom), "ok");
         }
-        apres();
+        apres(compte);
       } catch (err) {
         UI.$("#nc-resultat", corps).innerHTML =
           '<p class="aide" style="color:var(--rouge);margin:12px 0 0">' + Utils.echapper(err.message) + "</p>";

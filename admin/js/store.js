@@ -1133,6 +1133,40 @@ const Store = (() => {
       return [];   // base d'avant
     }
   }
+  /* (3.78.0) Le lieu d'un vendeur : son commerce, son numéro, son adresse
+     écrite, sa position, ses horaires. Le superadministrateur l'écrit. */
+  const lieuDepuis = (l) => ({
+    nom: (l && l.nom) || "", tel: (l && l.tel) || "", indicatif: (l && l.indicatif) || "229",
+    adresse: (l && l.adresse) || "",
+    latitude: l && typeof l.latitude === "number" ? l.latitude : null,
+    longitude: l && typeof l.longitude === "number" ? l.longitude : null,
+    ouvertures: l && l.ouvertures && typeof l.ouvertures === "object" ? l.ouvertures : null,
+    connu: !!(l && l.connu),
+  });
+  async function lieuVendeur(id) {
+    return lieuDepuis(await Supabase.rpcLecture("lieu_vendeur", { cible: id }));
+  }
+  async function enregistrerLieuVendeur(id, lieu) {
+    const r = await Supabase.rpc("enregistrer_lieu_vendeur", { cible: id, lieu: {
+      nom: lieu.nom || "", tel: lieu.tel || "", indicatif: lieu.indicatif || "229", adresse: lieu.adresse || "",
+      latitude: lieu.latitude, longitude: lieu.longitude, ouvertures: lieu.ouvertures || null } });
+    journaliser("vendeur", "lieu", "Lieu du vendeur « " + (lieu.nom || "") + " » enregistré", id);
+    return lieuDepuis(r);
+  }
+  /** Le lieu de chaque vendeur, par identifiant (une base d'avant : rien). */
+  async function lieuxVendeurs() {
+    try {
+      const l = await Supabase.rpcLecture("lieux_vendeurs", {});
+      const m = new Map();
+      for (const x of Array.isArray(l) ? l : []) {
+        m.set(x.vendeur_id, { position: typeof x.latitude === "number", horaires: !!x.horaires,
+          adresse: x.adresse || "", nom: x.nom || "" });
+      }
+      return m;
+    } catch (_) {
+      return null;
+    }
+  }
   function soldeDepuis(s) {
     const r = s && s.reception;
     return {
@@ -4288,7 +4322,7 @@ const Store = (() => {
     statistiquesVentes,
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
-    listerVendeurs, espaceVendeur, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
+    listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
     deciderReversementVendeur, ventesVendeurs, historiqueParts, connaitVendeurs,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,

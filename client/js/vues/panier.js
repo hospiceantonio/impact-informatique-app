@@ -165,6 +165,25 @@ const VuePanier = (() => {
           " Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</div>" +
         "</div>";
     }
+    /* (3.78.0) UN VENDEUR FERMÉ, dans une boutique multivendeur : ses
+       articles attendent sa réouverture, comme ceux d'une boutique fermée. */
+    const chezFermes = Panier.lignes().filter((l) => l.produit && !Catalogue.vendeurOuvert(l.produit));
+    if (chezFermes.length) {
+      const vus = new Map();
+      for (const l of chezFermes) {
+        const v = Catalogue.pointDe(l.produit.id);
+        if (v && !vus.has(v.id)) vus.set(v.id, v);
+      }
+      html +=
+        '<div class="carte pa-avertissement" id="pa-vendeurs-fermes">' + UI.icone("horloge", "ic-sm") +
+          "<div>" + [...vus.values()].map((v) => {
+            const quand = Catalogue.prochaineOuverture({ ouvertures: v.ouvertures });
+            return "<strong>" + Utils.echapper(v.nom) + "</strong> est fermé en ce moment" +
+              (quand ? " — il ouvre " + Utils.echapper(quand) : "") + ".";
+          }).join(" ") +
+          " Vous pourrez commander ses articles à sa réouverture, ou les retirer pour commander le reste.</div>" +
+        "</div>";
+    }
     if (ruptures.length || ramenees.length) {
       html +=
         '<div class="carte pa-avertissement" id="pa-stock">' + UI.icone("alerte", "ic-sm") +
@@ -256,7 +275,7 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() || ruptures.length || fermees.length ? " disabled" : "") +
+        (Panier.monnaiesMelangees() || ruptures.length || fermees.length || chezFermes.length ? " disabled" : "") +
         ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {

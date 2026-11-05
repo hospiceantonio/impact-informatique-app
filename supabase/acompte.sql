@@ -58,6 +58,65 @@ create unique index if not exists gains_livreurs_une_fois on public.gains_livreu
 revoke all on sequence public.gains_livreurs_id_seq from anon, authenticated;
 
 -- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.point_retrait_produit(produit text) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare r text;
+begin
+  select case when pp.vendeur_id is not null and pp.taux_vendeur is not null and b.vendeurs = 'multiples'
+              then 'v:' || pp.vendeur_id::text else p.boutique_id end
+    into r
+    from public.produits p
+    join public.boutiques b on b.id = p.boutique_id
+    left join public.produits_prive pp on pp.produit_id = p.id
+   where p.id = produit;
+  return r;
+end $$;
+revoke all on function public.point_retrait_produit(text) from public, anon, authenticated;
+
+create or replace function public.points_commande(cible text) returns text[]
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return array(select distinct case when l.vendeur_id is not null and b.vendeurs = 'multiples'
+                                    then 'v:' || l.vendeur_id::text else l.boutique_id end
+                 from public.commande_lignes l
+                 join public.boutiques b on b.id = l.boutique_id
+                where l.commande_id = cible and l.boutique_id is not null);
+end $$;
+revoke all on function public.points_commande(text) from public, anon, authenticated;
+
+create or replace function public.vendeur_ouvert(cible uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((select public.boutique_ouverte(l.ouvertures) from public.vendeurs_lieux l
+                    where l.vendeur_id = cible), true);
+end $$;
+grant execute on function public.vendeur_ouvert(uuid) to anon, authenticated;
+
+create or replace function public.vendeurs_retrait(commande text, boutique text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'vendeur_id', l.vendeur_id,
+             'nom', coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'Vendeur'),
+             'adresse', coalesce(vl.adresse, ''), 'tel', coalesce(nullif(vl.tel, ''), v.tel, ''),
+             'indicatif', coalesce(vl.indicatif, '229'),
+             'latitude', vl.latitude, 'longitude', vl.longitude,
+             'articles', l.articles) order by l.vendeur_id)
+      from (select x.vendeur_id,
+                   jsonb_agg(jsonb_build_object('nom', coalesce(x.nom, ''), 'quantite', x.quantite)
+                             order by x.id) as articles
+              from public.commande_lignes x
+             where x.commande_id = commande and x.boutique_id = boutique and x.vendeur_id is not null
+               and x.etat <> 'annulee'
+             group by x.vendeur_id) l
+      join public.boutiques b on b.id = boutique and b.vendeurs = 'multiples'
+      left join public.profils v on v.id = l.vendeur_id
+      left join public.vendeurs_lieux vl on vl.vendeur_id = l.vendeur_id), '[]'::jsonb);
+end $$;
+revoke all on function public.vendeurs_retrait(text, text) from public, anon, authenticated;
+
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
 create or replace function public.manquants_de_commande(cible text) returns jsonb
 language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(jsonb_build_object(
@@ -159,10 +218,22 @@ begin
   end if;
   -- Les boutiques, une fois chacune, dans un ordre fixe (leur identifiant) :
   -- à distances égales, la base et l'application choisissent la même.
-  for b in select x.id, x.nom, x.latitude, x.longitude
-             from public.boutiques x
-            where x.id = any(coalesce(boutiques, '{}'))
-            order by x.id collate "C" loop
+  -- (3.78.0) Un lieu « v:<vendeur> » est un vendeur d'une boutique à
+  -- vendeurs multiples : son nom, SA position (jamais celle de la boutique
+  -- multivendeur), le point BIZZOO s'il n'en a pas encore. Un arrêt comme
+  -- un autre, avec son supplément.
+  for b in select k.cle as id,
+                  case when k.vendeur then coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(pv.nom), ''), 'Vendeur')
+                       else x.nom end as nom,
+                  case when k.vendeur then vl.latitude else x.latitude end as latitude,
+                  case when k.vendeur then vl.longitude else x.longitude end as longitude
+             from (select distinct u.cle0 as cle, u.cle0 like 'v:%' as vendeur
+                     from unnest(coalesce(boutiques, '{}')) as u(cle0) where u.cle0 is not null) k
+             left join public.boutiques x on not k.vendeur and x.id = k.cle
+             left join public.profils pv on k.vendeur and pv.id::text = substr(k.cle, 3) and pv.role = 'vendeur'
+             left join public.vendeurs_lieux vl on k.vendeur and vl.vendeur_id::text = substr(k.cle, 3)
+            where x.id is not null or pv.id is not null
+            order by k.cle collate "C" loop
     ids  := ids || b.id;
     noms := noms || coalesce(b.nom, '');
     if b.latitude is null or b.longitude is null or (b.latitude = 0 and b.longitude = 0)
@@ -251,11 +322,13 @@ begin
       case when j <= w then lngs[j] else longitude end);
     if t.par_route then routes := routes + 1; end if;
     if n > 0 then
-      etapes := etapes || jsonb_build_object(
-        'boutique_id', ids[i], 'nom', noms[i],
+      etapes := etapes || (jsonb_build_object(
+        'boutique_id', case when ids[i] like 'v:%' then null else ids[i] end, 'nom', noms[i],
         'latitude', round(lats[i]::numeric, 6), 'longitude', round(lngs[i]::numeric, 6),
         'sans_position', sans[i],
-        'vers_suivante_km', round(d[(i - 1) * (w + 1) + j], 1));
+        'vers_suivante_km', round(d[(i - 1) * (w + 1) + j], 1)) ||
+        case when ids[i] like 'v:%' then jsonb_build_object('vendeur_id', substr(ids[i], 3))
+             else '{}'::jsonb end);
     end if;
   end loop;
 
@@ -585,7 +658,10 @@ begin
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
       -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
       'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
-      'latitude', b.latitude, 'longitude', b.longitude),
+      'latitude', b.latitude, 'longitude', b.longitude,
+      -- (3.78.0) Boutique à vendeurs multiples : chaque vendeur chez qui
+      -- récupérer, avec SON lieu, son numéro et ses articles.
+      'vendeurs', public.vendeurs_retrait(commande, boutique)),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
       'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
@@ -1245,6 +1321,16 @@ begin
         (select b.nom from public.boutiques b where b.id = p.boutique_id), p.nom
         using errcode = 'P0001';
     end if;
+    -- (3.78.0) NI UN VENDEUR FERMÉ : dans une boutique à vendeurs multiples,
+    -- chaque vendeur a ses jours et heures.
+    if public.point_retrait_produit(p.id) like 'v:%'
+       and not public.vendeur_ouvert(substr(public.point_retrait_produit(p.id), 3)::uuid) then
+      raise exception '« % » est vendu par « % », fermé en ce moment : il se commandera à sa réouverture.',
+        p.nom, coalesce((select coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'son vendeur')
+                           from public.profils v left join public.vendeurs_lieux vl on vl.vendeur_id = v.id
+                          where v.id::text = substr(public.point_retrait_produit(p.id), 3)), 'son vendeur')
+        using errcode = 'P0001';
+    end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
     insert into public.commande_lignes (id, commande_id, produit_id, quantite)
@@ -1364,9 +1450,10 @@ begin
     else
       -- (3.74.0) La tournée : de boutique en boutique, puis au client, dans
       -- l'ordre le plus court, plus le supplément de chaque boutique.
+      -- (3.78.0) Un arrêt par lieu de retrait : chaque vendeur d'une
+      -- boutique multivendeur, chaque autre boutique.
       devis := public.devis_tournee(
-        array(select distinct l.boutique_id from public.commande_lignes l
-               where l.commande_id = nouvelle and l.boutique_id is not null),
+        public.points_commande(nouvelle),
         (destination ->> 'latitude')::double precision,
         (destination ->> 'longitude')::double precision, vehic);
     end if;

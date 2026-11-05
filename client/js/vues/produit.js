@@ -527,10 +527,17 @@ const VueProduit = (() => {
        partir une commande que personne ne prendrait. */
     const chez = Catalogue.boutiqueDuProduit(p);
     const fermee = !!chez && !Catalogue.ouverteMaintenant(chez);
+    /* (3.78.0) Dans une boutique multivendeur, le vendeur a ses heures. */
+    const vendeur = Catalogue.pointDe(p.id);
+    const vendeurFerme = !fermee && !Catalogue.vendeurOuvert(p);
     if (fermee) {
       const quand = Catalogue.prochaineOuverture(chez);
       UI.barreAction('<div class="pa-ferme" id="p-fermee">' + UI.icone("horloge", "ic-sm") +
         " Boutique fermée" + (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".</div>");
+    } else if (vendeurFerme) {
+      const quand = Catalogue.prochaineOuverture({ ouvertures: vendeur.ouvertures });
+      UI.barreAction('<div class="pa-ferme" id="p-fermee">' + UI.icone("horloge", "ic-sm") +
+        " Vendeur fermé en ce moment" + (quand ? " — il ouvre " + Utils.echapper(quand) : "") + ".</div>");
     } else if (etat !== "rupture") {
       const barre = UI.barreAction(
         '<div class="pa-compteur pa-compteur-da">' +

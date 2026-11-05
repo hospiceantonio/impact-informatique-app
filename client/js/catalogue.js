@@ -238,6 +238,13 @@ const Catalogue = (() => {
            l'application retombe sur la boutique unique d'avant. */
         lireTable(c, "boutiques?select=*&order=ordre.asc", controleur.signal).catch(() => []),
       ]);
+      /* (3.78.0) Les vendeurs des boutiques multivendeurs : leur position,
+         leurs horaires, et les produits qui se récupèrent chez eux. Une
+         base d'avant n'en sait rien : aucun. */
+      const lesPoints = await fetch(c.url + "/rest/v1/rpc/points_retrait", {
+        method: "POST", headers: { "apikey": c.cle, "Content-Type": "application/json" }, body: "{}",
+        signal: controleur.signal,
+      }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
       const b = (boutiques && boutiques[0]) || {};
       const urlImagePublique = (chemin) =>
         c.url + "/storage/v1/object/public/produits/" + chemin;
@@ -266,6 +273,13 @@ const Catalogue = (() => {
           adresses: autresAdresses(b.adresses),
           video: b.video ? urlImagePublique(b.video) : "",
         },
+        points: (Array.isArray(lesPoints) ? lesPoints : []).map((v) => ({
+          id: String(v.id || ""), nom: String(v.nom || "Vendeur"),
+          latitude: typeof v.latitude === "number" ? v.latitude : null,
+          longitude: typeof v.longitude === "number" ? v.longitude : null,
+          ouvertures: v.ouvertures && typeof v.ouvertures === "object" ? v.ouvertures : null,
+          produits: Array.isArray(v.produits) ? v.produits.map(String) : [],
+        })).filter((v) => v.id),
         boutiques: (lesBoutiques || []).map((b2) => ({
           id: b2.id,
           nom: b2.nom || "",
@@ -530,6 +544,24 @@ const Catalogue = (() => {
     const plage = o[JOURS[t.jour]];
     return !!(plage && plage.de && plage.a && t.hm >= plage.de && t.hm < plage.a);
   }
+  /* (3.78.0) LE VENDEUR D'UN PRODUIT, dans une boutique multivendeur : sa
+     position et ses horaires à lui (ou null). */
+  let pointsLus = null, pointsParProduit = new Map();
+  function pointDe(idProduit) {
+    const liste = (donnees && donnees.points) || [];
+    if (liste !== pointsLus) {
+      pointsLus = liste;
+      pointsParProduit = new Map();
+      for (const v of liste) for (const id of v.produits || []) pointsParProduit.set(id, v);
+    }
+    return pointsParProduit.get(idProduit) || null;
+  }
+  /** Le vendeur du produit est-il ouvert ? (Pas de vendeur : oui.) */
+  function vendeurOuvert(p, moment) {
+    const v = p && pointDe(p.id);
+    return !v || ouverteMaintenant({ actif: true, ouvertures: v.ouvertures }, moment);
+  }
+
   /** « aujourd'hui à 14:00 », « demain à 08:00 », « lundi à 08:00 » — ou "". */
   function prochaineOuverture(b, moment) {
     const o = b && b.ouvertures;
@@ -701,6 +733,8 @@ const Catalogue = (() => {
     return ((donnees && donnees.produits) || [])
       .filter(dansLaBoutique)
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
+      /* (3.78.0) Ni ceux d'un vendeur fermé : il a ses propres heures. */
+      .filter((p) => vendeurOuvert(p))
       .map(normaliser);
   }
 
@@ -777,6 +811,7 @@ const Catalogue = (() => {
     boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
     return tousProduits()
       .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
+      .filter((p) => vendeurOuvert(p))
       .filter((p) => !idBoutique || p.boutiqueId === idBoutique)
       .sort(tri === "recents" ? parNouveaute : parPrixCroissant);
   }
@@ -900,7 +935,7 @@ const Catalogue = (() => {
       .filter((s) => {
         if (!s.produitId) return !!(s.image || s.video);
         const p = produit(s.produitId);
-        return !!p && (!multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId]);
+        return !!p && (!multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId]) && vendeurOuvert(p);
       })
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
@@ -1158,6 +1193,7 @@ const Catalogue = (() => {
     nouveautes, promotions, meilleureRemise, produitsPopulaires,
     rechercher, similaires,
     boutiqueDuProduit, deviseDe, ouverteMaintenant, prochaineOuverture, horairesLisibles,
+    pointDe, vendeurOuvert,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };

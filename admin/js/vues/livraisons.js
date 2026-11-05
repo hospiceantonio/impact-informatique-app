@@ -127,6 +127,51 @@ const VueLivraisons = (() => {
     }
   }
 
+  /* (3.78.0) OÙ RÉCUPÉRER, quand la boutique est MULTIVENDEUR : chez
+     chaque vendeur, à SON adresse, avec son numéro et ses articles. La
+     position de la boutique multivendeur ne sert qu'à l'identifier : elle
+     ne remplace jamais celle d'un vendeur. Ce qui n'a pas de vendeur
+     reste à prendre à la boutique. Une autre boutique : comme avant. */
+  function htmlRecuperer(titre, r, nomBoutique, articles) {
+    const vs = Array.isArray(r && r.vendeurs) ? r.vendeurs : [];
+    if (!vs.length) {
+      return htmlLieu(titre, "magasin", nomBoutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
+        "Adresse non renseignée : appelez la boutique.", true, r.whatsapp);
+    }
+    const qte = (l) => (l || []).reduce((t, a) => t + (Number(a.quantite) || 1), 0);
+    const reste = Array.isArray(articles) ? qte(articles) - vs.reduce((t, v) => t + qte(v.articles), 0) : 0;
+    return (
+      '<div class="lv-multi" data-lv="vendeurs">' +
+        '<div class="lv-lieu-titre">' + UI.icone("magasin", "ic-sm") + Utils.echapper(titre) + "</div>" +
+        '<div class="lv-nom">' + Utils.echapper(nomBoutique || "Boutique") +
+          ' <small class="aide">boutique multivendeur</small></div>' +
+        '<div class="aide">' + (vs.length > 1
+          ? "Passez chez chacun de ces " + vs.length + " vendeurs, à son adresse :"
+          : "Récupérez chez ce vendeur, à son adresse :") + "</div>" +
+        vs.map((v, k) =>
+          '<div class="lv-vendeur">' +
+            htmlLieu(vs.length > 1 ? "Vendeur " + (k + 1) + "/" + vs.length : "Vendeur", "magasin", v.nom,
+              v.adresse, v.tel, v.indicatif || "229", v.latitude, v.longitude,
+              "Adresse non renseignée : appelez le vendeur.") +
+            '<div class="lv-articles">' + (v.articles || []).map((a) =>
+              "<div>" + Utils.echapper(a.nom || "") + " <strong>× " + (Number(a.quantite) || 1) + "</strong></div>").join("") +
+            "</div>" +
+          "</div>").join("") +
+        (reste > 0
+          ? htmlLieu("Le reste, à la boutique", "magasin", nomBoutique, r.adresse, r.tel, r.indicatif || "229",
+              r.latitude, r.longitude, "Adresse non renseignée : appelez la boutique.", true, r.whatsapp)
+          : "") +
+      "</div>"
+    );
+  }
+  /** Le nom à mettre sur « Colis récupéré chez … ». */
+  function chezQui(r, nomBoutique) {
+    const vs = Array.isArray(r && r.vendeurs) ? r.vendeurs : [];
+    if (vs.length === 1) return vs[0].nom || "le vendeur";
+    if (vs.length > 1) return "les " + vs.length + " vendeurs";
+    return nomBoutique || "cette boutique";
+  }
+
   /* (3.70.0) OÙ RÉCUPÉRER LA COMMANDE, tel que l'équipe l'a saisi dans
      « Faire livrer » : la commande a été prise sur WhatsApp, et c'est
      là qu'on a dit au livreur où passer. Il s'ajoute à la fiche de la
@@ -317,9 +362,7 @@ const VueLivraisons = (() => {
           '<span class="badge ' + etat.classe + '">' + Utils.echapper(etat.mot) + "</span>" +
         "</div>" +
         htmlMontants(c) +
-        htmlLieu("Récupérer le colis", "magasin", r.boutique || c.nomBoutique, r.adresse,
-          r.tel, r.indicatif || "229", r.latitude, r.longitude,
-          "Adresse non renseignée : appelez la boutique.", true, r.whatsapp) +
+        htmlRecuperer("Récupérer le colis", r, r.boutique || c.nomBoutique, c.articles) +
         htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
@@ -410,18 +453,18 @@ const VueLivraisons = (() => {
         parts.map((p, i) => {
           const r = (p.fiche && p.fiche.retrait) || {};
           return '<div class="lv-retrait" data-boutique="' + Utils.echapper(p.boutiqueId) + '">' +
-            htmlLieu("Récupérer (" + (i + 1) + "/" + parts.length + ")", "magasin", r.boutique || p.nomBoutique,
-              r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
-              "Adresse non renseignée : appelez la boutique.", true, r.whatsapp) +
+            htmlRecuperer("Récupérer (" + (i + 1) + "/" + parts.length + ")", r, r.boutique || p.nomBoutique, p.articles) +
+            /* (3.78.0) Multivendeur : les articles sont déjà chez chaque vendeur. */
+            (Array.isArray(r.vendeurs) && r.vendeurs.length ? "" :
             '<div class="lv-articles">' +
               p.articles.map((a) =>
                 "<div>" + Utils.echapper(a.nom || "") +
                   (a.code ? ' <span class="code-produit">' + Utils.echapper(a.code) + "</span>" : "") +
                   " <strong>× " + (Number(a.quantite) || 1) + "</strong></div>").join("") +
-            "</div>" +
+            "</div>") +
             (p.etat === "en_livraison" || p.etat === "remise"
               ? '<div class="aide lv-recupere-ok">' + UI.icone("check", "ic-sm") + "Colis récupéré chez " +
-                Utils.echapper(r.boutique || p.nomBoutique || "cette boutique") + "</div>"
+                Utils.echapper(chezQui(r, r.boutique || p.nomBoutique)) + "</div>"
               : EN_PREPARATION.includes(p.etat)
                 ? '<div class="aide lv-attente">La boutique prépare le colis.</div>'
               : aAccepter
@@ -429,8 +472,8 @@ const VueLivraisons = (() => {
                 /* (3.76.0) Un bouton PAR BOUTIQUE, qui la nomme : on ne
                    confirme que le colis qu'on a en main. */
                 : '<button type="button" class="btn btn-clair lv-recupere" data-nom="' +
-                  Utils.echapper(r.boutique || p.nomBoutique || "") + '">' + UI.icone("check") +
-                  "Colis récupéré chez " + Utils.echapper(r.boutique || p.nomBoutique || "cette boutique") +
+                  Utils.echapper(chezQui(r, r.boutique || p.nomBoutique)) + '">' + UI.icone("check") +
+                  "Colis récupéré chez " + Utils.echapper(chezQui(r, r.boutique || p.nomBoutique)) +
                   "</button>") +
           "</div>";
         }).join("") +
@@ -476,10 +519,8 @@ const VueLivraisons = (() => {
         "</div>" +
         htmlMontants({ fiche: f, etat: "preparee" }) +
         retraits.map((r, i) =>
-          htmlLieu(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
-                                       : "Récupérer le colis",
-            "magasin", r.boutique, r.adresse, r.tel, r.indicatif || "229", r.latitude, r.longitude,
-            "Adresse non renseignée : appelez la boutique.", true, r.whatsapp)).join("") +
+          htmlRecuperer(retraits.length > 1 ? "Récupérer (" + (i + 1) + "/" + retraits.length + ")"
+                                            : "Récupérer le colis", r, r.boutique, null)).join("") +
         htmlLieuSaisi(f) +
         htmlLieu("Livrer à", "personne", l.nom, l.adresse, l.tel, l.indicatif || "229",
           l.latitude, l.longitude, "Aucune adresse donnée : appelez le destinataire.") +
@@ -777,7 +818,8 @@ const VueLivraisons = (() => {
           /* (3.76.0) Ce qui reste à récupérer, nommé. */
           const reste = courses.filter((x) => x.commandeId === carte.dataset.commande &&
             x.boutiqueId !== retrait.dataset.boutique && x.etat !== "en_livraison" && x.etat !== "remise");
-          const nomDe = (x) => (x.fiche && x.fiche.retrait && x.fiche.retrait.boutique) || x.nomBoutique || "une boutique";
+          const nomDe = (x) => chezQui(x.fiche && x.fiche.retrait,
+            (x.fiche && x.fiche.retrait && x.fiche.retrait.boutique) || x.nomBoutique || "une boutique");
           UI.toast("Colis récupéré chez " + (b.dataset.nom || "cette boutique") + "." +
             (reste.length
               ? " Reste à récupérer : " + reste.map(nomDe).join(", ") + "."
