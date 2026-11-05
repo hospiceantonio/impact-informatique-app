@@ -7502,3 +7502,31 @@ les droits, le plafond, les frais de « Faire livrer ») ;
 `tools/eprouver-lieu.sh` (la fonction `lieu`, sans OpenStreetMap) ;
 `tools/eprouver-sms.sh` (le premier code non envoyé) ;
 `tools/banc-lieux.mjs` (le client, « Faire livrer », le bon du livreur).
+
+
+## Un seul lieu, un seul montant de livraison (3.77.0)
+
+Retour de l'équipe : le panier annonçait déjà « Livraison dès 1 000 », le
+paiement affichait l'adresse du compte (« Carrefour Itta ») ET le lieu de
+l'épingle (« Hêvié »), avec un autre montant — trop de lieux et de
+chiffres pour une seule livraison. Désormais, au kilomètre :
+
+- **le panier ne parle que des articles** : sous-total, total, acompte —
+  aucune ligne de livraison (`Paiement.apercu(0, { sansLivraison: true })`) ;
+- **le paiement** : « Vos coordonnées » (le nom et le numéro, plus
+  d'adresse), puis **« Où livrer ? »**, seul endroit où se choisit le
+  lieu. Tant qu'il ne l'est pas : « Livraison — selon le lieu choisi — à
+  calculer », aucun montant d'avance ; posé, les frais s'ajoutent au total ;
+- la commande porte le lieu de l'épingle (+ le repère) ; sans nom de lieu
+  ni repère, « Point sur la carte (lat, lng) » — jamais une adresse tapée
+  ailleurs ;
+- **Mon compte** ne demande plus d'adresse de livraison, et ne propose
+  plus « Mes adresses » (l'écran reste joignable par son lien). Une
+  adresse déjà enregistrée n'est pas effacée.
+
+Sans livraison au kilomètre (ou paiement fermé, commande par WhatsApp),
+tout reste comme avant : l'adresse se tape au formulaire.
+
+Rien en base. Bancs : `banc-livraison-km` (le panier, « à calculer »),
+`banc-lieux` (« Vos coordonnées », le point en dernier recours),
+`banc-connexion-sms` (Mon compte).

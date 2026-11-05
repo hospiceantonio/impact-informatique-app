@@ -155,7 +155,9 @@ titre("1. Le client cherche « Tempé » : l'épingle y va, la commande porte ce
   ok(/km/.test(await texte(page, "#co-ou-etat")) && /FCFA/.test(await texte(page, "#co-ou-etat")),
     "les frais suivent (" + await texte(page, "#co-ou-etat") + ")");
   ok(/Livrer à : Tempé, Godomey/.test(await texte(page, "#co-ou-lieu")), "« Livrer à : Tempé, Godomey »");
-  ok(/Ita/.test(await texte(page, "#co-resume")), "(le résumé du compte dit toujours « Ita »)");
+  ok(!/Ita/.test(await texte(page, "#co-resume")) && /Rosine/.test(await texte(page, "#co-resume")),
+    "(3.77.0) « Vos coordonnées » : le nom et le numéro, plus l'adresse du compte (« Ita »)");
+  ok(await page.$("#co-adresse") === null, "et plus de champ d'adresse à taper : le lieu, c'est l'épingle");
 
   await page.fill("#co-repere", "Portail bleu après la pharmacie");
   await capture(page, "client", "#co-ou");
@@ -202,7 +204,9 @@ titre("4 (client). La fonction « lieu » absente : rien ne casse");
   await page.click("#co-payer");
   await page.waitForFunction(() => location.hash === "#/commande/cmd_l", null, { timeout: 8000 }).catch(() => {});
   const corps = serveur.creations[0] || {};
-  ok(corps.client && corps.client.adresse === "Ita", "sans nom ni repère : l'adresse saisie, comme avant");
+  ok(corps.client && corps.client.adresse === "Point sur la carte (6.40120, 2.33550)",
+    "(3.77.0) sans nom ni repère : le point lui-même, jamais l'adresse du compte (" +
+    JSON.stringify(corps.client && corps.client.adresse) + ")");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

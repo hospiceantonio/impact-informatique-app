@@ -441,7 +441,11 @@ const Paiement = (() => {
    * Une base d'avant ne connaît pas ces réglages : on retombe sur ceux de
    * l'enseigne — un acompte unique, des frais une fois par commande.
    */
-  function apercu(remise) {
+  /* (3.77.0) « sansLivraison » : le panier, qui ne parle que des articles —
+     au kilomètre, la livraison ne se compte qu'à l'étape suivante, une
+     fois le lieu choisi. */
+  function apercu(remise, options) {
+    const sansLivraison = !!(options && options.sansLivraison);
     const groupes = typeof Panier !== "undefined" ? Panier.parBoutique() : [];
     const sousTotal = groupes.reduce((s, g) => s + g.montant, 0);
     const r = Math.min(Math.max(0, Math.round(Number(remise) || 0)), sousTotal);
@@ -449,7 +453,7 @@ const Paiement = (() => {
        la commande, payé en entier en ligne avec l'acompte. Tant que le
        client n'a pas dit où livrer, on n'en connaît que le forfait. */
     const auKm = livraisonAuKm();
-    const leDevis = auKm ? devis(destination(), vehiculePanier()) : null;
+    const leDevis = auKm && !sansLivraison ? devis(destination(), vehiculePanier()) : null;
     const parBoutique = !auKm && groupes.some((g) => g.boutique && g.boutique.fraisLivraison !== undefined);
     const parts = groupes.map((g) => {
       const b = g.boutique || {};

@@ -6538,5 +6538,9 @@
  "Reprendre ce montant": "Use this amount again",
  "Reste à récupérer :": "Still to collect:",
  "Tous les colis sont récupérés : livrez le client.": "All parcels are collected: deliver to the customer.",
- "une boutique": "a shop"
+ "une boutique": "a shop",
+ "à calculer": "to be calculated",
+ "Point sur la carte (": "Point on the map (",
+ "selon le lieu choisi": "depending on the chosen place",
+ "Vos coordonnées": "Your details"
 }

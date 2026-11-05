@@ -4,7 +4,7 @@
    La base calcule, fige et crédite (supabase/tests/99zzz…-livraison-
    au-km.sql). Ce banc regarde les ÉCRANS :
 
-     1. LE PANIER : « Livraison à moto, selon la distance, dès 1 000 » ;
+     1. LE PANIER : les articles seuls (3.77.0), la livraison à l'étape suivante ;
         le tarif du véhicule ; un produit en tricycle fait tout passer en
         tricycle ;
      2. LA FICHE PRODUIT dit le véhicule et son tarif ;
@@ -160,27 +160,23 @@ const lignesTotal = (page) => page.evaluate(() =>
   .then((l) => l.map(plat));
 
 /* ------------------------------------------------------------------ */
-titre("1. Le panier : « dès 1 000 », selon la distance ; le tricycle l'emporte");
+titre("1. (3.77.0) Le panier ne parle que des articles : la livraison se compte à l'étape suivante");
 {
   const { page, ctx, erreurs } = await ouvrirClient({ hash: "#/panier" });
   const r = await recap(page);
-  ok(contient(r, "Livraison à moto selon la distance dès " + F(1000)),
-    "« Livraison à moto — selon la distance — dès 1 000 FCFA » (" + r.join(" | ") + ")");
-  ok(contient(r, "Total hors livraison " + F(300000)), "le total, hors livraison tant qu'on ne sait pas où");
-  ok(/Livraison à moto : 1 000 FCFA jusqu'à 10 km, 100 FCFA par km au-delà\./.test(await texte(page, "#pa-tarif")),
-    "le tarif de la moto est écrit");
-  ok(!r.some((l) => /Frais de livraison/.test(l)), "plus de frais de la boutique (1 500)");
+  ok(!r.some((l) => /^Livraison|Frais de livraison|hors livraison|dès|à calculer/.test(l)), "aucune ligne de livraison dans le panier (" + r.join(" | ") + ")");
+  ok(contient(r, "Total " + F(300000)), "le total : les articles seuls, 300 000");
+  ok(!(await page.$("#pa-tarif")), "pas de tarif de livraison dans le panier");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 {
-  const { page, ctx } = await ouvrirClient({ hash: "#/panier",
+  /* Même avec un lieu gardé de la dernière fois : rien sur la livraison ici. */
+  const { page, ctx } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
     panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_frigo", quantite: 1 }] });
   const r = await recap(page);
-  ok(contient(r, "Livraison en tricycle selon la distance dès " + F(4000)),
-    "un réfrigérateur dans le panier : tricycle, dès 4 000 FCFA");
-  ok(/Livraison en tricycle : 4 000 FCFA jusqu'à 10 km, 500 FCFA par km au-delà\./.test(await texte(page, "#pa-tarif")),
-    "« Livraison en tricycle : 4 000 FCFA jusqu'à 10 km, 500 FCFA par km au-delà. »");
+  ok(!r.some((l) => /^Livraison|Frais de livraison|hors livraison|dès|à calculer/.test(l)) && contient(r, "Total " + F(500000)),
+    "un lieu déjà connu ne change rien au panier : 500 000, sans livraison (" + r.join(" | ") + ")");
   await ctx.close();
 }
 
@@ -537,30 +533,30 @@ titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique 
   /* Alpha (sans position : le point BIZZOO) → Bêta (6,40) → client (6,458) :
      en ligne droite vers le nord, 13,4 km × … : 4 km au-delà des 10.
      1 000 + 4 × 100 + 2 × 200 = 1 800 FCFA. */
-  const { page, ctx, erreurs } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
+  const { page, ctx, erreurs } = await ouvrirClient({ hash: "#/commande", destination: LOIN,
     panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_b", quantite: 1 }],
     extra: { livraison_supplement_boutique: 200 } });
   const km = await texte(page, ".pa-km");
   ok(/Livraison à moto 13,4 km/.test(km) && /1 800 FCFA$/.test(km), "deux boutiques, 13,4 km : 1 800 FCFA (" + km + ")");
   ok(/Alpha → Bêta → vous/.test(km), "l'ordre de passage : « Alpha → Bêta → vous »");
   ok(/dont 400 FCFA pour 2 boutiques/.test(km), "« dont 400 FCFA pour 2 boutiques »");
-  ok(/Commande de plusieurs boutiques : \+ 200 FCFA par boutique\./.test(await texte(page, "#pa-tarif")),
+  ok(/Commande de plusieurs boutiques : \+ 200 FCFA par boutique\./.test(await texte(page, "#co-ou")),
     "le tarif dit « Commande de plusieurs boutiques : + 200 FCFA par boutique »");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 {
-  const { page, ctx } = await ouvrirClient({ hash: "#/panier",
+  const { page, ctx } = await ouvrirClient({ hash: "#/commande",
     panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_b", quantite: 1 }],
     extra: { livraison_supplement_boutique: 200 } });
-  const r = await recap(page);
-  ok(contient(r, "Livraison à moto selon la distance dès " + F(1400)),
-    "sans position du client : « dès 1 400 » (forfait + 2 boutiques) (" + r.join(" | ") + ")");
+  const r = await lignesTotal(page);
+  ok(contient(r, "Livraison à moto selon le lieu choisi à calculer"),
+    "(3.77.0) sans lieu choisi : « à calculer », aucun montant d'avance (" + r.join(" | ") + ")");
   await ctx.close();
 }
 {
   /* Chaque tronçon se demande à la fonction « distance-route », avec son départ. */
-  const { page, ctx, serveur } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
+  const { page, ctx, serveur } = await ouvrirClient({ hash: "#/commande", destination: LOIN,
     panier: [{ produitId: "prod_1", quantite: 1 }, { produitId: "prod_b", quantite: 1 }],
     extra: { livraison_supplement_boutique: 200 }, route: () => ({ actif: true, distance_km: null }) });
   await page.waitForTimeout(600);
@@ -573,7 +569,7 @@ titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique 
 {
   /* (3.74.1) Une seule boutique : de la boutique au client, forfait + km,
      sans supplément. Bêta (6,40) → client (6,458) : 8,4 km, le forfait. */
-  const { page, ctx } = await ouvrirClient({ hash: "#/panier", destination: LOIN,
+  const { page, ctx } = await ouvrirClient({ hash: "#/commande", destination: LOIN,
     panier: [{ produitId: "prod_b", quantite: 1 }], extra: { livraison_supplement_boutique: 200 } });
   const km = await texte(page, ".pa-km");
   ok(/Livraison à moto 8,4 km/.test(km) && /1 000 FCFA$/.test(km) && !/dont/.test(km),
@@ -581,10 +577,10 @@ titre("8. (3.74.0) La tournée : de boutique en boutique, 200 FCFA par boutique 
   await ctx.close();
 }
 {
-  const { page, ctx } = await ouvrirClient({ hash: "#/panier",
+  const { page, ctx } = await ouvrirClient({ hash: "#/commande",
     panier: [{ produitId: "prod_b", quantite: 1 }], extra: { livraison_supplement_boutique: 200 } });
-  const r = await recap(page);
-  ok(contient(r, "Livraison à moto selon la distance dès " + F(1000)), "une seule boutique : « dès 1 000 », sans supplément");
+  const r = await lignesTotal(page);
+  ok(contient(r, "Livraison à moto selon le lieu choisi à calculer"), "une seule boutique, sans lieu : « à calculer »");
   await ctx.close();
 }
 
