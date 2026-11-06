@@ -393,7 +393,9 @@ const VueSuivi = (() => {
       lignes: commandes.flatMap((c) => c.lignes.map((l) => {
         const dh = l.confirme_le && l.vue_le ? Math.round((new Date(l.confirme_le) - new Date(l.vue_le)) / 360000) / 10 : "";
         return [c.numero || c.id, dateSuivi(c.cree_le), c.paye_le ? dateSuivi(c.paye_le) : "", sourceDe(c), c.client.nom, c.client.tel,
-          c.client.zone || "", c.client.adresse, l.boutique, l.boutique_tel, l.nom, l.code || "", Number(l.quantite),
+          c.client.zone || "", c.client.adresse,
+          /* (3.79.1) Boutique multivendeur : le vendeur et SON numéro. */
+          l.vendeur ? l.boutique + " — " + l.vendeur : l.boutique, l.vendeur ? l.vendeur_tel || "" : l.boutique_tel, l.nom, l.code || "", Number(l.quantite),
           ...(m ? [Number(l.prix), Number(l.prix) * Number(l.quantite)] : []),
           l.statut, l.livreur || "", l.livreur_tel || "", l.vue_le ? dateSuivi(l.vue_le) : "",
           l.preparee_le ? dateSuivi(l.preparee_le) : "",
@@ -749,7 +751,13 @@ const VueSuivi = (() => {
           });
           return h("tr", {},
             h("td", {}, l.quantite + " × " + l.nom, c.montants && l.prix !== undefined ? h("div", { class: "tres-petit doux" }, UI.fcfa(l.prix) + " l'unité") : null),
-            h("td", {}, l.boutique, h("div", { class: "tres-petit doux" }, l.boutique_tel || "")),
+            /* (3.79.1) Dans une boutique multivendeur, l'article se prépare et
+               se récupère chez son vendeur : son nom, son numéro, son adresse. */
+            l.vendeur
+              ? h("td", {}, l.boutique, h("div", { class: "petit gras" }, "Vendeur : " + l.vendeur),
+                  l.vendeur_tel ? h("div", { class: "tres-petit" }, h("a", { href: "tel:" + l.vendeur_tel }, l.vendeur_tel)) : null,
+                  l.vendeur_adresse ? h("div", { class: "tres-petit doux" }, l.vendeur_adresse) : null)
+              : h("td", {}, l.boutique, h("div", { class: "tres-petit doux" }, l.boutique_tel || "")),
             h("td", {}, l.livreur || "—", h("div", { class: "tres-petit doux" }, l.livreur_tel || ""),
               /* La même carte que « Localiser un livreur », centrée sur lui. */
               l.livreur_id && App.ouvert("livreurs") ? h("a", { class: "btn btn-petit btn-second", style: { marginTop: "4px" },

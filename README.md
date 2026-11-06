@@ -7598,3 +7598,23 @@ La base refusait déjà une commande chez une boutique ou un vendeur fermé :
 rien à appliquer en base. En anglais : « Closed · opens tomorrow at 8:00 »
 (motifs des heures dans `i18n/commun.motifs.json`).
 Bancs : `banc-horaires-droits` (sections 1 à 4 ter), `banc-lieux-vendeurs`.
+
+
+## Personnel : le suivi des commandes nomme le vendeur (3.79.1)
+
+Depuis la 3.78.0, ce qu'on commande chez un vendeur d'une boutique
+multivendeur se prépare et se récupère chez lui. Le suivi des commandes de
+l'application Personnel nommait encore la boutique multivendeur et son
+numéro. Désormais :
+
+- sur la fiche d'une commande, chaque article dit **« Vendeur : … »**, avec
+  son numéro (qui s'appelle d'un toucher) et son adresse écrite ;
+- la colonne **Marchands** donne « Marché … — Pagnes Afi / 01 97 … » ;
+- le **temps de préparation** se mesure par vendeur ;
+- l'export Excel donne le vendeur et son numéro dans les colonnes
+  « Marchand ».
+
+Les boutiques à vendeur unique ne changent pas. Base :
+`supabase/suivi-vendeurs.sql` (fonction `rh_suivi_donnees`). Web seulement :
+les APK restent en 3.79.0. Bancs : `banc-suivi-source`, essai
+`lieux-vendeurs` (section 5 bis).

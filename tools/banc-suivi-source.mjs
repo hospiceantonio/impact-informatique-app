@@ -37,6 +37,12 @@ const COMMANDES = [
   commande("c-avant", "BZ-0103", undefined, "30"), // une base d'avant : pas de « source »
 ];
 
+/* (3.79.1) Une boutique multivendeur : chaque article dit son vendeur. */
+const VENDEURS = { ...commande("c-vend", "BZ-0104", "Depuis APP", "40"),
+  lignes: [{ ...ligne("lv1", "Marché BIZZOO"), nom: "Pagne A", vendeur: "Pagnes Afi", vendeur_tel: "0197700011",
+             vendeur_adresse: "Dantokpa, allée 4, porte bleue" }],
+  marchands: "Marché BIZZOO — Pagnes Afi / 0197700011" };
+
 const REPONSES = {
   etat_connexion: { equipe: false },
   rh_tableau_de_bord: { moi: { id: "e1", prenoms: "Awa", nom: "Essai", administration: true, profil: "Administrateur" } },
@@ -44,7 +50,7 @@ const REPONSES = {
   rh_activation: null, rh_paie_a_jour: 0,
   rh_suivi: { periode: { depuis: "2026-10-22", jusqu: "2026-10-28" }, montants: true,
     reglages: { vue_h: 2, preparation_h: 4, livraison_h: 24, confirmation_h: 24 }, commandes: COMMANDES },
-  rh_suivi_commande: (corps) => ({ ...COMMANDES.find((c) => c.id === corps.commande), montants: true,
+  rh_suivi_commande: (corps) => ({ ...[...COMMANDES, VENDEURS].find((c) => c.id === corps.commande), montants: true,
     journal: [], incidents: [], reclamations: [], refus: [] }),
 };
 
@@ -109,6 +115,14 @@ await page.goto(BASE + "#/suivi/commande/c-app");
 await page.waitForFunction(() => document.body.innerText.includes("BZ-0101") && document.body.innerText.includes("Passée le"));
 ok(/Source Depuis APP/.test(await page.evaluate(() => document.body.innerText.replace(/\s+/g, " "))),
   "celle d'une commande de l'application, « Depuis APP »");
+
+titre("(3.79.1) Boutique multivendeur : le vendeur, son numéro, son adresse");
+await page.goto(BASE + "#/suivi/commande/c-vend");
+await page.waitForFunction(() => document.body.innerText.includes("BZ-0104") && document.body.innerText.includes("Passée le"));
+const fv = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " "));
+ok(/Marché BIZZOO Vendeur : Pagnes Afi 0197700011 Dantokpa, allée 4, porte bleue/.test(fv),
+  "l'article : « Vendeur : Pagnes Afi », son numéro, son adresse");
+ok(await page.$('a[href="tel:0197700011"]') !== null, "son numéro s'appelle d'un toucher");
 
 ok(erreurs.length === 0, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs.join(" ; ") : ""));
 await navigateur.close();
