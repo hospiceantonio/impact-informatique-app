@@ -405,7 +405,7 @@ titre("5. Les comptes disent qui les a créés");
   await page.waitForTimeout(600);
   const feuille = await page.evaluate(() => document.body.innerText);
   ok(/Créé le 10 octobre 2026 à 14:05 par Sena/.test(feuille) &&
-     /C'est là que part son code de connexion par SMS/.test(feuille),
+     /C'est aussi son numéro de connexion/.test(feuille),
     "la fiche reprend la trace, et dit à quoi sert le numéro");
   await page.keyboard.press("Escape");
   await page.waitForTimeout(400);

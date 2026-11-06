@@ -596,6 +596,10 @@
   "Sunday at $1:$2"
  ],
  [
+  "^Compte mis à jour : il entre désormais avec (.+), même mot de passe\\.$",
+  "Account updated: they now sign in with $1, same password."
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

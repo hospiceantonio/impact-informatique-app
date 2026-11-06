@@ -236,8 +236,9 @@ const VueComptes = (() => {
         aide: "Affiché à la place de l'adresse e-mail, partout où on le choisit." }) +
       UI.champTexte({ id: "cp-tel", label: "Téléphone", valeur: compte.tel,
         type: "tel", placeholder: "01 97 00 00 00",
-        aide: "C'est là que part son code de connexion par SMS. Le changer annule " +
-          "sa vérification : le prochain code partira au nouveau numéro." }) +
+        /* (3.79.2) Le numéro de la fiche EST son numéro de connexion. */
+        aide: "C'est aussi son numéro de connexion. Le changer : il entre avec le nouveau " +
+          "numéro et le même mot de passe, l'ancien ne permet plus d'entrer." }) +
       /* (3.64.0) Son véhicule : le tricycle porte les gros colis. */
       (compte.role === "livreur" && compte.vehicule !== undefined
         ? '<div class="champ"><label for="cp-vehicule">Véhicule</label>' +
@@ -445,7 +446,8 @@ const VueComptes = (() => {
         const nom = UI.$("#cp-nom", corps).value.trim();
         const tel = UI.$("#cp-tel", corps).value.trim();
         if (nom !== (compte.nom || "")) await Store.majCompte(compte.id, { nom });
-        if (tel !== (compte.tel || "")) await Store.majCompte(compte.id, { tel });
+        const telChange = tel !== (compte.tel || "");
+        if (telChange) await Store.majCompte(compte.id, { tel });
         const champVehicule = UI.$("#cp-vehicule", corps);
         if (champVehicule && champVehicule.value !== (compte.vehicule || "moto")) {
           await Store.majCompte(compte.id, { vehicule: champVehicule.value });
@@ -465,7 +467,9 @@ const VueComptes = (() => {
           }
         }
         UI.fermerFeuille();
-        UI.toast("Compte mis à jour", "ok");
+        UI.toast(telChange && tel
+          ? "Compte mis à jour : il entre désormais avec " + tel + ", même mot de passe."
+          : "Compte mis à jour", "ok");
         apres();
       } catch (err) {
         UI.toast(err.message, "err");

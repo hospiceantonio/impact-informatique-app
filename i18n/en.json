@@ -6597,5 +6597,8 @@
  "Vos articles restent dans le panier. Commandez à la réouverture, ou retirez-les pour commander le reste maintenant.": "Your items stay in the cart. Order when it reopens, or remove them to order the rest now.",
  "Vous pouvez regarder ses produits : ils se commanderont à l'ouverture.": "You can browse its products: they can be ordered once it opens.",
  "petit gras": "petit gras",
- "Vendeur :": "Seller:"
+ "Vendeur :": "Seller:",
+ ", même mot de passe.": ", same password.",
+ "C'est aussi son numéro de connexion. Le changer : il entre avec le nouveau numéro et le même mot de passe, l'ancien ne permet plus d'entrer.": "It is also their sign-in number. Changing it: they sign in with the new number and the same password; the old one no longer works.",
+ "Compte mis à jour : il entre désormais avec": "Account updated: they now sign in with"
 }

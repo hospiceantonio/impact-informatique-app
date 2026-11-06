@@ -7618,3 +7618,27 @@ Les boutiques à vendeur unique ne changent pas. Base :
 `supabase/suivi-vendeurs.sql` (fonction `rh_suivi_donnees`). Web seulement :
 les APK restent en 3.79.0. Bancs : `banc-suivi-source`, essai
 `lieux-vendeurs` (section 5 bis).
+
+
+## Le numéro d'un compte est son numéro de connexion (3.79.2)
+
+Un vendeur ou un livreur entre avec son numéro et son mot de passe. Changer
+son numéro dans l'administration (Comptes → la fiche → Téléphone) ne
+changeait que sa fiche : il ne pouvait entrer qu'avec l'ancien numéro.
+
+Désormais, la base fait les deux d'un coup (déclencheur
+`profils_numero_connexion`) :
+
+- le nouveau numéro devient le numéro de connexion ; **l'ancien n'ouvre
+  plus rien** ;
+- le **mot de passe ne change pas**, ni le rôle, la boutique, les soldes,
+  les commandes ou l'historique du compte ;
+- un numéro déjà pris par un autre compte (même écrit sur 8 chiffres) est
+  refusé avec un message clair — et alors rien ne change ;
+- un compte qui entre par e-mail garde son numéro comme simple contact ;
+- seuls ceux qui gèrent le compte peuvent changer son numéro (comme avant).
+
+Les comptes déjà désaccordés (3 vendeurs au moment de la correction) sont
+réparés à l'application de `supabase/numero-connexion.sql`. L'administration
+l'explique sous le champ, et le confirme : « il entre désormais avec … ,
+même mot de passe ». Essai : `numero-connexion`.

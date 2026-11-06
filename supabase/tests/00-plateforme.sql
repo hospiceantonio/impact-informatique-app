@@ -55,6 +55,8 @@ alter table auth.users
   add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
 alter table auth.users add column if not exists phone text;
 alter table auth.users add column if not exists phone_confirmed_at timestamptz;
+-- (3.79.2) Supabase l'a : le numéro de connexion qui change la met à jour.
+alter table auth.users add column if not exists updated_at timestamptz;
 -- La date de création, sous son nom Supabase : « creer_fiche_revendeur » la lit.
 alter table auth.users add column if not exists created_at timestamptz not null default now();
 
