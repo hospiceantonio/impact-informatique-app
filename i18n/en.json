@@ -6543,7 +6543,7 @@
  "Point sur la carte (": "Point on the map (",
  "selon le lieu choisi": "depending on the chosen place",
  "Vos coordonnées": "Your details",
- "— il ouvre": "— it opens",
+ "— il ouvre": "— opens",
  "est fermé en ce moment": "is closed right now",
  "par boutique ou vendeur.": "per shop or seller.",
  "Vendeur fermé en ce moment": "Seller closed right now",
@@ -6582,5 +6582,18 @@
  "Récupérez chez ce vendeur, à son adresse :": "Collect from this seller, at its address:",
  "Sa position": "Its location",
  "vendeurs": "sellers",
- "vendeurs, à son adresse :": "sellers, each at its address:"
+ "vendeurs, à son adresse :": "sellers, each at its address:",
+ "» fermé en ce moment": "” closed right now",
+ "Vendeur «": "Seller “",
+ "Des articles ne se commandent pas en ce moment.": "Some items can't be ordered right now.",
+ "Un article ne se commande pas en ce moment.": "One item can't be ordered right now.",
+ "est fermé": "is closed",
+ "est fermée": "is closed",
+ "Fermé · ouvre": "Closed · opens",
+ "Fermée · ouvre": "Closed · opens",
+ "Le vendeur": "The seller",
+ "p-ferme": "p-ferme",
+ "Une boutique vient de fermer : ses articles se commanderont à sa réouverture.": "A shop has just closed: its items can be ordered when it reopens.",
+ "Vos articles restent dans le panier. Commandez à la réouverture, ou retirez-les pour commander le reste maintenant.": "Your items stay in the cart. Order when it reopens, or remove them to order the rest now.",
+ "Vous pouvez regarder ses produits : ils se commanderont à l'ouverture.": "You can browse its products: they can be ordered once it opens."
 }

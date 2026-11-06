@@ -7564,3 +7564,37 @@ des applications, puis le lieu de chaque vendeur dans **Vendeurs**.
 Essais : `supabase/tests/99zzz…-lieux-vendeurs.sql` (droits, horaires,
 tournée par vendeur, bon du livreur, « Faire livrer ») ;
 `tools/banc-lieux-vendeurs.mjs` (Vendeurs, client, livreur).
+
+
+## Boutique fermée : ses produits restent en vitrine (3.79.0)
+
+Avant, une boutique (ou un vendeur) fermée faisait disparaître tous ses
+produits : le catalogue paraissait vide la nuit, et les favoris, les liens
+partagés et les recherches ne menaient plus à rien. Désormais, **ses
+produits restent visibles, mais ne se commandent pas** :
+
+- **un badge** « Fermé · ouvre demain à 8 h » sur chaque produit (accueil,
+  listes, recherche, favoris, vignettes de la boutique, panier), et
+  « Fermée · ouvre demain à 8 h » sur la boutique ; le produit est grisé ;
+- **la fiche du produit** s'ouvre toujours (lien partagé, favori,
+  recherche) : photo grisée, « Boutique fermée en ce moment — elle ouvre
+  demain à 8 h », et à la place d'« Ajouter au panier » un bouton éteint
+  « Fermé · ouvre demain à 8 h ». Même chose pour un vendeur d'une boutique
+  multivendeur (« Vendeur « … » fermé en ce moment — il ouvre … ») ;
+- **les boutiques ouvertes d'abord**, et dans chaque liste les produits
+  commandables avant les autres (sans rien changer à l'ordre de chacun) ;
+- **le panier** garde les articles d'une boutique fermée, grisés, avec
+  l'heure de réouverture, et dit pourquoi la commande attend. Si l'on
+  arrive quand même au paiement (lien direct, ou boutique fermée entre-temps),
+  un avertissement clair remplace le formulaire : « La boutique … est
+  fermée — elle ouvre demain à 8 h : « article ». Vos articles restent dans
+  le panier… », avec « Revenir au panier ». Au moment de payer, la même
+  vérification évite l'erreur de la base ;
+- **à l'ouverture**, l'écran se redessine de lui-même (vérification toutes
+  les 30 secondes, jamais pendant le paiement) : les produits redeviennent
+  commandables sans recharger.
+
+La base refusait déjà une commande chez une boutique ou un vendeur fermé :
+rien à appliquer en base. En anglais : « Closed · opens tomorrow at 8:00 »
+(motifs des heures dans `i18n/commun.motifs.json`).
+Bancs : `banc-horaires-droits` (sections 1 à 4 ter), `banc-lieux-vendeurs`.

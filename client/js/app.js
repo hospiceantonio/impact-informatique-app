@@ -130,12 +130,17 @@ const App = { evenementInstallation: null };
      rapprochées ne se chevauchent pas, et la dernière demandée gagne. */
   let file = Promise.resolve();
 
+  let ouverturesVues = null;          // (3.79.0) voir plus bas, « À l'ouverture »
   function naviguer(options) {
     file = file.then(() => dessinerEcran(options)).catch((err) => { console.error(err); });
     return file;
   }
 
   async function dessinerEcran(options) {
+    /* (3.79.0) L'état d'ouverture que montre l'écran qu'on dessine. */
+    if (Catalogue.pret && Catalogue.pret() && Catalogue.signatureOuvertures) {
+      ouverturesVues = Catalogue.signatureOuvertures();
+    }
     const { chemin, params } = lireHash();
     const conserverPosition = !!(options && options.conserverPosition);
     const vue = document.getElementById("vue");
@@ -468,6 +473,20 @@ const App = { evenementInstallation: null };
     if (nouveaux.length === 1) UI.toast("Nouveau : " + nouveaux[0], "ok");
     else if (nouveaux.length > 1) UI.toast(nouveaux.length + " nouveaux produits", "ok");
   });
+
+  /* (3.79.0) À L'OUVERTURE (OU À LA FERMETURE) D'UNE BOUTIQUE, l'écran se
+     redessine de lui-même, dans la demi-minute : ses produits
+     redeviennent commandables sans qu'on ait à recharger. Pas pendant le
+     paiement : le formulaire en cours ne se perd pas — le bouton « Payer »
+     vérifie de toute façon avant d'envoyer. */
+  setInterval(() => {
+    if (!Catalogue.pret || !Catalogue.pret() || !Catalogue.signatureOuvertures) return;
+    const maintenant = Catalogue.signatureOuvertures();
+    if (ouverturesVues !== null && maintenant !== ouverturesVues && !/^#\/commande$/.test(location.hash)) {
+      document.dispatchEvent(new CustomEvent("catalogue:maj", { detail: { nouveaux: [] } }));
+    }
+    ouverturesVues = maintenant;
+  }, 30000);
 
   /* ---------- Démarrage ---------- */
 

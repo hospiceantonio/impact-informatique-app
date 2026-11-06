@@ -242,8 +242,9 @@ const POINTS = (ouvAfi) => [
 titre("2. Le client : les heures et la position de chaque vendeur");
 {
   const { page, ctx, erreurs } = await ouvrirClient({ hash: "#/produit/prod_a", panier: [], points: POINTS(fermeAujourdhui) });
-  ok(/Vendeur fermé en ce moment/.test(await texte(page, "#p-fermee")) && !(await page.$("#p-ajouter")),
-    "Pagnes Afi fermée aujourd'hui : « Vendeur fermé en ce moment », pas d'ajout au panier");
+  ok(/Vendeur « Pagnes Afi » fermé en ce moment/.test(await texte(page, "#p-fermee")) && !(await page.$("#p-ajouter")) &&
+     await page.evaluate(() => { const b = document.querySelector("#p-fermee .btn"); return !!b && b.disabled; }),
+    "Pagnes Afi fermée aujourd'hui : « Vendeur « Pagnes Afi » fermé en ce moment », bouton éteint");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

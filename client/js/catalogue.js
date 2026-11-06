@@ -514,17 +514,22 @@ const Catalogue = (() => {
   let boutiqueId = "";
   try { boutiqueId = localStorage.getItem(CLE_BOUTIQUE) || ""; } catch (_) { /* privée */ }
 
-  /** Les boutiques ouvertes aux clients, dans l'ordre voulu par le gérant. */
+  /** Les boutiques ouvertes aux clients, dans l'ordre voulu par le gérant —
+      (3.79.0) celles OUVERTES EN CE MOMENT d'abord. */
   function boutiques() {
     return ((donnees && donnees.boutiques) || [])
       .filter((b) => b.actif !== false)
       .slice()
-      .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
+      .sort((a, b) => (ouverteMaintenant(a) ? 0 : 1) - (ouverteMaintenant(b) ? 0 : 1) ||
+                      (a.ordre || 0) - (b.ordre || 0));
   }
 
   /* ---------- Ouverte maintenant ? (3.59.0) ----------
-     UNE BOUTIQUE FERMÉE NE MONTRE PAS SES PRODUITS : une commande passée
-     pendant qu'elle dort tombait dans le vide. On lit ses jours et heures
+     (3.79.0) UNE BOUTIQUE FERMÉE GARDE SES PRODUITS EN VITRINE : on les
+     voit, on les cherche, on les met en favori, un lien partagé y mène —
+     mais on ne les commande pas avant l'ouverture (« Fermé · ouvre demain
+     à 8 h »). Avant, ils disparaissaient : le catalogue semblait vide la
+     nuit, et favoris, liens et recherches ne menaient plus à rien. On lit ses jours et heures
      d'ouverture À L'HEURE DU BÉNIN (UTC+1, sans heure d'été) — pas à celle
      du téléphone, qui peut être réglé ailleurs. La base fait le même
      calcul, et refuse la commande : l'écran ne fait que l'annoncer. */
@@ -556,6 +561,42 @@ const Catalogue = (() => {
     }
     return pointsParProduit.get(idProduit) || null;
   }
+  /**
+   * (3.79.0) POURQUOI CE PRODUIT NE SE COMMANDE PAS EN CE MOMENT, ou null :
+   * sa boutique est fermée, ou (boutique multivendeur) son vendeur.
+   * { qui: « boutique » | « vendeur », nom, quand: « demain à 8 h » }.
+   */
+  function fermeture(p, moment) {
+    if (!p) return null;
+    const b = multiBoutiques() && p.boutiqueId
+      ? ((donnees && donnees.boutiques) || []).find((x) => x.id === p.boutiqueId) : null;
+    if (b && !ouverteMaintenant(b, moment)) {
+      return { qui: "boutique", nom: b.nom || "", quand: prochaineOuverture(b, moment) };
+    }
+    const v = pointDe(p.id);
+    if (v && !ouverteMaintenant({ actif: true, ouvertures: v.ouvertures }, moment)) {
+      return { qui: "vendeur", nom: v.nom || "", quand: prochaineOuverture({ ouvertures: v.ouvertures }, moment) };
+    }
+    return null;
+  }
+  const commandable = (p, moment) => !fermeture(p, moment);
+  /** « Fermé · ouvre demain à 8 h » — le badge d'un produit. */
+  const motFermeture = (f) => (f ? "Fermé" + (f.quand ? " · ouvre " + f.quand : "") : "");
+  /** Les produits commandables d'abord, sans rien changer à l'ordre de chacun. */
+  const ouvertsDabord = (liste) => liste
+    .map((p, i) => ({ p, i, f: fermeture(p) ? 1 : 0 }))
+    .sort((a, b) => a.f - b.f || a.i - b.i)
+    .map((x) => x.p);
+
+  /** (3.79.0) Qui est ouvert en ce moment : boutiques et vendeurs. Change à
+      chaque ouverture ou fermeture — l'application redessine alors l'écran. */
+  function signatureOuvertures(moment) {
+    const b = ((donnees && donnees.boutiques) || []).filter((x) => ouverteMaintenant(x, moment)).map((x) => x.id);
+    const v = ((donnees && donnees.points) || [])
+      .filter((x) => ouverteMaintenant({ actif: true, ouvertures: x.ouvertures }, moment)).map((x) => x.id);
+    return b.join(",") + "|" + v.join(",");
+  }
+
   /** Le vendeur du produit est-il ouvert ? (Pas de vendeur : oui.) */
   function vendeurOuvert(p, moment) {
     const v = p && pointDe(p.id);
@@ -573,7 +614,9 @@ const Catalogue = (() => {
       if (!plage || !plage.de) continue;
       if (ecart === 0 && plage.de <= t.hm) continue;
       const quand = ecart === 0 ? "aujourd'hui" : ecart === 1 ? "demain" : NOMS_JOURS[jour];
-      return quand + " à " + plage.de.replace(":", " h ");
+      /* (3.79.0) « 8 h », « 14 h 30 » : court, comme on le dit. */
+      const [h, m] = plage.de.split(":");
+      return quand + " à " + Number(h) + " h" + (m && m !== "00" ? " " + m : "");
     }
     return "";
   }
@@ -723,19 +766,15 @@ const Catalogue = (() => {
   });
 
   function produits() {
-    /* UNE BOUTIQUE FERMÉE DISPARAÎT DU CLIENT, ses articles avec. Ce
-       filtre-là manquait : tant que « Promotions » entrait d'autorité
-       dans la première boutique, la question ne se posait pas. Elle
-       réunit maintenant toutes les boutiques, et une fermée n'a rien à
-       y faire. */
-    const ouvertes = {};
-    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
-    return ((donnees && donnees.produits) || [])
+    /* (3.79.0) UNE BOUTIQUE FERMÉE GARDE SES PRODUITS EN VITRINE (voir
+       « fermeture ») : ils viennent seulement après les autres. Une
+       boutique désactivée, elle, n'est plus dans « boutiques() ». */
+    const actives = {};
+    boutiques().forEach((b) => { actives[b.id] = true; });
+    return ouvertsDabord(((donnees && donnees.produits) || [])
       .filter(dansLaBoutique)
-      .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
-      /* (3.78.0) Ni ceux d'un vendeur fermé : il a ses propres heures. */
-      .filter((p) => vendeurOuvert(p))
-      .map(normaliser);
+      .filter((p) => !multiBoutiques() || !p.boutiqueId || actives[p.boutiqueId])
+      .map(normaliser));
   }
 
   /* Comme pour les rayons : un lien direct doit ouvrir la fiche même
@@ -807,13 +846,12 @@ const Catalogue = (() => {
    * moins cher au plus cher.
    */
   function produitsDeLEnseigne(idBoutique, tri) {
-    const ouvertes = {};
-    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
-    return tousProduits()
-      .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
-      .filter((p) => vendeurOuvert(p))
+    const actives = {};
+    boutiques().forEach((b) => { actives[b.id] = true; });
+    return ouvertsDabord(tousProduits()
+      .filter((p) => !multiBoutiques() || !p.boutiqueId || actives[p.boutiqueId])
       .filter((p) => !idBoutique || p.boutiqueId === idBoutique)
-      .sort(tri === "recents" ? parNouveaute : parPrixCroissant);
+      .sort(tri === "recents" ? parNouveaute : parPrixCroissant));
   }
 
   /**
@@ -928,14 +966,14 @@ const Catalogue = (() => {
    * court qu'une promesse qu'on ne peut pas tenir.
    */
   function publicites() {
-    const ouvertes = {};
-    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
+    const actives = {};
+    boutiques().forEach((b) => { actives[b.id] = true; });
     return ((donnees && donnees.slides) || [])
       .filter((s) => s.actif !== false && s.portee === "publicite")
       .filter((s) => {
         if (!s.produitId) return !!(s.image || s.video);
         const p = produit(s.produitId);
-        return !!p && (!multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId]) && vendeurOuvert(p);
+        return !!p && (!multiBoutiques() || !p.boutiqueId || actives[p.boutiqueId]);
       })
       .sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   }
@@ -1117,16 +1155,16 @@ const Catalogue = (() => {
     const t = Utils.sansAccent(terme).trim();
     if (!t) return [];
     const mots = t.split(/\s+/).filter(Boolean);
-    const ouvertes = {};
-    boutiques().forEach((b) => { if (ouverteMaintenant(b)) ouvertes[b.id] = true; });
-    return tousProduits()
-      /* Une boutique fermée ne vend plus : ses produits n'ont pas à
-         remonter dans les résultats. */
-      .filter((p) => !multiBoutiques() || !p.boutiqueId || ouvertes[p.boutiqueId])
+    const actives = {};
+    boutiques().forEach((b) => { actives[b.id] = true; });
+    /* (3.79.0) Une boutique fermée reste trouvable : ses produits
+       remontent, après ceux qu'on peut commander tout de suite. */
+    return ouvertsDabord(tousProduits()
+      .filter((p) => !multiBoutiques() || !p.boutiqueId || actives[p.boutiqueId])
       .map((p) => ({ produit: p, note: noteRecherche(p, mots) }))
       .filter((x) => x.note > 0)
       .sort((a, b) => b.note - a.note || parPrixCroissant(a.produit, b.produit))
-      .map((x) => x.produit);
+      .map((x) => x.produit));
   }
 
   /** D'où vient un produit. La recherche traversant les boutiques, il
@@ -1193,7 +1231,7 @@ const Catalogue = (() => {
     nouveautes, promotions, meilleureRemise, produitsPopulaires,
     rechercher, similaires,
     boutiqueDuProduit, deviseDe, ouverteMaintenant, prochaineOuverture, horairesLisibles,
-    pointDe, vendeurOuvert,
+    pointDe, vendeurOuvert, fermeture, commandable, motFermeture, signatureOuvertures,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };

@@ -159,10 +159,10 @@ const VuePanier = (() => {
         '<div class="carte pa-avertissement" id="pa-fermees">' + UI.icone("horloge", "ic-sm") +
           "<div>" + fermees.map((g) => {
             const quand = Catalogue.prochaineOuverture(g.boutique);
-            return "<strong>" + Utils.echapper(g.boutique.nom) + "</strong> est fermée en ce moment" +
-              (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".";
+            return "<span><strong>" + Utils.echapper(g.boutique.nom) + "</strong><span> est fermée en ce moment</span>" +
+              (quand ? "<span> — elle ouvre </span>" + UI.quand(quand) : "") + ".</span>";
           }).join(" ") +
-          " Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</div>" +
+          " <span>Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</span></div>" +
         "</div>";
     }
     /* (3.78.0) UN VENDEUR FERMÉ, dans une boutique multivendeur : ses
@@ -178,10 +178,10 @@ const VuePanier = (() => {
         '<div class="carte pa-avertissement" id="pa-vendeurs-fermes">' + UI.icone("horloge", "ic-sm") +
           "<div>" + [...vus.values()].map((v) => {
             const quand = Catalogue.prochaineOuverture({ ouvertures: v.ouvertures });
-            return "<strong>" + Utils.echapper(v.nom) + "</strong> est fermé en ce moment" +
-              (quand ? " — il ouvre " + Utils.echapper(quand) : "") + ".";
+            return "<span><strong>" + Utils.echapper(v.nom) + "</strong><span> est fermé en ce moment</span>" +
+              (quand ? "<span> — il ouvre </span>" + UI.quand(quand) : "") + ".</span>";
           }).join(" ") +
-          " Vous pourrez commander ses articles à sa réouverture, ou les retirer pour commander le reste.</div>" +
+          " <span>Vous pourrez commander ses articles à sa réouverture, ou les retirer pour commander le reste.</span></div>" +
         "</div>";
     }
     if (ruptures.length || ramenees.length) {
@@ -412,13 +412,18 @@ const VuePanier = (() => {
         ? '<div class="pa-ligne-stock">' + UI.icone("alerte", "ic-sm") +
             (max > 1 ? "Les " + max + " dernières pièces" : "La dernière pièce") + "</div>"
         : "";
+    /* (3.79.0) Sa boutique (ou son vendeur) est fermée : la ligne reste,
+       grisée, avec l'heure de réouverture. */
+    const ferme = Catalogue.fermeture(p);
     return (
-      '<div class="pa-ligne">' +
+      '<div class="pa-ligne' + (ferme ? " p-ferme" : "") + '">' +
         '<a class="pa-ligne-img" href="#/produit/' + Utils.echapper(p.id) + '">' +
           UI.imageProduit(p, "pa-ligne-photo") + "</a>" +
         '<div class="pa-ligne-corps">' +
           '<a class="pa-ligne-nom" href="#/produit/' + Utils.echapper(p.id) + '">' +
             Utils.echapper(p.nom) + "</a>" +
+          (ferme ? '<div class="pa-ligne-stock pa-ligne-ferme">' + UI.icone("horloge", "ic-sm") +
+            UI.motFermeture(ferme) + "</div>" : "") +
           '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
             (l.quantite > 1
               ? ' <span class="pa-ligne-sous">× ' + l.quantite + " = " +
@@ -632,6 +637,11 @@ const VuePanier = (() => {
       inviterAuCompte(vue);
       return;
     }
+
+    /* (3.79.0) UNE BOUTIQUE (OU UN VENDEUR) A FERMÉ entre-temps : on le dit
+       ici, clairement, plutôt que de laisser la base refuser au moment de
+       payer. Le panier n'est pas touché. */
+    if (avertirFermetures(vue)) return;
 
     const c = coordonnees();
     const devise = Panier.devise();
@@ -864,6 +874,43 @@ const VuePanier = (() => {
         if (enLigne && Paiement.tauxAcompte() !== tauxLu) rafraichirTotal(vue, devise, boutonPayer);
       }).catch(() => { /* on garde ce qu'on a */ });
     }
+  }
+
+  /* (3.79.0) Les articles du panier qu'on ne peut pas commander en ce
+     moment, regroupés par boutique ou vendeur fermé. */
+  function fermeturesDuPanier() {
+    const vus = new Map();
+    for (const l of Panier.lignes()) {
+      const f = l.produit && Catalogue.fermeture(l.produit);
+      if (!f) continue;
+      const cle = f.qui + ":" + f.nom;
+      if (!vus.has(cle)) vus.set(cle, Object.assign({ articles: [] }, f));
+      vus.get(cle).articles.push(l.produit.nom);
+    }
+    return [...vus.values()];
+  }
+  function avertirFermetures(vue) {
+    const fermes = fermeturesDuPanier();
+    if (!fermes.length) return false;
+    UI.entete({ titre: "Votre commande", retour: true });
+    vue.innerHTML =
+      '<div class="carte pa-avertissement" id="co-fermees">' + UI.icone("horloge", "ic-sm") +
+        "<div><strong>" + (fermes.length > 1 ? "Des articles ne se commandent pas en ce moment."
+                                               : "Un article ne se commande pas en ce moment.") + "</strong>" +
+          fermes.map((f) =>
+            '<p style="margin:6px 0 0">' + (f.qui === "vendeur" ? "<span>Le vendeur </span>" : "<span>La boutique </span>") +
+              "<strong>" + Utils.echapper(f.nom) + "</strong>" +
+              (f.qui === "vendeur" ? "<span> est fermé</span>" : "<span> est fermée</span>") +
+              (f.quand ? (f.qui === "vendeur" ? "<span> — il ouvre </span>" : "<span> — elle ouvre </span>") +
+                UI.quand(f.quand) : "") +
+              " : <span>" + f.articles.map((n) => "« " + Utils.echapper(n) + " »").join(", ") + "</span>.</p>").join("") +
+          '<p style="margin:8px 0 0">Vos articles restent dans le panier. Commandez à la réouverture, ou retirez-les ' +
+            "pour commander le reste maintenant.</p>" +
+        "</div>" +
+      "</div>" +
+      '<a class="btn" href="#/panier">' + UI.icone("retour") + "Revenir au panier</a>";
+    UI.retirerAction();
+    return true;
   }
 
   /* -----------------------------------------------------
@@ -1319,6 +1366,13 @@ const VuePanier = (() => {
   async function lancerPaiement(bouton, lire, verifier, lirePaiement) {
     const client = lire();
     if (!verifier(client)) return;
+    /* (3.79.0) Une boutique a pu fermer pendant que le client remplissait :
+       on le lui dit avant de rien envoyer. */
+    if (fermeturesDuPanier().length) {
+      UI.toast("Une boutique vient de fermer : ses articles se commanderont à sa réouverture.", "err");
+      commander(document.getElementById("vue"));
+      return;
+    }
     /* Connecté en ouvrant l'écran ? On s'en souvient : voir plus bas. */
     const avecCompte = typeof Compte !== "undefined" && Compte.connecte();
 
