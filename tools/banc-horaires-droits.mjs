@@ -6,12 +6,15 @@
    99zzzzzz-produits-habilitation.sql). Les écrans :
 
    APPLICATION CLIENT
-     1. les produits d'une boutique fermée en ce moment ne paraissent ni
-        dans les listes ni dans la recherche ; ceux d'une boutique ouverte,
-        si ;
-     2. la page de la boutique fermée dit quand elle ouvre, sans vitrine ;
-     3. la fiche d'un produit (lien partagé) n'a pas de panier ;
+     1. (3.79.0) les produits d'une boutique fermée restent dans les
+        listes et la recherche, après ceux des boutiques ouvertes, avec
+        « Fermé · ouvre demain à 8 h » ; les boutiques ouvertes d'abord ;
+     2. la page de la boutique fermée dit quand elle ouvre, et garde sa
+        vitrine, grisée ;
+     3. la fiche d'un produit (lien partagé) : visible, bouton éteint ;
      4. le panier qui en contient ne laisse pas commander, et dit pourquoi ;
+        le paiement avertit au lieu d'échouer ; à l'ouverture, tout
+        redevient commandable sans recharger ;
      5. « À propos » montre les horaires, jour par jour.
 
    APPLICATION VENDEUR
@@ -87,38 +90,60 @@ const texte = (page) => page.evaluate(() => document.getElementById("vue").inner
 const aller = async (page, h) => { await page.evaluate((x) => { location.hash = x; }, h); await pause(1500); };
 const sansErreur = (o) => ok(!o.erreurs.length, "aucune erreur JavaScript" + (o.erreurs.length ? " : " + o.erreurs[0] : ""));
 
-titre("1. Les produits d'une boutique fermée ne paraissent pas");
+titre("1. (3.79.0) Les produits d'une boutique fermée restent en vitrine, après les autres");
 {
   const o = await ouvrirClient("#/");
   const visibles = await o.page.evaluate(() => Catalogue.produitsDeLEnseigne().map((p) => p.id));
-  ok(visibles.includes("p_ouv") && !visibles.includes("p_fer"),
-    "la liste des produits : celui de la boutique ouverte, pas celui de la fermée (" + visibles.join(", ") + ")");
+  ok(visibles.includes("p_ouv") && visibles.includes("p_fer") && visibles.indexOf("p_ouv") < visibles.indexOf("p_fer"),
+    "la liste : les deux, celui de la boutique ouverte d'abord (" + visibles.join(", ") + ")");
   const trouves = await o.page.evaluate(() => Catalogue.rechercher("clavier").map((p) => p.id));
-  ok(!trouves.includes("p_fer"), "la recherche ne le remonte pas");
+  ok(trouves.includes("p_fer"), "la recherche le trouve toujours");
   ok(await o.page.evaluate(() => Catalogue.prochaineOuverture(Catalogue.boutiques().find((b) => b.id === "bou_fer")))
-    === "demain à 08 h 00", "« demain à 08 h 00 » : l'heure de réouverture se calcule");
+    === "demain à 8 h", "« demain à 8 h » : l'heure de réouverture, courte");
+  ok(await o.page.evaluate(() => Catalogue.motFermeture(Catalogue.fermeture(Catalogue.produit("p_fer"))))
+    === "Fermé · ouvre demain à 8 h", "le badge : « Fermé · ouvre demain à 8 h »");
+  ok(await o.page.evaluate(() => Catalogue.commandable(Catalogue.produit("p_ouv")) &&
+                                  !Catalogue.commandable(Catalogue.produit("p_fer"))),
+    "commandable : l'un oui, l'autre non");
   await aller(o.page, "#/boutiques");
   ok(/Fermée · ouvre demain/.test(await texte(o.page)), "la liste des boutiques la dit fermée");
+  const ordre = await o.page.evaluate(() => Catalogue.boutiques().map((b) => b.id));
+  ok(ordre[0] === "bou_ouv", "les boutiques ouvertes d'abord (" + ordre.join(", ") + ")");
   sansErreur(o);
 
-  titre("2. La page de la boutique fermée");
+  titre("2. La page de la boutique fermée : sa vitrine, grisée");
   await aller(o.page, "#/boutique/bou_fer");
   const t = await texte(o.page);
   ok(!!(await o.page.$("#bou-fermee")) && /Fermée en ce moment/.test(t) && /ouvre demain/.test(t),
     "un bandeau : fermée, elle ouvre demain");
-  ok(/Boutique fermée en ce moment/.test(t) && !/Clavier Beta/.test(t), "pas de vitrine");
+  ok(!!(await o.page.$('.p-ferme[href="#/produit/p_fer"]')), "sa vitrine reste, ses produits grisés");
+  ok(/Fermé · ouvre demain à 8 h/.test(await o.page.evaluate(() =>
+    (document.querySelector(".p-ferme .p-ferme-badge") || {}).textContent || "")),
+    "chaque produit : « Fermé · ouvre demain à 8 h »");
   await aller(o.page, "#/boutique/bou_ouv");
   ok(!(await o.page.$("#bou-fermee")) &&
      (await o.page.evaluate(() => Catalogue.produits().map((p) => p.id))).includes("p_ouv"),
     "la boutique ouverte, elle, n'a pas de bandeau, et ses produits sont là");
 
-  titre("3. La fiche d'un produit partagé");
+  titre("3. La fiche d'un produit partagé : visible, bouton éteint");
   await aller(o.page, "#/produit/p_fer");
-  ok(!!(await o.page.$("#p-fermee")) && !(await o.page.$("#p-ajouter")),
-    "boutique fermée : pas de panier, l'heure de réouverture à la place");
+  ok(!!(await o.page.$("#p-fermee")) && !(await o.page.$("#p-ajouter")) &&
+     await o.page.evaluate(() => { const b = document.querySelector("#p-fermee .btn"); return !!b && b.disabled; }),
+    "boutique fermée : le bouton est là, éteint");
+  ok(/Fermé · ouvre demain à 8 h/.test(await o.page.evaluate(() => document.querySelector("#p-fermee").innerText)),
+    "il dit « Fermé · ouvre demain à 8 h »");
+  ok(!!(await o.page.$(".fiche-ferme")), "la photo est grisée");
   await aller(o.page, "#/produit/p_ouv");
   ok(!!(await o.page.$("#p-ajouter")) && !(await o.page.$("#p-fermee")), "boutique ouverte : le panier");
   sansErreur(o);
+  await o.ctx.close();
+}
+{
+  /* Un favori, et la recherche à l'écran. */
+  const o = await ouvrirClient("#/recherche");
+  await o.page.fill("#recherche-champ", "clavier");
+  await pause(800);
+  ok(/Clavier Beta/.test(await texte(o.page)), "la recherche à l'écran montre le produit de la boutique fermée");
   await o.ctx.close();
 }
 
@@ -128,6 +153,14 @@ titre("4. Le panier qui contient un produit d'une boutique fermée");
   ok(!!(await o.page.$("#pa-fermees")) && /Beta Fermée.*fermée en ce moment/.test(await texte(o.page)),
     "le panier le dit");
   ok(await o.page.evaluate(() => document.querySelector("#pa-commander").disabled), "et ne laisse pas commander");
+  ok(!!(await o.page.$(".pa-ligne.p-ferme")), "sa ligne est grisée, avec l'heure de réouverture");
+  /* Arrivé au paiement quand même (lien direct, ou fermée entre-temps) :
+     un avertissement clair, pas une erreur au moment de payer. */
+  await aller(o.page, "#/commande");
+  const t = await texte(o.page);
+  ok(!!(await o.page.$("#co-fermees")) && /La boutique Beta Fermée est fermée — elle ouvre demain à 8 h/.test(t) &&
+     /Vos articles restent dans le panier/.test(t),
+    "au paiement : « La boutique Beta Fermée est fermée — elle ouvre demain à 8 h », le panier gardé");
   sansErreur(o);
   await o.ctx.close();
 }
@@ -136,6 +169,60 @@ titre("4. Le panier qui contient un produit d'une boutique fermée");
   ok(!(await o.page.$("#pa-fermees")) &&
      !(await o.page.evaluate(() => document.querySelector("#pa-commander").disabled)),
     "boutique ouverte : on commande");
+  await o.ctx.close();
+}
+
+titre("4 bis. À l'ouverture, le produit redevient commandable de lui-même");
+{
+  const ctx = await nav.newContext({ viewport: { width: 390, height: 2200 }, serviceWorkers: "block" });
+  const page = await ctx.newPage();
+  const erreurs = [];
+  page.on("pageerror", (e) => erreurs.push(e.message));
+  /* L'horloge de la page : maintenant, puis demain 8 h 01 (heure du Bénin). */
+  const maintenant = Date.now();
+  const demain8h = Date.UTC(ici.getUTCFullYear(), ici.getUTCMonth(), ici.getUTCDate() + 1, 7, 1);
+  await page.clock.install({ time: maintenant });
+  await page.addInitScript(() => {
+    localStorage.setItem("impact-config", JSON.stringify({ url: "https://base-absente.invalid", cle: "k" }));
+    localStorage.removeItem("impact-boutique");
+  });
+  await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.route("**/rest/v1/**", (r) => {
+    const c = new URL(r.request().url()).pathname.replace(/^.*\/rest\/v1\//, "");
+    const d = (x) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
+    if (c.startsWith("boutiques")) return d(BOU);
+    if (c.startsWith("boutique")) return d([{ id: 1, nom: "BIZZOO", devise: "FCFA", indicatif: "229" }]);
+    if (c.startsWith("produits")) return d(PRODUITS);
+    if (c.startsWith("categories")) return d([{ id: "cat_hightech", nom: "High-tech", ordre: 1, sous_categories: [] }]);
+    if (c.startsWith("paiement")) return d([{ id: 1, actif: false, fournisseur: "feexpay" }]);
+    return d([]);
+  });
+  await page.goto(BASE + "/client/index.html#/produit/p_fer");
+  await page.clock.runFor(3000);
+  await page.waitForSelector("#p-fermee", { timeout: 5000 }).catch(() => {});
+  ok(!!(await page.$("#p-fermee")), "la nuit : fermé");
+  await page.clock.setSystemTime(demain8h);
+  await page.clock.runFor(61000);
+  await page.waitForSelector("#p-ajouter", { timeout: 5000 }).catch(() => {});
+  ok(!!(await page.$("#p-ajouter")) && !(await page.$("#p-fermee")),
+    "demain 8 h 01 : « Ajouter au panier », sans recharger");
+  ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("4 ter. En anglais : « Closed · opens tomorrow at 8:00 »");
+{
+  const o = await ouvrirClient("#/produit/p_fer");
+  await o.page.evaluate(() => { localStorage.setItem("bizzoo-langue", "en"); });
+  await o.page.reload();
+  await pause(2500);
+  const t = await o.page.evaluate(() => document.querySelector("#p-fermee").innerText.replace(/\s+/g, " "));
+  ok(/Shop closed right now — opens tomorrow at 8:00\./.test(t) && /Closed · opens tomorrow at 8:00/.test(t),
+    "la fiche, en anglais (" + t + ")");
+  await aller(o.page, "#/boutique/bou_fer");
+  const b = await o.page.evaluate(() => (document.querySelector(".p-ferme .p-ferme-badge") || {}).innerText || "");
+  ok(/Closed · opens tomorrow at 8:00/.test(b), "le badge, en anglais (" + b + ")");
+  sansErreur(o);
   await o.ctx.close();
 }
 

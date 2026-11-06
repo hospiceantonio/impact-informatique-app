@@ -246,12 +246,28 @@ const Paiement = (() => {
     return { km: Math.round(2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * t.coef * 1000) / 1000, route: false };
   }
 
-  /** Les boutiques du panier, une fois chacune, dans l'ordre de leur
-      identifiant — celui de la base, pour départager deux trajets égaux. */
+  /** Les lieux de retrait du panier, une fois chacun, dans l'ordre de leur
+      clé — celle de la base (« points_commande »), pour départager deux
+      trajets égaux : l'identifiant de la boutique, ou (3.78.0)
+      « v:<vendeur> » pour ce qui se récupère chez un vendeur d'une
+      boutique multivendeur — à SA position, jamais à celle de la boutique. */
   function boutiquesPanier() {
     const groupes = typeof Panier !== "undefined" ? Panier.parBoutique() : [];
     const vues = new Map();
-    for (const g of groupes) if (g.boutique && g.boutique.id) vues.set(g.boutique.id, g.boutique);
+    const pointDe = (p) => (p && typeof Catalogue !== "undefined" && Catalogue.pointDe ? Catalogue.pointDe(p.id) : null);
+    for (const g of groupes) {
+      for (const l of g.lignes || []) {
+        const v = pointDe(l.produit);
+        if (v) {
+          const cle = "v:" + v.id;
+          if (!vues.has(cle)) {
+            vues.set(cle, { id: cle, nom: v.nom, latitude: v.latitude, longitude: v.longitude, vendeur: true });
+          }
+        } else if (g.boutique && g.boutique.id) {
+          vues.set(g.boutique.id, g.boutique);
+        }
+      }
+    }
     return [...vues.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
@@ -383,7 +399,7 @@ const Paiement = (() => {
     return "Livraison " + (v === "tricycle" ? "en tricycle" : "à moto") + " : " + f(t[v].forfait) +
       " jusqu'à " + String(t.rayon).replace(".", ",") + " km, " + f(t[v].prixKm) + " par km au-delà" +
       /* (3.74.0) Le supplément de chaque boutique de la tournée. */
-      (t.supplement > 0 ? ". Commande de plusieurs boutiques : + " + f(t.supplement) + " par boutique." : ".");
+      (t.supplement > 0 ? ". Commande de plusieurs boutiques : + " + f(t.supplement) + " par boutique ou vendeur." : ".");
   }
 
   /* Où livrer : gardé sur le téléphone, pour ne pas le redemander à
@@ -441,7 +457,11 @@ const Paiement = (() => {
    * Une base d'avant ne connaît pas ces réglages : on retombe sur ceux de
    * l'enseigne — un acompte unique, des frais une fois par commande.
    */
-  function apercu(remise) {
+  /* (3.77.0) « sansLivraison » : le panier, qui ne parle que des articles —
+     au kilomètre, la livraison ne se compte qu'à l'étape suivante, une
+     fois le lieu choisi. */
+  function apercu(remise, options) {
+    const sansLivraison = !!(options && options.sansLivraison);
     const groupes = typeof Panier !== "undefined" ? Panier.parBoutique() : [];
     const sousTotal = groupes.reduce((s, g) => s + g.montant, 0);
     const r = Math.min(Math.max(0, Math.round(Number(remise) || 0)), sousTotal);
@@ -449,7 +469,7 @@ const Paiement = (() => {
        la commande, payé en entier en ligne avec l'acompte. Tant que le
        client n'a pas dit où livrer, on n'en connaît que le forfait. */
     const auKm = livraisonAuKm();
-    const leDevis = auKm ? devis(destination(), vehiculePanier()) : null;
+    const leDevis = auKm && !sansLivraison ? devis(destination(), vehiculePanier()) : null;
     const parBoutique = !auKm && groupes.some((g) => g.boutique && g.boutique.fraisLivraison !== undefined);
     const parts = groupes.map((g) => {
       const b = g.boutique || {};

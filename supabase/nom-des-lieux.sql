@@ -15,6 +15,22 @@
 -- =========================================================
 
 -- (3.73.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.point_retrait_produit(produit text) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare r text;
+begin
+  select case when pp.vendeur_id is not null and pp.taux_vendeur is not null and b.vendeurs = 'multiples'
+              then 'v:' || pp.vendeur_id::text else p.boutique_id end
+    into r
+    from public.produits p
+    join public.boutiques b on b.id = p.boutique_id
+    left join public.produits_prive pp on pp.produit_id = p.id
+   where p.id = produit;
+  return r;
+end $$;
+revoke all on function public.point_retrait_produit(text) from public, anon, authenticated;
+
+-- (3.73.0) Empruntées plus bas, recopiées telles quelles.
 create or replace function public.distance_trajet(
   de_lat double precision, de_lng double precision, a_lat double precision, a_lng double precision,
   out km numeric, out par_route boolean)
@@ -107,10 +123,22 @@ begin
   end if;
   -- Les boutiques, une fois chacune, dans un ordre fixe (leur identifiant) :
   -- à distances égales, la base et l'application choisissent la même.
-  for b in select x.id, x.nom, x.latitude, x.longitude
-             from public.boutiques x
-            where x.id = any(coalesce(boutiques, '{}'))
-            order by x.id collate "C" loop
+  -- (3.78.0) Un lieu « v:<vendeur> » est un vendeur d'une boutique à
+  -- vendeurs multiples : son nom, SA position (jamais celle de la boutique
+  -- multivendeur), le point BIZZOO s'il n'en a pas encore. Un arrêt comme
+  -- un autre, avec son supplément.
+  for b in select k.cle as id,
+                  case when k.vendeur then coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(pv.nom), ''), 'Vendeur')
+                       else x.nom end as nom,
+                  case when k.vendeur then vl.latitude else x.latitude end as latitude,
+                  case when k.vendeur then vl.longitude else x.longitude end as longitude
+             from (select distinct u.cle0 as cle, u.cle0 like 'v:%' as vendeur
+                     from unnest(coalesce(boutiques, '{}')) as u(cle0) where u.cle0 is not null) k
+             left join public.boutiques x on not k.vendeur and x.id = k.cle
+             left join public.profils pv on k.vendeur and pv.id::text = substr(k.cle, 3) and pv.role = 'vendeur'
+             left join public.vendeurs_lieux vl on k.vendeur and vl.vendeur_id::text = substr(k.cle, 3)
+            where x.id is not null or pv.id is not null
+            order by k.cle collate "C" loop
     ids  := ids || b.id;
     noms := noms || coalesce(b.nom, '');
     if b.latitude is null or b.longitude is null or (b.latitude = 0 and b.longitude = 0)
@@ -199,11 +227,13 @@ begin
       case when j <= w then lngs[j] else longitude end);
     if t.par_route then routes := routes + 1; end if;
     if n > 0 then
-      etapes := etapes || jsonb_build_object(
-        'boutique_id', ids[i], 'nom', noms[i],
+      etapes := etapes || (jsonb_build_object(
+        'boutique_id', case when ids[i] like 'v:%' then null else ids[i] end, 'nom', noms[i],
         'latitude', round(lats[i]::numeric, 6), 'longitude', round(lngs[i]::numeric, 6),
         'sans_position', sans[i],
-        'vers_suivante_km', round(d[(i - 1) * (w + 1) + j], 1));
+        'vers_suivante_km', round(d[(i - 1) * (w + 1) + j], 1)) ||
+        case when ids[i] like 'v:%' then jsonb_build_object('vendeur_id', substr(ids[i], 3))
+             else '{}'::jsonb end);
     end if;
   end loop;
 
@@ -388,7 +418,8 @@ begin
   select coalesce(sum(coalesce(p.prix, 0) * a.q), 0)::bigint,
          min(coalesce(nullif(b.devise, ''), 'FCFA')),
          bool_or(p.vehicule = 'tricycle'),
-         array_agg(distinct p.boutique_id) filter (where p.boutique_id is not null)
+         -- (3.78.0) Les lieux de retrait : chaque vendeur, chaque boutique.
+         array_agg(distinct public.point_retrait_produit(p.id)) filter (where p.boutique_id is not null)
     into sous, devise, tri, bouts
     from a join public.produits p on p.id = a.id
     left join public.boutiques b on b.id = p.boutique_id;

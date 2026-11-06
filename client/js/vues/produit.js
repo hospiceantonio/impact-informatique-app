@@ -525,12 +525,24 @@ const VueProduit = (() => {
     /* BOUTIQUE FERMÉE (3.59.0) : pas de panier. Le lien a pu être
        partagé la veille ; on dit quand elle rouvre, plutôt que de laisser
        partir une commande que personne ne prendrait. */
-    const chez = Catalogue.boutiqueDuProduit(p);
-    const fermee = !!chez && !Catalogue.ouverteMaintenant(chez);
-    if (fermee) {
-      const quand = Catalogue.prochaineOuverture(chez);
-      UI.barreAction('<div class="pa-ferme" id="p-fermee">' + UI.icone("horloge", "ic-sm") +
-        " Boutique fermée" + (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".</div>");
+    /* (3.79.0) FERMÉE (boutique, ou vendeur d'une boutique multivendeur) :
+       le produit reste visible — grisé —, le bouton de commande est là
+       mais éteint, avec l'heure de réouverture. À l'ouverture, l'écran se
+       redessine de lui-même et le produit redevient commandable. */
+    const ferme = Catalogue.fermeture(p);
+    const photos = UI.$(".fiche-carrousel, .fiche-img", vue);
+    if (photos) photos.classList.toggle("fiche-ferme", !!ferme);
+    if (ferme) {
+      UI.barreAction('<div class="pa-ferme-barre" id="p-fermee">' +
+        '<p class="pa-ferme">' + UI.icone("horloge", "ic-sm") + "<span>" +
+          (ferme.qui === "vendeur"
+            ? "<span>Vendeur « </span><strong>" + Utils.echapper(ferme.nom) + "</strong><span> » fermé en ce moment</span>"
+            : "<span>Boutique fermée en ce moment</span>") +
+          (ferme.quand ? "<span>" + (ferme.qui === "vendeur" ? " — il ouvre " : " — elle ouvre ") + "</span>" +
+            UI.quand(ferme.quand) : "") +
+          ".</span></p>" +
+        '<button type="button" class="btn btn-ferme" disabled>' + UI.motFermeture(ferme) + "</button>" +
+        "</div>");
     } else if (etat !== "rupture") {
       const barre = UI.barreAction(
         '<div class="pa-compteur pa-compteur-da">' +

@@ -2093,3 +2093,8 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* Une icône et son texte, sur la même ligne. */
 .lieu-ligne{display:flex;align-items:flex-start;gap:6px}
 .lieu-ligne > .ic{flex:none;margin-top:2px}
+/* (3.78.0) Boutique multivendeur : un encadré par vendeur chez qui récupérer. */
+.lv-multi{margin:10px 0 0}
+.lv-multi > .aide{margin:4px 0 8px}
+.lv-vendeur{border-left:3px solid var(--bleu-50, #ECF2FE);padding-left:10px;margin:8px 0}
+.lv-vendeur .lv-lieu{margin-top:0}

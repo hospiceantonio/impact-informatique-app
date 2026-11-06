@@ -365,9 +365,10 @@ const VueAccueil = (() => {
                un zéro qui passerait pour une mauvaise note. */
             (UI.noteCourte(b) || '<span class="bou-sans-avis">Pas encore d\'avis</span>') +
             (!Catalogue.ouverteMaintenant(b)
-              ? '<span class="bou-fermee">' + UI.icone("horloge", "ic-sm") + "Fermée" +
-                  (Catalogue.prochaineOuverture(b) ? " · ouvre " + Utils.echapper(Catalogue.prochaineOuverture(b)) : "") +
-                "</span>"
+              ? '<span class="bou-fermee">' + UI.icone("horloge", "ic-sm") + "<span>" +
+                  (Catalogue.prochaineOuverture(b)
+                    ? "<span>Fermée · ouvre </span>" + UI.quand(Catalogue.prochaineOuverture(b)) : "Fermée") +
+                "</span></span>"
               : "") +
             (typeof distance === "number"
               ? '<span class="bou-distance">' + UI.icone("lieu", "ic-sm") +
@@ -825,13 +826,14 @@ const VueAccueil = (() => {
           : "") +
         atouts() +
         /* FERMÉE EN CE MOMENT (3.59.0) : on le dit en tête, avec l'heure
-           de réouverture. Ses produits réapparaissent à l'ouverture. */
+           de réouverture. (3.79.0) Ses produits restent en vitrine, grisés :
+           ils se commandent à l'ouverture. */
         (!Catalogue.ouverteMaintenant(b)
           ? '<div class="pa-avertissement bou-fermee-bandeau" id="bou-fermee">' + UI.icone("horloge", "ic-sm") +
               "<div><strong>Fermée en ce moment.</strong> " +
               (Catalogue.prochaineOuverture(b)
-                ? "Elle ouvre " + Utils.echapper(Catalogue.prochaineOuverture(b)) + ". " : "") +
-              "Ses produits seront visibles à l'ouverture.</div></div>"
+                ? "<span><span>Elle ouvre </span>" + UI.quand(Catalogue.prochaineOuverture(b)) + ".</span> " : "") +
+              "<span>Vous pouvez regarder ses produits : ils se commanderont à l'ouverture.</span></div></div>"
           : "") +
         '<button type="button" class="btn' + (suivie ? " btn-clair" : "") + '" id="bou-suivre" ' +
           'aria-pressed="' + suivie + '">' +
@@ -927,14 +929,8 @@ const VueAccueil = (() => {
     const etat = htmlEtatCatalogue();
     const banniere = htmlSlider(slides, enAvant);
 
-    /* Fermée : pas de vitrine. Un client qui commanderait maintenant
-       n'aurait personne en face (3.59.0). */
-    const ici = Catalogue.boutiqueChoisie && Catalogue.boutiqueChoisie();
-    if (ici && !Catalogue.ouverteMaintenant(ici)) {
-      const quand = Catalogue.prochaineOuverture(ici);
-      return banniere + UI.vide("horloge", "Boutique fermée en ce moment",
-        (quand ? "Elle ouvre " + quand + ". " : "") + "Ses produits seront visibles à l'ouverture.");
-    }
+    /* (3.79.0) Fermée : la vitrine reste — chaque produit dit qu'elle est
+       fermée et quand elle ouvre, et ne se commande pas avant. */
 
     if (!tous.length) {
       return banniere + etat + UI.vide("boite", "Le catalogue arrive bientôt",
@@ -961,9 +957,13 @@ const VueAccueil = (() => {
     /* TOUT LE CATALOGUE EN VIGNETTES, trois par rangée, comme la DA.
        Au-delà de neuf, la liste complète s'ouvre à part, avec ses tris
        — une fiche de boutique n'a pas à dérouler deux cents photos. */
-    const vignettes = '<div class="bou-vignettes">' + tous.slice(0, 9).map((p) =>
-      '<a class="bou-vignette" href="#/produit/' + Utils.echapper(p.id) + '" aria-label="' +
-        Utils.echapper(p.nom) + '">' + UI.imageProduit(p, "bou-vignette-photo") + "</a>").join("") +
+    const vignettes = '<div class="bou-vignettes">' + tous.slice(0, 9).map((p) => {
+      const ferme = Catalogue.fermeture(p);
+      return '<a class="bou-vignette' + (ferme ? " p-ferme" : "") + '" href="#/produit/' +
+        Utils.echapper(p.id) + '" aria-label="' + Utils.echapper(p.nom) + '">' +
+        UI.imageProduit(p, "bou-vignette-photo") +
+        (ferme ? '<span class="p-ferme-badge">' + UI.icone("horloge", "ic-sm") + UI.motFermeture(ferme) + "</span>" : "") + "</a>";
+    }).join("") +
       "</div>";
 
     if (surLaFiche) {

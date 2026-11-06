@@ -567,13 +567,13 @@ titre("6. Resté connecté depuis avant : Mon compte, puis la commande");
 {
   const { page, ctx, erreurs, note } = await ouvrir({ sms: true, session: {}, panier: true });
   await aller(page, "#/commande", 2400);
-  ok(await visible(page, "#cp-confirmer-numero") && !/Adresse de livraison/.test(await page.innerText("#vue")),
+  ok(await visible(page, "#cp-confirmer-numero") && !/Vos coordonnées|Adresse de livraison/.test(await page.innerText("#vue")),
     "avant de commander : la confirmation, pas le formulaire");
   await page.click("#cp-envoyer");
   await page.waitForTimeout(700);
   await taperCode(page, "777777");
   await page.waitForTimeout(2200);
-  ok(note.verify.length === 1 && /Adresse de livraison/.test(await page.innerText("#vue")) &&
+  ok(note.verify.length === 1 && /Vos coordonnées|Adresse de livraison/.test(await page.innerText("#vue")) &&
      !(await page.$("#cp-confirmer-numero")),
     "le numéro confirmé, la commande reprend d'elle-même");
   ok(await page.evaluate(() => JSON.parse(localStorage.getItem("bizzoo-panier") || "[]").length) === 1,
@@ -585,10 +585,12 @@ titre("6. Resté connecté depuis avant : Mon compte, puis la commande");
   const { page, ctx, erreurs } = await ouvrir({ sms: true, session: { sub: MOI, phone: "2290197121596", email: "" },
     panier: true });
   await aller(page, "#/commande", 2400);
-  ok(!(await page.$("#cp-confirmer-numero")) && /Adresse de livraison/.test(await page.innerText("#vue")),
+  ok(!(await page.$("#cp-confirmer-numero")) && /Vos coordonnées|Adresse de livraison/.test(await page.innerText("#vue")),
     "un compte au numéro confirmé commande directement");
   await aller(page, "#/compte", 1800);
   ok(!(await page.$("#cp-numero-requis")), "et Mon compte ne lui demande rien");
+  ok(!(await page.$("#cp-adresse")) && !/Mes adresses/.test(await page.innerText("#vue")),
+    "(3.77.0) Mon compte ne demande plus d'adresse de livraison, ni « Mes adresses »");
   sansErreur(erreurs);
   await ctx.close();
 }

@@ -184,6 +184,11 @@ boutiques (identifiant, tri « C »), même algorithme (Heap jusqu'à 7, puis
 de proche en proche), mêmes arrondis (chaque tronçon au mètre, le km
 entamé). Toucher à l'un, c'est toucher à l'autre, puis éprouver les deux
 (`…-tournee.sql`, `banc-livraison-km.mjs` sections 8 et 9).
+(3.78.0) Les arrêts sont des LIEUX DE RETRAIT : l'identifiant d'une boutique,
+ou « v:<vendeur> » pour ce qui se récupère chez un vendeur d'une boutique
+multivendeur (base : `points_commande`, `point_retrait_produit` ; client :
+`boutiquesPanier` avec `Catalogue.pointDe`). La position d'un vendeur vient
+de `vendeurs_lieux`, jamais de sa boutique multivendeur.
 
 ## Le nom des lieux (depuis 3.76.0)
 

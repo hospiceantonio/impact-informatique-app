@@ -7502,3 +7502,99 @@ les droits, le plafond, les frais de « Faire livrer ») ;
 `tools/eprouver-lieu.sh` (la fonction `lieu`, sans OpenStreetMap) ;
 `tools/eprouver-sms.sh` (le premier code non envoyé) ;
 `tools/banc-lieux.mjs` (le client, « Faire livrer », le bon du livreur).
+
+
+## Un seul lieu, un seul montant de livraison (3.77.0)
+
+Retour de l'équipe : le panier annonçait déjà « Livraison dès 1 000 », le
+paiement affichait l'adresse du compte (« Carrefour Itta ») ET le lieu de
+l'épingle (« Hêvié »), avec un autre montant — trop de lieux et de
+chiffres pour une seule livraison. Désormais, au kilomètre :
+
+- **le panier ne parle que des articles** : sous-total, total, acompte —
+  aucune ligne de livraison (`Paiement.apercu(0, { sansLivraison: true })`) ;
+- **le paiement** : « Vos coordonnées » (le nom et le numéro, plus
+  d'adresse), puis **« Où livrer ? »**, seul endroit où se choisit le
+  lieu. Tant qu'il ne l'est pas : « Livraison — selon le lieu choisi — à
+  calculer », aucun montant d'avance ; posé, les frais s'ajoutent au total ;
+- la commande porte le lieu de l'épingle (+ le repère) ; sans nom de lieu
+  ni repère, « Point sur la carte (lat, lng) » — jamais une adresse tapée
+  ailleurs ;
+- **Mon compte** ne demande plus d'adresse de livraison, et ne propose
+  plus « Mes adresses » (l'écran reste joignable par son lien). Une
+  adresse déjà enregistrée n'est pas effacée.
+
+Sans livraison au kilomètre (ou paiement fermé, commande par WhatsApp),
+tout reste comme avant : l'adresse se tape au formulaire.
+
+Rien en base. Bancs : `banc-livraison-km` (le panier, « à calculer »),
+`banc-lieux` (« Vos coordonnées », le point en dernier recours),
+`banc-connexion-sms` (Mon compte).
+
+
+## Le lieu de chaque vendeur (3.78.0)
+
+Les vendeurs d'une boutique multivendeur (ceux qui ont accepté 10 ou 15 %)
+sont de vraies boutiques sur le terrain, avec leur adresse et leurs
+heures. Avant, une commande chez eux partait de la position générale de la
+boutique multivendeur. Désormais :
+
+- **chaque vendeur a son lieu** (`vendeurs_lieux`) : nom du commerce,
+  numéro, adresse écrite, position, jours et heures. Le superadministrateur
+  le règle dans **Vendeurs** (bouton carte sur chaque vendeur ; la fiche
+  s'ouvre d'elle-même après la création d'un vendeur) : position cherchée
+  par quartier, collée (lien Google Maps), touchée sur la carte, ou « Je
+  suis chez lui : ma position ». Un vendeur sans position est signalé
+  « Position manquante » ;
+- **les frais partent de la position du vendeur** : chaque vendeur est un
+  arrêt de la tournée, avec son supplément (2 vendeurs = 2 × 200 FCFA) —
+  comme deux boutiques. Sans position encore : le point BIZZOO, jamais la
+  position de la boutique multivendeur ;
+- **le bon du livreur** : « Marché … — boutique multivendeur », puis chaque
+  vendeur, avec son adresse écrite, son numéro, sa position (« Voir sur la
+  carte ») et ce qu'il y prend ; « Colis récupéré chez les 2 vendeurs » ;
+- **les heures du vendeur** : fermé, ses produits disparaissent de
+  l'application, la fiche dit « Vendeur fermé en ce moment — il ouvre … »,
+  le panier attend, et la base refuse la commande ;
+- « Faire livrer » compte de même.
+
+Mise en service : `supabase/lieux-vendeurs.sql`, puis la version 3.78.0
+des applications, puis le lieu de chaque vendeur dans **Vendeurs**.
+
+Essais : `supabase/tests/99zzz…-lieux-vendeurs.sql` (droits, horaires,
+tournée par vendeur, bon du livreur, « Faire livrer ») ;
+`tools/banc-lieux-vendeurs.mjs` (Vendeurs, client, livreur).
+
+
+## Boutique fermée : ses produits restent en vitrine (3.79.0)
+
+Avant, une boutique (ou un vendeur) fermée faisait disparaître tous ses
+produits : le catalogue paraissait vide la nuit, et les favoris, les liens
+partagés et les recherches ne menaient plus à rien. Désormais, **ses
+produits restent visibles, mais ne se commandent pas** :
+
+- **un badge** « Fermé · ouvre demain à 8 h » sur chaque produit (accueil,
+  listes, recherche, favoris, vignettes de la boutique, panier), et
+  « Fermée · ouvre demain à 8 h » sur la boutique ; le produit est grisé ;
+- **la fiche du produit** s'ouvre toujours (lien partagé, favori,
+  recherche) : photo grisée, « Boutique fermée en ce moment — elle ouvre
+  demain à 8 h », et à la place d'« Ajouter au panier » un bouton éteint
+  « Fermé · ouvre demain à 8 h ». Même chose pour un vendeur d'une boutique
+  multivendeur (« Vendeur « … » fermé en ce moment — il ouvre … ») ;
+- **les boutiques ouvertes d'abord**, et dans chaque liste les produits
+  commandables avant les autres (sans rien changer à l'ordre de chacun) ;
+- **le panier** garde les articles d'une boutique fermée, grisés, avec
+  l'heure de réouverture, et dit pourquoi la commande attend. Si l'on
+  arrive quand même au paiement (lien direct, ou boutique fermée entre-temps),
+  un avertissement clair remplace le formulaire : « La boutique … est
+  fermée — elle ouvre demain à 8 h : « article ». Vos articles restent dans
+  le panier… », avec « Revenir au panier ». Au moment de payer, la même
+  vérification évite l'erreur de la base ;
+- **à l'ouverture**, l'écran se redessine de lui-même (vérification toutes
+  les 30 secondes, jamais pendant le paiement) : les produits redeviennent
+  commandables sans recharger.
+
+La base refusait déjà une commande chez une boutique ou un vendeur fermé :
+rien à appliquer en base. En anglais : « Closed · opens tomorrow at 8:00 »
+(motifs des heures dans `i18n/commun.motifs.json`).
+Bancs : `banc-horaires-droits` (sections 1 à 4 ter), `banc-lieux-vendeurs`.

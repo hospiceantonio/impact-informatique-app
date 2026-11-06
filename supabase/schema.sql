@@ -3278,10 +3278,22 @@ begin
   end if;
   -- Les boutiques, une fois chacune, dans un ordre fixe (leur identifiant) :
   -- à distances égales, la base et l'application choisissent la même.
-  for b in select x.id, x.nom, x.latitude, x.longitude
-             from public.boutiques x
-            where x.id = any(coalesce(boutiques, '{}'))
-            order by x.id collate "C" loop
+  -- (3.78.0) Un lieu « v:<vendeur> » est un vendeur d'une boutique à
+  -- vendeurs multiples : son nom, SA position (jamais celle de la boutique
+  -- multivendeur), le point BIZZOO s'il n'en a pas encore. Un arrêt comme
+  -- un autre, avec son supplément.
+  for b in select k.cle as id,
+                  case when k.vendeur then coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(pv.nom), ''), 'Vendeur')
+                       else x.nom end as nom,
+                  case when k.vendeur then vl.latitude else x.latitude end as latitude,
+                  case when k.vendeur then vl.longitude else x.longitude end as longitude
+             from (select distinct u.cle0 as cle, u.cle0 like 'v:%' as vendeur
+                     from unnest(coalesce(boutiques, '{}')) as u(cle0) where u.cle0 is not null) k
+             left join public.boutiques x on not k.vendeur and x.id = k.cle
+             left join public.profils pv on k.vendeur and pv.id::text = substr(k.cle, 3) and pv.role = 'vendeur'
+             left join public.vendeurs_lieux vl on k.vendeur and vl.vendeur_id::text = substr(k.cle, 3)
+            where x.id is not null or pv.id is not null
+            order by k.cle collate "C" loop
     ids  := ids || b.id;
     noms := noms || coalesce(b.nom, '');
     if b.latitude is null or b.longitude is null or (b.latitude = 0 and b.longitude = 0)
@@ -3370,11 +3382,13 @@ begin
       case when j <= w then lngs[j] else longitude end);
     if t.par_route then routes := routes + 1; end if;
     if n > 0 then
-      etapes := etapes || jsonb_build_object(
-        'boutique_id', ids[i], 'nom', noms[i],
+      etapes := etapes || (jsonb_build_object(
+        'boutique_id', case when ids[i] like 'v:%' then null else ids[i] end, 'nom', noms[i],
         'latitude', round(lats[i]::numeric, 6), 'longitude', round(lngs[i]::numeric, 6),
         'sans_position', sans[i],
-        'vers_suivante_km', round(d[(i - 1) * (w + 1) + j], 1));
+        'vers_suivante_km', round(d[(i - 1) * (w + 1) + j], 1)) ||
+        case when ids[i] like 'v:%' then jsonb_build_object('vendeur_id', substr(ids[i], 3))
+             else '{}'::jsonb end);
     end if;
   end loop;
 
@@ -4579,7 +4593,10 @@ begin
       'tel', coalesce(nullif(b.tel, ''), b.whatsapp, ''), 'indicatif', coalesce(nullif(b.indicatif, ''), '229'),
       -- (3.70.0) Pour « Écrire à la boutique sur WhatsApp ».
       'whatsapp', coalesce(nullif(b.whatsapp, ''), b.tel, ''),
-      'latitude', b.latitude, 'longitude', b.longitude),
+      'latitude', b.latitude, 'longitude', b.longitude,
+      -- (3.78.0) Boutique à vendeurs multiples : chaque vendeur chez qui
+      -- récupérer, avec SON lieu, son numéro et ses articles.
+      'vendeurs', public.vendeurs_retrait(commande, boutique)),
     'livraison', jsonb_build_object(
       'nom', coalesce(c.client_nom, ''), 'adresse', coalesce(c.client_adresse, ''),
       'note', coalesce(c.note, ''), 'tel', coalesce(c.client_tel, ''),
@@ -6570,6 +6587,16 @@ begin
         (select b.nom from public.boutiques b where b.id = p.boutique_id), p.nom
         using errcode = 'P0001';
     end if;
+    -- (3.78.0) NI UN VENDEUR FERMÉ : dans une boutique à vendeurs multiples,
+    -- chaque vendeur a ses jours et heures.
+    if public.point_retrait_produit(p.id) like 'v:%'
+       and not public.vendeur_ouvert(substr(public.point_retrait_produit(p.id), 3)::uuid) then
+      raise exception '« % » est vendu par « % », fermé en ce moment : il se commandera à sa réouverture.',
+        p.nom, coalesce((select coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'son vendeur')
+                           from public.profils v left join public.vendeurs_lieux vl on vl.vendeur_id = v.id
+                          where v.id::text = substr(public.point_retrait_produit(p.id), 3)), 'son vendeur')
+        using errcode = 'P0001';
+    end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
     insert into public.commande_lignes (id, commande_id, produit_id, quantite)
@@ -6689,9 +6716,10 @@ begin
     else
       -- (3.74.0) La tournée : de boutique en boutique, puis au client, dans
       -- l'ordre le plus court, plus le supplément de chaque boutique.
+      -- (3.78.0) Un arrêt par lieu de retrait : chaque vendeur d'une
+      -- boutique multivendeur, chaque autre boutique.
       devis := public.devis_tournee(
-        array(select distinct l.boutique_id from public.commande_lignes l
-               where l.commande_id = nouvelle and l.boutique_id is not null),
+        public.points_commande(nouvelle),
         (destination ->> 'latitude')::double precision,
         (destination ->> 'longitude')::double precision, vehic);
     end if;
@@ -7664,7 +7692,8 @@ begin
   select coalesce(sum(coalesce(p.prix, 0) * a.q), 0)::bigint,
          min(coalesce(nullif(b.devise, ''), 'FCFA')),
          bool_or(p.vehicule = 'tricycle'),
-         array_agg(distinct p.boutique_id) filter (where p.boutique_id is not null)
+         -- (3.78.0) Les lieux de retrait : chaque vendeur, chaque boutique.
+         array_agg(distinct public.point_retrait_produit(p.id)) filter (where p.boutique_id is not null)
     into sous, devise, tri, bouts
     from a join public.produits p on p.id = a.id
     left join public.boutiques b on b.id = p.boutique_id;
@@ -24818,3 +24847,216 @@ begin
 end $$;
 revoke all on function public.lieu_source_reponse(bigint) from public, anon, authenticated;
 grant execute on function public.lieu_source_reponse(bigint) to service_role;
+
+-- =========================================================
+-- (3.78.0) LE LIEU DE CHAQUE VENDEUR
+--
+-- Un vendeur d'une boutique à vendeurs multiples est une vraie boutique
+-- sur le terrain : son nom, son numéro, son adresse écrite, sa position,
+-- ses jours et heures. La boutique multivendeur ne fait que les réunir :
+-- sa position à elle sert à l'identifier, JAMAIS à remplacer celle d'un
+-- vendeur. Ce que le client commande chez un vendeur se récupère chez ce
+-- vendeur : les frais se comptent depuis lui (un arrêt de la tournée,
+-- avec son supplément), le livreur y est envoyé, et un vendeur fermé ne
+-- reçoit pas de commande.
+--
+-- Un vendeur sans position : le point BIZZOO en attendant, comme une
+-- boutique sans position — et l'administration le signale. Sans
+-- horaires : ouvert, comme une boutique sans horaires.
+-- =========================================================
+create table if not exists public.vendeurs_lieux (
+  vendeur_id uuid primary key references public.profils(id) on delete cascade,
+  nom        text not null default '' check (length(nom) <= 120),
+  tel        text not null default '' check (tel ~ '^[0-9]{0,20}\Z'),
+  indicatif  text not null default '229' check (indicatif ~ '^[0-9]{1,4}\Z'),
+  adresse    text not null default '' check (length(adresse) <= 300),
+  latitude   double precision check (latitude is null or latitude between -90 and 90),
+  longitude  double precision check (longitude is null or longitude between -180 and 180),
+  ouvertures jsonb check (ouvertures is null or public.ouvertures_valides(ouvertures)),
+  maj_le     timestamptz not null default now(),
+  check ((latitude is null) = (longitude is null))
+);
+alter table public.vendeurs_lieux enable row level security;
+revoke all on public.vendeurs_lieux from public, anon, authenticated;
+
+-- Le lieu d'un vendeur, pour son formulaire : l'équipe, ou le vendeur
+-- lui-même.
+create or replace function public.lieu_vendeur(cible uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare l public.vendeurs_lieux%rowtype;
+begin
+  if auth.uid() is null or not (public.est_super() or public.est_equipe() or auth.uid() = cible) then
+    raise exception 'Réservé à l''équipe.' using errcode = 'P0001';
+  end if;
+  select * into l from public.vendeurs_lieux where vendeur_id = cible;
+  return jsonb_build_object('nom', coalesce(l.nom, ''), 'tel', coalesce(l.tel, ''),
+    'indicatif', coalesce(l.indicatif, '229'), 'adresse', coalesce(l.adresse, ''),
+    'latitude', l.latitude, 'longitude', l.longitude, 'ouvertures', l.ouvertures,
+    'connu', found);
+end $$;
+revoke all on function public.lieu_vendeur(uuid) from public, anon;
+grant execute on function public.lieu_vendeur(uuid) to authenticated;
+
+-- L'enregistrer : le superadministrateur, qui crée les vendeurs.
+create or replace function public.enregistrer_lieu_vendeur(cible uuid, lieu jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  lat double precision;
+  lng double precision;
+  o   jsonb := case when jsonb_typeof(lieu -> 'ouvertures') = 'object' then lieu -> 'ouvertures' end;
+  t   text := regexp_replace(coalesce(lieu ->> 'tel', ''), '\D', '', 'g');
+  ind text := coalesce(nullif(regexp_replace(coalesce(lieu ->> 'indicatif', ''), '\D', '', 'g'), ''), '229');
+begin
+  if auth.uid() is null or not public.est_super() then
+    raise exception 'Le lieu d''un vendeur est réglé par le superadministrateur.' using errcode = 'P0001';
+  end if;
+  if not exists (select 1 from public.profils p where p.id = cible and p.role = 'vendeur') then
+    raise exception 'Ce compte n''est pas un vendeur.' using errcode = 'P0001';
+  end if;
+  if lieu is null or jsonb_typeof(lieu) <> 'object' then
+    raise exception 'Lieu illisible.' using errcode = 'P0001';
+  end if;
+  begin
+    lat := nullif(lieu ->> 'latitude', '')::double precision;
+    lng := nullif(lieu ->> 'longitude', '')::double precision;
+  exception when others then
+    raise exception 'Position illisible : posez-la sur la carte.' using errcode = 'P0001';
+  end;
+  if (lat is null) <> (lng is null) or (lat is not null and (lat not between -90 and 90
+       or lng not between -180 and 180 or (lat = 0 and lng = 0))) then
+    raise exception 'Position illisible : posez-la sur la carte.' using errcode = 'P0001';
+  end if;
+  if length(t) > 20 then
+    raise exception 'Numéro du vendeur : 20 chiffres au plus.' using errcode = 'P0001';
+  end if;
+  if length(btrim(coalesce(lieu ->> 'adresse', ''))) > 300 then
+    raise exception 'Adresse du vendeur : 300 caractères au plus.' using errcode = 'P0001';
+  end if;
+  if length(btrim(coalesce(lieu ->> 'nom', ''))) > 120 then
+    raise exception 'Nom du commerce : 120 caractères au plus.' using errcode = 'P0001';
+  end if;
+  if o is not null and not public.ouvertures_valides(o) then
+    raise exception 'Horaires du vendeur illisibles : un jour ouvert au moins, l''ouverture avant la fermeture.'
+      using errcode = 'P0001';
+  end if;
+  insert into public.vendeurs_lieux as v (vendeur_id, nom, tel, indicatif, adresse, latitude, longitude, ouvertures, maj_le)
+  values (cible, btrim(coalesce(lieu ->> 'nom', '')), t, left(ind, 4), btrim(coalesce(lieu ->> 'adresse', '')),
+          lat, lng, o, now())
+  on conflict (vendeur_id) do update
+    set nom = excluded.nom, tel = excluded.tel, indicatif = excluded.indicatif, adresse = excluded.adresse,
+        latitude = excluded.latitude, longitude = excluded.longitude, ouvertures = excluded.ouvertures,
+        maj_le = now();
+  return public.lieu_vendeur(cible);
+end $$;
+revoke all on function public.enregistrer_lieu_vendeur(uuid, jsonb) from public, anon;
+grant execute on function public.enregistrer_lieu_vendeur(uuid, jsonb) to authenticated;
+
+-- Le vendeur est-il ouvert ? (Sans horaires : oui.)
+create or replace function public.vendeur_ouvert(cible uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((select public.boutique_ouverte(l.ouvertures) from public.vendeurs_lieux l
+                    where l.vendeur_id = cible), true);
+end $$;
+grant execute on function public.vendeur_ouvert(uuid) to anon, authenticated;
+
+-- Pour l'écran « Vendeurs » : le lieu de chacun, en un appel (« position
+-- manquante », « horaires manquants »).
+create or replace function public.lieux_vendeurs() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not (public.est_super() or public.est_equipe()) then
+    raise exception 'Réservé à l''équipe.' using errcode = 'P0001';
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+                     'vendeur_id', l.vendeur_id, 'nom', l.nom, 'tel', l.tel, 'adresse', l.adresse,
+                     'latitude', l.latitude, 'longitude', l.longitude,
+                     'horaires', l.ouvertures is not null) order by l.vendeur_id)
+                     from public.vendeurs_lieux l), '[]'::jsonb);
+end $$;
+revoke all on function public.lieux_vendeurs() from public, anon;
+grant execute on function public.lieux_vendeurs() to authenticated;
+
+-- Le lieu où se récupère un produit : « v:<vendeur> » quand il est vendu
+-- par un vendeur d'une boutique à vendeurs multiples (la règle même de
+-- « ligne_vendeur »), sinon sa boutique.
+create or replace function public.point_retrait_produit(produit text) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare r text;
+begin
+  select case when pp.vendeur_id is not null and pp.taux_vendeur is not null and b.vendeurs = 'multiples'
+              then 'v:' || pp.vendeur_id::text else p.boutique_id end
+    into r
+    from public.produits p
+    join public.boutiques b on b.id = p.boutique_id
+    left join public.produits_prive pp on pp.produit_id = p.id
+   where p.id = produit;
+  return r;
+end $$;
+revoke all on function public.point_retrait_produit(text) from public, anon, authenticated;
+
+-- Les lieux de retrait d'une commande : un par vendeur, un par boutique
+-- pour le reste (lu sur les lignes, où le vendeur est figé).
+create or replace function public.points_commande(cible text) returns text[]
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return array(select distinct case when l.vendeur_id is not null and b.vendeurs = 'multiples'
+                                    then 'v:' || l.vendeur_id::text else l.boutique_id end
+                 from public.commande_lignes l
+                 join public.boutiques b on b.id = l.boutique_id
+                where l.commande_id = cible and l.boutique_id is not null);
+end $$;
+revoke all on function public.points_commande(text) from public, anon, authenticated;
+
+-- Pour l'application des clients : chaque vendeur, son lieu public (nom,
+-- position, horaires — ni son numéro, ni son adresse écrite, qui vont au
+-- livreur) et les produits qui se récupèrent chez lui. Elle s'en sert
+-- pour l'aperçu des frais (le même calcul que la base) et pour cacher les
+-- produits d'un vendeur fermé.
+create or replace function public.points_retrait() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', v.id,
+             'nom', coalesce(nullif(btrim(l.nom), ''), nullif(btrim(v.nom), ''), 'Vendeur'),
+             'latitude', l.latitude, 'longitude', l.longitude, 'ouvertures', l.ouvertures,
+             'produits', x.produits) order by v.id)
+      from public.profils v
+      left join public.vendeurs_lieux l on l.vendeur_id = v.id
+      join lateral (
+        select jsonb_agg(pp.produit_id order by pp.produit_id) as produits
+          from public.produits_prive pp
+          join public.produits p on p.id = pp.produit_id
+          join public.boutiques b on b.id = p.boutique_id
+         where pp.vendeur_id = v.id and pp.taux_vendeur is not null and b.vendeurs = 'multiples') x
+        on x.produits is not null
+     where v.role = 'vendeur'), '[]'::jsonb);
+end $$;
+grant execute on function public.points_retrait() to anon, authenticated;
+
+-- Pour le bon du livreur : les vendeurs d'une part de commande, chacun
+-- avec son lieu, son numéro et ses articles.
+create or replace function public.vendeurs_retrait(commande text, boutique text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'vendeur_id', l.vendeur_id,
+             'nom', coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'Vendeur'),
+             'adresse', coalesce(vl.adresse, ''), 'tel', coalesce(nullif(vl.tel, ''), v.tel, ''),
+             'indicatif', coalesce(vl.indicatif, '229'),
+             'latitude', vl.latitude, 'longitude', vl.longitude,
+             'articles', l.articles) order by l.vendeur_id)
+      from (select x.vendeur_id,
+                   jsonb_agg(jsonb_build_object('nom', coalesce(x.nom, ''), 'quantite', x.quantite)
+                             order by x.id) as articles
+              from public.commande_lignes x
+             where x.commande_id = commande and x.boutique_id = boutique and x.vendeur_id is not null
+               and x.etat <> 'annulee'
+             group by x.vendeur_id) l
+      join public.boutiques b on b.id = boutique and b.vendeurs = 'multiples'
+      left join public.profils v on v.id = l.vendeur_id
+      left join public.vendeurs_lieux vl on vl.vendeur_id = l.vendeur_id), '[]'::jsonb);
+end $$;
+revoke all on function public.vendeurs_retrait(text, text) from public, anon, authenticated;

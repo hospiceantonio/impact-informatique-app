@@ -159,10 +159,29 @@ const VuePanier = (() => {
         '<div class="carte pa-avertissement" id="pa-fermees">' + UI.icone("horloge", "ic-sm") +
           "<div>" + fermees.map((g) => {
             const quand = Catalogue.prochaineOuverture(g.boutique);
-            return "<strong>" + Utils.echapper(g.boutique.nom) + "</strong> est fermée en ce moment" +
-              (quand ? " — elle ouvre " + Utils.echapper(quand) : "") + ".";
+            return "<span><strong>" + Utils.echapper(g.boutique.nom) + "</strong><span> est fermée en ce moment</span>" +
+              (quand ? "<span> — elle ouvre </span>" + UI.quand(quand) : "") + ".</span>";
           }).join(" ") +
-          " Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</div>" +
+          " <span>Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</span></div>" +
+        "</div>";
+    }
+    /* (3.78.0) UN VENDEUR FERMÉ, dans une boutique multivendeur : ses
+       articles attendent sa réouverture, comme ceux d'une boutique fermée. */
+    const chezFermes = Panier.lignes().filter((l) => l.produit && !Catalogue.vendeurOuvert(l.produit));
+    if (chezFermes.length) {
+      const vus = new Map();
+      for (const l of chezFermes) {
+        const v = Catalogue.pointDe(l.produit.id);
+        if (v && !vus.has(v.id)) vus.set(v.id, v);
+      }
+      html +=
+        '<div class="carte pa-avertissement" id="pa-vendeurs-fermes">' + UI.icone("horloge", "ic-sm") +
+          "<div>" + [...vus.values()].map((v) => {
+            const quand = Catalogue.prochaineOuverture({ ouvertures: v.ouvertures });
+            return "<span><strong>" + Utils.echapper(v.nom) + "</strong><span> est fermé en ce moment</span>" +
+              (quand ? "<span> — il ouvre </span>" + UI.quand(quand) : "") + ".</span>";
+          }).join(" ") +
+          " <span>Vous pourrez commander ses articles à sa réouverture, ou les retirer pour commander le reste.</span></div>" +
         "</div>";
     }
     if (ruptures.length || ramenees.length) {
@@ -209,7 +228,11 @@ const VuePanier = (() => {
        livraison se convient alors avec la boutique, comme avant. */
     /* (3.59.0) LES FRAIS ET L'ACOMPTE DE CHAQUE BOUTIQUE : l'aperçu les
        additionne, comme la base le fera. */
-    const ap = Paiement.apercu(0);
+    /* (3.77.0) AU KILOMÈTRE, LE PANIER NE PARLE QUE DES ARTICLES : la
+       livraison se compte à l'étape suivante, d'après le lieu choisi, et
+       s'ajoute alors au total. Deux montants de livraison sur deux écrans
+       — « dès … » ici, le vrai là-bas — faisaient douter du bon. */
+    const ap = Paiement.apercu(0, { sansLivraison: true });
     const frais = ap.frais;
     const totalPanier = ap.total;
     html +=
@@ -217,14 +240,13 @@ const VuePanier = (() => {
         '<div class="pa-recap-ligne"><span>Sous-total</span><span>' +
           Utils.echapper(Utils.fmtMontant(Panier.total(), devise)) + "</span></div>" +
         (ap.auKm
-          ? ligneLivraisonKm(ap, devise, "pa-recap-ligne pa-recap-frais") +
-            '<p class="pa-recap-tarif" id="pa-tarif">' + Utils.echapper(Paiement.phraseTarif(ap.vehicule, devise)) + "</p>"
+          ? ""
           : frais > 0
           ? '<div class="pa-recap-ligne pa-recap-frais"><span>Frais de livraison</span><span>' +
               Utils.echapper(Utils.fmtMontant(frais, devise)) + "</span></div>"
           : '<div class="pa-recap-ligne"><span>Livraison</span><span>À convenir avec la boutique</span></div>') +
         '<div class="pa-recap-ligne pa-recap-total"><span>' +
-          (ap.auKm && !ap.devis ? "Total <small>hors livraison</small>" : "Total") + "</span><strong>" +
+          "Total</span><strong>" +
           Utils.echapper(Utils.fmtMontant(totalPanier, devise)) + "</strong></div>" +
         /* L'ACOMPTE, DÈS LE PANIER : le client doit savoir ce qu'il paiera
            en commandant avant de taper ses coordonnées. C'est un aperçu ;
@@ -253,7 +275,7 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() || ruptures.length || fermees.length ? " disabled" : "") +
+        (Panier.monnaiesMelangees() || ruptures.length || fermees.length || chezFermes.length ? " disabled" : "") +
         ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {
@@ -310,8 +332,7 @@ const VuePanier = (() => {
     return (
       '<div class="pa-recap-ligne pa-recap-acompte"><span>À payer à la commande ' +
         "<small>" + Utils.echapper(motAcompte(ap)) +
-          /* Au kilomètre, la livraison s'y ajoutera, une fois la distance connue. */
-          (ap.auKm && !ap.devis ? " + livraison" : "") + "</small></span><span>" +
+          "</small></span><span>" +
         Utils.echapper(Utils.fmtMontant(ap.acompte, devise)) + "</span></div>" +
       '<div class="pa-recap-ligne"><span>À payer à la livraison</span><span>' +
         Utils.echapper(Utils.fmtMontant(ap.reste, devise)) + "</span></div>" +
@@ -321,13 +342,11 @@ const VuePanier = (() => {
 
   /**
    * (3.64.0) La ligne de la livraison au kilomètre : le véhicule, la
-   * distance et les frais quand on sait où livrer ; sinon le forfait,
-   * « dès … », calculé à l'étape suivante.
+   * distance et les frais quand on sait où livrer ; sinon « à calculer ».
    */
   function ligneLivraisonKm(ap, devise, classe) {
     const fmt = (n) => Utils.echapper(Utils.fmtMontant(n, devise));
     const mot = ap.vehicule === "tricycle" ? "en tricycle" : "à moto";
-    const t = Paiement.tarifs();
     if (ap.devis) {
       /* (3.74.0) La tournée : l'ordre des boutiques, et le supplément de
          chacune, pour que le client voie d'où vient le montant. */
@@ -342,11 +361,11 @@ const VuePanier = (() => {
         " <small>" + String(d.distanceKm).replace(".", ",") + " km</small>" + tour + sup + "</span><span>" +
         fmt(d.frais) + "</span></div>";
     }
-    const nb = (typeof Panier !== "undefined" ? Panier.parBoutique() : []).filter((g) => g.boutique && g.boutique.id).length;
-    /* (3.74.1) Le supplément : commande groupée seulement. */
-    const des = t ? t[ap.vehicule === "tricycle" ? "tricycle" : "moto"].forfait + (nb > 1 ? nb * (t.supplement || 0) : 0) : 0;
+    /* (3.77.0) Tant que le lieu n'est pas choisi, PAS DE MONTANT : un
+       « dès … » ici, puis le vrai frais une fois le lieu posé, c'était deux
+       chiffres pour une seule livraison. */
     return '<div class="' + classe + ' pa-km"><span>Livraison ' + mot +
-      " <small>selon la distance</small></span><span>dès " + fmt(des) + "</span></div>";
+      " <small>selon le lieu choisi</small></span><span>à calculer</span></div>";
   }
 
   /** « (moto, 13,4 km) » : le véhicule et la distance figés sur la commande. */
@@ -393,13 +412,18 @@ const VuePanier = (() => {
         ? '<div class="pa-ligne-stock">' + UI.icone("alerte", "ic-sm") +
             (max > 1 ? "Les " + max + " dernières pièces" : "La dernière pièce") + "</div>"
         : "";
+    /* (3.79.0) Sa boutique (ou son vendeur) est fermée : la ligne reste,
+       grisée, avec l'heure de réouverture. */
+    const ferme = Catalogue.fermeture(p);
     return (
-      '<div class="pa-ligne">' +
+      '<div class="pa-ligne' + (ferme ? " p-ferme" : "") + '">' +
         '<a class="pa-ligne-img" href="#/produit/' + Utils.echapper(p.id) + '">' +
           UI.imageProduit(p, "pa-ligne-photo") + "</a>" +
         '<div class="pa-ligne-corps">' +
           '<a class="pa-ligne-nom" href="#/produit/' + Utils.echapper(p.id) + '">' +
             Utils.echapper(p.nom) + "</a>" +
+          (ferme ? '<div class="pa-ligne-stock pa-ligne-ferme">' + UI.icone("horloge", "ic-sm") +
+            UI.motFermeture(ferme) + "</div>" : "") +
           '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
             (l.quantite > 1
               ? ' <span class="pa-ligne-sous">× ' + l.quantite + " = " +
@@ -614,6 +638,11 @@ const VuePanier = (() => {
       return;
     }
 
+    /* (3.79.0) UNE BOUTIQUE (OU UN VENDEUR) A FERMÉ entre-temps : on le dit
+       ici, clairement, plutôt que de laisser la base refuser au moment de
+       payer. Le panier n'est pas touché. */
+    if (avertirFermetures(vue)) return;
+
     const c = coordonnees();
     const devise = Panier.devise();
     const enLigne = Paiement.disponible();
@@ -629,7 +658,12 @@ const VuePanier = (() => {
        nom, le numéro, l'adresse, et « Modifier ». Le formulaire est
        toujours là, replié — c'est lui que la commande lit. Un client
        qui revient n'a pas à retaper ce qu'il a donné la dernière fois. */
-    const connu = !!(c.nom && c.tel && c.adresse);
+    /* (3.77.0) AU KILOMÈTRE, LE LIEU, C'EST L'ÉPINGLE — et elle seule. Plus
+       d'adresse tapée ni d'adresse du compte à côté : deux lieux à l'écran
+       (« Carrefour Itta » en haut, « Hêvié » sur la carte) faisaient douter
+       de celui qui comptait. On garde le nom et le numéro. */
+    const parLePoint = enLigne && Paiement.livraisonAuKm();
+    const connu = !!(c.nom && c.tel && (parLePoint || c.adresse));
 
     vue.innerHTML =
       /* UNE LIGNE, PAS UNE CARTE : la DA ouvre l'écran sur la méthode de
@@ -647,14 +681,15 @@ const VuePanier = (() => {
 
       '<div class="carte">' +
         '<div class="co-adresse-tete">' +
-          '<div class="carte-titre" style="margin:0">Adresse de livraison</div>' +
+          '<div class="carte-titre" style="margin:0">' + (parLePoint ? "Vos coordonnées" : "Adresse de livraison") +
+            "</div>" +
           (connu ? '<button type="button" class="lien-texte co-modifier" id="co-modifier">Modifier</button>' : "") +
         "</div>" +
         (connu
           ? '<div class="co-resume" id="co-resume">' +
               "<strong>" + Utils.echapper(c.nom) + "</strong>" +
               "<span>" + Utils.echapper(Compte.telAffichage(c.tel, c.indicatif)) + "</span>" +
-              "<span>" + Utils.echapper(c.adresse) + "</span>" +
+              (parLePoint ? "" : "<span>" + Utils.echapper(c.adresse) + "</span>") +
             "</div>"
           : "") +
         '<div class="co-formulaire" id="co-formulaire"' + (connu ? " hidden" : "") + ">" +
@@ -670,10 +705,11 @@ const VuePanier = (() => {
             "</div>" +
             '<p class="aide" style="margin:6px 0 0">C\'est à ce numéro que la boutique vous ' +
               "rappellera pour la livraison.</p></div>" +
+          (parLePoint ? "" :
           '<div class="champ"><label for="co-adresse">Adresse de livraison</label>' +
             '<input id="co-adresse" type="text" autocomplete="street-address" ' +
               'placeholder="Quartier, repère… ou « je viens retirer »" value="' +
-              Utils.echapper(c.adresse) + '"></div>' +
+              Utils.echapper(c.adresse) + '"></div>') +
         "</div>" +
         '<div class="champ" style="margin:14px 0 0"><label for="co-note">Un mot pour la boutique ' +
           "<small>(facultatif)</small></label>" +
@@ -767,7 +803,9 @@ const VuePanier = (() => {
       nom: UI.$("#co-nom").value.trim(),
       tel: UI.$("#co-tel").value.trim(),
       indicatif: UI.$("#co-indicatif").value.trim() || "229",
-      adresse: UI.$("#co-adresse").value.trim(),
+      /* (3.77.0) Au kilomètre, pas de champ : l'adresse sera le lieu de
+         l'épingle (voir « adresseDeLEpingle »). */
+      adresse: UI.$("#co-adresse") ? UI.$("#co-adresse").value.trim() : (c.adresse || ""),
       note: UI.$("#co-note").value.trim(),
     });
 
@@ -838,6 +876,43 @@ const VuePanier = (() => {
     }
   }
 
+  /* (3.79.0) Les articles du panier qu'on ne peut pas commander en ce
+     moment, regroupés par boutique ou vendeur fermé. */
+  function fermeturesDuPanier() {
+    const vus = new Map();
+    for (const l of Panier.lignes()) {
+      const f = l.produit && Catalogue.fermeture(l.produit);
+      if (!f) continue;
+      const cle = f.qui + ":" + f.nom;
+      if (!vus.has(cle)) vus.set(cle, Object.assign({ articles: [] }, f));
+      vus.get(cle).articles.push(l.produit.nom);
+    }
+    return [...vus.values()];
+  }
+  function avertirFermetures(vue) {
+    const fermes = fermeturesDuPanier();
+    if (!fermes.length) return false;
+    UI.entete({ titre: "Votre commande", retour: true });
+    vue.innerHTML =
+      '<div class="carte pa-avertissement" id="co-fermees">' + UI.icone("horloge", "ic-sm") +
+        "<div><strong>" + (fermes.length > 1 ? "Des articles ne se commandent pas en ce moment."
+                                               : "Un article ne se commande pas en ce moment.") + "</strong>" +
+          fermes.map((f) =>
+            '<p style="margin:6px 0 0">' + (f.qui === "vendeur" ? "<span>Le vendeur </span>" : "<span>La boutique </span>") +
+              "<strong>" + Utils.echapper(f.nom) + "</strong>" +
+              (f.qui === "vendeur" ? "<span> est fermé</span>" : "<span> est fermée</span>") +
+              (f.quand ? (f.qui === "vendeur" ? "<span> — il ouvre </span>" : "<span> — elle ouvre </span>") +
+                UI.quand(f.quand) : "") +
+              " : <span>" + f.articles.map((n) => "« " + Utils.echapper(n) + " »").join(", ") + "</span>.</p>").join("") +
+          '<p style="margin:8px 0 0">Vos articles restent dans le panier. Commandez à la réouverture, ou retirez-les ' +
+            "pour commander le reste maintenant.</p>" +
+        "</div>" +
+      "</div>" +
+      '<a class="btn" href="#/panier">' + UI.icone("retour") + "Revenir au panier</a>";
+    UI.retirerAction();
+    return true;
+  }
+
   /* -----------------------------------------------------
      Où livrer (3.64.0)
      -----------------------------------------------------
@@ -885,16 +960,18 @@ const VuePanier = (() => {
   /**
    * (3.76.0) L'adresse que la commande portera, au kilomètre : le lieu de
    * l'épingle et le repère — plus l'adresse du compte, qui pouvait dire
-   * « Ita » quand l'épingle était à Womé. Sans nom de lieu (hors
-   * connexion), le repère, sinon ce que le client avait donné.
+   * « Ita » quand l'épingle était à Womé. (3.77.0) Sans nom de lieu (hors
+   * connexion) ni repère : le point lui-même, que le livreur ouvre sur la
+   * carte — jamais une adresse tapée ailleurs.
    */
-  function adresseDeLEpingle(adresseSaisie) {
+  function adresseDeLEpingle() {
     const d = Paiement.destination();
-    if (!d) return adresseSaisie;
+    if (!d) return "";
     const nom = Lieu.connu(d);
     const repere = String((UI.$("#co-repere") || {}).value || "").trim().slice(0, 120);
     const morceaux = [nom, repere].filter(Boolean);
-    return morceaux.length ? morceaux.join(" — ") : adresseSaisie;
+    return morceaux.length ? morceaux.join(" — ")
+      : "Point sur la carte (" + Number(d.latitude).toFixed(5) + ", " + Number(d.longitude).toFixed(5) + ")";
   }
 
   function blocOuLivrer(devise) {
@@ -1289,6 +1366,13 @@ const VuePanier = (() => {
   async function lancerPaiement(bouton, lire, verifier, lirePaiement) {
     const client = lire();
     if (!verifier(client)) return;
+    /* (3.79.0) Une boutique a pu fermer pendant que le client remplissait :
+       on le lui dit avant de rien envoyer. */
+    if (fermeturesDuPanier().length) {
+      UI.toast("Une boutique vient de fermer : ses articles se commanderont à sa réouverture.", "err");
+      commander(document.getElementById("vue"));
+      return;
+    }
     /* Connecté en ouvrant l'écran ? On s'en souvient : voir plus bas. */
     const avecCompte = typeof Compte !== "undefined" && Compte.connecte();
 
@@ -1327,7 +1411,7 @@ const VuePanier = (() => {
       if (!Lieu.connu(ou)) {
         await Promise.race([Lieu.nommer(ou), new Promise((r) => setTimeout(r, 2000))]);
       }
-      client.adresse = adresseDeLEpingle(client.adresse);
+      client.adresse = adresseDeLEpingle();
     }
     /* Le moyen de paiement est arrêté : celui qu'on a choisi, ou celui
        qu'on a gardé. Le module ne le dit qu'une fois par écran. */

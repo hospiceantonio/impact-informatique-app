@@ -2409,3 +2409,21 @@ html,body{overscroll-behavior-x:none}
 /* Une icône et son texte, sur la même ligne. */
 .lieu-ligne{display:flex;align-items:flex-start;gap:6px}
 .lieu-ligne > .ic{flex:none;margin-top:2px}
+
+/* (3.79.0) Un produit d'une boutique (ou d'un vendeur) fermée : en vitrine,
+   grisé, avec l'heure de réouverture ; il ne se commande pas. */
+.p-ferme .p-carte-photo,.p-ferme .p-mini-photo,.p-ferme img{filter:grayscale(1);opacity:.6}
+.p-ferme .p-carte-corps,.p-ferme .p-mini-nom,.p-ferme .prix{opacity:.75}
+.p-ferme-badge{position:absolute;left:6px;right:6px;bottom:6px;display:flex;align-items:center;gap:4px;
+  padding:4px 7px;border-radius:999px;background:rgba(31,41,55,.88);color:#fff;font-size:11px;font-weight:600;
+  line-height:1.2}
+.p-ferme-badge .ic{flex:none;width:12px;height:12px}
+.p-ferme-badge .mot-ferme{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p-carte-img,.p-mini-img{position:relative}
+.fiche-ferme img{filter:grayscale(1);opacity:.65}
+.btn-ferme[disabled]{background:var(--trait);color:var(--encre-moyenne);border-color:var(--trait);opacity:1}
+.pa-ferme-barre{display:flex;flex-direction:column;gap:6px;width:100%}
+.pa-ferme-barre .pa-ferme{margin:0;font-size:12.5px}
+.pa-ferme-barre .btn{width:100%}
+.bou-vignette{position:relative}
+.bou-vignette .p-ferme-badge{font-size:10px;left:4px;right:4px;bottom:4px}

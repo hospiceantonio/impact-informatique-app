@@ -1037,9 +1037,10 @@ const VueCompte = (() => {
                 'style="margin-top:8px">' + UI.icone("telephone") +
                 "Vérifier par SMS</button></div>") +
         "</div>" +
-        '<div class="champ"><label for="cp-adresse">Adresse de livraison</label>' +
-          '<input id="cp-adresse" type="text" autocomplete="street-address" value="' +
-            Utils.echapper(moi.adresse || "") + '"></div>' +
+        /* (3.77.0) PLUS D'« ADRESSE DE LIVRAISON » AU COMPTE : le lieu se
+           choisit sur la carte, à chaque commande (« Où livrer ? »), et
+           c'est lui seul qui compte les frais. Une adresse gardée ici
+           s'affichait à côté et faisait douter de la bonne. */
         '<button type="button" class="btn" id="cp-enregistrer">' + UI.icone("check") +
           "Enregistrer</button>" +
       "</div>" +
@@ -1070,8 +1071,9 @@ const VueCompte = (() => {
            l'enseigne comprise. */
         UI.porte({ href: "#/favoris", icone: "coeur", titre: "Mes favoris",
           sous: "Produits aimés, boutiques suivies" }) +
-        UI.porte({ href: "#/adresses", icone: "lieu", titre: "Mes adresses",
-          sous: "Où vous faire livrer" }) +
+        /* (3.77.0) « Mes adresses » n'est plus proposé : le lieu se choisit
+           sur la carte à chaque commande. (L'écran reste joignable par son
+           lien, pour qui l'aurait gardé.) */
       "</div></div>" +
       carteBizzoo() +
       '<div class="carte">' +
@@ -1116,7 +1118,6 @@ const VueCompte = (() => {
         await Compte.enregistrer({
           nom: UI.$("#cp-nom").value,
           tel: UI.$("#cp-tel").value,
-          adresse: UI.$("#cp-adresse").value,
         });
         UI.toast("Enregistré.");
       } catch (err) {

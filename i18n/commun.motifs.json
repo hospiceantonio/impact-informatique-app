@@ -516,6 +516,86 @@
   "— $1 km: $2 up to $3 km$4"
  ],
  [
+  "^Colis récupéré chez les (\\d+) vendeurs$",
+  "Parcel collected from the $1 sellers"
+ ],
+ [
+  "^Vendeur (\\d+)/(\\d+)$",
+  "Seller $1/$2"
+ ],
+ [
+  "^aujourd'hui à (\\d+) h$",
+  "today at $1:00"
+ ],
+ [
+  "^aujourd'hui à (\\d+) h (\\d+)$",
+  "today at $1:$2"
+ ],
+ [
+  "^demain à (\\d+) h$",
+  "tomorrow at $1:00"
+ ],
+ [
+  "^demain à (\\d+) h (\\d+)$",
+  "tomorrow at $1:$2"
+ ],
+ [
+  "^lundi à (\\d+) h$",
+  "Monday at $1:00"
+ ],
+ [
+  "^lundi à (\\d+) h (\\d+)$",
+  "Monday at $1:$2"
+ ],
+ [
+  "^mardi à (\\d+) h$",
+  "Tuesday at $1:00"
+ ],
+ [
+  "^mardi à (\\d+) h (\\d+)$",
+  "Tuesday at $1:$2"
+ ],
+ [
+  "^mercredi à (\\d+) h$",
+  "Wednesday at $1:00"
+ ],
+ [
+  "^mercredi à (\\d+) h (\\d+)$",
+  "Wednesday at $1:$2"
+ ],
+ [
+  "^jeudi à (\\d+) h$",
+  "Thursday at $1:00"
+ ],
+ [
+  "^jeudi à (\\d+) h (\\d+)$",
+  "Thursday at $1:$2"
+ ],
+ [
+  "^vendredi à (\\d+) h$",
+  "Friday at $1:00"
+ ],
+ [
+  "^vendredi à (\\d+) h (\\d+)$",
+  "Friday at $1:$2"
+ ],
+ [
+  "^samedi à (\\d+) h$",
+  "Saturday at $1:00"
+ ],
+ [
+  "^samedi à (\\d+) h (\\d+)$",
+  "Saturday at $1:$2"
+ ],
+ [
+  "^dimanche à (\\d+) h$",
+  "Sunday at $1:00"
+ ],
+ [
+  "^dimanche à (\\d+) h (\\d+)$",
+  "Sunday at $1:$2"
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

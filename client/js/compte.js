@@ -1523,9 +1523,11 @@ const Compte = (() => {
     const champs = {
       nom: String(nom || "").trim().slice(0, 120),
       tel: String(tel || "").replace(/\D/g, "").slice(0, 20),
-      adresse: String(adresse || "").trim().slice(0, 300),
       maj_le: new Date().toISOString(),
     };
+    /* (3.77.0) L'écran du compte ne demande plus d'adresse : sans elle, on
+       n'efface pas celle qui serait déjà enregistrée. */
+    if (adresse !== undefined) champs.adresse = String(adresse || "").trim().slice(0, 300);
     /* Un numéro déjà vérifié ne se change pas : on ne le renvoie même pas,
        sinon la base refuserait tout l'enregistrement pour cette seule
        raison — et le client ne pourrait plus corriger son adresse. */

@@ -851,11 +851,15 @@ const UI = (() => {
     const sc = Catalogue.sousCategorie(p.categorieId, p.sousCategorieId);
     const cat = Catalogue.categorie(p.categorieId);
     const bou = o.boutique ? Catalogue.boutiqueDuProduit(p) : null;
+    /* (3.79.0) Boutique (ou vendeur) fermée : le produit reste en vitrine,
+       grisé, avec l'heure de réouverture. */
+    const ferme = Catalogue.fermeture ? Catalogue.fermeture(p) : null;
     return (
-      '<a class="p-carte" href="#/produit/' + e(p.id) + '">' +
+      '<a class="p-carte' + (ferme ? " p-ferme" : "") + '" href="#/produit/' + e(p.id) + '">' +
         '<span class="p-carte-img">' +
           imageProduit(p, "p-carte-photo") +
           '<span class="p-carte-badges">' + badgesProduit(p) + "</span>" +
+          (ferme ? '<span class="p-ferme-badge">' + icone("horloge", "ic-sm") + motFermeture(ferme) + "</span>" : "") +
           pastilleVideo(p) +
           coeur(p.id) +
         "</span>" +
@@ -887,11 +891,13 @@ const UI = (() => {
 
   /** Petite carte pour les rangées horizontales (nouveautés, similaires). */
   function carteProduitMini(p) {
+    const ferme = Catalogue.fermeture ? Catalogue.fermeture(p) : null;
     return (
-      '<a class="p-mini" href="#/produit/' + e(p.id) + '">' +
+      '<a class="p-mini' + (ferme ? " p-ferme" : "") + '" href="#/produit/' + e(p.id) + '">' +
         '<span class="p-mini-img">' +
           imageProduit(p, "p-mini-photo") +
           '<span class="p-carte-badges">' + badgesProduit(p) + "</span>" +
+          (ferme ? '<span class="p-ferme-badge">' + icone("horloge", "ic-sm") + motFermeture(ferme) + "</span>" : "") +
           pastilleVideo(p) +
         "</span>" +
         '<span class="p-mini-nom">' + e(p.nom) + "</span>" +
@@ -1133,6 +1139,13 @@ const UI = (() => {
       : '<button type="button" class="ligne-info"' + (attrs || "") + ">" + dedans + "</button>";
   }
 
+  /* (3.79.0) « demain à 8 h » dans son propre élément : la phrase autour
+     se traduit d'un bloc, et l'heure par ses motifs. */
+  const quand = (q) => '<span class="quand">' + e(q) + "</span>";
+  /** « Fermé · ouvre demain à 8 h », en HTML (une seule ligne de texte). */
+  const motFermeture = (f) => !f ? "" :
+    '<span class="mot-ferme">' + (f.quand ? "<span>Fermé · ouvre </span>" + quand(f.quand) : "<span>Fermé</span>") + "</span>";
+
   return {
     porte,
     $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
@@ -1143,6 +1156,6 @@ const UI = (() => {
     pastilleVideo, imageProduit,
     carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
     titreSection, vide, recherchePilule, boutonRecherche, barreAction, retirerAction,
-    boutonPartager, partager,
+    boutonPartager, partager, quand, motFermeture,
   };
 })();
