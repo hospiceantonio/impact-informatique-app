@@ -72,8 +72,20 @@ const VueVendeurs = (() => {
         " (" + x.produits.length + ")</div>" +
       (x.produits.length
         ? '<div class="carte" id="vd-produits">' + x.produits.map((p) =>
-            '<div class="sd-ligne vd-produit">' +
-              '<div class="sd-ligne-haut"><strong>' + e(p.nom) + "</strong><span>" + e(m(p.prix)) + "</span></div>" +
+            /* (3.80.0) Sa photo, et « Disponible / Non disponible » d'un geste. */
+            '<div class="sd-ligne vd-produit' + (p.enPause ? " vd-pause" : "") + '" data-produit="' + e(p.id) + '">' +
+              '<div class="vd-produit-tete">' +
+                (p.image
+                  ? '<img class="vd-photo" src="' + e(p.image) + '" alt="" loading="lazy">'
+                  : '<span class="vd-photo vd-photo-vide">' + UI.icone("boite") + "</span>") +
+                '<div class="vd-produit-mots">' +
+                  '<div class="sd-ligne-haut"><strong>' + e(p.nom) + "</strong><span>" + e(m(p.prix)) + "</span></div>" +
+                  '<button type="button" class="vd-dispo' + (p.enPause ? "" : " actif") + '" data-dispo="' +
+                    (p.enPause ? "1" : "0") + '" aria-pressed="' + !p.enPause + '">' +
+                    '<span class="vd-dispo-rond"></span>' +
+                    (p.enPause ? "Non disponible" : "Disponible") + "</button>" +
+                "</div>" +
+              "</div>" +
               '<div class="aide">' + e(p.boutique) + (p.code ? " · code " + e(p.code) : "") +
                 " · part " + e(pc(p.taux)) + " = <strong>" + e(m(p.part)) + "</strong> la pièce" +
                 " · stock " + (p.surCommande ? "sur commande" : e(String(p.stock))) + "</div>" +
@@ -112,7 +124,11 @@ const VueVendeurs = (() => {
 
   /* ---------- 1. L'espace du vendeur ---------- */
   async function espace(vue) {
-    UI.entete({ titre: "Mes ventes", sous: "Vos produits et ce qui vous revient" });
+    /* (3.80.0) Son compte, d'un toucher : profil, mot de passe, déconnexion. */
+    UI.entete({ titre: "Mes ventes", sous: "Vos produits et ce qui vous revient",
+      actions: '<button type="button" class="btn-ic" id="vd-rafraichir" aria-label="Actualiser">' +
+          UI.icone("actualiser") + "</button>" +
+        '<a class="btn-ic" href="#/compte" aria-label="Mon compte" id="vd-compte">' + UI.icone("personne") + "</a>" });
     vue.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture de vos ventes…</div>';
     let x;
     try {
@@ -122,13 +138,48 @@ const VueVendeurs = (() => {
         '<p class="aide" style="margin:0">' + e(err.message) + "</p></div>";
       return;
     }
-    vue.innerHTML = htmlEspace(x, false);
+    vue.innerHTML = htmlEspace(x, false) +
+      '<div class="titre-section">Mon compte</div>' +
+      '<div class="carte" id="vd-mon-compte">' +
+        '<p class="aide" style="margin:0 0 10px">Votre nom, votre mot de passe, la langue.</p>' +
+        '<a class="btn btn-clair" href="#/compte" id="vd-profil">' + UI.icone("personne") +
+          "Modifier mon profil et mon mot de passe</a>" +
+        '<button type="button" class="btn btn-clair" id="vd-deconnexion" style="margin-top:8px">Se déconnecter</button>' +
+      "</div>";
     const relire = () => espace(vue);
+    const rafraichir = UI.$("#vd-rafraichir");
+    if (rafraichir) rafraichir.onclick = relire;
+    brancherDisponibilite(vue, relire);
+    UI.$("#vd-deconnexion", vue).onclick = async () => {
+      await Supabase.deconnexion();
+      location.reload();
+    };
     UI.$("#vd-regler", vue).onclick = () =>
       VueSoldes.feuilleReception(x.solde.reception, relire, Store.reglerReceptionVendeur);
     const demander = UI.$("#vd-demander", vue);
     if (demander) {
       demander.onclick = () => VueSoldes.feuilleDemande(x.solde, relire, Store.demanderReversementVendeur);
+    }
+  }
+
+  /* (3.80.0) « Disponible » / « Non disponible » : non disponible, le
+     produit reste visible chez les clients mais ne se commande pas. */
+  function brancherDisponibilite(vue, apres) {
+    for (const b of UI.$$(".vd-dispo", vue)) {
+      b.onclick = async () => {
+        const ligne = b.closest("[data-produit]");
+        const rendre = b.dataset.dispo === "1";
+        b.disabled = true;
+        try {
+          await Store.produitDisponible(ligne.dataset.produit, rendre);
+          UI.toast(rendre ? "Disponible : les clients peuvent le commander."
+                          : "Non disponible : il reste visible, mais ne se commande plus.", "ok");
+          apres();
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
     }
   }
 

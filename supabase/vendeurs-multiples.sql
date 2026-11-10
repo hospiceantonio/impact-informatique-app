@@ -549,6 +549,8 @@ begin
         'id', p.id, 'nom', p.nom, 'code', p.code, 'boutique', b.nom, 'prix', p.prix,
         'taux', pp.taux_vendeur, 'part', pp.prix_grossiste, 'stock', p.stock,
         'sur_commande', p.sur_commande,
+        -- (3.80.0) Sa photo, et s'il l'a mis « Non disponible ».
+        'image', coalesce(p.images[1], ''), 'en_pause', coalesce((to_jsonb(p) ->> 'en_pause')::boolean, false),
         'vendus', coalesce(v.vendus, 0), 'en_cours', coalesce(v.en_cours, 0),
         'ventes', coalesce(v.ventes, 0), 'gagne', coalesce(v.gagne, 0))
         order by p.nom)

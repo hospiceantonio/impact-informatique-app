@@ -535,7 +535,9 @@ const VueProduit = (() => {
     if (ferme) {
       UI.barreAction('<div class="pa-ferme-barre" id="p-fermee">' +
         '<p class="pa-ferme">' + UI.icone("horloge", "ic-sm") + "<span>" +
-          (ferme.qui === "vendeur"
+          (ferme.qui === "produit"
+            ? "<span>Ce produit n'est pas disponible pour le moment</span>"
+            : ferme.qui === "vendeur"
             ? "<span>Vendeur « </span><strong>" + Utils.echapper(ferme.nom) + "</strong><span> » fermé en ce moment</span>"
             : "<span>Boutique fermée en ce moment</span>") +
           (ferme.quand ? "<span>" + (ferme.qui === "vendeur" ? " — il ouvre " : " — elle ouvre ") + "</span>" +

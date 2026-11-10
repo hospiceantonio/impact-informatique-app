@@ -1186,6 +1186,9 @@ const Store = (() => {
         taux: p.taux == null ? null : Number(p.taux), part: n0(p.part), stock: n0(p.stock),
         surCommande: !!p.sur_commande, vendus: n0(p.vendus), enCours: n0(p.en_cours),
         ventes: n0(p.ventes), gagne: n0(p.gagne),
+        /* (3.80.0) Sa photo, et « Non disponible » posé par le vendeur. */
+        image: p.image ? (/^https?:/.test(p.image) ? p.image : Supabase.urlImage(p.image)) : "",
+        enPause: p.en_pause === true,
       })),
       lignes: (e.lignes || []).map((l) => ({
         le: l.le || "", numero: l.numero || "", produit: l.produit || "", quantite: n0(l.quantite),
@@ -1199,6 +1202,11 @@ const Store = (() => {
       })),
     };
   }
+  /** (3.80.0) « Disponible » / « Non disponible » : le vendeur, sur SES produits. */
+  const produitDisponible = (produit, dispo) =>
+    Supabase.rpc("vendeur_produit_disponible", { produit, dispo: !!dispo });
+  /** (3.80.0) Son nom affiché — le sien, et rien d'autre. */
+  const modifierMonNom = (nom) => Supabase.rpc("modifier_mon_nom", { nom: String(nom || "") });
   const reglerReceptionVendeur = (tel, reseau, titulaire) =>
     Supabase.rpc("regler_reception_vendeur", { tel: tel || "", reseau: reseau || "", titulaire: titulaire || "" });
   const demanderReversementVendeur = (montant) =>
@@ -4322,7 +4330,7 @@ const Store = (() => {
     statistiquesVentes,
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
-    listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
+    listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, produitDisponible, modifierMonNom, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
     deciderReversementVendeur, ventesVendeurs, historiqueParts, connaitVendeurs,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,

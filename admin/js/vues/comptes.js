@@ -866,6 +866,17 @@ const VueComptes = (() => {
         "</p>" +
       "</div>" +
 
+      /* (3.80.0) SON NOM, que lui-même change — un vendeur, un livreur
+         n'avaient aucun moyen de corriger celui qu'on leur avait donné. */
+      '<div class="carte" id="mc-profil">' +
+        '<div class="carte-titre">' + UI.icone("personne", "ic-sm") + " Mon profil</div>" +
+        UI.champTexte({ id: "mc-nom", label: "Mon nom", valeur: (profil && profil.nom) || "",
+          placeholder: "Votre nom ou celui de votre commerce",
+          aide: "C'est sous ce nom que BIZZOO et les livreurs vous voient. Pour changer de numéro " +
+            "de téléphone, demandez à BIZZOO : c'est aussi votre numéro de connexion." }) +
+        '<button type="button" class="btn btn-clair" id="mc-nom-enregistrer">Enregistrer mon nom</button>' +
+      "</div>" +
+
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("cle", "ic-sm") + " Changer mon mot de passe</div>" +
         UI.champTexte({ id: "mc-mdp", label: "Nouveau mot de passe", type: "password",
@@ -902,6 +913,18 @@ const VueComptes = (() => {
       bouton.disabled = false;
     };
 
+    UI.$("#mc-nom-enregistrer", vue).onclick = async (ev) => {
+      const bouton = ev.currentTarget;
+      bouton.disabled = true;
+      try {
+        const nom = await Store.modifierMonNom(UI.$("#mc-nom", vue).value);
+        if (profil) profil.nom = nom;
+        UI.toast("Nom enregistré : " + nom + ".", "ok");
+      } catch (err) {
+        UI.toast(err.message, "err");
+      }
+      bouton.disabled = false;
+    };
     UI.$("#mc-deconnexion", vue).onclick = async () => {
       await Store.journaliser("compte", "deconnexion", "Déconnexion de l'application admin",
         Supabase.utilisateur());

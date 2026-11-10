@@ -2098,3 +2098,17 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .lv-multi > .aide{margin:4px 0 8px}
 .lv-vendeur{border-left:3px solid var(--bleu-50, #ECF2FE);padding-left:10px;margin:8px 0}
 .lv-vendeur .lv-lieu{margin-top:0}
+
+/* (3.80.0) L'espace du vendeur : la photo de chaque produit, et
+   « Disponible / Non disponible » d'un geste. */
+.vd-produit-tete{display:flex;gap:10px;align-items:flex-start}
+.vd-photo{flex:none;width:56px;height:56px;border-radius:10px;object-fit:cover;background:var(--fond)}
+.vd-photo-vide{display:flex;align-items:center;justify-content:center;color:var(--encre-moyenne)}
+.vd-produit-mots{flex:1;min-width:0}
+.vd-dispo{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:5px 10px;border-radius:999px;
+  border:1px solid var(--trait);background:var(--fond);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+  color:var(--encre-moyenne)}
+.vd-dispo-rond{width:10px;height:10px;border-radius:50%;background:var(--rouge,#dc2626)}
+.vd-dispo.actif{color:var(--vert-fonce,#166534);border-color:var(--vert,#16a34a)}
+.vd-dispo.actif .vd-dispo-rond{background:var(--vert,#16a34a)}
+.vd-pause .vd-photo{filter:grayscale(1);opacity:.6}

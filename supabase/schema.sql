@@ -6635,6 +6635,11 @@ begin
     if coalesce(p.masque, false) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
     end if;
+    -- (3.80.0) Ni un produit que son vendeur a mis « Non disponible ».
+    if coalesce((to_jsonb(p) ->> 'en_pause')::boolean, false) then
+      raise exception '« % » n''est pas disponible pour le moment : retirez-le du panier pour commander le reste.', p.nom
+        using errcode = 'P0001';
+    end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
@@ -24136,6 +24141,8 @@ begin
         'id', p.id, 'nom', p.nom, 'code', p.code, 'boutique', b.nom, 'prix', p.prix,
         'taux', pp.taux_vendeur, 'part', pp.prix_grossiste, 'stock', p.stock,
         'sur_commande', p.sur_commande,
+        -- (3.80.0) Sa photo, et s'il l'a mis « Non disponible ».
+        'image', coalesce(p.images[1], ''), 'en_pause', coalesce((to_jsonb(p) ->> 'en_pause')::boolean, false),
         'vendus', coalesce(v.vendus, 0), 'en_cours', coalesce(v.en_cours, 0),
         'ventes', coalesce(v.ventes, 0), 'gagne', coalesce(v.gagne, 0))
         order by p.nom)
@@ -25264,3 +25271,92 @@ revoke all on function public.vendeurs_retrait(text, text) from public, anon, au
 update public.notifications n set lue_le = now()
  where n.type = 'course_proposee' and n.lue_le is null
    and public.course_a_prendre(n.commande_id) <> 1;
+
+-- =========================================================
+-- (3.80.0) L'ESPACE DU VENDEUR
+--
+-- Le vendeur d'une boutique multivendeur :
+--   - met chacun de ses produits « Disponible » / « Non disponible »
+--     (« en_pause ») : non disponible, le produit reste visible mais ne
+--     se commande pas — comme une boutique fermée ;
+--   - est prévenu (notification qui sonne) quand une commande payée
+--     contient ses produits ;
+--   - change son nom affiché (son mot de passe se change déjà dans
+--     « Mon compte »).
+-- =========================================================
+alter table public.produits add column if not exists en_pause boolean not null default false;
+alter table public.produits add column if not exists en_pause_le timestamptz;
+
+create or replace function public.vendeur_produit_disponible(produit text, dispo boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+begin
+  if moi is null then
+    raise exception 'Connectez-vous d''abord.' using errcode = 'P0001';
+  end if;
+  if not (public.est_super()
+          or exists (select 1 from public.produits_prive pp
+                      where pp.produit_id = produit and pp.vendeur_id = moi)) then
+    raise exception 'Ce produit n''est pas le vôtre.' using errcode = 'P0001';
+  end if;
+  update public.produits
+     set en_pause = not coalesce(dispo, true),
+         en_pause_le = case when coalesce(dispo, true) then null else now() end
+   where id = produit;
+  if not found then
+    raise exception 'Ce produit n''existe plus.' using errcode = 'P0001';
+  end if;
+  return coalesce(dispo, true);
+end $$;
+revoke all on function public.vendeur_produit_disponible(text, boolean) from public, anon;
+grant execute on function public.vendeur_produit_disponible(text, boolean) to authenticated;
+
+-- Son nom affiché : chacun le sien, et rien d'autre de sa fiche.
+create or replace function public.modifier_mon_nom(nom text)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  n   text := btrim(regexp_replace(coalesce(nom, ''), '\s+', ' ', 'g'));
+begin
+  if moi is null or not exists (select 1 from public.profils p where p.id = moi and p.actif) then
+    raise exception 'Connectez-vous d''abord.' using errcode = 'P0001';
+  end if;
+  if length(n) < 2 or length(n) > 60 then
+    raise exception 'Votre nom : entre 2 et 60 caractères.' using errcode = 'P0001';
+  end if;
+  update public.profils p set nom = n where p.id = moi;
+  return n;
+end $$;
+revoke all on function public.modifier_mon_nom(text) from public, anon;
+grant execute on function public.modifier_mon_nom(text) to authenticated;
+
+-- Une commande payée qui contient ses produits : il est prévenu, avec ce
+-- qu'il a à préparer. La touche ouvre son espace.
+create or replace function public.notifier_vendeurs_paiement() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v record;
+begin
+  if new.etat is not distinct from old.etat or new.etat <> 'payee' then
+    return null;
+  end if;
+  for v in select l.vendeur_id,
+                  string_agg(l.quantite || ' × ' || l.nom, ', ' order by l.nom) as quoi
+             from public.commande_lignes l
+            where l.commande_id = new.id and l.vendeur_id is not null and l.etat <> 'annulee'
+            group by l.vendeur_id loop
+    perform public.notifier(array[v.vendeur_id], 'commande_payee', 'Nouvelle commande',
+      'Commande ' || coalesce(new.numero, '') || ' : ' || v.quoi || '. À préparer.',
+      '#/ventes', new.id, null, true);
+  end loop;
+  return null;
+end $$;
+revoke all on function public.notifier_vendeurs_paiement() from public, anon, authenticated;
+
+drop trigger if exists commandes_notifient_vendeurs on public.commandes;
+create trigger commandes_notifient_vendeurs
+  after update of etat on public.commandes
+  for each row execute function public.notifier_vendeurs_paiement();

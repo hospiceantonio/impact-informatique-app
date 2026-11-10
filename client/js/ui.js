@@ -1144,7 +1144,8 @@ const UI = (() => {
   const quand = (q) => '<span class="quand">' + e(q) + "</span>";
   /** « Fermé · ouvre demain à 8 h », en HTML (une seule ligne de texte). */
   const motFermeture = (f) => !f ? "" :
-    '<span class="mot-ferme">' + (f.quand ? "<span>Fermé · ouvre </span>" + quand(f.quand) : "<span>Fermé</span>") + "</span>";
+    '<span class="mot-ferme">' + (f.qui === "produit" ? "<span>Indisponible pour le moment</span>"
+      : f.quand ? "<span>Fermé · ouvre </span>" + quand(f.quand) : "<span>Fermé</span>") + "</span>";
 
   return {
     porte,

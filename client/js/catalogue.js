@@ -376,6 +376,8 @@ const Catalogue = (() => {
           note: p.note_moyenne === null || p.note_moyenne === undefined
             ? null : Number(p.note_moyenne),
           nbAvis: Number(p.nb_avis) || 0,
+          /* (3.80.0) Mis « Non disponible » par son vendeur : visible, pas commandable. */
+          enPause: p.en_pause === true,
         })),
         slides: (slides || []).map((s) => ({
           id: s.id,
@@ -568,6 +570,8 @@ const Catalogue = (() => {
    */
   function fermeture(p, moment) {
     if (!p) return null;
+    /* (3.80.0) Le vendeur l'a mis « Non disponible » : pas d'heure de retour. */
+    if (p.enPause) return { qui: "produit", nom: p.nom || "", quand: "" };
     const b = multiBoutiques() && p.boutiqueId
       ? ((donnees && donnees.boutiques) || []).find((x) => x.id === p.boutiqueId) : null;
     if (b && !ouverteMaintenant(b, moment)) {
@@ -581,7 +585,8 @@ const Catalogue = (() => {
   }
   const commandable = (p, moment) => !fermeture(p, moment);
   /** « Fermé · ouvre demain à 8 h » — le badge d'un produit. */
-  const motFermeture = (f) => (f ? "Fermé" + (f.quand ? " · ouvre " + f.quand : "") : "");
+  const motFermeture = (f) => (!f ? "" : f.qui === "produit" ? "Indisponible pour le moment"
+    : "Fermé" + (f.quand ? " · ouvre " + f.quand : ""));
   /** Les produits commandables d'abord, sans rien changer à l'ordre de chacun. */
   const ouvertsDabord = (liste) => liste
     .map((p, i) => ({ p, i, f: fermeture(p) ? 1 : 0 }))

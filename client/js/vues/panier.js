@@ -165,6 +165,18 @@ const VuePanier = (() => {
           " <span>Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</span></div>" +
         "</div>";
     }
+    /* (3.80.0) UN PRODUIT « NON DISPONIBLE » (son vendeur l'a mis en pause) :
+       il reste au panier, la commande attend ou se passe sans lui. */
+    const enPause = Panier.lignes().filter((l) => l.produit && l.produit.enPause);
+    if (enPause.length) {
+      html +=
+        '<div class="carte pa-avertissement" id="pa-indisponibles">' + UI.icone("horloge", "ic-sm") +
+          "<div><span>" + (enPause.length > 1 ? "Ces articles ne sont" : "Cet article n'est") +
+            " pas disponibles pour le moment :</span> <strong>" +
+            enPause.map((l) => Utils.echapper(l.produit.nom)).join(", ") + "</strong>. " +
+            "<span>Retirez-les pour commander le reste.</span></div>" +
+        "</div>";
+    }
     /* (3.78.0) UN VENDEUR FERMÉ, dans une boutique multivendeur : ses
        articles attendent sa réouverture, comme ceux d'une boutique fermée. */
     const chezFermes = Panier.lignes().filter((l) => l.produit && !Catalogue.vendeurOuvert(l.produit));
@@ -275,7 +287,8 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() || ruptures.length || fermees.length || chezFermes.length ? " disabled" : "") +
+        (Panier.monnaiesMelangees() || ruptures.length || fermees.length || chezFermes.length || enPause.length
+          ? " disabled" : "") +
         ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {
@@ -897,8 +910,10 @@ const VuePanier = (() => {
       '<div class="carte pa-avertissement" id="co-fermees">' + UI.icone("horloge", "ic-sm") +
         "<div><strong>" + (fermes.length > 1 ? "Des articles ne se commandent pas en ce moment."
                                                : "Un article ne se commande pas en ce moment.") + "</strong>" +
-          fermes.map((f) =>
-            '<p style="margin:6px 0 0">' + (f.qui === "vendeur" ? "<span>Le vendeur </span>" : "<span>La boutique </span>") +
+          fermes.map((f) => f.qui === "produit"
+            ? '<p style="margin:6px 0 0"><span>Pas disponible pour le moment : </span><span>« ' +
+                Utils.echapper(f.nom) + " »</span>.</p>"
+            : '<p style="margin:6px 0 0">' + (f.qui === "vendeur" ? "<span>Le vendeur </span>" : "<span>La boutique </span>") +
               "<strong>" + Utils.echapper(f.nom) + "</strong>" +
               (f.qui === "vendeur" ? "<span> est fermé</span>" : "<span> est fermée</span>") +
               (f.quand ? (f.qui === "vendeur" ? "<span> — il ouvre </span>" : "<span> — elle ouvre </span>") +

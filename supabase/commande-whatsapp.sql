@@ -895,6 +895,11 @@ begin
     if coalesce(p.masque, false) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
     end if;
+    -- (3.80.0) Ni un produit que son vendeur a mis « Non disponible ».
+    if coalesce((to_jsonb(p) ->> 'en_pause')::boolean, false) then
+      raise exception '« % » n''est pas disponible pour le moment : retirez-le du panier pour commander le reste.', p.nom
+        using errcode = 'P0001';
+    end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
