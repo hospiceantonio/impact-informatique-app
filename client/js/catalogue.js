@@ -378,6 +378,12 @@ const Catalogue = (() => {
           nbAvis: Number(p.nb_avis) || 0,
           /* (3.80.0) Mis « Non disponible » par son vendeur : visible, pas commandable. */
           enPause: p.en_pause === true,
+          /* (3.80.0) « 1 Poulet + 2 Riz » : ce qui peut l'accompagner. */
+          accompagnements: (Array.isArray(p.accompagnements) ? p.accompagnements : [])
+            .map((a) => ({ id: String((a && a.id) || ""), nom: String((a && a.nom) || ""),
+              prix: Math.max(0, Number(a && a.prix) || 0),
+              max: Math.max(1, Math.min(20, Math.round(Number(a && a.max) || 1))) }))
+            .filter((a) => a.id && a.nom),
         })),
         slides: (slides || []).map((s) => ({
           id: s.id,

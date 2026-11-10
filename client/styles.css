@@ -2427,3 +2427,16 @@ html,body{overscroll-behavior-x:none}
 .pa-ferme-barre .btn{width:100%}
 .bou-vignette{position:relative}
 .bou-vignette .p-ferme-badge{font-size:10px;left:4px;right:4px;bottom:4px}
+
+/* (3.80.0) Les accompagnements sur la fiche, et dans le panier. */
+.fiche-acc-ligne{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--trait)}
+.fiche-acc-ligne:last-of-type{border-bottom:0}
+.fiche-acc-mots{display:flex;flex-direction:column;min-width:0}
+.fiche-acc-nom{font-weight:600}
+.fiche-acc-prix{font-size:12.5px;color:var(--encre-moyenne)}
+.fiche-acc-ligne.choisi .fiche-acc-nom{color:var(--bleu,#2F55D4)}
+.fiche-acc-compteur{flex:none}
+.fiche-acc-total{margin-top:10px;padding-top:10px;border-top:1px dashed var(--trait);font-size:15px}
+.fiche-acc-total strong{font-size:17px}
+.pa-ligne-acc{font-size:12.5px;color:var(--encre-moyenne);margin-top:2px}

@@ -20,6 +20,32 @@ const Panier = (() => {
 
   /* ---------- Ce qui est gardé sur le téléphone ---------- */
 
+  /* (3.80.0) LES ACCOMPAGNEMENTS d'une ligne : { riz: 2, alloco: 1 }. Deux
+     choix différents du même plat font deux lignes ; le même choix
+     s'additionne. La clé d'une ligne sans accompagnement reste l'identifiant
+     du produit, comme avant. */
+  function nettoyerAcc(acc) {
+    const propre = {};
+    if (acc && typeof acc === "object") {
+      for (const [id, q] of Object.entries(acc)) {
+        const n = Math.max(0, Math.min(20, Math.round(Number(q) || 0)));
+        if (id && n) propre[String(id)] = n;
+      }
+    }
+    return propre;
+  }
+  const cleDe = (produitId, acc) => {
+    const ids = Object.keys(acc || {}).filter((id) => acc[id] > 0).sort();
+    return ids.length ? produitId + "~" + ids.map((id) => id + ":" + acc[id]).join(",") : produitId;
+  };
+  /** Les accompagnements choisis, relus sur le catalogue (nom, prix) ; ceux qui n'existent plus tombent. */
+  function accompagnementsDe(produit, acc) {
+    const offre = (produit && produit.accompagnements) || [];
+    return offre.filter((a) => (acc || {})[a.id] > 0)
+      .map((a) => ({ id: a.id, nom: a.nom, prix: a.prix, quantite: Math.min(a.max, acc[a.id]) }));
+  }
+  const supplementDe = (accs) => accs.reduce((s, a) => s + a.prix * a.quantite, 0);
+
   function lireBrut() {
     try {
       const brut = JSON.parse(localStorage.getItem(CLE) || "[]");
@@ -28,6 +54,8 @@ const Panier = (() => {
         .map((l) => ({
           produitId: String((l && l.produitId) || ""),
           quantite: Math.max(1, Math.min(MAX_QUANTITE, Math.round(Number(l && l.quantite) || 1))),
+          /* (3.80.0) Les accompagnements choisis : { id: quantité }. */
+          acc: nettoyerAcc(l && l.acc),
         }))
         .filter((l) => l.produitId);
     } catch (_) {
@@ -37,7 +65,8 @@ const Panier = (() => {
 
   function ecrire(lignes) {
     try {
-      localStorage.setItem(CLE, JSON.stringify(lignes));
+      localStorage.setItem(CLE, JSON.stringify(lignes.map((l) =>
+        (l.acc && Object.keys(l.acc).length ? l : { produitId: l.produitId, quantite: l.quantite }))));
     } catch (_) { /* stockage plein : le panier vivra le temps de la visite */ }
     document.dispatchEvent(new CustomEvent("panier:maj"));
   }
@@ -51,7 +80,11 @@ const Panier = (() => {
     return lireBrut()
       .map((l) => {
         const produit = Catalogue.produit(l.produitId);
-        return produit ? { produit, quantite: l.quantite } : null;
+        if (!produit) return null;
+        const accompagnements = accompagnementsDe(produit, l.acc);
+        return { cle: cleDe(l.produitId, l.acc), produit, quantite: l.quantite, accompagnements,
+                 /* Le prix d'une portion, accompagnements compris. */
+                 prixUnitaire: (produit.prix || 0) + supplementDe(accompagnements) };
       })
       .filter(Boolean);
   }
@@ -59,12 +92,15 @@ const Panier = (() => {
   const vide = () => !lignes().length;
   const nombre = () => lignes().reduce((somme, l) => somme + l.quantite, 0);
   const contient = (id) => lireBrut().some((l) => l.produitId === id);
+  /** La quantité d'une ligne (par sa clé) ; ou, pour un produit, de toutes ses lignes. */
   const quantiteDe = (id) => {
-    const ligne = lireBrut().find((l) => l.produitId === id);
-    return ligne ? ligne.quantite : 0;
+    const brut = lireBrut();
+    const ligne = brut.find((l) => cleDe(l.produitId, l.acc) === id);
+    if (ligne) return ligne.quantite;
+    return brut.filter((l) => l.produitId === id).reduce((s, l) => s + l.quantite, 0);
   };
 
-  const total = () => lignes().reduce((somme, l) => somme + (l.produit.prix || 0) * l.quantite, 0);
+  const total = () => lignes().reduce((somme, l) => somme + l.prixUnitaire * l.quantite, 0);
 
   /** La monnaie du panier : celle des boutiques concernées. */
   function devise() {
@@ -93,14 +129,17 @@ const Panier = (() => {
       }
       const groupe = table.get(id);
       groupe.lignes.push(ligne);
-      groupe.montant += (ligne.produit.prix || 0) * ligne.quantite;
+      groupe.montant += ligne.prixUnitaire * ligne.quantite;
     }
     return [...table.values()].sort((a, b) => b.montant - a.montant);
   }
 
   /** Ce qui part à la base : des identifiants et des quantités, rien d'autre. */
   const articles = () =>
-    lignes().map((l) => ({ produit_id: l.produit.id, quantite: l.quantite }));
+    lignes().map((l) => (l.accompagnements.length
+      ? { produit_id: l.produit.id, quantite: l.quantite,
+          accompagnements: l.accompagnements.map((a) => ({ id: a.id, quantite: a.quantite })) }
+      : { produit_id: l.produit.id, quantite: l.quantite }));
 
   /* ---------- Pas plus que ce qui reste ----------
      La base refuse une commande qui dépasse le stock : autant ne pas
@@ -135,7 +174,10 @@ const Panier = (() => {
     for (const l of lignesActuelles) {
       const produit = Catalogue.produit(l.produitId);
       if (!produit) continue;
-      const max = plafond(produit);
+      /* Les autres lignes du même produit comptent dans le même stock. */
+      const ailleurs = lignesActuelles.filter((x) => x !== l && x.produitId === l.produitId)
+        .reduce((s, x) => s + x.quantite, 0);
+      const max = Math.max(0, plafond(produit) - ailleurs);
       if (max > 0 && l.quantite > max) {
         const deja = ramenees.get(l.produitId);
         const r = { produit, avant: deja ? deja.avant : l.quantite, apres: max };
@@ -163,19 +205,23 @@ const Panier = (() => {
    * que la demande, et vaut zéro quand le panier contient déjà tout ce
    * qui reste.
    */
-  function ajouter(produitId, combien) {
+  function ajouter(produitId, combien, acc) {
     const lignesActuelles = lireBrut();
     const qte = Math.max(1, Math.round(Number(combien) || 1));
     const max = plafond(Catalogue.produit(produitId));
-    const existante = lignesActuelles.find((l) => l.produitId === produitId);
-    const deja = existante ? existante.quantite : 0;
+    const choix = nettoyerAcc(acc);
+    const cle = cleDe(produitId, choix);
+    const existante = lignesActuelles.find((l) => cleDe(l.produitId, l.acc) === cle);
+    /* Le stock compte toutes les lignes du produit, quels qu'en soient les accompagnements. */
+    const deja = lignesActuelles.filter((l) => l.produitId === produitId).reduce((s, l) => s + l.quantite, 0);
     const ajoute = Math.max(0, Math.min(qte, max - deja));
     if (!ajoute) return { ajoute: 0, plein: false, plafond: max };
     if (existante) {
-      existante.quantite = deja + ajoute;
+      existante.quantite = existante.quantite + ajoute;
     } else {
       if (lignesActuelles.length >= MAX_ARTICLES) return { ajoute: 0, plein: true, plafond: max };
-      lignesActuelles.push({ produitId, quantite: ajoute });
+      lignesActuelles.push(Object.keys(choix).length ? { produitId, quantite: ajoute, acc: choix }
+                                                     : { produitId, quantite: ajoute });
     }
     oublierRamenees();
     ecrire(lignesActuelles);
@@ -186,22 +232,24 @@ const Panier = (() => {
    * Poser une quantité ; à zéro, la ligne s'en va. On peut toujours
    * DESCENDRE ; monter s'arrête au stock, et la réponse est alors false.
    */
-  function regler(produitId, quantite) {
+  function regler(cle, quantite) {
     const voulue = Math.round(Number(quantite) || 0);
-    if (voulue <= 0) return retirer(produitId);
+    if (voulue <= 0) return retirer(cle);
     const lignesActuelles = lireBrut();
-    const ligne = lignesActuelles.find((l) => l.produitId === produitId);
+    const ligne = lignesActuelles.find((l) => cleDe(l.produitId, l.acc) === cle);
     if (!ligne) return false;
-    if (voulue > ligne.quantite && voulue > plafond(Catalogue.produit(produitId))) return false;
+    const ailleurs = lignesActuelles.filter((l) => l !== ligne && l.produitId === ligne.produitId)
+      .reduce((s, l) => s + l.quantite, 0);
+    if (voulue > ligne.quantite && voulue + ailleurs > plafond(Catalogue.produit(ligne.produitId))) return false;
     oublierRamenees();
     ligne.quantite = Math.min(MAX_QUANTITE, voulue);
     ecrire(lignesActuelles);
     return true;
   }
 
-  function retirer(produitId) {
+  function retirer(cle) {
     oublierRamenees();
-    ecrire(lireBrut().filter((l) => l.produitId !== produitId));
+    ecrire(lireBrut().filter((l) => cleDe(l.produitId, l.acc) !== cle));
     return true;
   }
 

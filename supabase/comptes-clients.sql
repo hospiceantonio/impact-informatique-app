@@ -1625,8 +1625,13 @@ begin
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
-    insert into public.commande_lignes (id, commande_id, produit_id, quantite)
-    values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
+    -- (3.80.0) Ses accompagnements choisis : la base les relit et en fait le
+    -- prix (« lignes_zz_accompagnements »), le panier n'en dit que les
+    -- quantités.
+    insert into public.commande_lignes (id, commande_id, produit_id, quantite, accompagnements)
+    values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte,
+            case when jsonb_typeof(article -> 'accompagnements') = 'array'
+                 then article -> 'accompagnements' else '[]'::jsonb end);
   end loop;
 
   -- LA QUANTITÉ TIENT DANS LE STOCK. Refuser un produit à zéro ne

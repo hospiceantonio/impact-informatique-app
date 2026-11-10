@@ -81,7 +81,9 @@ const VuePanier = (() => {
     };
     const lignes = groupe.lignes.map((l) =>
       "  • " + l.produit.nom + repere(l.produit) +
-      " × " + l.quantite + " — " + Utils.fmtMontant((l.produit.prix || 0) * l.quantite, devise));
+      ((l.accompagnements || []).length
+        ? " + " + l.accompagnements.map((a) => a.quantite + " " + a.nom).join(" + ") : "") +
+      " × " + l.quantite + " — " + Utils.fmtMontant((l.prixUnitaire || l.produit.prix || 0) * l.quantite, devise));
     return "Bonjour " + ((groupe.boutique && groupe.boutique.nom) || "") + " 👋\n" +
       (numero ? "Commande " + numero + "\n" : "") +
       "Je souhaite commander :\n" + lignes.join("\n") +
@@ -325,7 +327,7 @@ const VuePanier = (() => {
         if (action === "plus" && !Panier.regler(id, Panier.quantiteDe(id) + 1)) {
           /* Pas plus que le stock — ni que 99, pour un produit qu'on
              fait venir. */
-          const max = Panier.plafond(Catalogue.produit(id));
+          const max = Panier.plafond(Catalogue.produit(id.split("~")[0]));
           UI.toast(max >= Panier.MAX_QUANTITE
             ? Panier.MAX_QUANTITE + " articles au maximum pour un même produit"
             : max === 0 ? "Ce produit est en rupture : retirez-le pour commander"
@@ -437,23 +439,28 @@ const VuePanier = (() => {
             Utils.echapper(p.nom) + "</a>" +
           (ferme ? '<div class="pa-ligne-stock pa-ligne-ferme">' + UI.icone("horloge", "ic-sm") +
             UI.motFermeture(ferme) + "</div>" : "") +
-          '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
+          /* (3.80.0) Ses accompagnements : « + 2 Riz ». Le prix d'une portion les compte. */
+          (l.accompagnements && l.accompagnements.length
+            ? '<div class="pa-ligne-acc">' + l.accompagnements.map((a) =>
+                "+ " + a.quantite + " " + Utils.echapper(a.nom)).join(" · ") + "</div>"
+            : "") +
+          '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(l.prixUnitaire, devise)) +
             (l.quantite > 1
               ? ' <span class="pa-ligne-sous">× ' + l.quantite + " = " +
-                Utils.echapper(Utils.fmtMontant((p.prix || 0) * l.quantite, devise)) + "</span>"
+                Utils.echapper(Utils.fmtMontant(l.prixUnitaire * l.quantite, devise)) + "</span>"
               : "") +
           "</div>" +
           '<div class="pa-compteur pa-compteur-da">' +
             '<button type="button" data-panier-action="moins" data-produit="' +
-              Utils.echapper(p.id) + '" aria-label="Un de moins">−</button>' +
+              Utils.echapper(l.cle) + '" aria-label="Un de moins">−</button>' +
             "<span>" + l.quantite + "</span>" +
             '<button type="button" data-panier-action="plus" data-produit="' +
-              Utils.echapper(p.id) + '" aria-label="Un de plus">+</button>' +
+              Utils.echapper(l.cle) + '" aria-label="Un de plus">+</button>' +
           "</div>" +
           noteStock +
         "</div>" +
         '<button type="button" class="pa-corbeille" data-panier-action="retirer" data-produit="' +
-          Utils.echapper(p.id) + '" aria-label="Retirer ' + Utils.echapper(p.nom) + '">' +
+          Utils.echapper(l.cle) + '" aria-label="Retirer ' + Utils.echapper(p.nom) + '">' +
           UI.icone("corbeille", "ic-sm") + "</button>" +
       "</div>"
     );
@@ -2159,11 +2166,14 @@ const VuePanier = (() => {
             "<span>" + Utils.echapper(g.boutique.nom || "Boutique") + "</span></div>" +
           g.lignes.map((l) =>
             '<div class="re-ligne"><span>' + Utils.echapper(l.produit.nom) +
+              ((l.accompagnements || []).length
+                ? " " + Utils.echapper("+ " + l.accompagnements.map((a) => a.quantite + " " + a.nom).join(" + "))
+                : "") +
               (l.produit.code
                 ? ' <small class="re-code">code ' + Utils.echapper(l.produit.code) + "</small>"
                 : "") +
               ' <small>× ' + l.quantite + "</small></span><strong>" +
-              Utils.echapper(Utils.fmtMontant(l.produit.prix * l.quantite, commande.devise)) +
+              Utils.echapper(Utils.fmtMontant((l.prixUnitaire || l.produit.prix) * l.quantite, commande.devise)) +
             "</strong></div>").join("") +
           '<div class="pa-sous-total"><span>Sous-total</span><strong>' +
             Utils.echapper(Utils.fmtMontant(g.montant, commande.devise)) + "</strong></div>" +
