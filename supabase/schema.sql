@@ -6665,8 +6665,13 @@ begin
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
-    insert into public.commande_lignes (id, commande_id, produit_id, quantite)
-    values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
+    -- (3.80.0) Ses accompagnements choisis : la base les relit et en fait le
+    -- prix (« lignes_zz_accompagnements »), le panier n'en dit que les
+    -- quantités.
+    insert into public.commande_lignes (id, commande_id, produit_id, quantite, accompagnements)
+    values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte,
+            case when jsonb_typeof(article -> 'accompagnements') = 'array'
+                 then article -> 'accompagnements' else '[]'::jsonb end);
   end loop;
 
   -- LA QUANTITÉ TIENT DANS LE STOCK. Refuser un produit à zéro ne
@@ -25360,3 +25365,106 @@ drop trigger if exists commandes_notifient_vendeurs on public.commandes;
 create trigger commandes_notifient_vendeurs
   after update of etat on public.commandes
   for each row execute function public.notifier_vendeurs_paiement();
+
+-- =========================================================
+-- (3.80.0) LES ACCOMPAGNEMENTS
+--
+-- Un plat et ce qui va avec : « 1 Poulet + 2 Riz ». L'équipe (qui
+-- modifie le produit) pose sur le produit la liste de ses accompagnements
+-- — nom, prix d'une portion, nombre maximal — ; le client en choisit les
+-- quantités sur la fiche, et voit le prix monter en direct : 5 000 + 2 ×
+-- 1 000 = 7 000 FCFA.
+--
+-- LE PRIX EST CELUI DE LA BASE. Le panier n'envoie que des identifiants et
+-- des quantités ; la ligne de commande relit le produit, vérifie chaque
+-- choix (qui existe encore, sans dépasser le maximum), ajoute le
+-- supplément au prix de la ligne, et l'écrit dans son nom — « Poulet
+-- braisé + 2 Riz » —, que la boutique, le livreur, le client et
+-- Personnel lisent partout où ils lisaient le produit. Le supplément
+-- revient en entier à la boutique (ou au vendeur) qui prépare le plat.
+-- =========================================================
+create or replace function public.accompagnements_valides(a jsonb) returns boolean
+language sql immutable set search_path = public as $$
+  select jsonb_typeof(a) = 'array'
+     and jsonb_array_length(a) <= 20
+     and not exists (
+       select 1 from jsonb_array_elements(a) e
+        where jsonb_typeof(e) <> 'object'
+           or coalesce(e ->> 'id', '') !~ '^[a-z0-9_-]{1,40}\Z'
+           or length(btrim(coalesce(e ->> 'nom', ''))) not between 1 and 60
+           or coalesce(e ->> 'prix', '') !~ '^[0-9]{1,7}\Z'
+           or coalesce(e ->> 'max', '') !~ '^[0-9]{1,2}\Z'
+           or (e ->> 'max')::int not between 1 and 20)
+     and (select count(distinct e ->> 'id') from jsonb_array_elements(a) e) = jsonb_array_length(a);
+$$;
+
+alter table public.produits add column if not exists accompagnements jsonb not null default '[]'::jsonb;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'produits_accompagnements_valides') then
+    alter table public.produits add constraint produits_accompagnements_valides
+      check (public.accompagnements_valides(accompagnements));
+  end if;
+end $$;
+alter table public.commande_lignes add column if not exists accompagnements jsonb not null default '[]'::jsonb;
+alter table public.commande_lignes add column if not exists supplement int not null default 0;
+
+-- Après les autres règles d'écriture (l'ordre des déclencheurs est celui
+-- de leur nom) : le prix et la part de la boutique sont déjà posés.
+create or replace function public.ligne_accompagnements() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  offre  jsonb;
+  choix  jsonb := case when jsonb_typeof(new.accompagnements) = 'array'
+                       then new.accompagnements else '[]'::jsonb end;
+  c      record;
+  o      jsonb;
+  norme  jsonb := '[]'::jsonb;
+  sup    int := 0;
+  libelle text := '';
+begin
+  if jsonb_array_length(choix) = 0 then
+    new.accompagnements := '[]'::jsonb;
+    new.supplement := 0;
+    return new;
+  end if;
+  select coalesce(p.accompagnements, '[]'::jsonb) into offre from public.produits p where p.id = new.produit_id;
+  -- Un même accompagnement cité deux fois compte une fois, quantités ajoutées.
+  for c in select x ->> 'id' as id, sum(greatest(0, coalesce((x ->> 'quantite')::int, 0)))::int as q
+             from jsonb_array_elements(choix) x
+            where jsonb_typeof(x) = 'object'
+            group by x ->> 'id'
+            order by min(x ->> 'id') loop
+    if c.q <= 0 then
+      continue;
+    end if;
+    o := null;
+    select e into o from jsonb_array_elements(offre) e where e ->> 'id' = c.id;
+    if o is null then
+      raise exception 'Un accompagnement de « % » n''est plus proposé : rouvrez le produit pour choisir à nouveau.', new.nom
+        using errcode = 'P0001';
+    end if;
+    if c.q > (o ->> 'max')::int then
+      raise exception 'Au plus % × « % » avec « % ».', (o ->> 'max')::int, o ->> 'nom', new.nom
+        using errcode = 'P0001';
+    end if;
+    norme := norme || jsonb_build_array(jsonb_build_object(
+      'id', c.id, 'nom', o ->> 'nom', 'prix', (o ->> 'prix')::int, 'quantite', c.q));
+    sup := sup + (o ->> 'prix')::int * c.q;
+    libelle := libelle || ' + ' || c.q || ' ' || (o ->> 'nom');
+  end loop;
+  new.accompagnements := norme;
+  new.supplement := sup;
+  if jsonb_array_length(norme) > 0 then
+    new.prix := coalesce(new.prix, 0) + sup;
+    new.prix_bizzoo := coalesce(new.prix_bizzoo, 0) + sup;
+    new.nom := coalesce(new.nom, '') || libelle;
+  end if;
+  return new;
+end $$;
+revoke all on function public.ligne_accompagnements() from public, anon, authenticated;
+
+drop trigger if exists lignes_zz_accompagnements on public.commande_lignes;
+create trigger lignes_zz_accompagnements
+  before insert on public.commande_lignes
+  for each row execute function public.ligne_accompagnements();

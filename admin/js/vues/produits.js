@@ -645,6 +645,43 @@ const VueProduits = (() => {
   }
 
 
+  /* (3.80.0) Une ligne d'accompagnement : nom, prix d'une portion, maximum. */
+  function ligneAccompagnement(a) {
+    const x = a || { id: "", nom: "", prix: "", max: 3 };
+    return '<div class="p-acc-ligne" data-id="' + Utils.echapper(x.id) + '">' +
+      '<input class="p-acc-nom" type="text" maxlength="60" placeholder="Riz" aria-label="Accompagnement" value="' +
+        Utils.echapper(x.nom) + '">' +
+      '<input class="p-acc-prix" type="tel" inputmode="numeric" placeholder="Prix" aria-label="Prix d\'une portion" value="' +
+        Utils.echapper(String(x.prix)) + '">' +
+      '<input class="p-acc-max" type="tel" inputmode="numeric" aria-label="Au plus" value="' +
+        Utils.echapper(String(x.max)) + '">' +
+      '<button type="button" class="btn-ic p-acc-retirer" aria-label="Retirer">' + UI.icone("poubelle") + "</button>" +
+    "</div>";
+  }
+  /** Les accompagnements saisis, vérifiés ; une erreur claire sinon. */
+  function lireAccompagnements(zone) {
+    if (!zone) return undefined;
+    const vus = new Set();
+    const liste = [];
+    for (const l of UI.$$(".p-acc-ligne", zone)) {
+      const nom = UI.$(".p-acc-nom", l).value.replace(/\s+/g, " ").trim();
+      const prixBrut = UI.$(".p-acc-prix", l).value.replace(/\s/g, "");
+      if (!nom && !prixBrut) continue;
+      if (!nom) throw new Error("Donnez un nom à chaque accompagnement.");
+      if (!/^\d{1,7}$/.test(prixBrut)) throw new Error("Le prix de « " + nom + " » : un nombre en FCFA (0 s'il est offert).");
+      const max = Math.round(Number(UI.$(".p-acc-max", l).value) || 0);
+      if (max < 1 || max > 20) throw new Error("« " + nom + " » : au plus entre 1 et 20 portions.");
+      let id = l.dataset.id || Utils.sansAccent(nom).toLowerCase().replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "").slice(0, 36) || "acc";
+      let base = id, n = 2;
+      while (vus.has(id)) id = (base + "-" + n++).slice(0, 40);
+      vus.add(id);
+      liste.push({ id, nom, prix: Number(prixBrut), max });
+    }
+    if (liste.length > 20) throw new Error("Vingt accompagnements au plus par produit.");
+    return liste;
+  }
+
   async function formulaire(vue, id, ajoute) {
     /* CRÉER COMME RETOUCHER demande l'habilitation (3.59.0) : sans elle,
        la base refuse l'un et l'autre — autant le dire avant le formulaire. */
@@ -906,6 +943,22 @@ const VueProduits = (() => {
           "</div>"
         : "") +
 
+      /* (3.80.0) LES ACCOMPAGNEMENTS : « 1 Poulet + 2 Riz ». Le client en
+         choisit les quantités sur la fiche, le prix suit en direct. */
+      ((existant ? existant.accompagnements !== undefined : Store.connaitAccompagnements())
+        ? '<div class="carte" id="p-accompagnements">' +
+            '<div class="carte-titre">Accompagnements</div>' +
+            '<p class="aide" style="margin:0 0 8px">Ce que le client peut ajouter au produit, avec son prix ' +
+              "par portion et le nombre maximal. Exemple : Riz, 1 000 FCFA, 3 au plus. Le prix s'ajoute à " +
+              "celui du produit, et le client le voit en direct.</p>" +
+            '<div id="p-acc-lignes">' +
+              ((existant && existant.accompagnements) || []).map(ligneAccompagnement).join("") +
+            "</div>" +
+            '<button type="button" class="btn btn-clair" id="p-acc-ajouter">' + UI.icone("plus") +
+              "Ajouter un accompagnement</button>" +
+          "</div>"
+        : "") +
+
       '<div class="carte">' +
         UI.interrupteur({ id: "p-sur-commande", label: "Produit sur commande",
           actif: existant ? !!existant.surCommande : false,
@@ -993,6 +1046,18 @@ const VueProduits = (() => {
        recalcule le prix public ; corriger le prix public à la main
        recalcule le taux. Le bandeau du dessous dit le bénéfice. */
 
+    const zoneAcc = UI.$("#p-accompagnements");
+    if (zoneAcc) {
+      UI.$("#p-acc-ajouter").onclick = () => {
+        UI.$("#p-acc-lignes").insertAdjacentHTML("beforeend", ligneAccompagnement());
+        const lignes = UI.$$(".p-acc-ligne", zoneAcc);
+        UI.$(".p-acc-nom", lignes[lignes.length - 1]).focus();
+      };
+      zoneAcc.addEventListener("click", (ev) => {
+        const b = ev.target.closest(".p-acc-retirer");
+        if (b) b.closest(".p-acc-ligne").remove();
+      });
+    }
     const champGrossiste = UI.$("#p-grossiste");
     const champPrix = UI.$("#p-prix");
     const zoneMarge = UI.$("#p-marge");
@@ -1109,6 +1174,7 @@ const VueProduits = (() => {
           stockVu,
           surCommande: UI.$("#p-sur-commande").checked,
           vehicule: UI.$("#p-vehicule") ? UI.$("#p-vehicule").value : undefined,
+          accompagnements: lireAccompagnements(UI.$("#p-accompagnements")),
           approJours: UI.$("#p-appro").checked ? Number(UI.$("#p-appro-jours").value) : 0,
           /* Sans l'interrupteur à l'écran (modérateur), la mise en avant ne bouge pas. */
           enAvant: UI.$("#p-avant") ? UI.$("#p-avant").checked : (existant ? !!existant.enAvant : false),

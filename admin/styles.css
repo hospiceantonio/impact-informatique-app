@@ -2112,3 +2112,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .vd-dispo.actif{color:var(--vert-fonce,#166534);border-color:var(--vert,#16a34a)}
 .vd-dispo.actif .vd-dispo-rond{background:var(--vert,#16a34a)}
 .vd-pause .vd-photo{filter:grayscale(1);opacity:.6}
+
+/* (3.80.0) Les accompagnements d'un produit : nom, prix, maximum. */
+.p-acc-ligne{display:grid;grid-template-columns:minmax(0,1fr) 84px 52px 36px;gap:6px;align-items:center;margin-bottom:6px}
+.p-acc-ligne input{min-width:0}
