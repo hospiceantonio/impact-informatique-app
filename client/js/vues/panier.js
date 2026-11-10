@@ -173,8 +173,9 @@ const VuePanier = (() => {
     if (enPause.length) {
       html +=
         '<div class="carte pa-avertissement" id="pa-indisponibles">' + UI.icone("horloge", "ic-sm") +
-          "<div><span>" + (enPause.length > 1 ? "Ces articles ne sont" : "Cet article n'est") +
-            " pas disponibles pour le moment :</span> <strong>" +
+          "<div><span>" + (enPause.length > 1 ? "Ces articles ne sont pas disponibles pour le moment :"
+                                              : "Cet article n'est pas disponible pour le moment :") +
+            "</span> <strong>" +
             enPause.map((l) => Utils.echapper(l.produit.nom)).join(", ") + "</strong>. " +
             "<span>Retirez-les pour commander le reste.</span></div>" +
         "</div>";

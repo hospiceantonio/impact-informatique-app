@@ -7642,3 +7642,53 @@ Les comptes déjà désaccordés (3 vendeurs au moment de la correction) sont
 réparés à l'application de `supabase/numero-connexion.sql`. L'administration
 l'explique sous le champ, et le confirme : « il entre désormais avec … ,
 même mot de passe ». Essai : `numero-connexion`.
+
+
+## Accompagnements, espace vendeur, course remise par BIZZOO (3.80.0)
+
+### Les accompagnements
+
+« 1 Poulet + 2 Riz » : sur la fiche d'un produit, l'équipe (ceux qui
+modifient le produit, dans l'administration) ajoute ses **accompagnements**
+— nom, prix d'une portion, nombre maximal (carte « Accompagnements » du
+formulaire produit). Le client en choisit les quantités avec − / + sur la
+fiche : le prix suit en direct (« 5 000 FCFA + 2 000 FCFA = 7 000 FCFA »).
+
+- le panier garde le choix ; le même plat avec d'autres accompagnements fait
+  une autre ligne ; le total les compte ;
+- **le prix est celui de la base** : la commande n'envoie que les
+  identifiants et les quantités ; la ligne relit le produit, refuse un
+  accompagnement qui n'existe plus ou au-delà du maximum, ajoute le
+  supplément au prix, et l'écrit dans le nom de la ligne (« Poulet braisé +
+  2 Riz ») — que la boutique, le livreur, le client et Personnel lisent
+  partout ;
+- le supplément revient en entier à la boutique (ou au vendeur) qui prépare.
+
+Base : `supabase/accompagnements.sql`. Essai `accompagnements`.
+
+### L'espace du vendeur
+
+- la **photo** de chaque produit ;
+- **Disponible / Non disponible** par produit, d'un geste : non disponible,
+  le produit reste visible chez les clients (« Indisponible pour le
+  moment ») mais ne se commande pas, et la base refuse la commande ;
+- une **notification qui sonne** quand une commande payée contient ses
+  produits (« Commande BZ-… : 2 × Pagne A. À préparer. ») ;
+- **Mon compte** en haut de l'écran : son nom (qu'il change lui-même), son
+  mot de passe, la langue ; **Se déconnecter** en bas de l'espace.
+
+Base : `supabase/espace-vendeur.sql`. Essai `espace-vendeur`.
+
+### Une course remise par BIZZOO se retire
+
+Quand l'administration mettait une commande « Remise au client » sans
+livreur, la demande de course restait chez les livreurs (non lue, qui
+sonne) et l'écran des commandes affichait « En attente d'un livreur ».
+Désormais, dès qu'une commande n'est plus à prendre (remise, annulée,
+confiée à un livreur, partie) : les demandes passent lues, la cascade
+s'arrête, chaque livreur alerté reçoit « Course retirée » (le téléphone
+efface l'alerte qui sonnait), et l'écran des commandes n'attend plus
+personne. Les demandes restées ouvertes sont fermées à l'application.
+
+Base : `supabase/course-retiree.sql`. Essai `course-retiree`.
+Banc d'écran : `banc-accompagnements-vendeur`.

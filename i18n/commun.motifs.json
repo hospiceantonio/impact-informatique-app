@@ -600,6 +600,10 @@
   "Account updated: they now sign in with $1, same password."
  ],
  [
+  "^Nom enregistré : (.+)\\.$",
+  "Name saved: $1."
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]
