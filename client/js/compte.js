@@ -699,6 +699,8 @@ const Compte = (() => {
     /* (3.70.0) Ce téléphone cesse de sonner pour ce compte — AVANT de
        rendre la session, qui seule a le droit de l'oublier. */
     if (typeof Push !== "undefined" && session) await Push.oublier();
+    /* (3.80.0) Ce navigateur aussi cesse de sonner pour ce compte. */
+    if (typeof PushWeb !== "undefined") await PushWeb.oublier();
     /* CE TÉLÉPHONE SEULEMENT (3.63.0). Sans « scope=local », GoTrue ferme
        TOUTES les sessions du compte : se déconnecter sur un appareil
        déconnectait aussi les autres — qui ne l'apprenaient qu'au

@@ -889,6 +889,8 @@ const VueComptes = (() => {
 
       /* (3.73.0) La langue : Français / English (js/langue.js pose le bouton). */
       '<div class="carte" data-langue id="mc-langue"></div>' +
+      /* (3.80.0) Les notifications dans le navigateur, même le site fermé. */
+      '<div class="carte" id="mc-notifs" hidden></div>' +
       '<div class="carte">' +
         '<div class="carte-titre">Quitter</div>' +
         '<button type="button" class="btn btn-clair" id="mc-deconnexion">Se déconnecter</button>' +
@@ -913,6 +915,9 @@ const VueComptes = (() => {
       bouton.disabled = false;
     };
 
+    if (typeof PushWeb !== "undefined") {
+      PushWeb.monter(UI.$("#mc-notifs", vue), { application: "admin", rpc: Supabase.rpc });
+    }
     UI.$("#mc-nom-enregistrer", vue).onclick = async (ev) => {
       const bouton = ev.currentTarget;
       bouton.disabled = true;

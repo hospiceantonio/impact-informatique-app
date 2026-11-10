@@ -14,7 +14,11 @@
      2. l'envoie à chaque téléphone par Firebase, en DONNÉES seulement :
         c'est l'application qui construit la notification, avec son son
         et le lien à ouvrir ;
-     3. oublie les téléphones que Firebase ne connaît plus.
+     3. oublie les téléphones que Firebase ne connaît plus ;
+     4. (3.80.0) l'envoie aussi, en Web Push, à chaque NAVIGATEUR abonné
+        du destinataire (client sur le site, boutique ou vendeur dans le
+        navigateur) — avec les clés VAPID de BIZZOO Personnel, déjà dans
+        les secrets (VAPID_PUBLIQUE, VAPID_PRIVEE, VAPID_SUJET).
 
    RIEN DE CE QUE L'APPEL APPORTE N'EST CRU, hormis ce numéro : le
    titre, le texte, le lien et les destinataires viennent de la base.
@@ -31,6 +35,7 @@
    ========================================================= */
 
 import { envoyerAuJeton, jetonAcces, lireCompte } from "../_partage/fcm.ts";
+import { type Abonnement, envoyerWebPush, lireClesVapid } from "../_partage/webpush.ts";
 import { traduire } from "../_partage/langue.ts";
 
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
@@ -42,6 +47,7 @@ const json = (corps: unknown, statut = 200) =>
 type APousser = {
   id: number; type: string; titre: string; corps: string; lien: string;
   commande_id: string | null; jetons: string[]; application?: string; langue?: string;
+  web?: Abonnement[];
 };
 
 /** Les courses sonnent jusqu'à ce qu'on les touche ; le reste, une fois. */
@@ -75,43 +81,73 @@ Deno.serve(async (requete) => {
   }
   if (!n) return json({ ok: true, envoyees: 0, message: "Rien à envoyer." });
   const jetons = Array.isArray(n.jetons) ? n.jetons.filter((j) => typeof j === "string" && j) : [];
-  if (!jetons.length) return json({ ok: true, envoyees: 0, message: "Aucun téléphone déclaré." });
+  const web = Array.isArray(n.web)
+    ? n.web.filter((a) => a && typeof a.endpoint === "string" && a.endpoint.startsWith("https://") && a.p256dh && a.auth)
+    : [];
+  if (!jetons.length && !web.length) return json({ ok: true, envoyees: 0, message: "Aucun téléphone déclaré." });
 
-  /* 2. FIREBASE. */
-  const compte = lireCompte();
-  if (!compte) {
-    console.error("envoyer-push : secret FIREBASE_COMPTE_SERVICE absent");
-    return json({ ok: false, message: "Firebase n'est pas réglé." }, 500);
-  }
-  const acces = await jetonAcces(compte);
-  if (!acces.ok) {
-    console.error("envoyer-push : " + acces.message);
-    return json({ ok: false, message: acces.message }, 502);
-  }
   const course = COURSES.includes(n.type);
   /* (3.70.0) L'acheteur, dans l'application client : un canal à lui, qui
      sonne comme un message — pas la sonnerie insistante des courses. */
   const client = n.application === "client";
-  const donnees: Record<string, string> = {
-    type: "notification",
-    genre: n.type,
-    canal: client ? "client" : course ? "courses" : "commandes",
-    id: String(n.id),
-    /* (3.73.0) Dans la langue du destinataire (langues_comptes). */
-    titre: traduire(n.titre || "BIZZOO", n.langue),
-    corps: traduire(n.corps || "", n.langue),
-    lien: n.lien || "",
-    commande: n.commande_id || "",
-  };
+  /* (3.73.0) Dans la langue du destinataire (langues_comptes). */
+  const titre = traduire(n.titre || "BIZZOO", n.langue);
+  const texte = traduire(n.corps || "", n.langue);
   let envoyees = 0;
   const echecs: string[] = [];
-  for (const jeton of jetons) {
-    const envoi = await envoyerAuJeton(compte, acces.jeton, jeton, donnees, course ? 900 : 3600);
-    if (envoi.ok) { envoyees++; continue; }
-    echecs.push(envoi.message);
-    /* 3. UN TÉLÉPHONE QUI N'EXISTE PLUS : on l'oublie. */
-    if (envoi.mort) {
-      try { await base("jeton_push_mort", { jeton }); } catch (_) { /* il repartira à la prochaine */ }
+
+  /* 2. FIREBASE — l'application Android. */
+  if (jetons.length) {
+    const compte = lireCompte();
+    const acces = compte ? await jetonAcces(compte) : null;
+    if (!compte) {
+      console.error("envoyer-push : secret FIREBASE_COMPTE_SERVICE absent");
+      echecs.push("Firebase n'est pas réglé.");
+    } else if (!acces || !acces.ok) {
+      console.error("envoyer-push : " + (acces ? acces.message : "accès Firebase"));
+      echecs.push(acces ? acces.message : "accès Firebase");
+    } else {
+      const donnees: Record<string, string> = {
+        type: "notification",
+        genre: n.type,
+        canal: client ? "client" : course ? "courses" : "commandes",
+        id: String(n.id),
+        titre,
+        corps: texte,
+        lien: n.lien || "",
+        commande: n.commande_id || "",
+      };
+      for (const jeton of jetons) {
+        const envoi = await envoyerAuJeton(compte, acces.jeton, jeton, donnees, course ? 900 : 3600);
+        if (envoi.ok) { envoyees++; continue; }
+        echecs.push(envoi.message);
+        /* 3. UN TÉLÉPHONE QUI N'EXISTE PLUS : on l'oublie. */
+        if (envoi.mort) {
+          try { await base("jeton_push_mort", { jeton }); } catch (_) { /* il repartira à la prochaine */ }
+        }
+      }
+    }
+  }
+
+  /* 4. (3.80.0) LES NAVIGATEURS — Web Push, chiffré pour chacun. C'est le
+     service worker de l'application qui affiche la notification et ouvre
+     le lien au toucher. */
+  if (web.length) {
+    const cles = lireClesVapid();
+    if (!cles) {
+      console.error("envoyer-push : secrets VAPID absents");
+      echecs.push("Web Push n'est pas réglé.");
+    } else {
+      const message = { id: n.id, type: n.type, titre, corps: texte, lien: n.lien || "",
+                        commande: n.commande_id || "", course };
+      for (const a of web) {
+        const envoi = await envoyerWebPush(cles, a, message, course ? 900 : 3600);
+        if (envoi.ok) { envoyees++; continue; }
+        echecs.push(envoi.message);
+        if (envoi.mort) {
+          try { await base("navigateur_mort", { point: a.endpoint }); } catch (_) { /* il repartira */ }
+        }
+      }
     }
   }
   if (echecs.length) console.error("envoyer-push(" + n.id + ") : " + echecs.join(" | "));

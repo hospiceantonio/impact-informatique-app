@@ -1075,6 +1075,8 @@ const VueCompte = (() => {
            sur la carte à chaque commande. (L'écran reste joignable par son
            lien, pour qui l'aurait gardé.) */
       "</div></div>" +
+      /* (3.80.0) Les notifications dans le navigateur, même le site fermé. */
+      '<div class="carte" id="cp-notifs" hidden></div>' +
       carteBizzoo() +
       '<div class="carte">' +
         '<button type="button" class="btn btn-clair" id="cp-sortir">' + UI.icone("retour") +
@@ -1082,6 +1084,9 @@ const VueCompte = (() => {
       "</div>";
 
     brancherCarteBizzoo();
+    if (typeof PushWeb !== "undefined") {
+      PushWeb.monter(UI.$("#cp-notifs", vue), { application: "client", rpc: (n, c) => Compte.rpc(n, c) });
+    }
     brancherRevendeur(vue);
     brancherEspaceVendeur(vue);
     brancherOuRevendeur(vue);

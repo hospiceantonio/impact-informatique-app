@@ -139,6 +139,8 @@ const VueVendeurs = (() => {
       return;
     }
     vue.innerHTML = htmlEspace(x, false) +
+      /* (3.80.0) Prévenu de chaque commande, même le site fermé. */
+      '<div class="carte" id="vd-notifs" hidden></div>' +
       '<div class="titre-section">Mon compte</div>' +
       '<div class="carte" id="vd-mon-compte">' +
         '<p class="aide" style="margin:0 0 10px">Votre nom, votre mot de passe, la langue.</p>' +
@@ -150,6 +152,9 @@ const VueVendeurs = (() => {
     const rafraichir = UI.$("#vd-rafraichir");
     if (rafraichir) rafraichir.onclick = relire;
     brancherDisponibilite(vue, relire);
+    if (typeof PushWeb !== "undefined") {
+      PushWeb.monter(UI.$("#vd-notifs", vue), { application: "admin", rpc: Supabase.rpc });
+    }
     UI.$("#vd-deconnexion", vue).onclick = async () => {
       await Supabase.deconnexion();
       location.reload();
