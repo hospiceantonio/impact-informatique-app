@@ -336,9 +336,17 @@ const Store = (() => {
      première fiche lue. */
   let baseVehicule = false;
   const connaitVehicule = () => baseVehicule;
+  /* (3.80.0) Les accompagnements d'un produit : une base d'avant n'a pas la colonne. */
+  let baseAccompagnements = false;
+  const connaitAccompagnements = () => baseAccompagnements;
+  const accompagnementsDe = (a) => (Array.isArray(a) ? a : []).map((x) => ({
+    id: String(x.id || ""), nom: String(x.nom || ""), prix: Math.max(0, Math.round(Number(x.prix) || 0)),
+    max: Math.max(1, Math.min(20, Math.round(Number(x.max) || 1))),
+  })).filter((x) => x.id && x.nom);
 
   function produitDepuisLigne(l) {
     if (l && l.vehicule !== undefined) baseVehicule = true;
+    if (l && l.accompagnements !== undefined) baseAccompagnements = true;
     const images = Array.isArray(l.images) ? l.images : [];
     const stock = stockDepuisLigne(l);
     const prive = priveDepuisLigne(l);
@@ -367,6 +375,8 @@ const Store = (() => {
       /* (3.64.0) Le véhicule qui le livre. Une base d'avant n'a pas la
          colonne : undefined, et le formulaire ne le propose pas. */
       vehicule: l.vehicule === undefined ? undefined : (l.vehicule === "tricycle" ? "tricycle" : "moto"),
+      /* (3.80.0) « 1 Poulet + 2 Riz » : ce qui peut l'accompagner. */
+      accompagnements: l.accompagnements === undefined ? undefined : accompagnementsDe(l.accompagnements),
       approLe: l.appro_le || "",
       flashFin: l.flash_fin ? Date.parse(l.flash_fin) || null : null,
       enAvant: !!l.en_avant,
@@ -406,6 +416,7 @@ const Store = (() => {
       video: p.video || "",
       /* Seulement si la base le connaît : sinon l'écriture serait refusée. */
       ...(p.vehicule ? { vehicule: p.vehicule === "tricycle" ? "tricycle" : "moto" } : {}),
+      ...(Array.isArray(p.accompagnements) ? { accompagnements: accompagnementsDe(p.accompagnements) } : {}),
       modifie_le: new Date().toISOString(),
     };
   }
@@ -1186,6 +1197,9 @@ const Store = (() => {
         taux: p.taux == null ? null : Number(p.taux), part: n0(p.part), stock: n0(p.stock),
         surCommande: !!p.sur_commande, vendus: n0(p.vendus), enCours: n0(p.en_cours),
         ventes: n0(p.ventes), gagne: n0(p.gagne),
+        /* (3.80.0) Sa photo, et « Non disponible » posé par le vendeur. */
+        image: p.image ? (/^https?:/.test(p.image) ? p.image : Supabase.urlImage(p.image)) : "",
+        enPause: p.en_pause === true,
       })),
       lignes: (e.lignes || []).map((l) => ({
         le: l.le || "", numero: l.numero || "", produit: l.produit || "", quantite: n0(l.quantite),
@@ -1199,6 +1213,11 @@ const Store = (() => {
       })),
     };
   }
+  /** (3.80.0) « Disponible » / « Non disponible » : le vendeur, sur SES produits. */
+  const produitDisponible = (produit, dispo) =>
+    Supabase.rpc("vendeur_produit_disponible", { produit, dispo: !!dispo });
+  /** (3.80.0) Son nom affiché — le sien, et rien d'autre. */
+  const modifierMonNom = (nom) => Supabase.rpc("modifier_mon_nom", { nom: String(nom || "") });
   const reglerReceptionVendeur = (tel, reseau, titulaire) =>
     Supabase.rpc("regler_reception_vendeur", { tel: tel || "", reseau: reseau || "", titulaire: titulaire || "" });
   const demanderReversementVendeur = (montant) =>
@@ -3737,6 +3756,8 @@ const Store = (() => {
       images: chemins,
       video: cheminVideo,
       vehicule: donnees.vehicule || (existant && existant.vehicule) || undefined,
+      accompagnements: donnees.accompagnements !== undefined ? donnees.accompagnements
+        : (existant ? existant.accompagnements : undefined),
     };
 
     const ligne = ligneDepuisProduit(produit);
@@ -4321,8 +4342,8 @@ const Store = (() => {
     statutCommande,
     statistiquesVentes,
     statistiquesBoutique,
-    ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
-    listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
+    ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, connaitAccompagnements, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
+    listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, produitDisponible, modifierMonNom, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
     deciderReversementVendeur, ventesVendeurs, historiqueParts, connaitVendeurs,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,

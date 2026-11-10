@@ -81,7 +81,9 @@ const VuePanier = (() => {
     };
     const lignes = groupe.lignes.map((l) =>
       "  • " + l.produit.nom + repere(l.produit) +
-      " × " + l.quantite + " — " + Utils.fmtMontant((l.produit.prix || 0) * l.quantite, devise));
+      ((l.accompagnements || []).length
+        ? " + " + l.accompagnements.map((a) => a.quantite + " " + a.nom).join(" + ") : "") +
+      " × " + l.quantite + " — " + Utils.fmtMontant((l.prixUnitaire || l.produit.prix || 0) * l.quantite, devise));
     return "Bonjour " + ((groupe.boutique && groupe.boutique.nom) || "") + " 👋\n" +
       (numero ? "Commande " + numero + "\n" : "") +
       "Je souhaite commander :\n" + lignes.join("\n") +
@@ -163,6 +165,19 @@ const VuePanier = (() => {
               (quand ? "<span> — elle ouvre </span>" + UI.quand(quand) : "") + ".</span>";
           }).join(" ") +
           " <span>Vous pourrez commander à sa réouverture, ou retirer ses articles pour commander le reste.</span></div>" +
+        "</div>";
+    }
+    /* (3.80.0) UN PRODUIT « NON DISPONIBLE » (son vendeur l'a mis en pause) :
+       il reste au panier, la commande attend ou se passe sans lui. */
+    const enPause = Panier.lignes().filter((l) => l.produit && l.produit.enPause);
+    if (enPause.length) {
+      html +=
+        '<div class="carte pa-avertissement" id="pa-indisponibles">' + UI.icone("horloge", "ic-sm") +
+          "<div><span>" + (enPause.length > 1 ? "Ces articles ne sont pas disponibles pour le moment :"
+                                              : "Cet article n'est pas disponible pour le moment :") +
+            "</span> <strong>" +
+            enPause.map((l) => Utils.echapper(l.produit.nom)).join(", ") + "</strong>. " +
+            "<span>Retirez-les pour commander le reste.</span></div>" +
         "</div>";
     }
     /* (3.78.0) UN VENDEUR FERMÉ, dans une boutique multivendeur : ses
@@ -275,7 +290,8 @@ const VuePanier = (() => {
     /* « PASSER LA COMMANDE », ORANGE, EN BAS : l'action de la DA. */
     UI.barreAction(
       '<button type="button" class="btn btn-orange" id="pa-commander"' +
-        (Panier.monnaiesMelangees() || ruptures.length || fermees.length || chezFermes.length ? " disabled" : "") +
+        (Panier.monnaiesMelangees() || ruptures.length || fermees.length || chezFermes.length || enPause.length
+          ? " disabled" : "") +
         ">Passer la commande</button>");
 
     UI.$("#pa-vider").onclick = () => {
@@ -312,7 +328,7 @@ const VuePanier = (() => {
         if (action === "plus" && !Panier.regler(id, Panier.quantiteDe(id) + 1)) {
           /* Pas plus que le stock — ni que 99, pour un produit qu'on
              fait venir. */
-          const max = Panier.plafond(Catalogue.produit(id));
+          const max = Panier.plafond(Catalogue.produit(id.split("~")[0]));
           UI.toast(max >= Panier.MAX_QUANTITE
             ? Panier.MAX_QUANTITE + " articles au maximum pour un même produit"
             : max === 0 ? "Ce produit est en rupture : retirez-le pour commander"
@@ -424,23 +440,28 @@ const VuePanier = (() => {
             Utils.echapper(p.nom) + "</a>" +
           (ferme ? '<div class="pa-ligne-stock pa-ligne-ferme">' + UI.icone("horloge", "ic-sm") +
             UI.motFermeture(ferme) + "</div>" : "") +
-          '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(p.prix, devise)) +
+          /* (3.80.0) Ses accompagnements : « + 2 Riz ». Le prix d'une portion les compte. */
+          (l.accompagnements && l.accompagnements.length
+            ? '<div class="pa-ligne-acc">' + l.accompagnements.map((a) =>
+                "+ " + a.quantite + " " + Utils.echapper(a.nom)).join(" · ") + "</div>"
+            : "") +
+          '<div class="pa-ligne-prix">' + Utils.echapper(Utils.fmtMontant(l.prixUnitaire, devise)) +
             (l.quantite > 1
               ? ' <span class="pa-ligne-sous">× ' + l.quantite + " = " +
-                Utils.echapper(Utils.fmtMontant((p.prix || 0) * l.quantite, devise)) + "</span>"
+                Utils.echapper(Utils.fmtMontant(l.prixUnitaire * l.quantite, devise)) + "</span>"
               : "") +
           "</div>" +
           '<div class="pa-compteur pa-compteur-da">' +
             '<button type="button" data-panier-action="moins" data-produit="' +
-              Utils.echapper(p.id) + '" aria-label="Un de moins">−</button>' +
+              Utils.echapper(l.cle) + '" aria-label="Un de moins">−</button>' +
             "<span>" + l.quantite + "</span>" +
             '<button type="button" data-panier-action="plus" data-produit="' +
-              Utils.echapper(p.id) + '" aria-label="Un de plus">+</button>' +
+              Utils.echapper(l.cle) + '" aria-label="Un de plus">+</button>' +
           "</div>" +
           noteStock +
         "</div>" +
         '<button type="button" class="pa-corbeille" data-panier-action="retirer" data-produit="' +
-          Utils.echapper(p.id) + '" aria-label="Retirer ' + Utils.echapper(p.nom) + '">' +
+          Utils.echapper(l.cle) + '" aria-label="Retirer ' + Utils.echapper(p.nom) + '">' +
           UI.icone("corbeille", "ic-sm") + "</button>" +
       "</div>"
     );
@@ -897,8 +918,10 @@ const VuePanier = (() => {
       '<div class="carte pa-avertissement" id="co-fermees">' + UI.icone("horloge", "ic-sm") +
         "<div><strong>" + (fermes.length > 1 ? "Des articles ne se commandent pas en ce moment."
                                                : "Un article ne se commande pas en ce moment.") + "</strong>" +
-          fermes.map((f) =>
-            '<p style="margin:6px 0 0">' + (f.qui === "vendeur" ? "<span>Le vendeur </span>" : "<span>La boutique </span>") +
+          fermes.map((f) => f.qui === "produit"
+            ? '<p style="margin:6px 0 0"><span>Pas disponible pour le moment : </span><span>« ' +
+                Utils.echapper(f.nom) + " »</span>.</p>"
+            : '<p style="margin:6px 0 0">' + (f.qui === "vendeur" ? "<span>Le vendeur </span>" : "<span>La boutique </span>") +
               "<strong>" + Utils.echapper(f.nom) + "</strong>" +
               (f.qui === "vendeur" ? "<span> est fermé</span>" : "<span> est fermée</span>") +
               (f.quand ? (f.qui === "vendeur" ? "<span> — il ouvre </span>" : "<span> — elle ouvre </span>") +
@@ -2144,11 +2167,14 @@ const VuePanier = (() => {
             "<span>" + Utils.echapper(g.boutique.nom || "Boutique") + "</span></div>" +
           g.lignes.map((l) =>
             '<div class="re-ligne"><span>' + Utils.echapper(l.produit.nom) +
+              ((l.accompagnements || []).length
+                ? " " + Utils.echapper("+ " + l.accompagnements.map((a) => a.quantite + " " + a.nom).join(" + "))
+                : "") +
               (l.produit.code
                 ? ' <small class="re-code">code ' + Utils.echapper(l.produit.code) + "</small>"
                 : "") +
               ' <small>× ' + l.quantite + "</small></span><strong>" +
-              Utils.echapper(Utils.fmtMontant(l.produit.prix * l.quantite, commande.devise)) +
+              Utils.echapper(Utils.fmtMontant((l.prixUnitaire || l.produit.prix) * l.quantite, commande.devise)) +
             "</strong></div>").join("") +
           '<div class="pa-sous-total"><span>Sous-total</span><strong>' +
             Utils.echapper(Utils.fmtMontant(g.montant, commande.devise)) + "</strong></div>" +

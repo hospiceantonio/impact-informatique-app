@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v136";
+const VERSION = "impact-client-v138";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -44,6 +44,7 @@ const FICHIERS = [
   "./js/son.js",
   "./js/notifications.js",
   "./js/push.js",
+  "./js/pushweb.js",
   "./js/panier.js",
   "./js/paiement.js",
   "./js/live.js",
@@ -132,6 +133,36 @@ self.addEventListener("activate", (ev) => {
         cles.filter((c) => c !== VERSION && c !== CACHE_PHOTOS).map((c) => caches.delete(c))))
       .then(() => self.clients.claim())
   );
+});
+
+/* (3.80.0) UNE NOTIFICATION POUSSÉE dans le navigateur (fonction Edge
+   « envoyer-push », Web Push) : la base l'a écrite, on l'affiche telle
+   quelle. Une même commande ne s'empile pas : son étiquette la remplace.
+   Au toucher, l'application s'ouvre (ou revient) sur le bon écran. */
+self.addEventListener("push", (ev) => {
+  let d = {};
+  try { d = ev.data ? ev.data.json() : {}; } catch (_) { d = { corps: ev.data ? ev.data.text() : "" }; }
+  ev.waitUntil(self.registration.showNotification(d.titre || "BIZZOO", {
+    body: d.corps || "",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png",
+    tag: "bizzoo-" + (d.commande ? d.commande + "-" + (d.type || "") : (d.id || "notif")),
+    renotify: true,
+    requireInteraction: d.course === true,
+    data: { lien: typeof d.lien === "string" && d.lien.startsWith("#/") ? d.lien : "#/" },
+  }));
+});
+self.addEventListener("notificationclick", (ev) => {
+  ev.notification.close();
+  const cible = new URL("./" + ((ev.notification.data && ev.notification.data.lien) || "#/"), self.registration.scope).href;
+  ev.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((fenetres) => {
+    for (const f of fenetres) {
+      if (f.url.startsWith(self.registration.scope) && "focus" in f) {
+        return f.focus().then(() => f.navigate(cible)).catch(() => null);
+      }
+    }
+    return self.clients.openWindow(cible);
+  }));
 });
 
 self.addEventListener("fetch", (ev) => {

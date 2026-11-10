@@ -152,6 +152,14 @@ public class ServiceNotifications extends FirebaseMessagingService {
             return;
         }
         boolean course = "courses".equals(valeur(donnees, "canal"));
+        String commande = valeur(donnees, "commande");
+        String genre = valeur(donnees, "genre");
+        /* (3.80.0) LA COURSE N'EST PLUS À PRENDRE — prise par un autre,
+           remise, annulée ou confiée par BIZZOO : l'alerte qui sonne encore
+           pour elle s'efface, et sa sonnerie s'arrête. */
+        if (!commande.isEmpty() && ("course_prise".equals(genre) || "course_retiree".equals(genre))) {
+            gestionnaire.cancel(("course:" + commande).hashCode());
+        }
         String titre = valeur(donnees, "titre");
         String corps = valeur(donnees, "corps");
         String lien = valeur(donnees, "lien");
@@ -192,7 +200,9 @@ public class ServiceNotifications extends FirebaseMessagingService {
         Intent ouverture = new Intent(contexte, MainActivity.class);
         ouverture.putExtra(MainActivity.EXTRA_LIEN, lien);
         ouverture.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        int numero = ("equipe:" + valeur(donnees, "id")).hashCode();
+        /* Une course : un numéro par commande, pour pouvoir la retirer. */
+        int numero = (course && !commande.isEmpty() ? "course:" + commande
+                                                    : "equipe:" + valeur(donnees, "id")).hashCode();
         int drapeaux = PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         PendingIntent action = PendingIntent.getActivity(contexte, numero, ouverture, drapeaux);

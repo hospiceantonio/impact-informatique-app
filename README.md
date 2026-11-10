@@ -7598,3 +7598,125 @@ La base refusait déjà une commande chez une boutique ou un vendeur fermé :
 rien à appliquer en base. En anglais : « Closed · opens tomorrow at 8:00 »
 (motifs des heures dans `i18n/commun.motifs.json`).
 Bancs : `banc-horaires-droits` (sections 1 à 4 ter), `banc-lieux-vendeurs`.
+
+
+## Personnel : le suivi des commandes nomme le vendeur (3.79.1)
+
+Depuis la 3.78.0, ce qu'on commande chez un vendeur d'une boutique
+multivendeur se prépare et se récupère chez lui. Le suivi des commandes de
+l'application Personnel nommait encore la boutique multivendeur et son
+numéro. Désormais :
+
+- sur la fiche d'une commande, chaque article dit **« Vendeur : … »**, avec
+  son numéro (qui s'appelle d'un toucher) et son adresse écrite ;
+- la colonne **Marchands** donne « Marché … — Pagnes Afi / 01 97 … » ;
+- le **temps de préparation** se mesure par vendeur ;
+- l'export Excel donne le vendeur et son numéro dans les colonnes
+  « Marchand ».
+
+Les boutiques à vendeur unique ne changent pas. Base :
+`supabase/suivi-vendeurs.sql` (fonction `rh_suivi_donnees`). Web seulement :
+les APK restent en 3.79.0. Bancs : `banc-suivi-source`, essai
+`lieux-vendeurs` (section 5 bis).
+
+
+## Le numéro d'un compte est son numéro de connexion (3.79.2)
+
+Un vendeur ou un livreur entre avec son numéro et son mot de passe. Changer
+son numéro dans l'administration (Comptes → la fiche → Téléphone) ne
+changeait que sa fiche : il ne pouvait entrer qu'avec l'ancien numéro.
+
+Désormais, la base fait les deux d'un coup (déclencheur
+`profils_numero_connexion`) :
+
+- le nouveau numéro devient le numéro de connexion ; **l'ancien n'ouvre
+  plus rien** ;
+- le **mot de passe ne change pas**, ni le rôle, la boutique, les soldes,
+  les commandes ou l'historique du compte ;
+- un numéro déjà pris par un autre compte (même écrit sur 8 chiffres) est
+  refusé avec un message clair — et alors rien ne change ;
+- un compte qui entre par e-mail garde son numéro comme simple contact ;
+- seuls ceux qui gèrent le compte peuvent changer son numéro (comme avant).
+
+Les comptes déjà désaccordés (3 vendeurs au moment de la correction) sont
+réparés à l'application de `supabase/numero-connexion.sql`. L'administration
+l'explique sous le champ, et le confirme : « il entre désormais avec … ,
+même mot de passe ». Essai : `numero-connexion`.
+
+
+## Accompagnements, espace vendeur, course remise par BIZZOO (3.80.0)
+
+### Les accompagnements
+
+« 1 Poulet + 2 Riz » : sur la fiche d'un produit, l'équipe (ceux qui
+modifient le produit, dans l'administration) ajoute ses **accompagnements**
+— nom, prix d'une portion, nombre maximal (carte « Accompagnements » du
+formulaire produit). Le client en choisit les quantités avec − / + sur la
+fiche : le prix suit en direct (« 5 000 FCFA + 2 000 FCFA = 7 000 FCFA »).
+
+- le panier garde le choix ; le même plat avec d'autres accompagnements fait
+  une autre ligne ; le total les compte ;
+- **le prix est celui de la base** : la commande n'envoie que les
+  identifiants et les quantités ; la ligne relit le produit, refuse un
+  accompagnement qui n'existe plus ou au-delà du maximum, ajoute le
+  supplément au prix, et l'écrit dans le nom de la ligne (« Poulet braisé +
+  2 Riz ») — que la boutique, le livreur, le client et Personnel lisent
+  partout ;
+- le supplément revient en entier à la boutique (ou au vendeur) qui prépare.
+
+Base : `supabase/accompagnements.sql`. Essai `accompagnements`.
+
+### L'espace du vendeur
+
+- la **photo** de chaque produit ;
+- **Disponible / Non disponible** par produit, d'un geste : non disponible,
+  le produit reste visible chez les clients (« Indisponible pour le
+  moment ») mais ne se commande pas, et la base refuse la commande ;
+- une **notification qui sonne** quand une commande payée contient ses
+  produits (« Commande BZ-… : 2 × Pagne A. À préparer. ») ;
+- **Mon compte** en haut de l'écran : son nom (qu'il change lui-même), son
+  mot de passe, la langue ; **Se déconnecter** en bas de l'espace.
+
+Base : `supabase/espace-vendeur.sql`. Essai `espace-vendeur`.
+
+### Une course remise par BIZZOO se retire
+
+Quand l'administration mettait une commande « Remise au client » sans
+livreur, la demande de course restait chez les livreurs (non lue, qui
+sonne) et l'écran des commandes affichait « En attente d'un livreur ».
+Désormais, dès qu'une commande n'est plus à prendre (remise, annulée,
+confiée à un livreur, partie) : les demandes passent lues, la cascade
+s'arrête, chaque livreur alerté reçoit « Course retirée » (le téléphone
+efface l'alerte qui sonnait), et l'écran des commandes n'attend plus
+personne. Les demandes restées ouvertes sont fermées à l'application.
+
+Base : `supabase/course-retiree.sql`. Essai `course-retiree`.
+Banc d'écran : `banc-accompagnements-vendeur`.
+
+### Les notifications dans le navigateur
+
+Sans l'application Android, personne n'était réveillé : un client sur le
+site, une boutique, un vendeur ou un livreur dans le navigateur ne voyait
+rien tant qu'il n'ouvrait pas l'écran. Désormais, dans **Mon compte** (client
+et administration) et dans **l'espace du vendeur**, la carte « Notifications
+sur ce navigateur » propose **Activer les notifications** : le navigateur
+demande la permission une fois, puis reçoit les mêmes notifications que
+l'application, **même le site fermé** (Chrome, Edge, Firefox sur Android et
+ordinateur ; iPhone : BIZZOO ajouté à l'écran d'accueil, iOS 16.4 ou plus).
+
+- les notifications « client » (lien `#/commande/…`) vont aux navigateurs
+  abonnés dans l'application client, les autres à ceux de l'administration ;
+- **les SMS des clients restent** : le navigateur s'ajoute, il ne remplace
+  rien ;
+- à la déconnexion, le navigateur s'oublie (un navigateur prêté ne sonne
+  plus pour le compte d'avant) ; à l'ouverture, un navigateur abonné sonne
+  pour le compte connecté ; cinq navigateurs au plus par compte et par
+  application ;
+- un abonnement que le service de push ne connaît plus s'efface tout seul ;
+- dans l'application Android, la carte n'apparaît pas : Firebase s'en charge.
+
+Les clés VAPID sont celles de Personnel (secrets `VAPID_PUBLIQUE`,
+`VAPID_PRIVEE`, `VAPID_SUJET` des fonctions Edge ; la clé publique est lue
+dans `rh_push_reglage`). Base : `supabase/push-web.sql`. Fonction Edge
+`envoyer-push` à redéployer (même réglage qu'avant, sans vérification du
+jeton). Essai `push-web`. Banc d'écran : `banc-push-web`.

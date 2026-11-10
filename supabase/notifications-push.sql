@@ -37,6 +37,20 @@
 --
 -- Sans pg_net, ou sans l'adresse de la fonction (« push_reglage »), rien
 -- ne part et rien ne casse : les notifications s'écrivent comme avant.
+-- (3.80.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.navigateurs_de(qui uuid, app text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.appareils_web') is null then
+    return '[]'::jsonb;
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('endpoint', w.endpoint, 'p256dh', w.p256dh, 'auth', w.auth)
+                                    order by w.maj_le desc)
+                     from public.appareils_web w
+                    where w.compte = qui and w.application = app), '[]'::jsonb);
+end $$;
+revoke all on function public.navigateurs_de(uuid, text) from public, anon, authenticated;
+
 create table if not exists public.appareils_push (
   jeton       text primary key check (length(jeton) between 20 and 4096),
   compte      uuid not null references auth.users(id) on delete cascade,
@@ -129,7 +143,11 @@ begin
                           from public.appareils_push a
                          where a.compte = n.destinataire
                            and a.application = case when coalesce(n.lien, '') like '#/commande/%'
-                                                    then 'client' else 'admin' end), '[]'::jsonb));
+                                                    then 'client' else 'admin' end), '[]'::jsonb),
+    -- (3.80.0) Ses navigateurs abonnés (Web Push), de la même application.
+    -- Lu par « to_regclass » : une base sans la table rend une liste vide.
+    'web', public.navigateurs_de(n.destinataire,
+             case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end));
 end $$;
 revoke all on function public.push_a_envoyer(bigint) from public, anon, authenticated;
 
@@ -155,7 +173,10 @@ begin
   if not exists (select 1 from public.appareils_push a
                   where a.compte = new.destinataire
                     and a.application = case when coalesce(new.lien, '') like '#/commande/%'
-                                             then 'client' else 'admin' end) then
+                                             then 'client' else 'admin' end)
+     -- (3.80.0) ni navigateur abonné : personne à réveiller.
+     and jsonb_array_length(public.navigateurs_de(new.destinataire,
+           case when coalesce(new.lien, '') like '#/commande/%' then 'client' else 'admin' end)) = 0 then
     return null;
   end if;
   begin

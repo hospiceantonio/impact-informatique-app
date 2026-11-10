@@ -565,6 +565,13 @@ begin
     select l.*, b.nom as boutique_nom, coalesce(nullif(b.tel, ''), '') as boutique_tel,
            coalesce(nullif(pl.nom, ''), pl.email) as livreur_nom, coalesce(pl.tel, '') as livreur_tel,
            s.statut as terrain, s.motif as terrain_motif,
+           -- (3.79.1) Le vendeur d'une boutique multivendeur : c'est chez lui
+           -- que l'article se prépare et se récupère — son nom, son numéro,
+           -- son adresse. « point » : le lieu de retrait (boutique ou vendeur).
+           vd.nom as vendeur_nom, vd.tel as vendeur_tel, vd.adresse as vendeur_adresse,
+           case when vd.nom is not null then 'v:' || l.vendeur_id::text else l.boutique_id end as point,
+           case when vd.nom is not null then coalesce(b.nom, l.boutique_id) || ' — ' || vd.nom else b.nom end as point_nom,
+           case when vd.nom is not null then vd.tel else coalesce(nullif(b.tel, ''), '') end as point_tel,
            exists (select 1 from public.reclamations rc
                     where rc.commande_id = l.commande_id and rc.sujet = 'non_recu'
                       and (rc.boutique_id is null or rc.boutique_id = l.boutique_id)
@@ -578,6 +585,12 @@ begin
       from public.commande_lignes l
       join cmd c on c.id = l.commande_id
       left join public.boutiques b on b.id = l.boutique_id
+      left join lateral (
+        select coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'Vendeur') as nom,
+               coalesce(nullif(vl.tel, ''), v.tel, '') as tel, coalesce(vl.adresse, '') as adresse
+          from public.profils v
+          left join public.vendeurs_lieux vl on vl.vendeur_id = v.id
+         where l.vendeur_id is not null and b.vendeurs = 'multiples' and v.id = l.vendeur_id) vd on true
       left join public.profils pl on pl.id = l.livreur_id
       left join public.rh_suivi_lignes s on s.ligne_id = l.id
   ),
@@ -605,7 +618,8 @@ begin
                  'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel, 'livreur_id', x.livreur_id,
                  'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le,
                  -- (3.75.0) Quand le marchand a touché « Préparée ».
-                 'preparee_le', x.preparee_le)
+                 'preparee_le', x.preparee_le,
+                 'vendeur', x.vendeur_nom, 'vendeur_tel', x.vendeur_tel, 'vendeur_adresse', x.vendeur_adresse)
                order by x.boutique_nom, x.nom) from lig2 x where x.commande_id = c.id), '[]'),
     -- (3.75.0) LE TEMPS DE PRÉPARATION de chaque marchand : de « Commande
     -- vue » à « Préparée » (tous ses articles), en minutes ; le délai réglé
@@ -615,17 +629,17 @@ begin
                      'minutes', case when y.v is not null and y.p is not null
                                      then greatest(0, round(extract(epoch from (y.p - y.v)) / 60))::int end)
                    order by y.bn)
-                   from (select x.boutique_id as bid, min(x.boutique_nom) as bn, min(x.vue_le) as v,
+                   from (select x.point as bid, min(x.point_nom) as bn, min(x.vue_le) as v,
                                 case when bool_and(x.preparee_le is not null) then max(x.preparee_le) end as p
                            from lig2 x where x.commande_id = c.id and x.etat <> 'annulee'
-                          group by x.boutique_id) y), '[]'),
+                          group by x.point) y), '[]'),
     'preparation_seuil_min', coalesce(r.preparation_min, r.preparation_h * 60),
     'articles', coalesce((select string_agg(x.quantite || ' × ' || x.nom
                                             || case when x.etat = 'annulee' then ' (annulé)' else '' end, ' ; '
                                             order by x.boutique_nom, x.nom)
                             from lig2 x where x.commande_id = c.id), ''),
-    'marchands', coalesce((select string_agg(distinct coalesce(x.boutique_nom, x.boutique_id)
-                                             || case when x.boutique_tel <> '' then ' / ' || x.boutique_tel else '' end, ' ; ')
+    'marchands', coalesce((select string_agg(distinct coalesce(x.point_nom, x.boutique_id)
+                                             || case when x.point_tel <> '' then ' / ' || x.point_tel else '' end, ' ; ')
                              from lig2 x where x.commande_id = c.id), ''),
     'livreurs', coalesce((select string_agg(distinct x.livreur_nom
                                             || case when x.livreur_tel <> '' then ' / ' || x.livreur_tel else '' end, ' ; ')

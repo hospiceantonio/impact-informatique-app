@@ -182,6 +182,22 @@ select essai.egal(jsonb_array_length(coalesce(public.fiche_course(
     'bou_informatique') -> 'retrait' -> 'vendeurs', '[]'::jsonb)), 0,
   'une boutique à vendeur unique : aucun vendeur sur le bon');
 
+select essai.titre('5 bis. (3.79.1) Le suivi Personnel nomme chaque vendeur, avec son numéro');
+select x as su from public.rh_suivi_donnees(null, null, :'c1') x \gset
+select essai.verifie(exists (select 1 from jsonb_array_elements(:'su'::jsonb -> 'lignes') l
+                              where l ->> 'nom' = 'Pagne A' and l ->> 'vendeur' = 'Pagnes Afi'
+                                and l ->> 'vendeur_tel' = '0197700011'
+                                and l ->> 'vendeur_adresse' = 'Dantokpa, allée 4, porte bleue'),
+  'l''article dit son vendeur : nom, numéro, adresse');
+select essai.verifie(position('— Pagnes Afi / 0197700011' in :'su'::jsonb ->> 'marchands') > 0
+                     and position('— Sacs Bio' in :'su'::jsonb ->> 'marchands') > 0,
+  '« Marchands » : chaque vendeur et son numéro (' || (:'su'::jsonb ->> 'marchands') || ')');
+select essai.egal(jsonb_array_length(:'su'::jsonb -> 'preparation'), 2, 'la préparation se mesure par vendeur');
+select essai.verifie(not exists (select 1 from public.rh_suivi_donnees(null, null,
+    (select l.commande_id from public.commande_lignes l where l.boutique_id = 'bou_informatique' limit 1)) d,
+    jsonb_array_elements(d -> 'lignes') l where l ->> 'vendeur' is not null),
+  'une boutique à vendeur unique : pas de vendeur dans le suivi');
+
 select essai.titre('6. « Faire livrer » compte de même');
 create function pg_temp.devis(art jsonb, dest jsonb) returns jsonb language plpgsql as $$
 declare g jsonb;

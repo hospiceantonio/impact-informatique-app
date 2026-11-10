@@ -1186,7 +1186,11 @@ begin
               from public.commande_lignes l
              where l.commande_id = any(cibles)
                and public.peut_agir_sur(l.boutique_id)
-             group by l.commande_id, l.boutique_id) x
+             group by l.commande_id, l.boutique_id
+             -- (3.80.0) Remise (ou annulée) sans livreur — l'administration
+             -- l'a remise elle-même : il n'y a plus de livreur à attendre.
+             having bool_or(l.etat not in ('remise', 'annulee'))
+                 or bool_or(l.livreur_id is not null)) x
       left join public.profils p on p.id = x.livreur
       left join lateral (select rc.livreur_id, rc.motif, rc.refuse_le from public.refus_courses rc
                           where rc.commande_id = x.commande_id and rc.boutique_id = x.boutique_id

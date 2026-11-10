@@ -512,6 +512,8 @@
     }
     /* (3.65.0) Ce téléphone sonne pour ce compte, application fermée. */
     if (typeof Push !== "undefined") Push.declarer();
+    /* (3.80.0) Dans le navigateur : s'il est abonné, il sonne pour CE compte. */
+    if (typeof PushWeb !== "undefined") PushWeb.rafraichir({ application: "admin", rpc: Supabase.rpc });
     /* (3.73.0) La base retient la langue du compte : ses notifications
        partent dans cette langue. Une base d'avant : rien de grave. */
     if (window.Langue) {

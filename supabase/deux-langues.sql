@@ -14,6 +14,20 @@
 -- À coller dans Supabase → SQL Editor → New query → Run. Relançable.
 -- =========================================================
 
+-- (3.80.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.navigateurs_de(qui uuid, app text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.appareils_web') is null then
+    return '[]'::jsonb;
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('endpoint', w.endpoint, 'p256dh', w.p256dh, 'auth', w.auth)
+                                    order by w.maj_le desc)
+                     from public.appareils_web w
+                    where w.compte = qui and w.application = app), '[]'::jsonb);
+end $$;
+revoke all on function public.navigateurs_de(uuid, text) from public, anon, authenticated;
+
 create table if not exists public.langues_comptes (
   compte     uuid primary key references auth.users(id) on delete cascade,
   langue     text not null default 'fr' check (langue in ('fr', 'en')),
@@ -209,7 +223,11 @@ begin
                           from public.appareils_push a
                          where a.compte = n.destinataire
                            and a.application = case when coalesce(n.lien, '') like '#/commande/%'
-                                                    then 'client' else 'admin' end), '[]'::jsonb));
+                                                    then 'client' else 'admin' end), '[]'::jsonb),
+    -- (3.80.0) Ses navigateurs abonnés (Web Push), de la même application.
+    -- Lu par « to_regclass » : une base sans la table rend une liste vide.
+    'web', public.navigateurs_de(n.destinataire,
+             case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end));
 end $$;
 
 create or replace function public.rh_push_a_envoyer(cible bigint) returns jsonb

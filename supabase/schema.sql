@@ -5364,6 +5364,63 @@ end $$;
 revoke all on function public.prendre_course(text) from public, anon;
 grant execute on function public.prendre_course(text) to authenticated;
 
+-- ---------- (3.80.0) Une course qui n'est plus à prendre se retire ----------
+-- L'administration peut faire avancer une commande elle-même : « En
+-- livraison », « Remise au client », l'annuler, ou la confier à un
+-- livreur précis. Avant, les livreurs alertés gardaient la demande (non
+-- lue, qui sonne sur le téléphone), et la cascade continuait. Désormais,
+-- dès qu'une commande n'est plus à prendre (course_a_prendre ≠ 1) : les
+-- demandes non lues passent « lues », la cascade s'arrête, et chaque
+-- livreur alerté reçoit « Course retirée » — sa sonnerie s'arrête, son
+-- téléphone retire l'alerte. Celui qui porte la course n'en reçoit pas.
+create or replace function public.retirer_course_close() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  qui    uuid[];
+  numero text;
+  pourquoi text;
+begin
+  -- « Commande reçue » sur une demande : prendre_course prévient lui-même
+  -- les autres (« Déjà pris par … »).
+  if coalesce(current_setting('bizzoo.prise', true), '') = 'oui' then
+    return null;
+  end if;
+  if public.course_a_prendre(new.commande_id) = 1 then
+    return null;
+  end if;
+  qui := array(select distinct n.destinataire from public.notifications n
+                where n.commande_id = new.commande_id and n.type = 'course_proposee'
+                  and n.lue_le is null
+                  and n.destinataire not in (select l.livreur_id from public.commande_lignes l
+                                              where l.commande_id = new.commande_id
+                                                and l.livreur_id is not null));
+  update public.notifications n set lue_le = now()
+   where n.commande_id = new.commande_id and n.type = 'course_proposee' and n.lue_le is null;
+  update public.courses_cascade k set prochaine = null
+   where k.commande_id = new.commande_id and k.prochaine is not null;
+  if array_length(qui, 1) is null then
+    return null;
+  end if;
+  select c.numero into numero from public.commandes c where c.id = new.commande_id;
+  pourquoi := case when old.etat is not distinct from new.etat then 'confiée à un autre livreur'
+                   when new.etat = 'remise' then 'remise au client par BIZZOO'
+                   when new.etat = 'annulee' then 'annulée'
+                   else 'déjà en route' end;
+  perform public.notifier(qui, 'course_retiree', 'Course retirée',
+    'Commande ' || coalesce(numero, '') || ' : ' || pourquoi || '. Elle n''est plus disponible.',
+    '#/livraisons', new.commande_id, null, false);
+  return null;
+end $$;
+revoke all on function public.retirer_course_close() from public, anon, authenticated;
+
+drop trigger if exists lignes_course_retiree on public.commande_lignes;
+create trigger lignes_course_retiree
+  after update of etat, livreur_id on public.commande_lignes
+  for each row
+  when ((new.etat in ('en_livraison', 'remise', 'annulee') and old.etat is distinct from new.etat)
+        or (old.livreur_id is null and new.livreur_id is not null))
+  execute function public.retirer_course_close();
+
 -- ---------- Le reste payé à la livraison (3.59.0) ----------
 --
 -- AVANT, LE RESTE PASSAIT DE MAIN EN MAIN SANS LAISSER DE TRACE : le
@@ -5897,7 +5954,11 @@ begin
               from public.commande_lignes l
              where l.commande_id = any(cibles)
                and public.peut_agir_sur(l.boutique_id)
-             group by l.commande_id, l.boutique_id) x
+             group by l.commande_id, l.boutique_id
+             -- (3.80.0) Remise (ou annulée) sans livreur — l'administration
+             -- l'a remise elle-même : il n'y a plus de livreur à attendre.
+             having bool_or(l.etat not in ('remise', 'annulee'))
+                 or bool_or(l.livreur_id is not null)) x
       left join public.profils p on p.id = x.livreur
       left join lateral (select rc.livreur_id, rc.motif, rc.refuse_le from public.refus_courses rc
                           where rc.commande_id = x.commande_id and rc.boutique_id = x.boutique_id
@@ -6574,6 +6635,11 @@ begin
     if coalesce(p.masque, false) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
     end if;
+    -- (3.80.0) Ni un produit que son vendeur a mis « Non disponible ».
+    if coalesce((to_jsonb(p) ->> 'en_pause')::boolean, false) then
+      raise exception '« % » n''est pas disponible pour le moment : retirez-le du panier pour commander le reste.', p.nom
+        using errcode = 'P0001';
+    end if;
     if coalesce(p.stock, 0) <= 0 and not coalesce(p.sur_commande, false)
        and (p.appro_le is null or p.appro_le < current_date) then
       raise exception '« % » n''est plus disponible : retirez-le du panier.', p.nom;
@@ -6599,8 +6665,13 @@ begin
     end if;
     devises := devises || coalesce(nullif((
       select b.devise from public.boutiques b where b.id = p.boutique_id), ''), 'FCFA');
-    insert into public.commande_lignes (id, commande_id, produit_id, quantite)
-    values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte);
+    -- (3.80.0) Ses accompagnements choisis : la base les relit et en fait le
+    -- prix (« lignes_zz_accompagnements »), le panier n'en dit que les
+    -- quantités.
+    insert into public.commande_lignes (id, commande_id, produit_id, quantite, accompagnements)
+    values ('lig_' || replace(gen_random_uuid()::text, '-', ''), nouvelle, p.id, qte,
+            case when jsonb_typeof(article -> 'accompagnements') = 'array'
+                 then article -> 'accompagnements' else '[]'::jsonb end);
   end loop;
 
   -- LA QUANTITÉ TIENT DANS LE STOCK. Refuser un produit à zéro ne
@@ -9301,6 +9372,108 @@ end $$;
 revoke all on function public.oublier_jeton_push(text) from public;
 grant execute on function public.oublier_jeton_push(text) to anon, authenticated;
 
+-- =========================================================
+-- (3.80.0) LES NOTIFICATIONS DANS LE NAVIGATEUR (Web Push)
+--
+-- Sans l'application Android, Client et Admin ne recevaient rien : un
+-- client sur le site, une boutique, un vendeur ou un livreur dans le
+-- navigateur. Désormais chacun peut, depuis « Mon compte », autoriser son
+-- navigateur : il reçoit alors les mêmes notifications que l'application,
+-- même le site fermé (Android, ordinateur ; iPhone : BIZZOO ajouté à
+-- l'écran d'accueil). Les clés VAPID sont celles de BIZZOO Personnel
+-- (« rh_push_reglage », secrets de la fonction Edge) : la clé publique se
+-- lit ici, la privée ne quitte jamais les secrets.
+--
+-- Les SMS des clients ne changent pas : un navigateur abonné ne les
+-- remplace pas (une notification web se coupe trop facilement).
+-- =========================================================
+create table if not exists public.appareils_web (
+  endpoint    text primary key check (endpoint ~ '^https://' and length(endpoint) <= 2000),
+  compte      uuid not null references auth.users(id) on delete cascade,
+  application text not null check (application in ('admin', 'client')),
+  p256dh      text not null check (length(p256dh) between 40 and 200),
+  auth        text not null check (length(auth) between 10 and 100),
+  maj_le      timestamptz not null default now()
+);
+create index if not exists appareils_web_compte on public.appareils_web(compte, application);
+alter table public.appareils_web enable row level security;
+revoke all on public.appareils_web from public, anon, authenticated;
+
+-- Les navigateurs d'un compte pour une application : de quoi chiffrer.
+create or replace function public.navigateurs_de(qui uuid, app text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.appareils_web') is null then
+    return '[]'::jsonb;
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('endpoint', w.endpoint, 'p256dh', w.p256dh, 'auth', w.auth)
+                                    order by w.maj_le desc)
+                     from public.appareils_web w
+                    where w.compte = qui and w.application = app), '[]'::jsonb);
+end $$;
+revoke all on function public.navigateurs_de(uuid, text) from public, anon, authenticated;
+
+-- La clé publique : publique par nature, le navigateur en a besoin pour s'abonner.
+create or replace function public.cle_push_web() returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if to_regclass('public.rh_push_reglage') is null then
+    return null;
+  end if;
+  return nullif((select g.cle_publique from public.rh_push_reglage g where g.id = 1), '');
+end $$;
+revoke all on function public.cle_push_web() from public;
+grant execute on function public.cle_push_web() to anon, authenticated;
+
+-- Ce navigateur s'abonne pour le compte connecté. Cinq au plus par compte
+-- et par application : les plus anciens s'effacent.
+create or replace function public.enregistrer_navigateur(point text, cle text, secret text, application text default 'admin')
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  app text := case when application = 'client' then 'client' else 'admin' end;
+begin
+  if moi is null then
+    raise exception 'Connectez-vous d''abord.' using errcode = 'P0001';
+  end if;
+  if coalesce(point, '') !~ '^https://' or length(point) > 2000
+     or length(coalesce(cle, '')) not between 40 and 200 or length(coalesce(secret, '')) not between 10 and 100 then
+    raise exception 'Abonnement du navigateur illisible.' using errcode = 'P0001';
+  end if;
+  insert into public.appareils_web (endpoint, compte, application, p256dh, auth, maj_le)
+  values (point, moi, app, cle, secret, clock_timestamp())
+  on conflict (endpoint) do update
+     set compte = excluded.compte, application = excluded.application,
+         p256dh = excluded.p256dh, auth = excluded.auth, maj_le = clock_timestamp();
+  delete from public.appareils_web w
+   where w.compte = moi and w.application = app
+     and w.endpoint not in (select x.endpoint from public.appareils_web x
+                             where x.compte = moi and x.application = app
+                             order by x.maj_le desc limit 5);
+  return true;
+end $$;
+revoke all on function public.enregistrer_navigateur(text, text, text, text) from public, anon;
+grant execute on function public.enregistrer_navigateur(text, text, text, text) to authenticated;
+
+-- Ce navigateur ne reçoit plus rien. L'adresse d'abonnement, que seul ce
+-- navigateur connaît, suffit : une déconnexion hors ligne se rejoue sans session.
+create or replace function public.oublier_navigateur(point text) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.appareils_web w where w.endpoint = coalesce(point, '');
+  return found;
+end $$;
+revoke all on function public.oublier_navigateur(text) from public;
+grant execute on function public.oublier_navigateur(text) to anon, authenticated;
+
+-- Un abonnement que le service de push ne connaît plus : oublié. Réservé au serveur.
+create or replace function public.navigateur_mort(point text) returns void
+language sql security definer set search_path = public as $$
+  delete from public.appareils_web w where w.endpoint = point;
+$$;
+revoke all on function public.navigateur_mort(text) from public, anon, authenticated;
+
 -- Ce que la fonction Edge envoie : la notification et les téléphones de
 -- son destinataire — une seule fois. Réservé au serveur.
 --
@@ -9329,7 +9502,11 @@ begin
                           from public.appareils_push a
                          where a.compte = n.destinataire
                            and a.application = case when coalesce(n.lien, '') like '#/commande/%'
-                                                    then 'client' else 'admin' end), '[]'::jsonb));
+                                                    then 'client' else 'admin' end), '[]'::jsonb),
+    -- (3.80.0) Ses navigateurs abonnés (Web Push), de la même application.
+    -- Lu par « to_regclass » : une base sans la table rend une liste vide.
+    'web', public.navigateurs_de(n.destinataire,
+             case when coalesce(n.lien, '') like '#/commande/%' then 'client' else 'admin' end));
 end $$;
 revoke all on function public.push_a_envoyer(bigint) from public, anon, authenticated;
 
@@ -9355,7 +9532,10 @@ begin
   if not exists (select 1 from public.appareils_push a
                   where a.compte = new.destinataire
                     and a.application = case when coalesce(new.lien, '') like '#/commande/%'
-                                             then 'client' else 'admin' end) then
+                                             then 'client' else 'admin' end)
+     -- (3.80.0) ni navigateur abonné : personne à réveiller.
+     and jsonb_array_length(public.navigateurs_de(new.destinataire,
+           case when coalesce(new.lien, '') like '#/commande/%' then 'client' else 'admin' end)) = 0 then
     return null;
   end if;
   begin
@@ -12197,6 +12377,126 @@ end $$;
 create or replace trigger profils_trace
   before insert or update on public.profils
   for each row execute function public.profil_trace();
+
+-- ---------- (3.79.2) Le numéro d'un compte EST son numéro de connexion ----------
+-- Un vendeur, un livreur entrent par leur numéro et leur mot de passe :
+-- c'est le numéro rangé par GoTrue (« auth.users.phone ») qui ouvre la
+-- porte. L'administration, elle, change le numéro de la FICHE
+-- (« profils.tel »). Avant, les deux se séparaient : la fiche montrait le
+-- nouveau numéro, et seul l'ancien permettait d'entrer.
+--
+-- Désormais, changer le numéro de la fiche d'un compte qui entre par son
+-- numéro change aussi son numéro de connexion, dans la même transaction :
+-- l'ancien ne permet plus d'entrer, le mot de passe reste le même, et
+-- rien d'autre du compte ne bouge (rôle, boutique, soldes, commandes,
+-- historique). Un numéro déjà pris par un autre compte est refusé, et
+-- alors rien ne change — ni la fiche, ni la connexion.
+--
+-- Qui peut changer ce numéro ? Ceux que les règles de « profils »
+-- laissent modifier la fiche : le superadministrateur, l'administrateur
+-- sur SES livreurs et modérateurs. Personne ne change le sien par là.
+-- Un compte qui entre par e-mail (sans numéro de connexion) garde son
+-- numéro de fiche comme simple contact.
+--
+-- Le numéro s'écrit comme l'application le tape à la connexion :
+-- chiffres seuls, « 00 » ôté, l'indicatif 229 ajouté s'il manque.
+create or replace function public.numero_connexion(brut text) returns text
+language sql immutable set search_path = public as $$
+  select case when d = '' then ''
+              when left(d, 3) = '229' then d
+              else '229' || d end
+    from (select case when left(x, 2) = '00' then substr(x, 3) else x end as d
+            from (select regexp_replace(coalesce(brut, ''), '\D', '', 'g') as x) a) b;
+$$;
+revoke all on function public.numero_connexion(text) from public, anon, authenticated;
+
+-- Pose le numéro de la fiche comme numéro de connexion. « strict » : une
+-- erreur claire si c'est impossible (l'enregistrement est alors annulé) ;
+-- sinon, rend false et ne touche à rien (réparation des anciens comptes).
+create or replace function public.synchroniser_numero_connexion(cible uuid, strict boolean default true)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  actuel text;
+  voulu  text;
+begin
+  select coalesce(u.phone, '') into actuel from auth.users u where u.id = cible;
+  if not found or actuel = '' then
+    return false;                       -- entre par e-mail : rien à faire
+  end if;
+  select public.numero_connexion(p.tel) into voulu from public.profils p where p.id = cible;
+  if coalesce(voulu, '') = '' then
+    if strict then
+      raise exception 'Ce compte entre avec son numéro : il ne peut pas rester sans numéro.'
+        using errcode = 'P0001';
+    end if;
+    return false;
+  end if;
+  if length(voulu) < 11 or length(voulu) > 15 then
+    if strict then
+      raise exception 'Numéro invalide : écrivez ses 10 chiffres, comme 01 97 00 00 00.'
+        using errcode = 'P0001';
+    end if;
+    return false;
+  end if;
+  if voulu = actuel then
+    return false;
+  end if;
+  -- Un téléphone, un compte : « 97 12 15 96 » et « 01 97 12 15 96 » sont
+  -- le même (le Bénin est passé de 8 à 10 chiffres), d'où les 8 derniers.
+  if exists (select 1 from auth.users x
+              where x.id <> cible and coalesce(x.phone, '') <> ''
+                and right(x.phone, 8) = right(voulu, 8)) then
+    if strict then
+      raise exception 'Ce numéro est déjà celui d''un autre compte BIZZOO : un numéro ne sert qu''à un seul compte.'
+        using errcode = 'P0001';
+    end if;
+    return false;
+  end if;
+  -- Le nouveau numéro prend la place de l'ancien, qui n'ouvre plus rien.
+  -- Sa confirmation suit : l'administration le donne, comme elle avait
+  -- donné le premier. Le mot de passe ne bouge pas.
+  update auth.users set phone = voulu, updated_at = now() where id = cible;
+  return true;
+end $$;
+revoke all on function public.synchroniser_numero_connexion(uuid, boolean) from public, anon, authenticated;
+
+create or replace function public.profil_numero_connexion() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if regexp_replace(coalesce(new.tel, ''), '\D', '', 'g')
+     is distinct from regexp_replace(coalesce(old.tel, ''), '\D', '', 'g') then
+    perform public.synchroniser_numero_connexion(new.id, true);
+  end if;
+  return null;
+end $$;
+revoke all on function public.profil_numero_connexion() from public, anon, authenticated;
+
+drop trigger if exists profils_numero_connexion on public.profils;
+create trigger profils_numero_connexion
+  after update of tel on public.profils
+  for each row execute function public.profil_numero_connexion();
+
+-- Les comptes dont la fiche avait déjà changé de numéro sans la connexion
+-- (avant la 3.79.2) : la fiche dit le numéro voulu, il devient celui de
+-- la connexion. Un numéro pris par un autre compte reste tel quel.
+do $$
+declare
+  p record;
+  n int := 0;
+begin
+  for p in select x.id from public.profils x join auth.users u on u.id = x.id
+            where coalesce(u.phone, '') <> ''
+              and public.numero_connexion(x.tel) <> ''
+              and public.numero_connexion(x.tel) <> u.phone loop
+    if public.synchroniser_numero_connexion(p.id, false) then
+      n := n + 1;
+    end if;
+  end loop;
+  if n > 0 then
+    raise notice '% compte(s) : le numéro de la fiche est devenu le numéro de connexion.', n;
+  end if;
+end $$;
 
 -- ---------- Le compte à valider (3.63.0) ----------
 -- Demande du CEO : l'administrateur de BIZZOO crée un compte modérateur,
@@ -15668,6 +15968,13 @@ begin
     select l.*, b.nom as boutique_nom, coalesce(nullif(b.tel, ''), '') as boutique_tel,
            coalesce(nullif(pl.nom, ''), pl.email) as livreur_nom, coalesce(pl.tel, '') as livreur_tel,
            s.statut as terrain, s.motif as terrain_motif,
+           -- (3.79.1) Le vendeur d'une boutique multivendeur : c'est chez lui
+           -- que l'article se prépare et se récupère — son nom, son numéro,
+           -- son adresse. « point » : le lieu de retrait (boutique ou vendeur).
+           vd.nom as vendeur_nom, vd.tel as vendeur_tel, vd.adresse as vendeur_adresse,
+           case when vd.nom is not null then 'v:' || l.vendeur_id::text else l.boutique_id end as point,
+           case when vd.nom is not null then coalesce(b.nom, l.boutique_id) || ' — ' || vd.nom else b.nom end as point_nom,
+           case when vd.nom is not null then vd.tel else coalesce(nullif(b.tel, ''), '') end as point_tel,
            exists (select 1 from public.reclamations rc
                     where rc.commande_id = l.commande_id and rc.sujet = 'non_recu'
                       and (rc.boutique_id is null or rc.boutique_id = l.boutique_id)
@@ -15681,6 +15988,12 @@ begin
       from public.commande_lignes l
       join cmd c on c.id = l.commande_id
       left join public.boutiques b on b.id = l.boutique_id
+      left join lateral (
+        select coalesce(nullif(btrim(vl.nom), ''), nullif(btrim(v.nom), ''), 'Vendeur') as nom,
+               coalesce(nullif(vl.tel, ''), v.tel, '') as tel, coalesce(vl.adresse, '') as adresse
+          from public.profils v
+          left join public.vendeurs_lieux vl on vl.vendeur_id = v.id
+         where l.vendeur_id is not null and b.vendeurs = 'multiples' and v.id = l.vendeur_id) vd on true
       left join public.profils pl on pl.id = l.livreur_id
       left join public.rh_suivi_lignes s on s.ligne_id = l.id
   ),
@@ -15708,7 +16021,8 @@ begin
                  'livreur', x.livreur_nom, 'livreur_tel', x.livreur_tel, 'livreur_id', x.livreur_id,
                  'confirme_le', x.confirme_le, 'vue_le', x.vue_le, 'remise_le', x.remise_le,
                  -- (3.75.0) Quand le marchand a touché « Préparée ».
-                 'preparee_le', x.preparee_le)
+                 'preparee_le', x.preparee_le,
+                 'vendeur', x.vendeur_nom, 'vendeur_tel', x.vendeur_tel, 'vendeur_adresse', x.vendeur_adresse)
                order by x.boutique_nom, x.nom) from lig2 x where x.commande_id = c.id), '[]'),
     -- (3.75.0) LE TEMPS DE PRÉPARATION de chaque marchand : de « Commande
     -- vue » à « Préparée » (tous ses articles), en minutes ; le délai réglé
@@ -15718,17 +16032,17 @@ begin
                      'minutes', case when y.v is not null and y.p is not null
                                      then greatest(0, round(extract(epoch from (y.p - y.v)) / 60))::int end)
                    order by y.bn)
-                   from (select x.boutique_id as bid, min(x.boutique_nom) as bn, min(x.vue_le) as v,
+                   from (select x.point as bid, min(x.point_nom) as bn, min(x.vue_le) as v,
                                 case when bool_and(x.preparee_le is not null) then max(x.preparee_le) end as p
                            from lig2 x where x.commande_id = c.id and x.etat <> 'annulee'
-                          group by x.boutique_id) y), '[]'),
+                          group by x.point) y), '[]'),
     'preparation_seuil_min', coalesce(r.preparation_min, r.preparation_h * 60),
     'articles', coalesce((select string_agg(x.quantite || ' × ' || x.nom
                                             || case when x.etat = 'annulee' then ' (annulé)' else '' end, ' ; '
                                             order by x.boutique_nom, x.nom)
                             from lig2 x where x.commande_id = c.id), ''),
-    'marchands', coalesce((select string_agg(distinct coalesce(x.boutique_nom, x.boutique_id)
-                                             || case when x.boutique_tel <> '' then ' / ' || x.boutique_tel else '' end, ' ; ')
+    'marchands', coalesce((select string_agg(distinct coalesce(x.point_nom, x.boutique_id)
+                                             || case when x.point_tel <> '' then ' / ' || x.point_tel else '' end, ' ; ')
                              from lig2 x where x.commande_id = c.id), ''),
     'livreurs', coalesce((select string_agg(distinct x.livreur_nom
                                             || case when x.livreur_tel <> '' then ' / ' || x.livreur_tel else '' end, ' ; ')
@@ -23941,6 +24255,8 @@ begin
         'id', p.id, 'nom', p.nom, 'code', p.code, 'boutique', b.nom, 'prix', p.prix,
         'taux', pp.taux_vendeur, 'part', pp.prix_grossiste, 'stock', p.stock,
         'sur_commande', p.sur_commande,
+        -- (3.80.0) Sa photo, et s'il l'a mis « Non disponible ».
+        'image', coalesce(p.images[1], ''), 'en_pause', coalesce((to_jsonb(p) ->> 'en_pause')::boolean, false),
         'vendus', coalesce(v.vendus, 0), 'en_cours', coalesce(v.en_cours, 0),
         'ventes', coalesce(v.ventes, 0), 'gagne', coalesce(v.gagne, 0))
         order by p.nom)
@@ -25060,3 +25376,204 @@ begin
       left join public.vendeurs_lieux vl on vl.vendeur_id = l.vendeur_id), '[]'::jsonb);
 end $$;
 revoke all on function public.vendeurs_retrait(text, text) from public, anon, authenticated;
+
+-- =========================================================
+-- (3.80.0) Les demandes de course restées ouvertes sur des commandes qui
+-- ne sont plus à prendre (remises, annulées, confiées ou en route)
+-- passent « lues » — celles d'avant le déclencheur « lignes_course_retiree ».
+-- =========================================================
+update public.notifications n set lue_le = now()
+ where n.type = 'course_proposee' and n.lue_le is null
+   and public.course_a_prendre(n.commande_id) <> 1;
+
+-- =========================================================
+-- (3.80.0) L'ESPACE DU VENDEUR
+--
+-- Le vendeur d'une boutique multivendeur :
+--   - met chacun de ses produits « Disponible » / « Non disponible »
+--     (« en_pause ») : non disponible, le produit reste visible mais ne
+--     se commande pas — comme une boutique fermée ;
+--   - est prévenu (notification qui sonne) quand une commande payée
+--     contient ses produits ;
+--   - change son nom affiché (son mot de passe se change déjà dans
+--     « Mon compte »).
+-- =========================================================
+alter table public.produits add column if not exists en_pause boolean not null default false;
+alter table public.produits add column if not exists en_pause_le timestamptz;
+
+create or replace function public.vendeur_produit_disponible(produit text, dispo boolean)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+begin
+  if moi is null then
+    raise exception 'Connectez-vous d''abord.' using errcode = 'P0001';
+  end if;
+  if not (public.est_super()
+          or exists (select 1 from public.produits_prive pp
+                      where pp.produit_id = produit and pp.vendeur_id = moi)) then
+    raise exception 'Ce produit n''est pas le vôtre.' using errcode = 'P0001';
+  end if;
+  update public.produits
+     set en_pause = not coalesce(dispo, true),
+         en_pause_le = case when coalesce(dispo, true) then null else now() end
+   where id = produit;
+  if not found then
+    raise exception 'Ce produit n''existe plus.' using errcode = 'P0001';
+  end if;
+  return coalesce(dispo, true);
+end $$;
+revoke all on function public.vendeur_produit_disponible(text, boolean) from public, anon;
+grant execute on function public.vendeur_produit_disponible(text, boolean) to authenticated;
+
+-- Son nom affiché : chacun le sien, et rien d'autre de sa fiche.
+create or replace function public.modifier_mon_nom(nom text)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  moi uuid := auth.uid();
+  n   text := btrim(regexp_replace(coalesce(nom, ''), '\s+', ' ', 'g'));
+begin
+  if moi is null or not exists (select 1 from public.profils p where p.id = moi and p.actif) then
+    raise exception 'Connectez-vous d''abord.' using errcode = 'P0001';
+  end if;
+  if length(n) < 2 or length(n) > 60 then
+    raise exception 'Votre nom : entre 2 et 60 caractères.' using errcode = 'P0001';
+  end if;
+  update public.profils p set nom = n where p.id = moi;
+  return n;
+end $$;
+revoke all on function public.modifier_mon_nom(text) from public, anon;
+grant execute on function public.modifier_mon_nom(text) to authenticated;
+
+-- Une commande payée qui contient ses produits : il est prévenu, avec ce
+-- qu'il a à préparer. La touche ouvre son espace.
+create or replace function public.notifier_vendeurs_paiement() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v record;
+begin
+  if new.etat is not distinct from old.etat or new.etat <> 'payee' then
+    return null;
+  end if;
+  for v in select l.vendeur_id,
+                  string_agg(l.quantite || ' × ' || l.nom, ', ' order by l.nom) as quoi
+             from public.commande_lignes l
+            where l.commande_id = new.id and l.vendeur_id is not null and l.etat <> 'annulee'
+            group by l.vendeur_id loop
+    perform public.notifier(array[v.vendeur_id], 'commande_payee', 'Nouvelle commande',
+      'Commande ' || coalesce(new.numero, '') || ' : ' || v.quoi || '. À préparer.',
+      '#/ventes', new.id, null, true);
+  end loop;
+  return null;
+end $$;
+revoke all on function public.notifier_vendeurs_paiement() from public, anon, authenticated;
+
+drop trigger if exists commandes_notifient_vendeurs on public.commandes;
+create trigger commandes_notifient_vendeurs
+  after update of etat on public.commandes
+  for each row execute function public.notifier_vendeurs_paiement();
+
+-- =========================================================
+-- (3.80.0) LES ACCOMPAGNEMENTS
+--
+-- Un plat et ce qui va avec : « 1 Poulet + 2 Riz ». L'équipe (qui
+-- modifie le produit) pose sur le produit la liste de ses accompagnements
+-- — nom, prix d'une portion, nombre maximal — ; le client en choisit les
+-- quantités sur la fiche, et voit le prix monter en direct : 5 000 + 2 ×
+-- 1 000 = 7 000 FCFA.
+--
+-- LE PRIX EST CELUI DE LA BASE. Le panier n'envoie que des identifiants et
+-- des quantités ; la ligne de commande relit le produit, vérifie chaque
+-- choix (qui existe encore, sans dépasser le maximum), ajoute le
+-- supplément au prix de la ligne, et l'écrit dans son nom — « Poulet
+-- braisé + 2 Riz » —, que la boutique, le livreur, le client et
+-- Personnel lisent partout où ils lisaient le produit. Le supplément
+-- revient en entier à la boutique (ou au vendeur) qui prépare le plat.
+-- =========================================================
+create or replace function public.accompagnements_valides(a jsonb) returns boolean
+language sql immutable set search_path = public as $$
+  select jsonb_typeof(a) = 'array'
+     and jsonb_array_length(a) <= 20
+     and not exists (
+       select 1 from jsonb_array_elements(a) e
+        where jsonb_typeof(e) <> 'object'
+           or coalesce(e ->> 'id', '') !~ '^[a-z0-9_-]{1,40}\Z'
+           or length(btrim(coalesce(e ->> 'nom', ''))) not between 1 and 60
+           or coalesce(e ->> 'prix', '') !~ '^[0-9]{1,7}\Z'
+           or coalesce(e ->> 'max', '') !~ '^[0-9]{1,2}\Z'
+           or (e ->> 'max')::int not between 1 and 20)
+     and (select count(distinct e ->> 'id') from jsonb_array_elements(a) e) = jsonb_array_length(a);
+$$;
+
+alter table public.produits add column if not exists accompagnements jsonb not null default '[]'::jsonb;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'produits_accompagnements_valides') then
+    alter table public.produits add constraint produits_accompagnements_valides
+      check (public.accompagnements_valides(accompagnements));
+  end if;
+end $$;
+alter table public.commande_lignes add column if not exists accompagnements jsonb not null default '[]'::jsonb;
+alter table public.commande_lignes add column if not exists supplement int not null default 0;
+
+-- Après les autres règles d'écriture (l'ordre des déclencheurs est celui
+-- de leur nom) : le prix et la part de la boutique sont déjà posés.
+create or replace function public.ligne_accompagnements() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  offre  jsonb;
+  choix  jsonb := case when jsonb_typeof(new.accompagnements) = 'array'
+                       then new.accompagnements else '[]'::jsonb end;
+  c      record;
+  o      jsonb;
+  norme  jsonb := '[]'::jsonb;
+  sup    int := 0;
+  libelle text := '';
+begin
+  if jsonb_array_length(choix) = 0 then
+    new.accompagnements := '[]'::jsonb;
+    new.supplement := 0;
+    return new;
+  end if;
+  select coalesce(p.accompagnements, '[]'::jsonb) into offre from public.produits p where p.id = new.produit_id;
+  -- Un même accompagnement cité deux fois compte une fois, quantités ajoutées.
+  for c in select x ->> 'id' as id, sum(greatest(0, coalesce((x ->> 'quantite')::int, 0)))::int as q
+             from jsonb_array_elements(choix) x
+            where jsonb_typeof(x) = 'object'
+            group by x ->> 'id'
+            order by min(x ->> 'id') loop
+    if c.q <= 0 then
+      continue;
+    end if;
+    o := null;
+    select e into o from jsonb_array_elements(offre) e where e ->> 'id' = c.id;
+    if o is null then
+      raise exception 'Un accompagnement de « % » n''est plus proposé : rouvrez le produit pour choisir à nouveau.', new.nom
+        using errcode = 'P0001';
+    end if;
+    if c.q > (o ->> 'max')::int then
+      raise exception 'Au plus % × « % » avec « % ».', (o ->> 'max')::int, o ->> 'nom', new.nom
+        using errcode = 'P0001';
+    end if;
+    norme := norme || jsonb_build_array(jsonb_build_object(
+      'id', c.id, 'nom', o ->> 'nom', 'prix', (o ->> 'prix')::int, 'quantite', c.q));
+    sup := sup + (o ->> 'prix')::int * c.q;
+    libelle := libelle || ' + ' || c.q || ' ' || (o ->> 'nom');
+  end loop;
+  new.accompagnements := norme;
+  new.supplement := sup;
+  if jsonb_array_length(norme) > 0 then
+    new.prix := coalesce(new.prix, 0) + sup;
+    new.prix_bizzoo := coalesce(new.prix_bizzoo, 0) + sup;
+    new.nom := coalesce(new.nom, '') || libelle;
+  end if;
+  return new;
+end $$;
+revoke all on function public.ligne_accompagnements() from public, anon, authenticated;
+
+drop trigger if exists lignes_zz_accompagnements on public.commande_lignes;
+create trigger lignes_zz_accompagnements
+  before insert on public.commande_lignes
+  for each row execute function public.ligne_accompagnements();

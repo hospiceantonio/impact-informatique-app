@@ -70,6 +70,70 @@ const VueProduit = (() => {
    * bas. La fiche n'est pas redessinée après l'ajout : le client vient
    * de la lire, la lui remettre sous les yeux lui ferait perdre sa place.
    */
+  /* (3.80.0) LES ACCOMPAGNEMENTS choisis sur cette fiche : { riz: 2 }. */
+  let choixAcc = {};
+  const supplementChoisi = (p) => (p.accompagnements || [])
+    .reduce((s, a) => s + a.prix * (choixAcc[a.id] || 0), 0);
+
+  /** Le bloc « Accompagnements » : − / + par portion, et le prix qui suit. */
+  function htmlAccompagnements(p) {
+    const offre = p.accompagnements || [];
+    if (!offre.length) return "";
+    const devise = Catalogue.deviseDe(p);
+    return '<div class="carte fiche-acc" id="p-acc">' +
+      '<div class="carte-titre">Accompagnements</div>' +
+      offre.map((a) =>
+        '<div class="fiche-acc-ligne" data-acc="' + Utils.echapper(a.id) + '">' +
+          '<div class="fiche-acc-mots"><span class="fiche-acc-nom" translate="no">' + Utils.echapper(a.nom) + "</span>" +
+            '<span class="fiche-acc-prix">' + (a.prix ? "+ " + Utils.echapper(Utils.fmtMontant(a.prix, devise)) : "Offert") +
+            (a.max > 1 ? " · " + a.max + " au plus" : "") + "</span></div>" +
+          '<div class="pa-compteur fiche-acc-compteur">' +
+            '<button type="button" data-acc-moins aria-label="Une portion de moins">−</button>' +
+            '<span data-acc-qte>0</span>' +
+            '<button type="button" data-acc-plus aria-label="Une portion de plus">+</button>' +
+          "</div>" +
+        "</div>").join("") +
+      '<div class="fiche-acc-total" id="p-acc-total" aria-live="polite"></div>' +
+    "</div>";
+  }
+  function brancherAccompagnements(vue, p) {
+    const zone = UI.$("#p-acc", vue);
+    if (!zone) return;
+    const devise = Catalogue.deviseDe(p);
+    const prixBase = Catalogue.prixVu(p).prix;
+    const total = UI.$("#p-acc-total", zone);
+    const dire = () => {
+      const sup = supplementChoisi(p);
+      total.innerHTML = sup
+        ? "<span>Prix : </span>" + Utils.echapper(Utils.fmtMontant(prixBase, devise)) + " + " +
+            Utils.echapper(Utils.fmtMontant(sup, devise)) + " = <strong>" +
+            Utils.echapper(Utils.fmtMontant(prixBase + sup, devise)) + "</strong>"
+        : "<span>Prix : </span><strong>" + Utils.echapper(Utils.fmtMontant(prixBase, devise)) + "</strong>";
+    };
+    for (const ligne of UI.$$(".fiche-acc-ligne", zone)) {
+      const a = (p.accompagnements || []).find((x) => x.id === ligne.dataset.acc);
+      if (!a) continue;
+      const qte = UI.$("[data-acc-qte]", ligne);
+      const poser = (n) => {
+        choixAcc[a.id] = Math.max(0, Math.min(a.max, n));
+        if (!choixAcc[a.id]) delete choixAcc[a.id];
+        qte.textContent = String(choixAcc[a.id] || 0);
+        ligne.classList.toggle("choisi", !!choixAcc[a.id]);
+        dire();
+      };
+      UI.$("[data-acc-moins]", ligne).onclick = () => poser((choixAcc[a.id] || 0) - 1);
+      UI.$("[data-acc-plus]", ligne).onclick = () => {
+        if ((choixAcc[a.id] || 0) >= a.max) {
+          UI.toast(a.max + " " + a.nom + " au plus", "err");
+          return;
+        }
+        poser((choixAcc[a.id] || 0) + 1);
+      };
+      poser(choixAcc[a.id] || 0);
+    }
+    dire();
+  }
+
   function brancherPanier(barre, p) {
     const affichage = UI.$("#p-quantite", barre);
     if (!affichage) return;
@@ -101,7 +165,7 @@ const VueProduit = (() => {
     };
 
     UI.$("#p-ajouter", barre).onclick = () => {
-      const r = Panier.ajouter(p.id, quantite);
+      const r = Panier.ajouter(p.id, quantite, choixAcc);
       if (r.plein) {
         UI.toast("Votre panier est plein (" + Panier.MAX_ARTICLES + " produits différents)", "err");
         return;
@@ -228,6 +292,7 @@ const VueProduit = (() => {
   }
 
   async function afficher(vue, id) {
+    choixAcc = {};
     const sens = entree;
     entree = "";
     balayage = null;
@@ -356,6 +421,9 @@ const VueProduit = (() => {
           UI.icone("chevron", "ic-sm") + "</a>" +
       "</div>";
 
+    /* (3.80.0) « 1 Poulet + 2 Riz » : le client choisit, le prix suit. */
+    html += htmlAccompagnements(p);
+
     if (lu.specs.length) {
       html +=
         '<div class="carte">' +
@@ -432,6 +500,7 @@ const VueProduit = (() => {
     }
 
     vue.innerHTML = html;
+    brancherAccompagnements(vue, p);
 
     /* Le rayon : le geste et les flèches. La fiche arrivée par un geste
        glisse depuis le côté d'où on l'a tirée. */
@@ -535,7 +604,9 @@ const VueProduit = (() => {
     if (ferme) {
       UI.barreAction('<div class="pa-ferme-barre" id="p-fermee">' +
         '<p class="pa-ferme">' + UI.icone("horloge", "ic-sm") + "<span>" +
-          (ferme.qui === "vendeur"
+          (ferme.qui === "produit"
+            ? "<span>Ce produit n'est pas disponible pour le moment</span>"
+            : ferme.qui === "vendeur"
             ? "<span>Vendeur « </span><strong>" + Utils.echapper(ferme.nom) + "</strong><span> » fermé en ce moment</span>"
             : "<span>Boutique fermée en ce moment</span>") +
           (ferme.quand ? "<span>" + (ferme.qui === "vendeur" ? " — il ouvre " : " — elle ouvre ") + "</span>" +

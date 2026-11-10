@@ -585,6 +585,10 @@ const App = { evenementInstallation: null };
           if (Compte.connecte()) Push.declarer();
           else Push.demarrer();
         }
+        /* (3.80.0) Dans le navigateur : s'il est abonné, il sonne pour CE compte. */
+        if (typeof PushWeb !== "undefined" && Compte.connecte()) {
+          PushWeb.rafraichir({ application: "client", rpc: (n, c) => Compte.rpc(n, c) });
+        }
         /* (3.73.0) La base retient la langue du compte : ses notifications
            et ses SMS partent dans cette langue. Une base d'avant ne connaît
            pas regler_langue : rien de grave. */
