@@ -112,7 +112,7 @@ const Notifs = (() => {
      <nom> », en temps réel. On le dit à l'écran, et la sonnerie s'arrête. */
   let demandesVues = new Set();
   const priseDe = (commandeId) =>
-    liste.find((n) => n.type === "course_prise" && n.commandeId === commandeId);
+    liste.find((n) => (n.type === "course_prise" || n.type === "course_retiree") && n.commandeId === commandeId);
 
   function majAlerte(courses, demandes) {
     const ici = new Set((demandes || []).map((d) => d.commandeId));

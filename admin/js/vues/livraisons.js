@@ -544,7 +544,7 @@ const VueLivraisons = (() => {
   /* LES DEMANDES PARTIES CHEZ UN AUTRE, la dernière heure : « Déjà pris
      par … ». Elles viennent des nouvelles reçues, rien à relire. */
   function htmlDejaPrises() {
-    const recentes = Notifs.toutes().filter((n) => n.type === "course_prise" &&
+    const recentes = Notifs.toutes().filter((n) => (n.type === "course_prise" || n.type === "course_retiree") &&
       n.creeLe > Date.now() - 3600000);
     if (!recentes.length) return "";
     return '<div class="carte lv-deja-prises" id="lv-deja-prises">' +

@@ -28,6 +28,8 @@ const VueNotifications = (() => {
     course_acceptee:       { nom: "Courses acceptées",  icone: "check" },
     course_proposee:       { nom: "Demandes de course", icone: "voiture" },
     course_prise:          { nom: "Courses déjà prises", icone: "voiture" },
+    /* (3.80.0) Remise, annulée, confiée ou partie sans passer par la demande. */
+    course_retiree:        { nom: "Courses retirées", icone: "voiture" },
     reception_reglee:      { nom: "Numéros de réception", icone: "tel" },
     reversement_demande:   { nom: "Reversements demandés", icone: "promo" },
     reversement_decide:    { nom: "Reversements", icone: "promo" },
