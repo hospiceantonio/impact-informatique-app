@@ -80,6 +80,10 @@ const PushWeb = (() => {
   async function enregistrement() {
     if (!possible()) return null;
     try {
+      /* Déjà actif : tout de suite. Sinon on l'attend, mais pas plus de
+         quatre secondes (un navigateur qui refuse les service workers). */
+      const deja = await navigator.serviceWorker.getRegistration();
+      if (deja && deja.active) return deja;
       return await Promise.race([
         navigator.serviceWorker.ready,
         new Promise((r) => setTimeout(() => r(null), 4000)),
@@ -158,7 +162,9 @@ const PushWeb = (() => {
 
   /** À la déconnexion : un navigateur prêté ne sonne plus pour le compte d'avant. */
   async function oublier() {
-    if (!possible()) return;
+    /* Rien de déclaré ici pour un compte : rien à oublier, et la
+       déconnexion n'attend pas. */
+    if (!possible() || !lire(CLE)) return;
     try { await desactiver(); } catch (_) { /* vide */ }
   }
 

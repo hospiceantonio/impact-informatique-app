@@ -7692,3 +7692,31 @@ personne. Les demandes restées ouvertes sont fermées à l'application.
 
 Base : `supabase/course-retiree.sql`. Essai `course-retiree`.
 Banc d'écran : `banc-accompagnements-vendeur`.
+
+### Les notifications dans le navigateur
+
+Sans l'application Android, personne n'était réveillé : un client sur le
+site, une boutique, un vendeur ou un livreur dans le navigateur ne voyait
+rien tant qu'il n'ouvrait pas l'écran. Désormais, dans **Mon compte** (client
+et administration) et dans **l'espace du vendeur**, la carte « Notifications
+sur ce navigateur » propose **Activer les notifications** : le navigateur
+demande la permission une fois, puis reçoit les mêmes notifications que
+l'application, **même le site fermé** (Chrome, Edge, Firefox sur Android et
+ordinateur ; iPhone : BIZZOO ajouté à l'écran d'accueil, iOS 16.4 ou plus).
+
+- les notifications « client » (lien `#/commande/…`) vont aux navigateurs
+  abonnés dans l'application client, les autres à ceux de l'administration ;
+- **les SMS des clients restent** : le navigateur s'ajoute, il ne remplace
+  rien ;
+- à la déconnexion, le navigateur s'oublie (un navigateur prêté ne sonne
+  plus pour le compte d'avant) ; à l'ouverture, un navigateur abonné sonne
+  pour le compte connecté ; cinq navigateurs au plus par compte et par
+  application ;
+- un abonnement que le service de push ne connaît plus s'efface tout seul ;
+- dans l'application Android, la carte n'apparaît pas : Firebase s'en charge.
+
+Les clés VAPID sont celles de Personnel (secrets `VAPID_PUBLIQUE`,
+`VAPID_PRIVEE`, `VAPID_SUJET` des fonctions Edge ; la clé publique est lue
+dans `rh_push_reglage`). Base : `supabase/push-web.sql`. Fonction Edge
+`envoyer-push` à redéployer (même réglage qu'avant, sans vérification du
+jeton). Essai `push-web`. Banc d'écran : `banc-push-web`.

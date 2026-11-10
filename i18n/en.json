@@ -6636,5 +6636,21 @@
  "Prix :": "Price:",
  "Retirez-les pour commander le reste.": "Remove them to order the rest.",
  "Une portion de moins": "One portion less",
- "Une portion de plus": "One portion more"
+ "Une portion de plus": "One portion more",
+ "(display-mode: standalone)": "(display-mode: standalone)",
+ "Activées sur ce navigateur : vous êtes prévenu même le site fermé.": "On for this browser: you are alerted even when the site is closed.",
+ "Activer les notifications": "Turn on notifications",
+ "Base non configurée": "Database not configured",
+ "Ce navigateur ne sait pas recevoir de notifications.": "This browser cannot receive notifications.",
+ "Ce navigateur ne sait pas recevoir de notifications. Essayez Chrome, Edge ou Firefox.": "This browser cannot receive notifications. Try Chrome, Edge or Firefox.",
+ "Désactiver": "Turn off",
+ "Les notifications ne sont pas encore réglées chez BIZZOO.": "Notifications are not set up at BIZZOO yet.",
+ "Notifications activées sur ce navigateur.": "Notifications turned on for this browser.",
+ "Notifications désactivées sur ce navigateur.": "Notifications turned off for this browser.",
+ "Notifications refusées. Autorisez-les dans les réglages du navigateur pour ce site.": "Notifications blocked. Allow them for this site in your browser settings.",
+ "Notifications sur ce navigateur": "Notifications on this browser",
+ "Recevez vos notifications sur ce navigateur, même le site fermé.": "Get your notifications on this browser, even when the site is closed.",
+ "Rechargez la page, puis réessayez.": "Reload the page, then try again.",
+ "Sur iPhone : touchez Partager puis « Sur l'écran d'accueil », ouvrez BIZZOO depuis l'écran d'accueil, puis revenez ici.": "On iPhone: tap Share then “Add to Home Screen”, open BIZZOO from the Home Screen, then come back here.",
+ "Vous les avez refusées : autorisez les notifications pour ce site dans les réglages du navigateur, puis revenez ici.": "You blocked them: allow notifications for this site in your browser settings, then come back here."
 }

@@ -87,10 +87,10 @@ begin
     raise exception 'Abonnement du navigateur illisible.' using errcode = 'P0001';
   end if;
   insert into public.appareils_web (endpoint, compte, application, p256dh, auth, maj_le)
-  values (point, moi, app, cle, secret, now())
+  values (point, moi, app, cle, secret, clock_timestamp())
   on conflict (endpoint) do update
      set compte = excluded.compte, application = excluded.application,
-         p256dh = excluded.p256dh, auth = excluded.auth, maj_le = now();
+         p256dh = excluded.p256dh, auth = excluded.auth, maj_le = clock_timestamp();
   delete from public.appareils_web w
    where w.compte = moi and w.application = app
      and w.endpoint not in (select x.endpoint from public.appareils_web x
