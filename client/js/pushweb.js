@@ -129,7 +129,7 @@ const PushWeb = (() => {
     if (!reg) throw new Error("Rechargez la page, puis réessayez.");
     let abo = await reg.pushManager.getSubscription();
     if (!abo) {
-      const cle = await appelPublic("cle_push_web", {});
+      const cle = await appelPublic("cle_push_web", {}).catch(() => null);   // base d'avant la 3.80.0 : pas encore réglé
       if (!cle) throw new Error("Les notifications ne sont pas encore réglées chez BIZZOO.");
       abo = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: octets(cle) });
     }
