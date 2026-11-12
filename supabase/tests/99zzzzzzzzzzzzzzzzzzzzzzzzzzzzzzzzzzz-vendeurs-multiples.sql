@@ -187,8 +187,14 @@ select essai.devenir(:V1::uuid); set role authenticated;
 select essai.refuse($$select public.demander_reversement_vendeur(1000)$$, 'sans numéro de réception : refusé');
 select public.regler_reception_vendeur('97 70 00 01', 'mtn', 'Afi');
 select essai.refuse($$select public.demander_reversement_vendeur(20000)$$, 'plus que son disponible : refusé');
-select public.demander_reversement_vendeur(10000) as dem \gset
-select essai.egal((public.solde_vendeur() ->> 'disponible')::int, 3640, 'demandé : 3 640 restent disponibles');
+select essai.refuse($$select public.demander_reversement_vendeur(10000)$$, '(3.81.0) une partie de son solde : refusé');
+select public.commandes_a_reverser('vendeur') as acr \gset
+select essai.egal(jsonb_array_length(:'acr'::jsonb), 1, '(3.81.0) sa commande à reverser (ses deux ventes y sont)');
+select essai.verifie(position('Rosine' in :'acr') = 0, '(3.81.0) sans le nom du client');
+select (:'acr'::jsonb -> 0 ->> 'commande_id') as c1, (:'acr'::jsonb -> 0 ->> 'reste')::int as part1 \gset
+select public.demander_reversement_commandes('vendeur', array[:'c1']) as dem \gset
+select essai.egal((public.solde_vendeur() ->> 'disponible')::int, 13640 - :part1,
+  '(3.81.0) une commande entière demandée : le reste est disponible');
 select essai.refuse(format($$select public.decider_reversement_vendeur(%s, true, 'MP0001')$$, :dem),
   'il ne valide pas lui-même');
 reset role; select essai.personne();
@@ -202,14 +208,14 @@ select essai.egal(public.decider_reversement_vendeur(:dem, true, 'MP0001'), 'val
 reset role; select essai.personne();
 select essai.devenir(:V1::uuid); set role authenticated;
 select essai.egal((select (s ->> 'reverse') || '/' || (s ->> 'disponible') from (select public.solde_vendeur() s) x),
-  '10000/3640', 'versé : 10 000, et 3 640 encore disponibles');
+  :part1 || '/' || (13640 - :part1), 'versé : la commande, et le reste encore disponible');
 reset role; select essai.personne();
 
 select essai.titre('8. Le tableau du superadministrateur');
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.egal((select (v ->> 'ventes') || '/' || (v ->> 'part') || '/' || (v ->> 'commission') || '/' || (v ->> 'reverse')
                      from jsonb_array_elements(public.ventes_vendeurs()) v where v ->> 'nom' = 'Afi'),
-  '18000/13640/4360/10000', 'Afi : 18 000 de ventes, 13 640 pour lui, 4 360 pour BIZZOO, 10 000 versés');
+  '18000/13640/4360/' || :part1, 'Afi : 18 000 de ventes, 13 640 pour lui, 4 360 pour BIZZOO, une commande versée');
 reset role; select essai.personne();
 select essai.devenir(:CHEF::uuid); set role authenticated;
 select essai.refuse($$select public.ventes_vendeurs()$$, 'ce tableau est au superadministrateur');

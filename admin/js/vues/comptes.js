@@ -725,7 +725,20 @@ const VueComptes = (() => {
               "pour les voir, en ajouter un, et savoir qui a validé sa position.</p>" +
           "</a>"
         : "") +
-      (Store.rolesAttribuables().includes("vendeur")
+      (Store.rolesAttribuables().includes("vendeur") && !Supabase.estSuper()
+        /* (3.81.0) L'ADMINISTRATEUR DE BIZZOO crée un vendeur ; l'écran des
+           vendeurs (leurs ventes, leurs versements) reste au
+           superadministrateur, prévenu de chaque création. */
+        ? '<div class="carte carte-livreurs" id="cp-vendeurs">' +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Les vendeurs (" +
+              nbVendeurs + ")</div>" +
+            '<p class="aide" style="margin:0 0 10px">Ceux des boutiques à vendeurs multiples. Créez-en un : ' +
+              "le superadministrateur, prévenu, règle ensuite son lieu et ses produits.</p>" +
+            '<button type="button" class="btn" id="cp-nouveau-vendeur">' + UI.icone("plus") +
+              "Nouveau vendeur</button>" +
+          "</div>"
+        : "") +
+      (Store.rolesAttribuables().includes("vendeur") && Supabase.estSuper()
         ? '<a class="carte carte-livreurs" id="cp-vendeurs" href="#/vendeurs">' +
             '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Les vendeurs (" +
               nbVendeurs + ")</div>" +
@@ -795,6 +808,14 @@ const VueComptes = (() => {
 
     const nouveau = UI.$("#cp-nouveau", vue);
     if (nouveau) nouveau.onclick = () => ouvrirCreation(() => afficher(vue), false);
+    /* (3.81.0) L'administrateur de BIZZOO crée un vendeur. */
+    const nouveauVendeur = UI.$("#cp-nouveau-vendeur", vue);
+    if (nouveauVendeur) {
+      nouveauVendeur.onclick = () => ouvrirCreation(() => {
+        UI.toast("Vendeur créé : le superadministrateur réglera son lieu et ses produits.", "ok");
+        afficher(vue);
+      }, false, true);
+    }
     for (const b of UI.$$("[data-creer-rang]", vue)) {
       b.onclick = () => ouvrirCreation(() => afficher(vue), false, false, b.dataset.creerRang);
     }

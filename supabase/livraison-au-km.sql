@@ -19,6 +19,17 @@
 -- =========================================================
 
 -- Les colonnes de la livraison au kilomètre (3.64.0).
+-- (3.81.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.numeros_operations(ops jsonb) returns text
+language sql immutable set search_path = public as $$
+  select case when n = 0 then '' when n <= 6 then l6
+              else l6 || ' et ' || (n - 6) || ' autre' || case when n - 6 > 1 then 's' else '' end end
+    from (select count(*)::int as n,
+                 string_agg(e ->> 'numero', ', ' order by o) filter (where o <= 6) as l6
+            from jsonb_array_elements(coalesce(ops -> 'commandes', '[]'::jsonb)) with ordinality as t(e, o)) x;
+$$;
+revoke all on function public.numeros_operations(jsonb) from public, anon, authenticated;
+
 alter table public.produits add column if not exists vehicule text not null default 'moto';
 alter table public.produits drop constraint if exists produits_vehicule;
 alter table public.produits add constraint produits_vehicule check (vehicule in ('moto', 'tricycle'));
@@ -1395,6 +1406,8 @@ end $$;
 revoke all on function public.regler_reception_livreur(text, text, text) from public, anon;
 grant execute on function public.regler_reception_livreur(text, text, text) to authenticated;
 
+-- (3.81.0) La liste des commandes d'une demande, que la notification nomme.
+alter table public.reversements_livreurs add column if not exists operations jsonb;
 create or replace function public.demander_reversement_livreur(montant bigint)
 returns bigint
 language plpgsql security definer set search_path = public as $$
@@ -1404,6 +1417,7 @@ declare
   r     public.livreurs_reception%rowtype;
   qui   text := public.nom_du_compte();
   nouv  bigint;
+  ops   jsonb;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur demande le reversement de ses gains.';
@@ -1422,13 +1436,21 @@ begin
     raise exception 'Votre solde disponible est de % : vous ne pouvez pas demander plus.',
       public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
   end if;
+  -- (3.81.0) Tout le solde, ou des commandes entières (« demander_reversement_commandes »).
+  if nullif(current_setting('bizzoo.reversement_commandes', true), '') is null
+     and montant <> (solde ->> 'disponible')::bigint then
+    raise exception 'Demandez tout votre solde (%), ou choisissez des commandes entières.',
+      public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
+  end if;
   insert into public.reversements_livreurs (livreur_id, nom_livreur, montant, tel, reseau, titulaire)
   values (moi, qui, montant, r.tel, r.reseau, r.titulaire)
-  returning id into nouv;
+  returning id, operations into nouv, ops;
   perform public.notifier(public.les_superadmins(), 'reversement_demande',
     'Reversement demandé par un livreur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
-      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
+      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.'
+      -- (3.81.0) Les commandes de la demande.
+      || case when public.numeros_operations(ops) <> '' then E'\nCommandes : ' || public.numeros_operations(ops) else '' end,
     -- (3.73.0) La touche ouvre CETTE demande.
     '#/reversements/livreur-' || nouv, null, null, true);
   return nouv;

@@ -2116,3 +2116,15 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* (3.80.0) Les accompagnements d'un produit : nom, prix, maximum. */
 .p-acc-ligne{display:grid;grid-template-columns:minmax(0,1fr) 84px 52px 36px;gap:6px;align-items:center;margin-bottom:6px}
 .p-acc-ligne input{min-width:0}
+/* (3.81.0) Les commandes d'une demande de reversement, et le choix à la demande. */
+.sd-commandes{margin:8px 0 0}
+.sd-ops{border-top:1px solid var(--trait);margin-top:8px;padding-top:8px}
+.sd-ops-titre{font-weight:600;margin:0 0 6px}
+.sd-op{padding:8px 0;border-bottom:1px dashed var(--trait)}
+.sd-op:last-child{border-bottom:0}
+.sd-op-doute{background:var(--orange-clair);border-radius:8px;padding:8px}
+.sd-op-alerte{color:var(--rouge);font-size:.86rem;font-weight:600;margin-top:2px}
+.rv-modes{display:flex;flex-direction:column;gap:8px;margin:0 0 10px}
+.rv-mode,.rv-commande{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--trait);border-radius:10px;cursor:pointer}
+.rv-mode input,.rv-commande input{margin-top:3px}
+.rv-liste{display:flex;flex-direction:column;gap:6px;max-height:45vh;overflow:auto}

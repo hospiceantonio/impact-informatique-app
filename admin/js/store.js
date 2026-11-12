@@ -890,7 +890,9 @@ const Store = (() => {
        qui échoue. */
     /* SAUF L'ADMINISTRATEUR DE BIZZOO : le livreur (3.59.0), et le
        modérateur (3.63.0) — que le superadministrateur validera. */
-    if (Supabase.estAdminBizzoo()) return ["moderateur", "livreur"];
+    /* (3.81.0) Et le vendeur : le superadministrateur règle ensuite son
+       lieu et ses produits (il en est prévenu). */
+    if (Supabase.estAdminBizzoo()) return ["moderateur", "livreur"].concat(baseVendeurs ? ["vendeur"] : []);
     if (Supabase.estCompteEnseigne()) return [];
     /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
     return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
@@ -1058,6 +1060,35 @@ const Store = (() => {
     const id = await Supabase.rpc("demander_reversement", { cible: boutique, montant: Math.round(Number(montant) || 0) });
     journaliser("boutique", "ajout", "Reversement demandé : " + montant, boutique, undefined, boutique);
     return id;
+  }
+  /* (3.81.0) Un reversement, c'est des commandes entières — ou tout le
+     solde. « genre » : boutique, livreur ou vendeur ; « cible » : la
+     boutique (rien pour un livreur ou un vendeur, qui demande pour lui). */
+  async function commandesAReverser(genre, cible) {
+    const lignes = await Supabase.rpcLecture("commandes_a_reverser", { genre, cible: cible || null });
+    return (lignes || []).map((l) => ({ id: l.commande_id, numero: l.numero || l.commande_id,
+      payeLe: l.paye_le || "", part: n0(l.part), reste: n0(l.reste) }));
+  }
+  async function demanderReversementCommandes(genre, commandes, cible) {
+    const id = await Supabase.rpcLecture("demander_reversement_commandes",
+      { genre, commandes: commandes || [], cible: cible || null });
+    if (genre === "boutique") {
+      journaliser("boutique", "ajout", "Reversement demandé : commandes " + (commandes || []).join(", "),
+        cible, undefined, cible);
+    }
+    return id;
+  }
+  /** Les commandes d'une demande, pour qui la tranche. */
+  async function operationsReversement(genre, id) {
+    const o = await Supabase.rpcLecture("reversement_operations", { genre, cible: id });
+    return {
+      nonRattache: n0(o && o.non_rattache),
+      commandes: ((o && o.commandes) || []).map((c) => ({
+        id: c.commande_id, numero: c.numero || c.commande_id, payeLe: c.paye_le || "", client: c.client || "",
+        total: n0(c.total), part: n0(c.part), couvert: n0(c.couvert), paiement: c.paiement || "",
+        transaction: c.transaction || "", confirmePar: c.confirme_par || "", origine: c.origine || "",
+        alertes: Array.isArray(c.alertes) ? c.alertes : [] })),
+    };
   }
   async function reversements(boutique) {
     const lignes = await Supabase.rpcLecture("reversements_liste", { cible: boutique || null });
@@ -1496,7 +1527,7 @@ const Store = (() => {
          toutes les boutiques — le contraire de ce qu'on voulait. */
       if (choix === ENSEIGNE) {
         if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() &&
-            (role === "livreur" || role === "moderateur"))) {
+            (role === "livreur" || role === "moderateur" || role === "vendeur"))) {
           throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
         }
         attachee = null;
@@ -1512,7 +1543,7 @@ const Store = (() => {
       throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
     }
     if (!Supabase.estSuper() &&
-        !(Supabase.estAdminBizzoo() && (role === "livreur" || role === "moderateur")) &&
+        !(Supabase.estAdminBizzoo() && (role === "livreur" || role === "moderateur" || role === "vendeur")) &&
         (attachee || "") !== Supabase.boutiqueDuCompte()) {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
@@ -4331,7 +4362,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition, reglerDisponibilite,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
-    remettreCourse, remettreCommande, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
+    remettreCourse, remettreCommande, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, commandesAReverser, demanderReversementCommandes, operationsReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

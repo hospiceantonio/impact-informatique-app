@@ -394,3 +394,9 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
 .graphe-choix{display:inline-flex;border:1px solid var(--trait);border-radius:10px;overflow:hidden}
 .graphe-choix button{border:0;background:none;padding:5px 10px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--encre-douce)}
 .graphe-choix button.actif{background:var(--bleu);color:#fff}
+/* (3.81.0) Les commandes d'une demande de reversement. */
+.commandes-zone{margin:8px 0}
+.commandes-reversement{display:flex;flex-direction:column;gap:6px;font-size:14px}
+.ligne-commande{padding:8px 10px;border:1px solid var(--trait, #e5e7eb);border-radius:var(--r-sm)}
+.ligne-commande.a-verifier{background:var(--ambre-clair)}
+.alerte-commande{color:var(--rouge, #dc2626);font-weight:600;font-size:13px}

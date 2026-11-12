@@ -604,6 +604,26 @@
   "Name saved: $1."
  ],
  [
+  "^Paiement confirmé à la main par (.+)$",
+  "Payment confirmed manually by $1"
+ ],
+ [
+  "^Demandez tout votre solde \\((.+?)\\), ou choisissez des commandes entières\\.$",
+  "Request your whole balance ($1), or choose whole orders."
+ ],
+ [
+  "^Commandes : (.+?) et (\\d+) autres?$",
+  "Orders: $1 and $2 more"
+ ],
+ [
+  "^Commandes : (.+)$",
+  "Orders: $1"
+ ],
+ [
+  "^(.+?), créé par (.+?)\\. Réglez son lieu et attribuez-lui ses produits\\.$",
+  "$1, created by $2. Set their location and assign their products."
+ ],
+ [
   "^Commande ((?:BZ|CMD|cmd)[-_][\\w-]+)\\.$",
   "Order $1."
  ]

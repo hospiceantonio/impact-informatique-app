@@ -98,6 +98,50 @@ const VueReversements = (() => {
       recharger();
     };
 
+    /* (3.81.0) LES COMMANDES D'UNE DEMANDE : d'où vient l'argent, et ce qui
+       doit faire vérifier avant de l'envoyer (client « test », paiement
+       confirmé à la main…). Une demande à traiter les montre d'office. */
+    const PAIEMENTS = { feexpay: "FeexPay", kkiapay: "KkiaPay" };
+    const paiement = (c) => (PAIEMENTS[c.paiement]
+      ? PAIEMENTS[c.paiement] + (c.transaction ? " — référence " + c.transaction : "")
+      : c.confirme_par ? "Confirmé à la main"
+      : c.transaction ? "Référence " + c.transaction : "Paiement sans référence");
+    const renduCommandes = (o) => {
+      const liste = (o && o.commandes) || [];
+      const total = liste.reduce((t, c) => t + Number(c.couvert || 0), 0);
+      const doutes = liste.filter((c) => (c.alertes || []).length).length;
+      return h("div", { class: "commandes-reversement" },
+        h("div", { class: "gras" }, liste.length
+          ? liste.length + " commande" + (liste.length > 1 ? "s" : "") + " — " + UI.fcfa(total)
+          : "Aucune commande ne correspond à cette demande."),
+        doutes ? h("div", { class: "avertissement" }, doutes + (doutes > 1 ? " commandes à vérifier" : " commande à vérifier") +
+          " avant d'envoyer.") : null,
+        liste.map((c) => h("div", { class: "ligne-commande" + ((c.alertes || []).length ? " a-verifier" : "") },
+          h("div", {}, h("b", {}, c.numero || c.commande_id), " · " + (c.client || "Client") + " · " +
+            UI.fcfa(c.couvert) + " · payée le " + UI.dateHeure(c.paye_le)),
+          h("div", { class: "doux" }, paiement(c) + (Number(c.couvert) < Number(c.part)
+            ? " · sur une part de " + UI.fcfa(c.part) : "")),
+          (c.alertes || []).map((x) => h("div", { class: "alerte-commande" }, x)))),
+        Number(o && o.non_rattache) > 0
+          ? h("div", { class: "avertissement" }, UI.fcfa(o.non_rattache) +
+              " ne viennent d'aucune commande remise : vérifiez avant d'envoyer.")
+          : null);
+    };
+    const blocCommandes = (r) => {
+      const zone = h("div", { class: "commandes-zone" });
+      const charger = async () => {
+        UI.vider(zone, UI.chargement());
+        try {
+          UI.vider(zone, renduCommandes(await Supabase.rpc("reversement_operations", { genre: r.qui, cible: r.id })));
+        } catch (err) {
+          UI.vider(zone, h("div", { class: "avertissement" }, err.message));
+        }
+      };
+      if (r.etat === "en_attente") charger();
+      else UI.vider(zone, h("button", { class: "btn btn-petit", onclick: charger }, "Voir les commandes"));
+      return zone;
+    };
+
     const element = (r) => {
       const [mot, couleur] = ETATS[r.etat] || ETATS.en_attente;
       const ecart = r.qui === "livreur" && r.titulaire && r.momo_nom && plier(r.titulaire) !== plier(r.momo_nom);
@@ -116,6 +160,7 @@ const VueReversements = (() => {
                       : " — vérifiez que MoMo affiche ce nom avant d'envoyer.")
                   : "Aucun nom de compte MoMo enregistré pour ce livreur : notez-le dans sa fiche (BIZZOO Admin → Livreurs).")
             : null,
+          blocCommandes(r),
           r.etat === "valide" ? h("div", { class: "petit" }, "Envoyé le " + UI.dateHeure(r.decide_le) +
             (r.decide_par ? " par " + r.decide_par : "") + " — référence " + (r.reference || "—")) : null,
           r.etat === "refuse" ? h("div", { class: "petit" }, "Refusé le " + UI.dateHeure(r.decide_le) +

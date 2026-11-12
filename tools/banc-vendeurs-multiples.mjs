@@ -314,11 +314,11 @@ titre("6. Le vendeur : un seul écran, « Mes ventes »");
   ok(await o.page.evaluate(() => location.hash) === "#/ventes", "« Produits » : renvoyé à « Mes ventes »");
   await o.page.click("#vd-demander");
   await o.page.waitForTimeout(500);
-  await o.page.fill("#gn-montant", "3000");
-  await o.page.click("#gn-envoyer");
+  /* (3.81.0) Tout le solde, ou des commandes entières : « Tout mon solde » d'office. */
+  await o.page.click("#rv-envoyer");
   await o.page.waitForTimeout(900);
   const dem = o.appels.find((a) => a.fn === "demander_reversement_vendeur");
-  ok(dem && dem.corps.montant === 3000, "« Demander un versement » : 3 000, à BIZZOO");
+  ok(dem && dem.corps.montant === 3640, "« Demander un versement » : tout son solde, 3 640, à BIZZOO");
   sansErreur(o);
   await o.ctx.close();
 }

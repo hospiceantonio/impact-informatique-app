@@ -32,6 +32,51 @@ const VueSoldes = (() => {
   /* Qui demande : la boutique (rien), un livreur, ou un vendeur (3.70.0). */
   const qui = (r) => (r.livreur ? ' data-livreur="1"' : r.vendeur ? ' data-vendeur="1"' : "");
 
+  const genreDe = (r) => (r.livreur ? "livreur" : r.vendeur ? "vendeur" : "boutique");
+
+  /* (3.81.0) LES COMMANDES D'UNE DEMANDE : numéro, client, paiement, et ce
+     qui doit faire vérifier avant d'envoyer l'argent. */
+  const PAIEMENTS = { feexpay: "FeexPay", kkiapay: "KkiaPay" };
+  function htmlOperations(o, devise) {
+    const liste = o.commandes || [];
+    const total = liste.reduce((t, c) => t + c.couvert, 0);
+    const doutes = liste.filter((c) => c.alertes.length).length;
+    return '<div class="sd-ops">' +
+      '<div class="sd-ops-titre">' + (liste.length
+        ? liste.length + " commande" + (liste.length > 1 ? "s" : "") + " — " + e(m(total, devise))
+        : "Aucune commande ne correspond à cette demande.") + "</div>" +
+      (doutes
+        ? '<div class="sd-momo sd-momo-ecart">' + UI.icone("alerte", "ic-sm") + " " + doutes +
+            (doutes > 1 ? " commandes à vérifier" : " commande à vérifier") + " avant d'envoyer.</div>"
+        : "") +
+      liste.map((c) =>
+        '<div class="sd-op' + (c.alertes.length ? " sd-op-doute" : "") + '">' +
+          '<div class="sd-ligne-haut"><a href="#/commandes/' + e(encodeURIComponent(c.id)) + '"><strong>' +
+            e(c.numero) + "</strong></a><strong>" + e(m(c.couvert, devise)) + "</strong></div>" +
+          '<div class="aide">' + e(c.client || "Client") + " · payée le " + e(Utils.fmtDateHeure(c.payeLe)) +
+            (c.couvert < c.part ? " · sur une part de " + e(m(c.part, devise)) : "") + "</div>" +
+          '<div class="aide">' + (PAIEMENTS[c.paiement]
+            ? e(PAIEMENTS[c.paiement]) + (c.transaction ? " — référence " + e(c.transaction) : "")
+            : c.confirmePar ? "Confirmé à la main"
+            : c.transaction ? "Référence " + e(c.transaction) : "Paiement sans référence") + "</div>" +
+          c.alertes.map((a) => '<div class="sd-op-alerte">' + UI.icone("alerte", "ic-sm") + " " + e(a) + "</div>").join("") +
+        "</div>").join("") +
+      (o.nonRattache > 0
+        ? '<div class="sd-momo sd-momo-ecart">' + UI.icone("alerte", "ic-sm") + " " + e(m(o.nonRattache, devise)) +
+            " ne viennent d'aucune commande remise : vérifiez avant d'envoyer.</div>"
+        : "") +
+    "</div>";
+  }
+  async function chargerOperations(zone, devise) {
+    zone.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des commandes…</div>';
+    try {
+      const o = await Store.operationsReversement(zone.dataset.opsGenre, Number(zone.dataset.opsId));
+      zone.innerHTML = htmlOperations(o, devise);
+    } catch (err) {
+      zone.innerHTML = '<p class="aide">' + e(err.message) + "</p>";
+    }
+  }
+
   function htmlDemande(r, avecBoutique) {
     const etat = ETATS[r.etat] || ETATS.en_attente;
     /* (3.73.0) « livreur-7 » : la notification de la demande y mène. */
@@ -60,6 +105,13 @@ const VueSoldes = (() => {
                 : "") + "</div>"
           : '<div class="sd-momo sd-momo-ecart" data-momo>' + UI.icone("alerte", "ic-sm") +
               " Aucun nom de compte MoMo enregistré pour ce livreur : notez-le dans sa fiche (Livreurs).</div>")
+        : "") +
+      /* (3.81.0) Les commandes d'où vient l'argent : chargées à la demande. */
+      (avecBoutique
+        ? '<div class="sd-commandes" data-ops-genre="' + e(genreDe(r)) + '" data-ops-id="' + e(String(r.id)) + '"' +
+            (r.etat === "en_attente" ? " data-ops-auto" : "") + ">" +
+            '<button type="button" class="btn btn-clair btn-mini" data-ops-voir>' + UI.icone("boite", "ic-sm") +
+              " Voir les commandes de cette demande</button></div>"
         : "") +
       (r.etat === "valide"
         ? '<div class="aide">Envoyé le ' + e(Utils.fmtDateHeure(r.decideLe)) + " — référence " +
@@ -202,25 +254,89 @@ const VueSoldes = (() => {
   }
 
   function feuilleDemande(boutiqueId, solde, apres) {
+    feuilleDemandeCommandes({ genre: "boutique", cible: boutiqueId, solde, apres,
+      toutLeSolde: (montant) => Store.demanderReversement(boutiqueId, montant) });
+  }
+
+  /* (3.81.0) DEMANDER UN REVERSEMENT : tout le solde, ou des commandes
+     entières — jamais une partie au hasard. La base refuse un autre
+     montant, et garde la liste des commandes de chaque demande : BIZZOO
+     vérifie d'où vient l'argent avant de l'envoyer. */
+  function feuilleDemandeCommandes({ genre, cible, solde, apres, toutLeSolde }) {
     const r = solde.reception;
     const corps = UI.ouvrirFeuille("Demander un reversement",
       '<p class="aide" style="margin:0 0 12px">Disponible : <strong>' + e(m(solde.disponible, solde.devise)) +
         "</strong>. BIZZOO l'enverra sur <strong>" + e(r.reseau) + " " + e(r.tel) + "</strong>" +
         (r.titulaire ? " (" + e(r.titulaire) + ")" : "") + ", puis le validera ici.</p>" +
-      UI.champMontant({ id: "sd-montant", label: "Montant à reverser", valeur: solde.disponible }) +
-      '<button type="button" class="btn" id="sd-envoyer">' + UI.icone("check") + "Envoyer la demande</button>");
-    const bouton = UI.$("#sd-envoyer", corps);
+      '<div class="rv-modes">' +
+        '<label class="rv-mode"><input type="radio" name="rv-mode" value="tout" checked> ' +
+          "<span>Tout mon solde — <strong>" + e(m(solde.disponible, solde.devise)) + "</strong></span></label>" +
+        '<label class="rv-mode"><input type="radio" name="rv-mode" value="commandes"> ' +
+          "<span>Des commandes précises</span></label>" +
+      "</div>" +
+      '<div id="rv-commandes" hidden></div>' +
+      '<p class="aide" id="rv-total" style="margin:10px 0"></p>' +
+      '<button type="button" class="btn" id="rv-envoyer">' + UI.icone("check") + "Envoyer la demande</button>");
+    const zone = UI.$("#rv-commandes", corps);
+    const total = UI.$("#rv-total", corps);
+    const bouton = UI.$("#rv-envoyer", corps);
+    let commandes = null;   // lues à la demande
+    const mode = () => (UI.$('input[name="rv-mode"]:checked', corps) || {}).value || "tout";
+    const choisies = () => UI.$$("[data-rv-commande]:checked", zone).map((x) => x.dataset.rvCommande);
+    const somme = () => {
+      const ids = new Set(choisies());
+      return (commandes || []).filter((c) => ids.has(c.id)).reduce((t, c) => t + c.reste, 0);
+    };
+    const majTotal = () => {
+      const montant = mode() === "tout" ? solde.disponible : somme();
+      total.innerHTML = "Montant demandé : <strong>" + e(m(montant, solde.devise)) + "</strong>";
+      bouton.disabled = !(montant > 0) || (mode() === "commandes" && montant > solde.disponible);
+      if (mode() === "commandes" && montant > solde.disponible) {
+        total.innerHTML += '<br><span class="sd-refus">Plus que votre disponible : retirez une commande.</span>';
+      }
+    };
+    const dessinerCommandes = () => {
+      if (!commandes.length) {
+        zone.innerHTML = '<p class="aide">Aucune commande à reverser pour l\'instant.</p>';
+        return;
+      }
+      zone.innerHTML = '<div class="rv-liste">' + commandes.map((c) =>
+        '<label class="rv-commande"><input type="checkbox" data-rv-commande="' + e(c.id) + '"> ' +
+          "<span><strong>" + e(c.numero) + "</strong> · " + e(Utils.fmtDateHeure(c.payeLe)) +
+          " — " + e(m(c.reste, solde.devise)) +
+          (c.reste < c.part ? ' <span class="aide">(reste de ' + e(m(c.part, solde.devise)) + ")</span>" : "") +
+          "</span></label>").join("") + "</div>";
+      for (const x of UI.$$("[data-rv-commande]", zone)) x.onchange = majTotal;
+    };
+    for (const x of UI.$$('input[name="rv-mode"]', corps)) {
+      x.onchange = async () => {
+        zone.hidden = mode() !== "commandes";
+        majTotal();
+        if (mode() === "commandes" && commandes === null) {
+          zone.innerHTML = '<div class="chargement"><span class="chargement-rond"></span>Lecture des commandes…</div>';
+          try {
+            commandes = await Store.commandesAReverser(genre, cible);
+            dessinerCommandes();
+          } catch (err) {
+            commandes = null;
+            zone.innerHTML = '<p class="aide">' + e(err.message) + "</p>";
+          }
+          majTotal();
+        }
+      };
+    }
+    majTotal();
     bouton.onclick = async () => {
-      const montant = Math.round(Utils.lireNombre(UI.$("#sd-montant", corps).value) || 0);
       bouton.disabled = true;
       try {
-        await Store.demanderReversement(boutiqueId, montant);
+        if (mode() === "tout") await toutLeSolde(solde.disponible);
+        else await Store.demanderReversementCommandes(genre, choisies(), cible);
         UI.fermerFeuille();
         UI.toast("Demande envoyée : BIZZOO est prévenu.", "ok");
         apres();
       } catch (err) {
         UI.toast(err.message, "err");
-        bouton.disabled = false;
+        majTotal();
       }
     };
   }
@@ -271,6 +387,13 @@ const VueSoldes = (() => {
         ? '<details class="carte" id="rv-faits"><summary class="carte-titre">Déjà traités (' + faits.length + ")</summary>" +
             faits.map((r) => htmlDemande(r, true)).join("") + "</details>"
         : "");
+    /* (3.81.0) Les demandes en attente montrent leurs commandes d'office ;
+       les autres, au toucher. */
+    for (const z of UI.$$("[data-ops-id]", vue)) {
+      const r = liste.find((x) => genreDe(x) === z.dataset.opsGenre && String(x.id) === z.dataset.opsId) || {};
+      if (z.hasAttribute("data-ops-auto")) chargerOperations(z, r.devise);
+      else UI.$("[data-ops-voir]", z).onclick = () => chargerOperations(z, r.devise);
+    }
     for (const b of UI.$$("[data-valider]", vue)) {
       b.onclick = async () => {
         /* (3.70.0) Un numéro de téléphone recopié à la place de l'ID de
@@ -424,28 +547,9 @@ const VueSoldes = (() => {
     };
   }
 
-  function feuilleDemandeLivreur(solde, apres, demander) {
-    const r = solde.reception;
-    const corps = UI.ouvrirFeuille("Demander un reversement",
-      '<p class="aide" style="margin:0 0 12px">Disponible : <strong>' + e(m(solde.disponible, solde.devise)) +
-        "</strong>. BIZZOO l'enverra sur <strong>" + e(r.reseau) + " " + e(r.tel) + "</strong>" +
-        (r.titulaire ? " (" + e(r.titulaire) + ")" : "") + ", puis le validera ici.</p>" +
-      UI.champMontant({ id: "gn-montant", label: "Montant à reverser", valeur: solde.disponible }) +
-      '<button type="button" class="btn" id="gn-envoyer">' + UI.icone("check") + "Envoyer la demande</button>");
-    const bouton = UI.$("#gn-envoyer", corps);
-    bouton.onclick = async () => {
-      const montant = Math.round(Utils.lireNombre(UI.$("#gn-montant", corps).value) || 0);
-      bouton.disabled = true;
-      try {
-        await (demander || Store.demanderReversementLivreur)(montant);
-        UI.fermerFeuille();
-        UI.toast("Demande envoyée : BIZZOO est prévenu.", "ok");
-        apres();
-      } catch (err) {
-        UI.toast(err.message, "err");
-        bouton.disabled = false;
-      }
-    };
+  function feuilleDemandeLivreur(solde, apres, demander, genre) {
+    feuilleDemandeCommandes({ genre: genre || "livreur", cible: null, solde, apres,
+      toutLeSolde: (montant) => (demander || Store.demanderReversementLivreur)(montant) });
   }
 
   return { afficher, reversements, gains,

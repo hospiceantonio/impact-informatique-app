@@ -163,7 +163,7 @@ const VueVendeurs = (() => {
       VueSoldes.feuilleReception(x.solde.reception, relire, Store.reglerReceptionVendeur);
     const demander = UI.$("#vd-demander", vue);
     if (demander) {
-      demander.onclick = () => VueSoldes.feuilleDemande(x.solde, relire, Store.demanderReversementVendeur);
+      demander.onclick = () => VueSoldes.feuilleDemande(x.solde, relire, Store.demanderReversementVendeur, "vendeur");
     }
   }
 

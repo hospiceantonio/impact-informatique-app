@@ -7720,3 +7720,47 @@ Les clés VAPID sont celles de Personnel (secrets `VAPID_PUBLIQUE`,
 dans `rh_push_reglage`). Base : `supabase/push-web.sql`. Fonction Edge
 `envoyer-push` à redéployer (même réglage qu'avant, sans vérification du
 jeton). Essai `push-web`. Banc d'écran : `banc-push-web`.
+
+## Reversements liés aux commandes ; l'administrateur de BIZZOO crée un vendeur (3.81.0)
+
+### Un reversement, c'est des commandes entières — ou tout le solde
+
+Une demande de reversement (boutique, livreur, vendeur) ne disait que son
+montant, et ce montant était libre. Désormais :
+
+- on demande **tout son solde**, ou **des commandes précises** (cases à
+  cocher : numéro, date, montant de chacune) — jamais une partie au
+  hasard ; la base refuse tout autre montant ;
+- chaque demande **garde la liste de ses commandes**, figée au moment où
+  elle est faite ; une commande déjà demandée (envoyée ou en attente) ne
+  se redemande pas, une demande refusée rend ses commandes ;
+- à la validation (BIZZOO Admin → Reversements, BIZZOO Personnel →
+  Reversements), chaque demande à traiter montre ses commandes : numéro
+  (qui ouvre la commande), client, date du paiement, montant, **preuve du
+  paiement** (FeexPay et sa référence, ou « confirmé à la main ») et, en
+  rouge, **ce qui doit faire vérifier** : paiement confirmé à la main,
+  commande saisie par l'équipe (WhatsApp), aucune référence de paiement,
+  client ou note qui parle de « test » ; et ce qui ne viendrait d'aucune
+  commande remise ;
+- la notification « Reversement demandé » nomme les commandes.
+
+Les demandes d'avant reçoivent leur liste, calculée à leur date (les plus
+anciennes commandes d'abord). Seuls le superadministrateur, le CEO et la
+comptabilité lisent la liste complète (avec le client) ; le demandeur voit
+ses commandes à reverser, sans le client.
+
+Base : `supabase/reversements-commandes.sql`. Essai
+`reversements-commandes` (et les essais `solde-boutique`,
+`livraison-au-km`, `vendeurs-multiples`, adaptés à la règle).
+
+### L'administrateur de BIZZOO crée un vendeur
+
+L'administrateur de BIZZOO (sans boutique) a « Nouveau vendeur » dans
+Comptes. Le vendeur naît actif, sans boutique ; le superadministrateur est
+prévenu (« Nouveau vendeur à configurer », qui mène au vendeur) et règle
+ensuite son lieu et ses produits. Modifier, supprimer un vendeur et suivre
+ses ventes restent au superadministrateur ; un compte déjà en service
+(livreur, modérateur) ne se change pas en vendeur.
+
+Base : `supabase/vendeur-par-admin-bizzoo.sql`. Essai
+`vendeur-par-admin-bizzoo`. Banc d'écran : `banc-reversements-commandes`.
