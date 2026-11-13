@@ -63,7 +63,7 @@ const Carte = (() => {
 
     if (o.repere) {
       L.circleMarker([o.repere.latitude, o.repere.longitude],
-        { radius: 7, color: "#2550B7", fillColor: "#2550B7", fillOpacity: 0.9 })
+        { radius: 7, color: "#007F7C", fillColor: "#007F7C", fillOpacity: 0.9 })
         .addTo(carte).bindTooltip(o.repereNom || "Point BIZZOO");
     }
 

@@ -112,11 +112,11 @@ titre("1-3. L'administrateur de la boutique");
   ok(/MTN 0196123456/.test(await vue(o.page)), "le numéro réglé s'affiche");
   await o.page.click("#sd-demander");
   await pause(400);
-  await o.page.fill("#sd-montant", "10000");
-  await o.page.click("#sd-envoyer");
+  /* (3.81.0) Tout le solde, ou des commandes entières : « Tout mon solde » d'office. */
+  await o.page.click("#rv-envoyer");
   await pause(1200);
   const r = o.rpc.find((x) => x.nom === "demander_reversement");
-  ok(r && r.corps.cible === "bou_a" && r.corps.montant === 10000, "demander_reversement(bou_a, 10 000)");
+  ok(r && r.corps.cible === "bou_a" && r.corps.montant === 16000, "demander_reversement(bou_a, tout le solde : 16 000)");
   await o.ctx.close();
 }
 

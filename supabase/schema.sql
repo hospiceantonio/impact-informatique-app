@@ -1126,6 +1126,14 @@ alter table public.profils enable row level security;
 create or replace function public.est_mon_createur(cible uuid) returns boolean
 language plpgsql stable security definer set search_path = public as $$
 begin
+  -- (3.81.0) ENTRE SUPERADMINISTRATEURS, PLUS DE CRÉATEUR PROTÉGÉ : un
+  -- superadministrateur nommé par un autre a tous les droits d'un
+  -- superadministrateur, sur tous les comptes. Ce qui protège encore
+  -- BIZZOO : il reste toujours au moins un superadministrateur actif
+  -- (« profil_dernier_super »).
+  if public.est_super() then
+    return false;
+  end if;
   return cible is not null and auth.uid() is not null and cible <> auth.uid() and exists (
   with recursive chaine(id, cran, vus) as (
     select p.cree_par, 1, array[p.id]
@@ -1183,7 +1191,9 @@ create policy "profils lecture" on public.profils
     -- (3.63.0) Et les modérateurs qu'il a créés. Les colonnes de la LIGNE,
     -- pas une relecture de la table : à la création, la ligne neuve doit se
     -- lire alors que la table garde encore l'ancienne.
-    or (public.est_admin_bizzoo() and role = 'moderateur' and cree_par = auth.uid()));
+    or (public.est_admin_bizzoo() and role = 'moderateur' and cree_par = auth.uid())
+    -- (3.81.0) Et les vendeurs : il en crée.
+    or (public.est_admin_bizzoo() and role = 'vendeur'));
 
 -- Créer, modifier, supprimer un compte : le superadministrateur sans
 -- limite ; l'administrateur seulement des MODÉRATEURS et des LIVREURS
@@ -1197,7 +1207,9 @@ create policy "profils ajout admin" on public.profils
     -- L'administrateur de BIZZOO crée des livreurs — et (3.63.0) des
     -- modérateurs INACTIFS, que le superadministrateur validera.
     or (public.est_admin_bizzoo() and role = 'livreur')
-    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif)
+    -- (3.81.0) Et des vendeurs, de BIZZOO (sans boutique).
+    or (public.est_admin_bizzoo() and role = 'vendeur' and boutique_id is null));
 -- « Créer un compte » passe par deux temps : l'inscription pose une
 -- fiche en attente, SANS boutique, puis l'administrateur lui donne son
 -- rang. Le premier membre de « using » exigeait une fiche déjà de sa
@@ -1230,7 +1242,9 @@ create policy "profils modification admin" on public.profils
     or (public.est_admin_bizzoo() and role = 'livreur')
     -- (3.63.0) Un modérateur, mais INACTIF : c'est le superadministrateur
     -- qui l'active.
-    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif));
+    or (public.est_admin_bizzoo() and role = 'moderateur' and not actif)
+    -- (3.81.0) Un vendeur, seulement à sa création (« profil_vendeur_cree »).
+    or (public.est_admin_bizzoo() and role = 'vendeur' and boutique_id is null));
 create policy "profils suppression admin" on public.profils
   for delete to authenticated using (
     (public.est_super() and not public.est_mon_createur(id))
@@ -8776,6 +8790,7 @@ declare
   r     public.boutiques_reception%rowtype;
   qui   text := public.nom_du_compte();
   nouv  bigint;
+  ops   jsonb;
 begin
   if not public.gere_les_fonds(cible) then
     raise exception 'Seul l''administrateur de la boutique demande un reversement.';
@@ -8794,13 +8809,21 @@ begin
     raise exception 'Le solde disponible est de % : vous ne pouvez pas demander plus.',
       public.montant_lisible((solde ->> 'disponible')::bigint, solde ->> 'devise') using errcode = 'P0001';
   end if;
+  -- (3.81.0) Tout le solde, ou des commandes entières (« demander_reversement_commandes »).
+  if nullif(current_setting('bizzoo.reversement_commandes', true), '') is null
+     and montant <> (solde ->> 'disponible')::bigint then
+    raise exception 'Demandez tout votre solde (%), ou choisissez des commandes entières.',
+      public.montant_lisible((solde ->> 'disponible')::bigint, solde ->> 'devise') using errcode = 'P0001';
+  end if;
   insert into public.reversements (boutique_id, montant, tel, reseau, titulaire, demande_par)
   values (cible, montant, r.tel, r.reseau, r.titulaire, qui)
-  returning id into nouv;
+  returning id, operations into nouv, ops;
   perform public.notifier(public.les_superadmins(), 'reversement_demande',
     'Reversement demandé : ' || public.montant_lisible(montant, solde ->> 'devise'),
     coalesce((select b.nom from public.boutiques b where b.id = cible), cible) || ' — à envoyer sur ' ||
-      r.reseau || ' ' || r.tel || coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '. Demandé par ' || qui || '.',
+      r.reseau || ' ' || r.tel || coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '. Demandé par ' || qui || '.'
+      -- (3.81.0) Les commandes de la demande.
+      || case when public.numeros_operations(ops) <> '' then E'\nCommandes : ' || public.numeros_operations(ops) else '' end,
     -- (3.73.0) La touche ouvre CETTE demande.
     '#/reversements/boutique-' || nouv, null, cible, true);
   return nouv;
@@ -9182,6 +9205,7 @@ declare
   r     public.livreurs_reception%rowtype;
   qui   text := public.nom_du_compte();
   nouv  bigint;
+  ops   jsonb;
 begin
   if moi is null or not public.est_livreur() then
     raise exception 'Seul un livreur demande le reversement de ses gains.';
@@ -9200,13 +9224,21 @@ begin
     raise exception 'Votre solde disponible est de % : vous ne pouvez pas demander plus.',
       public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
   end if;
+  -- (3.81.0) Tout le solde, ou des commandes entières (« demander_reversement_commandes »).
+  if nullif(current_setting('bizzoo.reversement_commandes', true), '') is null
+     and montant <> (solde ->> 'disponible')::bigint then
+    raise exception 'Demandez tout votre solde (%), ou choisissez des commandes entières.',
+      public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
+  end if;
   insert into public.reversements_livreurs (livreur_id, nom_livreur, montant, tel, reseau, titulaire)
   values (moi, qui, montant, r.tel, r.reseau, r.titulaire)
-  returning id into nouv;
+  returning id, operations into nouv, ops;
   perform public.notifier(public.les_superadmins(), 'reversement_demande',
     'Reversement demandé par un livreur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
-      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
+      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.'
+      -- (3.81.0) Les commandes de la demande.
+      || case when public.numeros_operations(ops) <> '' then E'\nCommandes : ' || public.numeros_operations(ops) else '' end,
     -- (3.73.0) La touche ouvre CETTE demande.
     '#/reversements/livreur-' || nouv, null, null, true);
   return nouv;
@@ -24337,6 +24369,7 @@ declare
   r     public.vendeurs_reception%rowtype;
   qui   text := public.nom_du_compte();
   nouv  bigint;
+  ops   jsonb;
 begin
   if moi is null or not public.est_vendeur() then
     raise exception 'Seul un vendeur demande le versement de ses gains.';
@@ -24355,13 +24388,21 @@ begin
     raise exception 'Votre solde disponible est de % : vous ne pouvez pas demander plus.',
       public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
   end if;
+  -- (3.81.0) Tout le solde, ou des commandes entières (« demander_reversement_commandes »).
+  if nullif(current_setting('bizzoo.reversement_commandes', true), '') is null
+     and montant <> (solde ->> 'disponible')::bigint then
+    raise exception 'Demandez tout votre solde (%), ou choisissez des commandes entières.',
+      public.montant_lisible((solde ->> 'disponible')::bigint, 'FCFA') using errcode = 'P0001';
+  end if;
   insert into public.reversements_vendeurs (vendeur_id, nom_vendeur, montant, tel, reseau, titulaire)
   values (moi, qui, montant, r.tel, r.reseau, r.titulaire)
-  returning id into nouv;
+  returning id, operations into nouv, ops;
   perform public.notifier(public.les_superadmins(), 'reversement_demande',
     'Versement demandé par un vendeur : ' || public.montant_lisible(montant, 'FCFA'),
     qui || ' — à envoyer sur ' || r.reseau || ' ' || r.tel ||
-      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.',
+      coalesce(' (' || nullif(r.titulaire, '') || ')', '') || '.'
+      -- (3.81.0) Les commandes de la demande.
+      || case when public.numeros_operations(ops) <> '' then E'\nCommandes : ' || public.numeros_operations(ops) else '' end,
     -- (3.73.0) La touche ouvre CETTE demande.
     '#/reversements/vendeur-' || nouv, null, null, true);
   return nouv;
@@ -25577,3 +25618,406 @@ drop trigger if exists lignes_zz_accompagnements on public.commande_lignes;
 create trigger lignes_zz_accompagnements
   before insert on public.commande_lignes
   for each row execute function public.ligne_accompagnements();
+
+
+-- =========================================================
+-- (3.81.0) UN REVERSEMENT, C'EST DES COMMANDES ENTIÈRES — OU TOUT LE SOLDE
+--
+-- Une demande de reversement ne disait que son montant, et ce montant
+-- était libre : rien ne permettait à BIZZOO de vérifier que l'argent
+-- venait de vraies commandes, et non d'essais. Désormais :
+--   - on demande TOUT son solde disponible, ou des COMMANDES ENTIÈRES
+--     (« demander_reversement_commandes ») — jamais une partie au hasard ;
+--   - chaque demande (boutique, livreur, vendeur) garde, au moment où
+--     elle est faite, la liste des commandes qui composent son montant
+--     (« operations ») : numéro, client, date du paiement, la part qui
+--     revient au demandeur, ce que la demande en couvre, la preuve du
+--     paiement (FeexPay et sa référence, ou confirmé à la main) et ce qui
+--     doit faire vérifier (paiement confirmé à la main, commande saisie
+--     par l'équipe, client « test »…) ;
+--   - une commande déjà demandée (envoyée ou en attente) ne se redemande
+--     pas ; une demande refusée rend ses commandes.
+-- Seuls le superadministrateur, le CEO et la comptabilité lisent la
+-- liste complète ; le demandeur voit ses commandes à reverser (numéro,
+-- date, montant), sans le client.
+-- =========================================================
+alter table public.reversements add column if not exists operations jsonb;
+alter table public.reversements_livreurs add column if not exists operations jsonb;
+alter table public.reversements_vendeurs add column if not exists operations jsonb;
+
+-- Les gains d'un demandeur, une ligne par commande, jusqu'à une date :
+-- commandes payées et remises au client ; pour un livreur, ses courses
+-- créditées.
+create or replace function public.gains_par_commande(genre text, qui text, jusqu_a timestamptz)
+returns table (commande_id text, part bigint, quand timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+begin
+  if genre = 'livreur' then
+    return query
+      select g.commande_id, sum(g.montant)::bigint, min(g.credite_le)
+        from public.gains_livreurs g
+       where g.livreur_id::text = qui and g.credite_le <= jusqu_a and g.montant > 0
+       group by g.commande_id;
+  else
+    return query
+      select l.commande_id, sum(l.prix_bizzoo::bigint * l.quantite)::bigint, min(coalesce(c.paye_le, c.cree_le))
+        from public.commande_lignes l
+        join public.commandes c on c.id = l.commande_id and c.etat = 'payee'
+       where l.etat = 'remise' and coalesce(c.paye_le, c.cree_le) <= jusqu_a
+         and case when genre = 'vendeur' then l.vendeur_id::text = qui
+                  else l.boutique_id = qui and l.vendeur_id is null end
+       group by l.commande_id
+      having sum(l.prix_bizzoo::bigint * l.quantite) > 0;
+  end if;
+end $$;
+revoke all on function public.gains_par_commande(text, text, timestamptz) from public, anon, authenticated;
+
+-- Ce qui reste à reverser de chaque commande : sa part, moins ce que les
+-- autres demandes (envoyées ou en attente) en couvrent déjà.
+create or replace function public.commandes_reste(genre text, qui text, jusqu_a timestamptz, sauf bigint)
+returns table (commande_id text, part bigint, reste bigint, quand timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+begin
+  return query
+    with demandes as (
+      select r.operations as o from public.reversements r
+       where genre = 'boutique' and r.boutique_id = qui and r.etat <> 'refuse'
+         and r.id is distinct from sauf and r.operations is not null
+      union all
+      select r.operations from public.reversements_livreurs r
+       where genre = 'livreur' and r.livreur_id::text = qui and r.etat <> 'refuse'
+         and r.id is distinct from sauf and r.operations is not null
+      union all
+      select r.operations from public.reversements_vendeurs r
+       where genre = 'vendeur' and r.vendeur_id::text = qui and r.etat <> 'refuse'
+         and r.id is distinct from sauf and r.operations is not null
+    ), couverts as (
+      select e ->> 'commande_id' as cid, sum((e ->> 'couvert')::bigint) as fait
+        from demandes d, jsonb_array_elements(coalesce(d.o -> 'commandes', '[]'::jsonb)) e
+       group by 1
+    )
+    select g.commande_id, g.part, greatest(0, g.part - coalesce(k.fait, 0))::bigint, g.quand
+      from public.gains_par_commande(genre, qui, jusqu_a) g
+      left join couverts k on k.cid = g.commande_id;
+end $$;
+revoke all on function public.commandes_reste(text, text, timestamptz, bigint) from public, anon, authenticated;
+
+-- Les commandes qui composent « montant » : celles choisies, ou les plus
+-- anciennes qui restent à reverser.
+create or replace function public.operations_couvertes(genre text, qui text, montant bigint,
+  jusqu_a timestamptz, sauf bigint, choisies text[])
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  liste jsonb;
+  couvert bigint;
+begin
+  with g as (
+    select x.* from public.commandes_reste(genre, qui, jusqu_a, sauf) x
+     where x.reste > 0 and (choisies is null or x.commande_id = any(choisies))
+  ), c1 as (
+    select g.*, coalesce(sum(g.reste) over (order by g.quand, g.commande_id
+                                            rows between unbounded preceding and 1 preceding), 0) as debut
+      from g
+  ), pris as (
+    select c1.*, least(c1.reste, montant - c1.debut) as couvre from c1
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'commande_id', c.id, 'numero', c.numero, 'paye_le', c.paye_le, 'client', c.client_nom,
+           'total', c.total, 'part', p.part, 'couvert', p.couvre,
+           'paiement', coalesce(v.fournisseur, ''), 'transaction', c.transaction_id,
+           'confirme_par', c.confirme_par, 'origine', c.origine,
+           'alertes', to_jsonb(array_remove(array[
+             case when c.confirme_par <> '' then 'Paiement confirmé à la main par ' || c.confirme_par end,
+             case when c.origine = 'whatsapp' then 'Commande saisie par l''équipe (WhatsApp)' end,
+             case when c.transaction_id = '' and c.confirme_par = '' then 'Aucune référence de paiement' end,
+             case when (c.client_nom || ' ' || c.note) ~* '\m(test|tests|essai|essais|tester)\M'
+                  then 'Le nom ou la note du client parle de test' end], null)))
+           order by p.quand, p.commande_id), '[]'::jsonb),
+         coalesce(sum(p.couvre), 0)
+    into liste, couvert
+    from pris p
+    join public.commandes c on c.id = p.commande_id
+    left join lateral (select x.fournisseur from public.versements x
+                        where x.commande_id = c.id and x.verdict = 'payee'
+                        order by x.cree_le desc limit 1) v on true
+   where p.couvre > 0;
+  return jsonb_build_object('commandes', liste, 'non_rattache', greatest(0, montant - couvert),
+                            'calcule_le', jusqu_a);
+end $$;
+revoke all on function public.operations_couvertes(text, text, bigint, timestamptz, bigint, text[])
+  from public, anon, authenticated;
+
+-- « BZ-000123, BZ-000130 » : les commandes d'une demande, pour la notification.
+create or replace function public.numeros_operations(ops jsonb) returns text
+language sql immutable set search_path = public as $$
+  select case when n = 0 then '' when n <= 6 then l6
+              else l6 || ' et ' || (n - 6) || ' autre' || case when n - 6 > 1 then 's' else '' end end
+    from (select count(*)::int as n,
+                 string_agg(e ->> 'numero', ', ' order by o) filter (where o <= 6) as l6
+            from jsonb_array_elements(coalesce(ops -> 'commandes', '[]'::jsonb)) with ordinality as t(e, o)) x;
+$$;
+revoke all on function public.numeros_operations(jsonb) from public, anon, authenticated;
+
+-- À chaque demande, la liste se fige : celle des commandes choisies
+-- (posée par « demander_reversement_commandes »), sinon les plus anciennes
+-- qui restent à reverser. Jamais bloquante : une erreur ici laisse la
+-- demande passer, sans liste.
+create or replace function public.reversement_note_operations() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  genre text := tg_argv[0];
+  qui   text;
+  choix text := nullif(current_setting('bizzoo.reversement_commandes', true), '');
+begin
+  begin
+    if new.operations is null and choix is not null then
+      new.operations := choix::jsonb;
+    elsif new.operations is null then
+      qui := to_jsonb(new) ->> case genre when 'livreur' then 'livreur_id'
+                                          when 'vendeur' then 'vendeur_id' else 'boutique_id' end;
+      if qui is not null then
+        new.operations := public.operations_couvertes(genre, qui, new.montant, new.demande_le, null, null);
+      end if;
+    end if;
+  exception when others then
+    raise warning 'reversement_note_operations : %', sqlerrm;
+  end;
+  return new;
+end $$;
+revoke all on function public.reversement_note_operations() from public, anon, authenticated;
+
+drop trigger if exists reversements_operations on public.reversements;
+create trigger reversements_operations before insert on public.reversements
+  for each row execute function public.reversement_note_operations('boutique');
+drop trigger if exists reversements_livreurs_operations on public.reversements_livreurs;
+create trigger reversements_livreurs_operations before insert on public.reversements_livreurs
+  for each row execute function public.reversement_note_operations('livreur');
+drop trigger if exists reversements_vendeurs_operations on public.reversements_vendeurs;
+create trigger reversements_vendeurs_operations before insert on public.reversements_vendeurs
+  for each row execute function public.reversement_note_operations('vendeur');
+
+-- Les commandes d'une demande, pour qui la tranche.
+create or replace function public.reversement_operations(genre text, cible bigint)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  o       jsonb;
+  qui     text;
+  quand   timestamptz;
+  combien bigint;
+begin
+  if not (public.est_super() or public.rh_reversements_acces()) then
+    raise exception 'Réservé au superadministrateur, au CEO et à la comptabilité.';
+  end if;
+  if genre = 'livreur' then
+    select r.operations, r.livreur_id::text, r.demande_le, r.montant into o, qui, quand, combien
+      from public.reversements_livreurs r where r.id = cible;
+  elsif genre = 'vendeur' then
+    select r.operations, r.vendeur_id::text, r.demande_le, r.montant into o, qui, quand, combien
+      from public.reversements_vendeurs r where r.id = cible;
+  else
+    select r.operations, r.boutique_id, r.demande_le, r.montant into o, qui, quand, combien
+      from public.reversements r where r.id = cible;
+  end if;
+  if not found then
+    raise exception 'Demande introuvable.' using errcode = 'P0001';
+  end if;
+  if o is null and qui is not null then
+    o := public.operations_couvertes(genre, qui, combien, quand, cible, null);
+  end if;
+  return coalesce(o, jsonb_build_object('commandes', '[]'::jsonb, 'non_rattache', combien));
+end $$;
+revoke all on function public.reversement_operations(text, bigint) from public, anon;
+grant execute on function public.reversement_operations(text, bigint) to authenticated;
+
+-- Le demandeur : ses commandes qui restent à reverser (numéro, date,
+-- montant), pour choisir. Pas le client : ce n'est pas l'affaire d'un
+-- vendeur.
+create or replace function public.commandes_a_reverser(genre text, cible text default null)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  qui text := case when genre = 'boutique' then cible else coalesce(cible, auth.uid()::text) end;
+begin
+  if qui is null or not (
+       public.est_super()
+       or (genre = 'boutique' and public.gere_les_fonds(cible))
+       or (genre = 'livreur' and qui = auth.uid()::text and public.est_livreur())
+       or (genre = 'vendeur' and qui = auth.uid()::text and public.est_vendeur())) then
+    raise exception 'Ces commandes ne sont pas les vôtres.';
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+                     'commande_id', x.commande_id, 'numero', c.numero, 'paye_le', x.quand,
+                     'part', x.part, 'reste', x.reste) order by x.quand, x.commande_id)
+                     from public.commandes_reste(genre, qui, now(), null) x
+                     join public.commandes c on c.id = x.commande_id
+                    where x.reste > 0), '[]'::jsonb);
+end $$;
+revoke all on function public.commandes_a_reverser(text, text) from public, anon;
+grant execute on function public.commandes_a_reverser(text, text) to authenticated;
+
+-- Demander le reversement de COMMANDES ENTIÈRES. Le montant est la somme
+-- de ce qui reste à reverser de chacune ; la demande passe ensuite par la
+-- fonction habituelle (numéro de réception, solde, notification).
+create or replace function public.demander_reversement_commandes(genre text, commandes text[], cible text default null)
+returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  choix text[] := array(select distinct x from unnest(coalesce(commandes, '{}'::text[])) x where coalesce(x, '') <> '');
+  qui   text := case when genre = 'boutique' then cible else auth.uid()::text end;
+  total bigint;
+  n     int;
+  ops   jsonb;
+  nouv  bigint;
+begin
+  if genre not in ('boutique', 'livreur', 'vendeur') then
+    raise exception 'Demande illisible.' using errcode = 'P0001';
+  end if;
+  if qui is null
+     or (genre = 'boutique' and not public.gere_les_fonds(cible))
+     or (genre = 'livreur' and not public.est_livreur())
+     or (genre = 'vendeur' and not public.est_vendeur()) then
+    raise exception 'Seul le titulaire de ce solde en demande le reversement.';
+  end if;
+  if cardinality(choix) = 0 then
+    raise exception 'Choisissez au moins une commande.' using errcode = 'P0001';
+  end if;
+  -- Une demande à la fois : le même verrou que la fonction habituelle.
+  if genre = 'boutique' then
+    perform 1 from public.boutiques b where b.id = cible for update;
+  else
+    perform 1 from public.profils p where p.id = auth.uid() for update;
+  end if;
+  select coalesce(sum(x.reste), 0), count(*) into total, n
+    from public.commandes_reste(genre, qui, now(), null) x
+   where x.reste > 0 and x.commande_id = any(choix);
+  if n <> cardinality(choix) then
+    raise exception 'Une des commandes choisies n''est pas à reverser : déjà demandée, ou pas encore remise au client.'
+      using errcode = 'P0001';
+  end if;
+  ops := public.operations_couvertes(genre, qui, total, now(), null, choix);
+  perform set_config('bizzoo.reversement_commandes', ops::text, true);
+  if genre = 'boutique' then
+    nouv := public.demander_reversement(cible, total);
+  elsif genre = 'livreur' then
+    nouv := public.demander_reversement_livreur(total);
+  else
+    nouv := public.demander_reversement_vendeur(total);
+  end if;
+  perform set_config('bizzoo.reversement_commandes', '', true);
+  return nouv;
+end $$;
+revoke all on function public.demander_reversement_commandes(text, text[], text) from public, anon;
+grant execute on function public.demander_reversement_commandes(text, text[], text) to authenticated;
+
+-- Les demandes d'avant la 3.81.0 : leur liste, calculée à leur date, de
+-- la plus ancienne à la plus récente.
+do $$
+declare
+  d   record;
+  ops jsonb;
+begin
+  for d in
+    select 'boutique' as genre, r.id, r.boutique_id as qui, r.montant, r.demande_le
+      from public.reversements r where r.operations is null
+    union all
+    select 'livreur', r.id, r.livreur_id::text, r.montant, r.demande_le
+      from public.reversements_livreurs r where r.operations is null and r.livreur_id is not null
+    union all
+    select 'vendeur', r.id, r.vendeur_id::text, r.montant, r.demande_le
+      from public.reversements_vendeurs r where r.operations is null and r.vendeur_id is not null
+    order by 5, 2
+  loop
+    ops := public.operations_couvertes(d.genre, d.qui, d.montant, d.demande_le, d.id, null);
+    if d.genre = 'livreur' then
+      update public.reversements_livreurs set operations = ops where id = d.id;
+    elsif d.genre = 'vendeur' then
+      update public.reversements_vendeurs set operations = ops where id = d.id;
+    else
+      update public.reversements set operations = ops where id = d.id;
+    end if;
+  end loop;
+end $$;
+
+-- =========================================================
+-- (3.81.0) L'ADMINISTRATEUR DE BIZZOO CRÉE UN VENDEUR
+--
+-- Seul le superadministrateur créait un vendeur. Désormais
+-- l'administrateur de BIZZOO (sans boutique) en crée aussi, comme il crée
+-- des livreurs : les règles de « profils » le lui ouvrent (plus haut), et
+-- ce déclencheur en tient le reste :
+--   - un vendeur NAÎT vendeur : la fiche toute fraîche de l'inscription,
+--     jamais un livreur ou un modérateur déjà en service qu'on
+--     changerait en vendeur ;
+--   - il n'a pas de boutique (il vend dans les boutiques à vendeurs
+--     multiples) ;
+--   - le superadministrateur est prévenu : c'est lui qui règle le lieu du
+--     vendeur, lui attribue ses produits et suit ses ventes.
+-- Modifier ou supprimer un vendeur reste au superadministrateur.
+-- =========================================================
+create or replace function public.profil_vendeur_cree() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.role is distinct from 'vendeur' or public.est_super() or not public.est_admin_bizzoo() then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and old.role = 'vendeur' then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and not (old.role = 'moderateur' and not old.actif and old.boutique_id is null
+                              and not coalesce(old.a_valider, false)
+                              and old.cree_le > now() - interval '15 minutes') then
+    raise exception 'L''administrateur de BIZZOO crée un vendeur ; il ne change pas un compte existant en vendeur.'
+      using errcode = 'P0001';
+  end if;
+  new.boutique_id := null;
+  -- Une insertion qui vise une fiche existante finit en mise à jour
+  -- (« on conflict ») : on ne prévient qu'une fois.
+  if tg_op = 'UPDATE' or not exists (select 1 from public.profils p where p.id = new.id) then
+    perform public.notifier(public.les_superadmins(), 'vendeur_cree', 'Nouveau vendeur à configurer',
+      coalesce(nullif(trim(new.nom), ''), nullif(trim(new.tel), ''), 'Un vendeur') || ', créé par ' ||
+        coalesce(public.nom_du_createur(auth.uid()), 'un administrateur de BIZZOO') ||
+        '. Réglez son lieu et attribuez-lui ses produits.',
+      '#/vendeurs/' || new.id, null, null, false);
+  end if;
+  return new;
+end $$;
+revoke all on function public.profil_vendeur_cree() from public, anon, authenticated;
+
+drop trigger if exists profils_vendeur_cree on public.profils;
+create trigger profils_vendeur_cree
+  before insert or update on public.profils
+  for each row execute function public.profil_vendeur_cree();
+
+-- =========================================================
+-- (3.81.0) TOUS LES SUPERADMINISTRATEURS SONT ÉGAUX
+--
+-- Un superadministrateur nommé par un autre ne pouvait pas modifier,
+-- désactiver, supprimer ni changer le mot de passe de celui qui l'avait
+-- nommé (ni des comptes au-dessus) : il n'avait pas tous les droits d'un
+-- superadministrateur. Cette limite tombe entre superadministrateurs
+-- (« est_mon_createur », plus haut). En échange, une seule règle, pour ne
+-- jamais enfermer BIZZOO dehors : on ne retire pas le DERNIER
+-- superadministrateur actif — ni rétrogradé, ni désactivé, ni supprimé.
+-- =========================================================
+create or replace function public.profil_dernier_super() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.role = 'superadministrateur' and old.actif
+     and (tg_op = 'DELETE' or new.role is distinct from 'superadministrateur' or not new.actif)
+     and not exists (select 1 from public.profils p
+                      where p.id <> old.id and p.role = 'superadministrateur' and p.actif) then
+    raise exception 'BIZZOO garde toujours au moins un superadministrateur actif : nommez-en un autre avant de retirer celui-ci.'
+      using errcode = 'P0001';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end $$;
+revoke all on function public.profil_dernier_super() from public, anon, authenticated;
+
+drop trigger if exists profils_dernier_super on public.profils;
+create trigger profils_dernier_super
+  before update or delete on public.profils
+  for each row execute function public.profil_dernier_super();

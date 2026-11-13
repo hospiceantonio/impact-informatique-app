@@ -468,7 +468,7 @@ const Store = (() => {
          la boutique se retrouve sans secteur, ce qui est exact. */
       categorieId: l.categorie_id || "",
       icone: l.icone || "magasin",
-      couleur: l.couleur || "#2550B7",
+      couleur: l.couleur || "#007F7C",
       logo: l.logo || "",
       logoUrl: l.logo ? Supabase.urlImage(l.logo) : "",
       actif: l.actif !== false,
@@ -593,7 +593,7 @@ const Store = (() => {
       slogan: b.slogan || "",
       description: b.description || "",
       icone: b.icone || "magasin",
-      couleur: b.couleur || "#2550B7",
+      couleur: b.couleur || "#007F7C",
       logo: b.logo || "",
       actif: b.actif !== false,
       ordre: b.ordre || 0,
@@ -890,7 +890,9 @@ const Store = (() => {
        qui échoue. */
     /* SAUF L'ADMINISTRATEUR DE BIZZOO : le livreur (3.59.0), et le
        modérateur (3.63.0) — que le superadministrateur validera. */
-    if (Supabase.estAdminBizzoo()) return ["moderateur", "livreur"];
+    /* (3.81.0) Et le vendeur : le superadministrateur règle ensuite son
+       lieu et ses produits (il en est prévenu). */
+    if (Supabase.estAdminBizzoo()) return ["moderateur", "livreur"].concat(baseVendeurs ? ["vendeur"] : []);
     if (Supabase.estCompteEnseigne()) return [];
     /* Un administrateur nomme chez lui : des modérateurs et des livreurs. */
     return Supabase.estAdmin() ? ["moderateur", "livreur"] : [];
@@ -1058,6 +1060,35 @@ const Store = (() => {
     const id = await Supabase.rpc("demander_reversement", { cible: boutique, montant: Math.round(Number(montant) || 0) });
     journaliser("boutique", "ajout", "Reversement demandé : " + montant, boutique, undefined, boutique);
     return id;
+  }
+  /* (3.81.0) Un reversement, c'est des commandes entières — ou tout le
+     solde. « genre » : boutique, livreur ou vendeur ; « cible » : la
+     boutique (rien pour un livreur ou un vendeur, qui demande pour lui). */
+  async function commandesAReverser(genre, cible) {
+    const lignes = await Supabase.rpcLecture("commandes_a_reverser", { genre, cible: cible || null });
+    return (lignes || []).map((l) => ({ id: l.commande_id, numero: l.numero || l.commande_id,
+      payeLe: l.paye_le || "", part: n0(l.part), reste: n0(l.reste) }));
+  }
+  async function demanderReversementCommandes(genre, commandes, cible) {
+    const id = await Supabase.rpcLecture("demander_reversement_commandes",
+      { genre, commandes: commandes || [], cible: cible || null });
+    if (genre === "boutique") {
+      journaliser("boutique", "ajout", "Reversement demandé : commandes " + (commandes || []).join(", "),
+        cible, undefined, cible);
+    }
+    return id;
+  }
+  /** Les commandes d'une demande, pour qui la tranche. */
+  async function operationsReversement(genre, id) {
+    const o = await Supabase.rpcLecture("reversement_operations", { genre, cible: id });
+    return {
+      nonRattache: n0(o && o.non_rattache),
+      commandes: ((o && o.commandes) || []).map((c) => ({
+        id: c.commande_id, numero: c.numero || c.commande_id, payeLe: c.paye_le || "", client: c.client || "",
+        total: n0(c.total), part: n0(c.part), couvert: n0(c.couvert), paiement: c.paiement || "",
+        transaction: c.transaction || "", confirmePar: c.confirme_par || "", origine: c.origine || "",
+        alertes: Array.isArray(c.alertes) ? c.alertes : [] })),
+    };
   }
   async function reversements(boutique) {
     const lignes = await Supabase.rpcLecture("reversements_liste", { cible: boutique || null });
@@ -1320,6 +1351,9 @@ const Store = (() => {
      ne propose donc pas de crayon. Recalculé à chaque lecture des comptes. */
   let mesCreateurs = new Set();
   function calculerCreateurs(comptes) {
+    /* (3.81.0) Entre superadministrateurs, plus de créateur protégé : un
+       superadministrateur nommé par un autre a tous les droits. */
+    if (Supabase.estSuper()) { mesCreateurs = new Set(); return; }
     const parId = new Map(comptes.map((c) => [c.id, c]));
     const vus = new Set();
     let ici = parId.get(Supabase.identifiant());
@@ -1496,7 +1530,7 @@ const Store = (() => {
          toutes les boutiques — le contraire de ce qu'on voulait. */
       if (choix === ENSEIGNE) {
         if (!Supabase.estSuper() && !(Supabase.estAdminBizzoo() &&
-            (role === "livreur" || role === "moderateur"))) {
+            (role === "livreur" || role === "moderateur" || role === "vendeur"))) {
           throw new Error("Seul le superadministrateur crée un compte de BIZZOO.");
         }
         attachee = null;
@@ -1512,7 +1546,7 @@ const Store = (() => {
       throw new Error("Vous ne pouvez pas créer un compte de ce rang.");
     }
     if (!Supabase.estSuper() &&
-        !(Supabase.estAdminBizzoo() && (role === "livreur" || role === "moderateur")) &&
+        !(Supabase.estAdminBizzoo() && (role === "livreur" || role === "moderateur" || role === "vendeur")) &&
         (attachee || "") !== Supabase.boutiqueDuCompte()) {
       throw new Error("Vous ne créez des comptes que pour votre boutique.");
     }
@@ -3210,7 +3244,7 @@ const Store = (() => {
       id: c.id,
       nom: c.nom,
       icone: c.icone || "categories",
-      couleur: c.couleur || "#2550B7",
+      couleur: c.couleur || "#007F7C",
       /* Le CHEMIN de la photo du rond, dans le seau, ou « ». Une base
          pas encore mise à jour n'a pas la colonne : pas de photo. */
       image: c.image || "",
@@ -3265,9 +3299,9 @@ const Store = (() => {
        applications d'avant s'en servent encore —, une nouvelle prend
        le bleu de BIZZOO. */
     if (donnees.couleur !== undefined) {
-      pastille.couleur = (donnees.couleur || "#2550B7").trim() || "#2550B7";
+      pastille.couleur = (donnees.couleur || "#007F7C").trim() || "#007F7C";
     } else if (!existante) {
-      pastille.couleur = "#2550B7";
+      pastille.couleur = "#007F7C";
     }
 
     /* LA PHOTO DE LA TUILE. `donnees.photo` vaut { dataUrl } pour une
@@ -4228,7 +4262,7 @@ const Store = (() => {
       for (const c of donnees.categories || []) {
         await Supabase.requete("POST", "categories?on_conflict=id",
           { id: c.id, nom: c.nom, ordre: c.ordre || 0,
-            icone: c.icone || "categories", couleur: c.couleur || "#2550B7",
+            icone: c.icone || "categories", couleur: c.couleur || "#007F7C",
             en_avant: c.enAvant === true }, { upsert: true });
         for (const s of c.sousCategories || []) {
           await Supabase.requete("POST", "sous_categories?on_conflict=id",
@@ -4331,7 +4365,7 @@ const Store = (() => {
     positionsLivreurs, maPosition, enregistrerMaPosition, reglerDisponibilite,
     demarrerLive, arreterLive, liveEnCours,
     listerLivreurs, confierLivraison, mesLivraisons, coursesProposees, prendreCourse, accepterCourse, avancerLivraison,
-    remettreCourse, remettreCommande, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
+    remettreCourse, remettreCommande, maCaisse, caisseLivreurs, soldeBoutique, reglerReception, demanderReversement, commandesAReverser, demanderReversementCommandes, operationsReversement, reversements, deciderReversement, marquerRemis, refuserCourse, livraisonDesCommandes,
     listerAvis, lireAvis, listerSignalementsAvis, listerAuteursAvisBloques,
     traiterSignalementAvis, bloquerAuteurAvis,
     listerSignalementsProduits, traiterSignalementProduit,

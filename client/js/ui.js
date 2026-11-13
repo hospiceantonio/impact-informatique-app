@@ -19,10 +19,13 @@ const UI = (() => {
    * le logo, c'est désormais le B au chariot devant le nom (« logo() »),
    * et les deux roues orange du B disent ce que disaient les points.
    */
+  /* (4.0.0) LE NOM DE LA CHARTE BIZZOO MARKET : « BIZZOO » en capitales
+     italiques, « Market » en turquoise dessous, entre deux traits. Toujours
+     écrit, pas en image : net à toutes les tailles, rien à charger. */
   function motSymbole(classe) {
     return (
-      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
-        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
+      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO Market">' +
+        '<span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span>' +
       "</span>"
     );
   }
@@ -1104,7 +1107,7 @@ const UI = (() => {
     if (!b) return "";
     return b.logo
       ? '<span class="topbar-vignette topbar-vignette-photo"><img src="' + e(b.logo) + '" alt=""></span>'
-      : '<span class="topbar-vignette" style="background:' + e(b.couleur || "#2550B7") + '">' +
+      : '<span class="topbar-vignette" style="background:' + e(b.couleur || "#007F7C") + '">' +
           icone(b.icone || "magasin") + "</span>";
   }
 

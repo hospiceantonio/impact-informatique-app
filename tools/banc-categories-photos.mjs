@@ -152,7 +152,8 @@ async function brancherStockage(page, envois) {
 const RACINE = new URL("..", import.meta.url).pathname;
 const ICONES = readdirSync(RACINE + "client/img/pictos").filter((f) => f.endsWith(".png"))
   .map((f) => f.slice(0, -4)).sort();
-const FOND_TUILE = "rgb(234, 240, 247)";
+/* (4.0.0) Le gris turquoise de la charte BIZZOO Market (#E6F4F6). */
+const FOND_TUILE = "rgb(230, 244, 246)";
 const listeDuCode = (fichier) => {
   const m = readFileSync(RACINE + fichier, "utf8").match(/const PICTOS = \[([\s\S]*?)\];/);
   return m ? [...m[1].matchAll(/\[?\s*"([a-z-]+)"/g)].map((x) => x[1]).sort() : [];
@@ -294,7 +295,7 @@ for (const L of [390, 320]) {
   const t = await lireTuiles(page, ".cat-tuile");
   ok(t.length === 8, "huit tuiles sur l'accueil (" + t.length + ")");
   ok(fonds.length === 8 && fonds.every((f) => f === FOND_TUILE),
-    "toutes sur le même fond bleu-gris, celui de l'image (" + fonds[0] + ")");
+    "toutes sur le même fond gris turquoise, celui de l'image (" + fonds[0] + ")");
   verifierTuiles(t, "accueil " + L);
   const lues = await demandes(page);
   ok(!lues.some((n) => /img\/categories\//.test(n)),
@@ -560,8 +561,8 @@ titre("Admin : une nouvelle catégorie, avec son icône");
   await page.click('#cat-icones [data-icone="animaux"]');
   await enregistrer(page);
   const post = ecritures.find((e) => e.methode === "POST" && e.table === "categories");
-  ok(post && post.corps && post.corps.icone === "animaux" && post.corps.couleur === "#2550B7",
-    "elle naît avec l'icône choisie, et le bleu de BIZZOO en couleur");
+  ok(post && post.corps && post.corps.icone === "animaux" && post.corps.couleur === "#007F7C",
+    "elle naît avec l'icône choisie, et le turquoise de BIZZOO en couleur (4.0.0)");
   ok(post && post.corps && !("image" in post.corps) && !envois.length, "sans photo, sans rien envoyer au stockage");
   await ctx.close();
 }

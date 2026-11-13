@@ -17,10 +17,13 @@ const UI = (() => {
    * Plus de points dessous depuis la 3.56.1 : le B au chariot qui le
    * précède porte ses deux roues orange.
    */
+  /* (4.0.0) LE NOM DE LA CHARTE BIZZOO MARKET : « BIZZOO » en capitales
+     italiques, « Market » en turquoise dessous, entre deux traits. Dans la
+     barre du haut de l'admin, « Espace admin » prend la place de « Market ». */
   function motSymbole(classe) {
     return (
-      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO">' +
-        '<span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span>' +
+      '<span class="logo-mot' + (classe ? " " + classe : "") + '" aria-label="BIZZOO Market">' +
+        '<span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span>' +
       "</span>"
     );
   }

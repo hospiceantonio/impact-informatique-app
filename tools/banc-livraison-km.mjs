@@ -491,11 +491,11 @@ titre("6. Le livreur : sa course, son gain ; « Mes gains »");
     "son numéro part vers la base");
   await page.click("#gn-demander");
   await page.waitForTimeout(400);
-  await page.fill("#gn-montant", "1000");
-  await page.click("#gn-envoyer");
+  /* (3.81.0) Tout le solde, ou des courses entières : « Tout mon solde » d'office. */
+  await page.click("#rv-envoyer");
   await page.waitForTimeout(1200);
-  ok(serveur.appels.some((a) => a.fn === "demander_reversement_livreur" && a.corps.montant === 1000),
-    "il demande 1 000 FCFA");
+  ok(serveur.appels.some((a) => a.fn === "demander_reversement_livreur" && a.corps.montant === 1120),
+    "il demande tout son solde : 1 120 FCFA");
   ok(/En attente de BIZZOO/.test(await page.evaluate(() => document.body.innerText)), "sa demande paraît, en attente");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();

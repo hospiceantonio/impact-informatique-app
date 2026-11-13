@@ -255,9 +255,18 @@ select essai.refuse($$select public.demander_reversement_livreur(500)$$, 'sans n
 select essai.refuse($$select public.regler_reception_livreur('12345', 'MTN')$$, 'un numéro mal formé : refusé');
 select public.regler_reception_livreur('97 50 00 02', 'mtn', 'Lamine B.') as rr \gset
 select essai.refuse($$select public.demander_reversement_livreur(2000)$$, 'plus que son solde : refusé');
-select public.demander_reversement_livreur(1000) as dem \gset
-select essai.egal((public.solde_livreur() ->> 'disponible')::int, 120, 'demande en cours : 120 disponibles');
+select essai.refuse($$select public.demander_reversement_livreur(1000)$$, '(3.81.0) une partie de son solde : refusé');
+select public.demander_reversement_livreur(1120) as dem0 \gset
+select essai.egal((public.solde_livreur() ->> 'disponible')::int, 0, 'tout son solde demandé : 0 disponible');
 select essai.refuse($$select public.demander_reversement_livreur(500)$$, 'une deuxième demande au-delà : refusée');
+reset role; select essai.personne();
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+select essai.egal(public.decider_reversement_livreur(:dem0, false, '', 'Numéro injoignable'), 'refuse', 'il refuse, avec un motif');
+reset role; select essai.personne();
+select essai.devenir(:BZM::uuid); set role authenticated;
+select essai.egal((public.solde_livreur() ->> 'disponible')::int, 1120, 'refusée : les 1 120 reviennent au solde');
+select public.demander_reversement_commandes('livreur', array[:'g1'::jsonb ->> 'id']) as dem \gset
+select essai.egal((public.solde_livreur() ->> 'disponible')::int, 0, '(3.81.0) la course entière, redemandée : 0 disponible');
 select essai.refuse(format($$select public.decider_reversement_livreur(%s, true, 'REF-0001')$$, :dem),
   'il ne valide pas lui-même');
 reset role; select essai.personne();
@@ -268,8 +277,8 @@ select essai.egal((select tel || '/' || reseau from public.reversements_livreurs
   'le numéro, ramené à dix chiffres, voyage avec la demande');
 select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :ENSEIGNE::uuid and type = 'reversement_demande'
-                      and titre like 'Reversement demandé par un livreur%'), 1,
-  'le superadministrateur est prévenu');
+                      and titre like 'Reversement demandé par un livreur%'), 2,
+  'le superadministrateur est prévenu, à chaque demande');
 select essai.devenir(:BZT::uuid); set role authenticated;
 select essai.egal((select count(*)::int from public.reversements_livreurs_liste()), 0,
   'un autre livreur ne voit pas ses demandes');
@@ -289,21 +298,12 @@ select essai.egal(public.decider_reversement_livreur(:dem, true, 'MTN-778899'), 
 select essai.refuse(format($$select public.decider_reversement_livreur(%s, false, '', 'non')$$, :dem),
   'une demande tranchée ne se retranche pas');
 select essai.egal((select (s ->> 'reverse') || '/' || (s ->> 'disponible') from (select public.solde_livreur(:BZM::uuid) s) x),
-  '1000/120', 'il lit le solde de Lamine : 1 000 reversés, 120 disponibles');
+  '1120/0', 'il lit le solde de Lamine : 1 120 reversés, rien de disponible');
 reset role; select essai.personne();
 select essai.egal((select count(*)::int from public.notifications
                     where destinataire = :BZM::uuid and type = 'reversement_decide'
                       and corps like '%MTN-778899%'), 1, 'Lamine reçoit la référence');
 
-select essai.devenir(:BZM::uuid); set role authenticated;
-select public.demander_reversement_livreur(100) as dem2 \gset
-reset role; select essai.personne();
-select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
-select essai.egal(public.decider_reversement_livreur(:dem2, false, '', 'Numéro injoignable'), 'refuse', 'il refuse, avec un motif');
-reset role; select essai.personne();
-select essai.devenir(:BZM::uuid); set role authenticated;
-select essai.egal((public.solde_livreur() ->> 'disponible')::int, 120, 'refusée : les 100 reviennent au solde');
-reset role; select essai.personne();
 
 -- Le décor rendu : le point BIZZOO retiré, les autres essais retrouvent
 -- les frais par boutique.

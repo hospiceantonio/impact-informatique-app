@@ -1,14 +1,15 @@
 /* =========================================================
-   On ne touche pas à son créateur, à l'écran (3.59.0)
+   Tous les superadministrateurs sont égaux, à l'écran (3.81.0 ; avant :
+   « on ne touche pas à son créateur », 3.59.0)
    =========================================================
-   La base refuse (supabase/tests/99zzzzzzzzzzzzzzzzz-createur-protege.sql).
-   Ce banc regarde l'écran « Comptes » d'un superadministrateur B, créé
-   par A, et qui a lui-même créé C :
+   La base décide (supabase/tests/99zzzzzzzzzzzzzzzzz-createur-protege.sql).
+   Ce banc regarde l'écran « Comptes » d'un superadministrateur B, nommé
+   par A, et qui a lui-même nommé C :
 
-     1. A porte « vous a créé », et pas de crayon ;
-     2. le créateur de A (plus haut encore) non plus ;
-     3. C, que B a créé, garde son crayon ;
-     4. « Bon à savoir » le dit.
+     1. A, qui l'a nommé, a son crayon, sans « vous a créé » ;
+     2. le créateur de A (plus haut encore) aussi ;
+     3. C, que B a nommé, garde son crayon ;
+     4. « Bon à savoir » dit que tous les superadministrateurs sont égaux.
    ========================================================= */
 let chromium;
 try {
@@ -37,7 +38,7 @@ const S = (id, nom, creePar) => ({ id, email: nom.toLowerCase() + "@bizzoo.bj", 
   cree_par_nom: "", cree_le: "2026-10-01T08:00:00Z" });
 const PROFILS = [S(ORIGINE, "Origine", null), S(A, "Awa", ORIGINE), S(B, "Bio", A), S(C, "Cica", B)];
 
-console.log("\n== Le compte qui vous a créé ==");
+console.log("\n== Le compte qui vous a nommé ==");
 const ctx = await nav.newContext({ viewport: { width: 390, height: 2000 } });
 const page = await ctx.newPage();
 const erreurs = [];
@@ -67,12 +68,12 @@ await pause(3500);
 const lignes = await page.evaluate(() => [...document.querySelectorAll(".compte-ligne")].map((l) => ({
   t: l.innerText.replace(/\s+/g, " "), crayon: l.querySelector("[data-compte]")?.dataset.compte || "" })));
 const de = (nom) => lignes.find((l) => l.t.includes(nom)) || { t: "", crayon: "" };
-ok(/vous a créé/i.test(de("Awa").t) && !de("Awa").crayon, "Awa, qui l'a créé : « vous a créé », pas de crayon");
-ok(/vous a créé/i.test(de("Origine").t) && !de("Origine").crayon, "le créateur d'Awa non plus");
-ok(de("Cica").crayon === C && !/vous a créé/i.test(de("Cica").t), "Cica, qu'il a créée : son crayon reste");
-ok(/vous a créé/.test(await page.evaluate(() => document.getElementById("vue").innerText)) &&
-   /ne pouvez pas modifier ses droits/.test(await page.evaluate(() => document.getElementById("vue").innerText)),
-  "« Bon à savoir » le dit");
+ok(de("Awa").crayon === A && !/vous a créé/i.test(de("Awa").t), "Awa, qui l'a nommé : son crayon, comme tout compte");
+ok(de("Origine").crayon === ORIGINE && !/vous a créé/i.test(de("Origine").t), "le créateur d'Awa aussi");
+ok(de("Cica").crayon === C, "Cica, qu'il a nommée : son crayon reste");
+ok(/Tous les superadministrateurs ont les mêmes droits/.test(await page.evaluate(() => document.getElementById("vue").innerText)) &&
+   !/ne pouvez pas modifier ses droits/.test(await page.evaluate(() => document.getElementById("vue").innerText)),
+  "« Bon à savoir » : tous les superadministrateurs sont égaux");
 ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
 await ctx.close();
 await nav.close();

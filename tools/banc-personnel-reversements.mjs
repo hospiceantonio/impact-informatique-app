@@ -45,6 +45,11 @@ async function ouvrir(acces, superadmin = false) {
     reversements_vendeurs_liste: acces || superadmin ? VENDEURS : [],
     noms_momo: acces ? [{ id: L1, momo_nom: "ROHIM KOFFI" }] : [],
     decider_reversement: "valide", decider_reversement_livreur: "valide", decider_reversement_vendeur: "refuse",
+    /* (3.81.0) Les commandes d'une demande. */
+    reversement_operations: { non_rattache: 0, commandes: [
+      { commande_id: "cmd-1", numero: "BZ-000101", client: "Client Test", paye_le: "2026-11-01T10:00:00Z",
+        part: 8000, couvert: 8000, paiement: "feexpay", transaction: "FX-778899", confirme_par: "",
+        alertes: ["Le nom ou la note du client parle de test"] }] },
   };
   const navigateur = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ["--no-sandbox"] });
   const page = await navigateur.newPage({ viewport: { width: 1280, height: 1000 }, serviceWorkers: "block" });
@@ -81,6 +86,10 @@ titre("1. La comptabilité (ou le CEO) : le menu, la pastille, les demandes");
   ok(elements.some((t) => /Boutique — Alpha/.test(t)) && elements.some((t) => /Livreur — Rohim/.test(t)) &&
      elements.some((t) => /Vendeur — AZERTY/.test(t) && /MOOV 0195943189 \(Lawani\)/.test(t)),
     "chacun avec son demandeur et son numéro");
+  /* (3.81.0) D'où vient l'argent : sous chaque demande à traiter. */
+  ok(appels.filter((x) => x.nom === "reversement_operations").length === 3 &&
+     elements.every((t) => /BZ-000101/.test(t) && /FeexPay — référence FX-778899/.test(t) && /parle de test/.test(t)),
+    "sous chaque demande à traiter : ses commandes, la référence FeexPay, et ce qui doit faire vérifier");
   const rohim = elements.find((t) => /Rohim/.test(t)) || "";
   ok(/ROHIM KOFFI/.test(rohim) && /n'est pas le même nom/.test(rohim), "le livreur : le nom du compte MoMo, et l'écart signalé");
   await page.selectOption("select[aria-label='État']", "traites");

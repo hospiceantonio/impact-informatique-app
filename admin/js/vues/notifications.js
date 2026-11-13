@@ -33,6 +33,8 @@ const VueNotifications = (() => {
     reception_reglee:      { nom: "Numéros de réception", icone: "tel" },
     reversement_demande:   { nom: "Reversements demandés", icone: "promo" },
     reversement_decide:    { nom: "Reversements", icone: "promo" },
+    /* (3.81.0) Un vendeur créé par l'administrateur de BIZZOO, à configurer. */
+    vendeur_cree:          { nom: "Nouveaux vendeurs", icone: "magasin" },
     /* La caisse des livreurs (3.59.0). */
     reste_encaisse:        { nom: "Encaissé à la livraison", icone: "promo" },
     encaissement_conteste: { nom: "Paiements contestés", icone: "alerte" },

@@ -9,20 +9,31 @@
 @font-face{font-family:'Poppins';font-style:normal;font-weight:500;font-display:swap;src:url(polices/poppins-500.woff2) format('woff2')}
 @font-face{font-family:'Poppins';font-style:normal;font-weight:600;font-display:swap;src:url(polices/poppins-600.woff2) format('woff2')}
 @font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;src:url(polices/poppins-700.woff2) format('woff2')}
+/* (4.0.0) MONTSERRAT, la police des titres, des boutons et des menus de la
+   charte BIZZOO Market ; Poppins reste celle des textes. Embarquée, comme
+   Poppins : 61 Ko, et l'italique 800 pour le nom « BIZZOO ». */
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:600;font-display:swap;
+  src:url(polices/montserrat-600.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:700;font-display:swap;
+  src:url(polices/montserrat-700.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:800;font-display:swap;
+  src:url(polices/montserrat-800.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:italic;font-weight:800;font-display:swap;
+  src:url(polices/montserrat-800-italique.woff2) format('woff2')}
 
 :root{
-  --bleu-900:#091A51;
-  --bleu-800:#102A7C;
-  --bleu-700:#1A3B98;
-  --bleu:#2550B7;
-  --bleu-400:#3B76F4;
-  --bleu-300:#749EF8;
-  --bleu-100:#D5E2FD;
-  --bleu-50:#ECF2FE;
-  --orange:#FF8A00;
-  --orange-texte:#FFFFFF;
-  --orange-fonce:#A85800;
-  --orange-clair:#FFF1DE;
+  --bleu-900:#0F1E26;
+  --bleu-800:#16303B;
+  --bleu-700:#0A6E6B;
+  --bleu:#007F7C;
+  --bleu-400:#00CFCB;
+  --bleu-300:#6FECEF;
+  --bleu-100:#C9F4F3;
+  --bleu-50:#E9FAFA;
+  --orange:#00CFCB;
+  --orange-texte:#0F1E26;
+  --orange-fonce:#007F7C;
+  --orange-clair:#E9FAFA;
   --ambre-clair:#FFF3DE;
   --rouge:#D92D20;
   --rouge-fonce:#B42318;
@@ -30,17 +41,19 @@
   --vert:#0F9D58;
   --vert-fonce:#0B7A44;
   --vert-clair:#E4F5EC;
-  --encre:#1F2937;
-  --encre-douce:#4B5563;
-  --encre-tres-douce:#9AA3AF;
-  --trait:#E3E8EF;
-  --fond:#F5F7FA;
+  --encre:#0F1E26;
+  --encre-douce:#3D4E57;
+  --encre-tres-douce:#8D9BA2;
+  --trait:#E1EBEF;
+  --fond:#F2F7F9;
   --blanc:#FFFFFF;
-  --ombre:0 12px 30px -18px rgba(9,26,81,.55);
+  --ombre:0 12px 30px -18px rgba(15,30,38,.55);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
   --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* (4.0.0) Montserrat pour les titres, les boutons et les menus. */
+  --police-titre:'Montserrat',var(--police);
   --barre-h:64px;
   --safe-b:max(env(safe-area-inset-bottom,0px), 6px);
   --menu-l:248px;
@@ -306,7 +319,7 @@ p{margin:0}
 
 /* ---------- Fenêtres et messages ---------- */
 dialog.fenetre{border:0;border-radius:var(--r-lg);padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px);box-shadow:var(--ombre)}
-dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
+dialog.fenetre::backdrop{background:rgba(15,30,38,.45)}
 .fenetre form{display:flex;flex-direction:column;max-height:calc(100vh - 40px)}
 .fenetre .tete{padding:16px 18px;border-bottom:1px solid var(--trait);font-weight:700;font-size:16px}
 .fenetre .corps{padding:16px 18px;overflow-y:auto}
@@ -320,7 +333,11 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
 @media (min-width:900px){#toasts{bottom:24px;margin-left:calc(var(--menu-l) / 2)}}
 
 /* ---------- Connexion ---------- */
-.ecran-connexion{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:linear-gradient(160deg,var(--bleu-900),var(--bleu-700))}
+/* (4.0.0) En colonne : la carte « Langue » venait se ranger À CÔTÉ du
+   formulaire, qu'elle écrasait sur un téléphone. Et le fond anthracite
+   occupe tout l'écran : la marge de la zone des vues l'encadrait de blanc. */
+.vue:has(> .ecran-connexion){padding:0;max-width:none}
+.ecran-connexion{min-height:100vh;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;padding:24px 16px;background:linear-gradient(160deg,var(--bleu-900),var(--bleu-700))}
 .ecran-connexion .carte{width:min(420px,100%);padding:26px 22px}
 .ecran-connexion .marque{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:18px;text-align:center}
 .ecran-connexion .marque img{width:64px;height:64px;border-radius:16px}
@@ -394,3 +411,29 @@ dialog.fenetre::backdrop{background:rgba(9,26,81,.45)}
 .graphe-choix{display:inline-flex;border:1px solid var(--trait);border-radius:10px;overflow:hidden}
 .graphe-choix button{border:0;background:none;padding:5px 10px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--encre-douce)}
 .graphe-choix button.actif{background:var(--bleu);color:#fff}
+/* (3.81.0) Les commandes d'une demande de reversement. */
+.commandes-zone{margin:8px 0}
+.commandes-reversement{display:flex;flex-direction:column;gap:6px;font-size:14px}
+.ligne-commande{padding:8px 10px;border:1px solid var(--trait, #e5e7eb);border-radius:var(--r-sm)}
+.ligne-commande.a-verifier{background:var(--ambre-clair)}
+.alerte-commande{color:var(--rouge, #dc2626);font-weight:600;font-size:13px}
+
+/* =========================================================
+   (4.0.0) LA CHARTE BIZZOO MARKET — voir client/styles.css.
+   Anthracite #0F1E26, turquoise #00CFCB, turquoise clair #6FECEF,
+   gris clair #F2F7F9, blanc ; Montserrat pour les titres, les boutons
+   et les menus, Poppins pour les textes.
+   ========================================================= */
+h1,h2,h3,h4,.btn,.onglets a,.menu-lateral a{font-family:var(--police-titre)}
+/* L'en-tête, anthracite comme celui des deux autres applications. */
+.entete{background:var(--bleu-900);color:#fff;border-bottom:0}
+.entete h1{color:#fff}
+.entete .btn-ic{background:rgba(255,255,255,.08);color:#fff}
+/* Le logo : le monogramme, « BIZZOO » en capitales italiques, « Personnel » en turquoise. */
+.entete .logo img,.menu-lateral .logo img{border-radius:0;object-fit:contain}
+.entete .logo b,.menu-lateral .logo b{font-family:var(--police-titre);font-style:italic;font-weight:800;color:#fff;letter-spacing:-.01em}
+.entete .logo small,.menu-lateral .logo small{color:var(--bleu-400);font-family:var(--police-titre);font-style:italic;font-weight:800;opacity:1}
+.menu-lateral a{color:#C9DADF}
+.menu-lateral a.sous{color:#9FB6BD}
+.menu-lateral a.actif{background:var(--bleu);color:#fff}
+.onglets a.actif{color:var(--bleu)}

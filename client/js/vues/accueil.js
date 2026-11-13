@@ -249,7 +249,7 @@ const VueAccueil = (() => {
      faute de frappe comme une règle glissée exprès — retombe sur le bleu
      de BIZZOO, celui de l'icône. */
   const couleurSure = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "").trim())
-    ? String(c).trim() : "#2550B7");
+    ? String(c).trim() : "#007F7C");
 
   /* ---------- Catégories ---------- */
 

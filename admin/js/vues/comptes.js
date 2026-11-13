@@ -725,7 +725,20 @@ const VueComptes = (() => {
               "pour les voir, en ajouter un, et savoir qui a validé sa position.</p>" +
           "</a>"
         : "") +
-      (Store.rolesAttribuables().includes("vendeur")
+      (Store.rolesAttribuables().includes("vendeur") && !Supabase.estSuper()
+        /* (3.81.0) L'ADMINISTRATEUR DE BIZZOO crée un vendeur ; l'écran des
+           vendeurs (leurs ventes, leurs versements) reste au
+           superadministrateur, prévenu de chaque création. */
+        ? '<div class="carte carte-livreurs" id="cp-vendeurs">' +
+            '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Les vendeurs (" +
+              nbVendeurs + ")</div>" +
+            '<p class="aide" style="margin:0 0 10px">Ceux des boutiques à vendeurs multiples. Créez-en un : ' +
+              "le superadministrateur, prévenu, règle ensuite son lieu et ses produits.</p>" +
+            '<button type="button" class="btn" id="cp-nouveau-vendeur">' + UI.icone("plus") +
+              "Nouveau vendeur</button>" +
+          "</div>"
+        : "") +
+      (Store.rolesAttribuables().includes("vendeur") && Supabase.estSuper()
         ? '<a class="carte carte-livreurs" id="cp-vendeurs" href="#/vendeurs">' +
             '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Les vendeurs (" +
               nbVendeurs + ")</div>" +
@@ -789,12 +802,25 @@ const VueComptes = (() => {
           "<strong>désactivé</strong> garde son adresse mais ne peut plus rien modifier ; " +
           "un compte <strong>supprimé</strong> disparaît pour de bon. " +
           "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits. " +
-          "Ni le compte qui <strong>vous a créé</strong> (ni ceux au-dessus de lui) : " +
-          "vous ne pouvez pas modifier ses droits.</p>" +
+          /* (3.81.0) Un superadministrateur a tous les droits, sur tous les
+             comptes — même celui qui l'a nommé. */
+          (Supabase.estSuper()
+            ? "Tous les superadministrateurs ont les mêmes droits ; BIZZOO en garde toujours " +
+                "au moins un actif."
+            : "Ni le compte qui <strong>vous a créé</strong> (ni ceux au-dessus de lui) : " +
+                "vous ne pouvez pas modifier ses droits.") + "</p>" +
       "</div>";
 
     const nouveau = UI.$("#cp-nouveau", vue);
     if (nouveau) nouveau.onclick = () => ouvrirCreation(() => afficher(vue), false);
+    /* (3.81.0) L'administrateur de BIZZOO crée un vendeur. */
+    const nouveauVendeur = UI.$("#cp-nouveau-vendeur", vue);
+    if (nouveauVendeur) {
+      nouveauVendeur.onclick = () => ouvrirCreation(() => {
+        UI.toast("Vendeur créé : le superadministrateur réglera son lieu et ses produits.", "ok");
+        afficher(vue);
+      }, false, true);
+    }
     for (const b of UI.$$("[data-creer-rang]", vue)) {
       b.onclick = () => ouvrirCreation(() => afficher(vue), false, false, b.dataset.creerRang);
     }

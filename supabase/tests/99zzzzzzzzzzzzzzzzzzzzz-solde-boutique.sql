@@ -7,7 +7,8 @@
 --   2. l'administrateur règle le numéro de réception (refusé s'il est mal
 --      formé) ; BIZZOO en est prévenu ;
 --   3. il demande un reversement : pas plus que le disponible, pas sans
---      numéro ; la demande garde le numéro ; BIZZOO est prévenu ;
+--      numéro ; (3.81.0) tout le solde ou des commandes entières, jamais
+--      une partie ; la demande garde le numéro ; BIZZOO est prévenu ;
 --   4. le superadministrateur valide (avec la référence) ou refuse (le
 --      montant revient au disponible) ; la boutique est prévenue ;
 --   5. un modérateur, la boutique voisine, l'administrateur lui-même pour
@@ -47,12 +48,17 @@ values ('prod_solde', 'bou_solde', 'Tablette', 10000, 'sc_hightech_accessoires',
 on conflict (id) do update set stock = 50, disponible = true, masque = false, prix = 10000;
 insert into public.produits_prive (produit_id, prix_grossiste) values ('prod_solde', 8000)
 on conflict (produit_id) do update set prix_grossiste = 8000;
+-- (3.81.0) Deux commandes d'une tablette : 2 × 8 000 pour la boutique.
 select essai.devenir(:ACHETEUR::uuid); set role authenticated;
 select public.creer_commande('{"nom":"Afi","tel":"97666013","adresse":"Fidjrossè"}'::jsonb,
-  '[{"produit_id":"prod_solde","quantite":2}]'::jsonb, '', true, true) as g \gset
+  '[{"produit_id":"prod_solde","quantite":1}]'::jsonb, '', true, true) as g \gset
+select public.creer_commande('{"nom":"Afi","tel":"97666013","adresse":"Fidjrossè"}'::jsonb,
+  '[{"produit_id":"prod_solde","quantite":1}]'::jsonb, '', true, true) as g2 \gset
 reset role; select essai.personne();
 select (:'g'::jsonb ->> 'id') as cmd \gset
+select (:'g2'::jsonb ->> 'id') as cmd2 \gset
 select public.marquer_payee(:'cmd', 'TRX-SOLDE-1', (:'g'::jsonb ->> 'acompte')::int, 'feexpay') as p \gset
+select public.marquer_payee(:'cmd2', 'TRX-SOLDE-2', (:'g2'::jsonb ->> 'acompte')::int, 'feexpay') as p \gset
 
 select essai.titre('1. Le solde : les ventes livrées, au prix BIZZOO');
 select essai.devenir(:CHEFS::uuid); set role authenticated;
@@ -60,7 +66,7 @@ select essai.egal((select (s ->> 'gagne') || '/' || (s ->> 'a_venir') || '/' || 
                      from (select public.solde_boutique('bou_solde') as s) x), '0/16000/0',
   'payée, pas remise : 0 gagné, 16 000 à venir');
 reset role; select essai.personne();
-update public.commande_lignes set etat = 'remise' where commande_id = :'cmd';
+update public.commande_lignes set etat = 'remise' where commande_id in (:'cmd', :'cmd2');
 select essai.devenir(:CHEFS::uuid); set role authenticated;
 select essai.egal((select (s ->> 'gagne') || '/' || (s ->> 'a_venir') || '/' || (s ->> 'disponible')
                      from (select public.solde_boutique('bou_solde') as s) x), '16000/0/16000',
@@ -83,11 +89,15 @@ select essai.egal((select lien from public.notifications where destinataire = :E
 select essai.titre('3. La demande de reversement');
 select essai.devenir(:CHEFS::uuid); set role authenticated;
 select essai.refuse($$select public.demander_reversement('bou_solde', 20000)$$, 'plus que le disponible : refusé');
-select public.demander_reversement('bou_solde', 10000) as rv1 \gset
+select essai.refuse($$select public.demander_reversement('bou_solde', 10000)$$,
+  '(3.81.0) une partie du solde : refusé');
+select public.demander_reversement_commandes('boutique', array[:'cmd'], 'bou_solde') as rv1 \gset
 select essai.egal((select (s ->> 'en_attente') || '/' || (s ->> 'disponible')
-                     from (select public.solde_boutique('bou_solde') as s) x), '10000/6000',
-  '10 000 en attente, 6 000 encore disponibles');
-select essai.refuse($$select public.demander_reversement('bou_solde', 7000)$$, 'au-delà du reste disponible : refusé');
+                     from (select public.solde_boutique('bou_solde') as s) x), '8000/8000',
+  '(3.81.0) une commande entière : 8 000 en attente, 8 000 encore disponibles');
+select essai.refuse(format($$select public.demander_reversement_commandes('boutique', array[%L], 'bou_solde')$$, :'cmd'),
+  '(3.81.0) la même commande une seconde fois : refusé');
+select essai.refuse($$select public.demander_reversement('bou_solde', 7000)$$, 'une partie du reste : refusé');
 reset role; select essai.personne();
 select essai.egal((select tel || '/' || reseau from public.reversements where id = :rv1), '0196123456/MTN',
   'la demande garde le numéro du moment');
@@ -112,16 +122,16 @@ select essai.egal((select count(*)::int from public.notifications
   'la boutique est prévenue : envoyé');
 select essai.devenir(:CHEFS::uuid); set role authenticated;
 select essai.egal((select (s ->> 'reverse') || '/' || (s ->> 'disponible')
-                     from (select public.solde_boutique('bou_solde') as s) x), '10000/6000',
-  '10 000 reversés, 6 000 disponibles');
-select public.demander_reversement('bou_solde', 6000) as rv2 \gset
+                     from (select public.solde_boutique('bou_solde') as s) x), '8000/8000',
+  '8 000 reversés, 8 000 disponibles');
+select public.demander_reversement('bou_solde', 8000) as rv2 \gset
 reset role; select essai.personne();
 select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
 select essai.egal(public.decider_reversement(:rv2, false, '', 'Numéro injoignable'), 'refuse', 'il refuse, avec un motif');
 reset role; select essai.personne();
 select essai.devenir(:CHEFS::uuid); set role authenticated;
-select essai.egal((select (s ->> 'disponible') from (select public.solde_boutique('bou_solde') as s) x), '6000',
-  'refusé : les 6 000 reviennent au disponible');
+select essai.egal((select (s ->> 'disponible') from (select public.solde_boutique('bou_solde') as s) x), '8000',
+  'refusé : les 8 000 reviennent au disponible');
 reset role; select essai.personne();
 
 select essai.titre('5. Les autres : non');

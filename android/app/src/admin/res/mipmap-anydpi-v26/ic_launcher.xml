@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Les deux calques que les lanceurs attendent : derrière, le
-         dégradé bleu de la tuile ; devant, le B blanc et ses deux roues
-         orange. Le téléphone les découpe à sa forme (rond, goutte,
-         carré arrondi…). Images produites par tools/make-icons.js
-         depuis l'œuvre tools/bizzoo-icone.png.
+    <!-- Les deux calques que les lanceurs attendent : derrière, le fond
+         anthracite de BIZZOO Market ; devant, le monogramme (le B et son
+         anneau turquoise). Le téléphone les découpe à sa forme (rond,
+         goutte, carré arrondi…). Images produites par tools/make-icons.js
+         depuis tools/bizzoo-monogramme.png.
          Pas de calque « monochrome » ici : il ferait basculer les
          téléphones réglés en icônes thématisées vers une silhouette
-         d'une seule couleur, sans le bleu ni l'orange de BIZZOO. -->
+         d'une seule couleur, sans le turquoise de la marque. -->
     <background android:drawable="@mipmap/ic_launcher_fond" />
     <foreground android:drawable="@mipmap/ic_launcher_premier_plan" />
 </adaptive-icon>

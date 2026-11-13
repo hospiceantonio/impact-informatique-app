@@ -63,5 +63,17 @@
  "Contrôles": "Checks",
  "Argent": "Money",
  "Qualité": "Quality",
- "Réactivez votre localisation": "Turn your location back on"
+ "Réactivez votre localisation": "Turn your location back on",
+ "Nouveau vendeur à configurer": "New vendor to set up",
+ "Commande saisie par l'équipe (WhatsApp)": "Order entered by the team (WhatsApp)",
+ "Aucune référence de paiement": "No payment reference",
+ "Le nom ou la note du client parle de test": "The customer's name or note mentions a test",
+ "Choisissez au moins une commande.": "Choose at least one order.",
+ "Une des commandes choisies n'est pas à reverser : déjà demandée, ou pas encore remise au client.": "One of the chosen orders can't be paid out: already requested, or not yet handed to the customer.",
+ "L'administrateur de BIZZOO crée un vendeur ; il ne change pas un compte existant en vendeur.": "A BIZZOO administrator creates a vendor; they don't turn an existing account into a vendor.",
+ "Réservé au superadministrateur, au CEO et à la comptabilité.": "Reserved for the super administrator, the CEO and accounting.",
+ "Ces commandes ne sont pas les vôtres.": "These orders aren't yours.",
+ "Seul le titulaire de ce solde en demande le reversement.": "Only the holder of this balance can request its payout.",
+ "Demande illisible.": "Unreadable request.",
+ "BIZZOO garde toujours au moins un superadministrateur actif : nommez-en un autre avant de retirer celui-ci.": "BIZZOO always keeps at least one active super administrator: name another one before removing this one."
 }
