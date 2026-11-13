@@ -257,7 +257,7 @@ lignes du bloc HTTPS.
 ### Ce que voient les moteurs et les messageries
 
 - **l'aperçu d'un lien partagé** (WhatsApp, Facebook) : une image
-  1200 × 630 aux couleurs de la DA (`vitrine/partage.jpg`, 89 Ko —
+  1200 × 630 aux couleurs de la DA (`vitrine/partage.jpg`, 92 Ko —
   WhatsApp renonce au-delà de 300), en **adresse entière** : l'ancienne,
   en chemin relatif, était ignorée, et le lien partait sans image ;
 - `canonical`, `robots.txt`, `sitemap.xml` ;
@@ -7855,12 +7855,14 @@ sur un téléphone, le bouton FR | EN recouvrait la moitié de « Ouvrir la
 boutique ». Il s'aligne au milieu de l'en-tête, qui lui garde sa place ;
 le banc le vérifie de 320 à 1440 px.
 
-**Reste à refaire : les captures.** Les quatre écrans de la vitrine
-(`vitrine/ecran-*.jpg`) et l'image de partage (`vitrine/partage.jpg`)
-montrent encore l'ancienne charte. Elles se prennent sur la vraie
-boutique, avec ses vraies photos — et la session de ce chantier ne
-pouvait pas joindre la base en ligne. À refaire depuis une session de
-l'environnement « BIZZOO », qui le peut, en changeant leur `?v=`.
+**Les captures sont refaites** sur la vraie boutique, avec ses vraies
+photos : les quatre écrans de la vitrine (`vitrine/ecran-*.jpg`) et l'image
+de partage (`vitrine/partage.jpg`, 92 Ko), aux adresses en `?v=4.0.0`. Le
+paiement est celui d'un client connecté — commander exige désormais un
+compte —, aux coordonnées fictives de `tools/galerie-ecrans.mjs`. La
+vidéo du slider de l'accueil, elle, est une donnée de l'enseigne et garde
+l'ancienne charte : l'accueil la montre sur une image sombre, sans l'ancien
+logo, en attendant qu'elle soit refaite.
 
 ### BIZZOO Personnel
 
