@@ -182,7 +182,9 @@ const plan = (page) => page.evaluate(() => {
   const titreDe = (texte) => rang((x) => x.matches(".section-titre") &&
     x.querySelector("h2") && x.querySelector("h2").textContent.trim() === texte);
   return {
-    pilule: rang((x) => x.matches(".recherche-pilule")),
+    /* (4.1.0) La recherche est posée dans le bandeau du « Bonjour ». */
+    pilule: rang((x) => x.matches(".recherche-pilule") ||
+      (x.matches(".accueil-salut") && !!x.querySelector(".recherche-pilule"))),
     slider: rang((x) => x.matches(".slider")),
     ronds: rang((x) => x.matches(".cat-tuiles")),
     offre: rang((x) => x.matches(".offre-jour")),

@@ -688,7 +688,10 @@ const UI = (() => {
        tarif, et il ne s'arrêtera pas dimanche soir. */
     const vitrine = vu.revendeur && p.prixPublic > p.prix ? p.prixPublic : null;
     return (
-      '<span class="prix' + (o.grand ? " prix-grand" : "") + '">' +
+      /* (4.1.0) EN PROMOTION, LE PRIX PASSE AU ROUGE, l'ancien barré à côté,
+         comme les maquettes BIZZOO Market. Le prix revendeur, lui, n'est
+         pas une promotion : il garde la couleur des prix. */
+      '<span class="prix' + (o.grand ? " prix-grand" : "") + (remise !== null ? " prix-promo" : "") + '">' +
         '<span class="prix-actuel">' + e(Utils.fmtMontant(vu.prix, devise)) + "</span>" +
         (remise !== null
           ? ' <s class="prix-ancien">' + e(Utils.fmtMontant(vu.ancienPrix, devise)) + "</s>"
@@ -883,9 +886,56 @@ const UI = (() => {
           prixHtml(p) +
           '<span class="p-carte-cat">' + e(sc ? sc.nom : (cat ? cat.nom : "")) + "</span>" +
         "</span>" +
+        boutonAjout(p, ferme) +
       "</a>"
     );
   }
+
+  /* ---------- Le « + » des cartes (4.1.0) ----------
+     AJOUTER SANS OUVRIR LA FICHE, comme les maquettes BIZZOO Market.
+     Seulement quand la fiche n'aurait rien de plus à demander :
+       - pas pour un produit en rupture, ni chez une boutique fermée —
+         la fiche, elle, n'a pas de bouton non plus ;
+       - un produit à ACCOMPAGNEMENTS (3.80.0) garde son « + », mais il
+         ouvre la fiche : c'est là qu'on choisit son riz ou son piment.
+     Un bouton dans un lien, comme le cœur : l'écouteur unique, plus bas,
+     l'intercepte avant que le lien n'ouvre la fiche. */
+  function boutonAjout(p, ferme) {
+    if (ferme || Catalogue.statut(p) === "rupture") return "";
+    const choix = (p.accompagnements || []).length > 0;
+    return '<button type="button" class="p-ajout"' + (choix ? "" : ' data-ajout="' + e(p.id) + '"') +
+      ' aria-label="' + (choix ? "Choisir et ajouter au panier" : "Ajouter au panier") + '">' +
+      icone("plus") + "</button>";
+  }
+
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-ajout]");
+    if (!b) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const p = Catalogue.produit(b.dataset.ajout);
+    if (!p) return;
+    const r = Panier.ajouter(p.id, 1, {});
+    if (r.plein) {
+      toast("Votre panier est plein (" + Panier.MAX_ARTICLES + " produits différents)", "err");
+      return;
+    }
+    if (!r.ajoute) {
+      /* Le stock compte ce qui est déjà dans le panier : la base
+         refuserait la commande au moment de payer. */
+      toast(r.plafond > 0
+        ? "Vous avez déjà les " + r.plafond + " pièce" + (r.plafond > 1 ? "s" : "") + " en stock dans votre panier"
+        : "Ce produit n'est plus en stock", "err");
+      return;
+    }
+    if (typeof Pixel !== "undefined") Pixel.ajoutPanier(p, 1, Catalogue.deviseDe(p));
+    toast("Ajouté au panier", "ok");
+    /* Un petit signe sur le bouton lui-même : le toast est en bas de
+       l'écran, le pouce est ici. */
+    b.classList.remove("p-ajout-fait");
+    void b.offsetWidth;
+    b.classList.add("p-ajout-fait");
+  });
 
   function grilleProduits(liste, options) {
     if (!liste.length) return "";
@@ -933,10 +983,15 @@ const UI = (() => {
      recherche, qui a sa propre zone de saisie et ses résultats. Un vrai
      champ ici ferait lever le clavier sur l'accueil, et le client
      taperait sans rien voir s'afficher dessous. */
+  /* (4.1.0) LA LOUPE DANS UN BOUTON TURQUOISE, à droite, comme les
+     maquettes BIZZOO Market : la pilule dit où l'on tape, le bouton dit
+     qu'on y va. C'est toujours un seul lien — toucher le texte ou la
+     loupe mène au même écran. */
   function recherchePilule(texte, lien) {
     return (
       '<a class="recherche-pilule" href="' + e(lien || "#/recherche") + '">' +
-        icone("recherche", "ic-sm") + "<span>" + e(texte) + "</span>" +
+        "<span>" + e(texte) + "</span>" +
+        '<i class="recherche-pilule-loupe" aria-hidden="true">' + icone("recherche", "ic-sm") + "</i>" +
       "</a>"
     );
   }
@@ -1152,7 +1207,7 @@ const UI = (() => {
 
   return {
     porte,
-    $, $$, entete, icone, marque, motSymbole, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
+    $, $$, entete, icone, marque, motSymbole, boutonAjout, logo, toast, bandeauBoutique, vignetteBoutique, ligneRayon,
     majPanier, majCloche,
     ouvrirVisionneuse, fermerVisionneuse, photoVisionneuse,
     coeur, iconeCategorie, picto, vignetteCategorie, ligneSousRayon, prixHtml, badgesProduit,

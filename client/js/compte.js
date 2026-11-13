@@ -1266,6 +1266,8 @@ const Compte = (() => {
       groupe.etat = ETAT_LE_MOINS_AVANCE(groupe.etat, x.etat || "nouvelle");
       /* Confirmé seulement si TOUT l'est : on ne clôt pas à moitié. */
       groupe.confirme = groupe.lignes.every((y) => y.confirmeLe);
+      /* (4.1.0) L'heure de chacune de ses étapes, telle que la base l'a notée. */
+      groupe.heures = (l.heures_etapes && l.heures_etapes[cle]) || null;
     }
 
     return {
@@ -1321,7 +1323,25 @@ const Compte = (() => {
    * connaît pas ces colonnes et refuse toute la lecture : on relit alors
    * sans elles, et l'on ne les redemande plus.
    */
+  /* (4.1.0) L'heure de chaque étape (« heures_etapes », une fonction de la
+     base lue comme une colonne). Une base d'avant ne la connaît pas : on
+     relit sans elle, et l'on ne la redemande plus. */
+  const CHAMPS_HEURES = ",heures_etapes";
+  let avecHeures = true;
+
   async function lireCommandes(suite) {
+    if (avecHeures) {
+      try {
+        return await lireCommandesSansHeures(CHAMPS_HEURES + suite);
+      } catch (err) {
+        if (!/heures_etapes/i.test(err.message || "")) throw err;
+        avecHeures = false;
+      }
+    }
+    return lireCommandesSansHeures(suite);
+  }
+
+  async function lireCommandesSansHeures(suite) {
     if (avecAcompte && avecFrais && avecKm) {
       try {
         return await rest("GET", "commandes?select=" + CHAMPS_COMMANDE + CHAMPS_ACOMPTE +
