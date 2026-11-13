@@ -77,6 +77,14 @@ revoke all on function public.nom_du_createur(uuid) from public, anon, authentic
 create or replace function public.est_mon_createur(cible uuid) returns boolean
 language plpgsql stable security definer set search_path = public as $$
 begin
+  -- (3.81.0) ENTRE SUPERADMINISTRATEURS, PLUS DE CRÉATEUR PROTÉGÉ : un
+  -- superadministrateur nommé par un autre a tous les droits d'un
+  -- superadministrateur, sur tous les comptes. Ce qui protège encore
+  -- BIZZOO : il reste toujours au moins un superadministrateur actif
+  -- (« profil_dernier_super »).
+  if public.est_super() then
+    return false;
+  end if;
   return cible is not null and auth.uid() is not null and cible <> auth.uid() and exists (
   with recursive chaine(id, cran, vus) as (
     select p.cree_par, 1, array[p.id]

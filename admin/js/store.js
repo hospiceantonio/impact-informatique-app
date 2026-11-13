@@ -1351,6 +1351,9 @@ const Store = (() => {
      ne propose donc pas de crayon. Recalculé à chaque lecture des comptes. */
   let mesCreateurs = new Set();
   function calculerCreateurs(comptes) {
+    /* (3.81.0) Entre superadministrateurs, plus de créateur protégé : un
+       superadministrateur nommé par un autre a tous les droits. */
+    if (Supabase.estSuper()) { mesCreateurs = new Set(); return; }
     const parId = new Map(comptes.map((c) => [c.id, c]));
     const vus = new Set();
     let ici = parId.get(Supabase.identifiant());

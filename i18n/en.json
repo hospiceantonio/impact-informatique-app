@@ -6675,5 +6675,7 @@
  "Tout mon solde —": "My whole balance —",
  "Vendeur créé : le superadministrateur réglera son lieu et ses produits.": "Vendor created: the super administrator will set their location and products.",
  "Voir les commandes de cette demande": "See this request's orders",
- "Voir les commandes": "See the orders"
+ "Voir les commandes": "See the orders",
+ "disparaît pour de bon. Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits.": "disappears for good. Your own account does not appear: you cannot remove your own rights.",
+ "Tous les superadministrateurs ont les mêmes droits ; BIZZOO en garde toujours au moins un actif.": "All super administrators have the same rights; BIZZOO always keeps at least one active."
 }

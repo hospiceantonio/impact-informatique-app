@@ -74,5 +74,6 @@
  "Réservé au superadministrateur, au CEO et à la comptabilité.": "Reserved for the super administrator, the CEO and accounting.",
  "Ces commandes ne sont pas les vôtres.": "These orders aren't yours.",
  "Seul le titulaire de ce solde en demande le reversement.": "Only the holder of this balance can request its payout.",
- "Demande illisible.": "Unreadable request."
+ "Demande illisible.": "Unreadable request.",
+ "BIZZOO garde toujours au moins un superadministrateur actif : nommez-en un autre avant de retirer celui-ci.": "BIZZOO always keeps at least one active super administrator: name another one before removing this one."
 }

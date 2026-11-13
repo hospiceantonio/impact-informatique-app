@@ -802,8 +802,13 @@ const VueComptes = (() => {
           "<strong>désactivé</strong> garde son adresse mais ne peut plus rien modifier ; " +
           "un compte <strong>supprimé</strong> disparaît pour de bon. " +
           "Votre propre compte n'apparaît pas : on ne se retire pas ses propres droits. " +
-          "Ni le compte qui <strong>vous a créé</strong> (ni ceux au-dessus de lui) : " +
-          "vous ne pouvez pas modifier ses droits.</p>" +
+          /* (3.81.0) Un superadministrateur a tous les droits, sur tous les
+             comptes — même celui qui l'a nommé. */
+          (Supabase.estSuper()
+            ? "Tous les superadministrateurs ont les mêmes droits ; BIZZOO en garde toujours " +
+                "au moins un actif."
+            : "Ni le compte qui <strong>vous a créé</strong> (ni ceux au-dessus de lui) : " +
+                "vous ne pouvez pas modifier ses droits.") + "</p>" +
       "</div>";
 
     const nouveau = UI.$("#cp-nouveau", vue);

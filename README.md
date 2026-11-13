@@ -7764,3 +7764,15 @@ ses ventes restent au superadministrateur ; un compte déjà en service
 
 Base : `supabase/vendeur-par-admin-bizzoo.sql`. Essai
 `vendeur-par-admin-bizzoo`. Banc d'écran : `banc-reversements-commandes`.
+
+### Tous les superadministrateurs sont égaux
+
+Un superadministrateur nommé par un autre ne pouvait pas modifier,
+désactiver, supprimer ni changer le mot de passe de celui qui l'avait
+nommé (ni des comptes au-dessus). Désormais il a tous les droits d'un
+superadministrateur, sur tous les comptes. Une seule règle les protège :
+BIZZOO garde toujours au moins un superadministrateur actif — le dernier
+ne peut être ni rétrogradé, ni désactivé, ni supprimé.
+
+Base : `supabase/superadmins-egaux.sql`. Essai `createur-protege` (réécrit),
+banc `banc-createur-protege`.
