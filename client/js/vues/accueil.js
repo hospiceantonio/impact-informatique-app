@@ -419,6 +419,21 @@ const VueAccueil = (() => {
         " " + UI.icone("chevron", "ic-sm ic-apres") + "</a>";
   }
 
+  /* ---------- Le bonjour (4.1.0) ----------
+     Le bandeau des maquettes BIZZOO Market : « Bonjour 👋 », la question,
+     puis la recherche. Sans le prénom : le nom d'un compte s'écrit dans
+     tous les ordres (« AHOUANSOU Koffi »), et un « Bonjour Ahouansou » se
+     tromperait de mot. « Bonsoir » le soir. */
+  function htmlSalut() {
+    const h = new Date().getHours();
+    const salut = h >= 18 || h < 4 ? "Bonsoir" : "Bonjour";
+    return '<section class="accueil-salut">' +
+      '<h2 class="accueil-salut-titre"><span>' + salut + '</span> <span class="accueil-salut-main" aria-hidden="true">👋</span></h2>' +
+      '<p class="accueil-salut-question">Que souhaitez-vous acheter ?</p>' +
+      UI.recherchePilule("Rechercher un produit, une boutique…") +
+    "</section>";
+  }
+
   /* ---------- Vue ---------- */
 
   /**
@@ -443,8 +458,10 @@ const VueAccueil = (() => {
 
     /* LA RECHERCHE RESTE EN TÊTE : ce n'est pas un contenu, c'est la
        porte d'entrée — on la cherche avant même de savoir chez qui
-       aller, et elle ne doit pas se perdre sous la bannière. */
-    let html = UI.recherchePilule("Rechercher un produit, une boutique…");
+       aller, et elle ne doit pas se perdre sous la bannière.
+       (4.1.0) Elle est posée dans le bandeau anthracite du « Bonjour »,
+       qui prolonge la barre du haut, comme les maquettes de la charte. */
+    let html = htmlSalut();
     html += htmlEtatCatalogue();
 
     /* LE SLIDER EN HAUT : les photos et vidéos de BIZZOO, et elles
@@ -962,7 +979,9 @@ const VueAccueil = (() => {
       return '<a class="bou-vignette' + (ferme ? " p-ferme" : "") + '" href="#/produit/' +
         Utils.echapper(p.id) + '" aria-label="' + Utils.echapper(p.nom) + '">' +
         UI.imageProduit(p, "bou-vignette-photo") +
-        (ferme ? '<span class="p-ferme-badge">' + UI.icone("horloge", "ic-sm") + UI.motFermeture(ferme) + "</span>" : "") + "</a>";
+        (ferme ? '<span class="p-ferme-badge">' + UI.icone("horloge", "ic-sm") + UI.motFermeture(ferme) + "</span>" : "") +
+        /* (4.1.0) Le « + » des maquettes : ajouter sans ouvrir la fiche. */
+        UI.boutonAjout(p, ferme) + "</a>";
     }).join("") +
       "</div>";
 

@@ -1037,6 +1037,9 @@ est celle de sa ligne **la moins avancée** : annoncer « remis » parce
 qu'un article sur trois l'est ferait attendre le client chez lui une
 livraison déjà faite.
 
+Depuis la 4.1.0, ces étapes se lisent **en frise**, avec l'heure de
+chacune — voir « Cinq idées des maquettes BIZZOO Market (4.1.0) ».
+
 ### Qui dit quoi
 
 `remise` est ce que la **boutique** déclare. `confirme_le` est ce que le
@@ -7880,4 +7883,78 @@ barres et du navigateur, le texte anthracite sur le turquoise et son
 contraste, le logo « BIZZOO Market » partout, et aucune règle restée à
 l'ancien bleu ou à l'ancien orange. `banc-da-ecrans`,
 `banc-categories-photos` et `banc-mise-en-ligne` suivent la charte.
+
+## Cinq idées des maquettes BIZZOO Market (4.1.0)
+
+Le propriétaire a envoyé cinq maquettes de téléphone aux couleurs de la
+charte. Ce sont des images dessinées, pas des captures : leurs boutiques,
+leurs notes, la carte bancaire, le paiement à la livraison et la carte du
+livreur n'existent pas dans BIZZOO, et elles ne vont donc pas sur le site.
+On en a repris cinq idées, là où l'application peut les tenir vraiment.
+
+### 1. L'accueil : « Bonjour 👋 »
+
+L'accueil s'ouvre sur un bandeau anthracite qui prolonge la barre du
+haut : « Bonjour 👋 » (« Bonsoir » à partir de 18 h), « Que souhaitez-vous
+acheter ? », puis la recherche. Sa loupe passe dans un bouton turquoise,
+à droite, sur toutes les pilules de recherche. Pas de prénom : le nom
+d'un compte s'écrit dans tous les ordres (« AHOUANSOU Koffi »), et un
+« Bonjour Ahouansou » se tromperait de mot. Sur une tablette ou un
+ordinateur, le bandeau devient une carte.
+
+### 2. Le « + » : ajouter sans ouvrir la fiche
+
+Les cartes de produit (accueil, liste, recherche) et les vignettes de la
+page d'une boutique portent un « + » turquoise. Un toucher met un article
+au panier, sans quitter l'écran : « Ajouté au panier », et le bouton
+s'allume un instant. Pas de « + » pour un produit en rupture ou une
+boutique fermée — la fiche, elle non plus, n'a pas de bouton. Le stock
+compte ce qui est déjà dans le panier, comme sur la fiche. Un produit à
+**accompagnements** (3.80.0) garde son « + », mais il ouvre la fiche :
+c'est là qu'on choisit son alloco ou son piment.
+
+### 3. Le prix en promotion, en rouge
+
+Un produit en promotion a son prix en **rouge**, l'ancien prix barré à
+côté, et la pastille « -12 % » en rouge (4.0.0). Le prix revendeur n'est
+pas une promotion : il garde le turquoise des prix.
+
+### 4. Le panier : « − 1 + »
+
+Les compteurs existaient déjà sur chaque ligne du panier, avec la
+corbeille. Ils prennent la forme des maquettes : une capsule blanche à
+trait fin, « − » et « + » en turquoise. Celui de la fiche produit suit.
+
+### 5. Le suivi en frise, avec l'heure de chaque étape
+
+Le reçu d'une commande montrait ses cinq étapes en liste. Elles passent
+en **frise**, de gauche à droite : des ronds turquoise cochés, reliés par
+un trait qui avance avec elles, l'étape en cours en gras — et **sous
+chaque étape franchie, l'heure** où elle l'a été (« 09:36 », ou
+« 12 nov. 09:36 » un autre jour).
+
+La base avait déjà ces heures : `rh_journal_lignes` note chaque
+changement d'état d'une ligne. Trois fonctions en lecture seule les
+donnent au client (`supabase/heures-des-etapes.sql`) :
+
+- `heures_etapes_commande(commande)` — interne, fermée aux comptes :
+  pour chaque boutique, l'heure où sa **dernière** ligne a atteint (ou
+  dépassé) chaque étape, la même règle que l'étape affichée ; une ligne
+  annulée ne compte pas ; « Commande reçue » prend l'heure du paiement ;
+- `heures_etapes(commande)` — une colonne que l'application lit avec ses
+  commandes, comme `restes` : le client de la commande et l'enseigne
+  lisent tout, l'équipe d'une boutique sa part, personne d'autre ;
+- `heures_etapes_suivies(commande, téléphone)` — sans compte, par le
+  numéro et le téléphone, comme `suivre_commande`.
+
+**Rien n'est inventé** : une étape dont la base n'a pas l'heure (une
+commande d'avant le journal, reconstitué sans ses étapes intermédiaires)
+n'en affiche pas, et rien ne s'écrit au-delà de l'étape en cours. Une
+base qui n'a pas encore reçu le fichier n'empêche rien : l'application
+relit ses commandes sans la colonne, et la frise s'affiche sans heures.
+
+Essai : `heures-des-etapes` (la dernière ligne fait l'heure, une étape
+sautée, une ligne annulée, qui lit quoi). Banc : `banc-idees-maquettes`,
+pour les cinq idées ; `banc-accueil-galerie` et `banc-da-ecrans` suivent
+la recherche dans le bandeau.
 

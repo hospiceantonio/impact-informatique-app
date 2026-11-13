@@ -763,6 +763,8 @@ const Paiement = (() => {
 
   /** L'état d'une commande, tel que la base le connaît. */
   const suivre = (id, tel) => rpc("suivre_commande", { cible: id, tel });
+  /* (4.1.0) L'heure de chaque étape, pour qui suit sa commande sans compte. */
+  const heuresSuivies = (id, tel) => rpc("heures_etapes_suivies", { cible: id, tel });
   /** Le client conteste ce que le livreur a déclaré avoir encaissé (3.59.0). */
   const contester = (id, boutique, motif, tel) =>
     rpc("contester_encaissement", { commande: id, boutique, motif, tel: tel || "" });
@@ -847,7 +849,7 @@ const Paiement = (() => {
     livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
     demanderRoute, attendreRoute, manquants,
     creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
-    signalerTransaction, suivre, contester, attendreConfirmation, livreurs,
+    signalerTransaction, suivre, heuresSuivies, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,
   };
 })();

@@ -214,7 +214,10 @@ titre("3. L'accueil dans l'ordre de la DA, et « Nos boutiques »");
     const titreBoutiques = [...vue.children].findIndex((x) =>
       x.matches(".section-titre") && /Nos boutiques partenaires/.test(x.textContent));
     return {
-      pilule: ordre(".recherche-pilule"), ronds: ordre(".cat-tuiles"),
+      /* (4.1.0) La recherche est posée dans le bandeau du « Bonjour ». */
+      pilule: [...vue.children].findIndex((x) => x.matches(".recherche-pilule") ||
+        (x.matches(".accueil-salut") && !!x.querySelector(".recherche-pilule"))),
+      ronds: ordre(".cat-tuiles"),
       slider: ordre(".slider"), titreBoutiques, tuiles: ordre(".bou-tuiles"),
       offre: ordre(".offre-jour"),
       titre: [...vue.querySelectorAll(".section-titre h2")].map((h) => h.textContent.trim()),

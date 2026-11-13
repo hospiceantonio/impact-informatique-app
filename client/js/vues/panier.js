@@ -1914,9 +1914,18 @@ const VuePanier = (() => {
     }
     if (!suivi || !suivi.etats) return;
     const photo = () => JSON.stringify((commande.boutiques || [])
-      .map((b) => [b.etat || "", !!b.confirme]));
+      .map((b) => [b.etat || "", !!b.confirme, b.heures || null]));
     const avant = photo();
     const plus = suiteDuVersement(commande, suivi);
+    /* (4.1.0) L'heure de chaque étape. Une base d'avant ne la connaît
+       pas : le suivi reste alors sans heures, comme avant. */
+    try {
+      const heures = await Paiement.heuresSuivies(id, (commande.client && commande.client.tel) || "");
+      if (heures && typeof heures === "object") {
+        for (const b of commande.boutiques || []) if (b) b.heures = heures[b.id] || null;
+        plus.boutiques = commande.boutiques;
+      }
+    } catch (_) { /* sans les heures */ }
     Panier.majEtat(id, suivi.etat || commande.etat, { remarque: suivi.remarque || "", ...plus });
     if (photo() !== avant && vue.isConnected && location.hash === "#/commande/" + id) {
       window.dispatchEvent(new CustomEvent("bizzoo:commande", { detail: { id } }));
@@ -1980,6 +1989,16 @@ const VuePanier = (() => {
     { cle: "remise", mot: "Remise" },
   ];
 
+  /** « 09:36 » aujourd'hui, « 12 nov. 09:36 » un autre jour ; rien sans heure. */
+  function heureEtape(quand) {
+    const d = new Date(quand || "");
+    if (!quand || isNaN(d.getTime())) return "";
+    const h = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return d.toDateString() === new Date().toDateString()
+      ? h
+      : d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " " + h;
+  }
+
   function blocSuivi(commande, g) {
     /* Une commande qui ne vient pas de la base n'a pas d'état de
        préparation : on ne montre rien plutôt que d'inventer une étape.
@@ -1993,12 +2012,23 @@ const VuePanier = (() => {
     const remise = g.etat === "remise";
     const connecte = typeof Compte !== "undefined" && Compte.connecte();
 
+    /* (4.1.0) LA FRISE DES MAQUETTES : les étapes de gauche à droite,
+       reliées par un trait qui se remplit, l'étape en cours soulignée, et
+       SOUS CHAQUE ÉTAPE FRANCHIE, L'HEURE où elle l'a été — telle que la
+       base l'a notée. Une étape dont l'heure n'est pas connue n'en
+       affiche pas : rien n'est inventé. */
+    const heures = g.heures || {};
     return '<div class="re-suivi">' +
-      ETAPES.map((e, i) =>
-        '<div class="re-etape' + (i <= rang ? " faite" : "") + '">' +
+      '<ol class="re-frise">' +
+      ETAPES.map((e, i) => {
+        const h = i <= rang ? heureEtape(heures[e.cle]) : "";
+        return '<li class="re-etape' + (i <= rang ? " faite" : "") + (i === rang ? " courante" : "") + '">' +
           '<span class="re-puce">' + (i <= rang ? UI.icone("check", "ic-sm") : "") + "</span>" +
-          "<span>" + Utils.echapper(e.mot) + "</span>" +
-        "</div>").join("") +
+          '<span class="re-etape-mot">' + Utils.echapper(e.mot) + "</span>" +
+          (h ? '<span class="re-etape-heure">' + Utils.echapper(h) + "</span>" : "") +
+        "</li>";
+      }).join("") +
+      "</ol>" +
       (remise && g.confirme
         ? '<div class="re-recu">' + UI.icone("check", "ic-sm") +
           "<span>Vous avez confirmé avoir reçu cette commande.</span></div>"
@@ -2078,6 +2108,8 @@ const VuePanier = (() => {
          suivi plutôt que d'inventer une étape. */
       etat: b.etat || "",
       confirme: !!b.confirme,
+      /* (4.1.0) L'heure de chaque étape, quand la base l'a notée. */
+      heures: b.heures || null,
       lignes: (b.lignes || []).map((l) => ({
         produit: { nom: l.nom, code: l.code || "", reference: l.reference, prix: l.prix },
         quantite: l.quantite,

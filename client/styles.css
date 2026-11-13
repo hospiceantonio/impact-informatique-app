@@ -2531,3 +2531,105 @@ h1,h2,h3,h4,.btn,.carte-titre,.titre-section,.tabbar a,.topbar h1{font-family:va
    turquoise y dirait « bouton », le rouge dit « prix barré ». Blanc sur
    #D92D20 : 4,98:1. */
 .badge-promo{background:var(--rouge);color:#fff}
+
+/* =========================================================
+   (4.1.0) CINQ IDÉES DES MAQUETTES BIZZOO MARKET
+   ========================================================= */
+
+/* 1. LE BONJOUR DE L'ACCUEIL : un bandeau anthracite qui prolonge la
+   barre du haut, « Bonjour 👋 », la question, puis la recherche — sa
+   loupe dans un bouton turquoise. */
+.accueil-salut{
+  background:var(--bleu-900);color:#fff;
+  margin:-16px -16px 16px;padding:4px 16px 20px;
+  border-radius:0 0 24px 24px;
+}
+.accueil-salut-titre{margin:0;font-size:23px;font-weight:800;line-height:1.2;color:#fff}
+.accueil-salut-main{display:inline-block;transform-origin:70% 80%}
+.accueil-salut-question{margin:3px 0 14px;font-size:14.5px;color:#B9CBD1}
+.accueil-salut .recherche-pilule{background:#fff;border-color:transparent;color:var(--encre-moyenne)}
+/* La barre du haut se continue dans le bandeau : pas d'ombre entre eux. */
+body:has(.accueil-salut) .topbar{box-shadow:none}
+@media (min-width:720px){
+  /* Plus de bord à bord : la colonne est centrée, le bandeau devient une carte. */
+  .accueil-salut{margin:0 0 18px;border-radius:22px;padding:18px 20px 20px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .accueil-salut-main{animation:salut-main 1.6s ease-in-out .4s 1}
+}
+@keyframes salut-main{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(16deg)}40%,80%{transform:rotate(-8deg)}}
+
+.recherche-pilule{padding-right:4px}
+.recherche-pilule-loupe{
+  flex:none;display:flex;align-items:center;justify-content:center;
+  width:40px;height:40px;border-radius:50%;
+  background:var(--bleu);font-style:normal;
+}
+.recherche-pilule .recherche-pilule-loupe .ic{color:#fff;width:19px;height:19px}
+
+/* 2. LE « + » DES CARTES : ajouter sans ouvrir la fiche. En bas à droite
+   de la carte ; le prix et le rayon lui laissent sa place. */
+.p-carte{position:relative}
+.p-carte .p-carte-corps .prix,.p-carte .p-carte-cat{padding-right:40px}
+.p-ajout{
+  position:absolute;right:9px;bottom:9px;z-index:2;
+  display:flex;align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:50%;border:0;padding:0;
+  background:var(--bleu);color:#fff;cursor:pointer;
+  box-shadow:0 6px 14px -8px rgba(0,127,124,.9);
+}
+.p-ajout .ic{width:20px;height:20px;stroke-width:2.4}
+.p-ajout:active{transform:scale(.9)}
+/* Le pouce voit que c'est fait : le bouton passe au turquoise vif, un instant. */
+.p-ajout-fait{animation:ajout-fait .7s ease-out}
+@keyframes ajout-fait{0%{transform:scale(.85);background:var(--bleu-400);color:var(--bleu-900)}
+  60%{transform:scale(1.12);background:var(--bleu-400);color:var(--bleu-900)}100%{transform:scale(1)}}
+.p-ferme .p-ajout{display:none}
+/* Sur les vignettes d'une boutique (photo seule), le même « + », plus petit. */
+.bou-vignette .p-ajout{right:6px;bottom:6px;width:32px;height:32px}
+.bou-vignette .p-ajout .ic{width:18px;height:18px}
+
+/* 3. LE PRIX EN PROMOTION, EN ROUGE, l'ancien barré à côté. */
+.prix-promo .prix-actuel{color:var(--rouge)}
+
+/* 4. LE PANIER : les « − 1 + » de chaque ligne existaient ; ils prennent
+   la forme des maquettes — une capsule blanche à trait fin, les signes en
+   turquoise. Le compteur de la fiche produit, en bas, suit. */
+.pa-compteur-da{background:var(--blanc);border:1px solid var(--trait);padding:2px}
+.pa-compteur-da button{background:transparent;color:var(--bleu);font-size:20px;font-weight:700}
+.pa-compteur-da button:active{background:var(--bleu-50)}
+.pa-compteur-da > span{color:var(--encre);font-weight:700}
+
+/* 5. LE SUIVI EN FRISE : les cinq étapes de gauche à droite, reliées par
+   un trait turquoise qui avance avec elles, des coches dans des ronds
+   turquoise, l'étape en cours en gras, et l'heure sous chaque étape
+   franchie. */
+.re-frise{
+  list-style:none;margin:0;padding:4px 0 0;
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));column-gap:4px;
+}
+.re-frise .re-etape{
+  position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:0;text-align:center;font-size:11px;line-height:1.25;font-weight:500;letter-spacing:-.01em;
+}
+/* Le trait : de chaque rond vers le précédent. */
+.re-frise .re-etape + .re-etape::before{
+  content:"";position:absolute;top:13px;right:50%;width:calc(100% + 4px);height:3px;
+  background:var(--trait);border-radius:3px;z-index:0;
+}
+.re-frise .re-etape.faite + .re-etape.faite::before{background:var(--bleu-400)}
+.re-frise .re-puce{
+  position:relative;z-index:1;width:28px;height:28px;border-width:2px;
+}
+.re-frise .re-etape.faite .re-puce{background:var(--bleu);border-color:var(--bleu);color:#fff}
+.re-frise .re-etape.faite .re-puce .ic{width:15px;height:15px;stroke-width:2.6}
+.re-frise .re-etape.courante .re-puce{box-shadow:0 0 0 4px var(--bleu-100)}
+.re-frise .re-etape.faite{color:var(--encre-douce);font-weight:500}
+.re-frise .re-etape.courante{color:var(--encre);font-weight:700}
+.re-etape-mot{overflow-wrap:normal;word-break:normal;hyphens:manual}
+.re-etape-heure{font-size:11px;font-weight:600;color:var(--encre-moyenne);font-variant-numeric:tabular-nums}
+.re-frise .re-etape.courante .re-etape-heure{color:var(--bleu)}
+@media (max-width:380px){
+  .re-frise .re-etape{font-size:10px;letter-spacing:-.02em}
+  .re-etape-heure{font-size:10px}
+}
