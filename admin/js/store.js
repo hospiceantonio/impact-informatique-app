@@ -468,7 +468,7 @@ const Store = (() => {
          la boutique se retrouve sans secteur, ce qui est exact. */
       categorieId: l.categorie_id || "",
       icone: l.icone || "magasin",
-      couleur: l.couleur || "#2550B7",
+      couleur: l.couleur || "#007F7C",
       logo: l.logo || "",
       logoUrl: l.logo ? Supabase.urlImage(l.logo) : "",
       actif: l.actif !== false,
@@ -593,7 +593,7 @@ const Store = (() => {
       slogan: b.slogan || "",
       description: b.description || "",
       icone: b.icone || "magasin",
-      couleur: b.couleur || "#2550B7",
+      couleur: b.couleur || "#007F7C",
       logo: b.logo || "",
       actif: b.actif !== false,
       ordre: b.ordre || 0,
@@ -3244,7 +3244,7 @@ const Store = (() => {
       id: c.id,
       nom: c.nom,
       icone: c.icone || "categories",
-      couleur: c.couleur || "#2550B7",
+      couleur: c.couleur || "#007F7C",
       /* Le CHEMIN de la photo du rond, dans le seau, ou « ». Une base
          pas encore mise à jour n'a pas la colonne : pas de photo. */
       image: c.image || "",
@@ -3299,9 +3299,9 @@ const Store = (() => {
        applications d'avant s'en servent encore —, une nouvelle prend
        le bleu de BIZZOO. */
     if (donnees.couleur !== undefined) {
-      pastille.couleur = (donnees.couleur || "#2550B7").trim() || "#2550B7";
+      pastille.couleur = (donnees.couleur || "#007F7C").trim() || "#007F7C";
     } else if (!existante) {
-      pastille.couleur = "#2550B7";
+      pastille.couleur = "#007F7C";
     }
 
     /* LA PHOTO DE LA TUILE. `donnees.photo` vaut { dataUrl } pour une
@@ -4262,7 +4262,7 @@ const Store = (() => {
       for (const c of donnees.categories || []) {
         await Supabase.requete("POST", "categories?on_conflict=id",
           { id: c.id, nom: c.nom, ordre: c.ordre || 0,
-            icone: c.icone || "categories", couleur: c.couleur || "#2550B7",
+            icone: c.icone || "categories", couleur: c.couleur || "#007F7C",
             en_avant: c.enAvant === true }, { upsert: true });
         for (const s of c.sousCategories || []) {
           await Supabase.requete("POST", "sous_categories?on_conflict=id",

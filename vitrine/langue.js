@@ -332,8 +332,8 @@
     st.id = "langue-style";
     st.textContent = ".langue-choix{display:inline-flex;border:1px solid #cfd8e6;border-radius:999px;overflow:hidden;background:#fff;vertical-align:middle}" +
       ".langue-choix button{border:0;background:none;padding:6px 12px;font:600 13px/1 inherit;font-family:inherit;color:#334155;cursor:pointer;min-width:44px;min-height:32px}" +
-      ".langue-choix button.actif{background:#2550B7;color:#fff}" +
-      ".langue-flottant{position:fixed;top:10px;right:10px;z-index:50;box-shadow:0 4px 14px -6px rgba(9,26,81,.45)}" +
+      ".langue-choix button.actif{background:#007F7C;color:#fff}" +
+      ".langue-flottant{position:fixed;top:10px;right:10px;z-index:50;box-shadow:0 4px 14px -6px rgba(15,30,38,.45)}" +
       ".langue-ligne{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}";
     (document.head || document.documentElement).appendChild(st);
   }

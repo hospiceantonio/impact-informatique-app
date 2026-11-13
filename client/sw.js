@@ -5,7 +5,7 @@
    après le premier affichage.
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-client-v139";
+const VERSION = "impact-client-v140";
 const CACHE_PHOTOS = "impact-client-photos-v1";
 
 const FICHIERS = [
@@ -19,6 +19,10 @@ const FICHIERS = [
   "./polices/poppins-500.woff2",
   "./polices/poppins-600.woff2",
   "./polices/poppins-700.woff2",
+  "./polices/montserrat-600.woff2",
+  "./polices/montserrat-700.woff2",
+  "./polices/montserrat-800.woff2",
+  "./polices/montserrat-800-italique.woff2",
   "./manifest.webmanifest",
   "./config.js",
   "./demo-catalogue.json",

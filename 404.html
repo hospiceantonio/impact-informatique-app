@@ -5,31 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Page introuvable — BIZZOO</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#2550B7">
+<meta name="theme-color" content="#0F1E26">
 <!-- CETTE PAGE S'AFFICHE À N'IMPORTE QUELLE PROFONDEUR : sous
      /une/adresse/inconnue, un lien relatif « client/ » mènerait à
      /une/adresse/client/. Tout ce qu'elle montre est donc dans ce
      fichier, et ses liens sont posés depuis la racine du site. -->
 <style>
-  :root{--bleu:#2550B7;--orange:#FF8A00;--encre:#1F2937;--encre-douce:#4B5563;--fond:#F5F7FA}
+  /* (4.0.0) La charte BIZZOO Market : anthracite, turquoise, gris clair. */
+  :root{--bleu:#007F7C;--turquoise:#00CFCB;--anthracite:#0F1E26;--encre:#0F1E26;
+    --encre-douce:#3D4E57;--fond:#F2F7F9;--titre:'Montserrat','Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;
     background:var(--fond);color:var(--encre);
     font-family:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
   main{width:min(440px,100%);text-align:center}
-  /* Le logo des applications : le B au chariot, puis le nom écrit. */
-  .logo{display:inline-flex;align-items:center;gap:.36em;font-size:34px;line-height:1}
-  .logo-tuile{flex:none;display:block;width:1.42em;height:1.42em}
-  .logo-mot{font-weight:700;line-height:1;letter-spacing:-.01em;white-space:nowrap}
-  .logo-bizz{color:var(--bleu)}
-  .logo-oo{color:var(--orange)}
-  .code{margin:30px 0 4px;font-size:64px;font-weight:700;color:var(--bleu);letter-spacing:-2px}
-  h1{margin:0 0 10px;font-size:22px}
+  /* Le logo des applications : le monogramme, puis « BIZZOO » et « Market ». */
+  .logo{display:inline-flex;align-items:center;gap:.3em;font-size:32px;line-height:1}
+  .logo-tuile{flex:none;display:block;width:1.75em;height:1.75em;object-fit:contain}
+  .logo-mot{display:inline-flex;flex-direction:column;align-items:flex-start;
+    font-family:var(--titre);font-style:italic;font-weight:800;white-space:nowrap}
+  .logo-bizz{color:var(--anthracite);line-height:.95;letter-spacing:-.01em}
+  .logo-oo{display:flex;align-items:center;gap:.4em;font-size:.54em;line-height:1.1;margin-top:.12em;color:var(--bleu)}
+  .logo-oo::before,.logo-oo::after{content:"";display:block;width:.95em;height:.16em;border-radius:2px;background:currentColor}
+  .code{margin:30px 0 4px;font-family:var(--titre);font-size:68px;font-weight:800;color:var(--anthracite);letter-spacing:-2px}
+  .code::after{content:"";display:block;width:44px;height:4px;border-radius:4px;background:var(--turquoise);margin:6px auto 14px}
+  h1{margin:0 0 10px;font-family:var(--titre);font-size:22px;font-weight:800}
   p{margin:0 0 26px;font-size:15px;line-height:1.55;color:var(--encre-douce)}
   .actions{display:grid;gap:12px}
   .btn{display:flex;align-items:center;justify-content:center;min-height:50px;padding:10px 22px;
-    border-radius:999px;font-weight:600;font-size:15.5px;text-decoration:none}
-  .btn-orange{background:var(--orange);color:#fff;font-weight:700}
+    border-radius:999px;font-family:var(--titre);font-weight:700;font-size:15.5px;text-decoration:none}
+  .btn-orange{background:var(--turquoise);color:var(--anthracite);box-shadow:0 12px 26px -14px rgba(0,207,203,.8)}
   .btn-clair{background:#fff;color:var(--bleu);border:1.5px solid var(--bleu)}
 </style>
 <script src="/vitrine/traductions-en.js"></script>
@@ -37,7 +42,7 @@
 </head>
 <body>
 <main>
-  <span class="logo"><img class="logo-tuile" data-image="client/icons/logo-bizzoo.png" alt="" width="48" height="48"><span class="logo-mot"><span class="logo-bizz">Bizz</span><span class="logo-oo">oo</span></span></span>
+  <span class="logo"><img class="logo-tuile" data-image="client/icons/logo-bizzoo.png" alt="" width="56" height="56"><span class="logo-mot" aria-label="BIZZOO Market"><span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span></span></span>
   <div class="code" aria-hidden="true">404</div>
   <h1>Page introuvable</h1>
   <p>Cette adresse ne mène à aucune page de BIZZOO. Elle a peut-être changé,
@@ -70,6 +75,9 @@
     police.textContent = [400, 600, 700].map(function (g) {
       return "@font-face{font-family:'Poppins';font-weight:" + g + ";font-display:swap;" +
         "src:url(" + base + "client/polices/poppins-" + g + ".woff2) format('woff2')}";
+    }).join("") + [["normal", 700, "700"], ["normal", 800, "800"], ["italic", 800, "800-italique"]].map(function (m) {
+      return "@font-face{font-family:'Montserrat';font-style:" + m[0] + ";font-weight:" + m[1] +
+        ";font-display:swap;src:url(" + base + "client/polices/montserrat-" + m[2] + ".woff2) format('woff2')}";
     }).join("");
     document.head.appendChild(police);
   })();

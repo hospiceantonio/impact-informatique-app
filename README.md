@@ -9,7 +9,7 @@ Deux applications Android et iOS pour l'enseigne **BIZZOO**, reliées à une bas
   **sliders** — celui de l'enseigne (photos et vidéos, dans les réglages
   de BIZZOO) et celui de chaque boutique. Tout est enregistré
   directement en ligne.
-- **BIZZOO** (l'icône bleue de la marque) : l'application des clients.
+- **BIZZOO** (le monogramme de la marque, sur l'anthracite) : l'application des clients.
   Slider de l'enseigne, **boutiques en icônes**, rayons par catégorie et
   sous-catégorie, promotions, recherche, fiches produit, **panier et
   paiement Mobile Money** (KkiaPay), et commande par WhatsApp. Mise à
@@ -297,53 +297,51 @@ manifeste oubliés.
 
 ## La charte graphique
 
-La charte de BIZZOO s'applique aux deux applications et à la vitrine.
+La charte de BIZZOO s'applique aux deux applications, à BIZZOO Personnel
+et à la vitrine. Depuis la **4.0.0**, c'est celle de **BIZZOO Market**
+(`docs/da-bizzoo-market.pdf`) — le détail est dans « BIZZOO Market : la
+nouvelle charte (4.0.0) », plus bas.
 
 | | |
 |---|---|
-| Police | **Poppins**, 400/500/600/700 |
-| Bleu | `#2550B7` — celui de l'icône, depuis la 3.53.0 (voir « Le bleu de l'icône ») |
-| Orange | `#FF8A00` |
-| Encre | `#1F2937` |
-| Fond | `#F5F7FA` |
+| Polices | **Montserrat** (titres, boutons, menus, le nom « BIZZOO » en italique 800) ; **Poppins** (textes), 400/500/600/700 |
+| Anthracite | `#0F1E26` — la marque : barres du haut, en-tête et pied du site |
+| Turquoise signature | `#00CFCB` — les actions d'achat, texte anthracite dessus (8,74:1) |
+| Turquoise des boutons | `#007F7C` — boutons pleins, liens, texte blanc dessus (4,85:1) |
+| Turquoise clair | `#6FECEF` |
+| Fond | `#F2F7F9` |
 
-**La police est embarquée, pas appelée.** Les quatre graisses sont dans
-`client/polices/` et `admin/polices/` — 31 ko en tout — et les deux
-service workers les gardent hors connexion. Une application qui irait
+Les jetons des feuilles de style gardent leur nom — `--bleu-*`,
+`--orange-*` —, que tout le code emploie ; ils portent ces couleurs.
+
+**Les polices sont embarquées, pas appelées.** Les graisses de Poppins
+et de Montserrat sont dans `client/polices/`, `admin/polices/` et
+`personnel/polices/` — 92 ko par application — et les service workers les gardent
+hors connexion. Une application qui irait
 chercher Poppins chez Google perdrait sa typographie au premier creux de
 réseau, ce qui, ici, arrive tous les jours. Aucune requête ne sort de
 l'application : le banc le vérifie en écoutant *tout* ce que la page
 demande.
 
-**Le logo : le B au chariot, puis le nom (depuis la 3.56.1).** La tuile
-du B est une image, `icons/logo-bizzoo.png`, tirée de l'œuvre comme les
-icônes. Le nom, lui, reste écrit par la feuille de style (`motSymbole()`
-dans `ui.js`) : « Bizz » en bleu, « oo » en orange. Il reste net à toutes
-les tailles, suit la couleur du thème et ne coûte aucun fichier. Les deux
-points qu'il portait dessous sont partis : les deux roues orange du B
-les portent. Voir « Le logo partout, et des captures à jour ».
+**Le logo : le monogramme, puis « BIZZOO » et « Market » (4.0.0).** Le
+monogramme est une image, `icons/logo-bizzoo.png`, tirée de
+`tools/bizzoo-monogramme.png` comme les icônes. Le nom reste écrit par la
+feuille de style (`motSymbole()` dans `ui.js`) : « BIZZOO » en Montserrat
+italique 800, « Market » dessous entre deux traits, comme le logo de la
+charte. Blanc et turquoise vif sur l'anthracite ; anthracite et turquoise
+foncé sur fond clair.
 
-**Sur l'orange, du blanc — c'est le choix de la DA corrigée, pas le plus
-lisible.** Du blanc sur `#FF8A00` donne **2,36:1**, sous le seuil de
-4,5:1 des règles d'accessibilité ; l'encre sombre `#1F2937` y donnait
-**6,21:1**, et la version 3.42 l'employait pour cette raison. La DA
-corrigée remet du blanc sur « Ajouter au panier » et « Passer la
-commande » : la marque a tranché. On compense ce qui peut l'être sans
-toucher à la couleur — un texte **gras** (700) et un peu plus grand.
-
-Pour revenir au sombre, une ligne par feuille de style : le jeton
-`--orange-texte` vaut `#FFFFFF` ; le passer à `#1F2937` dans
-`client/styles.css`, `admin/styles.css` et `index.html`, et tous les
-composants orange suivent. Le banc vérifie que le blanc et le gras sont
-bien posés, et **affiche** le contraste à chaque passage plutôt que de
-le taire.
+**Les étapes d'avant** — le blanc sur l'orange de la DA corrigée (3.4x),
+le bleu de l'icône (3.53.0), le B au chariot (3.52.0 à 3.81.0) — sont
+racontées plus bas, chacune dans sa section. L'œuvre d'alors est gardée
+dans `docs/bizzoo-icone-3.x.png`, les pictogrammes d'avant dans
+`docs/pictos-avant-4.0.0/`.
 
 **Un défaut que seule la capture d'écran a montré.** La barre du haut est
-passée du bleu au blanc ; ses boutons, eux, sont restés blancs — donc
-invisibles. Aucun constat ne tombait : les boutons étaient là, à la
-bonne place, avec les bonnes icônes. Le banc mesure maintenant la
+passée du bleu au blanc (3.4x) ; ses boutons, eux, sont restés blancs —
+donc invisibles. Aucun constat ne tombait. Le banc mesure depuis la
 **luminance** du fond de la barre et celle de ses boutons, et exige que
-les seconds s'y détachent.
+les seconds s'y détachent — sur l'anthracite, aujourd'hui.
 
 ### Le banc de la charte
 
@@ -362,16 +360,22 @@ Cinquante-six constats sur les deux applications et le site, à quatre
 largeurs d'écran (360, 390, 768, 1440 px). Ils regardent ce qu'une capture
 d'écran ne montre pas :
 
-- la police **affichée** est Poppins (`document.fonts.check`) — une
+- les polices **affichées** sont Poppins et Montserrat
+  (`document.fonts.check`, l'italique 800 du nom compris) — une
   `@font-face` qui échoue ne laisse aucune trace, le navigateur retombe
   sur la police du système et la page reste belle ;
 - rien n'est demandé hors de l'application ;
 - les couleurs sont relevées **sur les éléments**, pas dans la feuille de
   style — une règle peut être écrite et surchargée dix lignes plus bas ;
-- la gamme de bleus est **la même partout** — les deux applications, la
-  page d'entrée du site, sa page 404, la couleur de barre du navigateur
-  et le manifeste — et **aucune règle n'a gardé l'ancien bleu** en dur
-  (une ombre en `rgba(…)` ne suit pas les jetons) ;
+- la gamme est **la même partout** — les deux applications, la page
+  d'entrée du site, sa page 404 ; la barre du navigateur et le manifeste
+  prennent l'anthracite — et **aucune règle n'a gardé l'ancien bleu ni
+  l'ancien orange** en dur (une ombre en `rgba(…)` ne suit pas les
+  jetons) ;
+- le texte sur le turquoise signature est anthracite, et son contraste
+  tient 4,5:1 ;
+- sur le site, le bouton FR | EN ne recouvre plus « Ouvrir la
+  boutique » ;
 - les cartes-liens de l'accueil admin **enveloppent leur titre** ;
 - rien ne déborde en largeur, à aucune des quatre largeurs.
 
@@ -3668,7 +3672,8 @@ en tout) ; retirer la loupe de la catégorie le fait tomber.
 
 L'œuvre officielle est désormais une **tuile bleue en dégradé**, un
 **B blanc** qui dessine un chariot, et ses **deux roues orange**
-([`tools/bizzoo-icone.png`](tools/bizzoo-icone.png), 1 280 px). Elle
+([`docs/bizzoo-icone-3.x.png`](docs/bizzoo-icone-3.x.png), 1 280 px ;
+`tools/bizzoo-icone.png` jusqu'à la 3.81.0). Elle
 remplace le sac de courses partout : l'écran d'accueil du téléphone
 (Android, iPhone, ordinateur), l'onglet du navigateur, l'écran de
 connexion de l'admin, la vignette d'un produit sans photo —
@@ -6793,10 +6798,11 @@ impact-informatique-app/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique, compte-enseigne et paiement-echoue
-    ├── bizzoo-icone.png      # L'œuvre officielle, le B au chariot — source de toutes les icônes
+    ├── bizzoo-monogramme.png # Le monogramme de BIZZOO Market — source de toutes les icônes (4.0.0)
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── icones-categories.py  # Les icônes des catégories, découpées dans les trois planches
     ├── make-icons.js         # Icônes PWA + Android + notification (node tools/make-icons.js)
+    ├── recolorer-pictos.mjs  # Les pictogrammes des catégories aux couleurs de la charte (4.0.0)
     ├── menage-stockage.ps1   # Supprime les fichiers orphelins du stockage
     └── servir.sh             # Ouvrir les deux applications en local (Linux, macOS)
 ```
@@ -7003,11 +7009,11 @@ impact-informatique-app/
   style partagent les mêmes noms de variables, et les tests lisent la
   teinte dans l'application au lieu de la figer, pour qu'un changement de
   charte ne casse rien.
-- **Les icônes sortent de l'œuvre** (`tools/bizzoo-icone.png`, le B au
-  chariot depuis 3.52.0). `node tools/make-icons.js` la sépare en deux
-  calques — le dégradé mesuré, le motif démêlé — et en tire les 48
-  fichiers (PWA et Android, toutes densités) et la silhouette des
-  notifications : le détail est dans « La nouvelle icône » plus haut.
+- **Les icônes sortent du monogramme** (`tools/bizzoo-monogramme.png`,
+  depuis la 4.0.0). `node tools/make-icons.js` le pose sur l'anthracite
+  et en tire les 55 fichiers (PWA des trois applications, Android toutes
+  densités) et la silhouette des notifications : le détail est dans
+  « BIZZOO Market : la nouvelle charte (4.0.0) ».
   L'icône adaptative est dans la **forme que les lanceurs attendent** :
   un **fond** (le dégradé) et le **motif au premier plan**. Elle a
   d'abord été faite à l'envers — tout le dessin dans le calque de fond,
@@ -7776,3 +7782,100 @@ ne peut être ni rétrogradé, ni désactivé, ni supprimé.
 
 Base : `supabase/superadmins-egaux.sql`. Essai `createur-protege` (réécrit),
 banc `banc-createur-protege`.
+
+## BIZZOO Market : la nouvelle charte (4.0.0)
+
+Tout le visuel change : le logo, les couleurs, la police des titres —
+dans l'application des clients, l'admin, BIZZOO Personnel, la vitrine, les
+icônes et l'écran de démarrage Android. Les fichiers de la charte sont
+gardés dans `docs/` : `da-bizzoo-market.pdf` et les trois logos
+(`da-logo-horizontal.png`, `da-logo-vertical.png`, `da-logo-rond.png`).
+Rien d'autre ne bouge : aucun écran, aucune règle, aucune donnée.
+
+### Ce que dit la charte, et ce qu'on en a fait
+
+- **Anthracite `#0F1E26`**, la couleur de la marque : la barre du haut
+  des trois applications, l'en-tête et le pied du site, le fond des
+  icônes et de l'écran de démarrage, la barre du navigateur.
+- **Turquoise `#00CFCB`**, sa signature : le mot « Market », l'onglet
+  actif, les actions d'achat (« Ajouter au panier », « Passer la
+  commande »). **Le texte y est anthracite, pas blanc** : du blanc sur ce
+  turquoise ne donne que 1,95:1, illisible au soleil ; l'anthracite donne
+  8,74:1.
+- **Turquoise foncé `#007F7C`** pour les boutons pleins et les liens,
+  texte blanc (4,85:1) : c'est le turquoise de la charte assombri juste
+  assez pour se lire.
+- **Gris clair `#F2F7F9`** pour les fonds, et des gris tirés de
+  l'anthracite pour les textes secondaires.
+- **Montserrat** pour les titres, les boutons et les menus ; le nom
+  « BIZZOO » en Montserrat italique 800, comme le logo. Poppins reste la
+  police des textes.
+- L'**ambre** reste aux avertissements et aux étoiles des avis, le
+  **rouge** au danger et aux remises — la pastille « -15 % » passe au
+  rouge, comme sur les maquettes —, le **vert** à ce qui est payé ou
+  disponible : le turquoise y dirait « bouton ».
+- Les **couleurs propres** à chaque boutique et à chaque catégorie sont
+  des données : elles ne changent pas. Le nuancier de l'admin propose
+  désormais « Turquoise BIZZOO » et « Anthracite BIZZOO » en tête.
+
+Les jetons des feuilles de style (`--bleu-*`, `--orange-*`) gardent leur
+nom — tout le code les emploie — et portent ces couleurs.
+
+### Le logo et les icônes
+
+Le monogramme (le B blanc, son anneau turquoise, son triangle anthracite)
+est tiré du logo de la charte, détouré, sans l'ombre portée de la
+planche : `tools/bizzoo-monogramme.png`. `node tools/make-icons.js` en
+tire toutes les icônes :
+
+- PWA (192, 512, « maskable », iPhone) des **trois** applications, et le
+  logo `icons/logo-bizzoo.png` (le monogramme seul) ;
+- Android, toutes densités, icône ronde et icône adaptative (fond
+  anthracite, monogramme au premier plan) ;
+- la petite icône des notifications : la silhouette du B et de son
+  anneau.
+
+L'admin et BIZZOO Personnel portent la même icône, marquée d'une
+**pastille turquoise « réglages »**. L'icône 1024 du kit iPhone n'est pas
+reprise telle quelle : son monogramme débordait du disque que les
+lanceurs Android laissent voir.
+
+Les **34 pictogrammes des catégories** sont recolorés, pas redessinés :
+`tools/recolorer-pictos.mjs` change l'orange en turquoise et le bleu nuit
+en anthracite, pixel par pixel, en gardant le dessin. Les originaux sont
+dans `docs/pictos-avant-4.0.0/`.
+
+### La vitrine
+
+L'en-tête et le bandeau passent à l'anthracite, éclairé de turquoise ; le
+titre et le bouton « Ouvrir la boutique » au turquoise ; les engagements
+ont des pastilles anthracite ; un trait turquoise souligne les titres. La
+page 404 et les pages légales suivent. **Un défaut corrigé en chemin** :
+sur un téléphone, le bouton FR | EN recouvrait la moitié de « Ouvrir la
+boutique ». Il s'aligne au milieu de l'en-tête, qui lui garde sa place ;
+le banc le vérifie de 320 à 1440 px.
+
+**Reste à refaire : les captures.** Les quatre écrans de la vitrine
+(`vitrine/ecran-*.jpg`) et l'image de partage (`vitrine/partage.jpg`)
+montrent encore l'ancienne charte. Elles se prennent sur la vraie
+boutique, avec ses vraies photos — et la session de ce chantier ne
+pouvait pas joindre la base en ligne. À refaire depuis une session de
+l'environnement « BIZZOO », qui le peut, en changeant leur `?v=`.
+
+### BIZZOO Personnel
+
+Même charte : en-tête anthracite, logo, icône à pastille turquoise.
+**Un défaut corrigé en chemin** : sur l'écran de connexion, la carte
+« Langue » se rangeait à côté du formulaire et l'écrasait sur un
+téléphone ; elles sont désormais l'une sous l'autre, et le fond
+anthracite occupe tout l'écran.
+
+### Les bancs
+
+`banc-da` vérifie la nouvelle charte : Montserrat chargée (l'italique du
+nom compris), les couleurs relevées sur les éléments, l'anthracite des
+barres et du navigateur, le texte anthracite sur le turquoise et son
+contraste, le logo « BIZZOO Market » partout, et aucune règle restée à
+l'ancien bleu ou à l'ancien orange. `banc-da-ecrans`,
+`banc-categories-photos` et `banc-mise-en-ligne` suivent la charte.
+

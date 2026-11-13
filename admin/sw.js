@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v149";
+const VERSION = "impact-admin-v150";
 
 const FICHIERS = [
   "./",
@@ -17,6 +17,10 @@ const FICHIERS = [
   "./polices/poppins-500.woff2",
   "./polices/poppins-600.woff2",
   "./polices/poppins-700.woff2",
+  "./polices/montserrat-600.woff2",
+  "./polices/montserrat-700.woff2",
+  "./polices/montserrat-800.woff2",
+  "./polices/montserrat-800-italique.woff2",
   "./manifest.webmanifest",
   "./config.js",
   "./js/traductions-en.js",

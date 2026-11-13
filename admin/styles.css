@@ -26,6 +26,17 @@
   src:url(polices/poppins-600.woff2) format('woff2')}
 @font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;
   src:url(polices/poppins-700.woff2) format('woff2')}
+/* (4.0.0) MONTSERRAT, la police des titres, des boutons et des menus de la
+   charte BIZZOO Market ; Poppins reste celle des textes. Embarquée, comme
+   Poppins : 61 Ko, et l'italique 800 pour le nom « BIZZOO ». */
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:600;font-display:swap;
+  src:url(polices/montserrat-600.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:700;font-display:swap;
+  src:url(polices/montserrat-700.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:800;font-display:swap;
+  src:url(polices/montserrat-800.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:italic;font-weight:800;font-display:swap;
+  src:url(polices/montserrat-800-italique.woff2) format('woff2')}
 
 :root{
   /* LE BLEU DE L'ICÔNE, et les nuances qui en descendent. Chacune garde
@@ -36,14 +47,14 @@
      la plus sombre assombrit son plus sombre (voir le README).
      Les ombres reprennent --bleu et --bleu-900 en rgba(…) : elles
      changent avec eux. */
-  --bleu-900:#091A51;
-  --bleu-800:#102A7C;
-  --bleu-700:#1A3B98;
-  --bleu:#2550B7;
-  --bleu-400:#3B76F4;
-  --bleu-300:#749EF8;
-  --bleu-100:#D5E2FD;
-  --bleu-50:#ECF2FE;
+  --bleu-900:#0F1E26;
+  --bleu-800:#16303B;
+  --bleu-700:#0A6E6B;
+  --bleu:#007F7C;
+  --bleu-400:#00CFCB;
+  --bleu-300:#6FECEF;
+  --bleu-100:#C9F4F3;
+  --bleu-50:#E9FAFA;
 
   /* L'ORANGE DE LA DA, et le texte qu'il porte : BLANC, comme sur la
      DA corrigée — ses trois boutons, sa pastille de remise, sa cloche.
@@ -58,10 +69,10 @@
 
      En TEXTE sur fond clair, c'est l'orange foncé — l'orange vif y
      tomberait au même 2,36:1. */
-  --orange:#FF8A00;
-  --orange-texte:#FFFFFF;
-  --orange-fonce:#A85800;
-  --orange-clair:#FFF1DE;
+  --orange:#00CFCB;
+  --orange-texte:#0F1E26;
+  --orange-fonce:#007F7C;
+  --orange-clair:#E9FAFA;
   --ambre:#FFA808;
   --ambre-clair:#FFF3DE;
 
@@ -73,29 +84,31 @@
   --wa:#1FAF56;
 
   /* LE TEXTE ET LE FOND DE LA DA. */
-  --encre:#1F2937;
-  --encre-douce:#4B5563;
+  --encre:#0F1E26;
+  --encre-douce:#3D4E57;
   /* LE GRIS DES TEXTES D'AIDE (3.62.0). Le gris très doux de la DA
      (#9AA3AF) tombe à 2,8:1 sur blanc : un paragraphe entier dans
      cette teinte ne se lit plus au soleil. Celui-ci donne 4,8:1, le
      seuil des règles d'accessibilité ; le très doux reste pour les
      petites mentions d'une ligne (dates, codes). */
-  --encre-moyenne:#6B7280;
-  --encre-tres-douce:#9AA3AF;
-  --trait:#E3E8EF;
-  --fond:#F5F7FA;
+  --encre-moyenne:#5B6B73;
+  --encre-tres-douce:#8D9BA2;
+  --trait:#E1EBEF;
+  --fond:#F2F7F9;
   --blanc:#FFFFFF;
   /* Le fond des tuiles de catégories, comme chez le client (3.56). */
-  --tuile:#EAF0F7;
+  --tuile:#E6F4F6;
 
-  --ombre:0 12px 30px -18px rgba(9,26,81,.55);
-  --ombre-forte:0 20px 45px -20px rgba(9,26,81,.6);
+  --ombre:0 12px 30px -18px rgba(15,30,38,.55);
+  --ombre-forte:0 20px 45px -20px rgba(15,30,38,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
   /* Poppins d'abord ; la police du téléphone tant qu'elle charge, et
      pour les alphabets qu'elle ne couvre pas. */
   --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* (4.0.0) Montserrat pour les titres, les boutons et les menus. */
+  --police-titre:'Montserrat',var(--police);
   --barre-h:66px;
   --safe-b:max(env(safe-area-inset-bottom,0px), 8px);
 }
@@ -256,7 +269,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   display:flex;align-items:center;justify-content:center;
   width:52px;height:52px;border-radius:50%;
   background:linear-gradient(135deg,var(--orange),var(--orange-fonce));
-  color:#fff;box-shadow:0 10px 22px -8px rgba(201,77,0,.8);
+  color:#fff;box-shadow:0 10px 22px -8px rgba(0,127,124,.8);
   margin-bottom:12px;
 }
 .tab-cta-rond .ic{stroke-width:2.4;width:26px;height:26px}
@@ -301,7 +314,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   padding:12px 18px;border:0;border-radius:999px;
   background:var(--bleu);
   color:#fff;font-weight:600;font-size:14.5px;line-height:1.3;
-  box-shadow:0 10px 22px -12px rgba(37,80,183,.6);
+  box-shadow:0 10px 22px -12px rgba(0,127,124,.6);
   width:100%;
 }
 .btn > .ic{display:inline-block;vertical-align:-.28em;width:18px;height:18px;margin:0 7px 0 -2px}
@@ -322,7 +335,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    la note sur « --orange-texte » dans les jetons de design. */
 .btn-orange{
   background:var(--orange);color:var(--orange-texte);font-weight:700;
-  box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
+  box-shadow:0 10px 22px -12px rgba(0,207,203,.7);
 }
 /* LIEN TEXTE DE LA DA : souligné, bleu, sans fond ni cadre. */
 .lien-texte{
@@ -394,7 +407,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   color:var(--bleu-400);
 }
 .pastille img{width:100%;height:100%;object-fit:cover}
-.pastille-vide{color:#A9BDD6}
+.pastille-vide{color:#A6BAC2}
 .ligne-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .ligne-titre{
   font-size:14px;font-weight:700;line-height:1.3;
@@ -460,7 +473,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .histo-bleu{background:var(--bleu-50);color:var(--bleu-700)}
 .histo-rouge{background:var(--rouge-clair);color:var(--rouge-fonce)}
 .histo-or{background:var(--ambre-clair);color:var(--orange-fonce)}
-.histo-gris{background:#EEF1F6;color:var(--encre-douce)}
+.histo-gris{background:#EAF1F3;color:var(--encre-douce)}
 .histo-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .histo-libelle{font-size:13.5px;font-weight:600;line-height:1.4}
 .histo-details{font-size:11.5px;color:var(--encre-tres-douce)}
@@ -496,7 +509,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .slide-marque-video{
   position:absolute;bottom:8px;right:8px;
   display:inline-flex;align-items:center;gap:5px;
-  background:rgba(6,16,31,.72);color:#fff;
+  background:rgba(10,20,26,.72);color:#fff;
   font-size:11px;font-weight:700;padding:3px 8px;border-radius:7px;
 }
 /* Ajouter un écran : une photo ou une vidéo, côte à côte. */
@@ -505,7 +518,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .media-choix .photo-ajout small{font-size:10.5px;font-weight:600;color:var(--encre-tres-douce)}
 .slide-etiquette{
   position:absolute;top:8px;left:8px;
-  background:rgba(6,16,31,.72);color:#fff;
+  background:rgba(10,20,26,.72);color:#fff;
   font-size:11px;font-weight:700;padding:3px 8px;border-radius:7px;
 }
 .slide-pied{display:flex;align-items:center;gap:10px;padding:10px 4px 2px}
@@ -543,7 +556,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .compte-rond{
   flex:none;display:flex;align-items:center;justify-content:center;
   width:36px;height:36px;border-radius:12px;
-  background:#EEF1F6;color:var(--encre-douce);
+  background:#EAF1F3;color:var(--encre-douce);
 }
 .compte-rond-admin{background:var(--ambre-clair);color:var(--orange-fonce)}
 .compte-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
@@ -641,7 +654,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   display:flex;align-items:center;gap:10px;
   color:var(--encre-tres-douce);font-size:12.5px;line-height:1.5;
 }
-.photo-absente .ic{color:#A9BDD6}
+.photo-absente .ic{color:#A6BAC2}
 
 /* ---------- Formulaire produit : photos ---------- */
 .photos-zone{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -652,14 +665,14 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .photo-boite img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .photo-principale{
   position:absolute;left:0;right:0;bottom:0;
-  background:rgba(8,42,82,.72);color:#fff;
+  background:rgba(15,30,38,.72);color:#fff;
   font-size:10px;font-weight:700;text-align:center;
   padding:3px 4px;letter-spacing:.04em;
 }
 .photo-retirer{
   position:absolute;top:5px;right:5px;
   width:26px;height:26px;border-radius:50%;border:0;
-  background:rgba(10,28,54,.72);color:#fff;
+  background:rgba(15,30,38,.72);color:#fff;
   display:flex;align-items:center;justify-content:center;
 }
 .photo-retirer .ic-sm{width:14px;height:14px}
@@ -741,7 +754,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .inter-pouce{
   position:absolute;top:3px;left:3px;
   width:24px;height:24px;border-radius:50%;
-  background:#fff;box-shadow:0 2px 6px rgba(10,28,54,.3);
+  background:#fff;box-shadow:0 2px 6px rgba(15,30,38,.3);
   transition:transform .2s;
 }
 .inter input:checked + .inter-piste{background:var(--vert)}
@@ -851,7 +864,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   width:40px;height:40px;border-radius:13px;
   background:var(--bleu);color:#fff;overflow:hidden;
 }
-.bou-pastille-photo{background:#EEF1F6}
+.bou-pastille-photo{background:#EAF1F3}
 .bou-pastille img{width:100%;height:100%;object-fit:cover}
 .bou-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bou-nom{font-size:14.5px;font-weight:800;color:var(--encre);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1026,7 +1039,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   text-align:center;padding:38px 20px;
   color:var(--encre-tres-douce);
 }
-.vide .ic{width:44px;height:44px;stroke-width:1.3;color:#B9C4D4}
+.vide .ic{width:44px;height:44px;stroke-width:1.3;color:#B4C3C9}
 .vide p{margin:4px 0 0;font-size:15px;font-weight:700;color:var(--encre-douce)}
 .vide small{font-size:12.5px;line-height:1.5;max-width:280px}
 .vide .btn,.vide .btn-clair{width:auto;margin-top:10px}
@@ -1055,14 +1068,14 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 
 /* ---------- Feuille modale ---------- */
 .feuille{position:fixed;inset:0;z-index:70}
-.conditions-ugc-fond{position:fixed;inset:0;z-index:100;background:rgba(6,16,31,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.conditions-ugc-fond{position:fixed;inset:0;z-index:100;background:rgba(10,20,26,.72);display:flex;align-items:center;justify-content:center;padding:20px}
 .conditions-ugc-boite{width:min(100%,500px);max-height:90vh;overflow:auto;background:#fff;color:var(--encre);border-radius:18px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.25)}
 .conditions-ugc-boite h2{font-size:21px;margin:0 0 14px}
 .conditions-ugc-boite p{line-height:1.55;margin:0 0 12px}
 .conditions-ugc-boite label{display:flex;align-items:flex-start;gap:9px;margin:18px 0;font-weight:600;line-height:1.4}
 .conditions-ugc-boite .btn-rangee{flex-wrap:wrap}
 .feuille[hidden]{display:none}
-.feuille-fond{position:absolute;inset:0;background:rgba(6,16,31,.55)}
+.feuille-fond{position:absolute;inset:0;background:rgba(10,20,26,.55)}
 .feuille-boite{
   position:absolute;left:0;right:0;bottom:0;
   background:var(--fond);
@@ -1090,7 +1103,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* ---------- Visionneuse ---------- */
 .visionneuse{
   position:fixed;inset:0;z-index:80;
-  background:rgba(5,16,31,.94);
+  background:rgba(10,20,26,.94);
   display:flex;align-items:center;justify-content:center;
   /* La marge est portee par chaque vue, pas par le cadre : la piste
      garde ainsi la meme largeur, agrandie ou non, et la photo
@@ -1503,7 +1516,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
   .tab-cta-rond{
     width:100%;height:44px;border-radius:12px;margin:0;
     justify-content:flex-start;gap:10px;padding:0 14px;
-    box-shadow:0 8px 18px -10px rgba(201,77,0,.85);
+    box-shadow:0 8px 18px -10px rgba(0,127,124,.85);
   }
   .tab-cta-rond .ic{width:21px;height:21px}
   .tab-cta-nom{display:inline;font-size:14px;font-weight:700;color:#fff}
@@ -1896,7 +1909,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 @keyframes live-pouls{50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.live-point{animation:none}}
 /* Les livreurs, à part : leur position validée, ou non */
-.carte-livreurs{display:block;text-decoration:none;color:inherit;border:1.5px solid var(--bleu, #0B5CF5)}
+.carte-livreurs{display:block;text-decoration:none;color:inherit;border:1.5px solid var(--bleu, #007F7C)}
 .livreur-bloc{padding-bottom:6px;border-bottom:1px solid var(--trait, #eee);margin-bottom:6px}
 .livreur-bloc:last-of-type{border-bottom:0}
 .livreur-bloc[hidden]{display:none}
@@ -2013,7 +2026,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
    La livraison au kilomètre (3.64.0)
    ========================================================= */
 .km-carte{height:240px;margin-top:12px;border-radius:var(--r-sm, 10px);overflow:hidden;
-  border:1px solid var(--trait);background:var(--bleu-50, #ECF2FE)}
+  border:1px solid var(--trait);background:var(--bleu-50, #E9FAFA)}
 .km-carte .leaflet-control-attribution{font-size:9px}
 .lv-gain strong{color:var(--vert, #0F9D58)}
 
@@ -2070,7 +2083,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .cp-trouvable[hidden]{display:none}
 
 /* (3.73.0) L'élément qu'une notification a ouvert : marqué un instant. */
-@keyframes vise-pulse{0%{box-shadow:0 0 0 0 rgba(255,138,0,.65)}70%{box-shadow:0 0 0 12px rgba(255,138,0,0)}100%{box-shadow:0 0 0 0 rgba(255,138,0,0)}}
+@keyframes vise-pulse{0%{box-shadow:0 0 0 0 rgba(0,207,203,.65)}70%{box-shadow:0 0 0 12px rgba(0,207,203,0)}100%{box-shadow:0 0 0 0 rgba(0,207,203,0)}}
 .vise{outline:2px solid var(--orange);outline-offset:2px;animation:vise-pulse 1s ease-out 2}
 @media (prefers-reduced-motion:reduce){.vise{animation:none}}
 
@@ -2096,7 +2109,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 /* (3.78.0) Boutique multivendeur : un encadré par vendeur chez qui récupérer. */
 .lv-multi{margin:10px 0 0}
 .lv-multi > .aide{margin:4px 0 8px}
-.lv-vendeur{border-left:3px solid var(--bleu-50, #ECF2FE);padding-left:10px;margin:8px 0}
+.lv-vendeur{border-left:3px solid var(--bleu-50, #E9FAFA);padding-left:10px;margin:8px 0}
 .lv-vendeur .lv-lieu{margin-top:0}
 
 /* (3.80.0) L'espace du vendeur : la photo de chaque produit, et
@@ -2128,3 +2141,61 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .rv-mode,.rv-commande{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--trait);border-radius:10px;cursor:pointer}
 .rv-mode input,.rv-commande input{margin-top:3px}
 .rv-liste{display:flex;flex-direction:column;gap:6px;max-height:45vh;overflow:auto}
+
+/* =========================================================
+   (4.0.0) LA CHARTE BIZZOO MARKET — voir client/styles.css.
+   Anthracite #0F1E26, turquoise #00CFCB, turquoise clair #6FECEF,
+   gris clair #F2F7F9, blanc ; Montserrat pour les titres, les boutons
+   et les menus, Poppins pour les textes.
+   ========================================================= */
+h1,h2,h3,h4,.btn,.carte-titre,.titre-section,.tabbar a,.topbar h1,.menu-lateral a{font-family:var(--police-titre)}
+
+/* LA BARRE DU HAUT, ANTHRACITE. */
+.topbar{
+  background:var(--bleu-900);color:#fff;border-bottom:0;
+  box-shadow:0 8px 24px -18px rgba(15,30,38,.9);
+}
+.topbar h1{color:#fff}
+.topbar .sous{color:#B9CBD1}
+.topbar .btn-ic{color:#fff;background:rgba(255,255,255,.08)}
+.topbar .logo-bizz{color:#fff}
+.topbar .logo-sous{color:var(--bleu-400);font-family:var(--police-titre);font-style:italic;font-weight:800}
+/* « Espace admin » prend la place de « Market » dans la barre du haut. */
+.topbar .logo-oo{display:none}
+
+/* LE LOGO : le monogramme, puis « BIZZOO » et « Market ». */
+.logo-tuile{width:42px;height:42px;object-fit:contain}
+.logo-mot{
+  display:inline-flex;flex-direction:column;align-items:flex-start;
+  font-family:var(--police-titre);font-style:italic;font-weight:800;font-size:inherit;
+}
+.logo-bizz{color:var(--bleu-900);font-size:23px;line-height:.95;letter-spacing:-.01em}
+.logo-oo{
+  display:flex;align-items:center;gap:5px;
+  color:var(--bleu);font-size:12.5px;line-height:1.1;letter-spacing:.02em;margin-top:2px;
+}
+.logo-oo::before,.logo-oo::after{content:"";display:block;width:12px;height:2px;border-radius:2px;background:currentColor}
+.logo-mot.clair .logo-bizz{color:#fff}
+.logo-mot.clair .logo-oo{color:var(--bleu-400)}
+@container (max-width:130px){
+  .topbar-logo .logo-bizz{font-size:19px}
+}
+
+/* L'ATTENTION reste dorée : une carte « à faire » ne se confond pas avec un bouton. */
+.carte-benefice{border-top-color:var(--ambre)}
+.carte-benefice .carte-titre{color:var(--encre)}
+.btn-clair,.btn-danger-clair{box-shadow:none}
+
+/* LA BARRE DU BAS : l'onglet actif en turquoise. */
+.tabbar a.actif{color:var(--bleu)}
+.carte-publier{border-top-color:var(--ambre)}
+
+/* Le menu de côté des grands écrans : le monogramme, « BIZZOO », puis
+   « Admin » dessous — « Market » y ferait un troisième étage. */
+.tabbar-marque .logo-oo{display:none}
+.tabbar-marque .logo-bizz{font-size:20px}
+
+/* LA REMISE EN ROUGE, comme les maquettes de la charte (« -8 % ») : le
+   turquoise y dirait « bouton », le rouge dit « prix barré ». Blanc sur
+   #D92D20 : 4,98:1. */
+.badge-promo{background:var(--rouge);color:#fff}

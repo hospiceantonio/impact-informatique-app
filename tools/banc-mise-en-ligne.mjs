@@ -334,10 +334,18 @@ titre("5. Le site s'ouvre, à ses deux adresses");
      racine, et ses polices aussi. */
   const r404 = await page.goto(DOMAINE + "/une/adresse/qui/n-existe-pas", { waitUntil: "load" });
   await attendre(page, 500);
+  /* Les polices posées par le script de la page se chargent après elle :
+     on attend qu'elles soient prêtes avant de demander lesquelles le sont. */
+  await page.evaluate(() => document.fonts.ready);
   const l404 = await page.evaluate(() => ({
     texte: document.body.innerText,
     liens: [...document.querySelectorAll("a[data-lien]")].map((a) => a.href),
-    police: document.fonts.check("700 20px Poppins"),
+    /* (4.0.0) Poppins pour le texte (400), Montserrat pour le titre, les
+       boutons (700, 800) et le nom (italique 800) : le gras de Poppins n'y
+       sert plus, et ne se charge donc plus. */
+    police: document.fonts.check("400 20px Poppins") && document.fonts.check("800 20px Montserrat") &&
+      document.fonts.check("italic 800 20px Montserrat"),
+    polices: [...document.fonts].map((f) => f.family + " " + f.style + " " + f.weight + " " + f.status).join(", "),
     logo: (() => {
       const i = document.querySelector("img.logo-tuile");
       return i ? { src: i.getAttribute("src") || "", charge: i.complete && i.naturalWidth > 0 } : null;
@@ -346,7 +354,7 @@ titre("5. Le site s'ouvre, à ses deux adresses");
   ok(r404.status() === 404 && /Page introuvable/.test(l404.texte), "une adresse inconnue répond 404, avec la page de BIZZOO");
   ok(l404.liens.join(",") === DOMAINE + "/client/," + DOMAINE + "/",
     "et ses liens ramènent à la boutique et à l'accueil (" + l404.liens.join(", ") + ")");
-  ok(l404.police, "dans la police de la DA, même à cette profondeur");
+  ok(l404.police, "dans les polices de la charte, même à cette profondeur" + (l404.police ? "" : " — " + l404.polices));
   ok(l404.logo && l404.logo.charge && l404.logo.src === "/client/icons/logo-bizzoo.png",
     "et avec son logo, demandé depuis la racine (" + (l404.logo ? l404.logo.src : "aucun") + ")");
   await ctx.close();

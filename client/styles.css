@@ -26,6 +26,17 @@
   src:url(polices/poppins-600.woff2) format('woff2')}
 @font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;
   src:url(polices/poppins-700.woff2) format('woff2')}
+/* (4.0.0) MONTSERRAT, la police des titres, des boutons et des menus de la
+   charte BIZZOO Market ; Poppins reste celle des textes. Embarquée, comme
+   Poppins : 61 Ko, et l'italique 800 pour le nom « BIZZOO ». */
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:600;font-display:swap;
+  src:url(polices/montserrat-600.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:700;font-display:swap;
+  src:url(polices/montserrat-700.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:800;font-display:swap;
+  src:url(polices/montserrat-800.woff2) format('woff2')}
+@font-face{font-family:'Montserrat';font-style:italic;font-weight:800;font-display:swap;
+  src:url(polices/montserrat-800-italique.woff2) format('woff2')}
 
 :root{
   /* LE BLEU DE L'ICÔNE, et les nuances qui en descendent. Chacune garde
@@ -36,14 +47,14 @@
      la plus sombre assombrit son plus sombre (voir le README).
      Les ombres reprennent --bleu et --bleu-900 en rgba(…) : elles
      changent avec eux. */
-  --bleu-900:#091A51;
-  --bleu-800:#102A7C;
-  --bleu-700:#1A3B98;
-  --bleu:#2550B7;
-  --bleu-400:#3B76F4;
-  --bleu-300:#749EF8;
-  --bleu-100:#D5E2FD;
-  --bleu-50:#ECF2FE;
+  --bleu-900:#0F1E26;
+  --bleu-800:#16303B;
+  --bleu-700:#0A6E6B;
+  --bleu:#007F7C;
+  --bleu-400:#00CFCB;
+  --bleu-300:#6FECEF;
+  --bleu-100:#C9F4F3;
+  --bleu-50:#E9FAFA;
 
   /* L'ORANGE DE LA DA, et le texte qu'il porte : BLANC, comme sur la
      DA corrigée — ses trois boutons, sa pastille de remise, sa cloche.
@@ -58,10 +69,10 @@
 
      En TEXTE sur fond clair, c'est l'orange foncé — l'orange vif y
      tomberait au même 2,36:1. */
-  --orange:#FF8A00;
-  --orange-texte:#FFFFFF;
-  --orange-fonce:#A85800;
-  --orange-clair:#FFF1DE;
+  --orange:#00CFCB;
+  --orange-texte:#0F1E26;
+  --orange-fonce:#007F7C;
+  --orange-clair:#E9FAFA;
   --ambre:#FFA808;
   --ambre-clair:#FFF3DE;
 
@@ -73,30 +84,32 @@
   --wa:#1FAF56;
 
   /* LE TEXTE ET LE FOND DE LA DA. */
-  --encre:#1F2937;
-  --encre-douce:#4B5563;
+  --encre:#0F1E26;
+  --encre-douce:#3D4E57;
   /* LE GRIS DES TEXTES D'AIDE (3.62.0). Le gris très doux de la DA
      (#9AA3AF) tombe à 2,8:1 sur blanc : un paragraphe entier dans
      cette teinte ne se lit plus au soleil. Celui-ci donne 4,8:1, le
      seuil des règles d'accessibilité ; le très doux reste pour les
      petites mentions d'une ligne (dates, codes). */
-  --encre-moyenne:#6B7280;
-  --encre-tres-douce:#9AA3AF;
-  --trait:#E3E8EF;
-  --fond:#F5F7FA;
+  --encre-moyenne:#5B6B73;
+  --encre-tres-douce:#8D9BA2;
+  --trait:#E1EBEF;
+  --fond:#F2F7F9;
   --blanc:#FFFFFF;
   /* Le fond des tuiles de catégories : le bleu-gris de l'image choisie
      par l'enseigne (3.56). */
-  --tuile:#EAF0F7;
+  --tuile:#E6F4F6;
 
-  --ombre:0 12px 30px -18px rgba(9,26,81,.55);
-  --ombre-forte:0 20px 45px -20px rgba(9,26,81,.6);
+  --ombre:0 12px 30px -18px rgba(15,30,38,.55);
+  --ombre-forte:0 20px 45px -20px rgba(15,30,38,.6);
   --r-sm:10px;
   --r:14px;
   --r-lg:20px;
   /* Poppins d'abord ; la police du téléphone tant qu'elle charge, et
      pour les alphabets qu'elle ne couvre pas. */
   --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* (4.0.0) Montserrat pour les titres, les boutons et les menus. */
+  --police-titre:'Montserrat',var(--police);
   --barre-h:66px;
   --safe-b:max(env(safe-area-inset-bottom,0px), 8px);
 }
@@ -390,7 +403,7 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
   padding:12px 16px calc(var(--safe-b) + 12px);
   background:rgba(255,255,255,.97);backdrop-filter:blur(12px);
-  box-shadow:0 -10px 28px -18px rgba(9,26,81,.45);
+  box-shadow:0 -10px 28px -18px rgba(15,30,38,.45);
 }
 .barre-action-dedans{max-width:720px;margin:0 auto;display:flex;align-items:center;gap:12px}
 .barre-action .btn{flex:1}
@@ -437,7 +450,7 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
   padding:13px 20px;border:0;border-radius:999px;
   background:var(--bleu);
   color:#fff;font-weight:600;font-size:15px;line-height:1.3;
-  box-shadow:0 10px 22px -12px rgba(37,80,183,.6);
+  box-shadow:0 10px 22px -12px rgba(0,127,124,.6);
   width:100%;
 }
 .btn > .ic{display:inline-block;vertical-align:-.28em;width:18px;height:18px;margin:0 7px 0 -2px}
@@ -464,7 +477,7 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
    grand, qui se lisent mieux au soleil qu'un texte mi-gras. */
 .btn-orange{
   background:var(--orange);color:var(--orange-texte);font-weight:700;font-size:15.5px;
-  box-shadow:0 10px 22px -12px rgba(255,138,0,.7);
+  box-shadow:0 10px 22px -12px rgba(0,207,203,.7);
 }
 /* Le secondaire qui retire quelque chose — supprimer son compte — :
    rouge pâle, pour qu'on ne le confonde pas avec « Mes adresses ». */
@@ -544,7 +557,7 @@ video.slide-img{background:#000}
 }
 .slide-voile{
   position:absolute;inset:0;z-index:1;
-  background:linear-gradient(to top,rgba(6,30,60,.86) 0%,rgba(6,30,60,.34) 45%,rgba(6,30,60,0) 70%);
+  background:linear-gradient(to top,rgba(15,30,38,.86) 0%,rgba(15,30,38,.34) 45%,rgba(15,30,38,0) 70%);
 }
 .slide-infos{
   position:absolute;left:0;right:0;bottom:0;z-index:2;
@@ -556,7 +569,7 @@ video.slide-img{background:#000}
   font-size:17.5px;font-weight:800;letter-spacing:-.2px;line-height:1.25;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
-.slide-prix{font-size:15.5px;font-weight:800;color:#FFD7A6}
+.slide-prix{font-size:15.5px;font-weight:800;color:#6FECEF}
 .slide-prix s{font-size:12.5px;font-weight:600;color:rgba(255,255,255,.65);margin-left:6px}
 .slide-cta{
   display:inline-flex;align-items:center;gap:4px;align-self:flex-start;
@@ -1013,7 +1026,7 @@ html,body{overscroll-behavior-x:none}
   position:absolute;right:8px;bottom:8px;z-index:2;
   display:flex;align-items:center;justify-content:center;
   width:28px;height:28px;border-radius:50%;
-  background:rgba(8,42,82,.78);color:#fff;
+  background:rgba(15,30,38,.78);color:#fff;
 }
 .pastille-video .ic-sm{width:15px;height:15px}
 
@@ -1107,7 +1120,7 @@ html,body{overscroll-behavior-x:none}
   text-align:center;padding:38px 20px;
   color:var(--encre-tres-douce);
 }
-.vide .ic{width:44px;height:44px;stroke-width:1.3;color:#B9C4D4}
+.vide .ic{width:44px;height:44px;stroke-width:1.3;color:#B4C3C9}
 .vide p{margin:4px 0 0;font-size:15px;font-weight:700;color:var(--encre-douce)}
 .vide small{font-size:12.5px;line-height:1.5;max-width:280px}
 .vide .btn,.vide .btn-clair{width:auto;margin-top:10px}
@@ -1144,7 +1157,7 @@ html,body{overscroll-behavior-x:none}
 /* ---------- Visionneuse ---------- */
 .visionneuse{
   position:fixed;inset:0;z-index:80;
-  background:rgba(5,16,31,.94);
+  background:rgba(10,20,26,.94);
   display:flex;align-items:center;justify-content:center;
   /* La marge est portee par chaque vue, pas par le cadre : la piste
      garde ainsi la meme largeur, agrandie ou non, et la photo
@@ -2026,10 +2039,10 @@ html,body{overscroll-behavior-x:none}
   display:flex;align-items:center;justify-content:center;flex:none;
   width:64px;height:64px;border-radius:17px;overflow:hidden;
   background:var(--blanc);color:#fff;
-  box-shadow:0 6px 16px -10px rgba(9,26,81,.55),0 0 0 1px var(--trait);
+  box-shadow:0 6px 16px -10px rgba(15,30,38,.55),0 0 0 1px var(--trait);
 }
 .bou-logo img{width:100%;height:100%;object-fit:cover;display:block}
-.bou-logo-icone{box-shadow:0 6px 16px -10px rgba(9,26,81,.55)}
+.bou-logo-icone{box-shadow:0 6px 16px -10px rgba(15,30,38,.55)}
 .bou-logo-icone .ic{width:28px;height:28px}
 
 /* ---------- Les tuiles « Nos boutiques partenaires » ----------
@@ -2254,7 +2267,7 @@ html,body{overscroll-behavior-x:none}
   position:relative;width:96px;height:96px;border-radius:50%;
   background:var(--bleu);color:#fff;margin:26px 0 26px;
   display:flex;align-items:center;justify-content:center;
-  box-shadow:0 16px 34px -14px rgba(37,80,183,.7);
+  box-shadow:0 16px 34px -14px rgba(0,127,124,.7);
 }
 .re-heros-rond > .ic{width:46px;height:46px;stroke-width:2.8;position:relative;z-index:1}
 .re-confettis{position:absolute;left:50%;top:50%;width:0;height:0}
@@ -2283,7 +2296,7 @@ html,body{overscroll-behavior-x:none}
 /* ---------- Partager ---------- */
 .bou-partager{margin-top:8px}
 .feuille-partage{position:fixed;inset:0;z-index:300;display:flex;align-items:flex-end;justify-content:center}
-.feuille-partage-fond{position:absolute;inset:0;background:rgba(9,26,81,.35)}
+.feuille-partage-fond{position:absolute;inset:0;background:rgba(15,30,38,.35)}
 .feuille-partage-corps{
   position:relative;width:100%;max-width:520px;background:var(--blanc);
   border-radius:var(--r-lg) var(--r-lg) 0 0;padding:18px 16px calc(16px + var(--safe-b));
@@ -2317,7 +2330,7 @@ html,body{overscroll-behavior-x:none}
 /* Les frais de livraison, sous le montant du reçu */
 .re-frais{margin-top:4px;font-size:13px;color:var(--encre-douce)}
 /* Une demande revendeur qui attend sa position */
-.cp-ou-requis{border:1.5px solid var(--orange, #FF8A00)}
+.cp-ou-requis{border:1.5px solid var(--orange, #00CFCB)}
 
 /* ---------- Boutique fermée en ce moment (3.59.0) ---------- */
 .bou-fermee { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
@@ -2334,7 +2347,7 @@ html,body{overscroll-behavior-x:none}
 
 /* ---------- La fiche d'une course (3.59.0) ----------
    Ce qu'il récupère à la porte en tête, puis les deux lieux, puis « Reçu ». */
-.cp-course-recuperer{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:var(--orange-clair,#FFF1E6);font-size:14px}
+.cp-course-recuperer{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:var(--orange-clair,#E9FAFA);font-size:14px}
 .cp-course-recuperer.cp-course-rien{background:var(--vert-clair,#E8F7EE)}
 .cp-course-lieu{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding-top:8px;border-top:1px solid var(--trait,#E5E7EB);font-size:13px}
 .cp-course-lieu small{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--encre-douce)}
@@ -2415,7 +2428,7 @@ html,body{overscroll-behavior-x:none}
 .p-ferme .p-carte-photo,.p-ferme .p-mini-photo,.p-ferme img{filter:grayscale(1);opacity:.6}
 .p-ferme .p-carte-corps,.p-ferme .p-mini-nom,.p-ferme .prix{opacity:.75}
 .p-ferme-badge{position:absolute;left:6px;right:6px;bottom:6px;display:flex;align-items:center;gap:4px;
-  padding:4px 7px;border-radius:999px;background:rgba(31,41,55,.88);color:#fff;font-size:11px;font-weight:600;
+  padding:4px 7px;border-radius:999px;background:rgba(15,30,38,.88);color:#fff;font-size:11px;font-weight:600;
   line-height:1.2}
 .p-ferme-badge .ic{flex:none;width:12px;height:12px}
 .p-ferme-badge .mot-ferme{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2440,3 +2453,81 @@ html,body{overscroll-behavior-x:none}
 .fiche-acc-total{margin-top:10px;padding-top:10px;border-top:1px dashed var(--trait);font-size:15px}
 .fiche-acc-total strong{font-size:17px}
 .pa-ligne-acc{font-size:12.5px;color:var(--encre-moyenne);margin-top:2px}
+
+/* =========================================================
+   (4.0.0) LA CHARTE BIZZOO MARKET
+   ---------------------------------------------------------
+   Anthracite #0F1E26 (la marque), turquoise #00CFCB (sa signature),
+   turquoise clair #6FECEF, gris clair #F2F7F9 (les fonds), blanc.
+   Montserrat pour les titres, les boutons et les menus ; Poppins pour
+   les textes. Les jetons --bleu-* et --orange-* gardent leur nom (tout
+   le code les emploie) mais portent désormais ces couleurs :
+     --bleu        #007F7C  le turquoise des boutons (blanc dessus 4,85:1 —
+                            le turquoise vif ne donnerait que 1,95:1) ;
+     --orange      #00CFCB  le turquoise signature des actions d'achat,
+                            texte anthracite dessus (8,74:1) ;
+     --bleu-900    #0F1E26  l'anthracite.
+   ========================================================= */
+h1,h2,h3,h4,.btn,.carte-titre,.titre-section,.tabbar a,.topbar h1{font-family:var(--police-titre)}
+.btn{box-shadow:0 10px 22px -12px rgba(0,127,124,.55)}
+
+/* LA BARRE DU HAUT, ANTHRACITE, comme la charte. Tout ce qu'elle porte
+   s'écrit en clair : titre blanc, boutons blancs, le nom en blanc et
+   « Market » en turquoise. */
+.topbar{
+  background:var(--bleu-900);color:#fff;border-bottom:0;
+  box-shadow:0 8px 24px -18px rgba(15,30,38,.9);
+}
+.topbar h1{color:#fff}
+.topbar .sous{color:#B9CBD1}
+.topbar .btn-ic{color:#fff}
+.topbar .btn-compte.actif{background:rgba(255,255,255,.12)}
+.topbar .logo-bizz{color:#fff}
+.topbar .logo-sous{color:#B9CBD1}
+.topbar-slogan{background:var(--bleu-400);color:var(--bleu-900)}
+.topbar-vignette{box-shadow:0 0 0 2px rgba(255,255,255,.18)}
+
+/* LE LOGO : le monogramme, puis « BIZZOO » et « Market ». */
+.logo-tuile{width:42px;height:42px;object-fit:contain}
+.logo-mot{
+  display:inline-flex;flex-direction:column;align-items:flex-start;
+  font-family:var(--police-titre);font-style:italic;font-weight:800;
+}
+.logo-bizz{color:var(--bleu-900);font-size:23px;line-height:.95;letter-spacing:-.01em}
+.logo-oo{
+  display:flex;align-items:center;gap:5px;
+  color:var(--bleu-400);font-size:12.5px;line-height:1.1;letter-spacing:.02em;margin-top:2px;
+}
+.logo-oo::before,.logo-oo::after{content:"";display:block;width:12px;height:2px;border-radius:2px;background:currentColor}
+.logo-mot.clair .logo-bizz{color:#fff}
+/* Sur fond clair, le turquoise vif du « Market » se lit mal : son turquoise foncé. */
+.logo-mot:not(.clair) .logo-oo{color:var(--bleu)}
+.topbar .logo-mot .logo-oo{color:var(--bleu-400)}
+
+/* LA BARRE DU BAS : blanche, l'onglet actif en turquoise, souligné. */
+.tabbar a.actif{color:var(--bleu)}
+.tabbar a.actif::after{
+  content:"";position:absolute;top:0;left:28%;right:28%;height:3px;border-radius:0 0 3px 3px;
+  background:var(--bleu-400);
+}
+.tabbar a{position:relative}
+/* Le menu de côté des grands écrans a son fond turquoise clair : le trait
+   du haut, fait pour la barre du bas, n'y a rien à faire. */
+@media (min-width:1024px){ .tabbar a.actif::after{display:none} }
+
+/* Les titres en anthracite, comme les maquettes (« Promotions du moment ») ;
+   le turquoise reste aux liens (« Voir tout ») et aux actions. */
+.section-titre h2,.bou-fiche-nom,.carte-titre-bleu{color:var(--bleu-900)}
+/* Les étoiles des avis restent dorées : le turquoise y dirait « bouton ». */
+.note-courte .ic{color:var(--ambre);fill:var(--ambre);stroke:var(--ambre)}
+.note-courte strong{color:var(--encre)}
+/* Le bouton secondaire n'a pas d'ombre. */
+.btn-clair,.btn-danger-clair{box-shadow:none}
+
+/* Le menu de côté des grands écrans : le logo à sa taille de menu. */
+.tabbar-marque .logo-bizz{font-size:21px}
+
+/* LA REMISE EN ROUGE, comme les maquettes de la charte (« -8 % ») : le
+   turquoise y dirait « bouton », le rouge dit « prix barré ». Blanc sur
+   #D92D20 : 4,98:1. */
+.badge-promo{background:var(--rouge);color:#fff}

@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">BIZZOO Admin</string>
-    <color name="fond_demarrage">#FFFFFF</color>
+    <color name="fond_demarrage">#0F1E26</color>
     <!-- Le gérant fait lui-même les mises à jour : rien à lui annoncer. -->
     <bool name="notifications_actives">false</bool>
     <!-- Sonner chez le livreur et la boutique, application fermée (3.65.0). -->

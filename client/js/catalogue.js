@@ -291,7 +291,7 @@ const Catalogue = (() => {
           slogan: b2.slogan || "",
           description: b2.description || "",
           icone: b2.icone || "magasin",
-          couleur: b2.couleur || "#2550B7",
+          couleur: b2.couleur || "#007F7C",
           logo: b2.logo ? urlImagePublique(b2.logo) : "",
           actif: b2.actif !== false,
           ordre: b2.ordre || 0,
@@ -331,7 +331,7 @@ const Catalogue = (() => {
              n'a pas ces colonnes : la catégorie garde alors le
              pictogramme passe-partout plutôt qu'une tuile vide. */
           icone: cat.icone || "categories",
-          couleur: cat.couleur || "#2550B7",
+          couleur: cat.couleur || "#007F7C",
           /* La photo de la tuile, posée par l'enseigne ; sans elle — ou
              sur une base qui n'a pas encore la colonne —, le
              pictogramme suffit. */
