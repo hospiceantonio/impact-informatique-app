@@ -8144,3 +8144,23 @@ manifestes — et il refuse désormais aussi les couleurs de la 4.0.0
 (`#0F1E26`, `#00CFCB`, `#007F7C`) dans les feuilles de style.
 `banc-da-ecrans`, `banc-idees-maquettes`, `banc-categories-photos` et
 `banc-mise-en-ligne` suivent les nouvelles valeurs.
+
+## Des icônes quatre fois plus légères (4.3.1)
+
+Le logo B de la 4.3.0 est une image riche (dégradés, reflets, ombres) :
+écrites telles quelles, ses icônes pesaient lourd, et chacune existe sous
+trois noms (le neuf, celui de la 4.2.0, celui d'avant). Les APK étaient
+passés de 5,6 à 6,9 Mo, le zip du site de 18 à 23,7 Mo.
+
+- **`tools/alleger-images.sh`** passe les icônes des trois applications,
+  les icônes Android et les pictogrammes des catégories par `pngquant` :
+  une palette de 256 couleurs, transparence comprise. 10 Mo deviennent
+  2,5 Mo, et la différence ne se voit pas. Si la qualité demandée
+  (80-95) ne peut être tenue, ou si l'image grossirait, elle est laissée
+  telle quelle. `make-icons.js` et `recolorer-pictos.mjs` le lancent à la
+  fin ; sans `pngquant`, les images restent justes, seulement plus lourdes.
+- **Les anciens noms des icônes ne vont plus dans les APK**
+  (`android/preparer-assets.js`) : ils restent sur le site pour les
+  adresses déjà parties, mais l'application ne lit que les noms neufs.
+
+Aucun écran ne change.
