@@ -6801,7 +6801,7 @@ impact-informatique-app/
     ├── assembler-site.sh     # Le site public, sur liste blanche — et le zip de l'hébergement
     ├── aligner-migrations.js # Recopie les fonctions de schema.sql dans les migrations
     ├── banc-*.mjs            # Les bancs du navigateur (Playwright) — dont envoi-unique, sms-ferme, stock, accueil-galerie, navigation-boutique, compte-enseigne et paiement-echoue
-    ├── bizzoo-monogramme.png # Le monogramme de BIZZOO Market — source de toutes les icônes (4.0.0)
+    ├── bizzoo-monogramme.png # Le monogramme de BIZZOO Market — source de toutes les icônes (4.0.0 ; noms neufs en 4.2.0)
     ├── eprouver-base.sh      # Force les portes de la base (PostgreSQL jetable)
     ├── icones-categories.py  # Les icônes des catégories, découpées dans les trois planches
     ├── make-icons.js         # Icônes PWA + Android + notification (node tools/make-icons.js)
@@ -7957,4 +7957,57 @@ Essai : `heures-des-etapes` (la dernière ligne fait l'heure, une étape
 sautée, une ligne annulée, qui lit quoi). Banc : `banc-idees-maquettes`,
 pour les cinq idées ; `banc-accueil-galerie` et `banc-da-ecrans` suivent
 la recherche dans le bandeau.
+
+## Plus aucune trace de l'ancien logo ni de l'ancienne charte (4.2.0)
+
+Le propriétaire voyait encore l'ancien logo sur la vitrine, la boutique
+en ligne et ailleurs, alors que tous les fichiers portaient le nouveau.
+
+### La cause : le cache, sous le même nom
+
+L'hébergement laisse un navigateur garder une image **une semaine**
+(`Cache-Control: max-age=604800` dans `.htaccess`). Le logo et les
+icônes avaient gardé leur nom (`icons/logo-bizzoo.png`, `icon-192.png`…) :
+un téléphone qui les avait déjà vus montrait l'image gardée en mémoire,
+l'ancienne, jusqu'à sept jours après la mise en ligne.
+
+**Des noms neufs.** `tools/make-icons.js` écrit désormais le logo et les
+icônes sous des noms qu'aucun cache n'a jamais vus, et toutes les pages,
+les manifestes et les listes hors connexion les emploient :
+
+| Avant | Depuis la 4.2.0 |
+|---|---|
+| `logo-bizzoo.png` | `logo-bizzoo-market.png` |
+| `icon-192.png`, `icon-512.png` | `icone-market-192.png`, `icone-market-512.png` |
+| `icon-maskable-512.png` | `icone-market-maskable-512.png` |
+| `apple-touch-icon.png` | `apple-touch-icon-market.png` |
+
+Les **anciens noms restent écrits, avec le nouveau logo** : une adresse
+déjà partie — un e-mail, une icône posée sur un écran d'accueil — montre
+elle aussi le nouveau.
+
+### Les couleurs de la base
+
+12 boutiques et 14 catégories portaient encore un ancien bleu de BIZZOO
+(`#2550B7`, `#0B5CF5`, `#1176D8`) : leurs tuiles et leurs en-têtes
+restaient bleus. `supabase/couleurs-bizzoo-market.sql` les fait passer au
+turquoise `#007F7C`, qui devient aussi la couleur d'une boutique ou d'une
+catégorie créée sans en choisir. Les couleurs que les boutiques ont
+choisies (orange, vert, violet…) ne bougent pas. `schema.sql`,
+`categories-rangement.sql` et `categories-bizzoo.sql` posent le turquoise
+dès l'installation. Essai : `couleurs-bizzoo-market`.
+
+### Le reste
+
+- le nuancier des boutiques de l'admin ne propose plus l'ancien bleu ;
+- l'épingle des cartes (Leaflet) passe du bleu au turquoise ;
+- les commentaires du code qui décrivaient « le B au chariot » parlent
+  du monogramme.
+
+**Ce qui reste à l'enseigne** : les photos et vidéos qu'elle a déposées
+elle-même — les 4 vidéos du slider, les 4 photos et la vidéo de BIZZOO
+(Réglages) — sont des contenus, pas du code. Si l'une montre l'ancien
+logo, elle se remplace depuis BIZZOO Admin. Et sur l'hébergement, un
+fichier d'une ancienne version que le zip ne remplace pas reste en place
+tant qu'on ne l'efface pas.
 

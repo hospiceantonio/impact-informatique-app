@@ -198,7 +198,7 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .btn-ic-clair:disabled{opacity:.35}
 .btn-ic-danger{color:var(--rouge-fonce);background:var(--rouge-clair)}
 
-/* ---------- Le logo : le B au chariot, puis le nom ---------- */
+/* ---------- Le logo : le monogramme, puis le nom ---------- */
 /* La tuile est l'œuvre (ses coins arrondis sont dans l'image) ; le nom
    reste écrit : net à toutes les tailles, et rien à charger. Plus de
    points sous le nom depuis la 3.56.1 : les roues du B les portent. */

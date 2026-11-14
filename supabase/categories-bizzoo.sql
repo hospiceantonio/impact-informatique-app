@@ -61,7 +61,7 @@
 -- déjà : toute colonne ajoutée après coup doit être répétée ici, sinon
 -- elle n'arrive jamais dans une base en service.
 alter table public.categories add column if not exists icone    text not null default 'categories';
-alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
+alter table public.categories add column if not exists couleur  text not null default '#007F7C';
 alter table public.categories add column if not exists en_avant boolean not null default false;
 create index if not exists categories_en_avant
   on public.categories(en_avant) where en_avant;
@@ -360,7 +360,7 @@ grant execute on function public.produits_classes(text) to authenticated;
 -- l'état d'usine à chaque relecture. Ce qui est posé reste posé.
 insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre) values
   ('cat_mode',         null, 'Mode & Vêtements',                   'tshirt',   '#6C3FBF', true,   1),
-  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#0B5CF5', true,   2),
+  ('cat_hightech',     null, 'High-Tech & Électronique',           'portable', '#007F7C', true,   2),
   ('cat_auto',         null, 'Auto & Moto',                        'voiture',  '#001450', true,   3),
   ('cat_maison',       null, 'Maison & Jardin',                    'maison',   '#0F9D58', true,   4),
   ('cat_beaute',       null, 'Beauté & Bien-être',                 'goutte',   '#D81B60', true,   5),

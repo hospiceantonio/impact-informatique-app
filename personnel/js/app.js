@@ -177,7 +177,7 @@ const App = (() => {
     const lateral = document.getElementById("menu-lateral");
     let groupe = "";
     UI.vider(lateral,
-      h("a", { class: "logo", href: "#/" }, h("img", { src: "icons/logo-bizzoo.png", alt: "" }),
+      h("a", { class: "logo", href: "#/" }, h("img", { src: "icons/logo-bizzoo-market.png", alt: "" }),
         h("span", {}, h("b", {}, "BIZZOO"), h("small", {}, "Personnel"))),
       items.map((m) => {
         const titre = m.groupe && m.groupe !== groupe ? h("div", { class: "titre-groupe" }, m.groupe) : null;

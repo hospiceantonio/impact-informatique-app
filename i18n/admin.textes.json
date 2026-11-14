@@ -513,7 +513,6 @@
  "BIZZOO voit votre position tant que cette page reste ouverte. Avec l'application BIZZOO Admin, elle part même application fermée.": "admin/js/vues/livraisons.js:595",
  "BIZZOO voit votre position, même application fermée, pour vous proposer les courses les plus proches. Éteignez en fin de journée.": "admin/js/vues/livraisons.js:594",
  "bizzoo-conditions-publication:": "admin/js/conditions-ugc.js:6",
- "Bleu": "admin/js/vues/boutiques.js:33",
  "Bleu nuit": "admin/js/vues/boutiques.js:36",
  "Bon à savoir": "admin/js/vues/comptes.js:708",
  "Bonjour": "admin/js/vues/commandes.js:50",

@@ -8,7 +8,7 @@ const UI = (() => {
   const $$ = (sel, base) => Array.from((base || document).querySelectorAll(sel));
   const e = Utils.echapper;
 
-  /* ---------- Le logo : le B au chariot, puis le nom ---------- */
+  /* ---------- Le logo : le monogramme, puis le nom ---------- */
 
   /**
    * LE NOM BIZZOO, écrit et non dessiné : « Bizz » en bleu, « oo » en
@@ -16,7 +16,7 @@ const UI = (() => {
    * tailles, ne pèse rien, et s'affiche sans réseau comme sans fichier.
    *
    * Les deux points qu'il portait dessous sont partis avec la 3.56.1 :
-   * le logo, c'est désormais le B au chariot devant le nom (« logo() »),
+   * le logo, c'est désormais le monogramme devant le nom (« logo() »),
    * et les deux roues orange du B disent ce que disaient les points.
    */
   /* (4.0.0) LE NOM DE LA CHARTE BIZZOO MARKET : « BIZZOO » en capitales
@@ -38,24 +38,24 @@ const UI = (() => {
    */
   function marque(taille = 40) {
     return (
-      '<img class="marque" src="icons/icon-192.png" alt="" aria-hidden="true"' +
+      '<img class="marque" src="icons/icone-market-192.png" alt="" aria-hidden="true"' +
       ' width="' + taille + '" height="' + taille + '">'
     );
   }
 
   /**
-   * LE LOGO DE BIZZOO : la tuile du B au chariot, puis le nom — et sous
+   * LE LOGO DE BIZZOO : le monogramme de BIZZOO Market, puis le nom — et sous
    * le nom, le slogan de l'enseigne quand on en passe un. Le slogan
    * appartient au logo : il se cale sous le nom, à droite de la tuile.
    *
-   * La tuile vient de « icons/logo-bizzoo.png », que tools/make-icons.js
+   * La tuile vient de « icons/logo-bizzoo-market.png », que tools/make-icons.js
    * tire de l'œuvre comme toutes les icônes ; le service worker la garde
    * hors connexion. « classe » passe au nom : « clair » sur un fond bleu.
    */
   function logo(sous, classe) {
     return (
       '<span class="logo' + (sous ? " logo-avec-sous" : "") + '">' +
-        '<img class="logo-tuile" src="icons/logo-bizzoo.png" alt="" aria-hidden="true"' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo-market.png" alt="" aria-hidden="true"' +
         ' width="40" height="40">' +
         '<span class="logo-textes">' +
           motSymbole(classe) +
