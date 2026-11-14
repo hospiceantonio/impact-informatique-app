@@ -8127,6 +8127,13 @@ pétrole, sections qui alternent blanc et fond clair, pied bleu pétrole
 à texte blanc. La page 404 et les pages légales prennent les mêmes
 couleurs. Plus de grands aplats noirs nulle part.
 
+**Les captures sont refaites** à la charte lumineuse, sur la vraie
+boutique et ses vraies photos : les quatre écrans de la vitrine
+(`vitrine/ecran-*.jpg`, le paiement toujours aux coordonnées fictives de
+`tools/galerie-ecrans.mjs`) et l'image de partage (`vitrine/partage.jpg`,
+92 Ko : fond clair, tuile du B, téléphone qui montre le nouvel accueil),
+aux adresses en `?v=4.3.0`.
+
 ### Les bancs
 
 `banc-da` vérifie la nouvelle charte : la barre turquoise et ses boutons
