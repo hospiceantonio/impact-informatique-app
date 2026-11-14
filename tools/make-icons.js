@@ -330,6 +330,10 @@ async function atelier([b64, R, demandes]) {
   }
   console.log("Tuile détourée : " + bilan.cote + " px de côté, " + (bilan.dehors * 100).toFixed(1) + " % rendu transparent.");
   console.log(ecrits + " icônes écrites depuis " + path.basename(SOURCE) + ".");
+  /* (4.3.1) Le logo B, riche en dégradés, donne des icônes lourdes :
+     on les allège (palette de 256 couleurs, la différence ne se voit
+     pas). Voir tools/alleger-images.sh. */
+  require("child_process").spawnSync("bash", [path.join(__dirname, "alleger-images.sh")], { stdio: "inherit" });
 })().catch((err) => {
   console.error(err && err.message ? err.message : err);
   process.exit(1);

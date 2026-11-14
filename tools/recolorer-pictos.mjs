@@ -20,6 +20,7 @@
      PLAYWRIGHT=<chemin>/playwright-core/index.js node tools/recolorer-pictos.mjs
    ========================================================= */
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -96,3 +97,5 @@ for (const f of fichiers) {
 }
 await nav.close();
 console.log("\n" + n + " pictogrammes recolorés, dans client/ et admin/.");
+/* (4.3.1) Puis allégés, avec les icônes : voir tools/alleger-images.sh. */
+spawnSync("bash", [path.join(RACINE, "tools", "alleger-images.sh")], { stdio: "inherit" });
