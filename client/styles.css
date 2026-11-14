@@ -2364,7 +2364,10 @@ html,body{overscroll-behavior-x:none}
 .re-contester-zone{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .re-contester-zone textarea{width:100%;box-sizing:border-box;border:1px solid var(--trait);border-radius:8px;padding:8px;font:inherit}
 .re-encaisse-signale{margin:6px 0 0}
-.re-barre span,.re-barre strong{text-decoration:line-through;opacity:.6}
+/* (4.3.0) La ligne du reste, barrée une fois la commande soldée. Elle s'appelait
+   « .re-barre », comme la barre de suivi de « Mes commandes » : tous les
+   mots de celle-ci sortaient barrés et pâlis. */
+.re-reste-barre span,.re-reste-barre strong{text-decoration:line-through;opacity:.6}
 .re-soldee{display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;color:var(--vert)}
 
 /* =========================================================
@@ -2633,3 +2636,9 @@ body:has(.accueil-salut) .topbar{box-shadow:none}
   .re-frise .re-etape{font-size:10px;letter-spacing:-.02em}
   .re-etape-heure{font-size:10px}
 }
+
+/* (4.3.0) L'heure sous chaque palier franchi de la barre de « Mes commandes ». */
+.re-barre-heure{display:block;margin-top:2px;font-size:10px;font-weight:600;color:var(--encre-moyenne);
+  font-variant-numeric:tabular-nums}
+.re-barre-mots span.ici .re-barre-heure{color:var(--bleu)}
+

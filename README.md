@@ -8033,3 +8033,23 @@ avant.
 
 Banc : `banc-vendeurs-a-payer`.
 
+### Les heures du suivi, aussi dans « Mes commandes »
+
+Les heures de chaque étape (4.1.0) ne se lisaient qu'en ouvrant une
+commande. La barre de la liste « Mes commandes » — Payé, Préparé, En
+route, Livré — porte maintenant **l'heure sous chaque palier franchi** :
+le client voit d'un coup d'œil quand sa commande est partie. Pour une
+commande qui traverse plusieurs boutiques, l'heure d'un palier est celle
+de la **dernière** boutique à l'avoir franchi, comme la barre suit la
+moins avancée. Dans le reçu, la frise prend les mots du client :
+« Commande confirmée » et « Livrée » (« remise » est le mot de la
+boutique).
+
+**Un défaut trouvé en chemin.** Les mots de cette barre sortaient tous
+**barrés et pâlis** depuis la 3.59.0 : une règle faite pour barrer la
+ligne du reste, une fois la commande soldée, s'appelait elle aussi
+`.re-barre`. Elle s'appelle désormais `.re-reste-barre`, et le banc
+vérifie que les mots de la barre ne sont plus barrés.
+
+Banc : `banc-idees-maquettes` (la barre, ses heures, ses mots).
+

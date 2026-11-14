@@ -67,7 +67,7 @@ const ilYa = (min) => new Date(Date.now() - min * 60000).toISOString();
 
 async function ouvrir({ hash = "", panier = null, commandes = null, suivi = null, heures = null,
                         session = false, base = null, largeur = 390 } = {}) {
-  const ctx = await nav.newContext({ viewport: { width: largeur, height: 900 }, locale: "fr-FR" });
+  const ctx = await nav.newContext({ viewport: { width: largeur, height: 900 }, locale: "fr-FR", deviceScaleFactor: process.env.CAPTURES ? 2 : 1 });
   const page = await ctx.newPage();
   const erreurs = [];
   const note = { heures: 0, lectures: [] };
@@ -261,6 +261,51 @@ titre("5. Le suivi en frise, avec l'heure de chaque étape");
   const h = await page.evaluate(() => [...document.querySelectorAll(".re-frise .re-etape-heure")].map((x) => x.textContent));
   ok(note.lectures.some((s) => /heures_etapes/.test(s)), "la lecture des commandes demande « heures_etapes »");
   ok(h.length === 3, "les trois étapes franchies portent leur heure (" + h.join(" ") + ")");
+  const mots = await page.evaluate(() => [...document.querySelectorAll(".re-frise .re-etape-mot")].map((x) => x.textContent));
+  if (process.env.CAPTURES) {
+    const f = await page.$(".re-suivi");
+    if (f) { await f.scrollIntoViewIfNeeded(); await page.screenshot({ path: process.env.CAPTURES + "/recu-frise.png" }); }
+  }
+  ok(mots[0] === "Commande confirmée" && mots[4] === "Livrée",
+    "(4.3.0) les mots du client : « Commande confirmée » … « Livrée » (" + mots.join(", ") + ")");
+  await ctx.close();
+}
+{
+  /* (4.3.0) « Mes commandes » : l'heure sous chaque palier franchi de la
+     barre — deux boutiques, l'heure est celle de la dernière. */
+  const ligne = (b, etat) => ({ boutique_id: b, produit_id: "prod_riz", nom: "Riz", code: "riz",
+    reference: "", prix: 3500, quantite: 1, etat, confirme_le: null });
+  const quand = (h, m) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
+  const cmd = { id: "cmd_m", numero: "BZ-0M1", total: 7000, devise: "FCFA", etat: "payee", remarque: "", note: "",
+    cree_le: quand(9, 30), revendeur: false, client_nom: "Awa", client_tel: "0197000011", client_indicatif: "229",
+    client_adresse: "Cotonou", acompte: 7000, taux_acompte: 100, verse: 7000, restes: { reste: 0, boutiques: {} },
+    frais_livraison: 0, commande_lignes: [ligne("bou_a", "en_livraison"), ligne("bou_b", "en_livraison")],
+    heures_etapes: {
+      bou_a: { nouvelle: quand(9, 36), vue: quand(9, 38), preparee: quand(9, 42), en_livraison: quand(9, 58) },
+      bou_b: { nouvelle: quand(9, 36), vue: quand(9, 40), preparee: quand(9, 50), en_livraison: quand(10, 5) },
+    } };
+  const { page, ctx, erreurs } = await ouvrir({ hash: "#/mes-commandes", session: true,
+    base: (select, d) => d(/heures_etapes/.test(select) ? [cmd] : [{ ...cmd, heures_etapes: undefined }]) });
+  await page.waitForTimeout(1800);
+  const b = await page.evaluate(() => [...document.querySelectorAll(".re-barre-mots span")].map((s) => ({
+    mot: s.childNodes[0] ? s.childNodes[0].textContent : "",
+    heure: (s.querySelector(".re-barre-heure") || {}).textContent || "" })));
+  ok(b.length === 4, "la barre de la commande, quatre paliers (" + b.map((x) => x.mot).join(" ") + ")");
+  ok(b[0] && b[0].heure === "09:36" && b[1].heure === "09:50" && b[2].heure === "10:05",
+    "payé 09:36, préparé 09:50, en route 10:05 — l'heure de la dernière boutique (" +
+    b.map((x) => x.heure || "—").join(" ") + ")");
+  ok(b[3] && b[3].heure === "", "rien sous « Livré », pas encore franchi");
+  /* (4.3.0) Le défaut trouvé en chemin : une règle faite pour barrer la
+     ligne du reste, une fois la commande soldée, portait le même nom que
+     cette barre — ses mots sortaient tous barrés et pâlis. */
+  const barre = await page.evaluate(() => [...document.querySelectorAll(".re-barre-mots span")].map((x) => {
+    const st = getComputedStyle(x);
+    return st.textDecorationLine + "/" + st.opacity;
+  }));
+  ok(barre.length === 4 && barre.every((x) => !/line-through/.test(x) && /\/1$/.test(x)),
+    "(4.3.0) les mots de la barre ne sont plus barrés ni pâlis (" + barre.join(", ") + ")");
+  if (process.env.CAPTURES) await page.screenshot({ path: process.env.CAPTURES + "/mes-commandes-heures.png" });
+  ok(!erreurs.length, "sans erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
 {
