@@ -13,7 +13,7 @@ const VueConnexion = (() => {
   function cadre(...contenu) {
     return h("div", { class: "ecran-connexion" },
       h("div", { class: "carte" },
-        h("div", { class: "marque" }, h("img", { src: "icons/icon-192.png", alt: "" }),
+        h("div", { class: "marque" }, h("img", { src: "icons/icone-market-192.png", alt: "" }),
           h("h1", { style: { fontSize: "20px" } }, "BIZZOO Personnel"),
           h("p", { class: "doux petit" }, "L'espace interne des employés de BIZZOO")),
         ...contenu),

@@ -26,11 +26,11 @@ const VueBoutiques = (() => {
 
   /* (4.0.0) Le turquoise et l'anthracite de BIZZOO Market ouvrent la
      liste ; les autres teintes servent à distinguer les secteurs d'un
-     coup d'œil. Le « Bleu » est l'ancien bleu de BIZZOO (3.53 à 3.81).
-     Une boutique enregistrée avec une couleur qui n'est plus proposée
-     (l'ancien #0B5CF5, par exemple) la garde — voir listeCouleurs. */
+     coup d'œil. (4.2.0) L'ancien bleu de BIZZOO n'est plus proposé : plus
+     rien de l'ancienne charte. Une boutique enregistrée avec une couleur
+     qui n'est plus proposée la garde — voir listeCouleurs. */
   const COULEURS = [
-    ["#007F7C", "Turquoise BIZZOO"], ["#0F1E26", "Anthracite BIZZOO"], ["#F96302", "Orange"], ["#2550B7", "Bleu"], ["#0F9D58", "Vert"],
+    ["#007F7C", "Turquoise BIZZOO"], ["#0F1E26", "Anthracite BIZZOO"], ["#F96302", "Orange"], ["#0F9D58", "Vert"],
     ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
     ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
     ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],

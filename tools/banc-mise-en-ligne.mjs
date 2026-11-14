@@ -355,7 +355,7 @@ titre("5. Le site s'ouvre, à ses deux adresses");
   ok(l404.liens.join(",") === DOMAINE + "/client/," + DOMAINE + "/",
     "et ses liens ramènent à la boutique et à l'accueil (" + l404.liens.join(", ") + ")");
   ok(l404.police, "dans les polices de la charte, même à cette profondeur" + (l404.police ? "" : " — " + l404.polices));
-  ok(l404.logo && l404.logo.charge && l404.logo.src === "/client/icons/logo-bizzoo.png",
+  ok(l404.logo && l404.logo.charge && l404.logo.src === "/client/icons/logo-bizzoo-market.png",
     "et avec son logo, demandé depuis la racine (" + (l404.logo ? l404.logo.src : "aucun") + ")");
   await ctx.close();
 }

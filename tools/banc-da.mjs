@@ -150,7 +150,7 @@ async function debordement(page) {
    elle-même, chargée, et le fichier qu'elle montre — celui du logo, pas
    l'icône de l'application, qui porte dans l'admin sa pastille
    « réglages ». */
-const TUILE = /(^|\/)icons\/logo-bizzoo\.png$/;
+const TUILE = /(^|\/)icons\/logo-bizzoo-market\.png$/;
 async function lireLogo(page, selecteur) {
   return page.evaluate((sel) => {
     const zone = document.querySelector(sel);

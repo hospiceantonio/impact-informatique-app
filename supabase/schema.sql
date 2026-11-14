@@ -79,7 +79,7 @@ create table if not exists public.boutiques (
   slogan      text not null default '',
   description text not null default '',
   icone       text not null default 'magasin', -- icône affichée chez le client
-  couleur     text not null default '#0B5CF5',
+  couleur     text not null default '#007F7C',
   logo        text not null default '',        -- image dans le bucket (remplace l'icône)
   actif       boolean not null default true,   -- une boutique fermée disparaît du client
   ordre       int not null default 0,
@@ -230,7 +230,7 @@ begin
 end $$;
 -- La charte a changé : une boutique sans couleur choisie prend le bleu
 -- BIZZOO. Celles déjà enregistrées gardent la leur.
-alter table public.boutiques alter column couleur set default '#0B5CF5';
+alter table public.boutiques alter column couleur set default '#007F7C';
 create index if not exists boutiques_ordre on public.boutiques(ordre);
 
 -- La boutique d'origine devient la première du lot, avec tous ses réglages.
@@ -240,7 +240,7 @@ insert into public.boutiques (
   facebook, instagram, tiktok, youtube, snapchat,
   latitude, longitude, photos, telephones, adresses, taux_marge)
 select 'bou_informatique', 'INFORMATIQUE ET ELECTRONIQUE', 'Informatique et électronique',
-       b.slogan, b.description, 'magasin', '#1176D8', true, 1,
+       b.slogan, b.description, 'magasin', '#007F7C', true, 1,
        b.tel, b.whatsapp, b.indicatif, b.devise, b.adresse, b.horaires,
        b.facebook, b.instagram, b.tiktok, b.youtube, b.snapchat,
        b.latitude, b.longitude, b.photos, b.telephones, b.adresses, b.taux_marge
@@ -280,7 +280,7 @@ create table if not exists public.categories (
   -- sert plus qu'aux applications d'avant la 3.56 : les tuiles ont
   -- toutes le même fond.
   icone       text not null default 'categories',
-  couleur     text not null default '#0B5CF5',
+  couleur     text not null default '#007F7C',
   -- LA PHOTO DE LA TUILE, facultative (voir plus bas).
   image       text not null default '',
   -- Les trente ne tiennent pas sur un accueil. Celles-ci s'y montrent ;
@@ -290,7 +290,7 @@ create table if not exists public.categories (
   cree_le     timestamptz not null default now()
 );
 alter table public.categories add column if not exists icone    text not null default 'categories';
-alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
+alter table public.categories add column if not exists couleur  text not null default '#007F7C';
 alter table public.categories add column if not exists en_avant boolean not null default false;
 
 -- LA PHOTO DE LA TUILE : sur l'accueil et l'écran « Catégories », elle
@@ -11315,34 +11315,34 @@ grant execute on function public.produits_populaires(int) to anon, authenticated
 -- reçoit les icônes par « categories-icones.sql », et la liste rangée
 -- par « categories-rangement.sql ».
 insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
-  ('cat_hightech',     null, 'Informatique & Électronique',   'informatique',     '#0B5CF5', true,   1, ''),
+  ('cat_hightech',     null, 'Informatique & Électronique',   'informatique',     '#007F7C', true,   1, ''),
   ('cat_logiciels',    null, 'Logiciels & Solutions pro',     'informatique',     '#0B7C8C', false,  2, ''),
-  ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',          '#2550B7', false,  4, ''),
-  ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',         '#2550B7', false,  5, ''),
+  ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',          '#007F7C', false,  4, ''),
+  ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',         '#007F7C', false,  5, ''),
   ('cat_bebe',         null, 'Bébé & Enfants',                'bebe-enfant',      '#3F51B5', false,  6, ''),
   ('cat_livres',       null, 'Livres & Fournitures scolaires', 'livres-education', '#7A4A32', false, 7, ''),
-  ('cat_formation',    null, 'Formation & Cours',             'formation',        '#2550B7', false,  8, ''),
+  ('cat_formation',    null, 'Formation & Cours',             'formation',        '#007F7C', false,  8, ''),
   ('cat_maison',       null, 'Maison & Déco',                 'maison-deco',      '#0F9D58', true,   9, ''),
-  ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',        '#2550B7', false, 10, ''),
+  ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',        '#007F7C', false, 10, ''),
   ('cat_bricolage',    null, 'Bricolage & Matériaux',         'bricolage',        '#546E7A', false, 11, ''),
   ('cat_auto',         null, 'Auto & Moto',                   'auto-moto',        '#001450', true,  12, ''),
-  ('cat_transport',    null, 'Transport & Location',          'transport',        '#2550B7', false, 13, ''),
+  ('cat_transport',    null, 'Transport & Location',          'transport',        '#007F7C', false, 13, ''),
   ('cat_mode',         null, 'Mode & Vêtements',              'mode',             '#6C3FBF', true,  14, ''),
   ('cat_bijoux',       null, 'Bijoux & Accessoires',          'bijoux',           '#6C3FBF', false, 15, ''),
   ('cat_beaute',       null, 'Beauté & Bien-être',            'beaute',           '#D81B60', true,  16, ''),
   ('cat_supermarche',  null, 'Supermarché & Épicerie',        'alimentation',     '#E62329', true,  17, ''),
   ('cat_restauration', null, 'Restauration',                  'restauration',     '#F96302', true,  18, ''),
-  ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',      '#2550B7', false, 19, ''),
+  ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',      '#007F7C', false, 19, ''),
   ('cat_animaux',      null, 'Animaux',                       'animaux',          '#0F9D58', false, 20, ''),
   ('cat_sport',        null, 'Sport & Loisirs',               'sport-loisirs',    '#9A6B00', false, 21, ''),
-  ('cat_musique',      null, 'Musique & Instruments',         'musique',          '#2550B7', false, 22, ''),
-  ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',        '#2550B7', false, 23, ''),
-  ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',           '#2550B7', false, 24, ''),
-  ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel',     '#2550B7', false, 25, ''),
-  ('cat_bureau',       null, 'Équipements de bureau',         'bureau',           '#2550B7', false, 26, ''),
-  ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro',     '#2550B7', false, 27, ''),
-  ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',       '#2550B7', false, 28, ''),
-  ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',       '#2550B7', false, 29, ''),
+  ('cat_musique',      null, 'Musique & Instruments',         'musique',          '#007F7C', false, 22, ''),
+  ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',        '#007F7C', false, 23, ''),
+  ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',           '#007F7C', false, 24, ''),
+  ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel',     '#007F7C', false, 25, ''),
+  ('cat_bureau',       null, 'Équipements de bureau',         'bureau',           '#007F7C', false, 26, ''),
+  ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro',     '#007F7C', false, 27, ''),
+  ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',       '#007F7C', false, 28, ''),
+  ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',       '#007F7C', false, 29, ''),
   ('cat_services',     null, 'Services & Prestataires',       'services',         '#0B7C8C', true,  30, '')
 on conflict (id) do nothing;
 
@@ -26125,3 +26125,21 @@ begin
 end $$;
 revoke all on function public.heures_etapes_suivies(text, text) from public;
 grant execute on function public.heures_etapes_suivies(text, text) to anon, authenticated;
+
+-- =========================================================
+-- (4.2.0) PLUS RIEN DE L'ANCIENNE CHARTE
+-- =========================================================
+-- Une boutique ou une catégorie créée sans couleur prend le turquoise de
+-- BIZZOO Market, et plus un ancien bleu.
+alter table public.boutiques  alter column couleur set default '#007F7C';
+alter table public.categories alter column couleur set default '#007F7C';
+
+-- Celles qui portent encore un ancien bleu de BIZZOO passent au
+-- turquoise : #2550B7 (3.53 à 3.81), #0B5CF5 et #1176D8 (les couleurs
+-- par défaut d'avant), #0047D9 (la première charte). Les couleurs que les
+-- boutiques ont choisies elles-mêmes (orange, vert, violet…) ne bougent
+-- pas. Relançable : la seconde fois, il n'y a plus rien à changer.
+update public.boutiques  set couleur = '#007F7C'
+ where upper(couleur) in ('#2550B7', '#0B5CF5', '#1176D8', '#0047D9');
+update public.categories set couleur = '#007F7C'
+ where upper(couleur) in ('#2550B7', '#0B5CF5', '#1176D8', '#0047D9');

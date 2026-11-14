@@ -57,7 +57,7 @@
 -- =========================================================
 
 alter table public.categories add column if not exists icone    text not null default 'categories';
-alter table public.categories add column if not exists couleur  text not null default '#0B5CF5';
+alter table public.categories add column if not exists couleur  text not null default '#007F7C';
 alter table public.categories add column if not exists en_avant boolean not null default false;
 alter table public.categories add column if not exists image    text not null default '';
 
@@ -91,20 +91,20 @@ begin
   -- « image » : l'illustration d'avant qui dit la même chose, pour les
   -- applications 3.54 et 3.55 seules.
   insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, ordre, image) values
-    ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',      '#2550B7', false,  4, ''),
-    ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',     '#2550B7', false,  5, ''),
-    ('cat_formation',    null, 'Formation & Cours',             'formation',    '#2550B7', false,  8, 'img/categories/livres.jpg'),
-    ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',    '#2550B7', false, 10, 'img/categories/plante.jpg'),
-    ('cat_transport',    null, 'Transport & Location',          'transport',    '#2550B7', false, 13, 'img/categories/moto.jpg'),
-    ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',  '#2550B7', false, 19, 'img/categories/plante.jpg'),
-    ('cat_musique',      null, 'Musique & Instruments',         'musique',      '#2550B7', false, 22, ''),
-    ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',    '#2550B7', false, 23, 'img/categories/panier.jpg'),
-    ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',       '#2550B7', false, 24, ''),
-    ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel', '#2550B7', false, 25, ''),
-    ('cat_bureau',       null, 'Équipements de bureau',         'bureau',       '#2550B7', false, 26, 'img/categories/mallette.jpg'),
-    ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro', '#2550B7', false, 27, 'img/categories/outils.jpg'),
-    ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',   '#2550B7', false, 28, ''),
-    ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',   '#2550B7', false, 29, '')
+    ('cat_energie',      null, 'Énergie solaire & Électricité', 'energie',      '#007F7C', false,  4, ''),
+    ('cat_securite',     null, 'Sécurité & Surveillance',       'securite',     '#007F7C', false,  5, ''),
+    ('cat_formation',    null, 'Formation & Cours',             'formation',    '#007F7C', false,  8, 'img/categories/livres.jpg'),
+    ('cat_jardinage',    null, 'Jardinage & Espaces verts',     'jardinage',    '#007F7C', false, 10, 'img/categories/plante.jpg'),
+    ('cat_transport',    null, 'Transport & Location',          'transport',    '#007F7C', false, 13, 'img/categories/moto.jpg'),
+    ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',  '#007F7C', false, 19, 'img/categories/plante.jpg'),
+    ('cat_musique',      null, 'Musique & Instruments',         'musique',      '#007F7C', false, 22, ''),
+    ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',    '#007F7C', false, 23, 'img/categories/panier.jpg'),
+    ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',       '#007F7C', false, 24, ''),
+    ('cat_evenementiel', null, 'Événementiel & Décoration',     'evenementiel', '#007F7C', false, 25, ''),
+    ('cat_bureau',       null, 'Équipements de bureau',         'bureau',       '#007F7C', false, 26, 'img/categories/mallette.jpg'),
+    ('cat_materiel_pro', null, 'Matériel professionnel',        'materiel-pro', '#007F7C', false, 27, 'img/categories/outils.jpg'),
+    ('cat_imprimerie',   null, 'Imprimerie & Communication',    'imprimante',   '#007F7C', false, 28, ''),
+    ('cat_grossistes',   null, 'Grossistes & Fournisseurs',     'grossistes',   '#007F7C', false, 29, '')
   on conflict (id) do nothing;
 
   -- Leurs rayons de départ. La place 1 de Formation & Cours et de

@@ -28,7 +28,7 @@
    L'admin et BIZZOO Personnel reçoivent la même icône, marquée d'une
    pastille turquoise « réglages » en bas à droite — le coin que le
    monogramme laisse libre : sur un même téléphone, on distingue les
-   applications d'un coup d'œil. Le LOGO (icons/logo-bizzoo.png), lui,
+   applications d'un coup d'œil. Le LOGO (icons/logo-bizzoo-market.png), lui,
    est le monogramme seul, sans fond ni pastille : la marque, pas
    l'icône d'une application.
 
@@ -67,12 +67,25 @@ const LARGEUR_MOTIF = { tuile: 0.70, plein: 0.70, maskable: 0.60, rond: 0.62, "p
 /* Le rayon des coins de la tuile, en fraction du côté. */
 const RAYON_TUILE = 0.225;
 
+/* (4.2.0) DES NOMS NEUFS POUR LE LOGO DE BIZZOO MARKET. L'hébergement
+   laisse un navigateur garder une image une semaine : sous l'ancien nom,
+   la vitrine et les applications montraient encore l'ancien logo, gardé
+   en mémoire. Sous un nom neuf, aucun cache ne peut le servir. Les ANCIENS
+   NOMS sont écrits aussi, avec le nouveau logo : une adresse déjà partie
+   (un e-mail, une icône d'écran d'accueil) le montre aussi. */
 const CIBLES_PWA = [
-  ["icon-192.png", 192, "tuile"],
-  ["icon-512.png", 512, "tuile"],
-  ["icon-maskable-512.png", 512, "maskable"],
-  ["apple-touch-icon.png", 180, "plein"],
+  ["icone-market-192.png", 192, "tuile"],
+  ["icone-market-512.png", 512, "tuile"],
+  ["icone-market-maskable-512.png", 512, "maskable"],
+  ["apple-touch-icon-market.png", 180, "plein"],
 ];
+const ANCIENS_NOMS = {
+  "icone-market-192.png": "icon-192.png",
+  "icone-market-512.png": "icon-512.png",
+  "icone-market-maskable-512.png": "icon-maskable-512.png",
+  "apple-touch-icon-market.png": "apple-touch-icon.png",
+  "logo-bizzoo-market.png": "logo-bizzoo.png",
+};
 const DENSITES = [
   ["mipmap-mdpi", 48, 108],
   ["mipmap-hdpi", 72, 162],
@@ -318,7 +331,7 @@ async function atelier([b64, R, demandes]) {
   for (const app of ["client", "admin", "personnel"]) {
     const marquee = app !== "client";
     for (const [nom, taille, forme] of CIBLES_PWA) demandes.push([app + "|pwa|" + nom, taille, forme, marquee]);
-    demandes.push([app + "|pwa|logo-bizzoo.png", 192, "logo", false]);
+    demandes.push([app + "|pwa|logo-bizzoo-market.png", 192, "logo", false]);
     if (app === "personnel") continue;          // pas d'application Android
     for (const [densite, classique, adaptatif] of DENSITES) {
       demandes.push([app + "|" + densite + "|ic_launcher.png", classique, "tuile", marquee]);
@@ -346,6 +359,10 @@ async function atelier([b64, R, demandes]) {
     fs.mkdirSync(path.dirname(cible), { recursive: true });
     fs.writeFileSync(cible, Buffer.from(url.split(",")[1], "base64"));
     ecrits++;
+    if (dossier === "pwa" && ANCIENS_NOMS[nom]) {
+      fs.writeFileSync(path.join(path.dirname(cible), ANCIENS_NOMS[nom]), Buffer.from(url.split(",")[1], "base64"));
+      ecrits++;
+    }
   }
   const notif = path.join(RACINE, "android", "app", "src", "main", "res", "drawable", "ic_notification.xml");
   fs.writeFileSync(notif,

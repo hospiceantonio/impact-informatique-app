@@ -10,12 +10,12 @@
   "background_color": "#0F1E26",
   "theme_color": "#0F1E26",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icons/icone-market-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icone-market-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icone-market-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Mails", "url": "./index.html#/mails", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Discussions", "url": "./index.html#/discussions", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Mails", "url": "./index.html#/mails", "icons": [{ "src": "icons/icone-market-192.png", "sizes": "192x192" }] },
+    { "name": "Discussions", "url": "./index.html#/discussions", "icons": [{ "src": "icons/icone-market-192.png", "sizes": "192x192" }] }
   ]
 }

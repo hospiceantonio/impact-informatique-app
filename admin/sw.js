@@ -4,7 +4,7 @@
    vivent dans la base en ligne (jamais mises en cache).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "impact-admin-v150";
+const VERSION = "impact-admin-v151";
 
 const FICHIERS = [
   "./",
@@ -73,11 +73,11 @@ const FICHIERS = [
   "./js/vues/comptes.js",
   "./js/vues/reglages.js",
   "./js/app.js",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/icon-maskable-512.png",
-  "./icons/apple-touch-icon.png",
-  "./icons/logo-bizzoo.png",
+  "./icons/icone-market-192.png",
+  "./icons/icone-market-512.png",
+  "./icons/icone-market-maskable-512.png",
+  "./icons/apple-touch-icon-market.png",
+  "./icons/logo-bizzoo-market.png",
   /* LES ICÔNES DES CATÉGORIES (3.56) : celles des trois planches
      choisies par l'enseigne. Ce sont les tuiles de l'accueil : elles
      doivent être là dès la première ouverture hors connexion. Le
@@ -148,8 +148,8 @@ self.addEventListener("push", (ev) => {
   try { d = ev.data ? ev.data.json() : {}; } catch (_) { d = { corps: ev.data ? ev.data.text() : "" }; }
   ev.waitUntil(self.registration.showNotification(d.titre || "BIZZOO", {
     body: d.corps || "",
-    icon: "./icons/icon-192.png",
-    badge: "./icons/icon-192.png",
+    icon: "./icons/icone-market-192.png",
+    badge: "./icons/icone-market-192.png",
     tag: "bizzoo-" + (d.commande ? d.commande + "-" + (d.type || "") : (d.id || "notif")),
     renotify: true,
     requireInteraction: d.course === true,
