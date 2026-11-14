@@ -171,9 +171,9 @@ titre("2. Les écrans de parcours : pas de barre, une action en bas");
   ok(await barreVisible(page), "la fiche produit garde la barre de sa boutique");
   const a = await action(page);
   ok(!!a && /Ajouter au panier/.test(a.texte), "elle a « Ajouter au panier » en bas");
-  /* (4.0.0) L'« orange » des actions d'achat porte le turquoise
-     signature de la charte BIZZOO Market (#00CFCB). */
-  ok(!!a && a.orange && a.fond === "rgb(0, 207, 203)", "en turquoise signature, comme la charte");
+  /* (4.0.0) L'« orange » des actions d'achat porte le turquoise de la
+     charte BIZZOO Market (4.3.0 : le turquoise dominant #00C7C7). */
+  ok(!!a && a.orange && a.fond === "rgb(0, 199, 199)", "en turquoise dominant, comme la charte");
 
   /* L'ACTION NE SURVIT PAS À SON ÉCRAN. C'est le défaut qui se voit le
      moins en développant — on va toujours de l'avant — et le plus en
@@ -195,11 +195,11 @@ titre("2. Les écrans de parcours : pas de barre, une action en bas");
 {
   const { page, ctx } = await ouvrir({ hash: "#/commande", panier: PANIER });
   const a = await action(page);
-  /* LE PAIEMENT A LA COULEUR DES BOUTONS PLEINS — le turquoise foncé
-     #007F7C, texte blanc, depuis la 4.0.0 : le turquoise vif ne va qu'à
-     ce qui ajoute au panier et au passage de commande. */
-  ok(!!a && /^Payer/.test(a.texte) && !a.orange && a.fond === "rgb(0, 127, 124)",
-    "le paiement a « Payer … », en turquoise foncé (" + (a && a.texte) + ")");
+  /* LE PAIEMENT A LA COULEUR DES BOUTONS PLEINS — le bleu pétrole
+     #0A7C88 (4.3.0), texte blanc : le turquoise vif ne va qu'à ce qui
+     ajoute au panier et au passage de commande. */
+  ok(!!a && /^Payer/.test(a.texte) && !a.orange && a.fond === "rgb(10, 124, 136)",
+    "le paiement a « Payer … », en bleu pétrole (" + (a && a.texte) + ")");
   ok(!!a && /300\s000/.test(a.texte), "et le montant est dans le bouton");
   await ctx.close();
 }

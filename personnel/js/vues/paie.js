@@ -158,7 +158,7 @@ const VuePaie = (() => {
       f.statut === "validee" ? h("div", { class: "info non-imprime" }, "Validée : elle se versera sur le solde de l'employé le " + UI.date(dixDuMoisSuivant(f.mois)) + ".") : null,
       h("div", { class: "fiche-paie" },
         h("div", { class: "en-tete" },
-          h("div", { class: "ligne" }, h("img", { src: "icons/icone-market-192.png", alt: "" }),
+          h("div", { class: "ligne" }, h("img", { src: "icons/icone-b-192.png", alt: "" }),
             h("div", {}, h("div", { class: "gras", style: { fontSize: "18px" } }, entreprise.raison_sociale),
               h("div", { class: "doux petit" }, entreprise.site),
               mentions.length ? h("div", { class: "doux tres-petit" }, mentions.join(" · ")) : null)),

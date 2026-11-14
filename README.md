@@ -8053,3 +8053,87 @@ vérifie que les mots de la barre ne sont plus barrés.
 
 Banc : `banc-idees-maquettes` (la barre, ses heures, ses mots).
 
+
+## La charte lumineuse et le logo B (4.3.0)
+
+Le propriétaire a trouvé l'anthracite de la 4.0.0 trop sombre et a envoyé
+une nouvelle direction artistique, « version lumineuse »
+(`docs/da-bizzoo-market-lumineuse.pdf`), puis le nouveau logo, le B seul
+sur sa tuile turquoise (`docs/da-logo-b.pdf`). Les deux partent avec la
+4.3.0. Aucun écran, aucune règle, aucune donnée ne change : seulement le
+visuel.
+
+### Les couleurs
+
+| Rôle | Avant (4.0.0) | Maintenant |
+|---|---|---|
+| Turquoise dominant (`--orange`, `--bleu-400`) | `#00CFCB` | `#00C7C7` |
+| Boutons à texte blanc, prix, liens (`--bleu`) | `#007F7C` | `#0A7C88` (4,94:1 sur blanc) |
+| Texte anthracite (`--encre`, `--bleu-900`) | `#0F1E26` | `#20333B` |
+| Fond clair (`--fond`) | `#F2F7F9` | `#E9F9FB` |
+| Tuiles des catégories (`--tuile`) | `#E6F4F6` | blanc |
+| Rouge (promotions, alertes) | `#D92D20` | `#DC2626` |
+
+- **La barre du haut** n'est plus anthracite : un dégradé turquoise
+  (`#00C7C7` → `#0BB5BF`), texte et boutons anthracite (6,25:1). Le
+  bonjour de l'accueil la prolonge. La barre du navigateur
+  (`theme-color`, manifestes) et le fond de démarrage Android
+  (`fond_demarrage`, qui borde aussi l'encoche) prennent le même turquoise.
+- **Les boutons** : turquoise à texte anthracite pour l'achat, bleu
+  pétrole à texte blanc pour le reste — jamais de blanc sur le turquoise
+  vif (2,1:1).
+- **Les titres** sont en Poppins, comme la direction artistique le
+  demande ; Montserrat ne sert plus qu'au nom « BIZZOO Market » du logo.
+- **Les pictogrammes des catégories** : leur partie sombre passe en bleu
+  pétrole (`tools/recolorer-pictos.mjs`), l'accent en turquoise `#00C7C7`.
+- La couleur « Anthracite BIZZOO » des boutiques, dans l'admin, devient
+  `#20333B` (aucune boutique ne portait l'ancienne). Le turquoise des
+  boutiques et des catégories en base (`#007F7C`) ne change pas : ce sont
+  des données, il porte le texte blanc à 4,9:1.
+
+### Le logo B et les icônes
+
+`tools/make-icons.js` part désormais du logo officiel,
+`tools/bizzoo-logo-b.png` (l'image du PDF du propriétaire, telle quelle).
+L'ancien monogramme (`tools/bizzoo-monogramme.png`) est retiré. Le logo
+est une tuile complète, fond compris ; le script :
+
+1. **détoure** le blanc autour de la tuile (atteint depuis les quatre
+   coins : le B, blanc lui aussi, n'y est pas relié) ;
+2. **prolonge** le fond de la tuile au-delà de ses bords, en douceur, pour
+   que chaque forme puisse réduire le logo et le faire tenir dans le
+   masque du téléphone (rond, goutte, carré arrondi) sans bord blanc ni
+   couture ;
+3. **pose les pastilles** de la planche des icônes : un chariot blanc sur
+   un disque turquoise pour BIZZOO (le client), une roue dentée pétrole
+   sur un disque blanc pour BIZZOO Admin et BIZZOO Personnel.
+
+Le logo des en-têtes (`icons/logo-bizzoo-b.png`) est la tuile seule, sans
+pastille. **Des noms neufs, encore** : `icone-b-192.png`,
+`icone-b-512.png`, `icone-b-maskable-512.png`, `apple-touch-icon-b.png`,
+`logo-bizzoo-b.png` — un navigateur garde une image une semaine, et sous
+les noms de la 4.2.0 il montrerait l'ancien logo. Les anciens noms (ceux
+de la 4.2.0 et ceux d'avant) sont écrits aussi, avec le nouveau logo.
+
+La petite icône de la barre de notifications n'est plus produite par le
+script : c'est la silhouette du B et de son orbite, les mêmes formes que
+dans le nouveau logo, gardée telle quelle.
+
+### La vitrine, la page 404, les pages légales
+
+La vitrine suit les applications : en-tête turquoise, bandeau clair (du
+blanc vers le turquoise pâle), titre en anthracite avec l'accent en bleu
+pétrole, sections qui alternent blanc et fond clair, pied bleu pétrole
+à texte blanc. La page 404 et les pages légales prennent les mêmes
+couleurs. Plus de grands aplats noirs nulle part.
+
+### Les bancs
+
+`banc-da` vérifie la nouvelle charte : la barre turquoise et ses boutons
+foncés, le bleu pétrole des boutons pleins, le texte anthracite sur le
+turquoise (6,25:1), Poppins pour les titres, Montserrat chargé pour le
+nom, la tuile du B partout, le turquoise dans `theme-color` et les
+manifestes — et il refuse désormais aussi les couleurs de la 4.0.0
+(`#0F1E26`, `#00CFCB`, `#007F7C`) dans les feuilles de style.
+`banc-da-ecrans`, `banc-idees-maquettes`, `banc-categories-photos` et
+`banc-mise-en-ligne` suivent les nouvelles valeurs.

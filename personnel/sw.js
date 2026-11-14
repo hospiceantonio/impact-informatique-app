@@ -5,7 +5,7 @@
    mails : rien de cela ne doit rester dans un téléphone).
    Incrémenter VERSION à chaque mise à jour des fichiers.
    ========================================================= */
-const VERSION = "bizzoo-personnel-v55";
+const VERSION = "bizzoo-personnel-v56";
 
 const FICHIERS = [
   "./",
@@ -55,11 +55,11 @@ const FICHIERS = [
   "./js/vues/parametres.js",
   "./js/vues/compte.js",
   "./js/app.js",
-  "./icons/logo-bizzoo-market.png",
-  "./icons/icone-market-192.png",
-  "./icons/icone-market-512.png",
-  "./icons/icone-market-maskable-512.png",
-  "./icons/apple-touch-icon-market.png",
+  "./icons/logo-bizzoo-b.png",
+  "./icons/icone-b-192.png",
+  "./icons/icone-b-512.png",
+  "./icons/icone-b-maskable-512.png",
+  "./icons/apple-touch-icon-b.png",
 ];
 
 self.addEventListener("install", (ev) => {
@@ -86,8 +86,8 @@ self.addEventListener("push", (ev) => {
   try { d = ev.data ? ev.data.json() : {}; } catch (_) { d = { corps: ev.data ? ev.data.text() : "" }; }
   ev.waitUntil(self.registration.showNotification(d.titre || "BIZZOO Personnel", {
     body: d.corps || "Une tâche vous attend dans « Ma file ».",
-    icon: "./icons/icone-market-192.png",
-    badge: "./icons/icone-market-192.png",
+    icon: "./icons/icone-b-192.png",
+    badge: "./icons/icone-b-192.png",
     tag: "rh-" + (d.tache || d.id || "alerte"),
     data: { lien: typeof d.lien === "string" && d.lien.startsWith("#/") ? d.lien : "#/file" },
   }));

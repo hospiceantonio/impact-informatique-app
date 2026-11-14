@@ -30,7 +30,7 @@ const VueBoutiques = (() => {
      rien de l'ancienne charte. Une boutique enregistrée avec une couleur
      qui n'est plus proposée la garde — voir listeCouleurs. */
   const COULEURS = [
-    ["#007F7C", "Turquoise BIZZOO"], ["#0F1E26", "Anthracite BIZZOO"], ["#F96302", "Orange"], ["#0F9D58", "Vert"],
+    ["#007F7C", "Turquoise BIZZOO"], ["#20333B", "Anthracite BIZZOO"], ["#F96302", "Orange"], ["#0F9D58", "Vert"],
     ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
     ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
     ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],

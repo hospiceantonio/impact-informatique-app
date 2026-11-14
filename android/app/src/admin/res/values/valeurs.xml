@@ -1,6 +1,8 @@
 <resources>
     <string name="app_name">BIZZOO Admin</string>
-    <color name="fond_demarrage">#0F1E26</color>
+    <!-- (4.3.0) Le turquoise de l'en-tête : au lancement, et autour de
+         l'encoche, il prolonge la barre du haut de l'application. -->
+    <color name="fond_demarrage">#00C7C7</color>
     <!-- Le gérant fait lui-même les mises à jour : rien à lui annoncer. -->
     <bool name="notifications_actives">false</bool>
     <!-- Sonner chez le livreur et la boutique, application fermée (3.65.0). -->

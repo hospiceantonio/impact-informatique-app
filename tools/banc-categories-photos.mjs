@@ -152,8 +152,9 @@ async function brancherStockage(page, envois) {
 const RACINE = new URL("..", import.meta.url).pathname;
 const ICONES = readdirSync(RACINE + "client/img/pictos").filter((f) => f.endsWith(".png"))
   .map((f) => f.slice(0, -4)).sort();
-/* (4.0.0) Le gris turquoise de la charte BIZZOO Market (#E6F4F6). */
-const FOND_TUILE = "rgb(230, 244, 246)";
+/* (4.3.0) Le blanc des tuiles de la charte lumineuse : « cartes de
+   catégories claires et arrondies » (4.0.0 : le gris turquoise #E6F4F6). */
+const FOND_TUILE = "rgb(255, 255, 255)";
 const listeDuCode = (fichier) => {
   const m = readFileSync(RACINE + fichier, "utf8").match(/const PICTOS = \[([\s\S]*?)\];/);
   return m ? [...m[1].matchAll(/\[?\s*"([a-z-]+)"/g)].map((x) => x[1]).sort() : [];
@@ -295,7 +296,7 @@ for (const L of [390, 320]) {
   const t = await lireTuiles(page, ".cat-tuile");
   ok(t.length === 8, "huit tuiles sur l'accueil (" + t.length + ")");
   ok(fonds.length === 8 && fonds.every((f) => f === FOND_TUILE),
-    "toutes sur le même fond gris turquoise, celui de l'image (" + fonds[0] + ")");
+    "toutes sur le même fond blanc (" + fonds[0] + ")");
   verifierTuiles(t, "accueil " + L);
   const lues = await demandes(page);
   ok(!lues.some((n) => /img\/categories\//.test(n)),

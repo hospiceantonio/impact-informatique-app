@@ -7,7 +7,7 @@
       n'existe pas pour un produit en rupture ; pour un produit à
       accompagnements, il ouvre la fiche (on y choisit).
    3. En promotion, le prix est rouge et l'ancien barré ; hors promotion,
-      il garde le turquoise des prix.
+      il garde le bleu pétrole des prix (4.3.0).
    4. Le panier : « − 1 + » sur chaque ligne, et ils règlent la quantité.
    5. Le suivi en frise : l'heure sous chaque étape franchie, telle que la
       base la donne — rien pour une étape sans heure, rien au-delà de
@@ -127,15 +127,16 @@ titre("1. L'accueil : « Bonjour 👋 », la question, la recherche");
       question: s ? (s.querySelector(".accueil-salut-question") || {}).textContent || "" : "",
       lien: pil ? pil.getAttribute("href") : "",
       loupe: loupe ? getComputedStyle(loupe).backgroundColor : "",
-      fond: s ? getComputedStyle(s).backgroundColor : "",
+      /* (4.3.0) Un dégradé turquoise : sa première couleur. */
+      fond: s ? ((getComputedStyle(s).backgroundImage.match(/rgba?\([^)]*\)/) || [getComputedStyle(s).backgroundColor])[0]) : "",
     };
   });
   ok(a.premier, "le bandeau du bonjour ouvre l'accueil");
   ok(/^(Bonjour|Bonsoir)\s+👋$/.test(a.titre.trim()), "« Bonjour 👋 » ou « Bonsoir 👋 » (" + a.titre.trim() + ")");
   ok(a.question.trim() === "Que souhaitez-vous acheter ?", "puis la question");
-  ok(a.fond === "rgb(15, 30, 38)", "sur l'anthracite de la barre du haut (" + a.fond + ")");
+  ok(a.fond === "rgb(0, 199, 199)", "sur le turquoise de la barre du haut (" + a.fond + ")");
   ok(a.lien === "#/recherche", "la recherche est dedans, et mène à l'écran de recherche");
-  ok(a.loupe === "rgb(0, 127, 124)", "sa loupe dans un bouton turquoise (" + a.loupe + ")");
+  ok(a.loupe === "rgb(10, 124, 136)", "sa loupe dans un bouton bleu pétrole (" + a.loupe + ")");
   ok(!erreurs.length, "sans erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -196,8 +197,8 @@ titre("3. Le prix en promotion, en rouge");
     };
     return { riz: prix("prod_riz"), huile: prix("prod_huile") };
   });
-  ok(c.riz.couleur === "rgb(217, 45, 32)" && c.riz.barre, "en promotion : rouge, l'ancien prix barré (" + c.riz.couleur + ")");
-  ok(c.huile.couleur === "rgb(0, 127, 124)" && !c.huile.barre, "hors promotion : le turquoise des prix (" + c.huile.couleur + ")");
+  ok(c.riz.couleur === "rgb(220, 38, 38)" && c.riz.barre, "en promotion : rouge, l'ancien prix barré (" + c.riz.couleur + ")");
+  ok(c.huile.couleur === "rgb(10, 124, 136)" && !c.huile.barre, "hors promotion : le bleu pétrole des prix (" + c.huile.couleur + ")");
   await ctx.close();
 }
 
