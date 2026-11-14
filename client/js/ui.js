@@ -937,6 +937,15 @@ const UI = (() => {
     b.classList.add("p-ajout-fait");
   });
 
+  /* (4.4.0) TROIS PAR RANGÉE SUR UN TÉLÉPHONE (sous 560 px, comme la
+     feuille de style), deux ou quatre ailleurs. Les listes qui comptent
+     leurs cartes s'en servent pour finir sur une rangée pleine : huit
+     cartes à trois de front laisseraient un trou en bas à droite. */
+  const troisParRangee = () =>
+    !!(window.matchMedia && window.matchMedia("(max-width:559px)").matches);
+  /** Un nombre de cartes arrondi à des rangées pleines : 8 → 9 à trois de front. */
+  const rangeesPleines = (n) => (troisParRangee() ? Math.ceil(n / 3) * 3 : n);
+
   function grilleProduits(liste, options) {
     if (!liste.length) return "";
     return '<div class="p-grille">' + liste.map((p) => carteProduit(p, options)).join("") + "</div>";
@@ -1213,7 +1222,7 @@ const UI = (() => {
     coeur, iconeCategorie, picto, vignetteCategorie, ligneSousRayon, prixHtml, badgesProduit,
     etoiles, noteHtml, noteCourte,
     pastilleVideo, imageProduit,
-    carteProduit, grilleProduits, carteProduitMini, rangeeProduits,
+    carteProduit, grilleProduits, carteProduitMini, rangeeProduits, troisParRangee, rangeesPleines,
     titreSection, vide, recherchePilule, boutonRecherche, barreAction, retirerAction,
     boutonPartager, partager, quand, motFermeture,
   };

@@ -8164,3 +8164,93 @@ passés de 5,6 à 6,9 Mo, le zip du site de 18 à 23,7 Mo.
   adresses déjà parties, mais l'application ne lit que les noms neufs.
 
 Aucun écran ne change.
+
+## Trois produits par rangée ; le client annule une commande non payée (4.4.0)
+
+### Trois produits par rangée sur un téléphone
+
+« Les images des produits sont trop grosses » : à deux de front, une carte
+occupait la moitié de l'écran. Sous 560 px, les listes de produits
+(catalogue, rayons, recherche, promotions, favoris) en montrent
+**trois par rangée**, comme les vignettes d'une boutique. La carte se
+resserre : la pastille « Disponible » se tait (seuls les écarts — rupture,
+sur commande, promotion — restent dits), le rayon sous le prix aussi, et
+le « + » se pose sur le coin bas de la photo, pour laisser au prix toute
+la largeur de la carte. Un navigateur trop ancien pour connaître la
+largeur de la carte (requêtes de conteneur) garde le « + » en bas de la
+carte, à côté du prix. Au-delà de 560 px, rien ne change.
+
+Les listes qui comptent leurs cartes finissent sur une rangée pleine :
+l'accueil montre **neuf** produits au lieu de huit à trois de front, les
+promotions d'une boutique aussi, et la galerie « Nos produits » se remplit
+par lots de **trente** (dix rangées) au lieu de vingt — sans quoi le
+premier lot, trop court, ne remplissait plus l'écran.
+
+Bancs : `banc-da` (trois de front à 360 et 390 px, le « + » sur la photo,
+le prix sur une ligne, rien qui déborde), `banc-accueil-galerie` (neuf
+cartes, lots de trente).
+
+### Plus aucun orange
+
+« Côté admin, l'ancienne couleur orange figure toujours. » La charte
+lumineuse n'a plus d'orange. Ce qui en restait, relevé au navigateur
+écran par écran (`TEINTES=1 node tools/galerie-ecrans.mjs` liste tout
+élément dont le texte, le fond ou la bordure tombe dans l'orange) :
+
+- le trait en tête des cartes « à faire » de l'accueil de l'admin (stock
+  bientôt épuisé, ce que rapportent les boutiques, publier…) et des
+  demandes de modification : turquoise ;
+- les encadrés d'attente et de motif (fond crème, texte brun) : fond
+  turquoise pâle, texte pétrole ; le fond crème des pastilles
+  (`--ambre-clair`) devient turquoise pâle ;
+- le message d'alerte brun de l'admin : pétrole foncé ; « position
+  manquante » d'un livreur : rouge foncé ;
+- la pastille « Flash » : rouge, comme les promotions ;
+- l'encadré MoMoPay de la livraison (jaune) : turquoise ;
+- le trajet d'une course sur la carte de BIZZOO Personnel (orange et
+  ancien bleu) : pétrole et gris.
+
+Seules les étoiles des avis restent dorées : c'est une note, pas une
+couleur de la charte. Dans l'admin, la palette des boutiques ne propose
+plus « Orange » ni « Ocre » ; les sept boutiques et les deux catégories
+qui les portaient passent au turquoise de la palette (`#0B7C8C`) :
+`supabase/plus-d-orange.sql`, à appliquer en ligne. Essai de base :
+`…-plus-d-orange.sql`.
+
+### Annuler une commande qu'on n'a pas payée
+
+Un client lance une commande, le paiement échoue (solde insuffisant) : la
+commande restait « En attente » pour toujours, sans moyen de l'annuler.
+Le reçu porte désormais **« Annuler la commande »**, partout où rien n'est
+en cours chez l'opérateur : après un refus, quand aucune demande n'est
+partie, après « Arrêter l'attente », et quand un produit est parti en
+rupture. Jamais pendant le sablier.
+
+Ce n'est pas le téléphone qui décide. L'Edge Function `feexpay`
+(action `annuler`) demande d'abord à FeexPay où en est la dernière
+demande de paiement :
+
+- aucune demande, ou **FAILED** : la commande est annulée ;
+- **SUCCESSFUL** : le client a payé — on encaisse, comme « vérifier », et
+  l'on refuse d'annuler ;
+- **PENDING** : la demande attend encore sur le téléphone — refusé, et le
+  client sait quoi faire (la refuser, puis annuler) ; sauf si elle date
+  de plus d'un quart d'heure : une demande Mobile Money expire bien avant ;
+- FeexPay en panne ou injoignable : on ne sait pas, on n'annule pas.
+
+La base (`annuler_commande_impayee`, réservée au serveur) n'annule qu'une
+commande « à payer », et seulement si aucune nouvelle demande de paiement
+n'est partie depuis la vérification. Ni le stock ni les notifications ne
+bougent : ils ne suivent que le paiement. Si un versement arrivait malgré
+tout plus tard, `marquer_payee` remettrait la commande à « payée » :
+l'argent d'un client ne se perd jamais dans une commande annulée.
+
+Une commande annulée **sans avoir été payée quitte « Mes commandes »** ;
+une commande payée puis annulée par l'enseigne y reste (il y a de l'argent
+à suivre). L'admin la voit « Annulée », avec la remarque « Annulée par le
+client avant paiement, le … ».
+
+À appliquer en ligne : `supabase/annuler-commande-impayee.sql`, puis
+redéployer la fonction `feexpay`. Bancs : `supabase/functions/tests/feexpay.mjs`
+(`tools/eprouver-paiement.sh`), `banc-paiement-echoue` (section 9), et
+l'essai de base `…-annuler-commande-impayee.sql`.

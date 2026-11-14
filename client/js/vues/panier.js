@@ -1686,7 +1686,9 @@ const VuePanier = (() => {
         (refaire ? '<button type="button" class="btn" data-attente="refaire">Refaire mon panier sans ' +
           (n > 1 ? "ces produits" : "ce produit") + "</button>" : "") +
         '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
-      "</div></div>";
+      "</div>" +
+      (Paiement.fournisseur() === "feexpay" ? boutonAnnuler() : "") +
+      "</div>";
   }
 
   /** Le panier refait : les autres produits, et ce qui reste des manquants. */
@@ -1762,6 +1764,7 @@ const VuePanier = (() => {
               UI.icone("actualiser", "ic-sm") + "Vérifier à nouveau</button>" +
             '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
           "</div>" +
+          (feexpay ? boutonAnnuler() : "") +
         "</div></div>";
     }
     /* « echec » et « rien » : FeexPay seulement. Le choix de l'opérateur
@@ -1779,8 +1782,19 @@ const VuePanier = (() => {
               (etat === "echec" ? "Réessayer le paiement" : "Payer maintenant") + "</button>"
           : "") +
         '<button type="button" class="btn btn-clair" data-attente="fermer">Fermer</button>' +
-      "</div></div>";
+      "</div>" +
+      (feexpay ? boutonAnnuler() : "") +
+      "</div>";
   }
+
+  /* (4.4.0) ANNULER UNE COMMANDE QU'ON N'A PAS PAYÉE. Un paiement refusé
+     (solde insuffisant…) laissait la commande « En attente » pour
+     toujours. Le bouton n'apparaît que là où rien n'est en cours chez
+     l'opérateur (pas pendant le sablier) ; c'est le serveur qui tranche,
+     après avoir demandé à FeexPay. */
+  const boutonAnnuler = () =>
+    '<button type="button" class="btn btn-danger-clair re-annuler" data-attente="annuler">' +
+      UI.icone("fermer", "ic-sm") + "Annuler la commande</button>";
 
   /** Pose (ou remplace) la carte, et branche ses boutons. */
   function poserAttente(vue, commande, id, etat, info, controle) {
@@ -1809,6 +1823,8 @@ const VuePanier = (() => {
         carte.remove();
       } else if (quoi === "payer") {
         relancerPaiement(vue, commande, id, b);
+      } else if (quoi === "annuler") {
+        annulerImpayee(vue, commande, id, b);
       } else if (quoi === "refaire") {
         refaireSansRupture(commande);
       }
@@ -1933,6 +1949,30 @@ const VuePanier = (() => {
   }
 
   /** Une nouvelle demande, pour la même commande — après un refus seulement. */
+  /** (4.4.0) Le client annule une commande non payée. */
+  async function annulerImpayee(vue, commande, id, bouton) {
+    if (!window.confirm("Annuler la commande " + (commande.numero || "") + " ?\n" +
+        "Elle n'a pas été payée : elle disparaîtra de vos commandes.")) return;
+    const libelle = bouton.innerHTML;
+    bouton.disabled = true;
+    bouton.innerHTML = '<span class="chargement-rond"></span>Annulation…';
+    try {
+      await Paiement.annulerCommande(commande.id, commande.client && commande.client.tel);
+    } catch (err) {
+      bouton.disabled = false;
+      bouton.innerHTML = libelle;
+      UI.toast(err.message || "La commande n'a pas pu être annulée", "err");
+      /* Le serveur a trouvé un versement arrivé : le reçu se met à jour. */
+      if (/paiement est arrivé/.test(err.message || "") && location.hash === "#/commande/" + id) {
+        suivrePaiement(vue, commande, id);
+      }
+      return;
+    }
+    Panier.majEtat(commande.id, "annulee", {});
+    UI.toast("Commande " + (commande.numero || "") + " annulée");
+    location.replace("#/mes-commandes");
+  }
+
   async function relancerPaiement(vue, commande, id, bouton) {
     const mm = lireMobileMoney();
     if (!mm.reseau) {
@@ -2646,7 +2686,12 @@ const VuePanier = (() => {
       }
     }
 
-    const liste = base.concat(orphelines)
+    /* (4.4.0) Une commande annulée SANS AVOIR ÉTÉ PAYÉE quitte la liste :
+       le client l'a annulée lui-même, il n'y a rien à suivre. Une
+       commande payée puis annulée par l'enseigne, elle, reste : il y a
+       de l'argent à suivre. */
+    const aSuivre = (c) => !(c.etat === "annulee" && !(Number(c.verse) > 0));
+    const liste = base.concat(orphelines).filter(aSuivre)
       .sort((a, b) => (b.gardeeLe || 0) - (a.gardeeLe || 0));
 
     if (!liste.length) {

@@ -585,6 +585,101 @@ async function verifier(commande: Record<string, unknown>) {
                     resultat });
 }
 
+/* =========================================================
+   (4.4.0) Annuler une commande qu'on n'a pas payée
+   =========================================================
+   Un paiement refusé (solde insuffisant…) laissait la commande « En
+   attente » pour toujours. Le client l'annule — mais JAMAIS sur la foi de
+   son téléphone : on demande d'abord à FeexPay où en est la dernière
+   demande de paiement.
+     - aucune demande ouverte : on annule ;
+     - FAILED : on annule ;
+     - SUCCESSFUL : le client a payé — on valide le versement, comme
+       « verifier », et l'on refuse d'annuler ;
+     - PENDING : la demande attend encore sur son téléphone. On refuse,
+       sauf si elle date de plus d'un quart d'heure : une demande Mobile
+       Money expire bien avant. Et si un versement arrivait malgré tout,
+       « marquer_payee » remettrait la commande à « payée » : l'argent
+       d'un client ne se perd jamais dans une commande annulée ;
+     - FeexPay injoignable ou illisible : on ne sait pas, on refuse. */
+const EXPIRE_APRES_MS = 15 * 60 * 1000;
+
+async function annuler(commande: Record<string, unknown>) {
+  const etat = String(commande["etat"] ?? "");
+  if (etat === "annulee") return repondre({ etat: "annulee", deja: true });
+  if (etat !== "a_payer") {
+    return repondre({
+      etat,
+      erreur: etat === "payee"
+        ? "Cette commande est déjà payée : elle ne s'annule plus ici. Contactez la boutique."
+        : "Cette commande ne peut plus être annulée.",
+    }, 409);
+  }
+
+  const reference = String(commande["reference"] ?? "");
+  if (reference) {
+    const pasSur = () => repondre({
+      erreur: "Impossible de vérifier votre paiement en ce moment. Réessayez dans un instant.",
+    }, 503);
+    if (!VERIFICATION) return pasSur();
+    let reponse: Response;
+    try {
+      reponse = await fetch(VERIFICATION + encodeURIComponent(reference), {
+        headers: { "Authorization": "Bearer " + JETON },
+      });
+    } catch (_) {
+      return pasSur();
+    }
+    if (!reponse.ok) {
+      console.error("feexpay/annuler ←", reponse.status, reference);
+      return pasSur();
+    }
+    const statut = await reponse.json().catch(() => ({})) as Record<string, unknown>;
+    const etatFeex = champ(statut, ["status", "state"]).toUpperCase();
+
+    if (aAbouti(etatFeex)) {
+      /* Le client a payé : on fait ce que « verifier » aurait fait. */
+      await verifier(commande).catch(() => null);
+      return repondre({
+        etat: "payee", paye: true,
+        erreur: "Votre paiement est arrivé : la commande est payée, elle ne s'annule plus.",
+      }, 409);
+    }
+    if (etatFeex !== "FAILED") {
+      const tentative = Date.parse(String(commande["tentative_le"] ?? ""));
+      const ancienne = Number.isFinite(tentative) && Date.now() - tentative > EXPIRE_APRES_MS;
+      if (!ancienne) {
+        return repondre({
+          attente: true,
+          erreur: "Une demande de paiement est encore ouverte sur votre téléphone. " +
+                  "Refusez-la (ou attendez quelques minutes qu'elle expire), puis annulez.",
+        }, 409);
+      }
+    }
+  }
+
+  let resultat: Record<string, unknown> | null;
+  try {
+    resultat = await rpc("annuler_commande_impayee", {
+      cible: commande["id"], reference_vue: reference,
+    }) as Record<string, unknown> | null;
+  } catch (_) {
+    return repondre({ erreur: "Base injoignable. Réessayez dans un instant." }, 503);
+  }
+  if (!resultat?.["ok"]) {
+    if (resultat?.["raison"] === "nouvelle demande") {
+      return repondre({
+        attente: true,
+        erreur: "Une nouvelle demande de paiement vient de partir. Refusez-la sur votre " +
+                "téléphone, puis annulez.",
+      }, 409);
+    }
+    return repondre({ erreur: "Cette commande ne peut plus être annulée.",
+                      etat: resultat?.["etat"] ?? etat }, 409);
+  }
+  return repondre({ etat: "annulee", numero: resultat["numero"] ?? "" });
+}
+
 /* ========================================================= */
 Deno.serve(async (requete: Request): Promise<Response> => {
   if (requete.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -617,6 +712,7 @@ Deno.serve(async (requete: Request): Promise<Response> => {
   if (!commande) return repondre({ erreur: "Commande introuvable." }, 404);
 
   if (action === "verifier") return await verifier(commande);
+  if (action === "annuler") return await annuler(commande);
 
   if (action === "payer") {
     if (commande["etat"] !== "a_payer") {

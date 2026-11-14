@@ -529,6 +529,38 @@ titre("Sur ordinateur, la boutique s'étale au lieu de flotter");
   await ctx.close();
 }
 
+titre("(4.4.0) Sur un téléphone, trois produits de front");
+for (const l of [360, 390]) {
+  const { page, ctx } = await ouvrirClient({ largeur: l, hauteur: 1400,
+    boutique: "bou_tech", hash: "#/produits" });
+  const t = await page.evaluate(() => {
+    const g = document.querySelector(".p-grille");
+    const cartes = [...document.querySelectorAll(".p-grille .p-carte")];
+    const c = cartes[0];
+    const img = c && c.querySelector(".p-carte-img");
+    const plus = c && c.querySelector(".p-ajout");
+    const prix = c && c.querySelector(".prix-actuel");
+    const ri = img ? img.getBoundingClientRect() : null;
+    const rp = plus ? plus.getBoundingClientRect() : null;
+    return {
+      colonnes: g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0,
+      largeur: c ? Math.round(c.getBoundingClientRect().width) : 0,
+      /* Le « + » sur le coin bas de la photo, pas sur le prix. */
+      surPhoto: !!(ri && rp && rp.bottom <= ri.bottom + 0.5 && rp.top >= ri.top && rp.right <= ri.right + 0.5),
+      prixUneLigne: prix ? prix.getClientRects().length === 1 : false,
+      disponibleTu: !document.querySelector(".p-grille .p-carte-badges .badge-disponible") ||
+        getComputedStyle(document.querySelector(".p-grille .p-carte-badges .badge-disponible")).display === "none",
+    };
+  });
+  ok(t.colonnes === 3, l + " px : trois produits par rangée (" + t.colonnes + ", cartes de " + t.largeur + " px)");
+  ok(t.surPhoto, l + " px : le « + » se pose sur le coin de la photo");
+  ok(t.prixUneLigne, l + " px : le prix tient sur une ligne");
+  ok(t.disponibleTu, l + " px : « Disponible » se tait, seuls les écarts se disent");
+  const d = await debordement(page);
+  ok(!d.defile && d.deborde.length === 0, l + " px : rien ne déborde" + (d.deborde.length ? " — " + d.deborde.join(", ") : ""));
+  await ctx.close();
+}
+
 titre("Le poste de l'enseigne : même police, même palette");
 {
   const { page, ctx, dehors } = await ouvrirAdmin({ largeur: 1440, hauteur: 1100,

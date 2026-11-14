@@ -11331,10 +11331,10 @@ insert into public.categories (id, boutique_id, nom, icone, couleur, en_avant, o
   ('cat_bijoux',       null, 'Bijoux & Accessoires',          'bijoux',           '#6C3FBF', false, 15, ''),
   ('cat_beaute',       null, 'Beauté & Bien-être',            'beaute',           '#D81B60', true,  16, ''),
   ('cat_supermarche',  null, 'Supermarché & Épicerie',        'alimentation',     '#E62329', true,  17, ''),
-  ('cat_restauration', null, 'Restauration',                  'restauration',     '#F96302', true,  18, ''),
+  ('cat_restauration', null, 'Restauration',                  'restauration',     '#0B7C8C', true,  18, ''),
   ('cat_agriculture',  null, 'Agriculture & Élevage',         'agriculture',      '#007F7C', false, 19, ''),
   ('cat_animaux',      null, 'Animaux',                       'animaux',          '#0F9D58', false, 20, ''),
-  ('cat_sport',        null, 'Sport & Loisirs',               'sport-loisirs',    '#9A6B00', false, 21, ''),
+  ('cat_sport',        null, 'Sport & Loisirs',               'sport-loisirs',    '#0B7C8C', false, 21, ''),
   ('cat_musique',      null, 'Musique & Instruments',         'musique',          '#007F7C', false, 22, ''),
   ('cat_artisanat',    null, 'Artisanat & Produits locaux',   'artisanat',        '#007F7C', false, 23, ''),
   ('cat_cadeaux',      null, 'Cadeaux & Fêtes',               'cadeau',           '#007F7C', false, 24, ''),
@@ -26143,3 +26143,60 @@ update public.boutiques  set couleur = '#007F7C'
  where upper(couleur) in ('#2550B7', '#0B5CF5', '#1176D8', '#0047D9');
 update public.categories set couleur = '#007F7C'
  where upper(couleur) in ('#2550B7', '#0B5CF5', '#1176D8', '#0047D9');
+
+-- =========================================================
+-- (4.4.0) LE CLIENT ANNULE UNE COMMANDE QU'IL N'A PAS PAYÉE
+-- =========================================================
+-- Un paiement échoué laissait la commande « En attente » pour toujours.
+-- L'Edge Function « feexpay » l'annule, après avoir demandé à FeexPay
+-- qu'aucun versement ne soit en cours ni arrivé.
+-- « reference_vue » : la référence de paiement que l'Edge Function a
+-- vérifiée chez FeexPay. Si une nouvelle demande est partie entre-temps
+-- (le client a touché « Réessayer » dans un autre onglet), la référence a
+-- changé : on n'annule pas, la nouvelle demande peut aboutir.
+--
+-- Seule une commande « à payer » s'annule ici. Ni le stock ni les
+-- notifications ne bougent : ils ne suivent que le paiement. Les lignes
+-- restent telles quelles : si un versement arrivait malgré tout plus tard
+-- (une demande restée en attente chez l'opérateur), « marquer_payee »
+-- remettrait la commande à « payée », entière — l'argent d'un client ne
+-- se perd jamais dans une commande annulée.
+create or replace function public.annuler_commande_impayee(cible text, reference_vue text)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare c public.commandes%rowtype;
+begin
+  select * into c from public.commandes where id = coalesce(cible, '') for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'raison', 'introuvable');
+  end if;
+  if c.etat = 'annulee' then
+    return jsonb_build_object('ok', true, 'deja', true, 'numero', c.numero);
+  end if;
+  if c.etat <> 'a_payer' then
+    return jsonb_build_object('ok', false, 'raison', 'etat', 'etat', c.etat, 'numero', c.numero);
+  end if;
+  if coalesce(c.fournisseur_ref, '') <> coalesce(reference_vue, '') then
+    return jsonb_build_object('ok', false, 'raison', 'nouvelle demande', 'numero', c.numero);
+  end if;
+
+  -- La base écrit pour elle-même : « commande_verrous » réserve sinon le
+  -- changement d'état à l'équipe.
+  perform set_config('bizzoo.interne', 'oui', true);
+  update public.commandes
+     set etat = 'annulee',
+         remarque = 'Annulée par le client avant paiement, le '
+                    || to_char(now() at time zone 'Africa/Porto-Novo', 'DD/MM/YYYY à HH24:MI') || '.'
+   where id = c.id;
+  return jsonb_build_object('ok', true, 'numero', c.numero);
+end $$;
+revoke all on function public.annuler_commande_impayee(text, text) from public, anon, authenticated;
+grant execute on function public.annuler_commande_impayee(text, text) to service_role;
+
+-- =========================================================
+-- (4.4.0) PLUS D'ORANGE DANS LES COULEURS DES BOUTIQUES
+-- =========================================================
+-- L'orange de l'ancienne charte (#F96302) et l'ocre (#9A6B00) passent au
+-- turquoise de la palette. Les autres couleurs choisies ne bougent pas.
+update public.boutiques  set couleur = '#0B7C8C' where upper(couleur) in ('#F96302', '#9A6B00');
+update public.categories set couleur = '#0B7C8C' where upper(couleur) in ('#F96302', '#9A6B00');

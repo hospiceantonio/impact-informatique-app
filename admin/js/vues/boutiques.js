@@ -27,12 +27,13 @@ const VueBoutiques = (() => {
   /* (4.0.0) Le turquoise et l'anthracite de BIZZOO Market ouvrent la
      liste ; les autres teintes servent à distinguer les secteurs d'un
      coup d'œil. (4.2.0) L'ancien bleu de BIZZOO n'est plus proposé : plus
-     rien de l'ancienne charte. Une boutique enregistrée avec une couleur
+     rien de l'ancienne charte. (4.4.0) L'orange et l'ocre non plus : « pas
+     d'orange », dit la charte lumineuse. Une boutique enregistrée avec une couleur
      qui n'est plus proposée la garde — voir listeCouleurs. */
   const COULEURS = [
-    ["#007F7C", "Turquoise BIZZOO"], ["#20333B", "Anthracite BIZZOO"], ["#F96302", "Orange"], ["#0F9D58", "Vert"],
+    ["#007F7C", "Turquoise BIZZOO"], ["#20333B", "Anthracite BIZZOO"], ["#0F9D58", "Vert"],
     ["#E62329", "Rouge"], ["#D81B60", "Rose"], ["#6C3FBF", "Violet"],
-    ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"], ["#9A6B00", "Ocre"],
+    ["#3F51B5", "Indigo"], ["#0B7C8C", "Turquoise"],
     ["#7A4A32", "Marron"], ["#546E7A", "Ardoise"], ["#001450", "Bleu nuit"],
   ];
 

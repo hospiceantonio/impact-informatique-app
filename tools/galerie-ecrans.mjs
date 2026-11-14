@@ -397,6 +397,48 @@ const ECRANS = [
   ["admin-reglages-boutique", "admin", { hash: "#/reglages", role: "administrateur" }],
 ];
 
+/* (4.4.0) TEINTES=1 : relève les éléments dont une couleur affichée —
+   texte, fond, bordure — tombe dans l'orange (teinte 15 à 50°, saturée).
+   La charte lumineuse n'en a plus : « pas d'orange », dit la direction
+   artistique. Les étoiles des avis, dorées partout ailleurs, sont mises à
+   part : ce n'est pas une couleur de la charte, c'est une note. */
+const TEINTES = process.env.TEINTES === "1";
+async function orangesDe(page) {
+  return page.evaluate(() => {
+    const versHsl = (c) => {
+      const m = c && c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/);
+      if (!m || (m[4] !== undefined && Number(m[4]) < 0.15)) return null;
+      const r = m[1] / 255, g = m[2] / 255, b = m[3] / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+      if (max === min) return { h: 0, s: 0, l };
+      const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      let h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return { h: h * 60, s, l };
+    };
+    const orange = (c) => { const x = versHsl(c); return !!x && x.s > 0.5 && x.h >= 15 && x.h <= 50 && x.l > 0.3 && x.l < 0.92; };
+    const trouves = new Map();
+    for (const el of document.querySelectorAll("body *")) {
+      if (el.closest(".etoiles,.av-etoile,.av-etoiles-lues,.note-courte,.reseau-rond,svg") && !el.matches("svg")) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const st = getComputedStyle(el);
+      const quoi = [];
+      if (orange(st.color) && (el.textContent || "").trim()) quoi.push("texte " + st.color);
+      if (orange(st.backgroundColor)) quoi.push("fond " + st.backgroundColor);
+      for (const cote of ["Top", "Right", "Bottom", "Left"]) {
+        if (parseFloat(st["border" + cote + "Width"]) > 0 && orange(st["border" + cote + "Color"])) {
+          quoi.push("bord " + st["border" + cote + "Color"]); break;
+        }
+      }
+      if (/gradient/.test(st.backgroundImage) && (st.backgroundImage.match(/rgba?\([^)]*\)/g) || []).some(orange)) quoi.push("dégradé");
+      if (!quoi.length) continue;
+      const cle = el.tagName.toLowerCase() + "." + [...el.classList].join(".") + " : " + quoi.join(", ");
+      trouves.set(cle, (trouves.get(cle) || 0) + 1);
+    }
+    return [...trouves.entries()].map(([k, n]) => (n > 1 ? n + "× " : "") + k);
+  });
+}
+
 const rapport = {};
 for (const [nom, app, options] of ECRANS) {
   if (SEUL && !nom.includes(SEUL)) continue;
@@ -420,7 +462,13 @@ for (const [nom, app, options] of ECRANS) {
   if (m.coupes.length) soucis.push(m.coupes.length + " texte(s) coupé(s)");
   if (m.iconesApres.length) soucis.push("icône après le texte sans « ic-apres » : " + m.iconesApres.join(", "));
   if (erreurs.length) soucis.push("ERREUR JS : " + erreurs[0].slice(0, 80));
+  if (TEINTES) {
+    const o = await orangesDe(page);
+    if (o.length) soucis.push(o.length + " élément(s) orange");
+    m.oranges = o;
+  }
   console.log((soucis.length ? "  !!  " : "  ok  ") + nom.padEnd(30) + (soucis.length ? soucis.join(" ; ") : ""));
+  for (const o of (m.oranges || []).slice(0, 12)) console.log("         ↳ orange : " + o);
   for (const d of m.deborde.slice(0, 3)) console.log("         ↳ " + d);
   for (const b of m.boutons.slice(0, 4)) console.log("         ↳ bouton " + b);
   for (const c of m.composes.slice(0, 4)) console.log("         ↳ bouton composé " + c);

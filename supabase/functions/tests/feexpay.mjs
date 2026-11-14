@@ -115,6 +115,19 @@ function rpcFaux(nom, p) {
     c.etat = "payee";
     return { numero: c.numero };
   }
+  /* (4.4.0) Comme la fonction SQL : seulement « à payer », et seulement
+     si la référence n'a pas changé depuis la vérification. */
+  if (nom === "annuler_commande_impayee") {
+    const c = monde.commandes.get(p.cible);
+    if (!c) return { ok: false, raison: "introuvable" };
+    if (c.etat === "annulee") return { ok: true, deja: true, numero: c.numero };
+    if (c.etat !== "a_payer") return { ok: false, raison: "etat", etat: c.etat, numero: c.numero };
+    if ((c.reference || "") !== (p.reference_vue || "")) {
+      return { ok: false, raison: "nouvelle demande", numero: c.numero };
+    }
+    c.etat = "annulee";
+    return { ok: true, numero: c.numero };
+  }
   throw new Error("fonction de base inattendue : " + nom);
 }
 
@@ -593,6 +606,69 @@ decor();
 const rienAVerifier = await appeler(paiement, VERIFIER);
 egal(monde.feexStatutAppels.length, 0,
   "sans paiement ouvert, on ne va rien demander à FeexPay");
+
+/* =========================================================
+   (4.4.0) Annuler une commande non payée : FeexPay d'abord
+   ========================================================= */
+titre("Annuler : on demande d'abord à FeexPay");
+const ANNULER = { action: "annuler", commande: "cmd_essai", tel: "97444893" };
+
+decor();
+let an = await appeler(paiement, ANNULER);
+egal(an.donnees.etat, "annulee", "aucune demande de paiement ouverte : la commande s'annule");
+egal(monde.feexStatutAppels.length, 0, "sans rien demander à FeexPay");
+egal(monde.commandes.get("cmd_essai").etat, "annulee", "la base l'a annulée");
+
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ corps: { status: "FAILED", reason: "LOW_BALANCE" } });
+an = await appeler(paiement, ANNULER);
+egal(an.donnees.etat, "annulee", "le paiement a échoué (solde insuffisant) : elle s'annule");
+egal(monde.rpcAppels.find((x) => x.nom === "annuler_commande_impayee").parametres.reference_vue,
+  "ref_feex_essai", "avec la référence vérifiée, pour qu'une demande plus récente l'empêche");
+
+decor({ reference: "ref_feex_essai", tentative_le: new Date().toISOString() });
+monde.reponseStatut = () => ({ corps: { status: "PENDING" } });
+an = await appeler(paiement, ANNULER);
+egal(an.statut, 409, "une demande encore ouverte sur le téléphone : refusé");
+verifie(an.donnees.attente === true && /téléphone/.test(an.donnees.erreur || ""),
+  "et le client sait quoi faire : la refuser, puis annuler");
+egal(monde.commandes.get("cmd_essai").etat, "a_payer", "la commande attend toujours");
+
+decor({ reference: "ref_feex_essai",
+        tentative_le: new Date(Date.now() - 20 * 60 * 1000).toISOString() });
+monde.reponseStatut = () => ({ corps: { status: "PENDING" } });
+an = await appeler(paiement, ANNULER);
+egal(an.donnees.etat, "annulee",
+  "une demande restée « en attente » depuis vingt minutes a expiré : elle s'annule");
+
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ corps: { status: "SUCCESSFUL", amount: 12000 } });
+an = await appeler(paiement, ANNULER);
+egal(an.statut, 409, "le client a payé entre-temps : on n'annule pas");
+egal(monde.commandes.get("cmd_essai").etat, "payee", "on encaisse, comme « vérifier »");
+verifie(!monde.rpcAppels.some((x) => x.nom === "annuler_commande_impayee"),
+  "la base n'est même pas priée d'annuler");
+
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ statut: 502, corps: "Bad Gateway" });
+an = await appeler(paiement, ANNULER);
+egal(an.statut, 503, "FeexPay en panne : on ne sait pas, on n'annule pas");
+egal(monde.commandes.get("cmd_essai").etat, "a_payer", "la commande attend");
+
+decor({ reference: "ref_feex_essai" });
+monde.reponseStatut = () => ({ injoignable: true });
+an = await appeler(paiement, ANNULER);
+egal(an.statut, 503, "FeexPay injoignable : non plus");
+
+decor({ etat: "payee" });
+an = await appeler(paiement, ANNULER);
+egal(an.statut, 409, "une commande payée ne s'annule pas ici");
+verifie(/boutique/.test(an.donnees.erreur || ""), "le client est renvoyé vers la boutique");
+
+decor();
+an = await appeler(paiement, { ...ANNULER, tel: "96000000" });
+egal(an.statut, 404, "le mauvais téléphone n'annule rien");
+egal(monde.commandes.get("cmd_essai").etat, "a_payer", "la commande d'un autre est intacte");
 
 /* =========================================================
    La notification de FeexPay : une clé, pas une preuve
