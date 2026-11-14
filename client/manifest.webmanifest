@@ -8,23 +8,23 @@
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone"],
   "orientation": "portrait",
-  "background_color": "#0F1E26",
-  "theme_color": "#0F1E26",
+  "background_color": "#E9F9FB",
+  "theme_color": "#00C7C7",
   "icons": [
-    { "src": "icons/icone-market-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icone-market-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icone-market-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icons/icone-b-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icone-b-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icone-b-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
     {
       "name": "Rechercher un produit",
       "url": "./index.html#/recherche",
-      "icons": [{ "src": "icons/icone-market-192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "icons/icone-b-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Catégories",
       "url": "./index.html#/categories",
-      "icons": [{ "src": "icons/icone-market-192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "icons/icone-b-192.png", "sizes": "192x192" }]
     }
   ]
 }

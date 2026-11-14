@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BIZZOO — Plus de boutiques, un seul endroit !</title>
 <meta name="description" content="BIZZOO réunit les boutiques de votre ville : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money. Sur le web ou dans l'application Android.">
-<meta name="theme-color" content="#0F1E26">
-<link rel="icon" href="client/icons/icone-market-192.png">
-<link rel="apple-touch-icon" href="client/icons/apple-touch-icon-market.png">
+<meta name="theme-color" content="#00C7C7">
+<link rel="icon" href="client/icons/icone-b-192.png">
+<link rel="apple-touch-icon" href="client/icons/apple-touch-icon-b.png">
 <!-- L'ADRESSE OFFICIELLE. Le même site vit aussi sur GitHub Pages : cette
      ligne dit aux moteurs de recherche laquelle des deux compte. -->
 <link rel="canonical" href="https://www.bizzoomarket.com/">
@@ -26,7 +26,7 @@
 <meta property="og:url" content="https://www.bizzoomarket.com/">
 <meta property="og:title" content="BIZZOO — Vos boutiques préférées dans une seule app !">
 <meta property="og:description" content="Les boutiques de votre ville réunies : parcourez leurs catalogues, comparez les prix, commandez et payez par Mobile Money.">
-<meta property="og:image" content="https://www.bizzoomarket.com/vitrine/partage.jpg?v=4.0.0">
+<meta property="og:image" content="https://www.bizzoomarket.com/vitrine/partage.jpg?v=4.3.0">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="BIZZOO, vos boutiques préférées dans une seule app — l'accueil de l'application">
@@ -85,20 +85,23 @@
   @font-face{font-family:'Montserrat';font-style:italic;font-weight:800;font-display:swap;
     src:url(client/polices/montserrat-800-italique.woff2) format('woff2')}
 
-  /* (4.0.0) LA CHARTE BIZZOO MARKET — les mêmes jetons que les
-     applications (client/styles.css) : anthracite #0F1E26, turquoise
-     signature #00CFCB, son turquoise foncé #007F7C pour les boutons à
-     texte blanc (4,85:1 ; le turquoise vif ne donnerait que 1,95:1). */
+  /* (4.3.0) LA CHARTE BIZZOO MARKET, VERSION LUMINEUSE — les mêmes
+     jetons que les applications (client/styles.css) : turquoise
+     dominant #00C7C7, bleu pétrole #0A7C88 pour les boutons à texte
+     blanc (4,94:1 ; le turquoise vif ne donnerait que 2,1:1), fond clair
+     #E9F9FB, texte anthracite #20333B. Plus de grands aplats noirs. */
   :root{
-    --bleu:#007F7C; --bleu-800:#16303B; --bleu-900:#0F1E26; --bleu-50:#E9FAFA;
-    --turquoise:#00CFCB; --turquoise-clair:#6FECEF;
-    /* Le turquoise signature porte les actions principales, en texte
-       anthracite (8,74:1). */
-    --orange:#00CFCB; --orange-texte:#0F1E26;
-    --encre:#0F1E26; --encre-douce:#3D4E57; --encre-tres-douce:#8D9BA2;
-    --trait:#E1EBEF; --fond:#F2F7F9; --blanc:#fff;
+    --bleu:#0A7C88; --bleu-800:#0A6F7A; --bleu-900:#20333B; --bleu-50:#E9F9FB;
+    --turquoise:#00C7C7; --turquoise-clair:#6FE3E6;
+    /* Le turquoise porte les actions principales, en texte anthracite
+       (6,25:1). */
+    --orange:#00C7C7; --orange-texte:#20333B;
+    --encre:#20333B; --encre-douce:#3F525A; --encre-tres-douce:#6B7B83;
+    --trait:#D8EBEF; --fond:#E9F9FB; --blanc:#fff;
     --police:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --police-titre:'Montserrat',var(--police);
+    /* Les titres en Poppins, comme la direction artistique le demande ;
+       Montserrat ne sert plus qu'au nom « BIZZOO Market » du logo. */
+    --police-titre:var(--police);
   }
   *,*::before,*::after{box-sizing:border-box}
   body{
@@ -121,19 +124,29 @@
     letter-spacing:.02em;margin-top:.12em;color:var(--bleu)}
   .logo-oo::before,.logo-oo::after{content:"";display:block;width:.95em;height:.16em;
     border-radius:2px;background:currentColor}
-  /* Sur fond anthracite : le nom en blanc, « Market » en turquoise vif. */
-  .sur-bleu .logo-bizz{color:#fff}
-  .sur-bleu .logo-oo{color:var(--turquoise)}
+  /* (4.3.0) Sur l'en-tête turquoise : le nom en anthracite, « Market »
+     en blanc, comme dans les applications. Sur le pied bleu pétrole : le
+     nom en blanc, « Market » en turquoise pâle. */
+  header .sur-bleu .logo-bizz{color:var(--encre)}
+  header .sur-bleu .logo-oo{color:#fff}
+  footer .sur-bleu .logo-bizz{color:#fff}
+  footer .sur-bleu .logo-oo{color:#9FF3F4}
+  .logo-mot{font-family:'Montserrat',var(--police)}
+  .logo-tuile{filter:drop-shadow(0 3px 6px rgba(10,111,122,.30))}
   h1,h2,h3,.btn{font-family:var(--police-titre)}
+  h1,h2,h3{font-weight:700}
 
   .large{width:min(1120px,100%);margin:0 auto;padding:0 20px}
 
-  /* (4.0.0) L'EN-TÊTE ANTHRACITE, comme la barre des applications. */
+  /* (4.3.0) L'EN-TÊTE TURQUOISE, comme la barre des applications : « un
+     fond turquoise lumineux », en dégradé discret, texte anthracite. */
   header{
-    position:sticky;top:0;z-index:10;background:rgba(15,30,38,.96);
-    backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,.08);
+    position:sticky;top:0;z-index:10;
+    background:linear-gradient(115deg,#00C7C7 0%,#0BB5BF 100%);
+    box-shadow:0 8px 22px -16px rgba(10,111,122,.7);
   }
-  header .btn-clair{background:var(--orange);color:var(--orange-texte);border-color:var(--orange)}
+  header .btn-clair{background:#fff;color:var(--encre);border-color:#fff;
+    box-shadow:0 6px 16px -10px rgba(10,111,122,.8)}
   /* HAUT ET BAS SEULEMENT : « padding:14px 0 » écrasait la marge de
      côté de « .large », et sur un téléphone le logo et le bouton
      touchaient les bords de l'écran. */
@@ -180,16 +193,16 @@
   }
 
   .bandeau{
-    /* Anthracite, éclairé de turquoise en haut à droite, comme l'écran
-       de démarrage de la charte. */
-    background:radial-gradient(ellipse 70% 80% at 85% 10%,rgba(0,207,203,.22) 0%,rgba(0,207,203,0) 60%),
-      linear-gradient(160deg,var(--bleu-800) 0%,var(--bleu-900) 65%,#0A161C 100%);
-    color:#fff;padding:60px 0 72px;
+    /* (4.3.0) Clair, du blanc vers le turquoise pâle, éclairé de
+       turquoise en haut à droite : « pas de grands aplats noirs ». */
+    background:radial-gradient(ellipse 70% 80% at 85% 10%,rgba(0,199,199,.30) 0%,rgba(0,199,199,0) 60%),
+      linear-gradient(165deg,#FFFFFF 0%,var(--fond) 55%,#C6F0F2 100%);
+    color:var(--encre);padding:60px 0 72px;
   }
   .bandeau .large{display:grid;gap:40px;align-items:center}
-  .bandeau h1{margin:0 0 14px;font-size:clamp(30px,5.4vw,46px);font-weight:800;letter-spacing:-.9px;line-height:1.12}
-  .bandeau h1 .accent{color:var(--turquoise)}
-  .bandeau p{margin:0 0 26px;font-size:16.5px;max-width:52ch;color:rgba(255,255,255,.9)}
+  .bandeau h1{margin:0 0 14px;font-size:clamp(30px,5.4vw,46px);font-weight:700;letter-spacing:-.9px;line-height:1.12}
+  .bandeau h1 .accent{color:var(--bleu)}
+  .bandeau p{margin:0 0 26px;font-size:16.5px;max-width:52ch;color:var(--encre-douce)}
   .actions{display:flex;flex-wrap:wrap;gap:12px}
 
   .btn{
@@ -198,9 +211,9 @@
     font-family:inherit;font-weight:600;font-size:15.5px;cursor:pointer;
   }
   .btn-orange{background:var(--orange);color:var(--orange-texte);font-weight:700;
-    box-shadow:0 12px 26px -14px rgba(0,207,203,.8)}
+    box-shadow:0 12px 26px -14px rgba(10,124,136,.8)}
   .btn-bleu{background:var(--bleu);color:#fff}
-  .btn-trait{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.55)}
+  .btn-trait{background:#fff;color:var(--bleu);border:1.5px solid var(--bleu)}
   .btn-clair{background:#fff;color:var(--bleu);border:1.5px solid var(--bleu)}
   .btn:active{transform:scale(.985)}
   /* LA RÈGLE EST GLOBALE, et c'est ce qui manquait : réservée aux
@@ -212,11 +225,11 @@
   /* « .bandeau p » est plus précis qu'une classe seule : écrit
      « .sous-actions », ce réglage perdait sa marge et sa taille, et la
      note collait aux boutons en grands caractères. */
-  .bandeau .sous-actions{margin:14px 0 0;font-size:13px;color:rgba(255,255,255,.72);max-width:52ch}
+  .bandeau .sous-actions{margin:14px 0 0;font-size:13px;color:var(--encre-douce);max-width:52ch}
 
   .promesses{padding:60px 0}
   .titre-bloc{text-align:center;margin-bottom:38px}
-  .titre-bloc h2{margin:0 0 8px;font-size:clamp(23px,3.4vw,31px);font-weight:800;letter-spacing:-.5px;color:var(--bleu-900)}
+  .titre-bloc h2{margin:0 0 8px;font-size:clamp(23px,3.4vw,31px);font-weight:700;letter-spacing:-.5px;color:var(--bleu-900)}
   /* Le petit trait turquoise sous les titres de section. */
   .titre-bloc h2::after{content:"";display:block;width:44px;height:4px;border-radius:4px;
     background:var(--turquoise);margin:12px auto 0}
@@ -234,8 +247,8 @@
   }
   .carte{background:var(--blanc);border:1px solid var(--trait);border-radius:18px;padding:22px}
   .carte .rond{
-    width:46px;height:46px;border-radius:14px;background:var(--bleu-900);
-    color:var(--turquoise);display:flex;align-items:center;justify-content:center;
+    width:46px;height:46px;border-radius:14px;background:var(--bleu-50);border:1px solid #C6F0F2;
+    color:var(--bleu);display:flex;align-items:center;justify-content:center;
     margin-bottom:14px;
   }
   .carte .rond .ic{width:23px;height:23px}
@@ -268,24 +281,25 @@
   .porte p{margin:0 0 16px;color:var(--encre-douce);font-size:14.5px}
   .porte .btn{min-height:46px;padding:10px 18px;font-size:14.5px}
 
-  footer{background:var(--bleu-900);color:#fff;padding:40px 0 34px}
+  /* (4.3.0) Le pied bleu pétrole, texte blanc (4,94:1 et plus). */
+  footer{background:linear-gradient(135deg,#0A7C88 0%,#086A74 100%);color:#fff;padding:40px 0 34px}
   .pied{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
   .pied .logo{font-size:24px}
-  .pied .slogan{font-size:14.5px;color:rgba(255,255,255,.78)}
+  .pied .slogan{font-size:14.5px;color:rgba(255,255,255,.92)}
   .pied nav{margin-left:auto;display:flex;flex-wrap:wrap;gap:18px;font-size:14px}
-  .pied nav a{color:rgba(255,255,255,.82)}
-  .mentions{margin-top:26px;padding-top:20px;border-top:1px solid rgba(255,255,255,.14);
-    font-size:13px;color:rgba(255,255,255,.6)}
-  .legaux{margin:10px 0 0;font-size:13px;line-height:1.7;color:rgba(255,255,255,.45)}
-  .legaux a{color:rgba(255,255,255,.75)}
+  .pied nav a{color:#fff}
+  .mentions{margin-top:26px;padding-top:20px;border-top:1px solid rgba(255,255,255,.25);
+    font-size:13px;color:rgba(255,255,255,.88)}
+  .legaux{margin:10px 0 0;font-size:13px;line-height:1.7;color:rgba(255,255,255,.8)}
+  .legaux a{color:#fff}
 
   /* LE TÉLÉPHONE DU BANDEAU : une capture de l'application dans un
      cadre. Il s'efface sur les petits écrans, où la galerie juste
      dessous montre déjà les écrans en entier. */
   .mock{justify-self:center;width:min(300px,80vw)}
   .mock-cadre{
-    border-radius:38px;border:10px solid #0A161C;
-    background:var(--blanc);overflow:hidden;box-shadow:0 30px 60px -28px rgba(0,0,0,.7),0 0 0 1px rgba(111,236,239,.18);
+    border-radius:38px;border:10px solid var(--encre);
+    background:var(--blanc);overflow:hidden;box-shadow:0 30px 60px -28px rgba(10,111,122,.55),0 0 0 1px rgba(0,199,199,.25);
   }
   .mock-cadre img{width:100%;height:auto}
   @media (max-width:899px){ .mock{display:none} }
@@ -308,11 +322,19 @@
   .ecran{margin:0;scroll-snap-align:center;text-align:center}
   .ecran-cadre{
     border-radius:30px;border:8px solid var(--bleu-900);overflow:hidden;background:var(--blanc);
-    box-shadow:0 22px 44px -26px rgba(15,30,38,.55);
+    box-shadow:0 22px 44px -26px rgba(10,111,122,.55);
   }
   .ecran-cadre img{width:100%;height:auto}
   .ecran figcaption{margin-top:12px;font-size:14.5px;font-weight:600;color:var(--bleu-900)}
   .ecrans-note{margin:22px 0 0;text-align:center;font-size:12.5px;color:var(--encre-tres-douce)}
+
+  /* (4.3.0) Les sections alternent, blanc puis fond clair, et les
+     cartes s'en détachent d'une ombre discrète. */
+  .ecrans{background:var(--blanc)}
+  .promesses{background:var(--fond)}
+  .marche{background:var(--blanc)}
+  .portes{background:var(--fond)}
+  .carte,.etape,.porte{box-shadow:0 8px 20px -16px rgba(10,111,122,.45)}
 </style>
 <script src="vitrine/traductions-en.js"></script>
 <script src="vitrine/langue.js"></script>
@@ -332,7 +354,7 @@
 
 <header>
   <div class="large entete">
-    <span class="logo sur-bleu"><img class="logo-tuile" src="client/icons/logo-bizzoo-market.png" alt="" width="44" height="44"><span class="logo-mot" aria-label="BIZZOO Market"><span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span></span></span>
+    <span class="logo sur-bleu"><img class="logo-tuile" src="client/icons/logo-bizzoo-b.png" alt="" width="44" height="44"><span class="logo-mot" aria-label="BIZZOO Market"><span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span></span></span>
     <nav>
       <a class="btn btn-clair" href="client/">
         <svg class="ic" viewBox="0 0 24 24"><use href="#i-magasin"/></svg><span class="long">Ouvrir la boutique</span><span class="court">Boutique</span></a>
@@ -363,7 +385,7 @@
          note ni aucun avis n'y figure, faute de pouvoir les montrer vrais. -->
     <div class="mock">
       <div class="mock-cadre">
-        <img src="vitrine/ecran-accueil.jpg?v=4.0.0" width="540" height="1169"
+        <img src="vitrine/ecran-accueil.jpg?v=4.3.0" width="540" height="1169"
              alt="L'accueil de BIZZOO : la recherche, les catégories, les boutiques partenaires">
       </div>
     </div>
@@ -378,22 +400,22 @@
     </div>
     <div class="ecrans-rangee">
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-accueil.jpg?v=4.0.0" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-accueil.jpg?v=4.3.0" width="540" height="1169" loading="lazy"
           alt="L'accueil : la recherche, les catégories, les boutiques partenaires"></div>
         <figcaption>1. Accueil</figcaption>
       </figure>
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-boutique.jpg?v=4.0.0" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-boutique.jpg?v=4.3.0" width="540" height="1169" loading="lazy"
           alt="La fiche d'une boutique : son logo, ses atouts, ses produits"></div>
         <figcaption>2. Une boutique</figcaption>
       </figure>
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-produit.jpg?v=4.0.0" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-produit.jpg?v=4.3.0" width="540" height="1169" loading="lazy"
           alt="La fiche d'un produit : le prix, les spécifications, le bouton Ajouter au panier"></div>
         <figcaption>3. Un produit</figcaption>
       </figure>
       <figure class="ecran">
-        <div class="ecran-cadre"><img src="vitrine/ecran-paiement.jpg?v=4.0.0" width="540" height="1169" loading="lazy"
+        <div class="ecran-cadre"><img src="vitrine/ecran-paiement.jpg?v=4.3.0" width="540" height="1169" loading="lazy"
           alt="Le paiement de l'acompte : MTN, Moov ou Celtiis, et l'adresse de livraison"></div>
         <figcaption>4. Le paiement</figcaption>
       </figure>
@@ -517,7 +539,7 @@
 <footer>
   <div class="large">
     <div class="pied">
-      <span class="logo sur-bleu"><img class="logo-tuile" src="client/icons/logo-bizzoo-market.png" alt="" width="42" height="42"><span class="logo-mot" aria-label="BIZZOO Market"><span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span></span></span>
+      <span class="logo sur-bleu"><img class="logo-tuile" src="client/icons/logo-bizzoo-b.png" alt="" width="42" height="42"><span class="logo-mot" aria-label="BIZZOO Market"><span class="logo-bizz">BIZZOO</span><span class="logo-oo">Market</span></span></span>
       <span class="slogan">Plus de boutiques, un seul endroit !</span>
       <nav>
         <a href="client/">La boutique</a>

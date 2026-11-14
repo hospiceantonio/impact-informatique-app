@@ -1,15 +1,17 @@
 /* =========================================================
-   Les pictogrammes des catégories aux couleurs de BIZZOO Market (4.0.0)
+   Les pictogrammes des catégories aux couleurs de BIZZOO Market (4.0.0,
+   version lumineuse en 4.3.0)
    =========================================================
    Les 34 pictogrammes (client/img/pictos, admin/img/pictos) étaient
    dessinés en bleu nuit et orange, les couleurs de l'ancienne charte.
    On ne les redessine pas : on change leurs DEUX couleurs, pixel par
    pixel, en gardant le dessin, l'ombrage et la transparence :
 
-     - l'ORANGE (teinte 0-50°, saturée) devient le turquoise signature
-       #00CFCB, à la même clarté relative ;
-     - le BLEU NUIT (teinte 190-260°) devient l'anthracite de la
-       charte : teinte 200°, saturation réduite, même clarté.
+     - l'ORANGE (teinte 0-50°, saturée) devient le turquoise dominant
+       #00C7C7, à la même clarté relative ;
+     - le BLEU NUIT (teinte 190-260°) devient le bleu pétrole de la
+       charte (4.3.0 ; l'anthracite en 4.0.0) : teinte 186°, même
+       clarté — « pas de grands aplats noirs ».
 
    Le reste (gris, blancs, reflets) ne bouge pas. Les originaux sont
    gardés hors des applications, dans « docs/pictos-avant-4.0.0/», la
@@ -56,8 +58,8 @@ async function recolorer(b64) {
     const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
     return [f(0) * 255, f(8) * 255, f(4) * 255];
   };
-  // Le turquoise #00CFCB : teinte 179°, saturation 1, clarté 0,406.
-  const TURQ = { h: 179, s: 1, l: 0.406 };
+  // Le turquoise #00C7C7 : teinte 180°, saturation 1, clarté 0,39.
+  const TURQ = { h: 180, s: 1, l: 0.39 };
   let orange = 0, nuit = 0;
   for (let i = 0; i < p.length; i += 4) {
     if (p[i + 3] === 0) continue;
@@ -69,7 +71,7 @@ async function recolorer(b64) {
       rvb = versRvb(TURQ.h, TURQ.s, ll);
       orange++;
     } else if (s > 0.15 && h >= 190 && h <= 260) {
-      rvb = versRvb(200, Math.min(s, 1) * 0.42, l);
+      rvb = versRvb(186, Math.min(s, 1) * 0.85, l);
       nuit++;
     }
     if (rvb) { p[i] = rvb[0]; p[i + 1] = rvb[1]; p[i + 2] = rvb[2]; }
@@ -90,7 +92,7 @@ for (const f of fichiers) {
     fs.writeFileSync(path.join(dossier, f), octets);
   }
   n++;
-  console.log(f.padEnd(26) + " orange→turquoise " + String(r.orange).padStart(5) + " px, bleu nuit→anthracite " + String(r.nuit).padStart(6) + " px");
+  console.log(f.padEnd(26) + " orange→turquoise " + String(r.orange).padStart(5) + " px, bleu nuit→pétrole " + String(r.nuit).padStart(6) + " px");
 }
 await nav.close();
 console.log("\n" + n + " pictogrammes recolorés, dans client/ et admin/.");

@@ -38,24 +38,24 @@ const UI = (() => {
    */
   function marque(taille = 40) {
     return (
-      '<img class="marque" src="icons/icone-market-192.png" alt="" aria-hidden="true"' +
+      '<img class="marque" src="icons/icone-b-192.png" alt="" aria-hidden="true"' +
       ' width="' + taille + '" height="' + taille + '">'
     );
   }
 
   /**
-   * LE LOGO DE BIZZOO : le monogramme de BIZZOO Market, puis le nom — et sous
+   * LE LOGO DE BIZZOO : la tuile du B de BIZZOO Market, puis le nom — et sous
    * le nom, le slogan de l'enseigne quand on en passe un. Le slogan
    * appartient au logo : il se cale sous le nom, à droite de la tuile.
    *
-   * La tuile vient de « icons/logo-bizzoo-market.png », que tools/make-icons.js
-   * tire de l'œuvre comme toutes les icônes ; le service worker la garde
+   * La tuile vient de « icons/logo-bizzoo-b.png » (4.3.0, le logo B), que
+   * tools/make-icons.js tire du logo officiel comme toutes les icônes ; le service worker la garde
    * hors connexion. « classe » passe au nom : « clair » sur un fond bleu.
    */
   function logo(sous, classe) {
     return (
       '<span class="logo' + (sous ? " logo-avec-sous" : "") + '">' +
-        '<img class="logo-tuile" src="icons/logo-bizzoo-market.png" alt="" aria-hidden="true"' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo-b.png" alt="" aria-hidden="true"' +
         ' width="40" height="40">' +
         '<span class="logo-textes">' +
           motSymbole(classe) +

@@ -5,8 +5,9 @@
    capture d'écran :
 
    — que les polices AFFICHÉES soient celles de la charte : Poppins pour
-     les textes, et, depuis la 4.0.0 (BIZZOO Market), Montserrat pour les
-     titres, les boutons et le nom « BIZZOO ». Une @font-face qui échoue
+     les textes, les titres et les boutons (4.3.0, comme la direction
+     artistique le demande), Montserrat pour le seul nom « BIZZOO Market »
+     du logo. Une @font-face qui échoue
      ne laisse aucune trace : le navigateur retombe sur la police du
      système et la page reste belle. document.fonts.check() interroge
      ce qui est réellement chargé.
@@ -53,12 +54,15 @@ const titre = (t) => console.log("\n== " + t + " ==");
    voient pas — trois défauts de la charte n'ont été trouvés que là. */
 const SORTIE = process.env.CAPTURES || ".";
 
-/* (4.0.0) LA CHARTE BIZZOO MARKET. Les jetons gardent leur nom — --bleu,
-   --orange —, tout le code les emploie ; ils portent ces couleurs : */
-const BLEU = "rgb(0, 127, 124)";      /* --bleu     #007F7C, le turquoise des boutons */
-const ORANGE = "rgb(0, 207, 203)";    /* --orange   #00CFCB, le turquoise signature */
-const ANTHRACITE = "rgb(15, 30, 38)"; /* --bleu-900 #0F1E26, la marque */
+/* (4.3.0) LA CHARTE BIZZOO MARKET, VERSION LUMINEUSE. Les jetons gardent
+   leur nom — --bleu, --orange —, tout le code les emploie ; ils portent
+   ces couleurs : */
+const BLEU = "rgb(10, 124, 136)";     /* --bleu     #0A7C88, le bleu pétrole des boutons à texte blanc */
+const ORANGE = "rgb(0, 199, 199)";    /* --orange   #00C7C7, le turquoise dominant */
+const ANTHRACITE = "rgb(32, 51, 59)"; /* --bleu-900 #20333B, le texte anthracite */
 const BLANC = "rgb(255, 255, 255)";
+/* Le « Market » du logo dans le pied bleu pétrole du site. */
+const TURQUOISE_PALE = "rgb(159, 243, 244)";
 
 const navigateur = await chromium.launch(EXE ? { executablePath: EXE } : {});
 
@@ -122,8 +126,8 @@ async function policeVraie(page) {
       poppinsPrete: document.fonts.check("700 16px Poppins"),
       poids: chargees.filter((f) => f.family === "Poppins").map((f) => f.weight),
       titre: (() => { const t = document.querySelector("h1,h2,.btn"); return t ? getComputedStyle(t).fontFamily : ""; })(),
-      montserratPrete: document.fonts.check("italic 800 16px Montserrat") &&
-        document.fonts.check("700 16px Montserrat"),
+      /* Montserrat ne sert plus qu'au nom du logo, en italique 800. */
+      montserratPrete: document.fonts.check("italic 800 16px Montserrat"),
     };
   });
 }
@@ -144,13 +148,14 @@ async function debordement(page) {
   });
 }
 
-/* LE LOGO, depuis la 4.0.0 : le monogramme B, puis « BIZZOO » et
-   « Market » en deux couleurs, sans les deux points d'avant (3.56.1). Une tuile absente ou
+/* LE LOGO, depuis la 4.3.0 : la tuile du B (le logo B officiel), puis
+   « BIZZOO » et « Market » en deux couleurs, sans les deux points d'avant
+   (3.56.1). Une tuile absente ou
    cassée ne se voit dans aucun constat de texte : on regarde l'image
    elle-même, chargée, et le fichier qu'elle montre — celui du logo, pas
    l'icône de l'application, qui porte dans l'admin sa pastille
    « réglages ». */
-const TUILE = /(^|\/)icons\/logo-bizzoo-market\.png$/;
+const TUILE = /(^|\/)icons\/logo-bizzoo-b\.png$/;
 async function lireLogo(page, selecteur) {
   return page.evaluate((sel) => {
     const zone = document.querySelector(sel);
@@ -259,7 +264,7 @@ async function ouvrirAdmin({ largeur, hauteur, hash = "", nom }) {
 }
 
 /* ========================================================= */
-titre("La boutique sur téléphone : Poppins pour le texte, Montserrat pour les titres");
+titre("La boutique sur téléphone : Poppins pour le texte et les titres, Montserrat pour le nom");
 {
   const { page, ctx, dehors } = await ouvrirClient({ largeur: 390, hauteur: 1500,
     nom: "da-client-tel" });
@@ -271,8 +276,8 @@ titre("La boutique sur téléphone : Poppins pour le texte, Montserrat pour les 
   ok(dehors.length === 0,
     "aucune requête hors de l'application : ni Google Fonts, ni rien" +
     (dehors.length ? " — " + dehors[0] : ""));
-  ok(/Montserrat/.test(p.titre), "les titres et les boutons demandent Montserrat (" + p.titre + ")");
-  ok(p.montserratPrete, "et Montserrat est chargée, l'italique 800 du nom compris");
+  ok(/^"?Poppins/.test(p.titre), "les titres et les boutons demandent Poppins (" + p.titre + ")");
+  ok(p.montserratPrete, "et Montserrat est chargée pour le nom du logo, en italique 800");
 
   /* Le nom du logo est écrit par la feuille de style : s'il n'est pas
      dessiné, rien ne le dit — la page reste lisible, avec un logo en une
@@ -281,10 +286,10 @@ titre("La boutique sur téléphone : Poppins pour le texte, Montserrat pour les 
      dans le document. */
   const l = await lireLogo(page, ".topbar .logo");
   ok(l && l.mot === "bizzoomarket", "le logo écrit « BIZZOO Market » en toutes lettres (" + (l ? l.mot : "—") + ")");
-  ok(l && l.bizz === BLANC, "« BIZZOO » en blanc sur la barre anthracite (" + (l ? l.bizz : "—") + ")");
-  ok(l && l.oo === ORANGE, "et « Market » en turquoise signature (" + (l ? l.oo : "—") + ")");
+  ok(l && l.bizz === ANTHRACITE, "« BIZZOO » en anthracite sur la barre turquoise (" + (l ? l.bizz : "—") + ")");
+  ok(l && l.oo === BLANC, "et « Market » en blanc (" + (l ? l.oo : "—") + ")");
   ok(l && TUILE.test(l.tuile) && l.chargee && l.avant,
-    "le monogramme le précède, et son image est chargée (" + (l ? l.tuile : "—") + ")");
+    "la tuile du B le précède, et son image est chargée (" + (l ? l.tuile : "—") + ")");
   ok(l && l.points === 0, "les deux points d'avant ne sont pas revenus");
   await ctx.close();
 }
@@ -312,22 +317,30 @@ titre("Les couleurs relevées sur les éléments, pas dans la feuille");
       return .2126 * x + .7152 * y + .0722 * z;
     };
     const ic = document.querySelector(".topbar .btn-ic");
+    /* (4.3.0) La barre est un dégradé : sa couleur est la première de
+       l'image de fond, pas « background-color », resté transparent. */
+    const fondBarre = (() => {
+      if (!bar) return "";
+      const m = getComputedStyle(bar).backgroundImage.match(/rgba?\([^)]*\)/);
+      return m ? m[0] : getComputedStyle(bar).backgroundColor;
+    })();
     return {
       bleu: r.getPropertyValue("--bleu").trim(),
       orange: r.getPropertyValue("--orange").trim(),
-      barre: bar ? getComputedStyle(bar).backgroundColor : "",
-      iconeClaire: ic ? lisible(getComputedStyle(ic).color) > .7 : false,
+      barre: fondBarre,
+      icone: ic ? getComputedStyle(ic).color : "",
+      iconeFoncee: ic ? lisible(getComputedStyle(ic).color) < .1 : false,
       bouton: bouton ? getComputedStyle(bouton).backgroundColor : "",
     };
   }, BLEU);
-  ok(t.bleu.toUpperCase() === "#007F7C", "le turquoise des boutons est posé (" + t.bleu + ")");
-  ok(t.orange.toUpperCase() === "#00CFCB", "le turquoise signature est posé (" + t.orange + ")");
-  ok(t.barre === ANTHRACITE, "la barre du haut est anthracite, comme la charte (" + t.barre + ")");
+  ok(t.bleu.toUpperCase() === "#0A7C88", "le bleu pétrole des boutons est posé (" + t.bleu + ")");
+  ok(t.orange.toUpperCase() === "#00C7C7", "le turquoise dominant est posé (" + t.orange + ")");
+  ok(t.barre === ORANGE, "la barre du haut part du turquoise, comme la charte (" + t.barre + ")");
   /* La faute qu'une capture a révélée (3.4x) : la barre avait changé de
      fond, et ses boutons non — invisibles. Ils doivent s'y détacher. */
-  ok(t.iconeClaire,
-    "et ses boutons y restent lisibles, clairs sur l'anthracite (" + t.icone + ")");
-  ok(t.bouton === BLEU, "le bouton plein est turquoise foncé, texte blanc (" + t.bouton + ")");
+  ok(t.iconeFoncee,
+    "et ses boutons y restent lisibles, foncés sur le turquoise (" + t.icone + ")");
+  ok(t.bouton === BLEU, "le bouton plein est bleu pétrole, texte blanc (" + t.bouton + ")");
   await ctx.close();
 }
 
@@ -347,9 +360,12 @@ titre("La gamme de la charte, la même partout");
   const ANCIENS = "\\b(0, 71, 217|0, 27, 82|0, 42, 128|0, 56, 168|61, 120, 236|" +
     "111, 160, 245|214, 226, 251|237, 242, 254|" +
     "9, 26, 81|16, 42, 124|26, 59, 152|37, 80, 183|59, 118, 244|116, 158, 248|" +
-    "213, 226, 253|236, 242, 254|255, 138, 0)\\b|" +
+    "213, 226, 253|236, 242, 254|255, 138, 0|" +
+    /* (4.3.0) et l'anthracite et le turquoise de la 4.0.0. */
+    "15, 30, 38|0, 207, 203|0, 127, 124|22, 48, 59)\\b|" +
     "#(0047d9|001b52|002a80|0038a8|3d78ec|6fa0f5|d6e2fb|edf2fe|" +
-    "091a51|102a7c|1a3b98|2550b7|3b76f4|749ef8|d5e2fd|ecf2fe|ff8a00)\\b";
+    "091a51|102a7c|1a3b98|2550b7|3b76f4|749ef8|d5e2fd|ecf2fe|ff8a00|" +
+    "0f1e26|00cfcb|007f7c|16303b)\\b";
   const lire = async (chemin) => {
     const ctx = await navigateur.newContext({ serviceWorkers: "block" });
     const page = await ctx.newPage();
@@ -400,16 +416,17 @@ titre("La gamme de la charte, la même partout");
   ok(communes.length >= 4 && communes.every((n) => site.jetons[n] === client.jetons[n]),
     "la page d'entrée du site aussi (" + communes.join(" ") + ")");
   ok(page404.jetons["--bleu"] === bleu, "et sa page 404 (" + page404.jetons["--bleu"] + ")");
-  /* (4.0.0) La barre du navigateur prend l'ANTHRACITE de la marque, qui
-     est aussi celle de la barre du haut : les deux se continuent. L'admin
-     de même — sa pastille « réglages » est devenue turquoise. */
-  ok(anthracite === "#0F1E26", "l'anthracite de la marque est posé (" + anthracite + ")");
-  ok(client.theme === anthracite && client.themeManifeste === anthracite,
-    "la barre du navigateur prend l'anthracite, dans la page et dans le manifeste (" +
+  /* (4.3.0) La barre du navigateur prend le TURQUOISE de la barre du
+     haut : les deux se continuent. L'admin de même. */
+  const turquoise = client.jetons["--bleu-400"];
+  ok(anthracite === "#20333B", "l'anthracite du texte est posé (" + anthracite + ")");
+  ok(turquoise === "#00C7C7", "et le turquoise dominant (" + turquoise + ")");
+  ok(client.theme === turquoise && client.themeManifeste === turquoise,
+    "la barre du navigateur prend le turquoise, dans la page et dans le manifeste (" +
     client.theme + ", " + client.themeManifeste + ")");
-  ok(site.theme === anthracite && page404.theme === anthracite,
+  ok(site.theme === turquoise && page404.theme === turquoise,
     "sur le site et sa page 404 aussi (" + site.theme + ", " + page404.theme + ")");
-  ok(admin.theme === anthracite && admin.themeManifeste === admin.theme,
+  ok(admin.theme === turquoise && admin.themeManifeste === admin.theme,
     "et dans l'admin, page et manifeste (" + admin.theme + ", " + admin.themeManifeste + ")");
   for (const [nom, r] of [["du client", client], ["de l'admin", admin],
                           ["du site", site], ["de la page 404", page404]]) {
@@ -436,14 +453,14 @@ titre("Le turquoise des actions d'achat, et le texte anthracite qu'il porte");
       poids: Number(s.fontWeight) || 0,
       contraste: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
   });
-  ok(t !== null, "l'appel à l'action porte le turquoise signature");
+  ok(t !== null, "l'appel à l'action porte le turquoise dominant");
   if (t) {
     ok(t.fond === ORANGE, "c'est bien le turquoise de la charte (" + t.fond + ")");
     /* (4.0.0) LA RÈGLE A CHANGÉ, ET CE CONSTAT AVEC ELLE. La DA corrigée
        (3.4x) posait du blanc sur l'orange, à 2,36:1. Du blanc sur le
-       turquoise vif ne donnerait que 1,95:1 : la charte BIZZOO Market y
-       pose l'ANTHRACITE, 8,74:1. Le contraste est mesuré et affiché ; il
-       doit tenir le seuil de 4,5:1. */
+       turquoise vif ne donnerait que 2,1:1 : la charte BIZZOO Market y
+       pose l'ANTHRACITE (4.3.0 : #20333B sur #00C7C7, 6,25:1). Le
+       contraste est mesuré et affiché ; il doit tenir le seuil de 4,5:1. */
     ok(t.encre === ANTHRACITE, "son texte est anthracite, pas blanc (" + t.encre + ")");
     ok(t.contraste >= 4.5, "et se lit : " + t.contraste.toFixed(2) + ":1, au-dessus de 4,5:1");
     ok(t.poids >= 700, "en gras, ce qui se lit mieux au soleil qu'un texte mi-gras (" +
@@ -506,7 +523,7 @@ titre("Sur ordinateur, la boutique s'étale au lieu de flotter");
   const m = await lireLogo(page, ".tabbar-marque");
   ok(visible, "le menu s'ouvre sur la marque");
   ok(m && TUILE.test(m.tuile) && m.chargee && m.avant,
-    "le monogramme, puis le nom (" + (m ? m.tuile : "—") + ")");
+    "la tuile du B, puis le nom (" + (m ? m.tuile : "—") + ")");
   ok(m && m.bizz === ANTHRACITE && m.oo === BLEU,
     "qui garde ses deux couleurs (" + (m ? m.bizz + " / " + m.oo : "") + ")");
   await ctx.close();
@@ -526,19 +543,19 @@ titre("Le poste de l'enseigne : même police, même palette");
     return { bleu: r.getPropertyValue("--bleu").trim(),
       bizz: bizz ? getComputedStyle(bizz).color : "" };
   });
-  ok(t.bleu.toUpperCase() === "#007F7C", "le même turquoise que la boutique");
+  ok(t.bleu.toUpperCase() === "#0A7C88", "le même bleu pétrole que la boutique");
   const m = await lireLogo(page, ".tabbar-marque");
   const role = await page.evaluate(() =>
     (document.querySelector(".tabbar-marque .marque-role") || {}).innerText || "");
   ok(m && TUILE.test(m.tuile) && m.chargee && m.avant,
-    "le menu s'ouvre sur le monogramme — le logo, sans la pastille de l'icône de l'admin (" +
+    "le menu s'ouvre sur la tuile du B — le logo, sans la pastille de l'icône de l'admin (" +
     (m ? m.tuile : "—") + ")");
   ok(m && m.bizz === ANTHRACITE, "puis « BIZZOO » en anthracite (" + (m ? m.bizz : "") + ")");
   ok(/admin/i.test(role),
     "et le poste de l'enseigne se distingue de la boutique (" + role + ")");
   const h = await lireLogo(page, ".topbar .logo");
-  ok(h && TUILE.test(h.tuile) && h.chargee && h.avant && h.points === 0 && h.bizz === BLANC,
-    "la barre du haut aussi : le monogramme, puis « BIZZOO » en blanc (" + (h ? h.tuile : "—") + ")");
+  ok(h && TUILE.test(h.tuile) && h.chargee && h.avant && h.points === 0 && h.bizz === ANTHRACITE,
+    "la barre du haut aussi : la tuile du B, puis « BIZZOO » en anthracite (" + (h ? h.tuile : "—") + ")");
   const d = await debordement(page);
   ok(!d.defile && d.deborde.length === 0,
     "rien ne déborde" + (d.deborde.length ? " — " + d.deborde.join(", ") : ""));
@@ -561,12 +578,15 @@ titre("Le poste de l'enseigne tient aussi sur un téléphone");
       return .2126 * x + .7152 * y + .0722 * z;
     };
     if (!bar) return null;
-    const a = lum(getComputedStyle(bar).backgroundColor);
+    /* (4.3.0) Un dégradé : la couleur est la première de l'image de fond. */
+    const m = getComputedStyle(bar).backgroundImage.match(/rgba?\([^)]*\)/);
+    const fond = m ? m[0] : getComputedStyle(bar).backgroundColor;
+    const a = lum(fond);
     const b = ic ? lum(getComputedStyle(ic).color) : null;
-    return { sombre: a < .05,
+    return { fond, turquoise: fond === "rgb(0, 199, 199)",
       contraste: b === null ? null : (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
   });
-  ok(t && t.sombre, "la barre du haut y est anthracite aussi");
+  ok(t && t.turquoise, "la barre du haut y est turquoise aussi (" + (t ? t.fond : "—") + ")");
   ok(t && t.contraste !== null && t.contraste >= 3,
     "et ses boutons s'y détachent" + (t && t.contraste ?
       " (" + t.contraste.toFixed(2) + ":1)" : ""));
@@ -633,11 +653,11 @@ titre("Le site porte le même logo");
     if (l === 390 || l === 1440) {
       const e = await lireLogo(page, "header .logo");
       ok(e && TUILE.test(e.tuile) && e.chargee && e.avant && e.points === 0 &&
-         e.mot === "bizzoomarket" && e.bizz === BLANC && e.oo === ORANGE,
-        "l'en-tête anthracite, sur " + quoi + " : le monogramme, « BIZZOO » en blanc, « Market » en turquoise");
+         e.mot === "bizzoomarket" && e.bizz === ANTHRACITE && e.oo === BLANC,
+        "l'en-tête turquoise, sur " + quoi + " : la tuile du B, « BIZZOO » en anthracite, « Market » en blanc");
       const p = await lireLogo(page, "footer .logo");
-      ok(p && TUILE.test(p.tuile) && p.chargee && p.avant && p.oo === ORANGE &&
-         p.bizz === BLANC, "le pied aussi, sur l'anthracite");
+      ok(p && TUILE.test(p.tuile) && p.chargee && p.avant && p.oo === TURQUOISE_PALE &&
+         p.bizz === BLANC, "le pied aussi, sur le bleu pétrole (" + (p ? p.bizz + " / " + p.oo : "—") + ")");
     }
     /* Le logo élargi poussait « Ouvrir la boutique » sur deux lignes à
        390 px : l'en-tête se resserre au téléphone, et le bouton dit

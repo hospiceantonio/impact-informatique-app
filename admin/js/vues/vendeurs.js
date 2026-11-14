@@ -330,8 +330,18 @@ const VueVendeurs = (() => {
       return;
     }
     const total = (cle) => vendeurs.reduce((t, v) => t + v[cle], 0);
+    /* (4.3.0) LES VENDEURS À PAYER EN TÊTE, pour ne plus descendre la liste
+       les chercher : d'abord ceux qui ont DEMANDÉ un versement (il attend
+       une réponse), puis ceux à qui BIZZOO doit de l'argent sans qu'ils
+       l'aient encore demandé — le plus gros montant d'abord —, puis les
+       autres, par nom. */
+    const rangPaie = (v) => (v.enAttente > 0 ? 0 : v.disponible > 0 ? 1 : 2);
+    const aPayer = (v) => v.enAttente > 0 || v.disponible > 0;
     vendeurs = vendeurs.slice().sort((a, b) =>
+      rangPaie(a) - rangPaie(b) ||
+      (rangPaie(a) === 0 ? b.enAttente - a.enAttente : rangPaie(a) === 1 ? b.disponible - a.disponible : 0) ||
       String(a.nom || "").localeCompare(String(b.nom || ""), "fr", { sensitivity: "base" }));
+    const nbAPayer = vendeurs.filter(aPayer).length;
     const compteDe = (id) => comptes.find((c) => c.id === id && c.role === "vendeur");
     vue.innerHTML =
       '<div class="carte sd-solde" id="vv-totaux">' +
@@ -351,7 +361,8 @@ const VueVendeurs = (() => {
         '<button type="button" class="btn" id="vv-nouveau">' + UI.icone("plus") + "Nouveau vendeur</button>" +
         '<a class="btn btn-clair" href="#/reversements">' + UI.icone("promo") + "Versements</a>" +
       "</div>" +
-      '<div class="titre-section">' + vendeurs.length + " vendeur" + (vendeurs.length > 1 ? "s" : "") + "</div>" +
+      '<div class="titre-section">' + vendeurs.length + " vendeur" + (vendeurs.length > 1 ? "s" : "") +
+        (nbAPayer ? ' · <span class="vv-titre-a-payer">' + nbAPayer + " à payer</span>" : "") + "</div>" +
       (vendeurs.length > 5
         ? '<input type="search" class="recherche-liste" id="vv-chercher" autocomplete="off" ' +
             'placeholder="Rechercher un vendeur : nom, numéro…" aria-label="Rechercher un vendeur">' +
@@ -359,7 +370,8 @@ const VueVendeurs = (() => {
         : "") +
       (vendeurs.length
         ? '<div class="carte" id="vv-liste">' + vendeurs.map((v) =>
-            '<div class="vv-rangee" data-cherche="' + e(Utils.sansAccent([v.nom, v.tel].filter(Boolean).join(" "))) + '">' +
+            '<div class="vv-rangee' + (v.enAttente > 0 ? " vv-a-payer vv-demande" : v.disponible > 0 ? " vv-a-payer" : "") +
+              '" data-cherche="' + e(Utils.sansAccent([v.nom, v.tel].filter(Boolean).join(" "))) + '">' +
             /* (3.78.0) Son lieu : où le livreur récupère ce qu'on lui commande. */
             (lieux
               ? '<button type="button" class="btn-ic btn-ic-clair vv-lieu" data-lieu="' + e(v.id) +
@@ -373,6 +385,14 @@ const VueVendeurs = (() => {
             '<button type="button" class="sd-ligne vv-vendeur" data-vendeur="' + e(v.id) + '">' +
               '<div class="sd-ligne-haut"><strong>' + e(v.nom) + "</strong>" +
                 (v.actif ? "<span>" + e(v.tel) + "</span>" : '<span class="badge badge-rupture">Inactif</span>') + "</div>" +
+              /* (4.3.0) Ce qu'on lui doit, dit d'un coup d'œil. */
+              (v.enAttente > 0
+                ? '<div class="vv-a-payer-mot">' + UI.icone("horloge", "ic-sm") + "<span>Demande de versement : <strong>" +
+                    e(m(v.enAttente)) + "</strong></span></div>"
+                : v.disponible > 0
+                  ? '<div class="vv-a-payer-mot">' + UI.icone("promo", "ic-sm") + "<span>À verser : <strong>" +
+                      e(m(v.disponible)) + "</strong></span></div>"
+                  : "") +
               (lieux
                 ? (lieux.get(v.id) && lieux.get(v.id).position
                     ? '<div class="aide lieu-ligne">' + UI.icone("carte", "ic-sm") + "<span>" +

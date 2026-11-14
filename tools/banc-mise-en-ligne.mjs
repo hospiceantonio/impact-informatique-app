@@ -340,10 +340,9 @@ titre("5. Le site s'ouvre, à ses deux adresses");
   const l404 = await page.evaluate(() => ({
     texte: document.body.innerText,
     liens: [...document.querySelectorAll("a[data-lien]")].map((a) => a.href),
-    /* (4.0.0) Poppins pour le texte (400), Montserrat pour le titre, les
-       boutons (700, 800) et le nom (italique 800) : le gras de Poppins n'y
-       sert plus, et ne se charge donc plus. */
-    police: document.fonts.check("400 20px Poppins") && document.fonts.check("800 20px Montserrat") &&
+    /* (4.3.0) Poppins pour le texte (400), le titre et les boutons (700) ;
+       Montserrat pour le seul nom du logo (italique 800). */
+    police: document.fonts.check("400 20px Poppins") && document.fonts.check("700 20px Poppins") &&
       document.fonts.check("italic 800 20px Montserrat"),
     polices: [...document.fonts].map((f) => f.family + " " + f.style + " " + f.weight + " " + f.status).join(", "),
     logo: (() => {
@@ -355,7 +354,7 @@ titre("5. Le site s'ouvre, à ses deux adresses");
   ok(l404.liens.join(",") === DOMAINE + "/client/," + DOMAINE + "/",
     "et ses liens ramènent à la boutique et à l'accueil (" + l404.liens.join(", ") + ")");
   ok(l404.police, "dans les polices de la charte, même à cette profondeur" + (l404.police ? "" : " — " + l404.polices));
-  ok(l404.logo && l404.logo.charge && l404.logo.src === "/client/icons/logo-bizzoo-market.png",
+  ok(l404.logo && l404.logo.charge && l404.logo.src === "/client/icons/logo-bizzoo-b.png",
     "et avec son logo, demandé depuis la racine (" + (l404.logo ? l404.logo.src : "aucun") + ")");
   await ctx.close();
 }

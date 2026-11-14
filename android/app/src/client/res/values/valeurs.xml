@@ -1,6 +1,8 @@
 <resources>
     <string name="app_name">BIZZOO</string>
-    <color name="fond_demarrage">#0F1E26</color>
+    <!-- (4.3.0) Le turquoise de l'en-tête : au lancement, et autour de
+         l'encoche, il prolonge la barre du haut de l'application. -->
+    <color name="fond_demarrage">#00C7C7</color>
     <!-- Prévenir le client des nouveautés du catalogue. -->
     <bool name="notifications_actives">true</bool>
     <!-- Pas de sonnerie d'équipe ; les lives passent par le sujet « tous ». -->

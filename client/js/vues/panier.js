@@ -1981,12 +1981,15 @@ const VuePanier = (() => {
      remis » ; le client dit « j'ai reçu ». La base refuse à chacun de
      signer pour l'autre, et c'est tout l'intérêt — le jour d'un litige,
      il reste quelque chose à interroger. */
+  /* (4.3.0) Les mots du client, comme les maquettes : « Commande
+     confirmée » (le paiement est constaté) et « Livrée » — « remise » est
+     le mot de la boutique. */
   const ETAPES = [
-    { cle: "nouvelle", mot: "Commande reçue" },
+    { cle: "nouvelle", mot: "Commande confirmée" },
     { cle: "vue", mot: "Vue par la boutique" },
     { cle: "preparee", mot: "Préparée" },
     { cle: "en_livraison", mot: "En livraison" },
-    { cle: "remise", mot: "Remise" },
+    { cle: "remise", mot: "Livrée" },
   ];
 
   /** « 09:36 » aujourd'hui, « 12 nov. 09:36 » un autre jour ; rien sans heure. */
@@ -2331,7 +2334,10 @@ const VuePanier = (() => {
             "</strong></div>");
       solde.hidden = false;
       const ligneReste = UI.$(".re-acompte-reste", vue);
-      if (ligneReste) ligneReste.classList.add("re-barre");
+      /* (4.3.0) « re-reste-barre », et plus « re-barre » : ce nom était
+         déjà celui de la barre de suivi de « Mes commandes », dont il
+         barrait et pâlissait tous les mots. */
+      if (ligneReste) ligneReste.classList.add("re-reste-barre");
       if (paye >= reste) {
         const badge = UI.$(".re-entete .badge", vue);
         if (badge) { badge.textContent = "Soldée"; badge.className = "badge badge-ok"; }
@@ -2531,6 +2537,25 @@ const VuePanier = (() => {
      seule, elle ne dit rien à un lecteur d'écran. D'où le « role » et
      le texte qui l'accompagne — et c'est aussi ce qui la rend lisible
      quand les couleurs passent mal au soleil. */
+  /* (4.3.0) L'HEURE SOUS CHAQUE PALIER FRANCHI, comme dans le reçu : pour
+     qu'on sache, depuis la liste, quand la commande a été préparée et
+     quand elle est partie. L'heure d'un palier est celle où la DERNIÈRE
+     boutique l'a franchi — la barre suit la moins avancée. Une heure que
+     la base n'a pas : rien. */
+  const CLES_PALIERS = ["nouvelle", "preparee", "en_livraison", "remise"];
+  function heurePalier(c, i) {
+    const cle = CLES_PALIERS[i];
+    const bs = ((c && c.boutiques) || []).filter((b) => b && b.etat && b.etat !== "annulee");
+    if (!cle || !bs.length) return "";
+    let plusTard = 0;
+    for (const b of bs) {
+      const t = Date.parse((b.heures && b.heures[cle]) || "");
+      if (!t) return "";
+      plusTard = Math.max(plusTard, t);
+    }
+    return heureEtape(new Date(plusTard).toISOString());
+  }
+
   function barreSuivi(suivi, c) {
     if (!suivi) return "";
     const paliers = Compte.paliersLivraison();
@@ -2545,10 +2570,13 @@ const VuePanier = (() => {
               (i === ou - 1 ? " ici" : "") + '"></span>').join("") +
         "</div>" +
         '<div class="re-barre-mots" aria-hidden="true">' +
-          paliers.map((p, i) =>
-            '<span class="' + (i < ou ? "fait" : "") +
+          paliers.map((p, i) => {
+            const h = i < ou ? heurePalier(c, i) : "";
+            return '<span class="' + (i < ou ? "fait" : "") +
               (i === ou - 1 ? " ici" : "") + '">' +
-              Utils.echapper(p.court) + "</span>").join("") +
+              Utils.echapper(p.court) +
+              (h ? '<small class="re-barre-heure">' + Utils.echapper(h) + "</small>" : "") + "</span>";
+          }).join("") +
         "</div>" +
         boutonRecu(c || {}) +
       "</div>"

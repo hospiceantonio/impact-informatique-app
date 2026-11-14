@@ -2,8 +2,9 @@
 <!-- Icône de la barre de notifications : le B de BIZZOO Market et son
      anneau. Android n'en garde que la silhouette, en blanc : les trous
      du B restent des trous (fillType evenOdd).
-     Fichier produit par tools/make-icons.js depuis
-     tools/bizzoo-monogramme.png : ne pas le retoucher à la main. -->
+     Tracée en 4.0.0 par tools/make-icons.js ; le logo B de la 4.3.0
+     garde exactement ce B et cette orbite, la silhouette est donc
+     gardée telle quelle. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"

@@ -35,21 +35,21 @@ const UI = (() => {
    */
   function marque(taille = 40) {
     return (
-      '<img class="marque" src="icons/icone-market-192.png" alt="" aria-hidden="true"' +
+      '<img class="marque" src="icons/icone-b-192.png" alt="" aria-hidden="true"' +
       ' width="' + taille + '" height="' + taille + '">'
     );
   }
 
   /**
    * LE LOGO DE BIZZOO, puis « Espace admin » sous le nom. La tuile est
-   * « icons/logo-bizzoo-market.png » : le monogramme SANS la pastille
+   * « icons/logo-bizzoo-b.png » : le logo B SANS la pastille
    * « réglages » de l'icône de l'admin — c'est la marque de l'enseigne,
    * la même que dans l'application des clients et sur le site.
    */
   function logoAdmin() {
     return (
       '<span class="logo">' +
-        '<img class="logo-tuile" src="icons/logo-bizzoo-market.png" alt="" aria-hidden="true"' +
+        '<img class="logo-tuile" src="icons/logo-bizzoo-b.png" alt="" aria-hidden="true"' +
         ' width="40" height="40">' +
         '<span class="logo-textes">' +
           motSymbole() +

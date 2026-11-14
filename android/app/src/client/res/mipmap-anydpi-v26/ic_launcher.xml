@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Les deux calques que les lanceurs attendent : derrière, le fond
-         anthracite de BIZZOO Market ; devant, le monogramme (le B et son
-         anneau turquoise). Le téléphone les découpe à sa forme (rond,
-         goutte, carré arrondi…). Images produites par tools/make-icons.js
-         depuis tools/bizzoo-monogramme.png.
+         turquoise du logo, prolongé ; devant, le logo B de BIZZOO Market
+         (4.3.0 : la tuile turquoise, le B blanc et son orbite). Le
+         téléphone les découpe à sa forme (rond, goutte, carré arrondi…).
+         Images produites par tools/make-icons.js depuis
+         tools/bizzoo-logo-b.png.
          Pas de calque « monochrome » ici : il ferait basculer les
          téléphones réglés en icônes thématisées vers une silhouette
          d'une seule couleur, sans le turquoise de la marque. -->
