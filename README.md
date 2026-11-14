@@ -8011,3 +8011,25 @@ logo, elle se remplace depuis BIZZOO Admin. Et sur l'hébergement, un
 fichier d'une ancienne version que le zip ne remplace pas reste en place
 tant qu'on ne l'efface pas.
 
+## Les vendeurs à payer, en tête de la liste (4.3.0)
+
+Dans BIZZOO Admin → Vendeurs, le superadministrateur devait descendre
+toute la liste (35 vendeurs) pour trouver ceux à qui BIZZOO doit de
+l'argent. Désormais la liste s'ouvre sur eux :
+
+1. d'abord ceux qui ont **demandé un versement** — le plus gros montant
+   d'abord : la demande attend une réponse ;
+2. puis ceux à qui BIZZOO **doit** de l'argent (« disponible ») sans
+   qu'ils l'aient encore demandé — le plus gros d'abord ;
+3. puis tous les autres, par nom.
+
+Ces vendeurs ont un **bandeau de couleur** — turquoise soutenu, plus
+foncé encore pour une demande en attente — et ce qu'on leur doit dans une
+pastille anthracite : « Demande de versement : 2 430 FCFA », « À verser :
+1 080 FCFA ». L'argent « à venir » (payé, pas encore livré) n'est pas
+encore dû : il ne fait pas monter un vendeur. Le titre compte ceux qui
+sont à payer (« 35 vendeurs · 3 à payer ») ; la recherche marche comme
+avant.
+
+Banc : `banc-vendeurs-a-payer`.
+

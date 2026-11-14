@@ -2199,3 +2199,23 @@ h1,h2,h3,h4,.btn,.carte-titre,.titre-section,.tabbar a,.topbar h1,.menu-lateral 
    turquoise y dirait « bouton », le rouge dit « prix barré ». Blanc sur
    #D92D20 : 4,98:1. */
 .badge-promo{background:var(--rouge);color:#fff}
+
+/* (4.3.0) LES VENDEURS À PAYER, EN TÊTE ET EN COULEUR PLUS FONCÉE : un
+   bandeau turquoise soutenu, un trait à gauche, et ce qu'on leur doit dans
+   une pastille anthracite. Une demande de versement en attente est plus
+   foncée encore : c'est elle qui attend une réponse. */
+.vv-rangee.vv-a-payer{
+  margin:6px -10px;padding:2px 10px 2px 8px;border-radius:14px;
+  background:#CFE8E7;border-left:4px solid var(--bleu);
+}
+.vv-rangee.vv-demande{background:#B5DCDA;border-left-color:var(--bleu-900)}
+.vv-rangee.vv-a-payer .sd-ligne{border-top:0}
+.vv-rangee.vv-a-payer .aide{color:var(--encre-douce)}
+.vv-a-payer-mot{
+  display:inline-flex;align-items:center;gap:6px;margin:5px 0 3px;
+  padding:4px 11px;border-radius:999px;background:var(--bleu-900);color:#fff;font-size:13px;
+}
+.vv-a-payer-mot .ic{color:var(--bleu-400)}
+.vv-a-payer-mot strong{font-weight:800;white-space:nowrap}
+.vv-titre-a-payer{color:var(--bleu)}
+

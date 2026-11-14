@@ -6688,5 +6688,10 @@
  "prix-promo": "prix-promo",
  "Ce produit n'est plus en stock": "This product is out of stock",
  "Choisir et ajouter au panier": "Choose and add to cart",
- "Que souhaitez-vous acheter ?": "What would you like to buy?"
+ "Que souhaitez-vous acheter ?": "What would you like to buy?",
+ "à payer": "to pay",
+ "À verser :": "To pay out:",
+ "Demande de versement :": "Payout request:",
+ "vv-a-payer": "vv-a-payer",
+ "vv-a-payer vv-demande": "vv-a-payer vv-demande"
 }
