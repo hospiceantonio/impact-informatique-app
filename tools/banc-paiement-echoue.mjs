@@ -33,7 +33,11 @@
         de suite, et l'attente s'arrête ;
      6. SANS DEMANDE EN COURS, le reçu propose de régler la commande ;
      7. UNE COMMANDE NON ABOUTIE OU ANNULÉE n'a pas de sablier ;
-     8. LE RETOUR ARRIÈRE NE TOURNE PLUS EN ROND après un achat.
+     8. LE RETOUR ARRIÈRE NE TOURNE PLUS EN ROND après un achat ;
+     9. (4.4.0) UNE COMMANDE NON PAYÉE S'ANNULE : « Annuler la commande »
+        demande au serveur, puis la commande quitte « Mes commandes » ;
+        un refus du serveur (une demande encore ouverte) laisse la
+        commande, et le dit.
 
      PLAYWRIGHT=<chemin>/playwright-core/index.js BANC_URL=… node tools/banc-paiement-echoue.mjs
    ========================================================= */
@@ -83,11 +87,16 @@ async function ouvrir({ commandes = [COMMANDE()], panier = null, hash = "#/comma
         nom: "Koffi", tel: "0197000000", indicatif: "229", adresse: "Cotonou" }));
     } catch (_) { /* une page hors de l'application, au bout de l'historique */ }
   }, { commandes, panier });
-  const serveur = { verdict, etat: { etat: "a_payer", remarque: "" }, appels: [] };
+  const serveur = { verdict, etat: { etat: "a_payer", remarque: "" }, appels: [],
+    annulation: { statut: 200, corps: { etat: "annulee", numero: "BZ-000042" } } };
   await page.route("**/functions/v1/feexpay", (route) => {
     const corps = JSON.parse(route.request().postData() || "{}");
     serveur.appels.push(corps);
     const d = (x) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(x) });
+    if (corps.action === "annuler") {
+      return route.fulfill({ status: serveur.annulation.statut, contentType: "application/json",
+        body: JSON.stringify(serveur.annulation.corps) });
+    }
     if (corps.action === "payer") {
       return d({ ouvert: true, reference: "ref_" + serveur.appels.length,
                  message: "Validez la demande sur votre téléphone." });
@@ -143,7 +152,8 @@ let refuse;
   ok(c && c.texte.startsWith(REFUS), "le message du serveur, tel quel (« " + (c ? c.texte.slice(0, 40) : "—") + "… »)");
   ok(c && !/Ne payez pas une seconde fois|Validez la demande/.test(c.texte),
     "plus de « Validez la demande… Ne payez pas une seconde fois » pour un versement refusé");
-  ok(c && c.boutons.join("|") === "Réessayer le paiement|Fermer", "« Réessayer le paiement » et « Fermer » (" + (c ? c.boutons.join(", ") : "—") + ")");
+  ok(c && c.boutons.join("|") === "Réessayer le paiement|Fermer|Annuler la commande",
+    "« Réessayer le paiement », « Fermer », et (4.4.0) « Annuler la commande » (" + (c ? c.boutons.join(", ") : "—") + ")");
   ok(c && c.formulaire, "l'opérateur et le numéro qui paie sont proposés");
   const n = verifications(serveur);
   await page.waitForTimeout(7000);
@@ -199,7 +209,8 @@ titre("4. « Arrêter l'attente », puis « Vérifier à nouveau »");
   ok(c && /Vous avez arrêté l'attente/.test(c.texte) && /vous n'avez rien à refaire/.test(c.texte) &&
      /BZ-000042/.test(c.texte),
     "il dit ce qui se passera si le client a été débité, et le numéro à garder");
-  ok(c && c.boutons.join("|") === "Vérifier à nouveau|Fermer", "« Vérifier à nouveau » et « Fermer »");
+  ok(c && c.boutons.join("|") === "Vérifier à nouveau|Fermer|Annuler la commande",
+    "« Vérifier à nouveau », « Fermer » et « Annuler la commande »");
   const n = verifications(serveur);
   await page.waitForTimeout(6500);
   ok(verifications(serveur) - n <= 1, "on ne questionne plus FeexPay (au plus la question déjà partie)");
@@ -241,7 +252,8 @@ titre("6. Aucune demande en cours : le reçu propose de régler");
   const c = await carte(page);
   ok(vu && c && !c.sablier && /Aucune demande de paiement n'est en cours/.test(c.texte),
     "« Aucune demande de paiement n'est en cours pour cette commande »");
-  ok(c && c.boutons.join("|") === "Payer maintenant|Fermer" && c.formulaire, "« Payer maintenant », avec l'opérateur et le numéro");
+  ok(c && c.boutons.join("|") === "Payer maintenant|Fermer|Annuler la commande" && c.formulaire,
+    "« Payer maintenant », avec l'opérateur et le numéro — ou « Annuler la commande »");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }
@@ -295,6 +307,61 @@ titre("8 bis. Un formulaire de commande au panier vide ne piège pas le retour")
   const ou = await page.evaluate(() => location.hash).catch(() => "(hors de l'application)");
   ok(ou === "#/", "retour : l'accueil, d'où l'on venait (" + ou + ")");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+
+titre("9. Une commande non payée s'annule, et quitte « Mes commandes »");
+{
+  /* Le serveur refuse d'abord : une demande est encore ouverte. */
+  const { page, ctx, erreurs, serveur } = await ouvrir({ verdict: { etat: "a_payer", echoue: true, erreur: REFUS } });
+  await attendreCarte(page, "echec");
+  page.on("dialog", (d) => d.accept());
+  serveur.annulation = { statut: 409, corps: { attente: true,
+    erreur: "Une demande de paiement est encore ouverte sur votre téléphone. Refusez-la (ou attendez quelques minutes qu'elle expire), puis annulez." } };
+  await page.click('#re-attente [data-attente="annuler"]');
+  await page.waitForTimeout(1200);
+  const annuler = serveur.appels.filter((a) => a.action === "annuler");
+  ok(annuler.length === 1 && annuler[0].commande === "cmd_x" && annuler[0].tel === "0197000000",
+    "le serveur est interrogé, pour cette commande et ce téléphone");
+  const toast = await page.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" "));
+  ok(/encore ouverte sur votre téléphone/.test(toast), "le refus du serveur est dit au client (« " + toast.slice(0, 50) + "… »)");
+  ok(await page.evaluate(() => location.hash) === "#/commande/cmd_x", "la commande reste à l'écran");
+  ok(await page.evaluate(() => !document.querySelector('#re-attente [data-attente="annuler"]').disabled),
+    "et le bouton se réactive");
+
+  /* Puis il accepte. */
+  serveur.annulation = { statut: 200, corps: { etat: "annulee", numero: "BZ-000042" } };
+  await page.click('#re-attente [data-attente="annuler"]');
+  const parti = await page.waitForFunction(() => location.hash === "#/mes-commandes", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  ok(parti, "annulée : on arrive sur « Mes commandes »");
+  await page.waitForTimeout(1200);
+  const liste = await page.evaluate(() => document.querySelector(".vue").textContent);
+  ok(!/BZ-000042/.test(liste), "et la commande annulée n'y est plus");
+  const garde = await page.evaluate(() => JSON.parse(localStorage.getItem("bizzoo-commandes") || "[]")
+    .find((c) => c.id === "cmd_x"));
+  ok(garde && garde.etat === "annulee", "le téléphone garde qu'elle est annulée (" + (garde && garde.etat) + ")");
+  ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
+  await ctx.close();
+}
+{
+  /* Le dialogue refusé : rien ne part. */
+  const { page, ctx, serveur } = await ouvrir({ verdict: { etat: "a_payer", echoue: true, erreur: REFUS } });
+  await attendreCarte(page, "echec");
+  page.on("dialog", (d) => d.dismiss());
+  await page.click('#re-attente [data-attente="annuler"]');
+  await page.waitForTimeout(800);
+  ok(!serveur.appels.some((a) => a.action === "annuler"), "le client renonce : rien n'est demandé au serveur");
+  await ctx.close();
+}
+{
+  /* Une commande payée PUIS annulée par l'enseigne reste dans la liste. */
+  const payeeAnnulee = { ...COMMANDE("annulee"), id: "cmd_y", numero: "BZ-000043", verse: 300000 };
+  const { page, ctx } = await ouvrir({ commandes: [COMMANDE("annulee"), payeeAnnulee], hash: "#/mes-commandes" });
+  await page.waitForTimeout(1800);
+  const liste = await page.evaluate(() => document.querySelector(".vue").textContent);
+  ok(!/BZ-000042/.test(liste) && /BZ-000043/.test(liste),
+    "annulée sans paiement : absente ; payée puis annulée : toujours là, il y a de l'argent à suivre");
   await ctx.close();
 }
 

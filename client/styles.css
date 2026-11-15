@@ -74,7 +74,7 @@
   --orange-fonce:#0A7C88;
   --orange-clair:#E9F9FB;
   --ambre:#F59E0B;
-  --ambre-clair:#FFF3DE;
+  --ambre-clair:#E9F9FB;
 
   --rouge:#DC2626;
   --rouge-fonce:#B91C1C;
@@ -518,7 +518,7 @@ body.avec-action:not(.sans-onglets) .contact-flottant{
 
 .note-hors-ligne{
   display:flex;align-items:center;gap:8px;
-  background:#FFF6E5;border:1px solid #F5DEB0;color:#8A5B00;
+  background:var(--bleu-50);border:1px solid #C6F0F2;color:var(--bleu-800);
   font-size:12.5px;font-weight:600;
   padding:10px 12px;border-radius:var(--r-sm);
 }
@@ -754,7 +754,7 @@ video.slide-img{background:#000}
 /* LA REMISE : pilule orange, texte blanc — celle de la DA. Même choix
    que pour le bouton orange, et même compensation : le chiffre est gras. */
 .badge-promo{background:var(--orange);color:var(--orange-texte);font-weight:800}
-.badge-flash{background:var(--ambre);color:var(--bleu-900)}
+.badge-flash{background:var(--rouge);color:#fff}
 /* Le prix d'un revendeur n'est pas une promotion : il ne crie pas comme
    une affiche de soldes, il dit simplement à qui ce prix appartient. */
 .badge-revendeur{background:var(--vert-clair);color:var(--vert)}
@@ -1677,7 +1677,7 @@ html,body{overscroll-behavior-x:none}
    l'identique et se fait refuser une seconde fois. */
 .cp-rv-motif{
   margin:0 0 10px;padding:10px 12px;border-radius:var(--r-sm);
-  background:#FFF6E5;border:1px solid #F5DEB0;color:#8A5B00;
+  background:var(--bleu-50);border:1px solid #C6F0F2;color:var(--bleu-800);
   font-size:12.5px;font-weight:600;line-height:1.5;
 }
 .fiche-revendeur{
@@ -2311,7 +2311,7 @@ html,body{overscroll-behavior-x:none}
 .cp-gains-code{letter-spacing:.04em}
 .cp-gains-solde{display:flex;flex-direction:column;gap:2px}
 .cp-gains-solde small{color:var(--encre-douce, #666);font-size:12.5px}
-.cp-gains-solde strong{font-size:26px;font-weight:800;color:var(--orange-fonce, #E8590C)}
+.cp-gains-solde strong{font-size:26px;font-weight:800;color:var(--orange-fonce)}
 .cp-gains-detail{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:13px;color:var(--encre-douce, #666)}
 .cp-gains-liste{margin-top:12px;border-top:1px solid rgba(0,0,0,.08)}
 .cp-gains-ligne{display:flex;justify-content:space-between;gap:10px;padding:8px 0;font-size:13.5px;border-bottom:1px solid rgba(0,0,0,.05)}
@@ -2451,7 +2451,7 @@ html,body{overscroll-behavior-x:none}
 .fiche-acc-mots{display:flex;flex-direction:column;min-width:0}
 .fiche-acc-nom{font-weight:600}
 .fiche-acc-prix{font-size:12.5px;color:var(--encre-moyenne)}
-.fiche-acc-ligne.choisi .fiche-acc-nom{color:var(--bleu,#2F55D4)}
+.fiche-acc-ligne.choisi .fiche-acc-nom{color:var(--bleu)}
 .fiche-acc-compteur{flex:none}
 .fiche-acc-total{margin-top:10px;padding-top:10px;border-top:1px dashed var(--trait);font-size:15px}
 .fiche-acc-total strong{font-size:17px}
@@ -2685,3 +2685,61 @@ h1,h2,h3,.section-titre h2{font-weight:700}
 /* Les tuiles des catégories : blanches et arrondies, une ombre discrète. */
 .cat-tuile{box-shadow:0 6px 16px -12px rgba(10,111,122,.55)}
 
+
+/* =========================================================
+   (4.4.0) TROIS PRODUITS PAR RANGÉE SUR UN TÉLÉPHONE
+   « Les images des produits sont trop grosses » : à deux de front, une
+   carte occupait la moitié de l'écran, et l'on ne voyait que quatre
+   produits à la fois. Sous 560 px, la liste en montre trois par rangée,
+   comme les vignettes d'une boutique. La carte se resserre :
+     - la pastille « Disponible » se tait — c'est le cas courant ; seuls
+       les écarts (rupture, sur commande, promotion…) restent dits ;
+     - le rayon, sous le prix, se tait aussi : on vient d'y entrer, ou la
+       recherche l'a déjà dit ;
+     - le « + » se pose sur le coin bas de la PHOTO, et le prix a toute la
+       largeur de la carte (sans cela, « 286 000 FCFA » passait sur deux
+       lignes). Il faut pour cela connaître la largeur de la carte : un
+       navigateur trop ancien pour la lire garde le « + » en bas de la
+       carte, à côté du prix.
+   ========================================================= */
+@media (max-width:559px){
+  .p-grille{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .p-grille .p-carte{border-radius:12px}
+  .p-grille .p-carte-badges{top:5px;left:5px;right:29px;gap:3px}
+  .p-grille .p-carte-badges .badge{font-size:9px;padding:2px 5px;gap:3px}
+  .p-grille .p-carte-badges .badge .ic{width:10px;height:10px}
+  .p-grille .p-carte-badges .badge-disponible{display:none}
+  .p-grille .coeur{top:4px;right:4px;width:26px;height:26px}
+  .p-grille .coeur .ic{width:15px;height:15px}
+  /* La pastille « vidéo » passe à gauche : le coin droit est au « + ». */
+  .p-grille .pastille-video{right:auto;left:5px;bottom:5px;width:22px;height:22px}
+  .p-grille .pastille-video .ic-sm{width:12px;height:12px}
+  .p-grille .p-ferme-badge{left:4px;right:4px;bottom:4px;font-size:9px}
+  .p-grille .p-carte-corps{gap:1px;padding:6px 7px 8px}
+  .p-grille .p-carte-boutique{font-size:8.5px;gap:3px;letter-spacing:.01em}
+  .p-grille .p-carte-boutique .ic{width:10px;height:10px}
+  .p-grille .p-carte-nom{font-size:11.5px;line-height:1.25;min-height:2.5em}
+  .p-grille .p-carte-code{font-size:9px;letter-spacing:.03em;margin:1px 0 0}
+  .p-grille .etoiles{margin:2px 0 1px}
+  .p-grille .etoiles .ic{width:10px;height:10px}
+  .p-grille .etoiles-combien{font-size:9.5px;margin-left:2px}
+  .p-grille .p-carte-cat{display:none}
+  .p-grille .prix{gap:0 4px}
+  .p-grille .prix-actuel{font-size:12.5px}
+  .p-grille .prix-ancien{font-size:9.5px}
+  .p-grille .p-carte .p-carte-corps .prix{padding-right:30px}
+  .p-grille .p-ajout{right:6px;bottom:6px;width:28px;height:28px}
+  .p-grille .p-ajout .ic{width:16px;height:16px}
+}
+@supports (top:1cqw){
+  @media (max-width:559px){
+    .p-grille .p-carte{container-type:inline-size}
+    /* La photo est carrée : son bas est à une largeur de carte du haut. */
+    .p-grille .p-ajout{top:calc(100cqw - 34px);bottom:auto}
+    .p-grille .p-carte .p-carte-corps .prix{padding-right:0}
+  }
+}
+
+/* (4.4.0) « Annuler la commande », sous les boutons du paiement : en
+   rouge pâle, à part, pour qu'on ne le touche pas en voulant payer. */
+.re-annuler{display:flex;width:100%;margin-top:12px}

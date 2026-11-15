@@ -405,7 +405,8 @@ const VueAccueil = (() => {
      Les derniers arrivés, toutes boutiques ouvertes confondues, et le
      bouton qui ouvre TOUT le catalogue en galerie — dans le même ordre :
      les huit cartes d'ici sont les huit premières de là-bas. Huit, c'est
-     deux rangées pleines sur un grand écran, quatre sur un téléphone. */
+     deux rangées pleines sur un grand écran. (4.4.0) Neuf sur un téléphone,
+     à trois de front : trois rangées pleines. */
   const NB_NOS_PRODUITS = 8;
   const LIEN_GALERIE = "#/nos-produits";
 
@@ -413,7 +414,7 @@ const VueAccueil = (() => {
     const tous = Catalogue.produitsDeLEnseigne("", "recents");
     if (!tous.length) return "";
     return UI.titreSection("Nos produits", LIEN_GALERIE, "Tout voir", "accueil-nos-produits") +
-      UI.grilleProduits(tous.slice(0, NB_NOS_PRODUITS), { boutique: true }) +
+      UI.grilleProduits(tous.slice(0, UI.rangeesPleines(NB_NOS_PRODUITS)), { boutique: true }) +
       '<a class="btn btn-clair accueil-voir-tout" id="accueil-voir-tout" href="' + LIEN_GALERIE + '">' +
         "Voir tout — " + tous.length + " produit" + (tous.length > 1 ? "s" : "") +
         " " + UI.icone("chevron", "ic-sm ic-apres") + "</a>";
@@ -940,7 +941,7 @@ const VueAccueil = (() => {
        pas : ce qui la concerne, ce sont les rayons de son secteur où
        elle a quelque chose. */
     const mesRayons = Catalogue.rayonsDeLaBoutique();
-    const promos = Catalogue.promotions().slice(0, 8);
+    const promos = Catalogue.promotions().slice(0, UI.rangeesPleines(8));
     const tous = Catalogue.produits();
 
     const etat = htmlEtatCatalogue();

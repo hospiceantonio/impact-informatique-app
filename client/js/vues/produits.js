@@ -22,7 +22,10 @@
    ========================================================= */
 const VueProduits = (() => {
 
-  const LOT = 20;              // cartes posées à chaque fois
+  /* Cartes posées à chaque fois : vingt, ou (4.4.0) trente à trois de
+     front sur un téléphone — dix rangées pleines, et assez pour que le
+     premier lot dépasse l'écran avant que la suite ne vienne. */
+  const tailleLot = () => (UI.troisParRangee() ? 30 : 20);
   const AVANCE = "900px 0px";  // on remplit avant que le pouce n'arrive
 
   /* CE QUI ÉTAIT DÉJÀ POSÉ, par adresse d'écran. Le client ouvre la
@@ -98,23 +101,23 @@ const VueProduits = (() => {
       dejaPoses.set(cle, poses);
       if (poses >= produits.length) {
         arreter();
-        suite.innerHTML = produits.length > LOT
+        suite.innerHTML = produits.length > tailleLot()
           ? '<p class="galerie-fin">Vous avez tout vu : ' + produits.length + " produits.</p>"
           : "";
       }
     };
 
-    poser(Math.max(LOT, dejaPoses.get(cle) || 0));
+    poser(Math.max(tailleLot(), dejaPoses.get(cle) || 0));
     if (poses >= produits.length) return;
 
-    UI.$("#galerie-plus", vue).onclick = () => poser(LOT);
+    UI.$("#galerie-plus", vue).onclick = () => poser(tailleLot());
 
     if (typeof IntersectionObserver !== "function") return;
     observateur = new IntersectionObserver((entrees) => {
       /* L'écran a changé entre-temps : la galerie quittée ne se remplit plus. */
       if (!document.body.contains(suite)) { arreter(); return; }
       if (!entrees.some((x) => x.isIntersecting)) return;
-      poser(LOT);
+      poser(tailleLot());
       /* Toujours en vue après ce lot — un grand écran, un lot court — :
          on se fait prévenir de nouveau, sans quoi la galerie attendrait
          un défilement qui ne viendra peut-être pas. */

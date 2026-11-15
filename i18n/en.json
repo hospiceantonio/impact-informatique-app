@@ -6694,5 +6694,10 @@
  "Demande de versement :": "Payout request:",
  "vv-a-payer": "vv-a-payer",
  "vv-a-payer vv-demande": "vv-a-payer vv-demande",
- "Commande confirmée": "Order confirmed"
+ "Commande confirmée": "Order confirmed",
+ "? Elle n'a pas été payée : elle disparaîtra de vos commandes.": "? It has not been paid: it will disappear from your orders.",
+ "Annulation…": "Canceling…",
+ "annulée": "canceled",
+ "Annuler la commande": "Cancel the order",
+ "La commande n'a pas pu être annulée": "The order could not be canceled"
 }

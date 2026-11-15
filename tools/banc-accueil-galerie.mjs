@@ -266,9 +266,10 @@ titre("1. L'accueil dans l'ordre demandé");
       .filter((t) => /Nos produits/.test(t.textContent))
       .map((t) => (t.querySelector(".section-lien") || { getAttribute: () => "" }).getAttribute("href"))[0],
   }));
-  ok(produits.ids.length === 8 && produits.ids.join(",") === RECENTS.slice(0, 8).join(","),
-    "« Nos produits » : les huit derniers arrivés, du plus récent au plus ancien");
-  ok(produits.boutiques === 8, "chaque carte dit de quelle boutique elle vient");
+  /* (4.4.0) À 360 px, trois de front : NEUF cartes, trois rangées pleines. */
+  ok(produits.ids.length === 9 && produits.ids.join(",") === RECENTS.slice(0, 9).join(","),
+    "« Nos produits » : les neuf derniers arrivés (trois rangées de trois), du plus récent au plus ancien");
+  ok(produits.boutiques === 9, "chaque carte dit de quelle boutique elle vient");
   ok(/Voir tout — 65 produits/.test(produits.bouton) && produits.lien === "#/nos-produits" &&
      produits.lienTitre === "#/nos-produits",
     "le bouton « Voir tout — 65 produits » (et le lien du titre) ouvrent la galerie");
@@ -350,19 +351,20 @@ titre("3. « Voir tout » : la galerie se remplit en défilant");
     "« Nos produits — 65 produits dans toutes les boutiques »");
   await capture(page, "galerie-360");
 
+  /* (4.4.0) À trois de front, un lot de TRENTE : dix rangées pleines. */
   let ids = await cartes(page);
-  ok(ids.length === 20, "un premier lot de vingt cartes (" + ids.length + ")");
-  ok(ids.slice(0, 8).join(",") === accueil.join(","),
-    "les huit premières sont celles de l'accueil, dans le même ordre");
-  ok(ids.join(",") === RECENTS.slice(0, 20).join(","), "les derniers arrivés d'abord");
+  ok(ids.length === 30, "un premier lot de trente cartes, dix rangées de trois (" + ids.length + ")");
+  ok(ids.slice(0, 9).join(",") === accueil.join(","),
+    "les neuf premières sont celles de l'accueil, dans le même ordre");
+  ok(ids.join(",") === RECENTS.slice(0, 30).join(","), "les derniers arrivés d'abord");
   const vues = new Set(photos.filter((f) => /^pho_/.test(f)));
-  ok(vues.size <= 20 && vues.size < NB,
+  ok(vues.size <= 30 && vues.size < NB,
     "les photos ne se chargent qu'à l'approche : " + vues.size + " sur " + NB);
   ok(await page.evaluate(() =>
     [...document.querySelectorAll("#galerie img")].every((i) => i.getAttribute("loading") === "lazy")),
     "chaque photo de la galerie est en « lazy »");
 
-  for (const attendu of [40, 60, 65]) {
+  for (const attendu of [60, 65]) {
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(700);
     ids = await cartes(page);
@@ -385,10 +387,10 @@ titre("3 bis. Sans guetteur de défilement : le bouton de secours");
   const { page, ctx, erreurs } = await ouvrir({ hash: "#/nos-produits", sansObservateur: true });
   ok(await page.evaluate(() => typeof window.IntersectionObserver) !== "function",
     "(le navigateur de ce décor ne sait pas guetter le bas)");
-  ok((await cartes(page)).length === 20, "vingt cartes d'abord");
+  ok((await cartes(page)).length === 30, "trente cartes d'abord");
   await page.click("#galerie-plus");
   await page.waitForTimeout(300);
-  ok((await cartes(page)).length === 40, "« Afficher plus » en pose vingt de plus");
+  ok((await cartes(page)).length === 60, "« Afficher plus » en pose trente de plus");
   ok(!erreurs.length, "aucune erreur dans la page" + (erreurs.length ? " : " + erreurs[0] : ""));
   await ctx.close();
 }

@@ -120,7 +120,7 @@ const VueLocaliser = (() => {
           L.marker(d, { icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11], html: '<div class="pin-client"></div>' }) })
             .addTo(calque).bindPopup("<b>" + echapper(c.numero || "") + "</b><br>" + echapper(c.client || "") + "<br>" + echapper(c.adresse || ""));
           if (p) {
-            L.polyline([[p.latitude, p.longitude], d], { color: actif ? "#C2410C" : "#2F55D4", weight: actif ? 4 : 2, dashArray: "6 6", opacity: 0.8 })
+            L.polyline([[p.latitude, p.longitude], d], { color: actif ? "#0A7C88" : "#8D9BA2", weight: actif ? 4 : 2, dashArray: "6 6", opacity: 0.8 })
               .addTo(calque);
           }
           if (actif || !selection) points.push(d);

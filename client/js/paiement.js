@@ -681,6 +681,12 @@ const Paiement = (() => {
   const verifierFeexpay = (commande, tel) =>
     edgeFeexpay({ action: "verifier", commande, tel });
 
+  /** (4.4.0) Annuler une commande non payée. Le serveur demande d'abord à
+      FeexPay qu'aucun versement ne soit en cours ni arrivé : s'il en
+      trouve un, il refuse, et le dit. */
+  const annulerCommande = (commande, tel) =>
+    edgeFeexpay({ action: "annuler", commande, tel });
+
   /* ---------- Commander ---------- */
 
   /**
@@ -848,7 +854,7 @@ const Paiement = (() => {
     tauxAcompte, acompteDe, fraisLivraison, apercu,
     livraisonAuKm, tarifs, devis, vehiculePanier, phraseTarif, destination, choisirDestination,
     demanderRoute, attendreRoute, manquants,
-    creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay,
+    creerCommande, verifierCode, payer, ouvrirFeexpay, verifierFeexpay, annulerCommande,
     signalerTransaction, suivre, heuresSuivies, contester, attendreConfirmation, livreurs,
     soldeParrain, demanderRetrait, lives,
   };
