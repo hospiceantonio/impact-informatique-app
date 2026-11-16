@@ -6700,5 +6700,19 @@
  "annulée": "canceled",
  "Annuler la commande": "Cancel the order",
  "La commande n'a pas pu être annulée": "The order could not be canceled",
- "(max-width:559px)": "(max-width:559px)"
+ "(max-width:559px)": "(max-width:559px)",
+ "; pour un vendeur, vérifiez d'abord son lieu": "; for a seller, check their location first",
+ ": son compte, puis aussitôt son lieu — adresse, position de votre téléphone, horaires. Le superadministrateur, prévenu, n'a plus qu'à le valider.": ": their account, then right away their location — address, your phone's position, opening hours. The super administrator, notified, only has to validate them.",
+ "Ceux des boutiques à vendeurs multiples. Créez-le": "Those of the multi-seller shops. Create them",
+ "Créé par un administrateur de BIZZOO": "Created by a BIZZOO administrator",
+ "Créés par un administrateur de BIZZOO. Ils ne peuvent rien faire tant que vous ne les avez pas validés": "Created by a BIZZOO administrator. They can do nothing until you have validated them",
+ "Créés sur place par un administrateur de BIZZOO, avec leur lieu. Vérifiez-le, puis validez : le vendeur ne vend rien d'ici là.": "Created on site by a BIZZOO administrator, with their location. Check it, then validate: the seller sells nothing until then.",
+ "En attente de validation (": "Awaiting validation (",
+ "Son lieu": "Their location",
+ "Son lieu n'est pas encore posé.": "Their location is not set yet.",
+ "sur place, chez lui": "on site, at their place",
+ "Touchez « Je suis chez lui : ma position » : c'est la position de votre téléphone qui devient la sienne. Le superadministrateur vérifiera ce lieu, puis validera le vendeur.": "Tap “I'm at their place: my position”: your phone's position becomes theirs. The super administrator will check this location, then validate the seller.",
+ "Vendeur validé : il peut vendre.": "Seller validated: they can sell.",
+ "Voir son lieu": "See their location",
+ "Vous êtes chez lui ?": "Are you at their place?"
 }

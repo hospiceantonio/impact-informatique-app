@@ -552,6 +552,16 @@ h1,h2,h3,h4{margin:0;line-height:1.25}
 .compte-a-valider{padding:2px 0 12px}
 .compte-a-valider + .compte-a-valider{border-top:1px solid var(--trait)}
 .compte-a-valider > .btn-mini{margin-left:44px}
+/* (4.5.0) Un vendeur créé sur place, en attente : son lieu, ses boutons. */
+.cp-vendeur-a-valider > .lieu-ligne,
+.cp-vendeur-a-valider > .btn-rangee{margin-left:44px}
+.cp-vendeur-a-valider > .btn-rangee{margin-top:6px}
+.vv-attente{padding:4px 0 12px}
+.vv-attente + .vv-attente{border-top:1px solid var(--trait);padding-top:12px}
+.vv-attente > .btn-rangee{margin-top:8px}
+.cp-vendeur-a-valider > .btn-rangee,
+.vv-attente > .btn-rangee{flex-direction:row;flex-wrap:wrap;gap:8px}
+.vv-badge-a-valider{background:var(--bleu-900);color:#fff}
 .compte-inactif{opacity:.55}
 .compte-rond{
   flex:none;display:flex;align-items:center;justify-content:center;

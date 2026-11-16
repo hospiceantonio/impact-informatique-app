@@ -12551,7 +12551,9 @@ begin
     return new;
   end if;
 
-  if public.est_admin_bizzoo() and new.role = 'moderateur' then
+  -- (4.5.0) Le vendeur aussi : l'administrateur de BIZZOO le crée sur
+  -- place, avec son lieu ; le superadministrateur le valide.
+  if public.est_admin_bizzoo() and new.role in ('moderateur', 'vendeur') then
     new.actif := false;
     new.a_valider := true;
     -- L'écran pose le rang par « insert … on conflict » : PostgreSQL exige
@@ -12566,7 +12568,8 @@ begin
     nouveau := case when tg_op = 'INSERT'
                     then not exists (select 1 from public.profils p where p.id = new.id)
                     else not old.a_valider end;
-    if nouveau then
+    -- Le vendeur a sa propre notification (« profil_vendeur_cree »).
+    if nouveau and new.role = 'moderateur' then
       perform public.notifier(public.les_superadmins(), 'compte_a_valider',
         'Un compte modérateur à valider',
         coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Un nouveau compte') ||
@@ -25264,8 +25267,14 @@ declare
   t   text := regexp_replace(coalesce(lieu ->> 'tel', ''), '\D', '', 'g');
   ind text := coalesce(nullif(regexp_replace(coalesce(lieu ->> 'indicatif', ''), '\D', '', 'g'), ''), '229');
 begin
-  if auth.uid() is null or not public.est_super() then
-    raise exception 'Le lieu d''un vendeur est réglé par le superadministrateur.' using errcode = 'P0001';
+  -- (4.5.0) Le superadministrateur ; ou l'administrateur de BIZZOO qui a
+  -- créé ce vendeur sur place, tant que le superadministrateur ne l'a pas
+  -- validé.
+  if auth.uid() is null or not (public.est_super() or (public.est_admin_bizzoo() and exists (
+       select 1 from public.profils p
+        where p.id = cible and p.role = 'vendeur' and p.a_valider and p.cree_par = auth.uid()))) then
+    raise exception 'Le lieu d''un vendeur est réglé par le superadministrateur, ou par l''administrateur qui vient de le créer.'
+      using errcode = 'P0001';
   end if;
   if not exists (select 1 from public.profils p where p.id = cible and p.role = 'vendeur') then
     raise exception 'Ce compte n''est pas un vendeur.' using errcode = 'P0001';
@@ -25977,10 +25986,12 @@ begin
   -- Une insertion qui vise une fiche existante finit en mise à jour
   -- (« on conflict ») : on ne prévient qu'une fois.
   if tg_op = 'UPDATE' or not exists (select 1 from public.profils p where p.id = new.id) then
-    perform public.notifier(public.les_superadmins(), 'vendeur_cree', 'Nouveau vendeur à configurer',
+    -- (4.5.0) Il naît INACTIF (« profil_validation ») : son lieu est posé
+    -- sur place par l'administrateur ; le superadministrateur le valide.
+    perform public.notifier(public.les_superadmins(), 'vendeur_cree', 'Un vendeur à valider',
       coalesce(nullif(trim(new.nom), ''), nullif(trim(new.tel), ''), 'Un vendeur') || ', créé par ' ||
         coalesce(public.nom_du_createur(auth.uid()), 'un administrateur de BIZZOO') ||
-        '. Réglez son lieu et attribuez-lui ses produits.',
+        '. Vérifiez son lieu, puis activez-le pour le valider.',
       '#/vendeurs/' || new.id, null, null, false);
   end if;
   return new;

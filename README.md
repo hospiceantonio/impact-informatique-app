@@ -8273,3 +8273,42 @@ galerie « Nos produits », le catalogue et la recherche le faisaient déjà.
 Banc : `banc-horaires-droits` (section 1 bis : le produit de la boutique
 fermée, le moins cher, le plus récent, en promotion, en vente flash et mis
 en avant, arrive en dernier dans chaque liste et à l'écran).
+
+## L'administrateur crée le vendeur sur place, avec son lieu (4.5.0)
+
+L'administrateur de BIZZOO va chez le vendeur. Avant, il créait seulement
+son compte ; le superadministrateur, prévenu, devait ensuite régler son
+lieu — sans y être. Désormais :
+
+1. **Comptes → Les vendeurs → « Nouveau vendeur »** : numéro, mot de
+   passe, nom. Le compte naît **inactif**, « à valider ».
+2. **La fiche de son lieu s'ouvre aussitôt** : nom du commerce, numéro de
+   la boutique, adresse écrite, **« Je suis chez lui : ma position »** (la
+   position du téléphone de l'administrateur devient celle du vendeur),
+   horaires. Un mot le rappelle en tête de la fiche.
+3. Le superadministrateur reçoit **« Un vendeur à valider »**. La
+   notification ouvre le lieu, à vérifier. Dans **Vendeurs**, une carte
+   **« À valider »** en tête liste ces vendeurs, avec leur créateur et
+   leur lieu (ou « Position manquante »), et deux boutons : « Voir son
+   lieu » et **« Valider »**. Ils sont aussi dans **Comptes → À valider**.
+4. **Valider, c'est l'activer** : le créateur reçoit « Compte validé ».
+
+Tant que le vendeur attend, son créateur le retrouve dans la carte des
+vendeurs (« En attente de validation »), avec un bouton « Son lieu » pour
+le corriger. Un autre administrateur ne le voit pas là et ne touche pas à
+son lieu ; une fois validé, le lieu revient au superadministrateur seul.
+
+Dans la base (`supabase/vendeur-a-valider.sql`) :
+
+- `profil_validation` traite le vendeur comme le modérateur : créé par un
+  administrateur de BIZZOO, il naît `actif = false`, `a_valider = true`
+  (le superadministrateur seul l'active, et cela le valide) ;
+- `profil_vendeur_cree` : la notification devient « Un vendeur à
+  valider — vérifiez son lieu, puis activez-le » ;
+- `enregistrer_lieu_vendeur` accepte, en plus du superadministrateur,
+  l'administrateur de BIZZOO **qui a créé ce vendeur, tant qu'il est à
+  valider**.
+
+À appliquer en ligne : `supabase/vendeur-a-valider.sql`. Essai de base :
+`…-vendeur-par-admin-bizzoo.sql` (sections 1, 5 et 6). Banc :
+`banc-vendeur-sur-place`.

@@ -1565,8 +1565,11 @@ const Store = (() => {
        cette adresse que la boutique lit dans « Confier à un livreur »
        le jour où elle cherche qui appeler. */
     /* (3.63.0) Le modérateur de l'administrateur de BIZZOO naît inactif :
-       le superadministrateur le validera. La base y veille aussi. */
-    const aValider = !Supabase.estSuper() && Supabase.estAdminBizzoo() && role === "moderateur";
+       le superadministrateur le validera. La base y veille aussi.
+       (4.5.0) Le vendeur aussi : l'administrateur le crée sur place, avec
+       son lieu ; le superadministrateur n'a plus qu'à le valider. */
+    const aValider = !Supabase.estSuper() && Supabase.estAdminBizzoo() &&
+      (role === "moderateur" || role === "vendeur");
     const fiche = {
       id: cree.id, email: adresse, role, actif: !aValider, boutique_id: attachee,
       nom: String(nom || "").trim(), tel: String(tel || "").trim(),

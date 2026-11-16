@@ -215,6 +215,12 @@ const VueVendeurs = (() => {
     let pos = l.latitude != null ? { latitude: l.latitude, longitude: l.longitude } : null;
     let carte = null;
     corps.innerHTML =
+      /* (4.5.0) L'administrateur de BIZZOO le pose sur place, chez le
+         vendeur ; le superadministrateur le vérifie, puis valide. */
+      (Supabase.estSuper() ? "" :
+        '<p class="aide vl-sur-place" style="margin:0 0 10px"><strong>Vous êtes chez lui ?</strong> Touchez ' +
+          "« Je suis chez lui : ma position » : c'est la position de votre téléphone qui devient la sienne. " +
+          "Le superadministrateur vérifiera ce lieu, puis validera le vendeur.</p>") +
       '<p class="aide" style="margin:0 0 10px">Ce que le client commande chez ce vendeur se récupère <strong>chez ' +
         "lui</strong> : les frais de livraison partent de sa position, et le livreur reçoit son adresse et son " +
         "numéro. La position de la boutique multivendeur ne le remplace jamais.</p>" +
@@ -335,15 +341,49 @@ const VueVendeurs = (() => {
        une réponse), puis ceux à qui BIZZOO doit de l'argent sans qu'ils
        l'aient encore demandé — le plus gros montant d'abord —, puis les
        autres, par nom. */
+    const compteDe = (id) => comptes.find((c) => c.id === id && c.role === "vendeur");
+    /* (4.5.0) LES VENDEURS À VALIDER, tout en haut : un administrateur de
+       BIZZOO les a créés sur place, avec leur lieu ; ils attendent le
+       superadministrateur. */
+    const aValider = (v) => !!(compteDe(v.id) || {}).aValider;
     const rangPaie = (v) => (v.enAttente > 0 ? 0 : v.disponible > 0 ? 1 : 2);
     const aPayer = (v) => v.enAttente > 0 || v.disponible > 0;
     vendeurs = vendeurs.slice().sort((a, b) =>
+      Number(aValider(b)) - Number(aValider(a)) ||
       rangPaie(a) - rangPaie(b) ||
       (rangPaie(a) === 0 ? b.enAttente - a.enAttente : rangPaie(a) === 1 ? b.disponible - a.disponible : 0) ||
       String(a.nom || "").localeCompare(String(b.nom || ""), "fr", { sensitivity: "base" }));
     const nbAPayer = vendeurs.filter(aPayer).length;
-    const compteDe = (id) => comptes.find((c) => c.id === id && c.role === "vendeur");
+    const enAttente = vendeurs.filter(aValider);
+    const lieuEnClair = (v) => !lieux ? ""
+      : lieux.get(v.id) && lieux.get(v.id).position
+        ? '<div class="aide lieu-ligne">' + UI.icone("carte", "ic-sm") + "<span>" +
+            e(lieux.get(v.id).adresse || "Position enregistrée") +
+            (lieux.get(v.id).horaires ? "" : " · horaires manquants") + "</span></div>"
+        : '<div class="aide vv-sans-lieu lieu-ligne" style="color:var(--rouge)">' + UI.icone("alerte", "ic-sm") +
+            "<span>Position manquante : les frais partent du point BIZZOO en attendant.</span></div>";
     vue.innerHTML =
+      (enAttente.length
+        ? '<div class="carte" id="vv-a-valider">' +
+            '<div class="carte-titre">' + UI.icone("horloge", "ic-sm") + " À valider (" + enAttente.length + ")</div>" +
+            '<p class="aide" style="margin:-4px 0 12px">Créés sur place par un administrateur de BIZZOO, avec ' +
+              "leur lieu. Vérifiez-le, puis validez : le vendeur ne vend rien d'ici là.</p>" +
+            enAttente.map((v) => {
+              const c = compteDe(v.id) || {};
+              return '<div class="vv-attente" data-attente="' + e(v.id) + '">' +
+                "<strong>" + e(v.nom) + "</strong>" + (v.tel ? " · " + e(v.tel) : "") +
+                '<div class="aide">' + (c.creeParNom ? "Créé par " + e(c.creeParNom) : "Créé par un administrateur de BIZZOO") +
+                  (c.creeLe ? ", le " + e(Utils.fmtDateHeure(c.creeLe)) : "") + "</div>" +
+                lieuEnClair(v) +
+                '<div class="btn-rangee">' +
+                  '<button type="button" class="btn btn-clair btn-petit" data-lieu="' + e(v.id) + '" data-nom="' + e(v.nom) + '">' +
+                    UI.icone("carte", "ic-sm") + "Voir son lieu</button>" +
+                  '<button type="button" class="btn btn-petit" data-valider-vendeur="' + e(v.id) + '">' +
+                    UI.icone("check", "ic-sm") + "Valider</button>" +
+                "</div></div>";
+            }).join("") +
+          "</div>"
+        : "") +
       '<div class="carte sd-solde" id="vv-totaux">' +
         '<div class="sd-etiquette">Commission de BIZZOO (ventes livrées)</div>' +
         '<div class="sd-montant">' + e(m(total("commission"))) + "</div>" +
@@ -384,7 +424,8 @@ const VueVendeurs = (() => {
               : "") +
             '<button type="button" class="sd-ligne vv-vendeur" data-vendeur="' + e(v.id) + '">' +
               '<div class="sd-ligne-haut"><strong>' + e(v.nom) + "</strong>" +
-                (v.actif ? "<span>" + e(v.tel) + "</span>" : '<span class="badge badge-rupture">Inactif</span>') + "</div>" +
+                (aValider(v) ? '<span class="badge vv-badge-a-valider">À valider</span>'
+                  : v.actif ? "<span>" + e(v.tel) + "</span>" : '<span class="badge badge-rupture">Inactif</span>') + "</div>" +
               /* (4.3.0) Ce qu'on lui doit, dit d'un coup d'œil. */
               (v.enAttente > 0
                 ? '<div class="vv-a-payer-mot">' + UI.icone("horloge", "ic-sm") + "<span>Demande de versement : <strong>" +
@@ -393,14 +434,7 @@ const VueVendeurs = (() => {
                   ? '<div class="vv-a-payer-mot">' + UI.icone("promo", "ic-sm") + "<span>À verser : <strong>" +
                       e(m(v.disponible)) + "</strong></span></div>"
                   : "") +
-              (lieux
-                ? (lieux.get(v.id) && lieux.get(v.id).position
-                    ? '<div class="aide lieu-ligne">' + UI.icone("carte", "ic-sm") + "<span>" +
-                        e(lieux.get(v.id).adresse || "Position enregistrée") +
-                        (lieux.get(v.id).horaires ? "" : " · horaires manquants") + "</span></div>"
-                    : '<div class="aide vv-sans-lieu lieu-ligne" style="color:var(--rouge)">' + UI.icone("alerte", "ic-sm") +
-                        "<span>Position manquante : les frais partent du point BIZZOO en attendant.</span></div>")
-                : "") +
+              lieuEnClair(v) +
               '<div class="aide">' + e(String(v.produits)) + " produit" + (v.produits > 1 ? "s" : "") +
                 " · ventes " + e(m(v.ventes)) + " · sa part " + e(m(v.part)) +
                 " · BIZZOO " + e(m(v.commission)) + "</div>" +
@@ -435,6 +469,20 @@ const VueVendeurs = (() => {
     for (const b of UI.$$("[data-lieu]", vue)) {
       b.onclick = () => feuilleLieu(b.dataset.lieu, b.dataset.nom, () => liste(vue));
     }
+    /* (4.5.0) Valider, c'est l'activer : la base prévient son créateur. */
+    for (const b of UI.$$("[data-valider-vendeur]", vue)) {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await Store.majCompte(b.dataset.validerVendeur, { actif: true });
+          UI.toast("Vendeur validé : il peut vendre.", "ok");
+          liste(vue);
+        } catch (err) {
+          UI.toast(err.message, "err");
+          b.disabled = false;
+        }
+      };
+    }
     /* (3.72.0) Le compte : nom, numéro, mot de passe, actif ou non. */
     for (const b of UI.$$("[data-compte]", vue)) {
       b.onclick = () => {
@@ -445,7 +493,10 @@ const VueVendeurs = (() => {
     /* (3.73.0) « #/vendeurs/<id> » : son espace s'ouvre de lui-même. */
     if (ouvrirId) {
       const b = UI.$('[data-vendeur="' + CSS.escape(ouvrirId) + '"]', vue);
-      if (b) b.click();
+      /* (4.5.0) « Un vendeur à valider » : son lieu, à vérifier avant. */
+      const attente = UI.$('[data-attente="' + CSS.escape(ouvrirId) + '"] [data-lieu]', vue);
+      if (attente) attente.click();
+      else if (b) b.click();
       else UI.toast("Ce vendeur n'est plus dans la liste.", "err");
     }
     const chercher = UI.$("#vv-chercher", vue);

@@ -205,10 +205,12 @@ begin
   -- Une insertion qui vise une fiche existante finit en mise à jour
   -- (« on conflict ») : on ne prévient qu'une fois.
   if tg_op = 'UPDATE' or not exists (select 1 from public.profils p where p.id = new.id) then
-    perform public.notifier(public.les_superadmins(), 'vendeur_cree', 'Nouveau vendeur à configurer',
+    -- (4.5.0) Il naît INACTIF (« profil_validation ») : son lieu est posé
+    -- sur place par l'administrateur ; le superadministrateur le valide.
+    perform public.notifier(public.les_superadmins(), 'vendeur_cree', 'Un vendeur à valider',
       coalesce(nullif(trim(new.nom), ''), nullif(trim(new.tel), ''), 'Un vendeur') || ', créé par ' ||
         coalesce(public.nom_du_createur(auth.uid()), 'un administrateur de BIZZOO') ||
-        '. Réglez son lieu et attribuez-lui ses produits.',
+        '. Vérifiez son lieu, puis activez-le pour le valider.',
       '#/vendeurs/' || new.id, null, null, false);
   end if;
   return new;

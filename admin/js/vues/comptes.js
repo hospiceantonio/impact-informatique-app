@@ -129,6 +129,9 @@ const VueComptes = (() => {
     if (compte.role === "livreur" && !compte.boutiqueId) {
       return " · BIZZOO — porte pour toutes les boutiques";
     }
+    /* (4.5.0) Un vendeur n'a pas de boutique à lui : ses produits se
+       rangent dans les boutiques à vendeurs multiples. */
+    if (compte.role === "vendeur") return " · BIZZOO";
     return " · " + Utils.echapper(nomBoutique(compte.boutiqueId));
   }
 
@@ -184,7 +187,7 @@ const VueComptes = (() => {
             "</span>" +
           '<span class="compte-details">' + Utils.echapper(nomRole(compte.role)) +
             rattachement(compte) +
-            (compte.nom ? " · " + Utils.echapper(compte.email) : "") +
+            (compte.nom && compte.email ? " · " + Utils.echapper(compte.email) : "") +
             (compte.aValider ? " · à valider par le superadministrateur"
               : compte.actif ? "" : " · désactivé") +
             (bride ? " · ajout seulement" : "") + "</span>" +
@@ -676,6 +679,13 @@ const VueComptes = (() => {
     const nbLivreurs = comptes.filter((c) => c.role === "livreur").length;
     /* (3.72.0) LES VENDEURS NON PLUS : leur écran, leur bouton, leur fiche. */
     const nbVendeurs = comptes.filter((c) => c.role === "vendeur").length;
+    /* (4.5.0) LES VENDEURS CRÉÉS SUR PLACE par un administrateur de BIZZOO,
+       qui attendent la validation : lui pose leur lieu, le
+       superadministrateur les valide. */
+    const vendeursAValider = comptes.filter((c) => c.role === "vendeur" && c.aValider &&
+      (Supabase.estSuper() || c.creePar === moi))
+      .sort((a, b) => (b.creeLe || 0) - (a.creeLe || 0));
+    const tousLesComptes = comptes;
     comptes = comptes.filter((c) => c.role !== "livreur" && c.role !== "vendeur");
     /* (3.72.0) Les rangs de l'équipe, chacun sa section, par ordre alphabétique. */
     const nomDe = (c) => String(c.nom || c.email || c.tel || "");
@@ -704,17 +714,44 @@ const VueComptes = (() => {
        administrateur de BIZZOO, ils attendent le superadministrateur. */
     const aValider = comptes.filter((c) => c.aValider);
     const adminBizzoo = Supabase.estAdminBizzoo() && !Supabase.estSuper();
+    /* (4.5.0) Où en est le lieu de chacun : posé, ou pas encore. */
+    const lieux = vendeursAValider.length ? await Store.lieuxVendeurs() : null;
+    const lieuEnClair = (c) => {
+      if (!lieux) return "";
+      const l = lieux.get(c.id);
+      return l && l.position
+        ? '<div class="aide lieu-ligne">' + UI.icone("carte", "ic-sm") + "<span>" +
+            Utils.echapper(l.adresse || "Position enregistrée") + (l.horaires ? "" : " · horaires manquants") +
+            "</span></div>"
+        : '<div class="aide lieu-ligne" style="color:var(--rouge)">' + UI.icone("alerte", "ic-sm") +
+            "<span>Son lieu n'est pas encore posé.</span></div>";
+    };
+    const htmlVendeurAValider = (c, valider) =>
+      '<div class="compte-a-valider cp-vendeur-a-valider" data-vendeur-attente="' + Utils.echapper(c.id) + '">' +
+        htmlLigne(c, false) + lieuEnClair(c) +
+        '<div class="btn-rangee">' +
+          '<button type="button" class="btn btn-clair btn-petit" data-lieu-vendeur="' + Utils.echapper(c.id) +
+            '" data-nom="' + Utils.echapper(c.nom || "") + '">' + UI.icone("carte", "ic-sm") +
+            (valider ? "Voir son lieu" : "Son lieu") + "</button>" +
+          (valider
+            ? '<button type="button" class="btn btn-petit" data-valider="' + Utils.echapper(c.id) + '">' +
+                UI.icone("check", "ic-sm") + "Valider</button>"
+            : "") +
+        "</div></div>";
+    const nbAValider = aValider.length + (Supabase.estSuper() ? vendeursAValider.length : 0);
     vue.innerHTML =
-      (Supabase.estSuper() && aValider.length
-        ? '<div class="carte">' +
+      (Supabase.estSuper() && nbAValider
+        ? '<div class="carte" id="cp-a-valider">' +
             '<div class="carte-titre">' + UI.icone("horloge", "ic-sm") + " À valider (" +
-              aValider.length + ")</div>" +
+              nbAValider + ")</div>" +
             '<p class="aide" style="margin:-4px 0 12px">Créés par un administrateur de BIZZOO. ' +
-              "Ils ne peuvent rien faire tant que vous ne les avez pas validés.</p>" +
+              "Ils ne peuvent rien faire tant que vous ne les avez pas validés" +
+              (vendeursAValider.length ? " ; pour un vendeur, vérifiez d'abord son lieu" : "") + ".</p>" +
             aValider.map((c) =>
               '<div class="compte-a-valider">' + htmlLigne(c, false) +
                 '<button type="button" class="btn btn-mini" data-valider="' + Utils.echapper(c.id) + '">' +
                   "Valider</button></div>").join("") +
+            vendeursAValider.map((c) => htmlVendeurAValider(c, true)).join("") +
           "</div>"
         : "") +
       (Store.rolesAttribuables().includes("livreur")
@@ -732,8 +769,16 @@ const VueComptes = (() => {
         ? '<div class="carte carte-livreurs" id="cp-vendeurs">' +
             '<div class="carte-titre">' + UI.icone("magasin", "ic-sm") + " Les vendeurs (" +
               nbVendeurs + ")</div>" +
-            '<p class="aide" style="margin:0 0 10px">Ceux des boutiques à vendeurs multiples. Créez-en un : ' +
-              "le superadministrateur, prévenu, règle ensuite son lieu et ses produits.</p>" +
+            /* (4.5.0) Sur place, chez lui : son compte, puis aussitôt son
+               lieu. Le superadministrateur n'a plus qu'à le valider. */
+            '<p class="aide" style="margin:0 0 10px">Ceux des boutiques à vendeurs multiples. Créez-le ' +
+              "<strong>sur place, chez lui</strong> : son compte, puis aussitôt son lieu — adresse, position de " +
+              "votre téléphone, horaires. Le superadministrateur, prévenu, n'a plus qu'à le valider.</p>" +
+            (vendeursAValider.length
+              ? '<p class="aide" style="margin:0 0 4px"><strong>En attente de validation (' +
+                  vendeursAValider.length + ")</strong></p>" +
+                vendeursAValider.map((c) => htmlVendeurAValider(c, false)).join("")
+              : "") +
             '<button type="button" class="btn" id="cp-nouveau-vendeur">' + UI.icone("plus") +
               "Nouveau vendeur</button>" +
           "</div>"
@@ -816,10 +861,17 @@ const VueComptes = (() => {
     /* (3.81.0) L'administrateur de BIZZOO crée un vendeur. */
     const nouveauVendeur = UI.$("#cp-nouveau-vendeur", vue);
     if (nouveauVendeur) {
-      nouveauVendeur.onclick = () => ouvrirCreation(() => {
-        UI.toast("Vendeur créé : le superadministrateur réglera son lieu et ses produits.", "ok");
+      nouveauVendeur.onclick = () => ouvrirCreation((compte) => {
         afficher(vue);
+        /* (4.5.0) Sur place : son lieu tout de suite — adresse, position,
+           horaires. */
+        if (compte && compte.id && typeof VueVendeurs !== "undefined") {
+          VueVendeurs.feuilleLieu(compte.id, compte.nom || "", () => afficher(vue));
+        }
       }, false, true);
+    }
+    for (const b of UI.$$("[data-lieu-vendeur]", vue)) {
+      b.onclick = () => VueVendeurs.feuilleLieu(b.dataset.lieuVendeur, b.dataset.nom, () => afficher(vue));
     }
     for (const b of UI.$$("[data-creer-rang]", vue)) {
       b.onclick = () => ouvrirCreation(() => afficher(vue), false, false, b.dataset.creerRang);
@@ -851,7 +903,7 @@ const VueComptes = (() => {
     }
     for (const bouton of UI.$$("[data-compte]", vue)) {
       bouton.onclick = () => {
-        const compte = comptes.find((c) => c.id === bouton.dataset.compte);
+        const compte = tousLesComptes.find((c) => c.id === bouton.dataset.compte);
         if (compte) ouvrirFiche(compte, () => afficher(vue));
       };
     }
@@ -859,7 +911,13 @@ const VueComptes = (() => {
        sa fiche s'ouvre d'elle-même, et l'adresse redevient la liste. */
     if (ouvrirId) {
       const compte = comptes.find((c) => c.id === ouvrirId);
+      /* (4.5.0) « Compte validé » d'un vendeur créé sur place : sa carte. */
+      const vendeur = !compte && tousLesComptes.find((c) => c.id === ouvrirId && c.role === "vendeur");
       if (compte) ouvrirFiche(compte, () => afficher(vue));
+      else if (vendeur && Supabase.estSuper()) {
+        location.hash = "#/vendeurs/" + encodeURIComponent(vendeur.id);
+        return;
+      } else if (vendeur && UI.$("#cp-vendeurs", vue)) UI.$("#cp-vendeurs", vue).scrollIntoView({ block: "start" });
       else UI.toast("Ce compte n'est plus dans la liste.", "err");
       try { history.replaceState(history.state, "", "#/comptes"); } catch (_) { /* sans importance */ }
     }

@@ -236,7 +236,9 @@ begin
     return new;
   end if;
 
-  if public.est_admin_bizzoo() and new.role = 'moderateur' then
+  -- (4.5.0) Le vendeur aussi : l'administrateur de BIZZOO le crée sur
+  -- place, avec son lieu ; le superadministrateur le valide.
+  if public.est_admin_bizzoo() and new.role in ('moderateur', 'vendeur') then
     new.actif := false;
     new.a_valider := true;
     -- L'écran pose le rang par « insert … on conflict » : PostgreSQL exige
@@ -251,7 +253,8 @@ begin
     nouveau := case when tg_op = 'INSERT'
                     then not exists (select 1 from public.profils p where p.id = new.id)
                     else not old.a_valider end;
-    if nouveau then
+    -- Le vendeur a sa propre notification (« profil_vendeur_cree »).
+    if nouveau and new.role = 'moderateur' then
       perform public.notifier(public.les_superadmins(), 'compte_a_valider',
         'Un compte modérateur à valider',
         coalesce(nullif(trim(new.nom), ''), nullif(new.email, ''), 'Un nouveau compte') ||
