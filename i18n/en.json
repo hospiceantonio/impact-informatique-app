@@ -6699,5 +6699,6 @@
  "Annulation…": "Canceling…",
  "annulée": "canceled",
  "Annuler la commande": "Cancel the order",
- "La commande n'a pas pu être annulée": "The order could not be canceled"
+ "La commande n'a pas pu être annulée": "The order could not be canceled",
+ "(max-width:559px)": "(max-width:559px)"
 }

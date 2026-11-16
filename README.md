@@ -8254,3 +8254,22 @@ client avant paiement, le … ».
 redéployer la fonction `feexpay`. Bancs : `supabase/functions/tests/feexpay.mjs`
 (`tools/eprouver-paiement.sh`), `banc-paiement-echoue` (section 9), et
 l'essai de base `…-annuler-commande-impayee.sql`.
+
+## Les boutiques fermées en dessous, dans toutes les listes (4.4.1)
+
+Depuis la 3.79.0, les produits d'une boutique fermée restent en vitrine,
+grisés, avec l'heure de réouverture — **après** ceux qu'on peut commander
+tout de suite (`Catalogue.ouvertsDabord`). La règle était posée sur la
+liste de base, mais plusieurs listes la retriaient ensuite par prix ou par
+nouveauté, et remêlaient les boutiques fermées aux autres : un produit
+fermé moins cher remontait en tête du rayon et des promotions, un produit
+fermé récent en tête des nouveautés.
+
+`ouvertsDabord` se pose désormais **après** chaque tri : rayons (et le
+balayage d'une fiche à l'autre), promotions, nouveautés, ventes flash,
+produits mis en avant, produits populaires, produits proches, favoris. La
+galerie « Nos produits », le catalogue et la recherche le faisaient déjà.
+
+Banc : `banc-horaires-droits` (section 1 bis : le produit de la boutique
+fermée, le moins cher, le plus récent, en promotion, en vente flash et mis
+en avant, arrive en dernier dans chaque liste et à l'écran).
