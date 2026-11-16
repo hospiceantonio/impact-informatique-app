@@ -593,7 +593,10 @@ const Catalogue = (() => {
   /** « Fermé · ouvre demain à 8 h » — le badge d'un produit. */
   const motFermeture = (f) => (!f ? "" : f.qui === "produit" ? "Indisponible pour le moment"
     : "Fermé" + (f.quand ? " · ouvre " + f.quand : ""));
-  /** Les produits commandables d'abord, sans rien changer à l'ordre de chacun. */
+  /** Les produits commandables d'abord, sans rien changer à l'ordre de chacun.
+      (4.4.1) À poser APRÈS tout tri : un tri par prix ou par nouveauté
+      refait sur « produits() » remêlait les boutiques fermées aux autres
+      (rayons, promotions, nouveautés, ventes flash, mis en avant…). */
   const ouvertsDabord = (liste) => liste
     .map((p, i) => ({ p, i, f: fermeture(p) ? 1 : 0 }))
     .sort((a, b) => a.f - b.f || a.i - b.i)
@@ -840,9 +843,9 @@ const Catalogue = (() => {
   }
 
   function produitsDeCategorie(categorieId, scId) {
-    return produits()
+    return ouvertsDabord(produits()
       .filter((p) => p.categorieId === categorieId && (!scId || p.sousCategorieId === scId))
-      .sort(parPrixCroissant);
+      .sort(parPrixCroissant));
   }
 
 
@@ -999,9 +1002,9 @@ const Catalogue = (() => {
    * là, c'est la publicité de l'enseigne qui parle.
    */
   function ventesFlash() {
-    return produits()
+    return ouvertsDabord(produits()
       .filter(enVenteFlash)
-      .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0));
+      .sort((a, b) => (a.flashFin || 0) - (b.flashFin || 0)));
   }
 
   /** Combien de produits dans chaque boutique — affiché sous son icône. */
@@ -1015,22 +1018,22 @@ const Catalogue = (() => {
 
   /** Les produits mis en avant, qui défilent à la suite des images. */
   function misEnAvant() {
-    return produits()
+    return ouvertsDabord(produits()
       .filter((p) => p.enAvant)
-      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0))
+      .sort((a, b) => (a.ordreAvant || 0) - (b.ordreAvant || 0)))
       .slice(0, NB_EN_AVANT);
   }
 
   function nouveautes(n = 8) {
-    return produits()
-      .sort((a, b) => (b.creeLe || 0) - (a.creeLe || 0))
+    return ouvertsDabord(produits()
+      .sort((a, b) => (b.creeLe || 0) - (a.creeLe || 0)))
       .slice(0, n);
   }
 
   function promotions() {
-    return produits()
+    return ouvertsDabord(produits()
       .filter((p) => Utils.remisePourcent(p.ancienPrix, p.prix) !== null)
-      .sort(parPrixCroissant);
+      .sort(parPrixCroissant));
   }
 
   /**
@@ -1082,7 +1085,7 @@ const Catalogue = (() => {
     }
     if (!Array.isArray(lignes)) return [];
     const parId = new Map(produits().map((p) => [p.id, p]));
-    return lignes.map((l) => parId.get(l && l.produit_id)).filter(Boolean);
+    return ouvertsDabord(lignes.map((l) => parId.get(l && l.produit_id)).filter(Boolean));
   }
 
   /* ---------- Recherche ----------
@@ -1197,7 +1200,7 @@ const Catalogue = (() => {
       x.categorieId === p.categorieId && p.sousCategorieId && x.sousCategorieId === p.sousCategorieId);
     const memeCat = autres.filter((x) =>
       x.categorieId === p.categorieId && !memeSc.includes(x));
-    return memeSc.concat(memeCat).slice(0, n);
+    return ouvertsDabord(memeSc.concat(memeCat)).slice(0, n);
   }
 
   /**
@@ -1212,7 +1215,8 @@ const Catalogue = (() => {
     const liste = produits().filter((x) => x.categorieId === p.categorieId &&
       (x.sousCategorieId || "") === (p.sousCategorieId || ""));
     if (!liste.some((x) => x.id === p.id)) liste.push(p);
-    return liste.sort(parPrixCroissant);
+    /* Le même ordre que l'écran du rayon : ouverts d'abord. */
+    return ouvertsDabord(liste.sort(parPrixCroissant));
   }
 
   /* ---------- Images ---------- */
@@ -1242,7 +1246,7 @@ const Catalogue = (() => {
     nouveautes, promotions, meilleureRemise, produitsPopulaires,
     rechercher, similaires,
     boutiqueDuProduit, deviseDe, ouverteMaintenant, prochaineOuverture, horairesLisibles,
-    pointDe, vendeurOuvert, fermeture, commandable, motFermeture, signatureOuvertures,
+    pointDe, vendeurOuvert, fermeture, commandable, motFermeture, signatureOuvertures, ouvertsDabord,
     urlImage, imagePrincipale, statut, STATUTS, enAppro, joursAppro,
     signature, signalerAndroid,
   };

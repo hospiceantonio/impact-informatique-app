@@ -1,15 +1,19 @@
 -- =========================================================
--- L'administrateur de BIZZOO crée un vendeur (3.81.0)
+-- L'administrateur de BIZZOO crée un vendeur (3.81.0, à valider en 4.5.0)
 --
 -- Ce qu'on prouve :
 --   1. l'administrateur de BIZZOO crée un vendeur : la fiche toute fraîche
---      de l'inscription devient un vendeur actif, sans boutique ; le
---      superadministrateur est prévenu, une fois, et la notification
---      mène à ce vendeur ;
+--      de l'inscription devient un vendeur sans boutique, INACTIF et « à
+--      valider » (4.5.0) ; le superadministrateur est prévenu, une fois,
+--      et la notification mène à ce vendeur ;
 --   2. il ne change pas en vendeur un livreur déjà en service ;
 --   3. il ne modifie ni ne supprime un vendeur : c'est au
 --      superadministrateur ;
---   4. l'administrateur d'une boutique ne crée pas de vendeur.
+--   4. l'administrateur d'une boutique ne crée pas de vendeur ;
+--   5. (4.5.0) il pose le lieu du vendeur qu'il vient de créer, sur
+--      place ; un autre administrateur, non ;
+--   6. (4.5.0) le superadministrateur le valide en l'activant : le
+--      créateur est prévenu, et ne touche plus au lieu.
 -- =========================================================
 
 \set ON_ERROR_STOP on
@@ -24,6 +28,7 @@ set client_min_messages = notice;
 \set VND      '''cececece-0000-0000-0000-000000000002'''
 \set LIV      '''cececece-0000-0000-0000-000000000003'''
 \set VND2     '''cececece-0000-0000-0000-000000000004'''
+\set ADMBZ2   '''cececece-0000-0000-0000-000000000005'''
 
 select essai.titre('Le décor : un administrateur de BIZZOO, un livreur en service');
 insert into auth.users (id, email) values (:ADMBZ::uuid, 'admin.bz.vendeur@essai.bj') on conflict do nothing;
@@ -53,12 +58,16 @@ select essai.egal((select role || '/' || actif from public.profils where id = :V
 
 select essai.titre('1. Il crée un vendeur');
 select pg_temp.creer(:ADMBZ::uuid, :VND::uuid, '0197800002', null);
-select essai.egal((select role || '/' || actif || '/' || coalesce(boutique_id, '—') from public.profils where id = :VND::uuid),
-  'vendeur/true/—', 'un vendeur actif, sans boutique');
+select essai.egal((select role || '/' || actif || '/' || a_valider || '/' || coalesce(boutique_id, '—')
+                     from public.profils where id = :VND::uuid),
+  'vendeur/false/true/—', '(4.5.0) un vendeur INACTIF, à valider, sans boutique');
 select essai.egal((select count(*)::int from public.notifications
-                    where destinataire = :ENSEIGNE::uuid and type = 'vendeur_cree'
+                    where destinataire = :ENSEIGNE::uuid and type = 'vendeur_cree' and titre = 'Un vendeur à valider'
                       and lien = '#/vendeurs/' || :VND and corps like 'Vendeur V, créé par Admin BZ V (administrateur).%'), 1,
-  'le superadministrateur est prévenu, une fois : la notification mène à ce vendeur');
+  'le superadministrateur est prévenu, une fois : « Un vendeur à valider », qui mène à ce vendeur');
+select essai.egal((select count(*)::int from public.notifications
+                    where destinataire = :ENSEIGNE::uuid and type = 'compte_a_valider' and lien like '%' || :VND), 0,
+  'et pas une seconde fois comme un modérateur');
 select essai.devenir(:ADMBZ::uuid); set role authenticated;
 select essai.egal((select count(*)::int from public.profils where id = :VND::uuid), 1, 'il voit le vendeur créé');
 reset role; select essai.personne();
@@ -90,6 +99,37 @@ select essai.refuse(format('select pg_temp.creer(%L, %L, %L, null)', :CHEF, :VND
   'refusé');
 select essai.egal((select role from public.profils where id = :VND2::uuid), 'moderateur', 'la fiche reste en attente');
 
-delete from public.notifications where type = 'vendeur_cree';
-delete from public.profils where id in (:VND::uuid, :VND2::uuid, :LIV::uuid, :ADMBZ::uuid);
-delete from auth.users where id in (:VND::uuid, :VND2::uuid, :LIV::uuid, :ADMBZ::uuid);
+select essai.titre('5. (4.5.0) Il pose le lieu du vendeur qu''il vient de créer, sur place');
+insert into auth.users (id, email) values (:ADMBZ2::uuid, 'admin.bz2.vendeur@essai.bj') on conflict do nothing;
+update public.profils set role = 'administrateur', boutique_id = null, actif = true, nom = 'Admin BZ 2'
+ where id = :ADMBZ2::uuid;
+select essai.devenir(:ADMBZ::uuid); set role authenticated;
+select public.enregistrer_lieu_vendeur(:VND::uuid, '{"nom":"Pagnes Afi","tel":"0197800002","adresse":"Dantokpa, allée 4","latitude":6.3702,"longitude":2.4289}'::jsonb) as l \gset
+select essai.verifie((:'l'::jsonb ->> 'connu')::boolean and :'l'::jsonb ->> 'adresse' = 'Dantokpa, allée 4'
+                     and (:'l'::jsonb ->> 'latitude')::numeric = 6.3702,
+  'son créateur pose son lieu : adresse et position');
+reset role; select essai.personne();
+select essai.devenir(:ADMBZ2::uuid); set role authenticated;
+select essai.refuse(format($$select public.enregistrer_lieu_vendeur(%L::uuid, '{"adresse":"Ailleurs","latitude":6.4,"longitude":2.5}'::jsonb)$$, :VND),
+  'un autre administrateur de BIZZOO, non');
+reset role; select essai.personne();
+
+select essai.titre('6. (4.5.0) Le superadministrateur le valide en l''activant');
+select essai.devenir(:ENSEIGNE::uuid); set role authenticated;
+update public.profils set actif = true where id = :VND::uuid;
+reset role; select essai.personne();
+select essai.egal((select actif || '/' || a_valider from public.profils where id = :VND::uuid), 'true/false',
+  'actif, et plus à valider');
+select essai.egal((select count(*)::int from public.notifications
+                    where destinataire = :ADMBZ::uuid and type = 'compte_valide'), 1,
+  'son créateur est prévenu : « Compte validé »');
+select essai.egal((select adresse from public.vendeurs_lieux where vendeur_id = :VND::uuid), 'Dantokpa, allée 4',
+  'le lieu posé sur place est resté');
+select essai.devenir(:ADMBZ::uuid); set role authenticated;
+select essai.refuse(format($$select public.enregistrer_lieu_vendeur(%L::uuid, '{"adresse":"Ailleurs","latitude":6.4,"longitude":2.5}'::jsonb)$$, :VND),
+  'validé, son lieu revient au superadministrateur');
+reset role; select essai.personne();
+
+delete from public.notifications where type in ('vendeur_cree', 'compte_valide');
+delete from public.profils where id in (:VND::uuid, :VND2::uuid, :LIV::uuid, :ADMBZ::uuid, :ADMBZ2::uuid);
+delete from auth.users where id in (:VND::uuid, :VND2::uuid, :LIV::uuid, :ADMBZ::uuid, :ADMBZ2::uuid);

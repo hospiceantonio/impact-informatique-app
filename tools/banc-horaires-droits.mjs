@@ -9,6 +9,9 @@
      1. (3.79.0) les produits d'une boutique fermée restent dans les
         listes et la recherche, après ceux des boutiques ouvertes, avec
         « Fermé · ouvre demain à 8 h » ; les boutiques ouvertes d'abord ;
+        (4.4.1) et dans TOUTES les listes : rayon, promotions, nouveautés,
+        ventes flash, mis en avant, produits proches — même
+        moins chers ou plus récents que ceux des boutiques ouvertes ;
      2. la page de la boutique fermée dit quand elle ouvre, et garde sa
         vitrine, grisée ;
      3. la fiche d'un produit (lien partagé) : visible, bouton éteint ;
@@ -59,7 +62,7 @@ const BOU = [
 const P = (id, boutique, nom) => ({ id, code: id, nom, reference: id, prix: 5000, boutique_id: boutique,
   categorie_id: "cat_hightech", sous_categorie_id: null, stock: 5, disponible: true, sur_commande: false,
   images: [], video: "", en_avant: false, cree_le: "2026-09-01T10:00:00Z", modifie_le: "2026-09-01T10:00:00Z" });
-const PRODUITS = [P("p_ouv", "bou_ouv", "Souris Alpha"), P("p_fer", "bou_fer", "Clavier Beta")];
+let PRODUITS = [P("p_ouv", "bou_ouv", "Souris Alpha"), P("p_fer", "bou_fer", "Clavier Beta")];
 
 async function ouvrirClient(hash, panier) {
   const ctx = await nav.newContext({ viewport: { width: 390, height: 2200 }, serviceWorkers: "block" });
@@ -110,6 +113,49 @@ titre("1. (3.79.0) Les produits d'une boutique fermée restent en vitrine, aprè
   const ordre = await o.page.evaluate(() => Catalogue.boutiques().map((b) => b.id));
   ok(ordre[0] === "bou_ouv", "les boutiques ouvertes d'abord (" + ordre.join(", ") + ")");
   sansErreur(o);
+
+    /* (4.4.1) Un tri par prix ou par nouveauté refait sur la liste
+     remêlait les fermés aux autres. Le produit de la boutique fermée est
+     ici le MOINS CHER, le PLUS RÉCENT, en promotion, en vente flash et mis
+     en avant : il passerait en tête de chaque liste si elle l'oubliait. */
+  titre("1 bis. (4.4.1) Dans toutes les listes, la boutique fermée en dessous");
+  const avant = PRODUITS;
+  const demainIso = new Date(Date.now() + 86400000).toISOString();
+  PRODUITS = [
+    { ...P("p_ouv", "bou_ouv", "Souris Alpha"), prix: 3000, ancien_prix: 4000, sous_categorie_id: "sc_acc",
+      cree_le: "2026-09-01T10:00:00Z", en_avant: true, ordre_avant: 2, flash_fin: demainIso },
+    { ...P("p_fer", "bou_fer", "Clavier Beta"), prix: 1000, ancien_prix: 2000, sous_categorie_id: "sc_acc",
+      cree_le: "2026-11-01T10:00:00Z", en_avant: true, ordre_avant: 1, flash_fin: demainIso },
+    { ...P("p_ouv2", "bou_ouv", "Câble Alpha"), prix: 2000, sous_categorie_id: "sc_acc",
+      cree_le: "2026-08-01T10:00:00Z" },
+  ];
+  {
+    const q = await ouvrirClient("#/");
+    const l = await q.page.evaluate(() => ({
+      rayon: Catalogue.produitsDeCategorie("cat_hightech").map((p) => p.id),
+      promos: Catalogue.promotions().map((p) => p.id),
+      nouveautes: Catalogue.nouveautes(8).map((p) => p.id),
+      flash: Catalogue.ventesFlash().map((p) => p.id),
+      avant: Catalogue.misEnAvant().map((p) => p.id),
+      proches: Catalogue.similaires(Catalogue.produit("p_ouv2"), 4).map((p) => p.id),
+      fiche: Catalogue.rayonDuProduit(Catalogue.produit("p_ouv")).map((p) => p.id),
+    }));
+    const dernier = (liste) => liste.length > 1 && liste[liste.length - 1] === "p_fer";
+    for (const [nom, liste] of Object.entries(l)) {
+      ok(dernier(liste), nom + " : le produit de la boutique fermée en dernier, même moins cher ou plus récent (" + liste.join(", ") + ")");
+    }
+    /* Et à l'écran : le rayon et les promotions. */
+    for (const h of ["#/categorie/cat_hightech", "#/promos"]) {
+      await aller(q.page, h);
+      const ecran = await q.page.evaluate(() =>
+        [...document.querySelectorAll(".p-grille .p-carte")].map((a) => a.getAttribute("href").replace("#/produit/", "")));
+      ok(ecran.length > 1 && ecran[ecran.length - 1] === "p_fer",
+        h + " : à l'écran aussi, la boutique fermée en dessous (" + ecran.join(", ") + ")");
+    }
+    sansErreur(q);
+    await q.ctx.close();
+  }
+  PRODUITS = avant;
 
   titre("2. La page de la boutique fermée : sa vitrine, grisée");
   await aller(o.page, "#/boutique/bou_fer");

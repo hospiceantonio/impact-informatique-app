@@ -29,6 +29,15 @@
 -- boutique sans position — et l'administration le signale. Sans
 -- horaires : ouvert, comme une boutique sans horaires.
 -- =========================================================
+-- (4.1.0) Empruntées plus bas, recopiées telles quelles.
+create or replace function public.est_admin_bizzoo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.role_courant() = 'administrateur', false)
+     and public.est_compte_enseigne();
+$$;
+revoke all on function public.est_admin_bizzoo() from public, anon;
+grant execute on function public.est_admin_bizzoo() to authenticated;
+
 create table if not exists public.vendeurs_lieux (
   vendeur_id uuid primary key references public.profils(id) on delete cascade,
   nom        text not null default '' check (length(nom) <= 120),
@@ -462,6 +471,11 @@ revoke all on function public.lieu_vendeur(uuid) from public, anon;
 grant execute on function public.lieu_vendeur(uuid) to authenticated;
 
 -- L'enregistrer : le superadministrateur, qui crée les vendeurs.
+-- (4.5.0) Lues plus bas : le vendeur que l'administrateur de BIZZOO vient
+-- de créer attend la validation du superadministrateur.
+alter table public.profils add column if not exists a_valider boolean not null default false;
+alter table public.profils add column if not exists cree_par uuid;
+
 create or replace function public.enregistrer_lieu_vendeur(cible uuid, lieu jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -471,8 +485,14 @@ declare
   t   text := regexp_replace(coalesce(lieu ->> 'tel', ''), '\D', '', 'g');
   ind text := coalesce(nullif(regexp_replace(coalesce(lieu ->> 'indicatif', ''), '\D', '', 'g'), ''), '229');
 begin
-  if auth.uid() is null or not public.est_super() then
-    raise exception 'Le lieu d''un vendeur est réglé par le superadministrateur.' using errcode = 'P0001';
+  -- (4.5.0) Le superadministrateur ; ou l'administrateur de BIZZOO qui a
+  -- créé ce vendeur sur place, tant que le superadministrateur ne l'a pas
+  -- validé.
+  if auth.uid() is null or not (public.est_super() or (public.est_admin_bizzoo() and exists (
+       select 1 from public.profils p
+        where p.id = cible and p.role = 'vendeur' and p.a_valider and p.cree_par = auth.uid()))) then
+    raise exception 'Le lieu d''un vendeur est réglé par le superadministrateur, ou par l''administrateur qui vient de le créer.'
+      using errcode = 'P0001';
   end if;
   if not exists (select 1 from public.profils p where p.id = cible and p.role = 'vendeur') then
     raise exception 'Ce compte n''est pas un vendeur.' using errcode = 'P0001';

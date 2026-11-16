@@ -53,7 +53,8 @@ const VueFavoris = (() => {
        sienne, et l'écran compterait les autres favoris pour « plus en
        vente ». */
     const parId = new Map(Catalogue.produitsDeLEnseigne().map((p) => [p.id, p]));
-    const produits = idsProduits.map((id) => parId.get(id)).filter(Boolean);
+    /* (4.4.1) Ceux d'une boutique fermée en dessous, comme partout. */
+    const produits = Catalogue.ouvertsDabord(idsProduits.map((id) => parId.get(id)).filter(Boolean));
 
     const parIdB = new Map(Catalogue.boutiques().map((b) => [b.id, b]));
     const boutiques = idsBoutiques.map((id) => parIdB.get(id)).filter(Boolean);
