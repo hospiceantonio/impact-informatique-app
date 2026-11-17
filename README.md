@@ -8312,3 +8312,19 @@ Dans la base (`supabase/vendeur-a-valider.sql`) :
 À appliquer en ligne : `supabase/vendeur-a-valider.sql`. Essai de base :
 `…-vendeur-par-admin-bizzoo.sql` (sections 1, 5 et 6). Banc :
 `banc-vendeur-sur-place`.
+
+## L'adresse du site ouvre la boutique (4.5.1)
+
+`www.bizzoomarket.com` ouvre désormais **directement la boutique**
+(`/client/`) : la page d'accueil du site (`index.html`) y renvoie avant de
+s'afficher, en gardant le reste de l'adresse (un lien de publicité garde
+ses repères, un lien « mot de passe oublié » ses jetons).
+
+La page de présentation n'a pas bougé : elle se lit à
+**`www.bizzoomarket.com/?vitrine`**. La boutique y mène depuis
+**Compte → « Découvrir BIZZOO »** (dans l'application installée, le lien
+ouvre le site). Les aperçus WhatsApp et Facebook de l'adresse du site
+restent ceux de la vitrine (leurs robots ne suivent pas le renvoi). Le
+pixel Meta ne compte pas la page qui renvoie.
+
+Banc : `banc-mise-en-ligne` (section 5).

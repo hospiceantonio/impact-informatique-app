@@ -35,6 +35,7 @@ const VueCompte = (() => {
       ? Utils.lienWhatsApp(maison.whatsapp,
           "Bonjour " + (maison.nom || "BIZZOO") + ", je souhaite un renseignement.", maison.indicatif)
       : "";
+    const surLeSite = /^https?:$/.test(location.protocol) && /\/client\/(index\.html)?$/.test(location.pathname);
     return (
       /* (3.73.0) La langue : Français / English (js/langue.js pose le bouton). */
       '<div class="carte" data-langue id="cp-langue"></div>' +
@@ -43,6 +44,16 @@ const VueCompte = (() => {
           '<span class="rond-bleu">' + UI.icone("infos") + "</span>" +
           "<span><strong>À propos de BIZZOO</strong><br><small>Contacts, réseaux, " +
             "installer l'application</small></span>" +
+          UI.icone("chevron", "ic-sm") +
+        "</a>" +
+        /* (4.5.1) L'adresse du site ouvre désormais la boutique : la page
+           de présentation se rejoint d'ici. Dans l'application installée,
+           elle s'ouvre sur le site. */
+        '<a class="ligne-info" id="cp-vitrine" href="' + (surLeSite ? "../?vitrine" : "https://www.bizzoomarket.com/?vitrine") +
+            '"' + (surLeSite ? "" : ' target="_blank" rel="noopener"') + ">" +
+          '<span class="rond-bleu">' + UI.icone("magasin") + "</span>" +
+          "<span><strong>Découvrir BIZZOO</strong><br><small>La page de présentation : " +
+            "comment ça marche, l'application Android</small></span>" +
           UI.icone("chevron", "ic-sm") +
         "</a>" +
         (wa

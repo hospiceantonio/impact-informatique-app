@@ -314,8 +314,31 @@ const attendre = (page, ms = 1400) => page.waitForTimeout(ms);
 titre("5. Le site s'ouvre, à ses deux adresses");
 {
   const { page, ctx, erreurs } = await ouvrir();
+  /* (4.5.1) L'adresse du site ouvre la boutique ; la vitrine est à « ?vitrine ». */
   await page.goto(DOMAINE + "/", { waitUntil: "load" });
+  await attendre(page, 1200);
+  ok(await page.evaluate(() => location.pathname) === "/client/" && !!(await page.$("#app, #vue, main")),
+    "(4.5.1) www.bizzoomarket.com ouvre directement la boutique");
+  await page.goto(DOMAINE + "/?utm_source=essai", { waitUntil: "load" });
+  await attendre(page, 1200);
+  ok(await page.evaluate(() => location.pathname + location.search) === "/client/?utm_source=essai",
+    "(4.5.1) et le reste de l'adresse suit le visiteur");
+  await page.goto(DOMAINE + "/?vitrine", { waitUntil: "load" });
   await attendre(page, 600);
+  ok(await page.evaluate(() => location.pathname + location.search) === "/?vitrine",
+    "(4.5.1) « ?vitrine » reste sur la page de présentation");
+  {
+    const b = await ouvrir();
+    await b.page.goto(DOMAINE + "/client/#/compte", { waitUntil: "load" });
+    await attendre(b.page, 1500);
+    ok(await b.page.evaluate(() => (document.querySelector("#cp-vitrine") || {}).getAttribute?.("href")) === "../?vitrine",
+      "(4.5.1) Compte → « Découvrir BIZZOO » mène à la vitrine");
+    await b.page.click("#cp-vitrine");
+    await attendre(b.page, 800);
+    ok(await b.page.evaluate(() => location.pathname + location.search) === "/?vitrine" &&
+       await b.page.evaluate(() => document.images.length) >= 4, "(4.5.1) et la vitrine s'affiche");
+    await b.ctx.close();
+  }
   const images = await page.evaluate(() => [...document.images]
     .map((i) => ({ src: i.getAttribute("src"), ok: i.complete && i.naturalWidth > 0 })));
   ok(images.length >= 4 && images.every((i) => i.ok),
@@ -361,7 +384,7 @@ titre("5. Le site s'ouvre, à ses deux adresses");
 {
   /* GITHUB PAGES : le même site, sous le nom du dépôt. */
   const { page, ctx, erreurs } = await ouvrir();
-  await page.goto(PAGES + PREFIXE_PAGES + "/", { waitUntil: "load" });
+  await page.goto(PAGES + PREFIXE_PAGES + "/?vitrine", { waitUntil: "load" });
   await attendre(page, 600);
   ok(await page.evaluate(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0)),
     "GitHub Pages : la vitrine s'ouvre sous le nom du dépôt, images comprises");
