@@ -36,9 +36,17 @@
      ramène le visiteur à l'adresse du site, avec ses jetons après le « # ».
      C'est l'application qui sait les lire : on les lui passe tels quels,
      avant que la vitrine ne s'affiche. -->
+<!-- (4.5.1) L'ADRESSE DU SITE OUVRE LA BOUTIQUE. Cette page de
+     présentation reste à « ?vitrine » : la boutique y mène depuis
+     Compte → « Découvrir BIZZOO ». Le reste de l'adresse suit le visiteur
+     (un lien de publicité garde ses repères). -->
 <script>
   if (/(^|[#&])(access_token|error_code)=/.test(location.hash)) {
+    window.__versLaBoutique = true;
     location.replace("client/" + location.hash);
+  } else if (!/(^|[?&])vitrine(=|&|$)/.test(location.search)) {
+    window.__versLaBoutique = true;
+    location.replace("client/" + location.search + location.hash);
   }
 </script>
 
@@ -48,7 +56,8 @@
      configuration automatique est coupée : la boutique dit elle-même ce
      qui s'y passe (client/js/pixel.js). -->
 <script>
-  if (["www.bizzoomarket.com", "bizzoomarket.com"].indexOf(location.hostname) >= 0
+  if (!window.__versLaBoutique
+      && ["www.bizzoomarket.com", "bizzoomarket.com"].indexOf(location.hostname) >= 0
       && !/(^|[#&?/])(access_token|refresh_token|error_code|token_hash)=/.test(location.href)) {
     !function(f,b,e,v,n,t,s)
     {if(f.fbq)return;n=f.fbq=function(){n.callMethod?

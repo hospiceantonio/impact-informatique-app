@@ -216,7 +216,7 @@ titre("5. BIZZOO Personnel en anglais");
 titre("6. La vitrine et les pages légales");
 {
   const { ctx, page } = await contexte("en");
-  await page.goto(BASE + "/index.html");
+  await page.goto(BASE + "/index.html?vitrine");
   await page.waitForTimeout(1200);
   ok(await page.locator(".langue-flottant").count() === 1, "un bouton FR / EN flottant");
   const r1 = await restes(page);

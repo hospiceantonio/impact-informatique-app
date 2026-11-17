@@ -680,7 +680,7 @@ titre("Le site porte le même logo");
                            [390, "un téléphone courant (390)"], [1440, "un ordinateur (1440)"]]) {
     const ctx = await navigateur.newContext({ viewport: { width: l, height: 800 } });
     const page = await ctx.newPage();
-    await page.goto(BASE + "/index.html", { waitUntil: "load" });
+    await page.goto(BASE + "/index.html?vitrine", { waitUntil: "load" });
     await page.evaluate(() => document.fonts.ready);
     if (l === 390 || l === 1440) {
       const e = await lireLogo(page, "header .logo");

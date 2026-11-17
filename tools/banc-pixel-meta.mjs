@@ -291,7 +291,7 @@ titre("1. Le pixel ne vit que sur l'adresse officielle");
   for (const [nom, adresse] of [
     ["l'application Android (appassets.androidx.dev)", "https://appassets.androidx.dev/assets/www/index.html"],
     ["la boutique sur GitHub Pages", "https://hospiceantonio.github.io/impact-informatique-app/client/index.html"],
-    ["la vitrine sur GitHub Pages", "https://hospiceantonio.github.io/impact-informatique-app/"],
+    ["la vitrine sur GitHub Pages", "https://hospiceantonio.github.io/impact-informatique-app/?vitrine"],
   ]) {
     const o = await ouvrir({ adresse: nom.includes("boutique") || nom.includes("Android")
       ? adresse + "#/produit/prod_a" : adresse });
@@ -309,7 +309,7 @@ titre("1. Le pixel ne vit que sur l'adresse officielle");
 
 titre("2. La vitrine compte une page vue, et rien d'autre");
 {
-  const o = await ouvrir({ adresse: SITE + "/" });
+  const o = await ouvrir({ adresse: SITE + "/?vitrine" });
   await pause(300);
   const j = o.journal;
   const iAuto = j.findIndex((e) => e.args[0] === "set" && e.args[1] === "autoConfig");
