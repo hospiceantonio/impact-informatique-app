@@ -333,6 +333,8 @@ titre("5. Le site s'ouvre, à ses deux adresses");
     await attendre(b.page, 1500);
     ok(await b.page.evaluate(() => (document.querySelector("#cp-vitrine") || {}).getAttribute?.("href")) === "../?vitrine",
       "(4.5.1) Compte → « Découvrir BIZZOO » mène à la vitrine");
+    ok(await b.page.evaluate(() => (document.querySelector("#cp-espace-pro") || {}).getAttribute?.("href")) === "../admin/",
+      "(4.6.1) Compte → « Espace professionnel » mène à BIZZOO Admin");
     await b.page.click("#cp-vitrine");
     await attendre(b.page, 800);
     ok(await b.page.evaluate(() => location.pathname + location.search) === "/?vitrine" &&
