@@ -1063,6 +1063,53 @@ const VueComptes = (() => {
     const liste = comptes.filter((c) => c.role === "livreur")
       .sort((a, b) => nomDe(a).localeCompare(nomDe(b), "fr", { sensitivity: "base" }));
     const valides = positions ? liste.filter((c) => positions[c.id]).length : 0;
+    /* (4.7.0) CEUX DONT LA POSITION N'ARRIVE PLUS. Un livreur disponible
+       envoie sa position toutes les 3 minutes, application fermée ; si
+       rien n'est arrivé depuis une heure, la course ne lui parvient qu'en
+       dernier (il passe pour « loin »). Le plus souvent : deux réglages
+       d'Android qu'il n'a pas faits. Cette liste dit qui appeler. */
+    const UNE_HEURE = 3600 * 1000;
+    const ageDe = (c) => {
+      const p = positions && positions[c.id];
+      const quand = p && p.enregistre_le ? new Date(p.enregistre_le).getTime() : NaN;
+      return Number.isFinite(quand) ? Date.now() - quand : Infinity;
+    };
+    const ilYA = (ms) => {
+      if (!Number.isFinite(ms)) return "jamais reçue";
+      const min = Math.round(ms / 60000);
+      if (min < 120) return "il y a " + min + " min";
+      const h = Math.round(min / 60);
+      if (h < 48) return "il y a " + h + " h";
+      return "il y a " + Math.round(h / 24) + " jours";
+    };
+    /* Le superadministrateur et l'administrateur de BIZZOO : tous les
+       livreurs. L'administrateur d'une boutique : les siens (la position
+       d'un livreur de BIZZOO ne lui est pas montrée). */
+    const suivis = positions
+      ? liste.filter((c) => (gere || (chezMoi && !c.bizzoo)) && c.actif && c.disponible !== false && positions[c.id]) : [];
+    const muets = suivis.filter((c) => ageDe(c) > UNE_HEURE).sort((a, b) => ageDe(b) - ageDe(a));
+    const htmlMuets = !suivis.length ? "" :
+      '<div class="carte lp-muets" id="lp-muets">' +
+        '<div class="carte-titre">' + UI.icone(muets.length ? "alerte" : "check", "ic-sm") +
+          " Positions reçues : " + (suivis.length - muets.length) + " sur " + suivis.length + "</div>" +
+        '<p class="aide" style="margin:-4px 0 ' + (muets.length ? "10px" : "0") + '">Un livreur « disponible » envoie sa position ' +
+          "toutes les 3 minutes, même application fermée. Sans position depuis une heure, il ne reçoit les courses " +
+          "qu'<strong>en dernier</strong>." +
+          (muets.length ? " Le plus souvent, il lui manque deux réglages : dans BIZZOO Admin, « Mes courses », " +
+            "les boutons rouges « Position : Toujours autoriser » et « Ne pas limiter la batterie »." : "") + "</p>" +
+        (muets.length
+          ? "<details" + (muets.length <= 8 ? " open" : "") + '><summary class="aide"><strong>' + muets.length +
+              " livreur" + (muets.length > 1 ? "s" : "") + " à appeler</strong></summary>" +
+              muets.map((c) => {
+                const tel = String(c.tel || "").replace(/[^\d+]/g, "");
+                return '<div class="lp-muet" data-muet="' + Utils.echapper(c.id) + '"><strong>' +
+                  Utils.echapper(c.nom || c.email || c.tel || "Livreur") + "</strong>" +
+                  '<span class="aide">Dernière position : ' + Utils.echapper(ilYA(ageDe(c))) + "</span>" +
+                  (tel ? ' · <a href="tel:' + Utils.echapper(tel) + '">' + Utils.echapper(c.tel) + "</a>" : "") +
+                "</div>";
+              }).join("") + "</details>"
+          : "") +
+      "</div>";
     const ligne = (c) => {
       const p = positions && positions[c.id];
       /* La position d'un livreur de BIZZOO n'est pas montrée à une
@@ -1088,7 +1135,7 @@ const VueComptes = (() => {
         Utils.echapper(Utils.sansAccent([c.nom, c.email, c.tel].filter(Boolean).join(" "))) + '">' + (gere || (chezMoi && !c.bizzoo) ? htmlLigne(c, false) : ligneLecture(c)) +
         etat + vehicule + "</div>";
     };
-    vue.innerHTML =
+    vue.innerHTML = htmlMuets +
       '<div class="carte">' +
         '<div class="carte-titre">' + UI.icone("voiture", "ic-sm") + " Les livreurs (" + liste.length + ")</div>" +
         '<p class="aide" style="margin:-4px 0 12px">Le livreur ne voit que les courses qu\'on ' +

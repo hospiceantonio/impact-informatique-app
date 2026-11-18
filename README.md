@@ -8373,3 +8373,54 @@ n'était plus à un clic. Compte porte désormais, sous « Découvrir BIZZOO »,
 **« Espace professionnel »** : il ouvre BIZZOO Admin (`/admin/` sur le site ;
 le site, depuis l'application installée). Ce lien n'ouvre aucune porte :
 BIZZOO Admin redemande de s'identifier. Banc : `banc-mise-en-ligne`.
+
+## Les livreurs proches d'abord, ceux à moins de 5 km ensuite, les autres en dernier (4.7.0)
+
+Depuis la 3.70.0, une commande payée sonne chez le livreur le plus proche,
+puis le suivant, puis chez **tous**. Dans les faits, plus d'une course sur
+deux finissait chez tous — y compris des livreurs très loin du retrait.
+
+**La cascade, désormais** (`supabase/cascade-rayon.sql`, en ligne depuis le
+18/11/2026) :
+
+1. les **cinq** livreurs les plus proches du retrait, un par un,
+   **45 secondes** chacun (c'était trois, 30 secondes) ;
+2. personne ne l'a prise : les livreurs **à moins de 5 km** du retrait
+   (position de moins d'une heure) et ceux de la boutique, seuls pendant
+   **60 secondes** — « Vous êtes à moins de 5 km du retrait » ; personne
+   de nouveau dans le rayon : on n'attend pas ;
+3. **tous les autres**, en dernier recours.
+
+Réglages (`cascade_reglage`, éditeur SQL) : `rangs` (5), `delai_s` (45),
+`rayon_km` (5 ; 0 : pas d'étape « rayon »), `delai_rayon_s` (60),
+`fraicheur_min` (60). En base : `livreurs_rayon_course`, la colonne
+`courses_cascade.rayon`, `avancer_cascade` et `lancer_cascade`. Essais :
+`…-cascade-courses.sql` (sections 12 et 13).
+
+**La position qui n'arrive pas.** Un livreur « disponible » envoie sa
+position toutes les 3 minutes, application fermée (3.70.0) — à condition
+qu'Android ne coupe pas le service. Le 18/11/2026, 21 livreurs seulement
+sur 76 disponibles avaient une position de moins d'une heure : les autres
+passent pour « loin ». Deux ajouts dans BIZZOO Admin :
+
+- **pour le livreur** (« Mes courses ») : tant qu'il manque « Position :
+  Toujours autoriser » ou « Ne pas limiter la batterie », une carte
+  **rouge** le dit (« vous recevez les courses en dernier »), et un
+  **rappel s'ouvre** à chaque lancement de l'application. « Plus tard » le
+  ferme : un téléphone qui refuse le réglage n'empêche pas de livrer ;
+- **pour l'équipe** (écran **Livreurs**) : la carte **« Positions reçues :
+  n sur N »** liste les livreurs disponibles dont la position n'arrive
+  plus depuis une heure, le plus ancien d'abord, avec leur numéro à
+  appeler. Le superadministrateur et l'administrateur de BIZZOO : tous les
+  livreurs ; l'administrateur d'une boutique : les siens.
+
+Bancs : `banc-positions-muettes`, `banc-parcours-livraison` (section 6c).
+
+**Prendre une course : deux gestes (4.7.0).** « Commande reçue » ne prend
+plus la course : il ouvre, à sa place, « Vous prenez cette course ? » avec
+**« Oui, je prends cette course »** et « Non ». « Oui » ne répond qu'après
+un court instant (deux touchers trop rapprochés ne valent pas une
+confirmation). Vaut pour une demande de course (`prendre_course`) comme
+pour une course confiée par la boutique (`accepter_course`). Une course
+prise par un doigt qui a glissé, c'est un client qui attend un livreur qui
+ne viendra pas. Banc : `banc-parcours-livraison` (sections 1 et 6).

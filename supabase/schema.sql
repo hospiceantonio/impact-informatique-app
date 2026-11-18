@@ -4899,11 +4899,23 @@ revoke all on function public.texte_demande(jsonb) from public, anon, authentica
 create table if not exists public.cascade_reglage (
   id            int primary key default 1 check (id = 1),
   actif         boolean not null default true,
-  delai_s       int not null default 30 check (delai_s between 10 and 600),
-  rangs         int not null default 3 check (rangs between 1 and 10),
+  delai_s       int not null default 45 check (delai_s between 10 and 600),
+  rangs         int not null default 5 check (rangs between 1 and 10),
   fraicheur_min int not null default 60 check (fraicheur_min between 5 and 1440)
 );
 insert into public.cascade_reglage (id) values (1) on conflict (id) do nothing;
+-- (4.7.0) Avant « tous », les livreurs à moins de « rayon_km » du retrait,
+-- seuls, pendant « delai_rayon_s ». « rayon_km = 0 » : pas de cette étape.
+alter table public.cascade_reglage add column if not exists rayon_km numeric not null default 5
+  check (rayon_km between 0 and 100);
+alter table public.cascade_reglage add column if not exists delai_rayon_s int not null default 60
+  check (delai_rayon_s between 10 and 600);
+-- (4.7.0) Le premier cercle s'élargit : les CINQ plus proches, 45 secondes
+-- chacun (c'était trois, 30 secondes). Un réglage déjà changé à la main
+-- n'est pas touché.
+alter table public.cascade_reglage alter column rangs set default 5;
+alter table public.cascade_reglage alter column delai_s set default 45;
+update public.cascade_reglage set rangs = 5, delai_s = 45 where id = 1 and rangs = 3 and delai_s = 30;
 alter table public.cascade_reglage enable row level security;
 revoke all on public.cascade_reglage from anon, authenticated;
 
@@ -4920,6 +4932,8 @@ create table if not exists public.courses_cascade (
   lancee_le   timestamptz not null default now(),
   reprise     boolean not null default false
 );
+-- (4.7.0) L'étape « à moins de … km » est passée.
+alter table public.courses_cascade add column if not exists rayon boolean not null default false;
 create index if not exists courses_cascade_prochaine on public.courses_cascade (prochaine)
   where prochaine is not null;
 alter table public.courses_cascade enable row level security;
@@ -5000,6 +5014,39 @@ begin
                           where r.commande_id = commande and r.livreur_id = p.id)) x), '{}');
 end $$;
 revoke all on function public.tous_livreurs_course(text) from public, anon, authenticated;
+
+-- (4.7.0) Ceux de l'étape « à moins de … km » : parmi tous ceux qui la
+-- recevraient à la fin, ceux dont la position RÉCENTE est dans le rayon du
+-- retrait — et les livreurs de la boutique, toujours. Sans point de
+-- retrait connu, personne : on ne sait pas mesurer.
+create or replace function public.livreurs_rayon_course(commande text, km numeric)
+returns uuid[]
+language plpgsql stable security definer set search_path = public as $$
+declare
+  pt     record;
+  fraich int;
+begin
+  select * into pt from public.point_retrait_course(commande);
+  if pt.lat is null or coalesce(km, 0) <= 0 then return '{}'; end if;
+  select coalesce(r.fraicheur_min, 60) into fraich from public.cascade_reglage r where r.id = 1;
+  return coalesce((
+    select array_agg(distinct x.id) from (
+      -- Les livreurs de la boutique elle-même (« candidats_course » rend
+      -- ceux de BIZZOO quand elle n'en a pas : ceux-là passent par le rayon).
+      select c.id
+        from unnest(public.candidats_course(commande)) as c(id)
+        join public.profils p on p.id = c.id and p.boutique_id is not null
+      union
+      select c.id
+        from unnest(public.tous_livreurs_course(commande)) as c(id)
+        join public.positions_livreurs pl on pl.profil_id = c.id
+       where pl.enregistre_le > now() - make_interval(mins => coalesce(fraich, 60))
+         and 2 * 6371 * asin(least(1, sqrt(
+               sin(radians(pl.latitude - pt.lat) / 2) ^ 2
+               + cos(radians(pt.lat)) * cos(radians(pl.latitude))
+                 * sin(radians(pl.longitude - pt.lng) / 2) ^ 2))) <= km) x), '{}');
+end $$;
+revoke all on function public.livreurs_rayon_course(text, numeric) from public, anon, authenticated;
 
 -- La course est-elle encore à prendre ? Payée depuis moins de 7 jours (la
 -- fenêtre de l'écran des demandes), et personne ne la porte.
@@ -5103,7 +5150,20 @@ begin
     end if;
   end loop;
 
-  -- Personne (plus) dans l'ordre : à tous les livreurs de BIZZOO. Cascade
+  -- (4.7.0) Personne (plus) dans l'ordre : d'abord ceux qui sont à moins
+  -- de « rayon_km » du retrait, seuls, pendant « delai_rayon_s » — un
+  -- livreur trop loin n'est dérangé qu'en dernier recours. Personne de
+  -- nouveau dans le rayon : on n'attend pas.
+  if coalesce(r.actif, true) and not k.rayon and coalesce(r.rayon_km, 0) > 0 then
+    update public.courses_cascade x
+       set etape = k.etape, rayon = true, prochaine = now() + make_interval(secs => coalesce(r.delai_rayon_s, 60))
+     where x.commande_id = commande;
+    n := public.alerter_course(commande, public.livreurs_rayon_course(commande, r.rayon_km), titre,
+      'Vous êtes à moins de ' || trim(to_char(r.rayon_km, 'FM990D9'), '.,') || ' km du retrait : le premier qui touche « Commande reçue » la garde.');
+    if n > 0 then return n; end if;
+  end if;
+
+  -- Personne non plus : à tous les livreurs de BIZZOO. Cascade
   -- éteinte : à ceux qui pouvaient la prendre, d'un coup, comme avant.
   update public.courses_cascade x set etape = k.etape, tous = true, prochaine = null
    where x.commande_id = commande;
@@ -5143,7 +5203,7 @@ begin
                then public.plus_proches_course(commande, coalesce(r.rangs, 3)) else '{}' end,
           0, false, '{}', null, now(), coalesce(reprise, false))
   on conflict (commande_id) do update
-     set ordre = excluded.ordre, etape = 0, tous = false, alertes = '{}',
+     set ordre = excluded.ordre, etape = 0, tous = false, rayon = false, alertes = '{}',
          prochaine = null, lancee_le = now(), reprise = excluded.reprise;
   return public.avancer_cascade(commande);
 end $$;

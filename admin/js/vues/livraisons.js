@@ -375,7 +375,7 @@ const VueLivraisons = (() => {
         "</div>" +
         (aAccepter
           ? '<button type="button" class="btn lv-recu">' + UI.icone("check") + "Commande reçue</button>" +
-            '<div class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
+            '<div class="aide" style="margin:6px 0 0">Touchez « Commande reçue », puis confirmez : vous acceptez ' +
             "la course : le client reçoit votre nom et votre numéro.</div>"
           : EN_PREPARATION.includes(c.etat)
             ? '<div class="aide lv-attente" style="margin:10px 0 0">La boutique prépare le colis : ' +
@@ -483,7 +483,7 @@ const VueLivraisons = (() => {
         (l.note ? '<div class="lv-note">' + Utils.echapper(l.note) + "</div>" : "") +
         (aAccepter
           ? '<button type="button" class="btn lv-recu">' + UI.icone("check") + "Commande reçue</button>" +
-            '<div class="aide" style="margin:6px 0 0">En touchant « Commande reçue », vous acceptez ' +
+            '<div class="aide" style="margin:6px 0 0">Touchez « Commande reçue », puis confirmez : vous acceptez ' +
             "toute la commande : le client reçoit votre nom et votre numéro.</div>"
           : toutesRemises
             ? '<div class="aide" style="margin:10px 0 0">Remise. Le client confirmera ' +
@@ -528,7 +528,7 @@ const VueLivraisons = (() => {
         '<button type="button" class="btn lv-prendre">' + UI.icone("check") + "Commande reçue</button>" +
         /* (3.70.0) La course va d'abord au plus proche, puis aux suivants :
            qui tarde la laisse passer. */
-        '<div class="aide" style="margin:6px 0 0">Touchez vite « Commande reçue » : sans réponse, ' +
+        '<div class="aide" style="margin:6px 0 0">Touchez vite « Commande reçue », puis confirmez : sans réponse, ' +
           "elle passe au livreur suivant, puis à tous. Le premier qui la prend la garde, et le client " +
           "reçoit alors votre nom et votre numéro.</div>" +
       "</div>"
@@ -594,11 +594,19 @@ const VueLivraisons = (() => {
               ? "BIZZOO voit votre position, même application fermée, pour vous proposer les courses les plus proches. Éteignez en fin de journée."
               : "BIZZOO voit votre position tant que cette page reste ouverte. Avec l'application BIZZOO Admin, elle part même application fermée." }) +
         (batterie || toujours
-          ? '<div class="lv-dispo-reglages">' +
-              '<p class="aide" style="margin:8px 0">Pour qu\'Android ne coupe pas votre position quand l\'application est fermée :</p>' +
-              (toujours ? '<button type="button" class="btn btn-clair btn-petit" id="lv-dispo-toujours">' +
+          /* (4.7.0) EN ROUGE, ET EN GRAND : sans ces deux réglages, Android
+             coupe la position application fermée — le livreur passe pour
+             « loin » et ne reçoit les courses qu'en dernier. Deux petits
+             boutons gris ne le disaient pas. */
+          ? '<div class="lv-dispo-reglages lv-dispo-alerte" id="lv-dispo-alerte">' +
+              '<p class="lv-dispo-alerte-titre">' + UI.icone("alerte", "ic-sm") +
+                "<span>Votre position n'arrive pas quand l'application est fermée</span></p>" +
+              '<p class="aide" style="margin:0 0 8px">Tant que ce n\'est pas réglé, BIZZOO ne sait pas où vous êtes : ' +
+                "vous recevez les courses <strong>en dernier</strong>, après les livreurs proches. " +
+                (toujours && batterie ? "Deux réglages à faire, une seule fois :" : "Un réglage à faire, une seule fois :") + "</p>" +
+              (toujours ? '<button type="button" class="btn" id="lv-dispo-toujours">' +
                 UI.icone("carte", "ic-sm") + "Position : « Toujours autoriser »</button>" : "") +
-              (batterie ? '<button type="button" class="btn btn-clair btn-petit" id="lv-dispo-batterie">' +
+              (batterie ? '<button type="button" class="btn" id="lv-dispo-batterie">' +
                 UI.icone("check", "ic-sm") + "Ne pas limiter la batterie de BIZZOO</button>" : "") +
             "</div>"
           : "") +
@@ -606,9 +614,57 @@ const VueLivraisons = (() => {
     );
   }
 
+  /* (4.7.0) Le rappel, à l'ouverture de « Mes courses » : une fois par
+     lancement de l'application, tant qu'un réglage manque. On peut passer
+     — un téléphone qui refuse le réglage ne doit pas empêcher de livrer —
+     mais on ne peut pas ne pas l'avoir vu. */
+  let rappelMontre = false;
+  function rappelerReglages(vue) {
+    if (rappelMontre || !apk() || !disponible()) return;
+    const batterie = reglageManquant("sansEconomieBatterie");
+    const toujours = reglageManquant("positionToujours");
+    if (!batterie && !toujours) return;
+    rappelMontre = true;
+    const corps = UI.ouvrirFeuille("Votre position n'arrive pas",
+      '<p style="margin:0 0 10px">Quand l\'application est fermée, Android coupe votre position. BIZZOO ne sait ' +
+        "alors pas où vous êtes, et vous recevez les courses <strong>en dernier</strong>, après les livreurs proches.</p>" +
+      '<p class="aide" style="margin:0 0 12px">' +
+        (toujours && batterie ? "Deux réglages à faire, une seule fois :" : "Un réglage à faire, une seule fois :") + "</p>" +
+      '<div class="btn-rangee">' +
+        (toujours ? '<button type="button" class="btn" id="lv-rappel-toujours">' + UI.icone("carte", "ic-sm") +
+          "Position : « Toujours autoriser »</button>" : "") +
+        (batterie ? '<button type="button" class="btn" id="lv-rappel-batterie">' + UI.icone("check", "ic-sm") +
+          "Ne pas limiter la batterie de BIZZOO</button>" : "") +
+        '<button type="button" class="btn btn-clair" id="lv-rappel-plus-tard">Plus tard</button>' +
+      "</div>");
+    const regler = (id, methode) => {
+      const b = UI.$(id, corps);
+      if (!b) return;
+      b.onclick = () => {
+        const p = pontAndroid();
+        try { if (p && typeof p[methode] === "function") p[methode](); } catch (_) { /* refusé */ }
+        b.disabled = true;
+        /* Au retour : la carte de l'écran dit ce qui reste. */
+        const relire = () => {
+          if (document.hidden) return;
+          document.removeEventListener("visibilitychange", relire);
+          const carte = UI.$("#lv-dispo", vue);
+          if (carte && carte.isConnected) { carte.outerHTML = htmlDisponible(); brancherDisponible(vue); }
+          if (!reglageManquant("sansEconomieBatterie") && !reglageManquant("positionToujours")) UI.fermerFeuille();
+        };
+        document.addEventListener("visibilitychange", relire);
+        setTimeout(relire, 6000);
+      };
+    };
+    regler("#lv-rappel-toujours", "demanderPositionToujours");
+    regler("#lv-rappel-batterie", "demanderSansEconomieBatterie");
+    UI.$("#lv-rappel-plus-tard", corps).onclick = () => UI.fermerFeuille();
+  }
+
   function brancherDisponible(vue) {
     const inter = UI.$("#lv-dispo-inter", vue);
     if (!inter) return;
+    rappelerReglages(vue);
     const regler = (id, methode) => {
       const b = UI.$(id, vue);
       if (!b) return;
@@ -757,8 +813,33 @@ const VueLivraisons = (() => {
     brancherDisponible(vue);
     nommerLieux(vue);
 
+    /* (4.7.0) DEUX GESTES POUR PRENDRE UNE COURSE. « Commande reçue » ne
+       la prend plus : il ouvre, à sa place, « Oui, je prends cette course »
+       et « Non ». Une course prise par un doigt qui a glissé, c'est un
+       client qui attend un livreur qui ne viendra pas. « Oui » ne répond
+       qu'après un instant : deux touchers trop rapprochés au même endroit
+       ne valent pas une confirmation. */
+    const enDeuxGestes = (b, faire) => {
+      b.onclick = () => {
+        const zone = document.createElement("div");
+        zone.className = "lv-confirmer";
+        zone.innerHTML =
+          '<p class="lv-confirmer-question">' + UI.icone("alerte", "ic-sm") +
+            "<span>Vous prenez cette course ? Le client recevra votre nom et votre numéro.</span></p>" +
+          '<div class="lv-confirmer-boutons">' +
+            '<button type="button" class="btn btn-clair lv-confirmer-non">Non</button>' +
+            '<button type="button" class="btn lv-confirmer-oui" disabled>' + UI.icone("check") + "Oui, je prends cette course</button>" +
+          "</div>";
+        b.hidden = true;
+        b.insertAdjacentElement("afterend", zone);
+        const oui = UI.$(".lv-confirmer-oui", zone);
+        setTimeout(() => { if (oui.isConnected) oui.disabled = false; }, 700);
+        UI.$(".lv-confirmer-non", zone).onclick = () => { zone.remove(); b.hidden = false; };
+        oui.onclick = () => { oui.disabled = true; UI.$(".lv-confirmer-non", zone).disabled = true; faire(); };
+      };
+    };
     for (const b of UI.$$(".lv-prendre", vue)) {
-      b.onclick = async () => {
+      enDeuxGestes(b, async () => {
         const carte = b.closest(".lv-demande");
         b.disabled = true;
         try {
@@ -768,7 +849,7 @@ const VueLivraisons = (() => {
           UI.toast(err.message, "err");
         }
         afficher(vue);
-      };
+      });
     }
 
     for (const b of UI.$$(".lv-refuser", vue)) {
@@ -793,7 +874,7 @@ const VueLivraisons = (() => {
     }
 
     for (const b of UI.$$(".lv-recu", vue)) {
-      b.onclick = async () => {
+      enDeuxGestes(b, async () => {
         const carte = b.closest(".lv-course");
         b.disabled = true;
         try {
@@ -803,8 +884,11 @@ const VueLivraisons = (() => {
         } catch (err) {
           UI.toast(err.message, "err");
           b.disabled = false;
+          b.hidden = false;
+          const zone = b.nextElementSibling;
+          if (zone && zone.classList.contains("lv-confirmer")) zone.remove();
         }
-      };
+      });
     }
 
     /* (3.72.0) Le colis d'une boutique de la commande groupée, récupéré. */
