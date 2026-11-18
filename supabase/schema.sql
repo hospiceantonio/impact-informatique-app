@@ -25172,6 +25172,9 @@ create table if not exists public.lieux_noms (
   primary key (lat_g, lng_g)
 );
 create index if not exists lieux_noms_jour on public.lieux_noms(cree_le);
+-- (4.8.0) D'où vient le nom : celui de Google ne se garde que 30 jours.
+alter table public.lieux_noms add column if not exists source text not null default 'osm'
+  check (source in ('osm', 'google'));
 alter table public.lieux_noms enable row level security;
 revoke all on public.lieux_noms from public, anon, authenticated;
 
@@ -25191,7 +25194,8 @@ declare
   plafond constant int := 2000;   -- questions nouvelles à la source par jour, au plus
 begin
   select x.nom into n from public.lieux_noms x
-   where x.lat_g = public.grille_route(latitude) and x.lng_g = public.grille_route(longitude);
+   where x.lat_g = public.grille_route(latitude) and x.lng_g = public.grille_route(longitude)
+     and (x.source <> 'google' or x.cree_le > now() - interval '30 days');
   return jsonb_build_object('nom', n,
     'plafond_atteint', n is null and
       (select count(*) from public.lieux_noms x where x.cree_le > now() - interval '1 day')
@@ -25201,18 +25205,23 @@ revoke all on function public.lieu_connu(double precision, double precision) fro
 grant execute on function public.lieu_connu(double precision, double precision) to service_role;
 
 -- Le nom qu'a rendu la source.
-create or replace function public.noter_lieu(latitude double precision, longitude double precision, nom text)
+-- Noter : avec sa source. L'ancienne forme (trois arguments) s'en va : la
+-- nouvelle la couvre (« la_source » vaut « osm » quand on ne la dit pas).
+drop function if exists public.noter_lieu(double precision, double precision, text);
+create or replace function public.noter_lieu(latitude double precision, longitude double precision, nom text,
+  la_source text default 'osm')
 returns boolean
 language plpgsql security definer set search_path = public as $$
 begin
   if latitude is null or longitude is null or coalesce(btrim(nom), '') = '' then return false; end if;
-  insert into public.lieux_noms as x (lat_g, lng_g, nom)
-  values (public.grille_route(latitude), public.grille_route(longitude), left(btrim(nom), 200))
-  on conflict (lat_g, lng_g) do update set nom = excluded.nom, cree_le = now();
+  insert into public.lieux_noms as x (lat_g, lng_g, nom, source)
+  values (public.grille_route(latitude), public.grille_route(longitude), left(btrim(nom), 200),
+          case when la_source = 'google' then 'google' else 'osm' end)
+  on conflict (lat_g, lng_g) do update set nom = excluded.nom, source = excluded.source, cree_le = now();
   return true;
 end $$;
-revoke all on function public.noter_lieu(double precision, double precision, text) from public, anon, authenticated;
-grant execute on function public.noter_lieu(double precision, double precision, text) to service_role;
+revoke all on function public.noter_lieu(double precision, double precision, text, text) from public, anon, authenticated;
+grant execute on function public.noter_lieu(double precision, double precision, text, text) to service_role;
 
 -- Une recherche par nom de plus, aujourd'hui.
 create or replace function public.compter_recherche_lieu() returns int
@@ -26416,3 +26425,41 @@ begin
 end $$;
 revoke all on function public.statistiques_visiteurs(date, date) from public, anon;
 grant execute on function public.statistiques_visiteurs(date, date) to authenticated;
+
+-- =========================================================
+-- (4.8.0) LA CLÉ DES CARTES GOOGLE — publique par nature, écrite par le
+-- superadministrateur seul ; vide : les cartes d'OpenStreetMap
+-- =========================================================
+create table if not exists public.cartes_reglage (
+  id         int primary key default 1 check (id = 1),
+  cle_tuiles text not null default '' check (length(cle_tuiles) <= 120),
+  maj_le     timestamptz not null default now()
+);
+insert into public.cartes_reglage (id) values (1) on conflict (id) do nothing;
+alter table public.cartes_reglage enable row level security;
+revoke all on public.cartes_reglage from public, anon, authenticated;
+grant select on public.cartes_reglage to anon, authenticated;
+drop policy if exists "cartes lecture" on public.cartes_reglage;
+create policy "cartes lecture" on public.cartes_reglage
+  for select to anon, authenticated using (true);
+
+-- Le superadministrateur seul la règle. Vide : les cartes d'OpenStreetMap.
+-- Une clé de navigateur Google commence par « AIza » ; on refuse ce qui n'y
+-- ressemble pas — surtout une clé secrète collée là par erreur.
+create or replace function public.regler_cle_cartes(cle text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare c text := btrim(coalesce(cle, ''));
+begin
+  if auth.uid() is null or not public.est_super() then
+    raise exception 'La clé des cartes est réglée par le superadministrateur.' using errcode = 'P0001';
+  end if;
+  if c <> '' and (length(c) not between 30 and 120 or left(c, 4) <> 'AIza' or c ~ '[^A-Za-z0-9_-]') then
+    raise exception 'Cette clé ne ressemble pas à une clé de cartes Google (elle commence par « AIza »).'
+      using errcode = 'P0001';
+  end if;
+  update public.cartes_reglage set cle_tuiles = c, maj_le = now() where id = 1;
+  return c <> '';
+end $$;
+revoke all on function public.regler_cle_cartes(text) from public, anon;
+grant execute on function public.regler_cle_cartes(text) to authenticated;

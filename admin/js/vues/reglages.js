@@ -327,6 +327,72 @@ const VueReglages = (() => {
       "Ajouter ou réattribuer</button>";
   }
 
+  /* ---------- (4.8.0) Les cartes Google ---------- */
+  function brancherCartes(toujoursLa) {
+    Store.lireCleCartes().then((cle) => {
+      const corps = UI.$("#cartes-corps");
+      if (!toujoursLa() || !corps) return;
+      if (cle === null) {
+        corps.innerHTML = '<p class="aide" style="margin:0">Exécutez d\'abord le fichier ' +
+          "supabase/google-partout.sql. En attendant, les cartes sont celles d'OpenStreetMap.</p>";
+        return;
+      }
+      const masque = cle ? cle.slice(0, 4) + "…" + cle.slice(-4) : "";
+      corps.innerHTML =
+        '<p class="aide" style="margin:0 0 10px">' + (cle
+          ? "Les cartes des trois applications sont celles de <strong>Google</strong> (clé " + Utils.echapper(masque) + ")."
+          : "Les cartes sont celles d'<strong>OpenStreetMap</strong>. Collez une clé pour passer à celles de Google.") + "</p>" +
+        UI.champTexte({ id: "cartes-cle", label: cle ? "Remplacer la clé" : "Clé des cartes", placeholder: "AIza…",
+          aide: "Une clé à part, créée dans Google Cloud pour les cartes seulement : « Map Tiles API » activée, " +
+            "et la clé limitée aux sites www.bizzoomarket.com et appassets.androidx.dev. Ce n'est pas la clé du " +
+            "serveur : celle-ci est visible dans le navigateur, c'est normal." }) +
+        '<div class="btn-rangee">' +
+          '<button type="button" class="btn" id="cartes-enregistrer">' + UI.icone("check") + "Vérifier et enregistrer</button>" +
+          (cle ? '<button type="button" class="btn btn-clair" id="cartes-retirer">Revenir à OpenStreetMap</button>' : "") +
+        "</div>" +
+        '<div id="cartes-resultat"></div>';
+      const dire = (texte, erreur) => {
+        UI.$("#cartes-resultat").innerHTML = '<p class="aide" style="margin:10px 0 0' +
+          (erreur ? ";color:var(--rouge)" : "") + '">' + Utils.echapper(texte) + "</p>";
+      };
+      UI.$("#cartes-enregistrer").onclick = () => unEnvoi(UI.$("#cartes-enregistrer"), async () => {
+        const saisie = UI.$("#cartes-cle").value.trim();
+        if (!saisie) { dire("Collez d'abord la clé des cartes.", true); return; }
+        /* On demande à Google AVANT d'enregistrer : une clé qu'il refuse
+           laisserait les cartes sur OpenStreetMap sans qu'on sache pourquoi. */
+        let refus = "";
+        try {
+          const r = await fetch("https://tile.googleapis.com/v1/createSession?key=" + encodeURIComponent(saisie), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mapType: "roadmap", language: "fr-FR", region: "BJ" }) });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            refus = "Google refuse cette clé (" + r.status + ")" + (d && d.error && d.error.message ? " : " + d.error.message : "") +
+              ". Vérifiez que « Map Tiles API » est activée, et que la clé autorise ce site.";
+          }
+        } catch (_) {
+          refus = "Google n'a pas répondu : vérifiez la connexion, puis réessayez.";
+        }
+        if (refus) { dire(refus, true); return; }
+        try {
+          await Store.reglerCleCartes(saisie);
+          UI.toast("Les cartes sont maintenant celles de Google.", "ok");
+          brancherCartes(toujoursLa);
+        } catch (err) { dire(err.message, true); }
+      });
+      const retirer = UI.$("#cartes-retirer");
+      if (retirer) {
+        retirer.onclick = () => unEnvoi(retirer, async () => {
+          try {
+            await Store.reglerCleCartes("");
+            UI.toast("Les cartes sont de nouveau celles d'OpenStreetMap.", "ok");
+            brancherCartes(toujoursLa);
+          } catch (err) { dire(err.message, true); }
+        });
+      }
+    });
+  }
+
   function brancherPrefixes(toujoursLa) {
     Store.listerPrefixes().then((lignes) => {
       const corps = UI.$("#prefixes-corps");
@@ -950,6 +1016,17 @@ const VueReglages = (() => {
           "</div>"
         : "") +
 
+      /* ---------- (4.8.0) Les cartes Google ----------
+         La clé des CARTES : publique par nature (le navigateur la joint à
+         chaque image). Rien à voir avec la clé du serveur, qui reste dans
+         les secrets de Supabase. Vide : les cartes d'OpenStreetMap. */
+      (surEnseigne && Supabase.estSuper()
+        ? '<div class="carte" id="section-cartes">' +
+            '<div class="carte-titre">' + UI.icone("carte", "ic-sm") + " Cartes Google</div>" +
+            '<div id="cartes-corps"><p class="aide" style="margin:0">Lecture…</p></div>' +
+          "</div>"
+        : "") +
+
       /* ---------- (3.70.0) Les préfixes des opérateurs ----------
          Ce qui fait corriger le réseau au paiement (Moov choisi, numéro
          MTN tapé → MTN) et repérer un numéro saisi à la place d'un ID de
@@ -1072,6 +1149,7 @@ const VueReglages = (() => {
 
     if (UI.$("#km-corps")) brancherLivraisonKm(() => moi === generation);
     if (UI.$("#prefixes-corps")) brancherPrefixes(() => moi === generation);
+    if (UI.$("#cartes-corps")) brancherCartes(() => moi === generation);
 
     const boutonMomo = UI.$("#momo-enregistrer");
     if (boutonMomo) {

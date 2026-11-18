@@ -335,10 +335,30 @@ titre("5. Le site s'ouvre, à ses deux adresses");
       "(4.5.1) Compte → « Découvrir BIZZOO » mène à la vitrine");
     ok(await b.page.evaluate(() => (document.querySelector("#cp-espace-pro") || {}).getAttribute?.("href")) === "../admin/",
       "(4.6.1) Compte → « Espace professionnel » mène à BIZZOO Admin");
+    /* (4.8.0) Ctrl + U et le clic droit sont coupés — sauf le clic droit dans un champ. */
+    const coupes = () => b.page.evaluate(() => {
+      const envoyer = (cible, e) => { cible.dispatchEvent(e); return e.defaultPrevented; };
+      const champ = document.createElement("input");
+      document.body.appendChild(champ);
+      const r = {
+        droit: envoyer(document.body, new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+        droitChamp: envoyer(champ, new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+        ctrlU: envoyer(document.body, new KeyboardEvent("keydown", { key: "u", ctrlKey: true, bubbles: true, cancelable: true })),
+        u: envoyer(document.body, new KeyboardEvent("keydown", { key: "u", bubbles: true, cancelable: true })),
+        ctrlC: envoyer(document.body, new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true, cancelable: true })),
+      };
+      champ.remove();
+      return r;
+    });
+    let k = await coupes();
+    ok(k.droit && k.ctrlU, "(4.8.0) la boutique : le clic droit et Ctrl + U sont coupés");
+    ok(!k.droitChamp && !k.u && !k.ctrlC, "(4.8.0) mais pas le clic droit dans un champ, ni la lettre « u », ni Ctrl + C");
     await b.page.click("#cp-vitrine");
     await attendre(b.page, 800);
     ok(await b.page.evaluate(() => location.pathname + location.search) === "/?vitrine" &&
        await b.page.evaluate(() => document.images.length) >= 4, "(4.5.1) et la vitrine s'affiche");
+    k = await coupes();
+    ok(k.droit && k.ctrlU && !k.droitChamp, "(4.8.0) la vitrine : pareil");
     await b.ctx.close();
   }
   const images = await page.evaluate(() => [...document.images]

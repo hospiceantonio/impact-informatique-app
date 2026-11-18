@@ -8424,3 +8424,47 @@ confirmation). Vaut pour une demande de course (`prendre_course`) comme
 pour une course confiée par la boutique (`accepter_course`). Une course
 prise par un doigt qui a glissé, c'est un client qui attend un livreur qui
 ne viendra pas. Banc : `banc-parcours-livraison` (sections 1 et 6).
+
+## Google partout : distances, adresses, quartiers, cartes (4.8.0)
+
+**Les distances par la route** (3.70.0) n'avaient jamais servi : la clé du
+serveur (`GOOGLE_MAPS_KEY`) était permise à « Roads API » au lieu de
+« Routes API », et Google répondait 403. Corrigé chez Google le
+18/11/2026 : premier trajet mesuré ce jour-là.
+
+**Les noms de lieux** (fonction serveur `lieu`) : Google d'abord —
+Geocoding pour nommer un point (« Sèdomey, Togoudo, Godomey »), Places
+(Text Search) pour chercher un quartier ou une adresse —, OpenStreetMap
+quand Google refuse, ne trouve rien ou ne répond pas. Il faut « Geocoding
+API » et « Places API (New) » activées et permises à la clé du serveur.
+Un nom venu de Google se note avec sa source (`lieux_noms.source`) et ne
+vaut que **30 jours** (les conditions de Google) ; celui d'OpenStreetMap
+reste.
+
+**Les cartes** (`js/fond-carte.js`, le même dans les trois applications) :
+Leaflet les dessine toujours ; seul le **fond** change. Une clé des cartes
+est réglée : les images viennent de Google (**Map Tiles API**, session
+gardée jusqu'à son terme, mention « Google · Données cartographiques
+© Google »). Pas de clé, session refusée, trois images refusées de suite :
+OpenStreetMap — une carte ne reste jamais vide à cause de Google.
+
+**La clé des cartes n'est pas celle du serveur.** Elle est publique par
+nature (le navigateur la joint à chaque image) : on en crée une à part
+dans Google Cloud, « Map Tiles API » activée, limitée aux sites
+`www.bizzoomarket.com/*` et `appassets.androidx.dev/*` (l'application
+Android). Le superadministrateur la colle dans **BIZZOO Admin → Réglages →
+« Cartes Google »**, qui la vérifie auprès de Google **avant** de
+l'enregistrer (`regler_cle_cartes`, table `cartes_reglage`, lisible de
+tous). « Revenir à OpenStreetMap » la retire.
+
+La politique de confidentialité le dit (« Cartes, adresses et distances »).
+
+À appliquer en ligne : `supabase/google-partout.sql`, puis redéployer la
+fonction `lieu`. Essais : `…-google-partout.sql`, `tools/eprouver-lieu.sh`
+(section 7), `banc-cartes-google`.
+
+**Ctrl + U et le clic droit (4.8.0).** Coupés sur la boutique et la
+vitrine, à la demande de l'enseigne — pas dans l'application installée,
+ni dans l'administration. Le clic droit reste dans les champs de saisie.
+Ce n'est pas une sécurité : le code d'une page reste lisible par d'autres
+chemins, et rien de secret n'y figure. Banc : `banc-mise-en-ligne`.

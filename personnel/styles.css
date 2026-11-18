@@ -463,3 +463,6 @@ h1,h2,h3,h4,.btn,.onglets a,.menu-lateral a{font-family:var(--police)}
 .menu-lateral a.actif{background:var(--bleu-50);color:var(--bleu-700);box-shadow:inset 3px 0 0 var(--bleu-400)}
 .ecran-connexion{background:linear-gradient(160deg,#00C7C7 0%,#0BA8B4 55%,#0D8D9B 100%)}
 
+
+/* (4.8.0) La mention de Google, sur ses cartes. */
+.fond-google{font-weight:700;letter-spacing:.2px}

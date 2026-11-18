@@ -3,9 +3,10 @@
    (3.64.0, la livraison au kilomètre).
 
    Leaflet est embarqué dans l'application (vendor/leaflet) : rien
-   à charger d'un autre site que les tuiles de la carte, celles
-   d'OpenStreetMap. Il ne se charge QUE quand une carte s'ouvre —
-   l'accueil n'en paie pas le poids.
+   à charger d'un autre site que les tuiles de la carte — celles de
+   Google quand sa clé est réglée (4.8.0), d'OpenStreetMap sinon. Il
+   ne se charge QUE quand une carte s'ouvre — l'accueil n'en paie pas
+   le poids.
 
    Hors connexion, les tuiles manquent : la carte reste grise, mais
    l'épingle et « Utiliser ma position » marchent toujours. Rien ne
@@ -56,10 +57,16 @@ const Carte = (() => {
     const depart = o.position || o.centre || CENTRE;
     const carte = L.map(element, { zoomControl: true, attributionControl: true })
       .setView([depart.latitude, depart.longitude], o.position ? 15 : 12);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap",
-    }).addTo(carte);
+    /* (4.8.0) Le fond : Google si sa clé est réglée, OpenStreetMap sinon
+       (js/fond-carte.js). Une application d'avant, sans ce module : OSM. */
+    if (typeof FondCarte !== "undefined") {
+      await FondCarte.poser(L, carte);
+    } else {
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap",
+      }).addTo(carte);
+    }
 
     if (o.repere) {
       L.circleMarker([o.repere.latitude, o.repere.longitude],

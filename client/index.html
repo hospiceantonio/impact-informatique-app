@@ -27,6 +27,25 @@
 <link rel="icon" href="icons/icone-b-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon-b.png">
 <link rel="stylesheet" href="styles.css">
+<!-- (4.8.0) CTRL + U ET LE CLIC DROIT sont coupés, à la demande de
+     l'enseigne. Ce n'est pas une sécurité — le code d'une page reste
+     lisible par d'autres chemins, et rien de secret n'y figure : la base
+     décide de ce que chacun voit. Le clic droit reste dans les champs de
+     saisie (coller une adresse, un numéro). Pas dans l'application
+     installée, où l'appui long sert à autre chose. -->
+<script>
+  (function () {
+    if (location.hostname === "appassets.androidx.dev" || window.BizzooIOS) return;
+    var champ = function (e) {
+      var t = e.target;
+      return !!(t && t.closest && t.closest("input, textarea, select, [contenteditable]"));
+    };
+    document.addEventListener("contextmenu", function (e) { if (!champ(e)) e.preventDefault(); });
+    document.addEventListener("keydown", function (e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "u" || e.key === "U")) e.preventDefault();
+    });
+  })();
+</script>
 </head>
 <body>
 
@@ -184,6 +203,7 @@
 <script src="js/pushweb.js"></script>
 <script src="js/live.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/fond-carte.js"></script>
 <script src="js/carte.js"></script>
 <script src="js/lieu.js"></script>
 <script src="js/vues/accueil.js"></script>

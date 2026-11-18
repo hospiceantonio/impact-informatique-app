@@ -307,7 +307,8 @@ declare
   plafond constant int := 2000;   -- questions nouvelles à la source par jour, au plus
 begin
   select x.nom into n from public.lieux_noms x
-   where x.lat_g = public.grille_route(latitude) and x.lng_g = public.grille_route(longitude);
+   where x.lat_g = public.grille_route(latitude) and x.lng_g = public.grille_route(longitude)
+     and (x.source <> 'google' or x.cree_le > now() - interval '30 days');
   return jsonb_build_object('nom', n,
     'plafond_atteint', n is null and
       (select count(*) from public.lieux_noms x where x.cree_le > now() - interval '1 day')
@@ -317,18 +318,24 @@ revoke all on function public.lieu_connu(double precision, double precision) fro
 grant execute on function public.lieu_connu(double precision, double precision) to service_role;
 
 -- Le nom qu'a rendu la source.
-create or replace function public.noter_lieu(latitude double precision, longitude double precision, nom text)
+-- (4.8.0) D'où vient le nom ; l'ancienne forme à trois arguments s'en va.
+alter table public.lieux_noms add column if not exists source text not null default 'osm'
+  check (source in ('osm', 'google'));
+drop function if exists public.noter_lieu(double precision, double precision, text);
+create or replace function public.noter_lieu(latitude double precision, longitude double precision, nom text,
+  la_source text default 'osm')
 returns boolean
 language plpgsql security definer set search_path = public as $$
 begin
   if latitude is null or longitude is null or coalesce(btrim(nom), '') = '' then return false; end if;
-  insert into public.lieux_noms as x (lat_g, lng_g, nom)
-  values (public.grille_route(latitude), public.grille_route(longitude), left(btrim(nom), 200))
-  on conflict (lat_g, lng_g) do update set nom = excluded.nom, cree_le = now();
+  insert into public.lieux_noms as x (lat_g, lng_g, nom, source)
+  values (public.grille_route(latitude), public.grille_route(longitude), left(btrim(nom), 200),
+          case when la_source = 'google' then 'google' else 'osm' end)
+  on conflict (lat_g, lng_g) do update set nom = excluded.nom, source = excluded.source, cree_le = now();
   return true;
 end $$;
-revoke all on function public.noter_lieu(double precision, double precision, text) from public, anon, authenticated;
-grant execute on function public.noter_lieu(double precision, double precision, text) to service_role;
+revoke all on function public.noter_lieu(double precision, double precision, text, text) from public, anon, authenticated;
+grant execute on function public.noter_lieu(double precision, double precision, text, text) to service_role;
 
 -- Une recherche par nom de plus, aujourd'hui.
 create or replace function public.compter_recherche_lieu() returns int
