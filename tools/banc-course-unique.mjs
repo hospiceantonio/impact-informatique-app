@@ -130,6 +130,8 @@ titre("1. Deux boutiques : une carte, un seul « Commande reçue »");
   ok(/1 course à faire/i.test(await texte(page, ".titre-section")), "« 1 course à faire »");
   ok(await page.$$eval(".lv-recu", (n) => n.length) === 1, "un seul « Commande reçue »");
   await page.click(".lv-recu");
+  await page.waitForTimeout(900);
+  await page.click(".lv-confirmer-oui");
   await page.waitForTimeout(600);
   ok(serveur.appels.filter((a) => a.fn === "accepter_course").length === 1, "accepter_course, une fois");
   ok(!erreurs.length, "aucune erreur JavaScript" + (erreurs.length ? " : " + erreurs[0] : ""));

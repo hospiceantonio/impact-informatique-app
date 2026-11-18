@@ -32,6 +32,10 @@ set client_min_messages = notice;
 \set L3 '''cacacaca-0000-0000-0000-000000000003'''
 \set L4 '''cacacaca-0000-0000-0000-000000000004'''
 \set L5 '''cacacaca-0000-0000-0000-000000000005'''
+\set R1 '''cacacaca-0000-0000-0000-000000000011'''
+\set R1B '''cacacaca-0000-0000-0000-000000000012'''
+\set R2 '''cacacaca-0000-0000-0000-000000000013'''
+\set R3 '''cacacaca-0000-0000-0000-000000000014'''
 
 select essai.titre('Le décor : une boutique à Parakou, cinq livreurs de BIZZOO autour');
 -- Loin de Cotonou, où sont les livreurs des autres essais : les nôtres
@@ -61,7 +65,8 @@ insert into public.positions_livreurs (profil_id, latitude, longitude, adresse, 
   (:L5::uuid, 9.3379, 2.6300, 'Parakou', now() - interval '1 day')
 on conflict (profil_id) do update
   set latitude = excluded.latitude, longitude = excluded.longitude, enregistre_le = excluded.enregistre_le;
-update public.cascade_reglage set actif = true, delai_s = 30, rangs = 3, fraicheur_min = 60 where id = 1;
+-- (4.7.0) « rayon_km = 0 » : sans l'étape « à moins de … km », éprouvée à part (section 12).
+update public.cascade_reglage set actif = true, delai_s = 30, rangs = 3, fraicheur_min = 60, rayon_km = 0 where id = 1;
 -- L'horloge : la tâche pg_cron « courses-cascade ». Le PostgreSQL d'essai
 -- n'a pas pg_cron : on en pose le seul registre que la base consulte.
 create schema if not exists cron;
@@ -292,8 +297,64 @@ select essai.devenir(:ACHETEUR::uuid); set role authenticated;
 select essai.refuse($$select public.regler_disponibilite(true)$$, 'un client ne règle rien');
 reset role; select essai.personne();
 
+select essai.titre('12. (4.7.0) Après les plus proches : ceux à moins de 5 km, seuls ; puis tous');
+insert into auth.users (id, email) values
+  (:R1::uuid, 'r1.cascade@essai.bj'), (:R1B::uuid, 'r1b.cascade@essai.bj'),
+  (:R2::uuid, 'r2.cascade@essai.bj'), (:R3::uuid, 'r3.cascade@essai.bj')
+on conflict do nothing;
+update public.profils p set role = 'livreur', actif = true, boutique_id = null, nom = v.n, vehicule = 'moto'
+  from (values (:R1::uuid, 'Rayon'), (:R1B::uuid, 'Rayon bis'), (:R2::uuid, 'Loin'), (:R3::uuid, 'Ancien')) as v(i, n)
+ where p.id = v.i;
+-- Rayon à 3 km, Rayon bis à 4 km ; Loin à 20 km ; Ancien à 1 km, mais sa
+-- position date d'hier (on ne sait pas où il est).
+insert into public.positions_livreurs (profil_id, latitude, longitude, adresse, enregistre_le) values
+  (:R1::uuid, 9.3640, 2.6300, 'Parakou', now()),
+  (:R1B::uuid, 9.3730, 2.6300, 'Parakou', now()),
+  (:R2::uuid, 9.5170, 2.6300, 'Loin', now()),
+  (:R3::uuid, 9.3460, 2.6300, 'Parakou', now() - interval '1 day')
+on conflict (profil_id) do update
+  set latitude = excluded.latitude, longitude = excluded.longitude, enregistre_le = excluded.enregistre_le;
+update public.cascade_reglage set rangs = 1, delai_s = 45, rayon_km = 5, delai_rayon_s = 60 where id = 1;
+select pg_temp.commande_payee('TRX-CASCADE-6') as c6 \gset
+select essai.egal((select array_length(ordre, 1) from public.courses_cascade where commande_id = :'c6'), 1,
+  'un seul « plus proche » (rangs = 1)');
+select essai.verifie((select corps like '%45 secondes%' from public.notifications n
+                       where n.commande_id = :'c6' and n.type = 'course_proposee'
+                         and n.destinataire = (select ordre[1] from public.courses_cascade where commande_id = :'c6')),
+  'son alerte suit le réglage : 45 secondes');
+select essai.egal(pg_temp.alerte(:R1B::uuid, :'c6') + pg_temp.alerte(:R2::uuid, :'c6') + pg_temp.alerte(:R3::uuid, :'c6'), 0,
+  'ni Rayon bis, ni Loin, ni Ancien pour l''instant');
+select pg_temp.trente_secondes(:'c6') as t \gset
+select essai.egal((select rayon::text || '/' || tous::text || '/' || (prochaine > now() + interval '50 seconds')::text
+                     from public.courses_cascade where commande_id = :'c6'), 'true/false/true',
+  'l''étape « à moins de 5 km » : pas encore à tous, 60 secondes devant elle');
+select essai.egal(pg_temp.alerte(:R1::uuid, :'c6') + pg_temp.alerte(:R1B::uuid, :'c6'), 2, 'Rayon (3 km) et Rayon bis (4 km) sonnent');
+select essai.verifie((select corps like 'Vous êtes à moins de 5 km du retrait%' from public.notifications
+                       where destinataire = :R1B::uuid and commande_id = :'c6' and type = 'course_proposee'),
+  'leur alerte le dit : « à moins de 5 km du retrait »');
+select essai.egal(pg_temp.alerte(:R2::uuid, :'c6') + pg_temp.alerte(:R3::uuid, :'c6'), 0,
+  'Loin (20 km) et Ancien (position d''hier) ne sont pas dérangés');
+select essai.verifie(pg_temp.voit(:R1B::uuid, :'c6') and not pg_temp.voit(:R2::uuid, :'c6'),
+  'Rayon bis la voit ; Loin ne la voit pas');
+select essai.refuse(format($$select pg_temp.prend(%L::uuid, %L)$$, :R2, :'c6'), 'ni ne la prend');
+select essai.egal(public.avancer_cascades(), 0, 'avant les 60 secondes, rien ne bouge');
+select pg_temp.trente_secondes(:'c6') as t \gset
+select essai.egal((select tous::text || '/' || coalesce(prochaine::text, 'fin') from public.courses_cascade
+                    where commande_id = :'c6'), 'true/fin', 'personne dans le rayon ne l''a prise : à tous');
+select essai.egal(pg_temp.alerte(:R2::uuid, :'c6') + pg_temp.alerte(:R3::uuid, :'c6'), 2, 'Loin et Ancien sonnent, en dernier');
+select essai.egal(pg_temp.alerte(:R1::uuid, :'c6'), 1, 'Rayon n''est pas sonné une seconde fois');
+select essai.egal(pg_temp.prend(:R2::uuid, :'c6'), 1, 'et Loin peut alors la prendre');
+
+select essai.titre('13. (4.7.0) Personne de nouveau dans le rayon : on n''attend pas');
+update public.cascade_reglage set rayon_km = 0.05 where id = 1;
+select pg_temp.commande_payee('TRX-CASCADE-7') as c7 \gset
+select pg_temp.trente_secondes(:'c7') as t \gset
+select essai.egal((select rayon::text || '/' || tous::text from public.courses_cascade where commande_id = :'c7'), 'true/true',
+  'rayon de 50 m, personne dedans : à tous tout de suite');
+
 -- Le décor rendu : nos livreurs ne gênent pas les essais suivants.
-update public.cascade_reglage set actif = false where id = 1;
+update public.profils set actif = false where id in (:R1::uuid, :R1B::uuid, :R2::uuid, :R3::uuid);
+update public.cascade_reglage set actif = false, rangs = 5, delai_s = 45, rayon_km = 5, delai_rayon_s = 60 where id = 1;
 drop schema cron cascade;
 update public.profils set actif = false
  where id in (:L1::uuid, :L2::uuid, :L3::uuid, :L4::uuid, :L5::uuid);

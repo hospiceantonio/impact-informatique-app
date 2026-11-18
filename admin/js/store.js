@@ -1428,6 +1428,9 @@ const Store = (() => {
          c'est lui qu'on compare au nom affiché par MoMo avant de lui
          reverser ses gains. Une base d'avant : undefined, rien à l'écran. */
       momoNom: l.momo_nom === undefined ? undefined : String(l.momo_nom || ""),
+      /* (4.7.0) « Disponible pour les courses » : son téléphone envoie alors
+         sa position, application fermée. Une base d'avant : undefined. */
+      disponible: l.disponible === undefined ? undefined : l.disponible !== false,
     };
   }
 

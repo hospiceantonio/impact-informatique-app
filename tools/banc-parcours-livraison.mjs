@@ -177,7 +177,20 @@ titre("1. Le livreur (admin) : la fiche complète, et « Commande reçue »");
   ok(await page.evaluate(() => !!document.querySelector(".lv-recu") && !document.querySelector(".lv-avancer")),
     "« Reçu » d'abord, pas encore « Je l'ai prise »");
 
+  /* (4.7.0) Deux gestes : « Commande reçue » ne prend rien ; « Oui » prend. */
   await page.click(".lv-recu");
+  await page.waitForTimeout(300);
+  ok(!serveur.appels.some((a) => a.fn === "accepter_course") &&
+     await page.evaluate(() => !!document.querySelector(".lv-confirmer-oui") && document.querySelector(".lv-confirmer-oui").disabled &&
+       document.querySelector(".lv-recu").hidden),
+    "(4.7.0) « Commande reçue » ne prend pas la course : il demande « Vous prenez cette course ? » ; « Oui » attend un instant");
+  await page.click(".lv-confirmer-non");
+  ok(!serveur.appels.some((a) => a.fn === "accepter_course") &&
+     await page.evaluate(() => !document.querySelector(".lv-confirmer") && !document.querySelector(".lv-recu").hidden),
+    "(4.7.0) « Non » : rien n'est pris, « Commande reçue » revient");
+  await page.click(".lv-recu");
+  await page.waitForTimeout(900);
+  await page.click(".lv-confirmer-oui");
   await page.waitForTimeout(1500);
   const appel = serveur.appels.find((a) => a.fn === "accepter_course");
   ok(appel && appel.corps && appel.corps.commande === "cmd_p" && appel.corps.boutique === "bou_a",
@@ -248,6 +261,9 @@ titre("6a. Les demandes de course (admin)");
   ok(/Où récupérer \(précisé par BIZZOO\)/i.test(saisi) && /marché Dantokpa, porte 3\s*\n\s*Appeler Rémi/.test(saisi),
     "le lieu saisi dans « Faire livrer », ligne à ligne (" + JSON.stringify(saisi) + ")");
   await page.click(".lv-prendre");
+  await page.waitForTimeout(900);
+  ok(!serveur.appels.some((a) => a.fn === "prendre_course"), "(4.7.0) une demande : le premier geste ne la prend pas non plus");
+  await page.click(".lv-confirmer-oui");
   await page.waitForTimeout(1500);
   const appel = serveur.appels.find((a) => a.fn === "prendre_course");
   ok(appel && appel.corps && appel.corps.commande === "cmd_g", "« Commande reçue » appelle prendre_course(cmd_g)");
@@ -266,6 +282,8 @@ titre("6a. Les demandes de course (admin)");
   await page.evaluate(() => { window.__t = []; const z = document.querySelector("#toasts") || document.body;
     new MutationObserver(() => window.__t.push(z.innerText)).observe(z, { childList: true, subtree: true }); });
   await page.click(".lv-prendre");
+  await page.waitForTimeout(900);
+  await page.click(".lv-confirmer-oui");
   await page.waitForTimeout(1500);
   ok(await page.evaluate(() => window.__t.some((x) => /Trop tard/.test(x))), "trop tard : on le lui dit");
   ok(await page.evaluate(() => !document.querySelector(".lv-demande")), "et la demande disparaît");
@@ -283,6 +301,20 @@ titre("6c. (3.70.0) « Disponible pour les courses », application fermée (APK)
   await page.waitForTimeout(500);
   ok(await page.evaluate(() => (window.__pont || []).includes("demarrer:jeton-essai")),
     "libre mais disponible : le service Android démarre (sans course en cours)");
+  /* (4.7.0) Le rappel s'ouvre de lui-même, une fois : on ne peut pas ne pas l'avoir vu. */
+  const rappel = plat(await page.evaluate(() => (document.getElementById("feuille") || {}).innerText || ""));
+  ok(/Votre position n'arrive pas/.test(rappel) && /en dernier/.test(rappel) && /Deux réglages à faire/.test(rappel),
+    "(4.7.0) à l'ouverture, un rappel : la position n'arrive pas, les courses viennent en dernier, deux réglages");
+  await page.click("#lv-rappel-toujours");
+  ok(await page.evaluate(() => (window.__pont || []).includes("toujours")), "(4.7.0) son bouton ouvre le réglage d'Android");
+  await page.evaluate(() => { window.__pont = window.__pont.filter((x) => x !== "toujours"); });
+  await page.click("#lv-rappel-plus-tard");
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => !document.getElementById("lv-rappel-plus-tard") || !document.getElementById("lv-rappel-plus-tard").offsetParent),
+    "(4.7.0) « Plus tard » le ferme : un téléphone qui refuse le réglage n'empêche pas de livrer");
+  const alerte = plat(await page.evaluate(() => (document.getElementById("lv-dispo-alerte") || {}).innerText || ""));
+  ok(/Votre position n'arrive pas quand l'application est fermée/.test(alerte) && /en dernier/.test(alerte),
+    "(4.7.0) et la carte le redit en rouge, tant que ce n'est pas réglé");
   ok(await page.evaluate(() => !!document.getElementById("lv-dispo-toujours") && !!document.getElementById("lv-dispo-batterie")),
     "les deux réglages du téléphone qui manquent sont proposés");
   await page.click("#lv-dispo-toujours");

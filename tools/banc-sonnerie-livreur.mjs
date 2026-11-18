@@ -112,6 +112,8 @@ titre("1-3. Une course confiée : ça sonne, ça vibre, ça reprend, jusqu'à «
   const b = await compte(o.page);
   ok(b.notes > a.notes && b.vibrations.length > a.vibrations.length, "quatre secondes plus tard : elle reprend");
   await o.page.click(".lv-recu");
+  await o.page.waitForTimeout(900);
+  await o.page.click(".lv-confirmer-oui");
   await pause(1500);
   const c = await compte(o.page);
   ok(c.vibrations.some((v) => v === 0), "« Commande reçue » : la vibration s'arrête");
@@ -129,6 +131,8 @@ titre("4. Une demande proposée à tous");
   const a = await compte(o.page);
   ok(a.notes >= 9, "elle sonne aussi");
   await o.page.click(".lv-prendre");
+  await o.page.waitForTimeout(900);
+  await o.page.click(".lv-confirmer-oui");
   await pause(1500);
   const c = await compte(o.page);
   await pause(4500);

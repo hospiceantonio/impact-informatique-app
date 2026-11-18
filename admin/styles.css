@@ -2261,3 +2261,19 @@ h1,h2,h3,h4,.btn,.carte-titre,.titre-section,.tabbar a,.topbar h1,.menu-lateral 
 .vi-barres-pied{display:flex;justify-content:space-between;font-size:12px;color:var(--encre-douce);margin-top:6px}
 @media (min-width:700px){.vi-tuiles{grid-template-columns:repeat(4,1fr)}}
 #vi-corps .sd-ligne-haut span{white-space:nowrap}
+
+/* (4.7.0) Position coupée application fermée : en rouge, en grand. */
+.lv-dispo-alerte{border:2px solid var(--rouge);border-radius:12px;padding:12px;margin-top:10px;background:#FEF2F2;gap:8px}
+.lv-dispo-alerte-titre{display:flex;gap:8px;align-items:flex-start;margin:0 0 6px;font-weight:700;color:var(--rouge)}
+.lv-dispo-alerte-titre .ic{flex:none;margin-top:2px}
+/* (4.7.0) Livreurs dont la position n'arrive plus. */
+.lp-muets summary{cursor:pointer}
+.lp-muet{padding:10px 0;border-top:1px solid var(--trait)}
+.lp-muet strong{display:block}
+.lp-muet a{font-weight:600}
+
+/* (4.7.0) Prendre une course : le second geste. */
+.lv-confirmer{border:2px solid var(--bleu);border-radius:12px;padding:12px;background:var(--fond)}
+.lv-confirmer-question{display:flex;gap:8px;align-items:flex-start;margin:0 0 10px;font-weight:700}
+.lv-confirmer-question .ic{flex:none;margin-top:2px}
+.lv-confirmer-boutons{display:flex;flex-direction:column;gap:8px}
