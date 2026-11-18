@@ -56,6 +56,15 @@ const VueCompte = (() => {
             "comment ça marche, l'application Android</small></span>" +
           UI.icone("chevron", "ic-sm") +
         "</a>" +
+        /* (4.6.1) L'administration se rejoint d'ici aussi : elle redemande
+           de s'identifier, ce lien n'ouvre aucune porte. */
+        '<a class="ligne-info" id="cp-espace-pro" href="' + (surLeSite ? "../admin/" : "https://www.bizzoomarket.com/admin/") +
+            '"' + (surLeSite ? "" : ' target="_blank" rel="noopener"') + ">" +
+          '<span class="rond-bleu">' + UI.icone("sacoche") + "</span>" +
+          "<span><strong>Espace professionnel</strong><br><small>Boutiques, vendeurs, livreurs : " +
+            "ouvrir BIZZOO Admin</small></span>" +
+          UI.icone("chevron", "ic-sm") +
+        "</a>" +
         (wa
           ? '<a class="ligne-info" target="_blank" rel="noopener" href="' + Utils.echapper(wa) + '">' +
               '<span class="rond-wa">' + UI.icone("whatsapp") + "</span>" +

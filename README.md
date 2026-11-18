@@ -8365,3 +8365,11 @@ fréquentation »).
 
 À appliquer en ligne : `supabase/visiteurs.sql`. Essai de base :
 `…-visiteurs.sql`. Banc : `banc-visiteurs`.
+
+## Compte → « Espace professionnel » (4.6.1)
+
+Depuis que l'adresse du site ouvre la boutique (4.5.1), l'administration
+n'était plus à un clic. Compte porte désormais, sous « Découvrir BIZZOO »,
+**« Espace professionnel »** : il ouvre BIZZOO Admin (`/admin/` sur le site ;
+le site, depuis l'application installée). Ce lien n'ouvre aucune porte :
+BIZZOO Admin redemande de s'identifier. Banc : `banc-mise-en-ligne`.
