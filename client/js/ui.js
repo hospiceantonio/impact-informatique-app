@@ -929,6 +929,7 @@ const UI = (() => {
       return;
     }
     if (typeof Pixel !== "undefined") Pixel.ajoutPanier(p, 1, Catalogue.deviseDe(p));
+    if (typeof Audience !== "undefined") Audience.panier();
     toast("Ajouté au panier", "ok");
     /* Un petit signe sur le bouton lui-même : le toast est en bas de
        l'écran, le pouce est ici. */

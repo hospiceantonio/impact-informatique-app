@@ -120,6 +120,8 @@
        Lui ouvrir ces écrans, c'était lui montrer des pages vides qu'il
        aurait prises pour une panne. */
     { motif: /^\/statistiques$/, vue: (v) => VueStatistiques.afficher(v), horsEnseigne: true },
+    /* (4.6.0) Les visiteurs de la boutique : des totaux, au superadministrateur. */
+    { motif: /^\/visiteurs$/, vue: (v) => VueVisiteurs.afficher(v), super: true },
     { motif: /^\/historique$/, vue: (v) => VueHistorique.afficher(v), admin: true,
       horsEnseigne: true },
     /* (3.63.0) L'administrateur de BIZZOO y crée des modérateurs, que le

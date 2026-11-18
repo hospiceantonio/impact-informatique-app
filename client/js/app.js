@@ -199,6 +199,8 @@ const App = { evenementInstallation: null };
     /* Un écran redessiné sur place n'est pas une visite : seule une
        vraie navigation compte pour la publicité. */
     if (!conserverPosition) Pixel.debutEcran(ecran);
+    /* (4.6.0) Et pour les statistiques de BIZZOO, sans nom ni numéro. */
+    if (!conserverPosition && typeof Audience !== "undefined") Audience.ecran(chemin);
     try {
       await route.vue(vue, chemin.match(route.motif), params);
       if (!conserverPosition) Pixel.finEcran(ecran);

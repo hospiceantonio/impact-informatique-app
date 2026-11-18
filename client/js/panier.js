@@ -309,6 +309,7 @@ const Panier = (() => {
     /* LA BASE vient de confirmer le versement d'une commande passée sur
        ce téléphone : c'est le seul moment où un achat existe. */
     if (etat === "payee" && avant !== "payee" && typeof Pixel !== "undefined") Pixel.achat(c);
+    if (etat === "payee" && avant !== "payee" && typeof Audience !== "undefined") Audience.achat();
     return c;
   }
 
