@@ -118,6 +118,12 @@ const VueStatistiques = (() => {
       sous: "Ventes encaissées", retour: true });
 
     vue.innerHTML =
+      /* (4.6.0) Qui passe dans la boutique : visiteurs, temps passé, fiches ouvertes. */
+      '<a class="carte carte-livreurs" id="st-visiteurs" href="#/visiteurs">' +
+        '<div class="carte-titre">' + UI.icone("equipe", "ic-sm") + " Visiteurs du site et de l'application</div>" +
+        '<p class="aide" style="margin:0">Combien de visiteurs par jour, le temps passé, les produits et les ' +
+          "boutiques les plus consultés.</p>" +
+      "</a>" +
       '<div class="carte">' +
         '<div class="st-filtres" id="st-periodes">' +
           PERIODES.map((p) =>

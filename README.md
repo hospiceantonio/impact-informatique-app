@@ -8328,3 +8328,40 @@ restent ceux de la vitrine (leurs robots ne suivent pas le renvoi). Le
 pixel Meta ne compte pas la page qui renvoie.
 
 Banc : `banc-mise-en-ligne` (section 5).
+
+## Les visiteurs de la boutique : combien, combien de temps, quoi (4.6.0)
+
+BIZZOO compte désormais lui-même les visites de la boutique — le site et
+l'application ensemble —, sans rien envoyer à un tiers.
+
+**Ce que la boutique note** (`client/js/audience.js`) : une visite a
+commencé, elle dure encore, tel produit ou telle boutique a été ouvert, un
+article est allé au panier, une commande a été payée. Le visiteur est un
+identifiant tiré au hasard par l'appareil, relié ni au compte, ni au nom,
+ni au numéro : l'envoi part sans le jeton du client. Les envois sont
+groupés et silencieux ; le temps passé ne compte que tant que l'écran est
+visible et que le visiteur y touche ; une demi-heure sans rien, c'est une
+nouvelle visite ; une fiche ne compte qu'une fois par visite.
+
+**Dans la base** (`supabase/visiteurs.sql`) : deux tables fermées
+(`visites`, `visites_vues`), que personne ne lit ; `noter_visite`, ouverte
+à tous, qui borne ce qu'elle accepte (identifiants mal formés, fiches
+inexistantes, visites de plus de douze heures ou de 500 écrans : rien) ;
+`statistiques_visiteurs(depuis, jusqu)`, qui ne rend que des totaux, au
+superadministrateur, à l'administration du personnel et au CEO.
+
+**Où les lire** :
+
+- BIZZOO Admin, superadministrateur : Statistiques → **Visiteurs du site
+  et de l'application** (`#/visiteurs`) — visiteurs, visites, temps moyen,
+  écrans par visite, barres par jour, parcours (panier, commande payée),
+  site ou application, produits et boutiques les plus consultés ;
+- site du personnel : Statistiques → **Visiteurs du site**, pour
+  l'administration, avec export Excel des classements.
+
+Le comptage commence à la mise en ligne de la 4.6.0 : rien pour les jours
+d'avant. La politique de confidentialité le dit (« Mesure de
+fréquentation »).
+
+À appliquer en ligne : `supabase/visiteurs.sql`. Essai de base :
+`…-visiteurs.sql`. Banc : `banc-visiteurs`.

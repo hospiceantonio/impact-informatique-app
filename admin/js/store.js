@@ -1283,6 +1283,10 @@ const Store = (() => {
       reverse: n0(v.reverse), enAttente: n0(v.en_attente), disponible: n0(v.disponible),
     }));
   }
+  /** (4.6.0) Les visiteurs de la boutique : des totaux, jamais une personne. */
+  async function statistiquesVisiteurs({ depuis, jusqu }) {
+    return (await Supabase.rpcLecture("statistiques_visiteurs", { depuis: depuis || null, jusqu: jusqu || null })) || {};
+  }
   async function historiqueParts() {
     const l = await Supabase.rpcLecture("parts_vendeurs_historique_liste", {});
     return (Array.isArray(l) ? l : []).map((h) => ({
@@ -4380,7 +4384,7 @@ const Store = (() => {
     statistiquesVentes,
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, connaitAccompagnements, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
-    listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, produitDisponible, modifierMonNom, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
+    statistiquesVisiteurs, listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, produitDisponible, modifierMonNom, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
     deciderReversementVendeur, ventesVendeurs, historiqueParts, connaitVendeurs,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,

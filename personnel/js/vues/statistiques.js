@@ -32,6 +32,10 @@ const VueStatistiques = (() => {
       texte: "Ce que chaque livreur a livré" },
     { cle: "sav", libelle: "Service après-vente et avis", rubrique: "sav", icone: "bulle",
       texte: "Réclamations, avis et notes des clients" },
+    /* (4.6.0) Les visiteurs de la boutique (statistiques_visiteurs) : des
+       totaux, sans nom ni numéro ; l'administration et le superadministrateur. */
+    { cle: "visiteurs", libelle: "Visiteurs du site", interne: "admin", visiteurs: true, icone: "equipe",
+      texte: "Visiteurs par jour, temps passé, produits et boutiques les plus consultés" },
     /* Les statistiques internes (rh_finances), mois par mois : l'administration ;
        revenus et résultat, le CEO et le superadministrateur. */
     { cle: "salaires", libelle: "Salaires", interne: "admin", icone: "paie",
@@ -91,7 +95,7 @@ const VueStatistiques = (() => {
     const ouverts = permis();
     const sous = ouverts.find((s) => s.cle === morceaux[0]);
     /* Les chiffres internes se lisent par mois : l'année par défaut. */
-    const periode = periodeDe(params, sous && sous.interne ? "annee" : "30j");
+    const periode = periodeDe(params, sous && sous.interne && !sous.visiteurs ? "annee" : "30j");
     if (morceaux[0] && !sous) {
       UI.vider(zone, UI.vide("Ce sous-menu n'existe pas, ou votre compte n'y a pas accès."));
       return;
@@ -112,6 +116,13 @@ const VueStatistiques = (() => {
     const actif = zone.querySelector(".filtres .actif");
     if (actif) actif.scrollIntoView({ inline: "center", block: "nearest" });
 
+    if (sous.visiteurs) {
+      const v = await Supabase.rpc("statistiques_visiteurs", { depuis: periode.depuis, jusqu: periode.jusqu });
+      if (!corps.isConnected) return;
+      UI.vider(corps, h("p", { class: "doux petit" }, "Du " + UI.dateLongue(v.periode.depuis) + " au " + UI.dateLongue(v.periode.jusqu) +
+        " · le site et l'application comptés ensemble, sans nom ni numéro"), visiteurs(v, periode));
+      return;
+    }
     if (sous.interne) {
       const fi = await Supabase.rpc("rh_finances", { depuis: periode.depuis, jusqu: periode.jusqu });
       if (!corps.isConnected) return;
@@ -244,6 +255,58 @@ const VueStatistiques = (() => {
       sortie.push(parJour.get(cle) || { jour: cle, payees: 0, montant: 0 });
     }
     return sortie.length ? sortie : jours;
+  }
+
+  /* ---------- (4.6.0) Visiteurs de la boutique ---------- */
+
+  /** « 3 min 20 s », « 45 s », « 1 h 05 ». */
+  function dureeLisible(s) {
+    s = Math.max(0, Math.round(Number(s) || 0));
+    if (s < 60) return s + " s";
+    if (s < 3600) return Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s";
+    return Math.floor(s / 3600) + " h " + String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  }
+  function visiteurs(v, periode) {
+    const t = v.total || {};
+    const visites = Number(t.visites) || 0;
+    if (!visites) {
+      return [UI.vide("Aucune visite sur cette période. Le comptage commence le jour où la boutique passe à la " +
+        "version 4.6.0 : rien n'existe pour les jours d'avant.")];
+    }
+    const part = (n) => String(Math.round(Number(n || 0) / visites * 1000) / 10).replace(".", ",") + " %";
+    const jourCourt = (iso) => UI.enDate(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+    const jourLong = (iso) => {
+      const x = UI.enDate(iso).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      return x.charAt(0).toUpperCase() + x.slice(1);
+    };
+    const jours = joursComplets(v.jours || [], periode).map((j) => ({
+      court: jourCourt(j.jour), long: jourLong(j.jour), valeur: Number(j.visiteurs || 0),
+      detail: j.visiteurs ? j.visiteurs + (j.visiteurs > 1 ? " visiteurs" : " visiteur") + ", " + (j.visites || 0) +
+        (j.visites > 1 ? " visites" : " visite") + ", " + dureeLisible(j.duree_moyenne_s) + " en moyenne" : "aucune visite" }));
+    const NOMS = { web: "Le site", android: "L'application Android", ios: "L'application iPhone" };
+    const pf = v.plateformes || {};
+    return [
+      h("div", { class: "tuiles" },
+        tuile(nombre(t.visiteurs), "visiteurs"),
+        tuile(nombre(visites), "visites"),
+        tuile(dureeLisible(t.duree_moyenne_s), "temps moyen par visite", true),
+        tuile(virgule(t.ecrans_moyens), "écrans par visite"),
+        tuile(nombre(t.nouveaux), "nouveaux visiteurs")),
+      graphe({ titre: "Visiteurs par jour", points: jours,
+        resume: "Un visiteur est un appareil : le même client sur son téléphone et sur son ordinateur compte deux fois." }),
+      tableau("Jusqu'où ils vont", ["", "Visites", "Part"], [
+        ["Toutes les visites", nombre(visites), "100 %"],
+        ["… avec un article mis au panier", nombre(t.panier), part(t.panier)],
+        ["… avec une commande payée", nombre(t.commande), part(t.commande)]]),
+      tableau("D'où ils viennent", ["", "Visites", "Part"],
+        Object.keys(NOMS).filter((k) => pf[k]).map((k) => [NOMS[k], nombre(pf[k]), part(pf[k])])),
+      (v.produits || []).length ? tableauExportable("Les produits les plus consultés", "BIZZOO_produits_consultes",
+        [["Produit", "texte", 32], ["Boutique", "texte", 24], ["Vues", "nombre", 10]],
+        v.produits.map((x) => [x.nom, x.boutique, x.vues])) : null,
+      (v.boutiques || []).length ? tableauExportable("Les boutiques les plus consultées", "BIZZOO_boutiques_consultees",
+        [["Boutique", "texte", 32], ["Vues", "nombre", 10]],
+        v.boutiques.map((x) => [x.nom, x.vues])) : null,
+    ];
   }
 
   /* ---------- Commandes ---------- */
