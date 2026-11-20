@@ -1283,6 +1283,23 @@ const Store = (() => {
       reverse: n0(v.reverse), enAttente: n0(v.en_attente), disponible: n0(v.disponible),
     }));
   }
+  /** (4.8.0) La clé des cartes Google : publique par nature (le navigateur
+      la joint à chaque image de carte). "" : aucune ; null : base d'avant. */
+  async function lireCleCartes() {
+    try {
+      const l = await Supabase.requete("GET", "cartes_reglage?select=cle_tuiles&id=eq.1", undefined, { avecSession: true });
+      return String(((l || [])[0] || {}).cle_tuiles || "");
+    } catch (_) {
+      return null;
+    }
+  }
+  async function reglerCleCartes(cle) {
+    const c = String(cle || "").trim();
+    await Supabase.rpc("regler_cle_cartes", { cle: c });
+    journaliser("reglages", "modification", c ? "Clé des cartes Google réglée" : "Clé des cartes Google retirée", "cartes");
+    if (typeof FondCarte !== "undefined") FondCarte.oublier();
+    return c;
+  }
   /** (4.6.0) Les visiteurs de la boutique : des totaux, jamais une personne. */
   async function statistiquesVisiteurs({ depuis, jusqu }) {
     return (await Supabase.rpcLecture("statistiques_visiteurs", { depuis: depuis || null, jusqu: jusqu || null })) || {};
@@ -4387,7 +4404,7 @@ const Store = (() => {
     statistiquesVentes,
     statistiquesBoutique,
     ETATS_LIGNE, SUITE_LIGNE, devisFaireLivrer, faireLivrer, lirePaiement, majPaiement, majMomopay, majLivraisonKm, connaitVehicule, connaitAccompagnements, soldeLivreur, reglerReceptionLivreur, demanderReversementLivreur, reversementsLivreurs, deciderReversementLivreur, lireRegles, majRegles,
-    statistiquesVisiteurs, listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, produitDisponible, modifierMonNom, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
+    statistiquesVisiteurs, lireCleCartes, reglerCleCartes, listerVendeurs, lieuVendeur, enregistrerLieuVendeur, lieuxVendeurs, espaceVendeur, produitDisponible, modifierMonNom, reglerReceptionVendeur, demanderReversementVendeur, reversementsVendeurs,
     deciderReversementVendeur, ventesVendeurs, historiqueParts, connaitVendeurs,
     dernierEnvoiValidation, CHAMPS_A_VALIDER, NOM_DU_CHAMP,
     listerEnAvant, basculerEnAvant, deplacerEnAvant, majDisponibilite, statut, STATUTS, STOCK_BAS,

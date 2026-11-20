@@ -2743,3 +2743,6 @@ h1,h2,h3,.section-titre h2{font-weight:700}
 /* (4.4.0) « Annuler la commande », sous les boutons du paiement : en
    rouge pâle, à part, pour qu'on ne le touche pas en voulant payer. */
 .re-annuler{display:flex;width:100%;margin-top:12px}
+
+/* (4.8.0) La mention de Google, sur ses cartes. */
+.fond-google{font-weight:700;letter-spacing:.2px}

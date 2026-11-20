@@ -17,6 +17,14 @@
    BASE (« lieux_noms », à 50 m près) : un quartier nommé une fois l'est
    pour tout le monde, et le bon du livreur ne coûte plus rien.
 
+   (4.8.0) GOOGLE D'ABORD, quand sa clé est là (le secret GOOGLE_MAPS_KEY,
+   le même que « distance-route ») : Geocoding pour nommer un point,
+   Places (Text Search) pour chercher — plus précis au Bénin. Il faut que
+   « Geocoding API » et « Places API (New) » soient activées et permises à
+   la clé. Google ne répond pas (refus, panne, rien trouvé) : on revient à
+   OpenStreetMap, comme avant — jamais bloquant. Un nom venu de Google se
+   note avec sa source : la base ne le garde que 30 jours.
+
    Ouverte sans compte (les clients commandent sans), comme
    « distance-route » : rien de ce qu'elle reçoit n'est cru hormis une
    position, bornée au Bénin, ou quelques mots ; un plafond par jour
@@ -25,6 +33,7 @@
      supabase functions deploy lieu --no-verify-jwt
    ========================================================= */
 
+const cleGoogle = () => (Deno.env.get("GOOGLE_MAPS_KEY") ?? "").trim();
 const BASE = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -68,6 +77,78 @@ export function nomDuLieu(a: Adresse | undefined, nom?: string): string {
   const vus: string[] = [];
   for (const p of parties) if (!vus.some((v) => v.toLowerCase() === p.toLowerCase())) vus.push(p);
   return vus.slice(0, 3).join(", ");
+}
+
+/* ---------- (4.8.0) Google ---------- */
+
+type Composant = { long_name?: string; types?: string[] };
+
+/** Le nom d'un point selon Google : « Sèdomey, Togoudo, Godomey ». On lit
+    tous les résultats (du plus précis au plus large) et l'on garde, dans
+    l'ordre, le quartier, l'arrondissement, la ville — trois au plus, sans
+    doublon, sans « 12ᵉ Arrondissement » ni code « plus ». */
+export function nomGoogle(resultats: { address_components?: Composant[] }[] | undefined): string {
+  const RANGS = ["neighborhood", "sublocality_level_2", "sublocality_level_1", "sublocality",
+    "administrative_area_level_3", "locality"];
+  const parRang: Record<string, string> = {};
+  for (const r of resultats || []) {
+    for (const c of r.address_components || []) {
+      const nom = String(c.long_name || "").trim();
+      if (!nom || /^\d/.test(nom) || /Arrondissement/i.test(nom) || /\+/.test(nom)) continue;
+      for (const t of c.types || []) if (RANGS.includes(t) && !parRang[t]) parRang[t] = nom;
+    }
+  }
+  const vus: string[] = [];
+  for (const t of RANGS) {
+    const p = parRang[t];
+    if (p && !vus.some((v) => v.toLowerCase() === p.toLowerCase())) vus.push(p);
+  }
+  return vus.slice(0, 3).join(", ");
+}
+
+/** Nommer par Google ; "" s'il ne dit rien, null s'il refuse ou tombe. */
+async function nommerGoogle(lat: number, lng: number): Promise<string | null> {
+  const r = await fetch("https://maps.googleapis.com/maps/api/geocode/json?language=fr&region=bj&latlng=" +
+    lat + "," + lng + "&key=" + encodeURIComponent(cleGoogle()), { signal: AbortSignal.timeout(8000) });
+  const d = await r.json().catch(() => ({})) as { status?: string; error_message?: string;
+    results?: { address_components?: Composant[] }[] };
+  if (!r.ok || (d.status !== "OK" && d.status !== "ZERO_RESULTS")) {
+    console.error("Google Geocoding :", r.status, d.status ?? "", d.error_message ?? "");
+    return null;
+  }
+  return nomGoogle(d.results);
+}
+
+type Lieu = { nom: string; detail: string; latitude: number; longitude: number };
+
+/** Chercher par Google (Places, Text Search) ; null s'il refuse ou tombe. */
+async function chercherGoogle(q: string): Promise<Lieu[] | null> {
+  const [gauche, haut, droite, bas] = PREFERE.split(",").map(Number);
+  const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": cleGoogle(),
+      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location",
+    },
+    body: JSON.stringify({
+      textQuery: q, languageCode: "fr", regionCode: "BJ", maxResultCount: 6,
+      /* Le Grand Cotonou préféré, sans exclure le reste du pays. */
+      locationBias: { rectangle: { low: { latitude: bas, longitude: gauche }, high: { latitude: haut, longitude: droite } } },
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const d = await r.json().catch(() => ({})) as { error?: { message?: string };
+    places?: { displayName?: { text?: string }; formattedAddress?: string; location?: { latitude?: number; longitude?: number } }[] };
+  if (!r.ok) {
+    console.error("Google Places :", r.status, d.error?.message ?? "");
+    return null;
+  }
+  return (d.places || []).map((x) => ({
+    nom: String(x.displayName?.text || "").trim() || String(x.formattedAddress || "").split(",")[0].trim(),
+    detail: String(x.formattedAddress || "").trim(),
+    latitude: Number(x.location?.latitude), longitude: Number(x.location?.longitude),
+  })).filter((x) => x.nom && dansLeBenin(x.latitude, x.longitude));
 }
 
 const dansLeBenin = (lat: number, lng: number) =>
@@ -116,6 +197,17 @@ Deno.serve(async (requete) => {
         { nom?: string | null; plafond_atteint?: boolean } | null;
       if (connu && connu.nom) return json({ nom: connu.nom, cache: true });
       if (connu && connu.plafond_atteint) return json({ nom: null, message: "Plafond du jour atteint." });
+      /* (4.8.0) Google d'abord ; il ne dit rien ou refuse : OpenStreetMap. */
+      if (cleGoogle()) {
+        const g = await nommerGoogle(lat, lng).catch((err) => {
+          console.error("Google Geocoding :", err instanceof Error ? err.message : err);
+          return null;
+        });
+        if (g) {
+          await base("noter_lieu", { latitude: lat, longitude: lng, nom: g, la_source: "google" });
+          return json({ nom: g, cache: false, source: "google" });
+        }
+      }
       const r = await source("/reverse?format=jsonv2&zoom=17&addressdetails=1&lat=" + lat + "&lon=" + lng) as
         { address?: Adresse; name?: string } | null;
       const nom = nomDuLieu(r?.address);
@@ -129,6 +221,16 @@ Deno.serve(async (requete) => {
       if (q.length < 2) return json({ resultats: [] });
       const connu = await base("lieu_connu", { latitude: 6.37, longitude: 2.39 }) as { plafond_atteint?: boolean } | null;
       if (connu && connu.plafond_atteint) return json({ resultats: [], message: "Plafond du jour atteint." });
+      if (cleGoogle()) {
+        const g = await chercherGoogle(q).catch((err) => {
+          console.error("Google Places :", err instanceof Error ? err.message : err);
+          return null;
+        });
+        if (g && g.length) {
+          await base("compter_recherche_lieu", {}).catch(() => null);
+          return json({ resultats: g, source: "google" });
+        }
+      }
       const r = await source("/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=bj&viewbox=" + PREFERE +
         "&bounded=0&q=" + coder(q)) as { lat?: string; lon?: string; name?: string; address?: Adresse;
           display_name?: string }[] | null;

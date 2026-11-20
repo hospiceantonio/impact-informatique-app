@@ -79,9 +79,14 @@ const VueLocaliser = (() => {
     UI.vider(zone, cadre);
 
     const carte = L.map(fond, { zoomControl: true }).setView(CENTRE, 12);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: "© les contributeurs d'OpenStreetMap",
-    }).addTo(carte);
+    /* (4.8.0) Le fond : Google si sa clé est réglée, OpenStreetMap sinon. */
+    if (typeof FondCarte !== "undefined") {
+      await FondCarte.poser(L, carte);
+    } else {
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19, attribution: "© les contributeurs d'OpenStreetMap",
+      }).addTo(carte);
+    }
     const calque = L.layerGroup().addTo(carte);
 
     pleinEcran.addEventListener("click", () => {

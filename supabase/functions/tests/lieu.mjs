@@ -61,6 +61,15 @@ globalThis.fetch = async (url, o = {}) => {
     if (!r || r.attente-- > 0) return reponse("null");      // pas encore là
     return reponse({ statut: r.statut, corps: r.corps, erreur: null });
   }
+  /* (4.8.0) Google : Geocoding et Places, quand la clé est là. */
+  if (a.startsWith("https://maps.googleapis.com/maps/api/geocode/json")) {
+    monde.google.push({ quoi: "geocode", url: a });
+    return monde.geocode(a);
+  }
+  if (a === "https://places.googleapis.com/v1/places:searchText") {
+    monde.google.push({ quoi: "places", cle: o.headers["X-Goog-Api-Key"], masque: o.headers["X-Goog-FieldMask"], corps: JSON.parse(o.body) });
+    return monde.places();
+  }
   throw new Error("adresse inattendue : " + a);
 };
 
@@ -68,6 +77,15 @@ const INVERSE = { address: { quarter: "Sèdomey", suburb: "Togoudo", town: "Godo
   country: "Bénin" }, name: "" };
 function decor(r = {}) {
   monde.base = []; monde.source = []; monde.reponses = new Map(); monde.dernier = monde.dernier || 0;
+  monde.google = [];
+  monde.geocode = r.geocode ?? (() => reponse({ status: "OK", results: [
+    { address_components: [{ long_name: "6C2R+XY", types: ["plus_code"] }, { long_name: "Sèdomey", types: ["neighborhood", "political"] }] },
+    { address_components: [{ long_name: "Togoudo", types: ["sublocality_level_1", "sublocality", "political"] },
+      { long_name: "12ᵉ Arrondissement", types: ["administrative_area_level_3", "political"] },
+      { long_name: "Godomey", types: ["locality", "political"] }, { long_name: "Bénin", types: ["country", "political"] }] }] }));
+  monde.places = r.places ?? (() => reponse({ places: [
+    { displayName: { text: "Agla" }, formattedAddress: "Agla, Cotonou, Bénin", location: { latitude: 6.3793, longitude: 2.402 } },
+    { displayName: { text: "Agla" }, formattedAddress: "Ailleurs, France", location: { latitude: 48.85, longitude: 2.35 } }] }));
   monde.attente = r.attente ?? 1;
   monde.connu = r.connu ?? (() => reponse({ nom: null, plafond_atteint: false }));
   monde.osm = r.osm ?? ((a) => reponse(a.includes("/reverse") ? INVERSE : [
@@ -158,8 +176,64 @@ decor();
 r = await appeler({ action: "chercher", q: "Agla (Cotonou)" });
 verifie(/q=Agla%20%28Cotonou%29$/.test(monde.source[0].url), "la recherche part codée (" + monde.source[0].url.slice(-24) + ")");
 
+titre("7. (4.8.0) Google d'abord, quand sa clé est là");
+SECRETS.GOOGLE_MAPS_KEY = "cle-google-qui-ne-sort-jamais";
+decor();
+r = await appeler({ action: "nommer", ...ICI });
+verifie(r.d.nom === "Sèdomey, Togoudo, Godomey" && r.d.source === "google" && !monde.source.length,
+  "nommer : Google répond « Sèdomey, Togoudo, Godomey », OpenStreetMap n'est pas dérangé (" + r.d.nom + ")");
+verifie(monde.google.length === 1 && /latlng=6\.4012,2\.3401/.test(monde.google[0].url) && /language=fr/.test(monde.google[0].url),
+  "la question part à Geocoding, en français, pour ce point");
+let noteG = monde.base.find((b) => b.fn === "noter_lieu");
+verifie(noteG && noteG.corps.la_source === "google" && noteG.corps.nom === "Sèdomey, Togoudo, Godomey",
+  "noté avec sa source : la base ne le gardera que 30 jours");
+verifie(module.nomGoogle([{ address_components: [{ long_name: "Cotonou", types: ["locality"] }, { long_name: "Cotonou", types: ["administrative_area_level_3"] },
+  { long_name: "12ᵉ Arrondissement", types: ["sublocality_level_1"] }, { long_name: "8PX3+2G", types: ["neighborhood"] }] }]) === "Cotonou",
+  "ni doublon, ni « 12ᵉ Arrondissement », ni code « plus »");
+decor({ connu: () => reponse({ nom: "Déjà là", plafond_atteint: false }) });
+r = await appeler({ action: "nommer", ...ICI });
+verifie(r.d.cache === true && !monde.google.length, "déjà connu : Google n'est pas redemandé non plus");
+decor({ geocode: () => reponse({ status: "REQUEST_DENIED", error_message: "This API project is not authorized" }) });
+r = await appeler({ action: "nommer", ...ICI });
+verifie(r.d.nom === "Sèdomey, Togoudo, Godomey" && r.d.source === undefined && monde.source.length === 1,
+  "Google refuse (API pas activée) : OpenStreetMap répond, comme avant");
+verifie(journal.some((l) => /Google Geocoding/.test(l) && /REQUEST_DENIED/.test(l)), "et le refus est dans le journal");
+verifie(monde.base.find((b) => b.fn === "noter_lieu").corps.la_source === undefined, "ce nom-là se note sans source (OpenStreetMap)");
+decor({ geocode: () => reponse({ status: "ZERO_RESULTS", results: [] }) });
+r = await appeler({ action: "nommer", ...ICI });
+verifie(r.d.nom === "Sèdomey, Togoudo, Godomey" && monde.source.length === 1, "Google ne trouve rien : OpenStreetMap");
+decor({ geocode: () => { throw new Error("réseau coupé"); } });
+r = await appeler({ action: "nommer", ...ICI });
+verifie(r.d.nom === "Sèdomey, Togoudo, Godomey", "Google injoignable : OpenStreetMap, sans erreur");
+
+decor();
+r = await appeler({ action: "chercher", q: "Agla" });
+verifie(r.d.source === "google" && r.d.resultats.length === 1 && r.d.resultats[0].nom === "Agla" &&
+  r.d.resultats[0].detail === "Agla, Cotonou, Bénin" && r.d.resultats[0].latitude === 6.3793 && !monde.source.length,
+  "chercher : Places répond, le résultat hors du Bénin est écarté, OpenStreetMap n'est pas dérangé");
+const demande = monde.google[0];
+verifie(demande.quoi === "places" && demande.corps.textQuery === "Agla" && demande.corps.regionCode === "BJ" &&
+  demande.corps.languageCode === "fr" && demande.corps.maxResultCount === 6 &&
+  demande.corps.locationBias.rectangle.low.latitude === 6.25 && demande.corps.locationBias.rectangle.high.longitude === 2.75,
+  "au Bénin, en français, six au plus, le Grand Cotonou préféré");
+verifie(demande.masque === "places.displayName,places.formattedAddress,places.location",
+  "on ne demande que le nom, l'adresse et la position (le tarif le plus bas)");
+verifie(monde.base.some((b) => b.fn === "compter_recherche_lieu"), "la recherche est comptée dans le plafond du jour");
+decor({ places: () => reponse({ error: { message: "Places API (New) has not been used" } }, 403) });
+r = await appeler({ action: "chercher", q: "Agla" });
+verifie(r.d.source === undefined && r.d.resultats.length === 1 && monde.source.length === 1,
+  "Places refuse : la recherche d'OpenStreetMap répond");
+decor({ places: () => reponse({ places: [] }) });
+r = await appeler({ action: "chercher", q: "Agla" });
+verifie(r.d.resultats.length === 1 && monde.source.length === 1, "Places ne trouve rien : OpenStreetMap");
+decor({ connu: () => reponse({ nom: null, plafond_atteint: true }) });
+r = await appeler({ action: "chercher", q: "Agla" });
+verifie(!r.d.resultats.length && !monde.google.length, "plafond du jour atteint : Google n'est pas appelé");
+delete SECRETS.GOOGLE_MAPS_KEY;
+
 titre("6. Les clés ne fuient pas");
 verifie(!journal.some((l) => l.includes(SECRETS.SUPABASE_SERVICE_ROLE_KEY)), "la clé de service n'est dans aucun journal");
+verifie(!journal.some((l) => l.includes("cle-google-qui-ne-sort-jamais")), "la clé Google non plus");
 
 dire("");
 if (echecs) { dire(rouge(echecs + " constat(s) en échec ✘")); process.exit(1); }
